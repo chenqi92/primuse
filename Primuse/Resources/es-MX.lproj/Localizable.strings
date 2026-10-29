@@ -6796,12 +6796,12 @@
 "spotlight_index_measuring" = "Contando…";
 "spotlight_index_indexing" = "Creando…";
 "spotlight_index_held" = "En pausa mientras el dispositivo está caliente o el modo de bajo consumo está activado; luego continúa.";
-"spotlight_index_complete" = "Al día. Todo se puede encontrar en Spotlight.";
+"spotlight_index_complete" = "El índice está actualizado.";
 "spotlight_index_remaining_background_format" = "Faltan %@ elementos. Continúa cuando Primuse está en segundo plano y no se reproduce nada.";
 "spotlight_index_remaining_format" = "Faltan %@ elementos.";
 "spotlight_index_awaiting_artwork_format" = "%@ de ellos muestran el ícono predeterminado por ahora; las portadas llegan después.";
 "spotlight_index_awaiting_verification" = "Los resultados del índice están pendientes de confirmación del sistema.";
-"spotlight_index_awaiting_update_format" = "%@ elementos se pueden buscar mientras se actualizan sus datos o portadas.";
+"spotlight_index_awaiting_update_format" = "%@ elementos indexados tienen datos o portadas pendientes de actualización.";
 "spotlight_index_song_limit_format" = "Con más de %1$@ canciones, solo se indexan las %1$@ reproducidas recientemente, favoritas y más nuevas.";
 "spotlight_index_build_now" = "Crear ahora";
 "spotlight_index_build_now_footer" = "Quédate en esta página mientras se crea; al salir, continúa en segundo plano.";

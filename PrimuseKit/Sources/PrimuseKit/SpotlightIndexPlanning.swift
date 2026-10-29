@@ -254,6 +254,31 @@ public enum SpotlightIndexVerification {
         return missing.isEmpty && outdated.isEmpty ? .consistent : .needsRewrite(missing: missing, outdated: outdated)
     }
 
+    /// A fresh system query supersedes old rewrite hints and interrupted local
+    /// checkpoints. Explicit system reindex requests still require a new write.
+    public static func reconciledManifest(
+        _ stored: SpotlightIndexManifest,
+        wanted: SpotlightIndexManifest,
+        found: [String: String]?,
+        rewriteHints: Set<String>,
+        requiredRewrites: Set<String> = []
+    ) -> SpotlightIndexManifest {
+        var signatures = stored.signaturesByIdentifier
+        if let found {
+            for identifier in wanted.signaturesByIdentifier.keys {
+                signatures[identifier] = found[identifier] ?? SpotlightIndexCheckpoint.unconfirmedSignature
+            }
+        } else {
+            for identifier in rewriteHints where signatures[identifier] != nil {
+                signatures[identifier] = SpotlightIndexCheckpoint.unconfirmedSignature
+            }
+        }
+        for identifier in requiredRewrites where signatures[identifier] != nil {
+            signatures[identifier] = SpotlightIndexCheckpoint.unconfirmedSignature
+        }
+        return SpotlightIndexManifest(schemaVersion: stored.schemaVersion, signaturesByIdentifier: signatures)
+    }
+
     /// 查不到的条目改回未确认, 下一轮计划会重新写它们。清单里没有的标识不加进去。
     public static func manifest(
         _ manifest: SpotlightIndexManifest,

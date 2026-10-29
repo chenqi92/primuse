@@ -6983,12 +6983,12 @@
 "spotlight_index_measuring" = "正在统计…";
 "spotlight_index_indexing" = "正在建立…";
 "spotlight_index_held" = "设备过热或开着低电量模式，先停着，恢复后接着建。";
-"spotlight_index_complete" = "已是最新，都能在 Spotlight 里搜到。";
+"spotlight_index_complete" = "索引内容已是最新。";
 "spotlight_index_remaining_background_format" = "还有 %@ 项没建好，App 退到后台、没在播放时接着建。";
 "spotlight_index_remaining_format" = "还有 %@ 项没建好。";
 "spotlight_index_awaiting_artwork_format" = "其中 %@ 项先显示默认图标，封面随后补上。";
 "spotlight_index_awaiting_verification" = "索引结果尚待系统确认。";
-"spotlight_index_awaiting_update_format" = "其中 %@ 项可以搜索，资料或封面等待更新。";
+"spotlight_index_awaiting_update_format" = "已收录的条目中，有 %@ 项资料或封面等待更新。";
 "spotlight_index_song_limit_format" = "曲库超过 %1$@ 首时，只收录最近放过、喜欢的和最新加入的 %1$@ 首。";
 "spotlight_index_build_now" = "现在建立";
 "spotlight_index_build_now_footer" = "建的时候留在这一页；离开这一页后改回在后台建。";

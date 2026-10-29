@@ -315,6 +315,40 @@ struct SpotlightIndexVerificationTests {
         #expect(result.identifiersToRewrite == ["song:a", "song:b"])
     }
 
+    @Test("Resume writes only the versions still missing after an interrupted run")
+    func reconcileCheckpointAndHints() {
+        let wanted = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: ["song:a": "new", "song:b": "new"])
+        let interrupted = SpotlightIndexManifest(schemaVersion: 3,
+            signaturesByIdentifier: ["song:a": "", "song:b": "", "song:removed": ""])
+        let repaired = SpotlightIndexVerification.reconciledManifest(interrupted, wanted: wanted,
+            found: ["song:a": "new", "song:b": "old"], rewriteHints: ["song:a", "song:b"])
+        let plan = SpotlightIndexPlanner.makePlan(currentRecords: [
+            .init(identifier: "song:a", signature: "new"), .init(identifier: "song:b", signature: "new")
+        ], previousManifest: repaired, schemaVersion: 3)
+        #expect(plan.identifiersToUpsert == ["song:b"])
+        #expect(plan.identifiersToDelete == ["song:removed"])
+        #expect(!plan.requiresFullRebuild)
+    }
+
+    @Test("A preference reverted before writing clears obsolete hints, but not system requests")
+    func staleHintsAndRequiredRewrites() {
+        let wanted = SpotlightIndexManifest(schemaVersion: 3, signaturesByIdentifier: ["song:a": "original"])
+        let clean = SpotlightIndexVerification.reconciledManifest(wanted, wanted: wanted,
+            found: wanted.signaturesByIdentifier, rewriteHints: ["song:a"])
+        #expect(clean == wanted)
+        let required = SpotlightIndexVerification.reconciledManifest(wanted, wanted: wanted,
+            found: wanted.signaturesByIdentifier, rewriteHints: [], requiredRewrites: ["song:a"])
+        #expect(required.signaturesByIdentifier["song:a"] == "")
+    }
+
+    @Test("Unavailable queries preserve rewrite hints instead of assuming completion")
+    func unavailableReconciliation() {
+        let pending = SpotlightIndexVerification.reconciledManifest(stored, wanted: stored,
+            found: nil, rewriteHints: ["song:a"])
+        #expect(pending.signaturesByIdentifier["song:a"] == "")
+        #expect(pending.signaturesByIdentifier["album:x"] == "3")
+    }
+
     @Test("Marked items become unconfirmed, so the next plan writes them again and coverage drops")
     func markedManifest() {
         let marked = SpotlightIndexVerification.manifest(stored, markingUnconfirmed: ["song:b", "song:unknown"])

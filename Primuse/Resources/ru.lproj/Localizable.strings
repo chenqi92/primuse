@@ -6796,12 +6796,12 @@
 "spotlight_index_measuring" = "Подсчёт…";
 "spotlight_index_indexing" = "Создание…";
 "spotlight_index_held" = "Приостановлено: устройство перегрето или включён режим энергосбережения. Потом продолжится.";
-"spotlight_index_complete" = "Всё актуально. Всё можно найти в Spotlight.";
+"spotlight_index_complete" = "Индекс актуален.";
 "spotlight_index_remaining_background_format" = "Осталось %@ объектов. Продолжится, когда Primuse в фоне и ничего не играет.";
 "spotlight_index_remaining_format" = "Осталось %@ объектов.";
 "spotlight_index_awaiting_artwork_format" = "Из них %@ пока показываются со стандартным значком; обложки добавятся позже.";
 "spotlight_index_awaiting_verification" = "Результаты индексации ожидают подтверждения системы.";
-"spotlight_index_awaiting_update_format" = "%@ элементов доступны для поиска, пока обновляются их сведения или обложки.";
+"spotlight_index_awaiting_update_format" = "Сведения или обложки %@ проиндексированных элементов ожидают обновления.";
 "spotlight_index_song_limit_format" = "Если песен больше %1$@, индексируются только %1$@ недавно прослушанных, любимых и самых новых.";
 "spotlight_index_build_now" = "Создать сейчас";
 "spotlight_index_build_now_footer" = "Оставайтесь на этой странице, пока идёт создание; после ухода оно продолжится в фоне.";

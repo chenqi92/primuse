@@ -257,6 +257,11 @@ final class SpotlightIndexService {
     /// The cover switch changes signatures for items with cached artwork, so
     /// the next synchronization adds or removes their thumbnails.
     func artworkPreferenceChanged(library: MusicLibrary) {
+        artworkChanged(library: library, trigger: "preference")
+    }
+
+    private func artworkChanged(library: MusicLibrary, trigger: String) {
+        spotlightDiagnostic("artwork changed trigger=\(trigger) enabled=\(Self.showsArtwork)")
         Self.persistLibraryChangePending()
         needsSynchronization = true
         scheduleSynchronization(library: library)
@@ -266,7 +271,7 @@ final class SpotlightIndexService {
     /// 本机新存下了一批封面(存储管理里「下载全部封面和歌词」)。带封面的条目签名变了,
     /// 下一轮同步只重写这些条目。
     func artworkAvailabilityChanged(library: MusicLibrary) {
-        artworkPreferenceChanged(library: library)
+        artworkChanged(library: library, trigger: "local covers")
     }
 
     private nonisolated static var synchronizationGeneration: Int {
@@ -412,7 +417,7 @@ final class SpotlightIndexService {
                                                          schemaVersion: Self.schemaVersion).nextManifest
             let verification = SpotlightIndexVerification.compare(manifest: wanted, found: found)
             let missing = verification.identifiersToRewrite
-            Self.logVerification("status", wanted: wanted, found: found, outcome: verification)
+            Self.logVerification("status artwork=\(snapshot.showsArtwork)", wanted: wanted, found: found, outcome: verification)
             let measured = found.map { SpotlightIndexManifest(schemaVersion: Self.schemaVersion, signaturesByIdentifier: $0) } ?? stored
             let coverage = SpotlightIndexCoverage.measure(wanted: wanted, stored: measured,
                 textOnlySuffix: Self.textOnlySignatureSuffix,
@@ -421,6 +426,7 @@ final class SpotlightIndexService {
                 coverage, missing: missing, revision: revision, library: library,
                 exceedsSongLimit: snapshot.songs.count > Self.maxIndexedSongs
             )
+            await Self.logSearchDiagnostics(snapshot: snapshot, prepared: prepared, found: found)
         }
     }
 
@@ -446,6 +452,7 @@ final class SpotlightIndexService {
     /// 设置页里的「现在建立」。iOS 平时只在退到后台、没在播放时建;点了就在这一页前台接着建,
     /// 离开这一页(`endForegroundSynchronization`)再交回后台。
     func synchronizeNow(library: MusicLibrary) {
+        spotlightDiagnostic("sync requested trigger=manual artwork=\(Self.showsArtwork)")
         isForegroundSynchronizationRequested = true
         needsSynchronization = true
         isSynchronizationSuspended = false
@@ -470,6 +477,58 @@ final class SpotlightIndexService {
         if case let .needsRewrite(absent, stale) = outcome { missing = absent.count; outdated = stale.count }
         else { missing = 0; outdated = 0 }
         spotlightDiagnostic("\(phase) desired=\(wanted.signaturesByIdentifier.count) found=\(found?.count ?? -1) missing=\(missing) outdated=\(outdated) legacy=\(found?.values.filter(\.isEmpty).count ?? 0) queryOK=\(found != nil)")
+    }
+
+    private nonisolated static let searchDiagnosticGate = SpotlightSearchDiagnosticGate()
+
+    private nonisolated static func logSearchDiagnostics(
+        snapshot: LibrarySnapshot, prepared: PreparedSnapshot, found: [String: String]?
+    ) async {
+        guard FileLogger.isDiagnosticModeActive, searchDiagnosticGate.begin() else { return }
+        defer { searchDiagnosticGate.end() }
+        let signatures = Dictionary(prepared.records.map { ($0.identifier, $0.signature) },
+                                    uniquingKeysWith: { _, latest in latest })
+        let songs = indexedSongs(of: snapshot).songs
+        // One stable sample per title-length/script group catches short Chinese
+        // matching differences without querying hundreds of personal titles.
+        var groups: [String: Song] = [:]
+        for song in songs where !song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let hasHan = song.title.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
+            let group = hasHan ? "han\(min(4, song.title.count))" : "other"
+            if groups[group] == nil || song.id < groups[group]!.id { groups[group] = song }
+        }
+        spotlightDiagnostic("search diagnostics begin artwork=\(snapshot.showsArtwork) available=\(CSSearchableIndex.isIndexingAvailable()) samples=\(groups.count) locale=\(Locale.current.identifier)")
+        for group in groups.keys.sorted() {
+            guard !Task.isCancelled, FileLogger.isDiagnosticModeActive, let song = groups[group] else { break }
+            let id = "song:" + song.id
+            let escapedTitle = song.title.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let context = CSSearchQueryContext()
+            context.fetchAttributes = []
+            let exact = CSSearchQuery(queryString: "title == \"\(escapedTitle)\"cd", queryContext: context)
+            let titleMatch = await diagnosticMatch(exact, identifier: id)
+            let userContext = CSUserQueryContext()
+            userContext.enableRankedResults = false
+            userContext.disableSemanticSearch = true
+            userContext.maxResultCount = 0
+            userContext.fetchAttributes = []
+            let user = CSUserQuery(userQueryString: song.title, userQueryContext: userContext)
+            let userMatch = await diagnosticMatch(user, identifier: id)
+            spotlightDiagnostic("search sample group=\(group) item=\(contentSignature([id]).prefix(12)) titleHash=\(contentSignature([song.title]).prefix(12)) titleLength=\(song.title.count) stored=\(found?[id] != nil) versionMatches=\(found?[id] == signatures[id]) titleQuery=\(titleMatch) userQuery=\(userMatch)")
+        }
+        // Component hashes help distinguish cover changes from text/configuration
+        // changes across reports without exporting titles or source identifiers.
+        for record in prepared.records.filter({ found?[$0.identifier] != $0.signature }).prefix(5) {
+            guard case let .song(song, artist, cover) = prepared.payloadsByIdentifier[record.identifier] else { continue }
+            spotlightDiagnostic("version sample item=\(contentSignature([record.identifier]).prefix(12)) expected=\(record.signature.prefix(12)) actual=\(found?[record.identifier]?.prefix(12) ?? "absent") title=\(contentSignature([song.title]).prefix(12)) artist=\(contentSignature([artist]).prefix(12)) album=\(contentSignature([song.albumTitle]).prefix(12)) config=\(contentSignature([snapshot.artistNameConfiguration.cacheSignature]).prefix(12)) cover=\(contentSignature([cover?.contentIdentifier]).prefix(12)) artwork=\(snapshot.showsArtwork)")
+        }
+        spotlightDiagnostic("search diagnostics finished")
+    }
+
+    private nonisolated static func diagnosticMatch(_ query: CSSearchQuery, identifier: String) async -> String {
+        await withCheckedContinuation { continuation in
+            SpotlightDiagnosticQuery().start(query, identifier: identifier, continuation: continuation)
+        }
     }
 
     /// 所有条目统一使用 audio 类型；title 通配符会漏掉没有可分词标题的条目。
@@ -684,13 +743,13 @@ final class SpotlightIndexService {
         let wanted = SpotlightIndexPlanner.makePlan(currentRecords: prepared.records, previousManifest: nil,
                                                      schemaVersion: schemaVersion).nextManifest
         let verification = SpotlightIndexVerification.compare(manifest: wanted, found: initiallyFound)
-        logVerification("before sync", wanted: wanted, found: initiallyFound, outcome: verification)
-        var missingIdentifiers = missingFromIndex.union(verification.identifiersToRewrite)
-        if let recovery {
-            missingIdentifiers.formUnion(recovery.allItems ? Set(wanted.signaturesByIdentifier.keys) : recovery.identifiers)
-        }
+        logVerification("before sync artwork=\(snapshot.showsArtwork)", wanted: wanted, found: initiallyFound, outcome: verification)
+        let requiredRewrites = recovery.map {
+            $0.allItems ? Set(wanted.signaturesByIdentifier.keys) : $0.identifiers
+        } ?? []
         let previousManifest = storedManifest.map { manifest in
-            SpotlightIndexVerification.manifest(manifest, markingUnconfirmed: missingIdentifiers)
+            SpotlightIndexVerification.reconciledManifest(manifest, wanted: wanted, found: initiallyFound,
+                rewriteHints: missingFromIndex, requiredRewrites: requiredRewrites)
         }
         var plan = SpotlightIndexPlanner.makePlan(
             currentRecords: prepared.records,
@@ -739,6 +798,16 @@ final class SpotlightIndexService {
             let verified = initiallyFound.map {
                 SpotlightIndexVerification.compare(manifest: plan.nextManifest, found: $0) == .consistent
             } ?? false
+            if verified, storedManifest != plan.nextManifest {
+                do {
+                    try saveManifest(plan.nextManifest, to: manifestURL)
+                    try await applyBatch(to: index, deletingIdentifiers: [], searchableItems: [],
+                                         clientState: clientState(for: plan.nextManifest))
+                } catch {
+                    spotlightError("save query-confirmed checkpoint", error)
+                    return false
+                }
+            }
             await report(previousManifest, indexing: false, force: true, found: initiallyFound)
             return verified
         }
@@ -1537,6 +1606,69 @@ struct PrimuseSearchInAppIntent: ShowInAppSearchResultsIntent {
         MacSystemActivityRouter.shared.showSearch(query, route: "intent")
         #endif
         return .result()
+    }
+}
+
+private final class SpotlightSearchDiagnosticGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastStart = Date.distantPast
+    private var running = false
+
+    func begin() -> Bool {
+        lock.withLock {
+            guard !running, Date().timeIntervalSince(lastStart) >= 60 else { return false }
+            running = true
+            lastStart = Date()
+            return true
+        }
+    }
+
+    func end() { lock.withLock { running = false } }
+}
+
+private final class SpotlightDiagnosticQuery: @unchecked Sendable {
+    private let lock = NSLock()
+    private var query: CSSearchQuery?
+    private var continuation: CheckedContinuation<String, Never>?
+    private var identifier = ""
+    private var matched = false
+    private var count = 0
+
+    func start(_ query: CSSearchQuery, identifier: String, continuation: CheckedContinuation<String, Never>) {
+        lock.withLock {
+            self.query = query
+            self.identifier = identifier
+            self.continuation = continuation
+        }
+        query.foundItemsHandler = { [weak self] items in self?.append(items) }
+        query.completionHandler = { [weak self] error in
+            let failure = error.map { "error(\(($0 as NSError).domain):\(($0 as NSError).code))" }
+            self?.finish(failure: failure)
+        }
+        query.start()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { [self] in finish(failure: "timeout") }
+    }
+
+    private func append(_ items: [CSSearchableItem]) {
+        lock.withLock {
+            guard continuation != nil else { return }
+            count += items.count
+            matched = matched || items.contains { $0.uniqueIdentifier == identifier }
+        }
+    }
+
+    private func finish(failure: String?) {
+        let completed = lock.withLock { () -> (CheckedContinuation<String, Never>, CSSearchQuery?, String)? in
+            guard let continuation else { return nil }
+            let result = failure ?? "\(matched ? "hit" : "miss")(count=\(count))"
+            let query = self.query
+            self.query = nil
+            self.continuation = nil
+            return (continuation, query, result)
+        }
+        guard let (continuation, query, result) = completed else { return }
+        if failure != nil { query?.cancel() }
+        continuation.resume(returning: result)
     }
 }
 

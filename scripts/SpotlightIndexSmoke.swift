@@ -1,6 +1,7 @@
 import UniformTypeIdentifiers
 
 nonisolated func plog(_ message: String) { print(message) }
+enum FileLogger { static let isDiagnosticModeActive = true }
 
 // Library and artwork dependencies are fixtures; the service, planner and
 // Core Spotlight writes/queries are production code and the real framework.
@@ -215,6 +216,7 @@ extension SpotlightIndexService {
 
         try await artworkChangesPreserveCoverage(library: library, service: migrated)
         try await committedWritesNeedVerification(library: library, service: migrated)
+        try await staleRewriteHintsDoNotRepeatWrites(library: library, service: migrated)
         try await staleAndEmptyIndexRepair(library: library, service: migrated)
         try await systemReindexRequests(library: library, service: migrated)
         try await deletionNeedsVerification(library: library, service: migrated)
@@ -236,6 +238,7 @@ extension SpotlightIndexService {
         print("PASS: cancelled work remains pending until a successful commit")
 
         try await interruptedRebuildResumes(library: library, service: migrated)
+        try await searchDiagnosticsCoverShortTitles(library: library, service: migrated)
     }
 
     private static func coverLookupPreservesLocalFallback() throws {
@@ -507,6 +510,45 @@ extension SpotlightIndexService {
         print("PASS: deletions also wait for query visibility and survive interruption in the manifest")
     }
 
+    private static func searchDiagnosticsCoverShortTitles(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        library.visibleSongs.append(Song(id: "diagnostic-short", title: "绿光"))
+        library.visibleSongs.append(Song(id: "diagnostic-long", title: "待你归来"))
+        let snapshot = service.makeLibrarySnapshot(library: library)
+        let complete = await performSynchronization(snapshot: snapshot, manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL, status: SpotlightIndexStatus())
+        try require(complete, "Diagnostic sample indexing failed")
+        let context = CSSearchQueryContext()
+        context.fetchAttributes = []
+        let query = CSSearchQuery(queryString: "title == \"绿光\"cd", queryContext: context)
+        let match = await diagnosticMatch(query, identifier: "song:diagnostic-short")
+        try require(match.hasPrefix("hit"), "Short Chinese title predicate failed: \(match)")
+        searchDiagnosticGate.resetForTesting()
+        await logSearchDiagnostics(snapshot: snapshot, prepared: prepareSnapshot(snapshot)!, found: await indexedSignatures())
+        let timeout = await diagnosticMatch(SilentDiagnosticQuery(queryString: "title == \"never\"", queryContext: context), identifier: "none")
+        try require(timeout == "timeout", "An unresponsive diagnostic query did not time out")
+        print("PASS: short Chinese title matching is checked separately, and diagnostic queries have a bounded timeout")
+    }
+
+    private static func staleRewriteHintsDoNotRepeatWrites(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        let found = await indexedSignatures()!
+        let queries = QueryVisibilityFixture([found, found])
+        let succeeded = await performSynchronization(
+            snapshot: service.makeLibrarySnapshot(library: library), manifestURL: service.manifestURL,
+            thumbnailDirectoryURL: service.thumbnailDirectoryURL, status: SpotlightIndexStatus(),
+            missingFromIndex: Set(found.keys), querySignatures: { await queries.next() })
+        let reads = await queries.reads
+        try require(succeeded && reads == 1, "Stale rewrite hints repeated acknowledged writes despite current query versions (query reads=\(reads))")
+        let confirmed = loadManifest(from: service.manifestURL)!
+        let interrupted = SpotlightIndexVerification.manifest(confirmed, markingUnconfirmed: Set(found.keys))
+        try saveManifest(interrupted, to: service.manifestURL)
+        try await applyBatch(to: CSSearchableIndex(name: kSpotlightIndexName), deletingIdentifiers: [],
+            searchableItems: [], clientState: clientState(for: interrupted))
+        let recovered = await performSynchronization(snapshot: service.makeLibrarySnapshot(library: library),
+            manifestURL: service.manifestURL, thumbnailDirectoryURL: service.thumbnailDirectoryURL, status: SpotlightIndexStatus())
+        try require(recovered && loadManifest(from: service.manifestURL) == confirmed, "Query-confirmed progress did not repair the durable checkpoint")
+        print("PASS: current query versions discard obsolete rewrite hints and recover interrupted checkpoints without rewriting items")
+    }
+
     private static func committedWritesNeedVerification(library: MusicLibrary, service: SpotlightIndexService) async throws {
         let realFound = await indexedSignatures()!
         let withheld = realFound.filter { $0.key != "song:emoji" }
@@ -540,7 +582,7 @@ extension SpotlightIndexService {
         )
         try require(!unavailable && status.coverage?.isVerified == false && status.coverage?.isComplete == false,
                     "Unavailable query was shown as confirmed")
-        let delayed = QueryVisibilityFixture([realFound, withheld, realFound])
+        let delayed = QueryVisibilityFixture([withheld, withheld, realFound])
         let converged = await performSynchronization(
             snapshot: service.makeLibrarySnapshot(library: library),
             manifestURL: service.manifestURL,
@@ -577,4 +619,13 @@ struct SpotlightIndexSmoke {
         }
         exit(failed ? 1 : 0)
     }
+}
+
+private final class SilentDiagnosticQuery: CSSearchQuery, @unchecked Sendable {
+    override func start() {}
+    override func cancel() {}
+}
+
+extension SpotlightSearchDiagnosticGate {
+    func resetForTesting() { lock.withLock { lastStart = .distantPast } }
 }

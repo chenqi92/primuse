@@ -6867,12 +6867,12 @@
 "spotlight_index_measuring" = "正在統計…";
 "spotlight_index_indexing" = "正在建立…";
 "spotlight_index_held" = "裝置過熱或開著低耗電模式，先暫停，恢復後接著建。";
-"spotlight_index_complete" = "已是最新，都能在 Spotlight 裡搜到。";
+"spotlight_index_complete" = "索引內容已是最新。";
 "spotlight_index_remaining_background_format" = "還有 %@ 項沒建好，App 退到背景、沒在播放時接著建。";
 "spotlight_index_remaining_format" = "還有 %@ 項沒建好。";
 "spotlight_index_awaiting_artwork_format" = "其中 %@ 項先顯示預設圖像，封面隨後補上。";
 "spotlight_index_awaiting_verification" = "索引結果尚待系統確認。";
-"spotlight_index_awaiting_update_format" = "其中 %@ 項可以搜尋，資料或封面等待更新。";
+"spotlight_index_awaiting_update_format" = "已收錄的項目中，有 %@ 項資料或封面等待更新。";
 "spotlight_index_song_limit_format" = "資料庫超過 %1$@ 首時，只收錄最近播放過、喜歡的和最新加入的 %1$@ 首。";
 "spotlight_index_build_now" = "現在建立";
 "spotlight_index_build_now_footer" = "建立時留在這一頁；離開這一頁後改回在背景建。";
