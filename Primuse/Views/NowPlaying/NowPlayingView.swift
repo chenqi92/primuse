@@ -15526,6 +15526,7 @@ struct LyricsScrollView: View {
                     Text("ai_audio_transcription_action")
                 }
                 .font(.subheadline.weight(.semibold))
+                .foregroundColor(isScrapeActionUnavailable ? nil : (appearance.isLight ? .white : .black))
             }
             .buttonStyle(.borderedProminent)
             .tint(appearance.primary)
