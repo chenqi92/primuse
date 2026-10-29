@@ -8,6 +8,71 @@ import XCTest
 #endif
 
 final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
+    func testListenBrainzForbiddenResponsesRemainRetryableAndShareCooldown() async throws {
+        for body in [#"{"error":"Forbidden"}"#, "<html>Access denied</html>"] {
+            for retryAfter in [nil, "3600"] as [String?] {
+                let suite = "scrobble-forbidden-" + UUID().uuidString
+                defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+                let fixture = ScrobbleHTTPFixture(status: 403,
+                    headers: retryAfter.map { ["Retry-After": $0] } ?? [:], body: body)
+                let session = fixture.session()
+                let token = UUID().uuidString
+                for _ in 0..<2 {
+                    let requests = ScrobbleRequests(registry: RequestQuotaRegistry(), cooldowns: ScrobbleCooldownStore(suiteName: suite))
+                    let provider = ListenBrainzProvider(userToken: token, session: session, requests: requests)
+                    do {
+                        try await provider.submitListens([Self.entry])
+                        XCTFail("Expected a retryable forbidden response")
+                    } catch let failure as HTTPResponseFailure {
+                        XCTAssertEqual(failure.statusCode, 403)
+                        XCTAssertGreaterThan(failure.retryAfter ?? 0, retryAfter == nil ? 50 : 3590)
+                    } catch { XCTFail("Forbidden response incorrectly rejected the token: \(error)") }
+                    do {
+                        try await provider.sendNowPlaying(Self.entry)
+                        XCTFail("Now Playing bypassed the shared cooldown")
+                    } catch is HTTPResponseFailure {}
+                    let valid = await provider.validateCredentials()
+                    XCTAssertNil(valid, "A blocked request does not prove that the token is invalid")
+                }
+                XCTAssertEqual(fixture.count, 1, "Restart and Now Playing must honor the cooldown")
+            }
+        }
+    }
+
+    @MainActor
+    func testValidListenBrainzTokenWithForbiddenSubmissionKeepsDurableQueue() async throws {
+        let suite = "scrobble-valid-forbidden-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = ScrobbleSettingsStore.shared
+        let wasEnabled = settings.isEnabled
+        settings.isEnabled = false
+        defer { settings.isEnabled = wasEnabled }
+        let fixture = ScrobbleHTTPFixture(status: 200, body: #"{"valid":true,"code":200}"#)
+        let requests = ScrobbleRequests(registry: RequestQuotaRegistry(), cooldowns: ScrobbleCooldownStore(suiteName: suite))
+        let provider = ListenBrainzProvider(userToken: UUID().uuidString, session: fixture.session(), requests: requests)
+        let valid = await provider.validateCredentials()
+        XCTAssertEqual(valid, true)
+        fixture.setResponse(status: 403, headers: ["Content-Type": "text/html"], body: "<html>Access denied</html>")
+        let service = ScrobbleService(defaults: defaults, providers: { [provider] })
+        let before = Date().timeIntervalSince1970
+        service.handlePlaybackStarted(song: Song(id: "forbidden", title: "Track", albumTitle: "Album", artistName: "Artist",
+            duration: 60, fileFormat: .flac, filePath: "/fixture.flac", sourceID: "fixture"))
+        service.handleProgressTick(playedDelta: 30)
+        for _ in 0..<1_000 where queueDeadline(defaults, key: "serverRetryAt") < before + 50 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(service.pendingCount, 1)
+        XCTAssertTrue(service.rejectedCredentials.isEmpty)
+        XCTAssertGreaterThanOrEqual(queueDeadline(defaults, key: "serverRetryAt"), before + 50)
+        let reopened = ScrobbleService(defaults: defaults, providers: { [provider] })
+        reopened.retryPendingNow()
+        XCTAssertEqual(reopened.pendingCount, 1)
+        XCTAssertTrue(reopened.rejectedCredentials.isEmpty)
+        XCTAssertGreaterThanOrEqual(queueDeadline(defaults), before + 50)
+        XCTAssertEqual(fixture.count, 2)
+    }
+
     func testSubmissionCooldownAlsoBlocksNowPlaying() async throws {
         for lastFM in [false, true] {
             let fixture = ScrobbleHTTPFixture(status: 429, headers: ["Retry-After": "3600"])
@@ -225,10 +290,10 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(service.pendingCount, 0)
         XCTAssertEqual(fixture.count, 3)
     }
-    private func queueDeadline(_ defaults: UserDefaults) -> TimeInterval {
+    private func queueDeadline(_ defaults: UserDefaults, key: String = "nextRetryAt") -> TimeInterval {
         guard let data = defaults.data(forKey: "primuse.scrobble.queue.v1"),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }
-        return rows.first?["nextRetryAt"] as? Double ?? 0
+        return rows.first?[key] as? Double ?? 0
     }
 
     static let entry = ScrobbleEntry(songID: "fixture", title: "Title + &", artist: "Artist", startedAt: 1_700_000_000)

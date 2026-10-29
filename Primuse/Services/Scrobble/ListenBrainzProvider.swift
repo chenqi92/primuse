@@ -8,6 +8,11 @@ import PrimuseKit
 struct ListenBrainzProvider: ScrobbleProvider {
     let id: ScrobbleProviderID = .listenBrainz
 
+    private static let userAgent: String = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        return "Primuse/\(version) ( https://palveni.com )"
+    }()
+
     /// 服务端地址。默认官方 listenbrainz.org, 用户可改为自部署。
     let baseURL: URL
     let userToken: String
@@ -30,6 +35,8 @@ struct ListenBrainzProvider: ScrobbleProvider {
         guard !userToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         var request = URLRequest(url: baseURL.appendingPathComponent("1/validate-token"))
         request.setValue("Token \(userToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 15
         struct Validation: Decodable {
             let valid: Bool
@@ -37,7 +44,9 @@ struct ListenBrainzProvider: ScrobbleProvider {
         }
         do {
             let (data, http) = try await requests.send(request, session: session,
-                service: ScrobbleRequests.listenBrainz, account: userToken)
+                service: ScrobbleRequests.listenBrainz, account: userToken) { _, http in
+                    Self.logFailure(http, operation: "validate-token")
+                }
             guard http.statusCode == 200 else { return nil }
             let result = try JSONDecoder().decode(Validation.self, from: data)
             guard result.code == nil || result.code == 200 else { return nil }
@@ -87,16 +96,33 @@ struct ListenBrainzProvider: ScrobbleProvider {
         var request = URLRequest(url: baseURL.appendingPathComponent("1/submit-listens"))
         request.httpMethod = "POST"
         request.setValue("Token \(userToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         request.timeoutInterval = 30
 
         _ = try await requests.send(request, session: session, service: ScrobbleRequests.listenBrainz, account: userToken) { _, http in
-            if HTTPResponseFailure.retryDelay(from: http) == nil, [401, 403].contains(http.statusCode) {
+            Self.logFailure(http, operation: "submit-listens")
+            let retryAfter = HTTPResponseFailure.retryDelay(from: http)
+            if retryAfter == nil, http.statusCode == 401 {
                 throw ScrobbleError.invalidCredentials
+            }
+            // A proxy or service policy can reject a valid token's submission.
+            // Keep the listens and share a cooldown with validation/Now Playing.
+            if http.statusCode == 403 {
+                throw HTTPResponseFailure(statusCode: 403, retryAfter: retryAfter ?? 60, isRetryable: true)
             }
         }
 
+    }
+
+    private static func logFailure(_ response: HTTPURLResponse, operation: String) {
+        guard !(200...299).contains(response.statusCode) else { return }
+        let mime = response.mimeType?.lowercased() ?? ""
+        let responseKind = mime == "application/json" || mime.hasSuffix("+json")
+            ? "json" : (mime == "text/html" ? "html" : "other")
+        plog("scrobble [ListenBrainz] \(operation) HTTP \(response.statusCode) response=\(responseKind)")
     }
 
     // MARK: - JSON 模型 (匹配 ListenBrainz spec)

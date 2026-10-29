@@ -8,6 +8,27 @@ import XCTest
 #endif
 
 final class ScrobbleCredentialHealthTests: XCTestCase, @unchecked Sendable {
+    func testListenBrainzIdentifiesClientForValidationAndBothWriteTypes() async throws {
+        let fixture = CredentialHTTPFixture(status: 200, body: #"{"valid":true,"code":200}"#)
+        let token = UUID().uuidString
+        let provider = ListenBrainzProvider(userToken: token, session: fixture.session())
+        let valid = await provider.validateCredentials()
+        XCTAssertEqual(valid, true)
+        let entry = ScrobbleEntry(songID: "fixture", title: "Track", artist: "Artist", startedAt: 1_700_000_000)
+        try await provider.sendNowPlaying(entry)
+        try await provider.submitListens([entry])
+
+        XCTAssertEqual(fixture.requests.count, 3)
+        for request in fixture.requests {
+            let userAgent = try XCTUnwrap(request.value(forHTTPHeaderField: "User-Agent"))
+            XCTAssertTrue(userAgent.hasPrefix("Primuse/"))
+            XCTAssertTrue(userAgent.contains("https://palveni.com"))
+            XCTAssertFalse(userAgent.contains(token))
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Token \(token)")
+        }
+    }
+
     func testListenBrainzTemporaryFailuresStayUnconfirmed() async {
         for status in [429, 503, 500, 404, 403] {
             let fixture = CredentialHTTPFixture(status: status, body: "{}")
