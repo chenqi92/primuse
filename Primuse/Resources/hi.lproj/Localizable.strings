@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "मिनी प्लेयर पिन करें";
 "player_pin_mini_player_description" = "स्क्रॉल करते समय नीचे के मिनी प्लेयर को टैब बार के ऊपर खुला रखें।";
+
+"spoken_word_continue_style_carousel" = "कवर की पंक्ति";
+"spoken_word_continue_style_featured" = "सबसे हाल की किताब प्रमुख";
+"spoken_word_continue_style_list" = "संक्षिप्त सूची";
+"spoken_word_book_unavailable" = "यह किताब उपलब्ध नहीं है। अपनी बुकशेल्फ़ से किताब चुनें।";

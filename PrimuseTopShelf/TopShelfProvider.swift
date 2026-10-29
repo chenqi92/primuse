@@ -20,6 +20,9 @@ final class TopShelfProvider: TVTopShelfContentProvider {
                 let shelf = TVTopShelfSectionedItem(identifier: item.id)
                 shelf.title = item.title
                 shelf.imageShape = .square
+                if let progress = item.playbackProgress, progress.isFinite {
+                    shelf.playbackProgress = min(1, max(0, progress))
+                }
 
                 if let name = item.imageFileName,
                    let url = TopShelfStore.coverURL(name),

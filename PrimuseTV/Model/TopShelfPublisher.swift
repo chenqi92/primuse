@@ -22,6 +22,7 @@ enum TopShelfPublisher {
         let songID: String?
         let coverRef: String?
         let playURL: String
+        var playbackProgress: Double? = nil
     }
 
     struct RadioDraft: Sendable {
@@ -32,6 +33,7 @@ enum TopShelfPublisher {
     /// `radioLogoSource`:镜像台的音乐源和凭据。只在台标缓存没命中时才回主线程要,
     /// 发布时不预先解析(那要读钥匙串)。
     static func publish(
+        books: [Draft],
         recent: [Draft],
         radio: [RadioDraft],
         albums: [Draft],
@@ -41,6 +43,10 @@ enum TopShelfPublisher {
         guard !Task.isCancelled, TopShelfStore.containerURL != nil else { return }
 
         var sections: [TopShelfSection] = []
+        let bookItems = await items(from: books)
+        if !bookItems.isEmpty {
+            sections.append(TopShelfSection(id: "books", title: String(localized: "home_books_in_progress_title"), items: bookItems))
+        }
         let recentItems = await items(from: recent)
         if !recentItems.isEmpty {
             sections.append(TopShelfSection(id: "recent", title: PMString("ext.tv.topShelf.recent"), items: recentItems))
@@ -87,7 +93,7 @@ enum TopShelfPublisher {
                 album: d.album
             )
             out.append(TopShelfItem(id: d.id, title: d.title, subtitle: d.subtitle,
-                                    imageFileName: file, playURL: d.playURL))
+                                    imageFileName: file, playURL: d.playURL, playbackProgress: d.playbackProgress))
         }
         return out
     }

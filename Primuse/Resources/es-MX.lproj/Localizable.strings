@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "Fijar minirreproductor";
 "player_pin_mini_player_description" = "Mantén el minirreproductor expandido sobre la barra de pestañas al desplazarte.";
+
+"spoken_word_continue_style_carousel" = "Fila de portadas";
+"spoken_word_continue_style_featured" = "Destacar el más reciente";
+"spoken_word_continue_style_list" = "Lista compacta";
+"spoken_word_book_unavailable" = "Este libro no está disponible. Elige uno en tu biblioteca.";

@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "ตรึงเครื่องเล่นขนาดเล็ก";
 "player_pin_mini_player_description" = "แสดงเครื่องเล่นขนาดเล็กเหนือแถบแท็บโดยไม่ย่อขณะเลื่อนหน้า";
+
+"spoken_word_continue_style_carousel" = "แถวปกหนังสือ";
+"spoken_word_continue_style_featured" = "เน้นเล่มล่าสุด";
+"spoken_word_continue_style_list" = "รายการแบบกะทัดรัด";
+"spoken_word_book_unavailable" = "หนังสือเล่มนี้ไม่พร้อมใช้งาน โปรดเลือกหนังสือจากชั้นหนังสือ";

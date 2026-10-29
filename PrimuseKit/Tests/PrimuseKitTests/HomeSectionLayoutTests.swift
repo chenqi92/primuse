@@ -4,6 +4,23 @@ import Testing
 
 @Suite("Home section layout")
 struct HomeSectionLayoutTests {
+    @Test("在听样式和封面大小独立保存,旧配置保留其他首页设置")
+    func listeningStylesRoundTrip() {
+        var layout = HomeSectionLayoutConfiguration.decode(#"{"styles":{"playlists":"grid"},"coverSizes":{"booksInProgress":"small"}}"#)
+        #expect(layout.booksInProgressStyle == .carousel)
+        for style in SpokenWordContinueStyle.allCases {
+            layout.booksInProgressStyle = style
+            let restored = HomeSectionLayoutConfiguration.decode(layout.encoded())
+            #expect(restored.booksInProgressStyle == style)
+            #expect(restored.coverSize(for: .booksInProgress) == .small)
+            #expect(restored.style(for: .playlists) == .grid)
+            #expect(restored.supportsCoverSize(for: .booksInProgress) == (style != .list))
+        }
+        layout.styles[HomeSectionKind.booksInProgress.rawValue] = "future-style"
+        #expect(layout.booksInProgressStyle == .carousel)
+        #expect(layout.coverSize(for: .booksInProgress) == .small)
+    }
+
     @Test("常规高度照用用户配置的行数")
     func keepsConfiguredRowsOnRegularHeight() {
         #expect(HomeSectionLayoutPolicy.renderedRowCount(configured: 1, isCompactHeight: false) == 1)

@@ -6969,3 +6969,8 @@
 
 "player_pin_mini_player_title" = "미니 플레이어 고정";
 "player_pin_mini_player_description" = "스크롤할 때도 하단 미니 플레이어를 탭 막대 위에 펼친 상태로 유지합니다.";
+
+"spoken_word_continue_style_carousel" = "표지 가로 배열";
+"spoken_word_continue_style_featured" = "최근 도서 강조";
+"spoken_word_continue_style_list" = "간결한 목록";
+"spoken_word_book_unavailable" = "이 책을 사용할 수 없습니다. 책장에서 책을 다시 선택하세요.";

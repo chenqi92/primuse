@@ -363,6 +363,23 @@ public enum HomeCoverSize: String, CaseIterable, Codable, Identifiable, Sendable
     public var id: String { rawValue }
 }
 
+public enum SpokenWordContinueStyle: String, CaseIterable, Identifiable, Sendable {
+    case carousel
+    case featured
+    case list
+
+    public var id: String { rawValue }
+    public var titleKey: String { "spoken_word_continue_style_" + rawValue }
+    public var supportsCoverSize: Bool { self != .list }
+    public var icon: String {
+        switch self {
+        case .carousel: "rectangle.grid.1x2.fill"
+        case .featured: "rectangle.topthird.inset.filled"
+        case .list: "list.bullet"
+        }
+    }
+}
+
 /// 每块区域选定的方案。整体作为一个 JSON 字符串存进 AppStorage。
 public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     public static let storageKey = "primuse.home.sectionLayout.v1"
@@ -430,6 +447,22 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     /// 调过的人升级之后各块仍是那个大小。
     public func coverSize(for section: HomeSectionKind, following: HomeCoverSize = .large) -> HomeCoverSize {
         coverSizes[section.rawValue].flatMap(HomeCoverSize.init(rawValue:)) ?? following
+    }
+
+    public var booksInProgressStyle: SpokenWordContinueStyle {
+        get {
+            styles[HomeSectionKind.booksInProgress.rawValue]
+                .flatMap(SpokenWordContinueStyle.init(rawValue:)) ?? .carousel
+        }
+        set {
+            styles[HomeSectionKind.booksInProgress.rawValue] = newValue.rawValue
+        }
+    }
+
+    public func supportsCoverSize(for section: HomeSectionKind) -> Bool {
+        section == .booksInProgress
+            ? booksInProgressStyle.supportsCoverSize
+            : HomeSectionLayoutPolicy.supportsCoverSize(section, style: style(for: section))
     }
 
     /// 选成跟随值时删掉条目,只存这块与众不同的那一份。

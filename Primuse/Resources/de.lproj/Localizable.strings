@@ -6969,3 +6969,8 @@
 
 "player_pin_mini_player_title" = "Miniplayer fixieren";
 "player_pin_mini_player_description" = "Der Miniplayer bleibt beim Scrollen über der Tableiste ausgeklappt.";
+
+"spoken_word_continue_style_carousel" = "Cover-Reihe";
+"spoken_word_continue_style_featured" = "Zuletzt gehört im Fokus";
+"spoken_word_continue_style_list" = "Kompakte Liste";
+"spoken_word_book_unavailable" = "Dieses Buch ist nicht verfügbar. Wähle ein Buch im Bücherregal.";

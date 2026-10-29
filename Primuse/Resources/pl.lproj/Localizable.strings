@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "Przypnij miniodtwarzacz";
 "player_pin_mini_player_description" = "Podczas przewijania miniodtwarzacz pozostaje rozwinięty nad paskiem kart.";
+
+"spoken_word_continue_style_carousel" = "Rząd okładek";
+"spoken_word_continue_style_featured" = "Wyróżnij ostatnią książkę";
+"spoken_word_continue_style_list" = "Lista kompaktowa";
+"spoken_word_book_unavailable" = "Ta książka jest niedostępna. Wybierz książkę z półki.";

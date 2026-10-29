@@ -6730,3 +6730,8 @@
 
 "player_pin_mini_player_title" = "Pin Mini Player";
 "player_pin_mini_player_description" = "Keep the bottom mini player expanded above the tab bar while scrolling.";
+
+"spoken_word_continue_style_carousel" = "Cover row";
+"spoken_word_continue_style_featured" = "Latest featured";
+"spoken_word_continue_style_list" = "Compact list";
+"spoken_word_book_unavailable" = "This book is unavailable. Choose a book from your bookshelf.";

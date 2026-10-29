@@ -2121,10 +2121,8 @@ struct HomeView: View {
             }
         case .booksInProgress:
             if showBooksInProgress, showsCrossSpace {
-                // 接着听已经给了最近那本;它开着时这一排从第二本起才值得占位。
                 HomeBooksInProgressStrip(
-                    books: books.inProgress,
-                    minimumCount: showContinueSpaces ? 2 : 1,
+                    snapshot: books,
                     limit: sectionItemCount(.booksInProgress, 12),
                     openSpace: openSpace
                 )
@@ -2477,7 +2475,7 @@ struct HomeView: View {
         let range = HomeSectionLayoutPolicy.itemCountRange(for: section)
         let count = homeLayout.itemCount(for: section)
             ?? HomeSectionLayoutPolicy.defaultItemCount(for: section)
-        let showsCoverSize = HomeSectionLayoutPolicy.supportsCoverSize(section, style: style)
+        let showsCoverSize = homeLayout.supportsCoverSize(for: section)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "line.3.horizontal")
@@ -2540,7 +2538,7 @@ struct HomeView: View {
                 .accessibilityIdentifier("home.edit.visibility." + section.rawValue)
             }
 
-            if visible, HomeSectionLayoutPolicy.isConfigurable(section) || range != nil || showsCoverSize {
+            if visible, section == .booksInProgress || HomeSectionLayoutPolicy.isConfigurable(section) || range != nil || showsCoverSize {
                 // 13 mini 这类 375 点宽的手机上一排挤不下时,先省掉「条目数」那几个字,再把方案按钮
                 // 收成只剩图标,按钮里的字不折成两行。放得下的屏幕与原来一致。
                 ViewThatFits(in: .horizontal) {
@@ -2563,7 +2561,7 @@ struct HomeView: View {
         let layout = homeLayout
         return editableHomeSections.first { section in
             isSectionVisible(section)
-                && HomeSectionLayoutPolicy.supportsCoverSize(section, style: layout.style(for: section))
+                && layout.supportsCoverSize(for: section)
         }
     }
 
@@ -2587,7 +2585,32 @@ struct HomeView: View {
         showsCountLabel: Bool
     ) -> some View {
         HStack(spacing: 10) {
-            if HomeSectionLayoutPolicy.isConfigurable(section) {
+            if section == .booksInProgress {
+                let listeningStyle = homeLayout.booksInProgressStyle
+                Menu {
+                    Picker(section.title, selection: Binding(
+                        get: { homeLayout.booksInProgressStyle },
+                        set: { newValue in
+                            var configuration = homeLayout
+                            configuration.booksInProgressStyle = newValue
+                            homeSectionLayoutRawValue = configuration.encoded()
+                        }
+                    )) {
+                        ForEach(SpokenWordContinueStyle.allCases) { option in
+                            Label(LocalizedStringKey(option.titleKey), systemImage: option.icon).tag(option)
+                        }
+                    }
+                } label: {
+                    Label(LocalizedStringKey(listeningStyle.titleKey), systemImage: listeningStyle.icon)
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityIdentifier("home.edit.layout.booksInProgress")
+            } else if HomeSectionLayoutPolicy.isConfigurable(section) {
                 Button {
                     pmWithAnimation(.list) { advanceSectionLayout(section) }
                 } label: {
@@ -2646,7 +2669,7 @@ struct HomeView: View {
                 .accessibilityIdentifier("home.edit.columns." + section.rawValue)
             }
 
-            if HomeSectionLayoutPolicy.supportsCoverSize(section, style: style) {
+            if homeLayout.supportsCoverSize(for: section) {
                 let size = coverSize(for: section)
                 Button {
                     pmWithAnimation(.list) { setCoverSize(size.toggled, for: section) }
@@ -3263,7 +3286,16 @@ struct HomeView: View {
                 return .init(.card(height: 130), hasHeader: false)
             }
             return .init(.row(card: CGSize(width: album, height: album + 22), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
-        case .booksInProgress, .audiobooks:
+        case .booksInProgress:
+            switch homeLayout.booksInProgressStyle {
+            case .carousel:
+                return .init(.row(card: CGSize(width: album, height: album + 80), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
+            case .featured:
+                return .init(.card(height: album + 220))
+            case .list:
+                return .init(.list(rows: min(sectionItemCount(section, 12), 3), rowHeight: 108, artwork: 64, spacing: 12, filled: false))
+            }
+        case .audiobooks:
             return .init(.row(card: CGSize(width: album, height: album + 46), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))
         case .podcasts:
             return .init(.row(card: CGSize(width: album, height: album + 67), artwork: album, circular: false, rows: 1, spacing: 12, inset: 20))

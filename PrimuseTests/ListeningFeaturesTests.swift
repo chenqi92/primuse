@@ -12,6 +12,91 @@ import XCTest
 /// these check the wiring into the player, the stores and the library.
 @MainActor
 final class ListeningFeaturesTests: XCTestCase {
+    func testContinueListeningOrdersBooksAndPromotesCurrentWithoutDuplicates() throws {
+        let items = (0..<4).map { index in
+            SpokenWordBookItem(
+                id: "continue-\(index)", title: "Chapter", albumTitle: "Book \(index)",
+                duration: 600, sourceID: "continue-source",
+                position: index == 0 ? nil : 60,
+                positionUpdatedAt: index == 0 ? nil : Date(timeIntervalSince1970: Double(index))
+            )
+        }
+        let books = SpokenWordBookGrouping.books(from: items)
+        func book(_ index: Int) throws -> SpokenWordBook {
+            try XCTUnwrap(books.first { $0.items.contains { $0.id == "continue-\(index)" } })
+        }
+        let archived = try book(3)
+        let snapshot = SpokenWordLibrarySnapshot(books: books, archivedBookIDs: [archived.id])
+        XCTAssertEqual(snapshot.listeningEntries.map(\.id), try [book(2).id, book(1).id])
+        let playing = snapshot.listening(to: try book(0).id)
+        XCTAssertEqual(playing.listeningEntries.map(\.id), try [book(0).id, book(2).id, book(1).id])
+        let promoted = snapshot.listening(to: try book(1).id)
+        XCTAssertEqual(promoted.listeningEntries.map(\.id), try [book(1).id, book(2).id])
+        XCTAssertEqual(Set(promoted.allEntries.map(\.id)).count, promoted.allEntries.count)
+        XCTAssertEqual(snapshot.listening(to: archived.id).listeningEntries.map(\.id), snapshot.listeningEntries.map(\.id))
+    }
+
+    func testContinueListeningLayoutsFollowSharedHomeSettings() async throws {
+        let defaults = try makeDefaults()
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let player = try makePlayer(library: library)
+        let titles = ["非常疑犯", "侯海洋基层风云", "冯天奇闹通州", "三言二拍"]
+        let songs = (0..<8).map { index in
+            var item = song("continue-layout-\(index)", genre: "Audiobook")
+            item.albumTitle = titles[index / 2]
+            item.artistName = "作者"
+            item.trackNumber = index % 2 + 1
+            return item
+        }
+        let items = songs.enumerated().map { index, song in
+            SpokenWordBookItem(song: song, knownDuration: 600, position: index % 2 == 0 ? 100 : nil,
+                              positionUpdatedAt: Date(timeIntervalSince1970: Double(8 - index)))
+        }
+        let snapshot = SpokenWordLibrarySnapshot(
+            books: SpokenWordBookGrouping.books(from: items),
+            songsByID: Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        )
+        func root() -> some View {
+            NavigationStack {
+                ScrollView {
+                    SpokenWordShelfContent(snapshot: snapshot).padding(20)
+                }
+                .navigationTitle("有声书")
+            }
+            .environment(library).environment(player)
+            .environment(AppServices.shared.sourceManager).environment(ThemeService())
+            .environment(\.locale, Locale(identifier: "zh-Hans"))
+            .defaultAppStorage(defaults)
+        }
+        let host = UIHostingController(rootView: root())
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let variants: [(SpokenWordContinueStyle, HomeCoverSize)] = [
+            (.carousel, .large), (.carousel, .small),
+            (.featured, .large), (.featured, .small), (.list, .large)
+        ]
+        for (style, size) in variants {
+            var configuration = HomeSectionLayoutConfiguration()
+            configuration.booksInProgressStyle = style
+            configuration.setCoverSize(size, for: .booksInProgress)
+            defaults.set(configuration.encoded(), forKey: HomeSectionLayoutConfiguration.storageKey)
+            try await Task.sleep(for: .milliseconds(500))
+            host.view.layoutIfNeeded()
+            XCTAssertEqual(host.view.bounds.width, 390, accuracy: 1)
+            let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "continue-listening-" + style.rawValue + "-" + size.rawValue
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
     private var cleanups: [() -> Void] = []
 
     override func tearDown() {

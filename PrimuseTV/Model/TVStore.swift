@@ -763,6 +763,11 @@ final class TVStore {
                     .flatMap { self.spokenWordIntroOutro(for: $0) }
             }
         }
+        spokenWordTopShelfObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSpokenWordDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.publishTopShelf() }
+        }
         if library == nil {
             let target = self.library
             let knownSourceIDs = Set(initialSources.allSources.map(\.id))
@@ -1106,6 +1111,7 @@ final class TVStore {
     @ObservationIgnored private var hasBuiltLookupSinceLibraryReady = false
     @ObservationIgnored private var spokenWordClassificationObserver: NSObjectProtocol?
     @ObservationIgnored private var spokenWordIntroOutroObserver: NSObjectProtocol?
+    @ObservationIgnored private var spokenWordTopShelfObserver: NSObjectProtocol?
     @ObservationIgnored private var playbackRangeObserver: NSObjectProtocol?
     @ObservationIgnored private var playbackRangeRefreshTask: Task<Void, Never>?
     /// The playback range the current selection plays, if any.
@@ -1224,6 +1230,7 @@ final class TVStore {
     @ObservationIgnored private var spokenWordBookCache = SpokenWordCurrentBookCache()
     /// 「有声」页的书架与播客页里本机节目,各一份后台分好的书(见 `TVSpokenWordShelfModel`)。
     @ObservationIgnored private let spokenWordBookShelf = TVSpokenWordShelfModel()
+    @ObservationIgnored private let topShelfBookShelf = TVSpokenWordShelfModel()
     @ObservationIgnored private let localPodcastShelf = TVSpokenWordShelfModel()
 
     func spokenWordShelf(_ kind: TVSpokenWordShelfKind) -> TVSpokenWordShelfModel {
@@ -4120,6 +4127,31 @@ final class TVStore {
 
     private func publishSettledTopShelf() async {
         let startedAt = ProcessInfo.processInfo.systemUptime
+        guard !Task.isCancelled, TopShelfStore.containerURL != nil else { return }
+        await topShelfBookShelf.refresh(songs: library.spokenWordSongs, inputs: .init(
+            libraryRevision: library.spokenWordContentRevision,
+            storeRevision: SpokenWordStore.shared.revision
+        ))
+        guard !Task.isCancelled else { return }
+        let currentBookID = currentSpokenWordBookID
+        let books: [TopShelfPublisher.Draft] = topShelfBookShelf.books
+            .filter { ($0.isInProgress || $0.id == currentBookID) && !SpokenWordStore.shared.isArchived(bookID: $0.id) }
+            .sorted {
+                if ($0.id == currentBookID) != ($1.id == currentBookID) { return $0.id == currentBookID }
+                let lhs = $0.lastListenedAt ?? .distantPast
+                let rhs = $1.lastListenedAt ?? .distantPast
+                return lhs == rhs ? $0.id < $1.id : lhs > rhs
+            }
+            .prefix(8).map { book in
+                let cover = library.song(id: book.resumeItemID ?? book.items.first?.id ?? "")
+                return .init(
+                    id: "book:" + book.id, title: book.title, subtitle: book.author ?? "",
+                    artist: "", album: "", coverKey: "", songID: cover?.id,
+                    coverRef: cover?.coverArtFileName,
+                    playURL: Self.topShelfLink(host: "book", key: "id", book.id),
+                    playbackProgress: (book.fractionComplete * 100).rounded(.down) / 100
+                )
+            }
         let recent: [TopShelfPublisher.Draft] = recentlyPlayed.prefix(8).map { s in
             let alb = albumOf(s)
             return .init(id: s.id, title: s.title, subtitle: s.artist, artist: s.artist,
@@ -4151,6 +4183,7 @@ final class TVStore {
         }
         plog("TV topShelf draft ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
         await TopShelfPublisher.publish(
+            books: books,
             recent: recent,
             radio: radio,
             albums: lib,
@@ -4204,6 +4237,21 @@ final class TVStore {
             play(station)
             return
         }
+        if url.host == "book", let id = q("id") {
+            guard library.isReady else { return }
+            let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == id }
+            guard let book = TVSpokenWordBooks.books(songs: songs, store: SpokenWordStore.shared).first(where: { $0.id == id }),
+                  !SpokenWordStore.shared.isArchived(bookID: id) else {
+                if isFinalAttempt || hasSettledRadioList {
+                    pendingDeepLink = nil
+                    playbackIssue = .failed(String(localized: "spoken_word_book_unavailable"))
+                }
+                return
+            }
+            pendingDeepLink = nil
+            _ = playSpokenWordBook(songIDs: book.items.map(\.id), startingAt: book.resumeItemID)
+            return
+        }
         guard hasRealLibrary else { return }
         pendingDeepLink = nil
         switch url.host {
@@ -4220,7 +4268,7 @@ final class TVStore {
     /// 电台深链;仍找不到就放弃并说明,不让它一直挂着、几分钟后突然顶掉用户正在听的。
     func finishPendingRadioDeepLink() {
         hasSettledRadioList = true
-        guard pendingDeepLink?.host == "radio" else { return }
+        guard pendingDeepLink?.host == "radio" || pendingDeepLink?.host == "book" else { return }
         // 电台存储观察回调的那次重载可能还排在 yield 后面,先把刚拉下来的台并进列表。
         reloadRadioStations(fromDisk: false)
         flushPendingDeepLink(isFinalAttempt: true)

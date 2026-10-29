@@ -353,42 +353,44 @@ private struct SpokenWordContentsList: View, Equatable {
             in: rows,
             resumeItemID: player.currentSpokenWordBook?.resumeItemID
         )
-        return ScrollViewReader { proxy in
-            List {
-                // 播放页上全书进度只剩章节位置前那一圈,具体听了多少、还剩多久在这里写明。
-                if let summary = bookSummaryLine {
-                    Text(verbatim: summary)
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(palette?.secondary ?? Color.secondary)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-                ForEach(rows) { row in
-                    Button {
-                        player.openSpokenWordContentsRow(row)
-                        onOpen?()
-                        if isSheet { dismiss() }
-                    } label: {
-                        SpokenWordContentsRowView(row: row, palette: palette)
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .id(row.id)
-                    .listRowBackground(rowBackground(row))
-                    .listRowInsets(EdgeInsets(
-                        top: 0,
-                        leading: row.isNested ? 44 : 16,
-                        bottom: 0,
-                        trailing: 16
-                    ))
-                    .contextMenu { rowMenu(row) }
-                }
+        return VStack(alignment: .leading, spacing: 0) {
+            if let summary = bookSummaryLine {
+                Text(verbatim: summary)
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(palette?.secondary ?? Color.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(isSheet ? .automatic : .hidden)
-            .onAppear {
-                guard let initial, rows.indices.contains(initial) else { return }
-                proxy.scrollTo(rows[initial].id, anchor: .center)
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(rows) { row in
+                        Button {
+                            player.openSpokenWordContentsRow(row)
+                            onOpen?()
+                            if isSheet { dismiss() }
+                        } label: {
+                            SpokenWordContentsRowView(row: row, palette: palette)
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                        .id(row.id)
+                        .listRowBackground(rowBackground(row))
+                        .listRowInsets(EdgeInsets(
+                            top: 0,
+                            leading: row.isNested ? 44 : 16,
+                            bottom: 0,
+                            trailing: 16
+                        ))
+                        .contextMenu { rowMenu(row) }
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(isSheet ? .automatic : .hidden)
+                .onAppear {
+                    guard let initial, rows.indices.contains(initial) else { return }
+                    proxy.scrollTo(rows[initial].id, anchor: .center)
+                }
             }
         }
     }

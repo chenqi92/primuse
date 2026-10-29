@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "تثبيت المشغّل المصغّر";
 "player_pin_mini_player_description" = "إبقاء المشغّل المصغّر موسّعًا فوق شريط علامات التبويب أثناء التمرير.";
+
+"spoken_word_continue_style_carousel" = "صف الأغلفة";
+"spoken_word_continue_style_featured" = "إبراز أحدث كتاب";
+"spoken_word_continue_style_list" = "قائمة مختصرة";
+"spoken_word_book_unavailable" = "هذا الكتاب غير متاح. اختر كتابًا من مكتبتك.";

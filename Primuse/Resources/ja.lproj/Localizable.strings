@@ -6970,3 +6970,8 @@
 
 "player_pin_mini_player_title" = "ミニプレーヤーを固定";
 "player_pin_mini_player_description" = "スクロール中も、ミニプレーヤーをタブバーの上に展開したまま表示します。";
+
+"spoken_word_continue_style_carousel" = "表紙を横に並べる";
+"spoken_word_continue_style_featured" = "最新の本を強調";
+"spoken_word_continue_style_list" = "コンパクトなリスト";
+"spoken_word_book_unavailable" = "この本は利用できません。本棚から本を選び直してください。";

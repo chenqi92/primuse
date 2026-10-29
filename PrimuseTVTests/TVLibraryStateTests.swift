@@ -393,6 +393,52 @@ final class TVLibraryStateTests: XCTestCase {
         store.engine.stop()
     }
 
+    func testTopShelfBookLinkResumesSavedChapterWithoutMusic() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let chapters = (1...3).map { number in
+            var chapter = fixture.song("top-shelf-\(fixture.source.id)-\(number)")
+            chapter.genre = "Audiobook"
+            chapter.albumTitle = "Top Shelf Book"
+            chapter.trackNumber = number
+            chapter.duration = 600
+            return chapter
+        }
+        fixture.library.addSongs(chapters)
+        await fixture.library.waitForPendingIndex()
+        let progress = SpokenWordStore.shared
+        progress.rememberPosition(120, duration: 600, forSongID: chapters[1].id)
+        defer { chapters.forEach { progress.clearPosition(forSongID: $0.id) } }
+        let bookID = try XCTUnwrap(fixture.library.spokenWordBookIDs[chapters[0].id])
+        let store = fixture.store()
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+        XCTAssertTrue(store.songs.isEmpty)
+        var link = URLComponents()
+        link.scheme = "primuse"
+        link.host = "book"
+        link.queryItems = [URLQueryItem(name: "id", value: bookID)]
+        store.handleDeepLink(try XCTUnwrap(link.url))
+        XCTAssertEqual(store.nowPlaying.songID, chapters[1].id)
+        XCTAssertEqual(store.queueUpNextIDs, [chapters[2].id])
+        store.engine.stop()
+    }
+
+    func testUnavailableTopShelfBookLinkIsConsumedAfterInitialSync() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+        store.handleDeepLink(try XCTUnwrap(URL(string: "primuse://book?id=missing-book")))
+        store.finishPendingRadioDeepLink()
+        guard case .failed(let message) = store.playbackIssue else {
+            return XCTFail("A missing book should report that it is unavailable")
+        }
+        XCTAssertEqual(message, String(localized: "spoken_word_book_unavailable", bundle: Bundle(for: TVStore.self)))
+        store.playbackIssue = nil
+        store.flushPendingDeepLink(isFinalAttempt: true)
+        XCTAssertNil(store.playbackIssue)
+    }
+
     func testLikesSurviveLibraryRestart() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

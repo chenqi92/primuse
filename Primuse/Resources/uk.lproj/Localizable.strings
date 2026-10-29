@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "Закріпити мініплеєр";
 "player_pin_mini_player_description" = "Під час прокручування мініплеєр залишається розгорнутим над панеллю вкладок.";
+
+"spoken_word_continue_style_carousel" = "Ряд обкладинок";
+"spoken_word_continue_style_featured" = "Остання книга окремо";
+"spoken_word_continue_style_list" = "Компактний список";
+"spoken_word_book_unavailable" = "Ця книга недоступна. Виберіть книгу на книжковій полиці.";

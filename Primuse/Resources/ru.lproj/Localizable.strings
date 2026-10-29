@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "Закрепить мини-плеер";
 "player_pin_mini_player_description" = "При прокрутке мини-плеер остаётся развёрнутым над панелью вкладок.";
+
+"spoken_word_continue_style_carousel" = "Ряд обложек";
+"spoken_word_continue_style_featured" = "Последняя книга крупно";
+"spoken_word_continue_style_list" = "Компактный список";
+"spoken_word_book_unavailable" = "Эта книга недоступна. Выберите книгу на книжной полке.";

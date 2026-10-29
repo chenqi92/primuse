@@ -6969,3 +6969,8 @@
 
 "player_pin_mini_player_title" = "Épingler le mini-lecteur";
 "player_pin_mini_player_description" = "Le mini-lecteur reste déployé au-dessus de la barre d’onglets pendant le défilement.";
+
+"spoken_word_continue_style_carousel" = "Rangée de couvertures";
+"spoken_word_continue_style_featured" = "Dernier livre en vedette";
+"spoken_word_continue_style_list" = "Liste compacte";
+"spoken_word_book_unavailable" = "Ce livre est indisponible. Choisissez un livre dans votre bibliothèque.";

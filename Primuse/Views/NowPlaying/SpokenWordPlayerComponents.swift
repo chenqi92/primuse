@@ -196,6 +196,7 @@ enum SpokenWordPlayerText {
     static func partPositionWithBook(_ position: String, summary: SpokenWordNowPlayingSummary, rate: Float) -> String {
         [position, bookFraction(summary.bookFraction), bookRemaining(summary, rate: rate)]
             .compactMap { $0 }
+            .filter { !$0.isEmpty }
             .joined(separator: ", ")
     }
 
@@ -217,8 +218,7 @@ enum SpokenWordPlayerText {
 
 // MARK: - Progress details
 
-/// 「◔ 第 12 / 120 章 ›」:章节位置前面那一圈是全书听到哪儿。全书进度不再单占一行细条,
-/// 跟下面本章的进度条叠成两道;百分比和全书还剩多久在旁白里,目录顶上那行也写着。
+/// 章节入口同时显示全书进度与剩余收听时间。
 /// 自己一个视图,读的是存下的位置而不是播放头:几秒才动一次,也只重画这一小块。
 struct SpokenWordPartPositionButton: View {
     let palette: SpokenWordPlayerPalette
@@ -233,29 +233,41 @@ struct SpokenWordPartPositionButton: View {
         let _ = store.positions.count
         let _ = store.finishedAt.count
         let summary = player.spokenWordNowPlayingSummary(live: false)
-        if let summary, let position = SpokenWordPlayerText.partPosition(summary) {
+        if let summary, SpokenWordPlayerText.partPosition(summary) != nil || !SpokenWordPlayerText.isPodcastEpisode(player) {
+            let chapterPosition = SpokenWordPlayerText.partPosition(summary)
+            let position = chapterPosition ?? SpokenWordPlayerText.bookFraction(summary.bookFraction)
             // 播客单集不是书,进度条就是它自己的进度,不画全书那一圈。
             let showsRing = !SpokenWordPlayerText.isPodcastEpisode(player)
             Button(action: action) {
-                HStack(spacing: 5) {
-                    if showsRing {
-                        SpokenWordBookRing(fraction: summary.bookFraction, color: palette.accent)
-                            .frame(width: ringSize, height: ringSize)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        if showsRing {
+                            SpokenWordBookRing(fraction: summary.bookFraction, color: palette.accent)
+                                .frame(width: ringSize, height: ringSize)
+                        }
+                        Text(verbatim: position)
+                            .monospacedDigit()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
                     }
-                    Text(verbatim: position)
-                        .monospacedDigit()
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
+                    if showsRing {
+                        Text(verbatim: [
+                            chapterPosition == nil ? nil : SpokenWordPlayerText.bookFraction(summary.bookFraction),
+                            SpokenWordPlayerText.bookRemaining(summary, rate: player.currentSpokenWordRate)
+                        ].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(palette.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .fontWeight(.semibold)
                 .foregroundStyle(palette.accent)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .fixedSize()
             .accessibilityLabel(Text("spoken_word_contents_title"))
             .accessibilityValue(Text(verbatim: showsRing
-                ? SpokenWordPlayerText.partPositionWithBook(position, summary: summary, rate: player.currentSpokenWordRate)
+                ? SpokenWordPlayerText.partPositionWithBook(chapterPosition ?? "", summary: summary, rate: player.currentSpokenWordRate)
                 : position))
         }
     }

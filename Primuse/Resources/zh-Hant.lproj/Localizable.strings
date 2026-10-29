@@ -6946,3 +6946,8 @@
 
 "player_pin_mini_player_title" = "固定底部迷你播放器";
 "player_pin_mini_player_description" = "捲動頁面時，迷你播放器保持在底部分頁列上方，不再收合。";
+
+"spoken_word_continue_style_carousel" = "封面橫排";
+"spoken_word_continue_style_featured" = "最新優先";
+"spoken_word_continue_style_list" = "精簡列表";
+"spoken_word_book_unavailable" = "這本書暫時無法使用，請在書架中重新選擇。";

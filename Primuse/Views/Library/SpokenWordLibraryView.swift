@@ -19,6 +19,16 @@ struct SpokenWordLibrarySnapshot: Sendable {
     /// 没归档的书,按分组的先后。
     private let active: [Entry]
 
+    var listeningEntries: [Entry] {
+        let recent = inProgress.map { Entry(book: $0.0, songs: $0.1) }.sorted {
+            let lhs = $0.book.lastListenedAt ?? .distantPast
+            let rhs = $1.book.lastListenedAt ?? .distantPast
+            return lhs == rhs ? $0.id < $1.id : lhs > rhs
+        }
+        guard let nowListening else { return recent }
+        return [nowListening] + recent.filter { $0.id != nowListening.id }
+    }
+
     /// 每本书一次:在听的、书架、已听完,与书架页从上到下的顺序一致。归档的不在里面。
     var allEntries: [Entry] {
         (nowListening.map { [$0] } ?? []) + shelf + finished
@@ -516,6 +526,12 @@ struct SpokenWordShelfContent: View {
     @AppStorage("spokenWord.shelf.expandsArchived") private var expandsArchived = false
     @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
     @AppStorage("spokenWord.shelf.order") private var savedOrder = ""
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var homeLayoutRawValue = ""
+    @AppStorage(HomeCoverSize.legacyStorageKey) private var legacyCoverSize: HomeCoverSize = .large
+    #if !os(macOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
     @AppStorage(HomeSpotlightSelection.booksStorageKey) private var homeSpotlightRawValue = ""
     /// 收藏的顺序;书收没收藏就看它(菜单里「收藏」「取消收藏」跟着变)。
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritePinsRawValue = ""
@@ -607,6 +623,7 @@ struct SpokenWordShelfContent: View {
         let finished = ordered(snapshot.finished, preferred: preferred).filter(matches)
         let archived = showsArchived ? ordered(snapshot.archived, preferred: preferred).filter(matches) : []
         let nowListening = snapshot.nowListening.flatMap { matches($0) ? $0 : nil }
+        let listening = snapshot.listeningEntries.filter(matches)
         return LazyVStack(alignment: .leading, spacing: 28) {
             if !snapshot.isPrepared {
                 ProgressView()
@@ -620,10 +637,27 @@ struct SpokenWordShelfContent: View {
                     .padding(.top, 40)
             }
 
+            #if os(macOS)
             if let current = nowListening {
                 SpokenWordNowListeningCard(book: current.book, songs: current.songs, tint: tint)
                     .contextMenu { bookMenu(current.book, songs: current.songs) }
             }
+            #else
+            if !listening.isEmpty {
+                let configuration = HomeSectionLayoutConfiguration.decode(homeLayoutRawValue)
+                SpokenWordContinueShelf(
+                    entries: listening,
+                    style: configuration.booksInProgressStyle,
+                    limit: configuration.itemCount(for: .booksInProgress) ?? 12,
+                    contextMenu: { AnyView(bookMenu($0.book, songs: $0.songs)) }
+                )
+                .environment(\.homeCoverCardWidth, HomeCoverCardMetrics.width(
+                    usesPadMetrics: horizontalSizeClass == .regular,
+                    isCompactHeight: verticalSizeClass == .compact,
+                    size: configuration.coverSize(for: .booksInProgress, following: legacyCoverSize)
+                ))
+            }
+            #endif
 
             if !shelf.isEmpty || !finished.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {

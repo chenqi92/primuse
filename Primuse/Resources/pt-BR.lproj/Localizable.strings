@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "Fixar miniplayer";
 "player_pin_mini_player_description" = "Mantenha o miniplayer expandido acima da barra de abas ao rolar a página.";
+
+"spoken_word_continue_style_carousel" = "Fileira de capas";
+"spoken_word_continue_style_featured" = "Mais recente em destaque";
+"spoken_word_continue_style_list" = "Lista compacta";
+"spoken_word_book_unavailable" = "Este livro está indisponível. Escolha um livro na sua estante.";

@@ -16,11 +16,13 @@ public struct TopShelfItem: Codable, Identifiable, Sendable, Equatable {
     public var subtitle: String        // 艺术家 / 专辑
     public var imageFileName: String?  // App Group 封面目录内的文件名;nil 表示用占位
     public var playURL: String         // 点击后打开 app 的 deep link
+    public var playbackProgress: Double?
 
     public init(id: String, title: String, subtitle: String,
-                imageFileName: String? = nil, playURL: String) {
+                imageFileName: String? = nil, playURL: String, playbackProgress: Double? = nil) {
         self.id = id; self.title = title; self.subtitle = subtitle
         self.imageFileName = imageFileName; self.playURL = playURL
+        self.playbackProgress = playbackProgress.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
     }
 }
 

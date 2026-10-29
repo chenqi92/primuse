@@ -192,34 +192,170 @@ struct HomeContinueSpacesRow: View {
     }
 }
 
-/// "在听的书" on the home page: covers of the books in progress.
 struct HomeBooksInProgressStrip: View {
-    let books: [(SpokenWordBook, [Song])]
-    /// With one book the "continue" row already offers it; the strip earns
-    /// its place from the second book on.
-    var minimumCount = 1
+    let snapshot: SpokenWordLibrarySnapshot
     var limit = 12
     var openSpace: (ListeningSpace) -> Void
+    @Environment(AudioPlayerService.self) private var player
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var layoutRawValue = ""
 
     var body: some View {
-        if books.count >= max(1, minimumCount) {
-            VStack(alignment: .leading, spacing: 10) {
-                HomeSpaceSectionHeader(
-                    titleKey: "home_books_in_progress_title",
-                    actionKey: "home_books_open_shelf",
-                    action: { openSpace(.spokenWord) }
-                )
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(books.prefix(max(limit, 1)), id: \.0.id) { book, songs in
-                            HomeBookCard(book: book, songs: songs, showsAuthor: false)
+        let entries = snapshot.listening(to: player.currentBookID).listeningEntries
+        if !entries.isEmpty {
+            SpokenWordContinueShelf(
+                entries: entries,
+                style: HomeSectionLayoutConfiguration.decode(layoutRawValue).booksInProgressStyle,
+                limit: limit,
+                horizontalInset: 20,
+                titleKey: "home_books_in_progress_title",
+                moreAction: { openSpace(.spokenWord) }
+            )
+        }
+    }
+}
+
+struct SpokenWordContinueShelf: View {
+    typealias Entry = SpokenWordLibrarySnapshot.Entry
+    let entries: [Entry]
+    let style: SpokenWordContinueStyle
+    var limit = 12
+    var horizontalInset: CGFloat = 0
+    var titleKey: LocalizedStringKey = "spoken_word_now_listening_section"
+    var moreAction: (() -> Void)? = nil
+    var contextMenu: ((Entry) -> AnyView)? = nil
+    @State private var showsAll = false
+
+    var body: some View {
+        let shown = Array(entries.prefix(showsAll ? entries.count : max(1, limit)))
+        if !shown.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(titleKey)
+                        .font(.title3.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    if moreAction != nil || shown.count < entries.count {
+                        Button {
+                            if let moreAction { moreAction() } else { showsAll = true }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("home_section_view_all")
+                                Image(systemName: "chevron.right").font(.caption)
+                            }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, horizontalInset)
+
+                switch style {
+                case .carousel:
+                    covers(shown)
+                case .featured:
+                    if let latest = shown.first {
+                        SpokenWordContinueRow(entry: latest, featured: true)
+                            .contextMenu { contextMenu?(latest) }
+                            .padding(.horizontal, horizontalInset)
+                        if shown.count > 1 {
+                            covers(Array(shown.dropFirst()))
                         }
                     }
-                    .padding(.horizontal, 20)
+                case .list:
+                    LazyVStack(spacing: 12) {
+                        ForEach(shown) { entry in
+                            SpokenWordContinueRow(entry: entry)
+                                .contextMenu { contextMenu?(entry) }
+                            if entry.id != shown.last?.id { Divider() }
+                        }
+                    }
+                    .padding(.horizontal, horizontalInset)
                 }
-                .pmStopsAtVerticalBar()
             }
+            .accessibilityIdentifier("spokenWord.continue." + style.rawValue)
         }
+    }
+
+    private func covers(_ entries: [Entry]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(entries) { entry in
+                    HomeBookCard(book: entry.book, songs: entry.songs, showsAuthor: false, showsListeningProgress: true)
+                        .contextMenu { contextMenu?(entry) }
+                }
+            }
+            .padding(.horizontal, horizontalInset)
+        }
+        .pmStopsAtVerticalBar()
+    }
+}
+
+private struct SpokenWordContinueRow: View {
+    let entry: SpokenWordLibrarySnapshot.Entry
+    var featured = false
+    @Environment(AudioPlayerService.self) private var player
+    @ScaledMetric(relativeTo: .body) private var rowCoverWidth: CGFloat = 64
+
+    private var tint: Color { ListeningSpace.spokenWord.tint }
+    private var isCurrent: Bool { player.currentBookID == entry.id }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            SpokenWordBookLink(bookID: entry.id) {
+                HStack(alignment: .center, spacing: 12) {
+                    SpokenWordBookCover(song: entry.songs.first, width: featured ? 80 : rowCoverWidth, cornerRadius: 10)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(entry.book.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        if let chapter = SpokenWordBookSupport.chapterPosition(
+                            entry.book, playingItemID: isCurrent ? player.currentSong?.id : nil
+                        ) {
+                            Text(chapter).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text(SpokenWordPlayerText.bookFraction(entry.book.fractionComplete))
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        if let remaining = entry.book.remainingDuration {
+                            let duration = SpokenWordNowPlayingPolicy.listeningTime(
+                                forContent: remaining, rate: player.spokenWordRate(forBookID: entry.id)
+                            )
+                            Text(String(format: String(localized: "spoken_word_book_remaining_format"),
+                                        SpokenWordPlayerText.approximateDuration(duration)))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        SpokenWordProgressBar(value: entry.book.fractionComplete, tint: tint)
+                            .padding(.top, 2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            Button {
+                if isCurrent && player.isPlaying {
+                    player.togglePlayPause()
+                } else if isCurrent {
+                    player.resumeCurrentSpokenWordBook()
+                } else {
+                    SpokenWordBookSupport.play(entry.book, songs: entry.songs, from: nil, player: player)
+                }
+            } label: {
+                Image(systemName: isCurrent && player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.title3)
+                    .frame(width: 48, height: 48)
+                    .foregroundStyle(featured ? .white : tint)
+                    .background(featured ? tint : tint.opacity(0.1), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(isCurrent && player.isPlaying ? "pause" : "spoken_word_continue"))
+            .accessibilityValue(Text(entry.book.title))
+        }
+        .padding(featured ? 14 : 0)
+        .background(featured ? tint.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 18))
     }
 }
 
@@ -313,6 +449,7 @@ struct HomeBookCard: View {
     let book: SpokenWordBook
     let songs: [Song]
     var showsAuthor = true
+    var showsListeningProgress = false
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.homeCoverCardWidth) private var cardWidth
@@ -361,6 +498,16 @@ struct HomeBookCard: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    if showsListeningProgress {
+                        if let chapter = SpokenWordBookSupport.chapterPosition(
+                            book, playingItemID: isCurrentBook ? player.currentSong?.id : nil
+                        ) {
+                            Text(chapter).font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Text(SpokenWordPlayerText.bookFraction(book.fractionComplete))
+                            .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
                 }
                 .frame(width: cardWidth, alignment: .leading)
                 .contentShape(Rectangle())
@@ -380,8 +527,10 @@ struct HomeBookCard: View {
         let isPlaying = isCurrent && player.isPlaying
         let fraction = CGFloat(book.isFinished ? 1 : min(1, max(0, book.fractionComplete)))
         return Button {
-            if isCurrent {
+            if isCurrent && player.isPlaying {
                 player.togglePlayPause()
+            } else if isCurrent {
+                player.resumeCurrentSpokenWordBook()
             } else {
                 SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
             }

@@ -7062,3 +7062,8 @@
 
 "player_pin_mini_player_title" = "固定底部小播放器";
 "player_pin_mini_player_description" = "滚动页面时，小播放器保持在底部标签栏上方，不再收起。";
+
+"spoken_word_continue_style_carousel" = "封面横排";
+"spoken_word_continue_style_featured" = "最新优先";
+"spoken_word_continue_style_list" = "紧凑列表";
+"spoken_word_book_unavailable" = "这本书暂不可用，请在书架中重新选择。";

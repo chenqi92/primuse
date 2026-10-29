@@ -6875,3 +6875,8 @@
 
 "player_pin_mini_player_title" = "Mini Oynatıcıyı Sabitle";
 "player_pin_mini_player_description" = "Kaydırırken mini oynatıcıyı sekme çubuğunun üzerinde genişletilmiş olarak tutun.";
+
+"spoken_word_continue_style_carousel" = "Kapak sırası";
+"spoken_word_continue_style_featured" = "Son kitabı öne çıkar";
+"spoken_word_continue_style_list" = "Kompakt liste";
+"spoken_word_book_unavailable" = "Bu kitap kullanılamıyor. Kitaplığınızdan bir kitap seçin.";
