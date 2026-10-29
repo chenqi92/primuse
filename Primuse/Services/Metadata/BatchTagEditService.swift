@@ -195,6 +195,8 @@ enum BatchTagEditService {
             case .artist:
                 updated.artistName = value
                 if updated.artistName != song.artistName { updated.sourceArtistNames = nil }
+            case .albumArtist:
+                updated.albumArtistName = value
             case .album:
                 updated.albumTitle = value
             case .genre:
@@ -207,11 +209,13 @@ enum BatchTagEditService {
                 updated.discNumber = value.flatMap { Int($0) }
             }
         }
-        updated.albumArtistName = AlbumGroupingPolicy.updatedAlbumArtistName(
-            existingAlbumArtistName: song.albumArtistName,
-            previousTrackArtistName: song.artistName,
-            updatedTrackArtistName: updated.artistName
-        )
+        if !proposals.contains(where: { $0.songID == song.id && $0.field == .albumArtist }) {
+            updated.albumArtistName = AlbumGroupingPolicy.updatedAlbumArtistName(
+                existingAlbumArtistName: song.albumArtistName,
+                previousTrackArtistName: song.artistName,
+                updatedTrackArtistName: updated.artistName
+            )
+        }
         return updated
     }
 
@@ -220,6 +224,7 @@ enum BatchTagEditService {
             id: song.id,
             title: song.title,
             artist: song.artistName,
+            albumArtist: song.albumArtistName,
             album: song.albumTitle,
             genre: song.genre,
             year: song.year,

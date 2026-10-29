@@ -6880,3 +6880,14 @@
 "spoken_word_continue_style_featured" = "Остання книга окремо";
 "spoken_word_continue_style_list" = "Компактний список";
 "spoken_word_book_unavailable" = "Ця книга недоступна. Виберіть книгу на книжковій полиці.";
+
+"album_metadata_search" = "Знайти метадані альбому";
+"album_metadata_sources_required" = "Увімкніть Apple Music або MusicBrainz у налаштуваннях пошуку метаданих.";
+"album_metadata_match" = "Зіставити треки";
+"album_metadata_unmatched" = "Пропустити файл";
+"album_metadata_review" = "Перевірити зміни";
+"album_metadata_matched_format" = "Зіставлено %d із %d файлів · В альбомі: %d";
+"album_metadata_tracks_format" = "Треків: %d";
+"album_metadata_album_artist" = "Виконавець альбому";
+
+"home_show_library_sections" = "Показувати вкладки категорій";

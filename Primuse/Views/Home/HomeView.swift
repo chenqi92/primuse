@@ -1457,6 +1457,7 @@ struct HomeView: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.openLibraryDestination) private var openLibraryDestination
     #endif
 
     /// iOS 的迷你条由标签页外层统一让位（`legacyMiniPlayerClearance`），这里只留基线间距；macOS 沿用原值。
@@ -1521,6 +1522,7 @@ struct HomeView: View {
 
     /// 筛选胶囊的顺序与显隐,在首页编辑的「顶部切换」里调。
     @AppStorage(HomeFilterBarConfiguration.storageKey) private var homeFilterBarRawValue = ""
+    @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsLibrarySections = false
     @State private var showsFilterBarEditor = false
 
     /// 筛选胶囊有哪几颗、什么顺序(`HomeFilterBarConfiguration`)。没调过「顶部切换」时,
@@ -1607,6 +1609,11 @@ struct HomeView: View {
         ScrollViewReader { _ in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    #if os(iOS)
+                    if editorMode {
+                        librarySectionTabsEditorRow
+                    }
+                    #endif
                     let spaces = homeFilterSpaces
                     if !spaces.isEmpty {
                         HomeSpaceFilterBar(
@@ -1623,6 +1630,15 @@ struct HomeView: View {
                         .pmPinnedRowStopsAtVerticalBar()
                         .id(Self.homeTopAnchor)
                     }
+
+                    #if os(iOS)
+                    if !editorMode, showsLibrarySections, appNavigationMode == .standard,
+                       activeHomeFilter == nil || activeHomeFilter == .music {
+                        StandardLibrarySectionTabs(selection: nil) { section in
+                            openLibraryDestination?(.section(section))
+                        }
+                    }
+                    #endif
 
                     // 换场时新旧两面叠在同一处:直接放在 VStack 里,被拿掉的那一面换场途中还占着位置,
                     // 新的一面先被挤到它下面,滑进来时就不是并排的了。
@@ -1884,6 +1900,7 @@ struct HomeView: View {
     /// 上面这些显隐开关(连同电台那一块)的默认值。首页编辑「恢复默认布局」把它们写回来,
     /// 经 iCloud 键值同步的那几项也一并推到别的设备。改了哪个开关的键或默认值,这里跟着改。
     static let defaultSectionVisibility: [String: Bool] = [
+        HomeFilterBarConfiguration.showsLibrarySectionsKey: false,
         "primuse.home.showHero": true,
         "primuse.home.showStatsGlimpse": true,
         "primuse.home.showForYou": true,
@@ -2346,6 +2363,21 @@ struct HomeView: View {
             .opacity(visible ? 1 : 0.55)
             .padding(.horizontal, 12)
     }
+
+    #if os(iOS)
+    private var librarySectionTabsEditorRow: some View {
+        editorBlockFrame(visible: true) {
+            Toggle("home_show_library_sections", isOn: $showsLibrarySections)
+                .padding(.horizontal, 20)
+                .accessibilityIdentifier("home.librarySectionTabs.toggle")
+            if showsLibrarySections, appNavigationMode == .standard {
+                StandardLibrarySectionTabs(selection: nil) { _ in }
+                    .allowsHitTesting(false)
+            }
+        }
+        .settingsAnchor("home.librarySectionTabs")
+    }
+    #endif
 
     /// 顶上的筛选胶囊钉在最上面,编辑态里一行预览,点按钮排顺序、开关每一颗。
     @ViewBuilder

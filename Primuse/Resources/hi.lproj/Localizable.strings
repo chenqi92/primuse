@@ -6880,3 +6880,14 @@
 "spoken_word_continue_style_featured" = "सबसे हाल की किताब प्रमुख";
 "spoken_word_continue_style_list" = "संक्षिप्त सूची";
 "spoken_word_book_unavailable" = "यह किताब उपलब्ध नहीं है। अपनी बुकशेल्फ़ से किताब चुनें।";
+
+"album_metadata_search" = "एल्बम मेटाडेटा खोजें";
+"album_metadata_sources_required" = "मेटाडेटा स्रोत सेटिंग में Apple Music या MusicBrainz चालू करें।";
+"album_metadata_match" = "ट्रैक मिलाएँ";
+"album_metadata_unmatched" = "यह फ़ाइल छोड़ें";
+"album_metadata_review" = "बदलावों की समीक्षा करें";
+"album_metadata_matched_format" = "%d / %d फ़ाइलों का मिलान हुआ · एल्बम में %d ट्रैक";
+"album_metadata_tracks_format" = "%d ट्रैक";
+"album_metadata_album_artist" = "एल्बम कलाकार";
+
+"home_show_library_sections" = "श्रेणी टैब दिखाएँ";

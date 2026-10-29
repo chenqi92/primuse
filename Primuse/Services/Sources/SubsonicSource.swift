@@ -1509,9 +1509,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     private func fetchServerFavoriteSnapshot() async throws -> ServerFavoriteSnapshot {
         let starred: Starred2Container = try await requestJSON("getStarred2")
+        let playableSongs = (starred.starred2?.song ?? []).reduce(into: [String: Song]()) { songs, child in
+            guard child.isVideo != true, songs[child.id] == nil else { return }
+            songs[child.id] = buildSong(from: child)
+        }
         return ServerFavoriteSnapshot(
             itemIDs: starred.starred2?.songIDs ?? [],
-            isComplete: (starred.starred2?.unreadableSongCount ?? 0) == 0
+            isComplete: (starred.starred2?.unreadableSongCount ?? 0) == 0,
+            playableSongs: playableSongs
         )
     }
 
@@ -2793,7 +2798,7 @@ private struct Starred2Container: SubsonicResponseContainer {
 private struct Starred2: Decodable {
     let songIDs: [String]
     let tracks: [ExternalPlaylistTrack]
-    /// 完整读出的曲目，只用来取封面。
+    /// 完整读出的曲目也用于补入尚未扫描到的服务器收藏。
     let song: [SubsonicChild]
     let album: [AlbumSummary]
     let artist: [SubsonicArtistID3]

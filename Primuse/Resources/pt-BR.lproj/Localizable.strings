@@ -6880,3 +6880,14 @@
 "spoken_word_continue_style_featured" = "Mais recente em destaque";
 "spoken_word_continue_style_list" = "Lista compacta";
 "spoken_word_book_unavailable" = "Este livro está indisponível. Escolha um livro na sua estante.";
+
+"album_metadata_search" = "Buscar metadados do álbum";
+"album_metadata_sources_required" = "Ative Apple Music ou MusicBrainz nos ajustes das fontes de metadados.";
+"album_metadata_match" = "Associar faixas";
+"album_metadata_unmatched" = "Ignorar este arquivo";
+"album_metadata_review" = "Revisar alterações";
+"album_metadata_matched_format" = "%d de %d arquivos associados · %d faixas do álbum";
+"album_metadata_tracks_format" = "%d faixas";
+"album_metadata_album_artist" = "Artista do álbum";
+
+"home_show_library_sections" = "Mostrar abas de categorias";

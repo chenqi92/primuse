@@ -6,6 +6,27 @@ import XCTest
 
 @MainActor
 final class SubsonicFavoriteWritebackTests: XCTestCase {
+    func testFavoritesIncludePlayableSongsBeforeTheCatalogHasBeenScanned() async throws {
+        let host = "favorite-unscanned.invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .unscannedStarred)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+
+        let snapshot = try await source.fetchServerFavorites()
+
+        XCTAssertTrue(snapshot.isComplete)
+        XCTAssertEqual(snapshot.itemIDs, ["new-song"])
+        let song = try XCTUnwrap(snapshot.playableSongs["new-song"])
+        XCTAssertEqual(song.sourceID, host)
+        XCTAssertEqual(song.filePath, "/songs/new-song.flac")
+        XCTAssertEqual(song.title, "New Song")
+        XCTAssertEqual(song.albumTitle, "New Album")
+        XCTAssertEqual(song.artistName, "Artist")
+        XCTAssertEqual(song.duration, 180)
+        XCTAssertEqual(SubsonicFavoriteURLProtocol.requests(host: host).compactMap(\.url?.path),
+                       ["/rest/ping.view", "/rest/getStarred2.view"])
+    }
+
     func testMissingInternetRadioAPIIsAnUnavailableCapability() async throws {
         let host = "missing-radio-" + UUID().uuidString.lowercased() + ".invalid"
         SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
@@ -197,6 +218,7 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
         case offline
         case confirmationMismatch
         case irregularStarred
+        case unscannedStarred
     }
 
     private struct State {
@@ -249,6 +271,8 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
         case "/rest/getStarred2.view" where state.mode == .irregularStarred:
             // 第二首 id 是数字、第三首年份写成字符串都还认得出；缺 id 的那首和坏专辑只丢它们自己。
             respond(json: #"{"subsonic-response":{"status":"ok","starred2":{"song":[{"id":"song-1"},{"id":42},{"id":"song-3","year":"2003"},{"title":"no id"}],"album":[{"id":"album-1","name":"A"},{"name":"no id"}]}}}"#)
+        case "/rest/getStarred2.view" where state.mode == .unscannedStarred:
+            respond(json: #"{"subsonic-response":{"status":"ok","starred2":{"song":[{"id":"new-song","title":"New Song","artist":"Artist","album":"New Album","duration":180,"suffix":"flac"}]}}}"#)
         case "/rest/getStarred2.view":
             respondWithStarredSnapshot(host: host)
         default:
@@ -274,7 +298,7 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
             fail(.timedOut)
         case .offline:
             fail(.notConnectedToInternet)
-        case .success, .confirmationMismatch, .irregularStarred:
+        case .success, .confirmationMismatch, .irregularStarred, .unscannedStarred:
             if state.mode == .success,
                let itemID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "id" })?.value {

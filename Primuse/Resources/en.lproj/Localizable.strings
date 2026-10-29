@@ -6735,3 +6735,14 @@
 "spoken_word_continue_style_featured" = "Latest featured";
 "spoken_word_continue_style_list" = "Compact list";
 "spoken_word_book_unavailable" = "This book is unavailable. Choose a book from your bookshelf.";
+
+"album_metadata_search" = "Find Album Metadata";
+"album_metadata_sources_required" = "Enable Apple Music or MusicBrainz in scraper settings to search albums.";
+"album_metadata_match" = "Match Tracks";
+"album_metadata_unmatched" = "Skip This File";
+"album_metadata_review" = "Review Changes";
+"album_metadata_matched_format" = "Matched %d of %d files · %d album tracks";
+"album_metadata_tracks_format" = "%d tracks";
+"album_metadata_album_artist" = "Album Artist";
+
+"home_show_library_sections" = "Show Category Tabs";

@@ -6974,3 +6974,14 @@
 "spoken_word_continue_style_featured" = "최근 도서 강조";
 "spoken_word_continue_style_list" = "간결한 목록";
 "spoken_word_book_unavailable" = "이 책을 사용할 수 없습니다. 책장에서 책을 다시 선택하세요.";
+
+"album_metadata_search" = "앨범 메타데이터 찾기";
+"album_metadata_sources_required" = "메타데이터 소스 설정에서 Apple Music 또는 MusicBrainz를 켜세요.";
+"album_metadata_match" = "트랙 연결";
+"album_metadata_unmatched" = "이 파일 건너뛰기";
+"album_metadata_review" = "변경 사항 검토";
+"album_metadata_matched_format" = "%d / %d개 파일 연결됨 · 앨범 트랙 %d개";
+"album_metadata_tracks_format" = "트랙 %d개";
+"album_metadata_album_artist" = "앨범 아티스트";
+
+"home_show_library_sections" = "카테고리 탭 표시";

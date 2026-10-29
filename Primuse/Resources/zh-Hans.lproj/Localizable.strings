@@ -7067,3 +7067,14 @@
 "spoken_word_continue_style_featured" = "最新优先";
 "spoken_word_continue_style_list" = "紧凑列表";
 "spoken_word_book_unavailable" = "这本书暂不可用，请在书架中重新选择。";
+
+"album_metadata_search" = "查找专辑元数据";
+"album_metadata_sources_required" = "请在刮削设置中启用 Apple Music 或 MusicBrainz 后搜索专辑。";
+"album_metadata_match" = "匹配曲目";
+"album_metadata_unmatched" = "跳过此文件";
+"album_metadata_review" = "确认标签修改";
+"album_metadata_matched_format" = "已匹配 %d / %d 个文件 · 专辑共 %d 首";
+"album_metadata_tracks_format" = "%d 首曲目";
+"album_metadata_album_artist" = "专辑艺术家";
+
+"home_show_library_sections" = "显示分类标签";

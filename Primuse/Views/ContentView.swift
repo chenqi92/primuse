@@ -922,8 +922,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     }
 }
 
-/// Stage 2 的启动占位。资料库发布之前渲染它, 所以这里一行库内容都不能读:
-/// 只有 App 背景 + 进度指示 + 一句本地化文案。
+/// 资料库发布前的内容占位；主导航已可使用，这里不读取尚未发布的曲库。
 private struct LibraryPreparingView: View {
     /// 资料库多数时候一两百毫秒就装好。一出来就转圈的话，每次冷启动都会闪一下
     /// 「准备资料库」；先只铺底色，真慢的时候再把进度亮出来。
@@ -948,6 +947,25 @@ private struct LibraryPreparingView: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             showsProgress = true
+        }
+    }
+}
+
+struct LibraryReadyContent<Content: View>: View {
+    @Environment(MusicLibrary.self) private var library
+    let title: LocalizedStringKey
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if library.isReady {
+            content()
+        } else {
+            NavigationStack {
+                LibraryPreparingView()
+                    .navigationTitle(title)
+                    .toolbarTitleDisplayMode(.inlineLarge)
+                    .minimalNavigationRoot()
+            }
         }
     }
 }
@@ -1174,11 +1192,13 @@ struct ContentView: View {
     private var tabRoot: some View {
         TabView(selection: searchAwareTabSelection) {
             Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                HomeView(
-                    switchToSettingsTab: { selectedTab = 3 },
-                    model: homeModel,
-                    openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
-                )
+                LibraryReadyContent(title: "home_title") {
+                    HomeView(
+                        switchToSettingsTab: { selectedTab = 3 },
+                        model: homeModel,
+                        openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
+                    )
+                }
                     .id("primuse.tab.home")
                     .environment(\.minimalNavigationDetailScope, .home)
                     .environment(\.librarySearchTab, 0)
@@ -1187,14 +1207,16 @@ struct ContentView: View {
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryView(
-                    deepLink: $libraryDeepLink,
-                    onActiveSectionChange: { section in
-                        guard navigationMode == .minimal else { return }
-                        minimalLibrarySection = section
-                        if let section { rememberMinimalSection(section) }
-                    }
-                )
+                LibraryReadyContent(title: "library_title") {
+                    LibraryView(
+                        deepLink: $libraryDeepLink,
+                        onActiveSectionChange: { section in
+                            guard navigationMode == .minimal else { return }
+                            minimalLibrarySection = section
+                            if let section { rememberMinimalSection(section) }
+                        }
+                    )
+                }
                 .environment(\.minimalNavigationDetailScope, .library)
                 .environment(\.librarySearchTab, 1)
                 .toolbar(systemTabBarVisibility, for: .tabBar)
@@ -1203,10 +1225,12 @@ struct ContentView: View {
 
             Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
                 value: 2, role: searchTabRole) {
-                SearchView(searchText: $searchText, scope: $searchScope,
+                LibraryReadyContent(title: "search_title") {
+                    SearchView(searchText: $searchText, scope: $searchScope,
                            activatesSearchField: $searchFieldActivationRequested,
                            requestsResultLayoutEditor: $searchLayoutEditorRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
+                }
                     .id("primuse.tab.search")
                     .environment(\.minimalNavigationDetailScope, .search)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
@@ -1415,7 +1439,15 @@ struct ContentView: View {
             .navigationTitle("Primuse")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
-            padDetail(for: sidebarSelection)
+            Group {
+                if sidebarSelection == .settings {
+                    padDetail(for: sidebarSelection)
+                } else {
+                    LibraryReadyContent(title: LocalizedStringKey(String(localized: sidebarSelection.titleKey))) {
+                        padDetail(for: sidebarSelection)
+                    }
+                }
+            }
                 .environment(\.librarySearchTab, sidebarSelection.rawValueTab)
                 .navigationStackBottomReserve(miniPlayerVisible ? padAccessoryHeight : 0)
         }
@@ -1545,9 +1577,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        // Stage 2: 资料库在主线程之外装载。就绪之前不渲染任何读库的界面 ——
-        // 既不能闪 onboarding (它由 SourcesStore 驱动, 但入口在下面这棵树的
-        // `.task` 里), 也不能闪"空资料库"状态。
+        // 导航先出现，各内容页等资料库发布后再挂载，避免把加载误呈现为空资料库。
         #if DEBUG
         let _ = PlayerUIUpdateDiagnostics.body("root")
         #endif
@@ -1556,7 +1586,7 @@ struct ContentView: View {
                 // 连续两次启动没跑完。这一支完全不碰首页、迷你播放条与入场
                 // 动画，落地页只有回执和发送入口，先保证他打得开。
                 LaunchSafeModeView()
-            } else if library.isReady {
+            } else {
                 mainContent
                     .environment(\.openLibraryDestination, { link in openLibraryDeepLink(link) })
                     .environment(\.presentSleepTimer, { showSleepTimerSheet = true })
@@ -1564,10 +1594,9 @@ struct ContentView: View {
                         SleepTimerSheet()
                             .environment(player)
                     }
-                    .onAppear { LaunchDiagnostics.mark(.homeFirstFrame) }
-            } else {
-                LibraryPreparingView()
-                    .onAppear { LaunchDiagnostics.mark(.preparingLibrary) }
+                    .onChange(of: library.isReady, initial: true) { _, ready in
+                        LaunchDiagnostics.mark(ready ? .homeFirstFrame : .preparingLibrary)
+                    }
             }
         }
         // 上次启动没跑完时的回执。挂在这一层而不是 `mainContent` 里：占位页要
@@ -1715,6 +1744,8 @@ struct ContentView: View {
                 selectedTab = restoredTab
                 sidebarSelection = .home
             }
+            await library.whenReady()
+            guard !Task.isCancelled else { return }
             activateMinimalLandingPageIfNeeded()
             // 展示前就写入“一次性”标记。这样即使用户在导览期间直接杀掉
             // App，下次启动也不会再次自动弹出；设置页仍可手动重看。
@@ -1731,14 +1762,14 @@ struct ContentView: View {
         }
         .onChange(of: navigationModeRawValue) { _, _ in
             if navigationMode == .minimal {
-                activateMinimalLandingPageIfNeeded()
+                if library.isReady { activateMinimalLandingPageIfNeeded() }
             } else {
                 synchronizeSidebarForCurrentSelection()
             }
         }
         .onChange(of: visibleLibrarySections) { _, _ in
             // 资料库设置里把正停着的分类藏了，或者有声内容都移走了：回到音乐。
-            guard navigationMode == .minimal, selectedTab == 1 else { return }
+            guard library.isReady, navigationMode == .minimal, selectedTab == 1 else { return }
             if let section = minimalLibrarySection, minimalSectionIsAvailable(section) { return }
             selectMinimalPage(.librarySection(minimalFallbackSection))
         }

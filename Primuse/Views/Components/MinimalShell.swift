@@ -236,11 +236,50 @@ private struct MinimalTopTabPicker: View {
     }
 }
 
+enum StandardLibrarySectionTabsPolicy {
+    static func sections(
+        enabled: Bool,
+        mode: AppNavigationMode,
+        selection: LibrarySection?,
+        visibleSections: [LibrarySection]
+    ) -> [LibrarySection] {
+        guard enabled, mode == .standard,
+              selection.map({ MinimalTopTab.tab(for: $0) == .music }) ?? true else { return [] }
+        return MinimalNavigationPolicy.musicSections(visibleSections: visibleSections)
+    }
+}
+
+struct StandardLibrarySectionTabs: View {
+    let selection: LibrarySection?
+    let onSelect: (LibrarySection) -> Void
+    @Environment(\.appNavigationMode) private var navigationMode
+    @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var enabled = false
+    @AppStorage(LibraryDisplayConfiguration.sectionOrderKey) private var orderRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey) private var hiddenRawValue = ""
+
+    var body: some View {
+        let sections = StandardLibrarySectionTabsPolicy.sections(
+            enabled: enabled, mode: navigationMode, selection: selection,
+            visibleSections: LibraryDisplayConfiguration.visibleSections(
+                orderRawValue: orderRawValue, hiddenRawValue: hiddenRawValue
+            )
+        )
+        if !sections.isEmpty {
+            MinimalSectionTabs(
+                sections: sections, selection: selection, onSelect: onSelect,
+                accessibilityPrefix: "library.sectionTab"
+            )
+            .pmPinnedRowStopsAtVerticalBar()
+        }
+    }
+}
+
 /// 音乐下面的分类：选中的字加粗变墨色，底下一道主题色短线。
 private struct MinimalSectionTabs: View {
     let sections: [LibrarySection]
     let selection: LibrarySection?
     let onSelect: (LibrarySection) -> Void
+    var accessibilityPrefix = "minimal.section"
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var underline
@@ -295,7 +334,7 @@ private struct MinimalSectionTabs: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("minimal.section.\(section.rawValue)")
+        .accessibilityIdentifier("\(accessibilityPrefix).\(section.rawValue)")
     }
 }
 

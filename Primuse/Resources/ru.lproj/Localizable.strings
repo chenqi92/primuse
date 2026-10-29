@@ -6880,3 +6880,14 @@
 "spoken_word_continue_style_featured" = "Последняя книга крупно";
 "spoken_word_continue_style_list" = "Компактный список";
 "spoken_word_book_unavailable" = "Эта книга недоступна. Выберите книгу на книжной полке.";
+
+"album_metadata_search" = "Найти метаданные альбома";
+"album_metadata_sources_required" = "Включите Apple Music или MusicBrainz в настройках поиска метаданных.";
+"album_metadata_match" = "Сопоставить треки";
+"album_metadata_unmatched" = "Пропустить файл";
+"album_metadata_review" = "Проверить изменения";
+"album_metadata_matched_format" = "Сопоставлено %d из %d файлов · В альбоме: %d";
+"album_metadata_tracks_format" = "Треков: %d";
+"album_metadata_album_artist" = "Исполнитель альбома";
+
+"home_show_library_sections" = "Показывать вкладки категорий";

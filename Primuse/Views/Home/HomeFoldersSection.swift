@@ -440,6 +440,7 @@ struct HomeFolderBrowser: View {
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderSongOrderPreference.storageKey) private var songOrderRawValue = ""
+    @State private var albumMetadataSelection: BatchSongSelection?
 
     private var songOrder: HomeFolderSongOrder { HomeFolderSongOrder(storageValue: songOrderRawValue) }
 
@@ -554,10 +555,16 @@ struct HomeFolderBrowser: View {
         .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision, order: songOrder)) {
             await refreshDirectSongIDs()
         }
+        .sheet(item: $albumMetadataSelection) { batch in
+            AlbumMetadataView(songs: batch.songs)
+        }
         #else
         folderList
             .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision, order: songOrder)) {
                 await refreshDirectSongIDs()
+            }
+            .sheet(item: $albumMetadataSelection) { batch in
+                AlbumMetadataView(songs: batch.songs)
             }
         #endif
     }
@@ -744,6 +751,7 @@ struct HomeFolderBrowser: View {
             }
             .disabled(node.descendantSongCount == 0)
         }
+        albumMetadataButton(node)
         if FolderPlaylistMenuButton.supports(node) {
             FolderPlaylistMenuButton(
                 node: node,
@@ -1002,6 +1010,7 @@ struct HomeFolderBrowser: View {
                     .accessibilityLabel(HomeDiscoveryText.string("folder_song_order"))
                     if FolderPlaylistMenuButton.supports(node) {
                         Menu {
+                            albumMetadataButton(node)
                             FolderPlaylistMenuButton(
                                 node: node,
                                 index: model.index,
@@ -1089,6 +1098,7 @@ struct HomeFolderBrowser: View {
             .disabled(child.descendantSongCount == 0)
         Button("shuffle", systemImage: "shuffle") { playFolder(child.id, shuffle: true) }
             .disabled(child.descendantSongCount == 0)
+        albumMetadataButton(child)
         FolderPlaylistMenuButton(
             node: child,
             index: model.index,
@@ -1199,6 +1209,7 @@ struct HomeFolderBrowser: View {
             } label: {
                 HomeFolderChildLabel(node: child)
             }
+            .contextMenu { albumMetadataButton(child) }
             pinButton(child.id)
             #endif
         }
@@ -1245,6 +1256,17 @@ struct HomeFolderBrowser: View {
 
     private func playFolder(_ id: LibraryFolderNodeID, shuffle: Bool) {
         HomeDiscoveryPlayback.playFolder(id, shuffle: shuffle, model: model, library: library, player: player)
+    }
+
+    private func albumMetadataButton(_ node: LibraryFolderNode) -> some View {
+        Button("album_metadata_search", systemImage: "square.stack") {
+            let ids = model.index?.songIDs(in: node.id, scope: .descendants) ?? []
+            albumMetadataSelection = BatchSongSelection(
+                songs: ids.compactMap { library.unobservedVisibleSong(id: $0) }
+            )
+        }
+        .disabled(node.descendantSongCount == 0 || node.sourceID == AppleMusicLibraryIdentity.sourceID)
+        .accessibilityIdentifier("folder.albumMetadata")
     }
 }
 

@@ -1,7 +1,7 @@
 import Foundation
 import PrimuseKit
 
-actor MusicBrainzScraper: MusicScraper {
+actor MusicBrainzScraper: AlbumMusicScraper {
     let type = MusicScraperType.musicBrainz
 
     private let session: URLSession
@@ -128,6 +128,90 @@ actor MusicBrainzScraper: MusicScraper {
             sourceConfig: .init(id: type.rawValue, type: type, isEnabled: true, priority: 0),
             session: session
         )
+    }
+
+    func searchAlbums(title: String, artist: String?, limit: Int) async throws -> [ScraperAlbum] {
+        var query = Self.literalClause(field: "release", value: title)
+        if let artist, !artist.isEmpty { query += " AND " + Self.literalClause(field: "artist", value: artist) }
+        var components = URLComponents(string: "https://musicbrainz.org/ws/2/release/")!
+        components.queryItems = [URLQueryItem(name: "query", value: query),
+                                URLQueryItem(name: "fmt", value: "json"),
+                                URLQueryItem(name: "limit", value: String(min(max(limit, 1), 100)))]
+        let data = try await throttledRequest(url: components.url!)
+        return try JSONDecoder().decode(AlbumSearchResponse.self, from: data).releases.map { release in
+            ScraperAlbum(externalID: release.id, source: .musicBrainz, title: release.title,
+                         artist: release.artist, year: release.year,
+                         trackCount: release.trackCount ?? release.media?.compactMap(\.trackCount).reduce(0, +),
+                         edition: [release.country, release.disambiguation].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+        }
+    }
+
+    func albumTracks(externalID: String) async throws -> [ScraperDetail] {
+        guard UUID(uuidString: externalID) != nil else { throw ScraperError.notFound }
+        var components = URLComponents(string: "https://musicbrainz.org/ws/2/release/" + externalID)!
+        components.queryItems = [URLQueryItem(name: "inc", value: "recordings+artist-credits"),
+                                URLQueryItem(name: "fmt", value: "json")]
+        let data = try await throttledRequest(url: components.url!)
+        let album = try JSONDecoder().decode(AlbumRelease.self, from: data)
+        return (album.media ?? []).flatMap { medium in
+            (medium.tracks ?? []).map { track in
+                ScraperDetail(externalId: track.id, source: .musicBrainz, title: track.title,
+                              artist: Self.creditName(track.artistCredit) ?? track.recording?.primaryArtistName ?? album.artist,
+                              albumArtist: album.artist, album: album.title, year: album.year,
+                              trackNumber: track.position, discNumber: medium.position,
+                              durationMs: track.length ?? track.recording?.length)
+            }
+        }
+    }
+
+    private static func creditName(_ credits: [AlbumArtistCredit]?) -> String? {
+        let text = credits?.map { ($0.name ?? $0.artist?.name ?? "") + ($0.joinphrase ?? "") }.joined()
+        return text?.isEmpty == false ? text : nil
+    }
+
+    private struct AlbumSearchResponse: Decodable { let releases: [AlbumRelease] }
+    private struct AlbumArtistCredit: Decodable {
+        let name: String?
+        let artist: MBArtist?
+        let joinphrase: String?
+    }
+    private struct AlbumRelease: Decodable {
+        let id: String
+        let title: String
+        let date: String?
+        let country: String?
+        let disambiguation: String?
+        let trackCount: Int?
+        let artistCredit: [AlbumArtistCredit]?
+        let media: [AlbumMedium]?
+        var artist: String? { MusicBrainzScraper.creditName(artistCredit) }
+        var year: Int? { date.flatMap { Int($0.prefix(4)) } }
+        enum CodingKeys: String, CodingKey {
+            case id, title, date, country, disambiguation, media
+            case trackCount = "track-count"
+            case artistCredit = "artist-credit"
+        }
+    }
+    private struct AlbumMedium: Decodable {
+        let position: Int?
+        let trackCount: Int?
+        let tracks: [AlbumTrack]?
+        enum CodingKeys: String, CodingKey {
+            case position, tracks
+            case trackCount = "track-count"
+        }
+    }
+    private struct AlbumTrack: Decodable {
+        let id: String
+        let title: String
+        let position: Int?
+        let length: Int?
+        let artistCredit: [AlbumArtistCredit]?
+        let recording: MBRecording?
+        enum CodingKeys: String, CodingKey {
+            case id, title, position, length, recording
+            case artistCredit = "artist-credit"
+        }
     }
 
     // MARK: - Rate Limiting

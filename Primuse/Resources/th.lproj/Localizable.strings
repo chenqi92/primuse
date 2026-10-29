@@ -6880,3 +6880,14 @@
 "spoken_word_continue_style_featured" = "เน้นเล่มล่าสุด";
 "spoken_word_continue_style_list" = "รายการแบบกะทัดรัด";
 "spoken_word_book_unavailable" = "หนังสือเล่มนี้ไม่พร้อมใช้งาน โปรดเลือกหนังสือจากชั้นหนังสือ";
+
+"album_metadata_search" = "ค้นหาข้อมูลเมตาของอัลบั้ม";
+"album_metadata_sources_required" = "เปิดใช้ Apple Music หรือ MusicBrainz ในการตั้งค่าแหล่งข้อมูลเมตา";
+"album_metadata_match" = "จับคู่แทร็ก";
+"album_metadata_unmatched" = "ข้ามไฟล์นี้";
+"album_metadata_review" = "ตรวจสอบการเปลี่ยนแปลง";
+"album_metadata_matched_format" = "จับคู่แล้ว %d จาก %d ไฟล์ · อัลบั้มมี %d แทร็ก";
+"album_metadata_tracks_format" = "%d แทร็ก";
+"album_metadata_album_artist" = "ศิลปินอัลบั้ม";
+
+"home_show_library_sections" = "แสดงแท็บหมวดหมู่";

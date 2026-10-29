@@ -6880,3 +6880,14 @@
 "spoken_word_continue_style_featured" = "Son kitabı öne çıkar";
 "spoken_word_continue_style_list" = "Kompakt liste";
 "spoken_word_book_unavailable" = "Bu kitap kullanılamıyor. Kitaplığınızdan bir kitap seçin.";
+
+"album_metadata_search" = "Albüm meta verilerini bul";
+"album_metadata_sources_required" = "Meta veri kaynağı ayarlarında Apple Music veya MusicBrainz’i etkinleştirin.";
+"album_metadata_match" = "Parçaları eşleştir";
+"album_metadata_unmatched" = "Bu dosyayı atla";
+"album_metadata_review" = "Değişiklikleri incele";
+"album_metadata_matched_format" = "%d / %d dosya eşleştirildi · Albümde %d parça";
+"album_metadata_tracks_format" = "%d parça";
+"album_metadata_album_artist" = "Albüm sanatçısı";
+
+"home_show_library_sections" = "Kategori sekmelerini göster";

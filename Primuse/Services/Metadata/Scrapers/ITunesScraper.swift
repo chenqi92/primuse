@@ -4,7 +4,7 @@ import PrimuseKit
 /// Native scraper backed by Apple's public iTunes Search API.
 /// Documentation: https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/
 /// No auth required; Apple's loose rate limit is ~20 req/min/IP.
-actor ITunesScraper: MusicScraper {
+actor ITunesScraper: AlbumMusicScraper {
     let type = MusicScraperType.itunes
 
     private let session: URLSession
@@ -106,6 +106,44 @@ actor ITunesScraper: MusicScraper {
         nil // iTunes Search API doesn't expose lyrics.
     }
 
+    func searchAlbums(title: String, artist: String?, limit: Int) async throws -> [ScraperAlbum] {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: [title, artist].compactMap { $0 }.joined(separator: " ")),
+            URLQueryItem(name: "media", value: "music"),
+            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "limit", value: String(min(max(limit, 1), 200))),
+        ]
+        let data = try await throttledRequest(url: components.url!)
+        return try JSONDecoder().decode(ITunesSearchResult.self, from: data).results.compactMap { album in
+            guard let id = album.collectionId, let title = album.collectionName else { return nil }
+            return ScraperAlbum(externalID: String(id), source: .itunes, title: title,
+                                artist: album.artistName, year: album.releaseYear, trackCount: album.trackCount)
+        }
+    }
+
+    func albumTracks(externalID: String) async throws -> [ScraperDetail] {
+        var components = URLComponents(string: "https://itunes.apple.com/lookup")!
+        components.queryItems = [URLQueryItem(name: "id", value: externalID),
+                                URLQueryItem(name: "entity", value: "song"),
+                                URLQueryItem(name: "limit", value: "200")]
+        let data = try await throttledRequest(url: components.url!)
+        let rows = try JSONDecoder().decode(ITunesSearchResult.self, from: data).results
+        let album = rows.first { $0.trackId == nil && $0.collectionId.map(String.init) == externalID }
+        var seen = Set<Int>()
+        return rows.compactMap { track in
+            guard track.collectionId.map(String.init) == externalID,
+                  let id = track.trackId, let title = track.trackName, seen.insert(id).inserted else { return nil }
+            return ScraperDetail(externalId: String(id), source: .itunes, title: title,
+                                 artist: track.artistName, albumArtist: album?.artistName,
+                                 album: album?.collectionName ?? track.collectionName,
+                                 year: album?.releaseYear ?? track.releaseYear,
+                                 trackNumber: track.trackNumber, discNumber: track.discNumber,
+                                 durationMs: track.trackTimeMillis,
+                                 genres: track.primaryGenreName.map { [$0] }, coverUrl: track.coverURL(size: 600))
+        }
+    }
+
     // MARK: - Private
 
     private func lookup(id: String) async throws -> ITunesTrack? {
@@ -149,6 +187,8 @@ actor ITunesScraper: MusicScraper {
     }
 
     private struct ITunesTrack: Decodable {
+        let collectionId: Int?
+        let trackCount: Int?
         let trackId: Int?
         let trackName: String?
         let artistName: String?

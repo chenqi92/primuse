@@ -5,6 +5,23 @@ import XCTest
 
 @MainActor
 final class ServerFavoriteSyncServiceTests: XCTestCase {
+    func testNavidromeRefreshAdmitsEightFavoritesMissingFromTheLocalCatalog() async {
+        let source = makeSource(type: .navidrome)
+        let existing = makeSong(sourceID: source.id, path: "/songs/existing.flac")
+        let missing = (1...8).map { makeSong(sourceID: source.id, path: "/songs/new-\($0).flac") }
+        let manager = FavoriteManagerFake()
+        manager.serverItemIDs = Set(["existing"] + (1...8).map { "new-\($0)" })
+        manager.playableSongs = Dictionary(uniqueKeysWithValues: zip((1...8).map { "new-\($0)" }, missing))
+        let library = FavoriteLibraryFake(songs: [existing])
+        let service = makeService(source: source, manager: manager, library: library)
+
+        await service.refresh(source: source)
+
+        XCTAssertEqual(library.songs.count, 9)
+        XCTAssertTrue(library.songs.allSatisfy { library.isLiked(songID: $0.id) })
+        XCTAssertTrue(manager.setCalls.isEmpty, "Reading another client's favorites must not write back to the server")
+    }
+
     func testFnMusicFavoritesUseTrackGUIDsForRefreshAndWriteback() async {
         let source = makeSource(type: .fnMusic)
         let song = makeSong(sourceID: source.id, path: "/fnmusic/tracks/song-1.flac")
@@ -464,6 +481,7 @@ private final class FavoriteManagerFake: ServerFavoriteManaging {
 
     var serverItemIDs = Set<String>()
     var isComplete = true
+    var playableSongs: [String: Song] = [:]
     var setError: Error?
     var fetchError: Error?
     private(set) var setCalls: [SetCall] = []
@@ -473,13 +491,13 @@ private final class FavoriteManagerFake: ServerFavoriteManaging {
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
         fetchForSourceCount += 1
         if let fetchError { throw fetchError }
-        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs), isComplete: isComplete)
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs), isComplete: isComplete, playableSongs: playableSongs)
     }
 
     func fetchServerFavorites(sourceID: String) async throws -> ServerFavoriteSnapshot? {
         fetchBySourceIDCount += 1
         if let fetchError { throw fetchError }
-        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs), isComplete: isComplete)
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs), isComplete: isComplete, playableSongs: playableSongs)
     }
 
     func setServerFavorite(
@@ -731,12 +749,17 @@ private final class FavoriteSourcesFake: ServerFavoriteSourcesProviding {
 
 @MainActor
 private final class FavoriteLibraryFake: ServerFavoriteLibraryManaging {
-    let songs: [Song]
+    private(set) var songs: [Song]
     private var likedSongIDs = Set<String>()
     private(set) var errorMessages: [String] = []
 
     init(songs: [Song]) {
         self.songs = songs
+    }
+
+    func admitCollectionOnlySongs(_ incoming: [Song], sourceID: String, indexMaintenance: LibraryMaintenanceDisposition) {
+        let existingIDs = Set(songs.map(\.id))
+        songs += incoming.filter { $0.sourceID == sourceID && !existingIDs.contains($0.id) }
     }
 
     func setLocalLiked(_ songID: String, _ isLiked: Bool) {

@@ -6880,3 +6880,14 @@
 "spoken_word_continue_style_featured" = "إبراز أحدث كتاب";
 "spoken_word_continue_style_list" = "قائمة مختصرة";
 "spoken_word_book_unavailable" = "هذا الكتاب غير متاح. اختر كتابًا من مكتبتك.";
+
+"album_metadata_search" = "البحث عن بيانات الألبوم";
+"album_metadata_sources_required" = "فعّل Apple Music أو MusicBrainz في إعدادات مصادر البيانات الوصفية.";
+"album_metadata_match" = "مطابقة المقاطع";
+"album_metadata_unmatched" = "تخطي هذا الملف";
+"album_metadata_review" = "مراجعة التغييرات";
+"album_metadata_matched_format" = "تمت مطابقة %d من %d ملف · %d مقطع في الألبوم";
+"album_metadata_tracks_format" = "%d مقطع";
+"album_metadata_album_artist" = "فنان الألبوم";
+
+"home_show_library_sections" = "إظهار علامات تبويب الفئات";

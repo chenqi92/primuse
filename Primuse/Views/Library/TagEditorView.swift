@@ -466,6 +466,7 @@ struct TagEditorView: View {
         switch field {
         case .title: title
         case .artist: artist
+        case .albumArtist: song.albumArtistName ?? ""
         case .album: album
         case .genre: genre
         case .year: yearText
@@ -479,6 +480,7 @@ struct TagEditorView: View {
         switch proposal.field {
         case .title: title = value
         case .artist: artist = value
+        case .albumArtist: break
         case .album: album = value
         case .genre: genre = value
         case .year: yearText = value

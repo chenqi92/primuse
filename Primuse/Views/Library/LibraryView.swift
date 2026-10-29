@@ -465,6 +465,7 @@ struct LibraryView: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.openLibraryDestination) private var openLibraryDestination
     @Environment(\.pmHeightClass) private var heightClass
     /// 极简导航没有首页:「开始听」那一行卡片放在「歌曲」页顶上,可在界面编辑里关。
     @AppStorage(ListeningIntentService.minimalSongsVisibilityKey) private var showsMinimalStartListening = true
@@ -575,6 +576,11 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             rootContent
+            #if os(iOS)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                standardSectionTabs(selection: rootSection)
+            }
+            #endif
             .navigationTitle(rootSection?.title ?? "library_title")
             .toolbarTitleDisplayMode(.inlineLarge)
             .pmVerticalBarTitleEdge()
@@ -691,6 +697,11 @@ struct LibraryView: View {
 
     private func sectionDestination(_ section: LibrarySection) -> some View {
         destination(for: section)
+            #if os(iOS)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                standardSectionTabs(selection: section)
+            }
+            #endif
             .environment(\.libraryStackRegistersCollectionDetails, true)
             .navigationTitle(section.title)
             .toolbarTitleDisplayMode(.inline)
@@ -703,6 +714,20 @@ struct LibraryView: View {
                 onActiveSectionChange(section)
             }
     }
+
+    #if os(iOS)
+    private func standardSectionTabs(selection: LibrarySection?) -> some View {
+        StandardLibrarySectionTabs(selection: selection) { section in
+            guard section != selection else { return }
+            if rootSection == nil {
+                applyDeepLink(.section(section))
+            } else {
+                openLibraryDestination?(.section(section))
+            }
+        }
+        .background(.bar)
+    }
+    #endif
 
     private var libraryHub: some View {
         let previewRevision = artworkPreviewRevision

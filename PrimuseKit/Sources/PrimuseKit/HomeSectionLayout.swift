@@ -587,6 +587,7 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
 /// 只有 `labelStyle`、没有 `order`,不认识这个字段的老版本解不出来,照旧当成跟着区块走。
 public struct HomeFilterBarConfiguration: Equatable, Sendable {
     public static let storageKey = "primuse.home.filterBar.v1"
+    public static let showsLibrarySectionsKey = "primuse.home.showsLibrarySections.v1"
 
     public static let defaultOrder: [ListeningSpace] = [.music, .radio, .spokenWord, .podcast]
 

@@ -6951,3 +6951,14 @@
 "spoken_word_continue_style_featured" = "最新優先";
 "spoken_word_continue_style_list" = "精簡列表";
 "spoken_word_book_unavailable" = "這本書暫時無法使用，請在書架中重新選擇。";
+
+"album_metadata_search" = "尋找專輯中繼資料";
+"album_metadata_sources_required" = "請在刮削設定中啟用 Apple Music 或 MusicBrainz 後搜尋專輯。";
+"album_metadata_match" = "配對曲目";
+"album_metadata_unmatched" = "略過此檔案";
+"album_metadata_review" = "確認標籤修改";
+"album_metadata_matched_format" = "已配對 %d / %d 個檔案 · 專輯共 %d 首";
+"album_metadata_tracks_format" = "%d 首曲目";
+"album_metadata_album_artist" = "專輯藝人";
+
+"home_show_library_sections" = "顯示分類標籤";

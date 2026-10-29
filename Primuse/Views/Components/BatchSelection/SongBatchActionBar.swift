@@ -280,6 +280,7 @@ private struct SongBatchActionsModifier: ViewModifier {
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var batchEditSelection: BatchSongSelection?
     @State private var tagTidySelection: BatchSongSelection?
+    @State private var albumMetadataSelection: BatchSongSelection?
 
     private struct PendingDeletion: Identifiable {
         let id = UUID()
@@ -314,6 +315,9 @@ private struct SongBatchActionsModifier: ViewModifier {
                 TagTidyView(songs: batch.songs) {
                     selection.deactivate()
                 }
+            }
+            .sheet(item: $albumMetadataSelection) { batch in
+                AlbumMetadataView(songs: batch.songs)
             }
             .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
                 playMedley(songs)
@@ -583,6 +587,11 @@ private struct SongBatchActionsModifier: ViewModifier {
                     Label("offline_download", systemImage: "arrow.down.circle")
                 }
             }
+
+            Button("album_metadata_search", systemImage: "square.stack") {
+                albumMetadataSelection = BatchSongSelection(songs: editableSelection())
+            }
+            .disabled(onlyAppleMusic)
 
             Menu {
                 Button("scrape_parts_all", systemImage: "wand.and.stars") { startScrape(parts: .all) }

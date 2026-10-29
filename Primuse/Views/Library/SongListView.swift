@@ -4568,6 +4568,8 @@ private struct LibraryFolderNodeBranch: View {
     @Binding var sortOrder: SongListView.SongSortOrder
     let onOpenFolder: ((LibraryFolderNodeID) -> Void)?
 
+    @Environment(MusicLibrary.self) private var library
+    @State private var albumMetadataSelection: BatchSongSelection?
     @State private var isExpanded = false
 
     @ViewBuilder
@@ -4679,6 +4681,12 @@ private struct LibraryFolderNodeBranch: View {
         }
         // The menu must outlive the navigation-to-selection content change.
         .contextMenu {
+            Button("album_metadata_search", systemImage: "square.stack") {
+                albumMetadataSelection = BatchSongSelection(
+                    songs: actionSongIDs().compactMap { library.unobservedVisibleSong(id: $0) }
+                )
+            }
+            .disabled(node.descendantSongCount == 0)
             Button {
                 selection.activate()
                 selection.selectAll(actionSongIDs())
@@ -4686,6 +4694,9 @@ private struct LibraryFolderNodeBranch: View {
                 Label("batch_select", systemImage: "checkmark.circle")
             }
             .disabled(node.descendantSongCount == 0)
+        }
+        .sheet(item: $albumMetadataSelection) { batch in
+            AlbumMetadataView(songs: batch.songs)
         }
         .accessibilityAction(named: Text("batch_select")) {
             selection.activate()

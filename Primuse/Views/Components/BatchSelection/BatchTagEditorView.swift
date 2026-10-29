@@ -843,6 +843,7 @@ extension TagCleanupField {
         switch self {
         case .title: "tag_editor_title"
         case .artist: "tag_editor_artist"
+        case .albumArtist: "album_metadata_album_artist"
         case .album: "tag_editor_album"
         case .genre: "tag_editor_genre"
         case .year: "tag_editor_year"
@@ -855,6 +856,7 @@ extension TagCleanupField {
         switch self {
         case .title: 0
         case .artist: 1
+        case .albumArtist: 7
         case .album: 2
         case .genre: 3
         case .year: 4

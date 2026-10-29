@@ -6975,3 +6975,14 @@
 "spoken_word_continue_style_featured" = "最新の本を強調";
 "spoken_word_continue_style_list" = "コンパクトなリスト";
 "spoken_word_book_unavailable" = "この本は利用できません。本棚から本を選び直してください。";
+
+"album_metadata_search" = "アルバムのメタデータを検索";
+"album_metadata_sources_required" = "メタデータの取得元の設定で Apple Music または MusicBrainz を有効にしてください。";
+"album_metadata_match" = "曲を対応付ける";
+"album_metadata_unmatched" = "このファイルをスキップ";
+"album_metadata_review" = "変更を確認";
+"album_metadata_matched_format" = "%d / %d ファイルを対応付け · アルバム全 %d 曲";
+"album_metadata_tracks_format" = "%d 曲";
+"album_metadata_album_artist" = "アルバムアーティスト";
+
+"home_show_library_sections" = "カテゴリタブを表示";

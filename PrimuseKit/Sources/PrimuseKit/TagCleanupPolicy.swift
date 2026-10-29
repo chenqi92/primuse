@@ -4,6 +4,7 @@ import Foundation
 public enum TagCleanupField: String, Codable, CaseIterable, Hashable, Sendable {
     case title
     case artist
+    case albumArtist
     case album
     case genre
     case year
@@ -37,6 +38,7 @@ public struct TagCleanupSong: Equatable, Sendable {
     public var id: String
     public var title: String
     public var artist: String?
+    public var albumArtist: String?
     public var album: String?
     public var genre: String?
     public var year: Int?
@@ -48,6 +50,7 @@ public struct TagCleanupSong: Equatable, Sendable {
         id: String,
         title: String,
         artist: String? = nil,
+        albumArtist: String? = nil,
         album: String? = nil,
         genre: String? = nil,
         year: Int? = nil,
@@ -58,6 +61,7 @@ public struct TagCleanupSong: Equatable, Sendable {
         self.id = id
         self.title = title
         self.artist = artist
+        self.albumArtist = albumArtist
         self.album = album
         self.genre = genre
         self.year = year
@@ -70,6 +74,7 @@ public struct TagCleanupSong: Equatable, Sendable {
         switch field {
         case .title: return title
         case .artist: return artist
+        case .albumArtist: return albumArtist
         case .album: return album
         case .genre: return genre
         case .year: return year.map(String.init)
@@ -406,6 +411,7 @@ public enum TagCleanupPolicy {
         switch field {
         case .title: song.title = value ?? ""
         case .artist: song.artist = value
+        case .albumArtist: song.albumArtist = value
         case .album: song.album = value
         case .genre: song.genre = value
         case .year: song.year = value.flatMap { Int($0) }
