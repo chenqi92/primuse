@@ -3374,7 +3374,8 @@
 "player_blur_inactive_lyrics" = "Inaktiven Liedtext weichzeichnen";
 "player_blur_inactive_lyrics_description" = "Synchronisierte Liedtexte außer der aktuellen Zeile werden leicht weichgezeichnet, damit die aktuelle Zeile hervorsticht.";
 "player_lyrics_motion" = "Zeilenwechsel";
-"player_lyrics_motion_description" = "Kaskade: Beim Zeilenwechsel folgen die Zeilen darunter nacheinander und federn sanft ein; je weiter eine Zeile von der aktuellen entfernt ist, desto blasser und unschärfer. Fließend: Der ganze Text scrollt gemeinsam zur nächsten Zeile. Bei „Bewegung reduzieren“, im Stromsparmodus oder bei heißem Gerät immer Fließend.";
+"player_lyrics_motion_pulse" = "Pulsieren";
+"player_lyrics_motion_description" = "Pulsieren: Die aktuelle Zeile wird größer, federt sanft zurück und nimmt ihre hervorgehobene Größe an. Kaskade: Beim Zeilenwechsel folgen die Zeilen darunter nacheinander und federn sanft ein; je weiter eine Zeile von der aktuellen entfernt ist, desto blasser und unschärfer. Fließend: Der ganze Text scrollt gemeinsam zur nächsten Zeile. Bei „Bewegung reduzieren“, im Stromsparmodus oder bei heißem Gerät immer Fließend.";
 "player_lyrics_motion_standard" = "Fließend";
 "player_lyrics_motion_cascade" = "Kaskade";
 "player_keep_screen_awake_title" = "Bildschirm im Player wach halten";

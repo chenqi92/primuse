@@ -314,6 +314,7 @@ enum PlayerLyricsMotion: String, CaseIterable, Identifiable {
     case standard
     /// 一行接一行跟上来、像弹簧一样落位,离当前句越远越淡越虚(`LyricCascadeMotionPolicy`)。
     case cascade
+    case pulse
 
     static let defaultValue = PlayerLyricsMotion.standard
 
@@ -323,6 +324,7 @@ enum PlayerLyricsMotion: String, CaseIterable, Identifiable {
         switch self {
         case .standard: "player_lyrics_motion_standard"
         case .cascade: "player_lyrics_motion_cascade"
+        case .pulse: "player_lyrics_motion_pulse"
         }
     }
 }

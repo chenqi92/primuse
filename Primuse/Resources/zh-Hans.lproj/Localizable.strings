@@ -3476,7 +3476,8 @@
 "player_blur_inactive_lyrics" = "非当前歌词模糊";
 "player_blur_inactive_lyrics_description" = "轻微模糊当前行以外的同步歌词，突出正在播放的歌词。";
 "player_lyrics_motion" = "换句滚动";
-"player_lyrics_motion_description" = "层叠弹性：换句时下面的歌词一行接一行跟上来，像弹簧一样落位，离当前句越远越淡、越虚。整体平滑：整份歌词一起滚到下一句。开着「减弱动态效果」、低电量模式或机身发热时照旧整体平滑。";
+"player_lyrics_motion_pulse" = "跃动缩放";
+"player_lyrics_motion_description" = "跃动缩放：当前句放大、轻轻回弹，再恢复高亮大小。层叠弹性：换句时下面的歌词一行接一行跟上来，像弹簧一样落位，离当前句越远越淡、越虚。整体平滑：整份歌词一起滚到下一句。开着「减弱动态效果」、低电量模式或机身发热时照旧整体平滑。";
 "player_lyrics_motion_standard" = "整体平滑";
 "player_lyrics_motion_cascade" = "层叠弹性";
 "player_keep_screen_awake_title" = "播放器界面保持屏幕常亮";

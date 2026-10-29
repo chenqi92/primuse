@@ -10,6 +10,7 @@ struct LyricsEditorSheet: View {
     let song: Song
     var autoStartsAudioTranscription = false
     var onSave: ((Song) -> Void)?
+    var onLoad: ((Song, [LyricLine]) -> Void)?
 
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
@@ -189,6 +190,7 @@ struct LyricsEditorSheet: View {
         sourceSnapshot = loaded.sourceSnapshot
         cacheSnapshot = loaded.cacheSnapshot
         hasSourceConflict = loaded.hasSourceConflict
+        onLoad?(song, loaded.playbackLines)
         // 歌词到手就能开始编辑。写回目标只有按「完成」时才用得上，让它在后台
         // 探完，不必把整个编辑器挡在后面。
         isLoading = false

@@ -1859,9 +1859,10 @@ struct LyricsEditorView: View {
                 || line.supportsBilingualLRCTranslation
                 || allowsStructuredOnlyTranslationEditing {
                 let translationLayoutDirection = manualTranslationLayoutDirection(for: line)
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                HStack(alignment: .top, spacing: 7) {
                     Image(systemName: "globe")
                         .font(.system(size: 10, weight: .medium))
+                        .frame(width: 14, height: 14)
                         .foregroundStyle(.tertiary)
                         .accessibilityHidden(true)
 
@@ -1872,6 +1873,7 @@ struct LyricsEditorView: View {
                     )
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
+                    .frame(minHeight: 20, alignment: .top)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(
                         translationLayoutDirection == .rightToLeft ? .trailing : .leading
@@ -1886,9 +1888,10 @@ struct LyricsEditorView: View {
             // 既有的那一条, 不提供新增。
             if mode == .text,
                line.romanization != nil || allowsStructuredOnlyTranslationEditing {
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                HStack(alignment: .top, spacing: 7) {
                     Image(systemName: "textformat.abc")
                         .font(.system(size: 10, weight: .medium))
+                        .frame(width: 14, height: 14)
                         .foregroundStyle(.tertiary)
                         .accessibilityHidden(true)
 
@@ -1899,6 +1902,7 @@ struct LyricsEditorView: View {
                     )
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
+                    .frame(minHeight: 20, alignment: .top)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .focused($focusedRomanizationLine, equals: line.id)

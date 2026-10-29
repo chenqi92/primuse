@@ -3145,7 +3145,8 @@
 "player_blur_inactive_lyrics" = "Blur Inactive Lyrics";
 "player_blur_inactive_lyrics_description" = "Slightly blur synchronized lyrics other than the current line to emphasize what is playing.";
 "player_lyrics_motion" = "Line Change Motion";
-"player_lyrics_motion_description" = "Cascade: when the line changes, the lyrics below follow one line after another and settle with a gentle spring; lines farther from the current one are dimmer and softer. Smooth: all lyrics scroll to the next line together. Reduce Motion, Low Power Mode, or a hot device always use Smooth.";
+"player_lyrics_motion_pulse" = "Pulse";
+"player_lyrics_motion_description" = "Pulse: the current line grows, gently rebounds, then settles at its highlighted size. Cascade: when the line changes, the lyrics below follow one line after another and settle with a gentle spring; lines farther from the current one are dimmer and softer. Smooth: all lyrics scroll to the next line together. Reduce Motion, Low Power Mode, or a hot device always use Smooth.";
 "player_lyrics_motion_standard" = "Smooth";
 "player_lyrics_motion_cascade" = "Cascade";
 "player_keep_screen_awake_title" = "Keep Screen Awake in Player";

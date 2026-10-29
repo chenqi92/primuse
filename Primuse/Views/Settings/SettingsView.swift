@@ -547,7 +547,6 @@ struct LyricsAppearanceSections: View {
             .settingsAnchor("lyrics.blurInactive")
                 .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
 
-            // 换句时整份一起滚,还是一行接一行弹簧落位(层叠时离当前句越远越淡越虚,不看上面那个开关)。
             Picker(selection: $lyricsMotionRawValue) {
                 ForEach(PlayerLyricsMotion.allCases) { motion in
                     Text(motion.localizedTitle).tag(motion.rawValue)

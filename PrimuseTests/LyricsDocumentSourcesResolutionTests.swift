@@ -1,5 +1,7 @@
 import Foundation
 import PrimuseKit
+import SwiftUI
+import UIKit
 import XCTest
 @testable import Primuse
 
@@ -8,6 +10,87 @@ import XCTest
 /// replacement written over another source, and that the raw editor's save
 /// rewrites exactly one file, byte for byte, only while it is unchanged.
 final class LyricsDocumentSourcesResolutionTests: XCTestCase {
+    func testSlowLyricsLookupRemainsPendingWhileRecoveryActionsAreAvailable() {
+        var state = LyricsResolutionState()
+        state.begin(1)
+        state.revealRecoveryActions(1)
+        XCTAssertEqual(state.revision, 1, "A slow lookup is not an empty result")
+        XCTAssertTrue(state.offersRecoveryActions)
+        state.clear()
+        state.revealRecoveryActions(1)
+        XCTAssertNil(state.revision, "A late timeout must not restart a completed lookup")
+        XCTAssertFalse(state.offersRecoveryActions)
+    }
+
+    func testOldLyricsTimeoutCannotChangeANewerLookup() {
+        var state = LyricsResolutionState()
+        state.begin(1)
+        state.revealRecoveryActions(1)
+        state.begin(2)
+        state.revealRecoveryActions(1)
+        XCTAssertEqual(state.revision, 2)
+        XCTAssertFalse(state.offersRecoveryActions)
+    }
+
+    func testEditorPlaybackPayloadPreservesStructuredTranslationAndTiming() {
+        let lines = [LyricLine(timestamp: 3, text: "Original", manualTranslation: .init(text: "Translation", source: .localEditor))]
+        let payload = LyricsWriteback.EditablePayload(text: "Fallback", structuredLines: lines)
+        XCTAssertEqual(LyricsDocumentFingerprint(lines: payload.playbackLines), LyricsDocumentFingerprint(lines: lines))
+        let lrc = LyricsWriteback.EditablePayload(text: "[00:02.50]Source lyrics", structuredLines: nil)
+        XCTAssertEqual(lrc.playbackLines.map(\.text), ["Source lyrics"])
+        XCTAssertEqual(lrc.playbackLines.first?.timestamp, 2.5)
+    }
+
+    @MainActor
+    func testEditorPublishesExistingLyricsWithoutAnEditOrSourceWrite() async throws {
+        let song = song()
+        let fixture = connector(["Night Changes.lrc": Data("[00:01.00]Existing source lyrics\n[00:03.00]Second line\n".utf8)])
+        let source = MusicSource(id: "source", name: "Fixture", type: .webdav, host: "fixture.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+        let loaded = expectation(description: "Lyrics reach the player without pressing Save")
+        var published: [LyricLine] = []
+        var saved = false
+        let services = AppServices.shared
+        let editor = LyricsEditorSheet(song: song, autoStartsAudioTranscription: true, onSave: { _ in saved = true }, onLoad: { receivedSong, lines in
+            XCTAssertEqual(receivedSong.id, song.id)
+            published = lines
+            loaded.fulfill()
+        })
+            .environment(manager)
+            .environment(services.sourcesStore)
+            .environment(services.musicLibrary)
+            .environment(services.playerService)
+            .environment(services.musicIntelligence)
+            .environment(\.locale, Locale(identifier: "zh-Hans"))
+            .environment(\.colorScheme, .dark)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let host = UIHostingController(rootView: editor)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+        await fulfillment(of: [loaded], timeout: 8)
+        XCTAssertEqual(published.map(\.text), ["Existing source lyrics", "Second line"])
+        XCTAssertFalse(saved)
+        let written = await fixture.writtenPaths
+        XCTAssertTrue(written.isEmpty)
+        try await Task.sleep(for: .milliseconds(300))
+        host.view.layoutIfNeeded()
+        let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "Lyrics editor translation alignment"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     private let lrc = Data("[00:01.00]From the LRC\n".utf8)
     private let ttml = Data("""
     <tt xmlns="http://www.w3.org/ns/ttml"><body><div>\

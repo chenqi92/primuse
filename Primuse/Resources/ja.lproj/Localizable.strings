@@ -3375,7 +3375,8 @@
 "player_blur_inactive_lyrics" = "現在行以外の歌詞をぼかす";
 "player_blur_inactive_lyrics_description" = "再生中の行を際立たせるため、現在行以外の同期歌詞を軽くぼかします。";
 "player_lyrics_motion" = "行送りの動き";
-"player_lyrics_motion_description" = "カスケード：行が変わると、下の歌詞が1行ずつ順に追いかけ、ばねのように収まります。現在の行から離れるほど薄く、ぼかして表示します。スムーズ：歌詞全体が次の行へまとめてスクロールします。「視差効果を減らす」、低電力モード、本体が熱いときは常にスムーズになります。";
+"player_lyrics_motion_pulse" = "パルス";
+"player_lyrics_motion_description" = "パルス：現在の行が拡大し、軽く弾んでから強調表示のサイズに戻ります。カスケード：行が変わると、下の歌詞が1行ずつ順に追いかけ、ばねのように収まります。現在の行から離れるほど薄く、ぼかして表示します。スムーズ：歌詞全体が次の行へまとめてスクロールします。「視差効果を減らす」、低電力モード、本体が熱いときは常にスムーズになります。";
 "player_lyrics_motion_standard" = "スムーズ";
 "player_lyrics_motion_cascade" = "カスケード";
 "player_keep_screen_awake_title" = "プレーヤー画面では画面を消灯しない";

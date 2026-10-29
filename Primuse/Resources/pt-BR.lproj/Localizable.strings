@@ -2607,7 +2607,8 @@
 "player_blur_inactive_lyrics" = "Desfocar linhas inativas";
 "player_blur_inactive_lyrics_description" = "Desfoque levemente as letras sincronizadas além da linha atual para enfatizar o que está tocando.";
 "player_lyrics_motion" = "Troca de linha";
-"player_lyrics_motion_description" = "Cascata: ao trocar de linha, a letra abaixo acompanha uma linha após a outra e se acomoda com um leve efeito de mola; quanto mais longe da linha atual, mais apagada e desfocada. Suave: toda a letra rola junta até a próxima linha. Com Reduzir Movimento, Modo de Pouca Energia ou o aparelho quente, sempre é usado Suave.";
+"player_lyrics_motion_pulse" = "Pulsação";
+"player_lyrics_motion_description" = "Pulsação: a linha atual aumenta, oscila suavemente e volta ao tamanho de destaque. Cascata: ao trocar de linha, a letra abaixo acompanha uma linha após a outra e se acomoda com um leve efeito de mola; quanto mais longe da linha atual, mais apagada e desfocada. Suave: toda a letra rola junta até a próxima linha. Com Reduzir Movimento, Modo de Pouca Energia ou o aparelho quente, sempre é usado Suave.";
 "player_lyrics_motion_standard" = "Suave";
 "player_lyrics_motion_cascade" = "Cascata";
 "player_current_lyric_color" = "Cor da linha atual";

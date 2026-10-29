@@ -117,6 +117,11 @@ enum LyricsWriteback {
         let sourceSnapshot: EditableSourceSnapshot
         var cacheSnapshot: LyricsDocumentFingerprint?
 
+        var playbackLines: [LyricLine] {
+            if let structuredLines, !structuredLines.isEmpty { return structuredLines }
+            return LyricsContentParser.parseText(text)
+        }
+
         init(
             text: String,
             structuredLines: [LyricLine]?,

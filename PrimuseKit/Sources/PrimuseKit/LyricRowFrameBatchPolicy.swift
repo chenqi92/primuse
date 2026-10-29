@@ -114,6 +114,35 @@ public enum LyricCascadeMotionPolicy {
     }
 }
 
+/// 换句时的缩放脉冲。范围固定，排版可以提前留足空间，不随动画重新折行。
+public enum LyricPulseMotionPolicy {
+    public static let duration: TimeInterval = 0.72
+    public static let maximumScale = 1.10
+    public static let minimumScale = 0.975
+
+    public static func scale(at progress: Double, isEnabled: Bool = true) -> Double {
+        guard isEnabled, progress.isFinite, progress > 0, progress < 1 else { return 1 }
+        let start: Double
+        let end: Double
+        let fraction: Double
+        if progress < 0.28 {
+            start = 1
+            end = maximumScale
+            fraction = progress / 0.28
+        } else if progress < 0.65 {
+            start = maximumScale
+            end = minimumScale
+            fraction = (progress - 0.28) / 0.37
+        } else {
+            start = minimumScale
+            end = 1
+            fraction = (progress - 0.65) / 0.35
+        }
+        let eased = fraction * fraction * (3 - 2 * fraction)
+        return start + (end - start) * eased
+    }
+}
+
 public enum LyricPlaybackPositionPolicy {
     public enum ScrollTarget: Equatable, Sendable {
         case line(Int)

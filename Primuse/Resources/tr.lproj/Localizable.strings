@@ -1358,7 +1358,8 @@
 "scraper_source_pasted_json" = "JSON yapıştırıldı";
 "player_blur_inactive_lyrics_description" = "Çalınan şarkıyı vurgulamak için geçerli satır dışındaki senkronize şarkı sözlerini hafifçe bulanıklaştırın.";
 "player_lyrics_motion" = "Satır geçişi";
-"player_lyrics_motion_description" = "Kademeli: Satır değiştiğinde alttaki sözler birbiri ardına gelir ve hafif bir yay etkisiyle yerine oturur; geçerli satırdan uzaklaştıkça daha soluk ve bulanık görünür. Akıcı: Tüm sözler birlikte sonraki satıra kayar. Hareketi Azalt veya Düşük Güç Modu açıkken ya da cihaz ısındığında her zaman Akıcı kullanılır.";
+"player_lyrics_motion_pulse" = "Nabız";
+"player_lyrics_motion_description" = "Nabız: geçerli satır büyür, hafifçe yaylanır ve vurgulanan boyutuna döner. Kademeli: Satır değiştiğinde alttaki sözler birbiri ardına gelir ve hafif bir yay etkisiyle yerine oturur; geçerli satırdan uzaklaştıkça daha soluk ve bulanık görünür. Akıcı: Tüm sözler birlikte sonraki satıra kayar. Hareketi Azalt veya Düşük Güç Modu açıkken ya da cihaz ısındığında her zaman Akıcı kullanılır.";
 "player_lyrics_motion_standard" = "Akıcı";
 "player_lyrics_motion_cascade" = "Kademeli";
 "tag_editor_lyrics_server_unsupported" = "Bu medya sunucusu şarkı sözlerini geri yazmayı desteklemiyor.";

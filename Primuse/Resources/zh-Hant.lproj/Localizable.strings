@@ -3360,7 +3360,8 @@
 "player_blur_inactive_lyrics" = "非目前歌詞模糊";
 "player_blur_inactive_lyrics_description" = "輕微模糊目前行以外的同步歌詞，突顯正在播放的歌詞。";
 "player_lyrics_motion" = "換句捲動";
-"player_lyrics_motion_description" = "層疊彈性：換句時下面的歌詞一行接一行跟上來，像彈簧一樣落位，離目前這句越遠越淡、越虛。整體平滑：整份歌詞一起捲到下一句。開著「減少動態效果」、低耗電模式或機身發熱時照舊整體平滑。";
+"player_lyrics_motion_pulse" = "躍動縮放";
+"player_lyrics_motion_description" = "躍動縮放：目前這句放大、輕輕回彈，再恢復高亮大小。層疊彈性：換句時下面的歌詞一行接一行跟上來，像彈簧一樣落位，離目前這句越遠越淡、越虛。整體平滑：整份歌詞一起捲到下一句。開著「減少動態效果」、低耗電模式或機身發熱時照舊整體平滑。";
 "player_lyrics_motion_standard" = "整體平滑";
 "player_lyrics_motion_cascade" = "層疊彈性";
 "player_keep_screen_awake_title" = "播放器介面保持螢幕常亮";

@@ -125,3 +125,45 @@ struct LyricDepthEffectPolicyTests {
         #expect(past > future)
     }
 }
+
+@Suite("Lyric pulse motion")
+struct LyricPulseMotionPolicyTests {
+    @Test("A takeover grows, rebounds, and settles without a jump at either end")
+    func pulseShape() {
+        let scales = (0...1000).map { LyricPulseMotionPolicy.scale(at: Double($0) / 1000) }
+        #expect(scales.first == 1)
+        #expect(scales.last == 1)
+        #expect(scales.contains { $0 > 1.08 })
+        #expect(scales.contains { $0 < 0.99 })
+        #expect(scales.allSatisfy {
+            $0 >= LyricPulseMotionPolicy.minimumScale && $0 <= LyricPulseMotionPolicy.maximumScale
+        })
+        for (before, after) in zip(scales, scales.dropFirst()) {
+            #expect(abs(after - before) < 0.001)
+        }
+    }
+
+    @Test("Disabled motion and invalid or completed progress leave text at its normal scale")
+    func restingStates() {
+        for progress in [-1.0, 0, 0.28, 0.65, 1, 2, .nan, .infinity, -.infinity] {
+            #expect(LyricPulseMotionPolicy.scale(at: progress, isEnabled: false) == 1)
+        }
+        for progress in [-1.0, 0, 1, 2, .nan, .infinity, -.infinity] {
+            #expect(LyricPulseMotionPolicy.scale(at: progress) == 1)
+        }
+    }
+
+    @Test("Every pulse frame fits the same reserved width on narrow and wide screens")
+    func pulseFitsStableLayout() {
+        for viewport in [240.0, 320, 390, 768, 1024] {
+            let maximumScale = 1.08 * LyricPulseMotionPolicy.maximumScale
+            let width = LyricRowLayoutPolicy.unscaledContentWidth(
+                viewportWidth: viewport, horizontalPadding: 24, maximumVisualScale: maximumScale
+            )
+            for frame in 0...100 {
+                let scale = 1.08 * LyricPulseMotionPolicy.scale(at: Double(frame) / 100)
+                #expect(width * scale <= viewport - 48 + 0.000_001)
+            }
+        }
+    }
+}

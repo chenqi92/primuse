@@ -6,6 +6,14 @@ import XCTest
 @testable import Primuse
 
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
+    func testLyricsPulseIsSelectableWithoutChangingExistingPreferences() {
+        XCTAssertEqual(PlayerLyricsMotion.allCases.map(\.rawValue), ["standard", "cascade", "pulse"])
+        XCTAssertEqual(PlayerLyricsMotion.defaultValue, .standard)
+        XCTAssertEqual(PlayerLyricsMotion(rawValue: "standard"), .standard)
+        XCTAssertEqual(PlayerLyricsMotion(rawValue: "cascade"), .cascade)
+        XCTAssertEqual(PlayerLyricsMotion(rawValue: "pulse"), .pulse)
+    }
+
     func testTransportIconStylesFallBackToTheOriginalLook() {
         XCTAssertEqual(PlayerAppearancePreferences.playButtonStyle(rawValue: ""), .filledCircle)
         XCTAssertEqual(PlayerAppearancePreferences.playButtonStyle(rawValue: "sparkly"), .filledCircle)

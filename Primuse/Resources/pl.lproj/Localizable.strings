@@ -2607,7 +2607,8 @@
 "player_blur_inactive_lyrics" = "Rozmywaj nieaktywne wersy";
 "player_blur_inactive_lyrics_description" = "Nieznacznie rozmyj zsynchronizowany tekst inny niż bieżący wiersz, aby podkreślić to, co jest odtwarzane.";
 "player_lyrics_motion" = "Zmiana wersu";
-"player_lyrics_motion_description" = "Kaskada: przy zmianie wersu tekst poniżej podąża wers po wersie i osiada z lekkim sprężynowaniem; im dalej od bieżącego wersu, tym bledszy i bardziej rozmyty. Płynnie: cały tekst przewija się razem do następnego wersu. Przy ograniczaniu ruchu, w trybie niskiego zużycia energii lub gdy urządzenie jest gorące zawsze używane jest Płynnie.";
+"player_lyrics_motion_pulse" = "Pulsowanie";
+"player_lyrics_motion_description" = "Pulsowanie: bieżący wers powiększa się, delikatnie sprężynuje i wraca do wyróżnionego rozmiaru. Kaskada: przy zmianie wersu tekst poniżej podąża wers po wersie i osiada z lekkim sprężynowaniem; im dalej od bieżącego wersu, tym bledszy i bardziej rozmyty. Płynnie: cały tekst przewija się razem do następnego wersu. Przy ograniczaniu ruchu, w trybie niskiego zużycia energii lub gdy urządzenie jest gorące zawsze używane jest Płynnie.";
 "player_lyrics_motion_standard" = "Płynnie";
 "player_lyrics_motion_cascade" = "Kaskada";
 "player_current_lyric_color" = "Kolor bieżącego wersu";

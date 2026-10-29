@@ -8,6 +8,26 @@ import MediaPlayer
 import AppKit
 #endif
 
+struct LyricsResolutionState {
+    private(set) var revision: UInt?
+    private(set) var offersRecoveryActions = false
+
+    mutating func begin(_ revision: UInt) {
+        self.revision = revision
+        offersRecoveryActions = false
+    }
+
+    mutating func revealRecoveryActions(_ revision: UInt) {
+        guard self.revision == revision else { return }
+        offersRecoveryActions = true
+    }
+
+    mutating func clear() {
+        revision = nil
+        offersRecoveryActions = false
+    }
+}
+
 struct NowPlayingAppearance {
     let colorScheme: ColorScheme
     let contrast: ColorSchemeContrast
@@ -1527,10 +1547,9 @@ struct NowPlayingView: View {
     @State private var lyricsLoadRevision: UInt = 0
     /// 歌词还没有结论的那段时间属于哪一次加载。切歌 / 重新刮削会推进
     /// lyricsLoadRevision, 晚到的收尾因此不会把新一轮的加载态抹掉。
-    @State private var lyricsResolvingRevision: UInt?
+    @State private var lyricsResolution = LyricsResolutionState()
     @State private var lyricsResolutionTimeoutTask: Task<Void, Never>?
-    /// 占位最多显示这么久。NAS 不可达时 Tier 3 能挂很长时间, 不封顶的话
-    /// "暂无歌词 + 去刮削"就一直出不来, 用户连手动刮削都点不到。
+    /// 慢请求等待六秒后开放手动入口；请求结束前仍显示正在加载。
     private static let lyricsResolutionTimeout: Duration = .seconds(6)
     @State private var isResolvingScrapeTarget = false
     @State private var scrapeAlertMessage: String?
@@ -3955,24 +3974,28 @@ struct NowPlayingView: View {
         .fullScreenCover(item: $lyricsEditorTargetSong) { song in
             LyricsEditorSheet(
                 song: song,
-                autoStartsAudioTranscription: lyricsEditorAutoStartsAudioTranscription
-            ) { updated in
-                // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
-                guard player.currentSong?.id == updated.id else { return }
-                Task { await loadLyrics() }
-            }
+                autoStartsAudioTranscription: lyricsEditorAutoStartsAudioTranscription,
+                onSave: { updated in
+                    // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
+                    guard player.currentSong?.id == updated.id else { return }
+                    Task { await loadLyrics() }
+                },
+                onLoad: receiveEditorLyrics
+            )
             .playerPresentationColorScheme()
         }
         #else
         .sheet(item: $lyricsEditorTargetSong) { song in
             LyricsEditorSheet(
                 song: song,
-                autoStartsAudioTranscription: lyricsEditorAutoStartsAudioTranscription
-            ) { updated in
-                // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
-                guard player.currentSong?.id == updated.id else { return }
-                Task { await loadLyrics() }
-            }
+                autoStartsAudioTranscription: lyricsEditorAutoStartsAudioTranscription,
+                onSave: { updated in
+                    // 编辑期间若已经自然切歌，不要用旧歌的落盘结果刷新新歌歌词。
+                    guard player.currentSong?.id == updated.id else { return }
+                    Task { await loadLyrics() }
+                },
+                onLoad: receiveEditorLyrics
+            )
             .presentationDetents([.large])
         }
         #endif
@@ -8873,6 +8896,7 @@ struct NowPlayingView: View {
             lyricsWritingDirection: romanizedLyricsWritingDirection,
             lyricsRevision: lyricsRevision,
             isResolvingLyrics: isResolvingLyrics,
+            offersLyricsRecoveryActions: lyricsResolution.offersRecoveryActions,
             player: player,
             songID: player.currentSong?.id,
             isSceneActive: isVisualSceneActive,
@@ -10436,6 +10460,13 @@ struct NowPlayingView: View {
         runLyricsTier3Fetch(song: song, currentCache: nil, loadRevision: loadRevision)
     }
 
+    private func receiveEditorLyrics(song: Song, lines: [LyricLine]) {
+        guard player.currentSong?.id == song.id, !lines.isEmpty else { return }
+        // 编辑器可能比播放页先读到源文件；使旧请求失效，直接使用已读到的内容。
+        lyricsLoadRevision &+= 1
+        setLyrics(lines)
+    }
+
     /// 别处换掉了这首歌的歌词缓存: 和屏幕上的不一样才换。不走 `loadLyrics`, 免得又连一次源。
     private func showChangedLyrics(songID: String) async {
         guard let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID),
@@ -10873,26 +10904,26 @@ struct NowPlayingView: View {
     /// 歌词结果未知: 本地缓存没命中, 正在问服务端 / 在线歌词源。歌词区这时
     /// 显示占位骨架, 而不是"暂无歌词 + 去刮削"。
     private var isResolvingLyrics: Bool {
-        lyricsResolvingRevision == lyricsLoadRevision
+        lyricsResolution.revision == lyricsLoadRevision
     }
 
     private func beginLyricsResolution(_ loadRevision: UInt) {
-        lyricsResolvingRevision = loadRevision
+        lyricsResolution.begin(loadRevision)
         lyricsResolutionTimeoutTask?.cancel()
         lyricsResolutionTimeoutTask = Task {
             try? await Task.sleep(for: Self.lyricsResolutionTimeout)
             guard !Task.isCancelled else { return }
-            endLyricsResolution(loadRevision)
+            lyricsResolution.revealRecoveryActions(loadRevision)
         }
     }
 
     private func endLyricsResolution(_ loadRevision: UInt) {
-        guard lyricsResolvingRevision == loadRevision else { return }
+        guard lyricsResolution.revision == loadRevision else { return }
         clearLyricsResolution()
     }
 
     private func clearLyricsResolution() {
-        lyricsResolvingRevision = nil
+        lyricsResolution.clear()
         lyricsResolutionTimeoutTask?.cancel()
         lyricsResolutionTimeoutTask = nil
     }
@@ -10903,7 +10934,7 @@ struct NowPlayingView: View {
         lyricsLoadRevision &+= 1
         lyricsResolutionTimeoutTask?.cancel()
         lyricsResolutionTimeoutTask = nil
-        lyricsResolvingRevision = lyricsLoadRevision
+        lyricsResolution.begin(lyricsLoadRevision)
         lyrics = []
         lyricsSongID = nil
         lyricTranslationsByLineID = [:]
@@ -14391,6 +14422,24 @@ private struct LyricsRowStack<Content: View>: View {
     }
 }
 
+private struct LyricsPulseScale: ViewModifier {
+    let isActive: Bool
+    let isEnabled: Bool
+    let anchor: UnitPoint
+
+    func body(content: Content) -> some View {
+        content.keyframeAnimator(initialValue: 0.0, trigger: isActive) { view, progress in
+            view.scaleEffect(
+                LyricPulseMotionPolicy.scale(at: progress, isEnabled: isActive && isEnabled),
+                anchor: anchor
+            )
+        } keyframes: { _ in
+            MoveKeyframe(0)
+            LinearKeyframe(1, duration: LyricPulseMotionPolicy.duration)
+        }
+    }
+}
+
 /// Reserves the largest footprint a lyric row can occupy while its render-layer
 /// emphasis animates. `scaleEffect` deliberately does not affect SwiftUI layout;
 /// without this stable envelope a wrapped active row can draw outside its
@@ -15089,6 +15138,7 @@ struct LyricsScrollView: View {
     let lyricsRevision: UInt
     /// 歌词结果还没回来。空歌词此时是"还不知道", 不是"没有"。
     let isResolvingLyrics: Bool
+    var offersLyricsRecoveryActions = false
     let player: AudioPlayerService
     let songID: String?
     let isSceneActive: Bool
@@ -15345,7 +15395,7 @@ struct LyricsScrollView: View {
     var body: some View {
         Group {
             if lyrics.isEmpty {
-                if isResolvingLyrics {
+                if isResolvingLyrics && (!offersLyricsRecoveryActions || isSpokenWordTranscript) {
                     LyricsLoadingSkeleton(
                         alignment: lyricsAlignment,
                         tint: appearance.faint,
@@ -15472,7 +15522,7 @@ struct LyricsScrollView: View {
     private var emptyLyricsView: some View {
         VStack(spacing: 12) {
             Spacer().frame(height: 60)
-            Text("no_lyrics")
+            Text(isResolvingLyrics ? LocalizedStringKey("lyrics_loading") : LocalizedStringKey("no_lyrics"))
                 .font(.title3)
                 .foregroundStyle(appearance.faint)
             ViewThatFits(in: .horizontal) {
@@ -15525,10 +15575,9 @@ struct LyricsScrollView: View {
                     Image(systemName: "waveform.badge.mic")
                     Text("ai_audio_transcription_action")
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(isScrapeActionUnavailable ? nil : (appearance.isLight ? .white : .black))
+                .font(.subheadline)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .tint(appearance.primary)
             .disabled(isScrapeActionUnavailable)
         }
@@ -16023,6 +16072,28 @@ struct LyricsScrollView: View {
         lyricsMotion == .cascade && !usesLazyRows
     }
 
+    private var usesPulseStyle: Bool {
+        lyricsMotion == .pulse && hasSynchronizedLyrics && !isSpokenWordTranscript
+    }
+
+    private var maximumLyricsVisualScale: CGFloat {
+        Self.lyricsActiveVisualScale * CGFloat(usesPulseStyle ? LyricPulseMotionPolicy.maximumScale : 1)
+    }
+
+    private var animatesLyricPulse: Bool {
+        guard usesPulseStyle,
+              visualActivityPolicy.shouldRunWordTimeline,
+              !isManuallyBrowsingLyrics,
+              !isPinchingLyrics,
+              !isRestoringVisualPosition,
+              activeInterlude == nil,
+              !ProcessInfo.processInfo.isLowPowerModeEnabled else { return false }
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical: return false
+        default: return true
+        }
+    }
+
     /// 层叠换句:整份歌词瞬间滚到位、各格先补回滚动差(看上去一动不动),等这一帧画出来,
     /// 各格再按离当前句几行晚一点以弹簧回到原位 —— 唱过的和当前句先走,下面一行接一行跟上。
     /// 只在一句接一句地往下走时做;条件不满足返回 false,由调用方照旧整体平滑滚动。
@@ -16216,7 +16287,7 @@ struct LyricsScrollView: View {
             }
 
             LyricsScaleEnvelopeLayout(
-                maximumScale: Self.lyricsActiveVisualScale,
+                maximumScale: maximumLyricsVisualScale,
                 horizontalAnchor: alignment.scaleAnchor(in: lyricLayoutDirection)
             ) {
                 lyricsRow(
@@ -16450,6 +16521,13 @@ struct LyricsScrollView: View {
         // `lyricsScaleAnchor` (meant for the left-to-right envelope layout)
         // would flip twice and grow right-to-left lyrics off the right edge.
         .scaleEffect(visualScale, anchor: rowAlignment.scaleAnchor(in: .leftToRight))
+        .if(usesPulseStyle) { view in
+            view.modifier(LyricsPulseScale(
+                isActive: isActive,
+                isEnabled: animatesLyricPulse,
+                anchor: rowAlignment.scaleAnchor(in: .leftToRight)
+            ))
+        }
         .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
@@ -16619,7 +16697,7 @@ struct LyricsScrollView: View {
         CGFloat(LyricRowLayoutPolicy.unscaledContentWidth(
             viewportWidth: Double(viewportWidth),
             horizontalPadding: Double(Self.lyricsHorizontalPadding),
-            maximumVisualScale: Double(Self.lyricsActiveVisualScale)
+            maximumVisualScale: Double(maximumLyricsVisualScale)
         ))
     }
 
