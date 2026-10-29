@@ -2391,7 +2391,8 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
 
         XCTAssertFalse(intelligence.isBuiltInAIActive)
-        XCTAssertFalse(intelligence.showsBuiltInQuota)
+        XCTAssertFalse(intelligence.canRefreshBuiltInQuota)
+        XCTAssertEqual(intelligence.builtInQuotaAccess, .needsConsent)
         XCTAssertFalse(intelligence.isBuiltInTranscriptionReady)
         XCTAssertFalse(intelligence.isTagCleanupAvailable)
         XCTAssertFalse(intelligence.isPersonalizedRecommendationsConfigured)
@@ -2408,7 +2409,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
 
         intelligence.withdrawBuiltInAIConsent()
         XCTAssertFalse(intelligence.isBuiltInAIActive)
-        XCTAssertFalse(intelligence.showsBuiltInQuota)
+        XCTAssertFalse(intelligence.canRefreshBuiltInQuota)
     }
 
     @MainActor

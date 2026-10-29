@@ -1631,7 +1631,6 @@ private struct MacSTIntelligenceView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var editor = AISettingsEditorModel()
     @State private var tab: Tab = .features
-    @State private var showsRedeemSheet = false
     @State private var serviceSelection: ServiceSelection?
     @State private var showsRemoveProviderConfirmation = false
     @State private var modelDraft = ""
@@ -1788,6 +1787,16 @@ private struct MacSTIntelligenceView: View {
                 .settingsAnchor("intelligence.relay")
                 builtInConsentPendingRow
                 serviceGuidanceRow
+                MacSTRow(String(localized: "ai_quota_section")) {
+                    MacSTButton(title: intelligence.builtInQuotaSummary, systemImage: "chevron.right") {
+                        serviceSelection = .builtIn
+                        tab = .services
+                    }
+                }
+                .accessibilityIdentifier("ai.quota.summary")
+                .task(id: intelligence.canRefreshBuiltInQuota) {
+                    await intelligence.refreshBuiltInQuota()
+                }
                 MacSTRow(String(localized: "ai_fallback_enabled")) {
                     MacSTToggle(isOn: editor.fallbackBinding)
                 }
@@ -2244,7 +2253,7 @@ private struct MacSTIntelligenceView: View {
     /// 内置 AI 的额度,和 iPhone 的「额度」区块一致:打开时读一次,之后每次调用随回复更新。
     @ViewBuilder
     private var builtInQuotaSection: some View {
-        if intelligence.showsBuiltInQuota {
+        Group {
             let quota = intelligence.builtInQuota
             MacSTSection(
                 String(localized: "ai_quota_section"),
@@ -2253,7 +2262,7 @@ private struct MacSTIntelligenceView: View {
                 MacSTGroup {
                     MacSTRow(
                         quotaHeaderTitle(quota),
-                        hint: quota.overview.flatMap(BuiltInAIQuotaText.bonusBanner),
+                        hint: intelligence.canRefreshBuiltInQuota ? quota.overview.flatMap(BuiltInAIQuotaText.bonusBanner) : nil,
                         divider: false
                     ) {
                         HStack(spacing: 8) {
@@ -2263,10 +2272,10 @@ private struct MacSTIntelligenceView: View {
                             MacSTButton(title: String(localized: "ai_quota_refresh"), systemImage: "arrow.clockwise") {
                                 Task { await intelligence.refreshBuiltInQuota(force: true) }
                             }
-                            .disabled(quota.isLoading)
+                            .disabled(quota.isLoading || !intelligence.canRefreshBuiltInQuota)
                         }
                     }
-                    if let overview = quota.overview {
+                    if intelligence.canRefreshBuiltInQuota, let overview = quota.overview {
                         ForEach(overview.orderedFeatures(preferredOrder: BuiltInAIQuotaText.featureOrder)) { feature in
                             MacSTRow(
                                 BuiltInAIQuotaText.title(for: feature),
@@ -2286,31 +2295,18 @@ private struct MacSTIntelligenceView: View {
                             }
                         }
                     }
-                    if intelligence.builtInRedeemOffered {
-                        MacSTRow(
-                            String(localized: "ai_redeem_entry"),
-                            hint: String(localized: "ai_redeem_entry_hint")
-                        ) {
-                            MacSTButton(title: String(localized: "ai_redeem_action"), systemImage: "ticket") {
-                                showsRedeemSheet = true
-                            }
-                        }
-                    }
                 }
             }
-            .task {
+            .accessibilityIdentifier("ai.quota.section")
+            .task(id: intelligence.canRefreshBuiltInQuota) {
                 await intelligence.refreshBuiltInQuota()
-                await intelligence.refreshBuiltInRedeemOffer()
-            }
-            .sheet(isPresented: $showsRedeemSheet) {
-                BuiltInAIRedeemSheet()
-                    .environment(intelligence)
             }
         }
     }
 
     /// 第一行:套餐和来源;还没读到时说正在读或读不到。
     private func quotaHeaderTitle(_ quota: BuiltInAIQuotaModel) -> String {
+        if let status = BuiltInAIQuotaText.status(intelligence.builtInQuotaAccess) { return status }
         guard let overview = quota.overview else {
             return quota.isLoading ? String(localized: "ai_quota_loading") : String(localized: "ai_quota_unavailable")
         }

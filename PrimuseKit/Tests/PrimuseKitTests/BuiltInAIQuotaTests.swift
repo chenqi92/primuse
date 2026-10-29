@@ -5,6 +5,20 @@ import Testing
 struct BuiltInAIQuotaTests {
     private let now = Date(timeIntervalSince1970: 1_791_590_400)
 
+    @Test func quotaStatusKeepsDisabledAndUnconsentedStatesDistinct() {
+        #expect(BuiltInAIQuotaAccess(isEnabled: false, hasConsent: false, isSupported: true) == .disabled)
+        #expect(BuiltInAIQuotaAccess(isEnabled: true, hasConsent: false, isSupported: true) == .needsConsent)
+        #expect(BuiltInAIQuotaAccess(isEnabled: true, hasConsent: true, isSupported: false) == .unsupported)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func queryingQuotaRequiresBothEnablementAndConsent(isEnabled: Bool, hasConsent: Bool) {
+        let supported = BuiltInAIQuotaAccess(isEnabled: isEnabled, hasConsent: hasConsent, isSupported: true)
+        #expect(supported.canRefresh == (isEnabled && hasConsent))
+        let unsupported = BuiltInAIQuotaAccess(isEnabled: isEnabled, hasConsent: hasConsent, isSupported: false)
+        #expect(!unsupported.canRefresh)
+    }
+
     @Test func readsWhatOneCallLeft() throws {
         let json = """
         {"feature":"library_insight","plan_id":"plus","source":"testflight",

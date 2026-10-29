@@ -497,24 +497,38 @@ final class MusicIntelligenceService {
         builtInTranscriptionNotInPlan = offered && !inPlan
     }
 
-    /// 设置页要不要显示内置 AI 的额度:开着内置 AI、同意过、这台设备能用时才问。
-    var showsBuiltInQuota: Bool {
-        settingsStore.primuseRelayEnabled
-            && settingsStore.hasBuiltInAIConsent
-            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+    var builtInQuotaAccess: BuiltInAIQuotaAccess {
+        BuiltInAIQuotaAccess(
+            isEnabled: settingsStore.primuseRelayEnabled,
+            hasConsent: settingsStore.hasBuiltInAIConsent,
+            isSupported: PrimuseAIRelayClient.isSupportedOnCurrentDevice
+        )
+    }
+
+    /// 额度区块始终可见;查询仍须先启用服务并取得同意。
+    var canRefreshBuiltInQuota: Bool {
+        builtInQuotaAccess.canRefresh
+    }
+
+    var builtInQuotaSummary: String {
+        if let status = BuiltInAIQuotaText.status(builtInQuotaAccess) { return status }
+        if let today = builtInQuota.overview?.today {
+            return BuiltInAIQuotaText.remaining(today)
+        }
+        return String(localized: builtInQuota.isLoading ? "ai_quota_loading" : "ai_quota_unavailable")
     }
 
     /// 打开设置页时读一次额度;刚读过、还没到每日重置就不再问(`force` 除外)。
     func refreshBuiltInQuota(force: Bool = false) async {
-        guard showsBuiltInQuota else { return }
+        guard canRefreshBuiltInQuota else { return }
         let client = primuseRelayClient
         await builtInQuota.refresh(force: force) { await client.quotaOverview() }
     }
 
-    /// 问一次中转收不收兑换码;半小时内问过就不再问(`force` 除外)。和额度区块同一个前提:
+    /// 问一次中转收不收兑换码;半小时内问过就不再问(`force` 除外)。和额度查询同一个前提:
     /// 开着内置 AI、同意过、这台设备能用。读不到时保留上次的结果。
     func refreshBuiltInRedeemOffer(force: Bool = false) async {
-        guard showsBuiltInQuota else {
+        guard canRefreshBuiltInQuota else {
             builtInRedeemOffered = false
             return
         }
@@ -531,7 +545,7 @@ final class MusicIntelligenceService {
     /// 成功后重读额度和听歌识词、文稿生成的开放情况(新套餐可能多给了功能)。
     func redeemBuiltInAICode(_ raw: String) async throws -> AIRedeemCode.Redemption {
         guard let body = AIRedeemCode.normalized(raw) else { throw AIRedeemCode.Failure.malformed }
-        guard showsBuiltInQuota else { throw AIRedeemCode.Failure.unavailable }
+        guard canRefreshBuiltInQuota else { throw AIRedeemCode.Failure.unavailable }
         let redemption = try await primuseRelayClient.redeemCode(body: body)
         await refreshBuiltInQuota(force: true)
         await refreshBuiltInTranscriptionOffer(force: true)
@@ -4112,6 +4126,15 @@ final class BuiltInAIQuotaModel {
 
 /// 额度区块里的文字,三端共用。
 enum BuiltInAIQuotaText {
+    static func status(_ access: BuiltInAIQuotaAccess) -> String? {
+        switch access {
+        case .disabled: String(localized: "ai_settings_engine_none")
+        case .needsConsent: String(localized: "ai_consent_status_not_agreed")
+        case .unsupported: String(localized: "ai_primuse_relay_unsupported")
+        case .ready: nil
+        }
+    }
+
     /// 中转的功能标识按 App 里的顺序排;后台建的接口排在后面。
     static let featureOrder = [
         "recommendations", "semantic_search", "lyrics_translation", "lyrics_romanization", "listening_intents",

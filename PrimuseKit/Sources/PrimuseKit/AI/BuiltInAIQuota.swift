@@ -1,5 +1,26 @@
 import Foundation
 
+public enum BuiltInAIQuotaAccess: Equatable, Sendable {
+    case disabled
+    case needsConsent
+    case unsupported
+    case ready
+
+    public init(isEnabled: Bool, hasConsent: Bool, isSupported: Bool) {
+        if !isEnabled {
+            self = .disabled
+        } else if !hasConsent {
+            self = .needsConsent
+        } else if !isSupported {
+            self = .unsupported
+        } else {
+            self = .ready
+        }
+    }
+
+    public var canRefresh: Bool { self == .ready }
+}
+
 /// 内置 AI 的额度:每个功能今天和本月用了多少、上限多少、还剩多少,以及活动加量
 /// 或内测套餐多给了多少。
 ///
