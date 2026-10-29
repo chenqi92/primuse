@@ -11,6 +11,70 @@ import Vision
 #if os(iOS)
 @MainActor
 final class HomeHeroCarouselLayoutTests: XCTestCase {
+    func testFeaturedCardsResizeAndKeepTheNextCardVisible() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let songs = (0..<3).map {
+            Song(id: "featured-\($0)", title: "Song \($0)", albumTitle: "A longer album title for layout",
+                 artistName: "Featured Artist", fileFormat: .mp3, filePath: "", sourceID: "featured-source")
+        }
+        var heroFrame = CGRect.zero
+        let tintProvider = CoverTintProvider()
+        func root(_ size: CGSize, largeText: Bool = false) -> some View {
+            ScrollView {
+                HomeHeroFeaturedCarousel(
+                    songs: songs,
+                    metrics: .init(viewportWidth: size.width, compactCanvasHeight: size.width > size.height ? size.height : nil),
+                    isInteractive: false, playFromSong: { _ in XCTFail("Preview started playback") },
+                    shuffleAll: { XCTFail("Preview started playback") }, playAll: { XCTFail("Preview started playback") }
+                )
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("featured-test")) } action: { heroFrame = $0 }
+            }
+            .coordinateSpace(name: "featured-test")
+            .frame(width: size.width, height: size.height)
+            .environment(library)
+            .environment(AppServices.shared.playerService)
+            .environment(AppServices.shared.sourcesStore)
+            .environment(AppServices.shared.sourceManager)
+            .environment(tintProvider)
+            .dynamicTypeSize(largeText ? .accessibility1 : .large)
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: root(CGSize(width: 390, height: 844)))
+        host.safeAreaRegions = []
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        for size in [CGSize(width: 390, height: 844), CGSize(width: 844, height: 390), CGSize(width: 768, height: 1024)] {
+            host.rootView = root(size)
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(500))
+            let metrics = HomeHeroFeaturedMetrics(viewportWidth: size.width, compactCanvasHeight: size.width > size.height ? size.height : nil)
+            XCTAssertLessThan(metrics.cardWidth + 52, size.width, "The next card must peek into view")
+            XCTAssertLessThan(heroFrame.height, size.height * 0.7, "The following section must remain visible")
+            XCTAssertGreaterThan(heroFrame.height, metrics.cardHeight(captionHeight: 84))
+        }
+        let size = CGSize(width: 390, height: 844)
+        host.rootView = root(size, largeText: true)
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(500))
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            host.view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+        let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+        XCTAssertTrue(text.contains("Featured Artist"), "The artist must remain readable with large text")
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "featured-large-text"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testCarouselKeepsFollowingSectionVisibleAfterResizing() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("HomeHeroCarouselLayoutTests-\(UUID().uuidString)", isDirectory: true)

@@ -1878,6 +1878,9 @@ struct HomeView: View {
 
     // Section toggles. 顶部欢迎卡片不参与排序,但同样可以在首页编辑里隐藏。
     @AppStorage("primuse.home.showHero") private var showHero = true
+    #if os(iOS)
+    @AppStorage(HomeHeroStyle.storageKey) private var heroStyle: HomeHeroStyle = .carousel
+    #endif
     /// 老版本全首页一个封面大小;没单独调过的块跟着它,见 `HomeCoverSize.legacyStorageKey`。
     @AppStorage(HomeCoverSize.legacyStorageKey) private var legacyCoverSize: HomeCoverSize = .large
     @AppStorage("primuse.home.showStatsGlimpse") private var showStatsGlimpse: Bool = true
@@ -2428,7 +2431,7 @@ struct HomeView: View {
         #endif
     }
 
-    /// 顶部欢迎卡片钉在所有区块之上,不参与排序,编辑态只给显隐。
+    /// 顶部欢迎卡片钉在所有区块之上，可切换样式和显隐。
     private var heroEditorRow: some View {
         editorBlockFrame(visible: showHero) {
             HStack(spacing: 10) {
@@ -2456,6 +2459,17 @@ struct HomeView: View {
                 .accessibilityIdentifier("home.edit.visibility.hero")
             }
             .padding(.horizontal, 20)
+
+            #if os(iOS)
+            Picker("home_hero_style_title", selection: $heroStyle) {
+                ForEach(HomeHeroStyle.allCases, id: \.self) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 20)
+            .accessibilityIdentifier("home.edit.heroStyle")
+            #endif
 
             if showHero, model.snapshot.hasContent {
                 libraryHeroSection
@@ -3392,6 +3406,9 @@ struct HomeView: View {
     /// 顶部封面占位有多高,用来估下面还剩多少屏幕。
     private var heroLoadingPlaceholderHeight: CGFloat {
         #if os(iOS)
+        if heroStyle == .featured {
+            return heroFeaturedMetrics.cardHeight(captionHeight: 84) + 84
+        }
         let metrics = heroCarouselMetrics
         return metrics.isCompactHeight ? metrics.carouselHeight : metrics.carouselHeight + 114
         #else
@@ -3405,7 +3422,11 @@ struct HomeView: View {
     @ViewBuilder
     private var heroLoadingPlaceholder: some View {
         #if os(iOS)
-        HomeHeroCarouselSkeleton(metrics: heroCarouselMetrics)
+        if heroStyle == .featured {
+            HomeHeroFeaturedSkeleton(metrics: heroFeaturedMetrics)
+        } else {
+            HomeHeroCarouselSkeleton(metrics: heroCarouselMetrics)
+        }
         #else
         heroCardLoadingPlaceholder
         #endif
@@ -3419,6 +3440,10 @@ struct HomeView: View {
 
     private var heroCarouselMetrics: HomeHeroCarouselMetrics {
         HomeHeroCarouselMetrics(viewportWidth: homeCanvas.width, compactCanvasHeight: heroCompactCanvasHeight)
+    }
+
+    private var heroFeaturedMetrics: HomeHeroFeaturedMetrics {
+        HomeHeroFeaturedMetrics(viewportWidth: homeCanvas.width, compactCanvasHeight: heroCompactCanvasHeight)
     }
     #endif
 
@@ -3906,7 +3931,16 @@ struct HomeView: View {
     @ViewBuilder
     private var libraryHeroSection: some View {
         #if os(iOS)
-        if model.snapshot.heroCoverSongs.count >= HomeHeroCarouselSelection.minimumCardCount {
+        if heroStyle == .featured, !model.snapshot.heroCoverSongs.isEmpty {
+            HomeHeroFeaturedCarousel(
+                songs: model.snapshot.heroCoverSongs,
+                metrics: heroFeaturedMetrics,
+                isInteractive: !editorMode,
+                playFromSong: playLibraryShuffled(startingWith:),
+                shuffleAll: { playLibrary(shuffled: true) },
+                playAll: { playLibrary(shuffled: false) }
+            )
+        } else if model.snapshot.heroCoverSongs.count >= HomeHeroCarouselSelection.minimumCardCount {
             HomeHeroCarousel(
                 songs: model.snapshot.heroCoverSongs,
                 compactCanvasHeight: heroCompactCanvasHeight,

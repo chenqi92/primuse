@@ -2,6 +2,214 @@
 import SwiftUI
 import PrimuseKit
 
+enum HomeHeroStyle: String, CaseIterable {
+    static let storageKey = "primuse.home.heroStyle.v1"
+
+    case carousel
+    case featured
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .carousel: "home_hero_style_carousel"
+        case .featured: "home_hero_style_featured"
+        }
+    }
+}
+
+struct HomeHeroFeaturedMetrics {
+    let cardWidth: CGFloat
+    let artworkSide: CGFloat
+    let isCompact: Bool
+
+    init(viewportWidth: CGFloat, compactCanvasHeight: CGFloat? = nil) {
+        let width = viewportWidth > 0 ? viewportWidth : HomeHeroCarouselMetrics.fallbackWidth
+        isCompact = compactCanvasHeight != nil
+        if let height = compactCanvasHeight {
+            cardWidth = min(max(width - 64, 240), 340)
+            artworkSide = min(max(height * 0.4, 100), 150)
+        } else {
+            cardWidth = min(max((width - 40) * 0.76, 200), 360)
+            artworkSide = cardWidth
+        }
+    }
+
+    func cardHeight(captionHeight: CGFloat) -> CGFloat {
+        isCompact ? max(artworkSide, captionHeight) : artworkSide + captionHeight
+    }
+}
+
+struct HomeHeroFeaturedCarousel: View {
+    let songs: [Song]
+    let metrics: HomeHeroFeaturedMetrics
+    let isInteractive: Bool
+    let playFromSong: (Song) -> Void
+    let shuffleAll: () -> Void
+    let playAll: () -> Void
+
+    @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(SourcesStore.self) private var sources
+    @Environment(CoverTintProvider.self) private var tintProvider
+    @Environment(\.self) private var environment
+    @ScaledMetric(relativeTo: .body) private var captionHeight: CGFloat = 84
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("home_hero_featured_title")
+                    .font(.title3.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Menu {
+                    Button(action: shuffleAll) { Label("shuffle", systemImage: "shuffle") }
+                    Button(action: playAll) { Label("play_all", systemImage: "play.fill") }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 44, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(Text("a11y_more_actions"))
+                .disabled(!isInteractive)
+            }
+            .padding(.horizontal, 20)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 12) {
+                    ForEach(songs) { song in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(sourceTitle(song))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            card(song)
+                        }
+                        .frame(width: metrics.cardWidth)
+                        .task(id: song.id) { tintProvider.prepare([song]) }
+                    }
+                }
+                .scrollTargetLayout()
+                .padding(.bottom, 16)
+            }
+            .contentMargins(.horizontal, 20, for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollClipDisabled()
+            .pmHorizontalClipExtendingUnderVerticalBar()
+            .accessibilityIdentifier("home.hero.featured.cards")
+        }
+    }
+
+    private func sourceTitle(_ song: Song) -> String {
+        if song.sourceID == AppleMusicLibraryIdentity.sourceID { return "Apple Music" }
+        return sources.source(id: song.sourceID)?.name ?? String(localized: "library_title")
+    }
+
+    private func card(_ song: Song) -> some View {
+        let tint = tintProvider.tint(forSongID: song.id) ?? Color(red: 0.24, green: 0.28, blue: 0.34)
+        let resolved = tint.resolve(in: environment)
+        // 保留封面色相，并保证信息栏的白字至少有 4.5:1 对比度。
+        let background = ThemeAccentContrastPolicy.legible(.init(
+            red: Double(resolved.red), green: Double(resolved.green), blue: Double(resolved.blue)
+        ), for: .light)
+        let layout = metrics.isCompact
+            ? AnyLayout(HStackLayout(spacing: 0))
+            : AnyLayout(VStackLayout(spacing: 0))
+        return layout {
+            Button { playFromSong(song) } label: {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName, songID: song.id,
+                    size: metrics.artworkSide, cornerRadius: 0,
+                    sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat
+                )
+                .artworkCrossfade()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: song.title))
+            .accessibilityHint(Text("play"))
+            .accessibilityIdentifier("home.hero.featured.play.\(song.id)")
+
+            caption(song)
+                .frame(maxWidth: .infinity)
+                .frame(height: metrics.isCompact ? max(metrics.artworkSide, captionHeight) : captionHeight)
+        }
+        .frame(width: metrics.cardWidth)
+        .background(Color(.sRGB, red: background.red, green: background.green, blue: background.blue))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: .black.opacity(0.16), radius: 10, y: 7)
+        .allowsHitTesting(isInteractive)
+        .contextMenu {
+            if isInteractive {
+                Button { _ = player.insertNextInQueue([song]) } label: {
+                    Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+                }
+                Button { player.appendToQueue([song]) } label: {
+                    Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func caption(_ song: Song) -> some View {
+        let album = song.albumID.flatMap { library.visibleAlbum(id: $0) }
+        let title = album?.title ?? song.albumTitle.flatMap { $0.isEmpty ? nil : $0 } ?? song.title
+        let label = VStack(spacing: 3) {
+            Text(verbatim: title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(2)
+            if let artist = library.artistDisplayName(for: song), !artist.isEmpty {
+                Text(verbatim: artist)
+                    .font(.subheadline)
+                    .lineLimit(1)
+            }
+        }
+        .foregroundStyle(.white)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        if isInteractive, let album {
+            NavigationLink(value: album) { label }
+                .buttonStyle(.plain)
+                .accessibilityHint(Text("go_to_album"))
+        } else {
+            label
+        }
+    }
+}
+
+struct HomeHeroFeaturedSkeleton: View {
+    let metrics: HomeHeroFeaturedMetrics
+    @ScaledMetric(relativeTo: .body) private var captionHeight: CGFloat = 84
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            block(width: 120, height: 28)
+                .padding(.horizontal, 20)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(0..<3) { _ in
+                        VStack(alignment: .leading, spacing: 10) {
+                            block(width: 90, height: 20)
+                            block(width: metrics.cardWidth, height: metrics.cardHeight(captionHeight: captionHeight), cornerRadius: 18)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+            }
+            .scrollDisabled(true)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func block(width: CGFloat, height: CGFloat, cornerRadius: CGFloat = 5) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(HomeHeroCarouselSkeletonCards.fill)
+            .frame(width: width, height: height)
+    }
+}
+
 /// 首页顶部的封面轮播:今天挑出的一圈音乐封面(见 `HomeHeroCarouselSelection`)左右滑着看,
 /// 居中那张最大、两边的依次缩小并朝中间转开、叠在后面。首尾相接,往哪边都滑不到头:
 /// 同一圈卡片在一条很长的虚拟序列上重复摆开(`HomeHeroCarouselLoop`),惰性堆栈只建

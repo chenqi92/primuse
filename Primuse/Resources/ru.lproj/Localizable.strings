@@ -6891,3 +6891,8 @@
 "album_metadata_album_artist" = "Исполнитель альбома";
 
 "home_show_library_sections" = "Показывать вкладки категорий";
+
+"home_hero_style_title" = "Стиль карточек";
+"home_hero_style_carousel" = "3D-карусель";
+"home_hero_style_featured" = "Карточки подборки";
+"home_hero_featured_title" = "Рекомендуем";

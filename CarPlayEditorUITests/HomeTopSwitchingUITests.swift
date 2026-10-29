@@ -2,6 +2,56 @@ import XCTest
 
 @MainActor
 final class HomeTopSwitchingUITests: XCTestCase {
+    func testFeaturedHeroSwitchPersistsAndScrolls() {
+        continueAfterFailure = false
+        let app = configuredApp()
+        defer { app.terminate() }
+        app.launchArguments += [
+            "-primuse.navigation.mode.v1", "standard",
+            "-primuse.home.showHero", "YES", "-primuse.home.filter", "music",
+            "-primuse.launch.backgroundLaunchRepairDone", "NO"
+        ]
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
+        app.launch()
+        let featured = app.buttons["精选卡片"]
+        let found = featured.waitForExistence(timeout: 15)
+        if !found {
+            attach(app, "featured-editor-missing-control")
+            print(app.debugDescription)
+        }
+        XCTAssertTrue(found)
+        let original = app.buttons["立体轮播"].isSelected ? "立体轮播" : "精选卡片"
+        defer {
+            app.terminate()
+            app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
+            app.launch()
+            if featured.waitForExistence(timeout: 15) { app.buttons[original].tap() }
+            app.terminate()
+        }
+        featured.tap()
+        XCTAssertTrue(featured.isSelected)
+        attach(app, "featured-editor")
+        app.terminate()
+
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launch()
+        let home = app.tabBars.buttons["首页"]
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        home.tap()
+        attach(app, "featured-home")
+        let cards = app.scrollViews["home.hero.featured.cards"]
+        let hasCards = cards.waitForExistence(timeout: 10)
+        if !hasCards { print(app.debugDescription) }
+        XCTAssertTrue(hasCards, "The saved style must render on the home page")
+        let playButtons = cards.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.featured.play."))
+        XCTAssertGreaterThan(playButtons.count, 1)
+        let first = cards.buttons[playButtons.element(boundBy: 0).identifier]
+        let initialX = first.frame.minX
+        cards.swipeLeft()
+        XCTAssertTrue(!first.exists || first.frame.minX < initialX - 40, "Swiping must move to the next card")
+        attach(app, "featured-home-scrolled")
+    }
+
     func testUnderline() { verifyStyle("underline") }
     func testSegmented() { verifyStyle("segmented") }
     func testIcons() { verifyStyle("icons") }

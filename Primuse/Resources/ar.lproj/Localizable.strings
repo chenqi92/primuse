@@ -6891,3 +6891,8 @@
 "album_metadata_album_artist" = "فنان الألبوم";
 
 "home_show_library_sections" = "إظهار علامات تبويب الفئات";
+
+"home_hero_style_title" = "نمط البطاقات";
+"home_hero_style_carousel" = "عرض ثلاثي الأبعاد";
+"home_hero_style_featured" = "بطاقات مختارة";
+"home_hero_featured_title" = "اختيارات مميزة";
