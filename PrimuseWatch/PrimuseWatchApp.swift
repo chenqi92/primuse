@@ -10,7 +10,9 @@ struct PrimuseWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            WatchPlaybackPager()
+            NavigationStack {
+                WatchPlaybackPager()
+            }
             .environment(store)
             .alert(WatchString("ext.watch.offline.title"), isPresented: Binding(
                 get: { store.offlineError != nil || store.offlinePlayer.error != nil },
@@ -35,6 +37,7 @@ private struct WatchPlaybackPager: View {
     @State private var transitionID = 0
     @State private var visibleRoots: Set<Page> = []
     @State private var didOpenInitialPage = false
+    @State private var showsOptions = false
 
     private enum Page: Hashable {
         case queue, playing, seek
@@ -49,18 +52,21 @@ private struct WatchPlaybackPager: View {
         GeometryReader { geometry in
             ZStack {
                 ForEach(pages, id: \.self) { page in
-                    NavigationStack {
-                        content(for: page, width: geometry.size.width)
-                            .onAppear { visibleRoots.insert(page) }
-                            .onDisappear { visibleRoots.remove(page) }
-                    }
+                    content(for: page, width: geometry.size.width)
+                    .onAppear { visibleRoots.insert(page) }
+                    .onDisappear { visibleRoots.remove(page) }
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .offset(x: position(of: page) * geometry.size.width + offset)
                     .allowsHitTesting(selection == page && !isTransitioning)
                     .accessibilityHidden(selection != page)
                 }
             }
-            .clipped()
+            // 横向裁切邻页，顶部保留封面伸入导航栏两颗按钮之间的空间。
+            .clipShape(Path(CGRect(
+                x: 0, y: -geometry.safeAreaInsets.top,
+                width: geometry.size.width,
+                height: geometry.size.height + geometry.safeAreaInsets.top
+            )))
             .contentShape(Rectangle())
             .simultaneousGesture(swipe(width: geometry.size.width))
             .accessibilityScrollAction { edge in
@@ -68,8 +74,41 @@ private struct WatchPlaybackPager: View {
                 if edge == .trailing { turn(direction: 1, width: geometry.size.width) }
                 if edge == .leading { turn(direction: -1, width: geometry.size.width) }
             }
+            .toolbar {
+                if selection == .playing {
+                    if !store.isLiveStream {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button { turn(direction: -1, width: geometry.size.width) } label: {
+                                Image(systemName: "list.bullet")
+                            }
+                            .accessibilityLabel(WatchString("ext.watch.queue.title"))
+                        }
+                    }
+                    if store.hasSong {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { showsOptions = true } label: { Image(systemName: "ellipsis") }
+                                .accessibilityLabel(WatchString("ext.watch.more.title"))
+                        }
+                    }
+                } else if selection == .queue {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink { OfflineLibraryWatchView() } label: { Image(systemName: "applewatch") }
+                            .accessibilityLabel(WatchString("ext.watch.offline.title"))
+                    }
+                }
+            }
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(.container, edges: .bottom)
+        .navigationTitle(navigationTitle)
+        .containerBackground(for: .navigation) {
+            if selection == .playing || selection == .seek {
+                WatchNowPlayingBackdrop(cover: store.coverImage, accent: store.accent)
+            } else if selection == .queue {
+                LinearGradient(colors: [store.accent.opacity(0.45), .black], startPoint: .top, endPoint: .bottom)
+            } else {
+                Color.black
+            }
+        }
         .onChange(of: pages) { _, available in
             resetTransition()
             if !available.contains(selection) { selection = .playing }
@@ -87,6 +126,14 @@ private struct WatchPlaybackPager: View {
         }
     }
 
+    private var navigationTitle: String {
+        switch selection {
+        case .playing: ""
+        case .queue: WatchString("ext.watch.queue.title")
+        case .seek: ""
+        }
+    }
+
     @ViewBuilder
     private func content(for page: Page, width: CGFloat) -> some View {
         switch page {
@@ -95,7 +142,7 @@ private struct WatchPlaybackPager: View {
         case .playing:
             NowPlayingWatchView(
                 isActive: selection == .playing && !isTransitioning && offset == 0,
-                onShowQueue: { turn(direction: -1, width: width) },
+                showsOptions: $showsOptions,
                 onShowSeek: { turn(direction: 1, width: width) }
             )
         case .seek:

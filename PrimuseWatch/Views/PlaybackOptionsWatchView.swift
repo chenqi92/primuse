@@ -112,18 +112,22 @@ struct WatchSeekView: View {
     /// 很长的有声书一格 1 秒转不动, 半小时以上改成一格 10 秒。
     private var crownStep: Double { store.duration > 1800 ? 10 : 1 }
     private var acceptsInput: Bool { isActive && isVisible && scenePhase == .active }
+    private var progress: Double {
+        guard store.duration.isFinite, store.duration > 0, displayTime.isFinite else { return 0 }
+        return min(1, max(0, displayTime / store.duration))
+    }
 
     var body: some View {
-        VStack(spacing: 6) {
-            Text(formatTime(displayTime))
-                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(isAdjusting ? store.accent : .primary)
-                .contentTransition(.numericText())
-            Text("-" + formatTime(max(0, store.duration - displayTime)))
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.secondary)
-            scrubBar
-                .padding(.vertical, 4)
+        VStack(spacing: 2) {
+            Text(WatchString("ext.watch.seek.title"))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.7))
+            progressDial
+            Text(store.title)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity)
             HStack {
                 stepButton(symbol: symbol(forward: false, seconds: backwardStep),
                            label: WatchString("ext.watch.transport.skipBackward", backwardStep)) {
@@ -135,15 +139,18 @@ struct WatchSeekView: View {
                     seekImmediately(to: displayTime + Double(forwardStep))
                 }
             }
-            Text(WatchString("ext.watch.seek.hint"))
-                .font(.caption2)
+            .padding(.horizontal, 14)
+            Text(WatchString("ext.watch.seek.crownHint"))
+                .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
-        .padding(.horizontal, 4)
-        .navigationTitle(WatchString("ext.watch.seek.title"))
+        .padding(.horizontal, 12)
+        .padding(.top, -10)
+        .padding(.bottom, WatchNowPlayingMetrics.bottomInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .focusable(acceptsInput)
         .focused($isCrownFocused)
         .focusEffectDisabled()
@@ -211,35 +218,67 @@ struct WatchSeekView: View {
         pendingSeekSongID = nil
     }
 
-    /// 点哪跳哪的进度条。
-    private var scrubBar: some View {
-        GeometryReader { geo in
-            let fraction = store.duration > 0 ? min(1, max(0, displayTime / store.duration)) : 0
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.white.opacity(0.2))
-                Capsule()
-                    .fill(store.accent)
-                    .frame(width: max(6, geo.size.width * fraction))
+    private var progressDial: some View {
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            let lineWidth = max(4, side * 0.065)
+            let radius = (side - lineWidth - 4) / 2
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.18), lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(store.accent, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Circle()
+                    .fill(.white)
+                    .frame(width: lineWidth + 1, height: lineWidth + 1)
+                    .padding(3)
+                    .background(store.accent, in: Circle())
+                    .offset(y: -radius)
+                    .rotationEffect(.degrees(progress * 360))
+                VStack(spacing: 2) {
+                    Text(formatTime(displayTime))
+                        .font(.system(size: min(32, side * 0.28), weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .contentTransition(.numericText())
+                    Text("/ " + formatTime(store.duration))
+                        .font(.system(size: min(14, side * 0.14), design: .rounded).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(width: side * 0.72)
             }
-            .contentShape(Rectangle())
-            .onTapGesture { location in
-                guard store.duration > 0, geo.size.width > 0 else { return }
-                let ratio = max(0, min(1, location.x / geo.size.width))
-                seekImmediately(to: store.duration * Double(ratio))
+            .padding(lineWidth / 2 + 2)
+            .frame(width: side, height: side)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WatchString("ext.watch.seek.title"))
+        .accessibilityValue(formatTime(displayTime) + " / " + formatTime(store.duration))
+        .accessibilityHint(WatchString("ext.watch.seek.hint"))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: seekImmediately(to: displayTime + crownStep)
+            case .decrement: seekImmediately(to: displayTime - crownStep)
+            @unknown default: break
             }
         }
-        .frame(height: 6)
-        .accessibilityHidden(true)
     }
 
     private func stepButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.title3.weight(.semibold))
-                .frame(width: 44, height: 36)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(.white.opacity(0.16), in: Circle())
+                .overlay { Circle().strokeBorder(.white.opacity(0.1), lineWidth: 0.5) }
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(WatchPressableButtonStyle())
         .accessibilityLabel(label)
     }
 

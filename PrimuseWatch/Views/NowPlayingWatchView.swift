@@ -12,13 +12,12 @@ import WatchKit
 /// 左滑或从「更多 → 调整进度」进入进度页, 在那一页里表冠调进度。
 struct NowPlayingWatchView: View {
     let isActive: Bool
-    let onShowQueue: () -> Void
+    @Binding var showsOptions: Bool
     let onShowSeek: () -> Void
     @Environment(WatchPlayerStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
     /// 封面和歌词两面, 记住上次停在哪一面。
     @AppStorage("watch.nowPlaying.showsLyrics") private var prefersLyrics = false
-    @State private var showsOptions = false
     @State private var opensSeekOnDismiss = false
     @State private var isVisible = false
     /// 每加一次, 音量控件就重新要一次表冠: 回到这页、从后台回来、关掉弹出页之后
@@ -34,27 +33,6 @@ struct NowPlayingWatchView: View {
                 playerLayout
             } else {
                 WatchEmptyStateView()
-            }
-        }
-        .containerBackground(for: .navigation) {
-            WatchNowPlayingBackdrop(cover: store.coverImage, accent: store.accent)
-        }
-        .toolbar {
-            if !store.isLiveStream {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: onShowQueue) { Image(systemName: "list.bullet") }
-                    .accessibilityLabel(WatchString("ext.watch.queue.title"))
-                }
-            }
-            if store.hasSong {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showsOptions = true
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                    .accessibilityLabel(WatchString("ext.watch.more.title"))
-                }
             }
         }
         .sheet(isPresented: $showsOptions, onDismiss: optionsDismissed) {

@@ -12,20 +12,6 @@ struct LibraryWatchView: View {
                 queueList
             }
         }
-        .navigationTitle(WatchString("ext.watch.queue.title"))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink { OfflineLibraryWatchView() } label: { Image(systemName: "applewatch") }
-                    .accessibilityLabel(WatchString("ext.watch.offline.title"))
-            }
-        }
-        .containerBackground(for: .navigation) {
-            LinearGradient(
-                colors: [store.accent.opacity(0.45), .black],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
     }
 
     private var queueList: some View {
