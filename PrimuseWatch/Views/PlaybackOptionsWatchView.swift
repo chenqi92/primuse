@@ -93,6 +93,7 @@ struct WatchPlaybackOptionsView: View {
 /// 两侧键一次挪一小段 (有声内容按 iPhone 设置的快退 / 快进秒数)。
 struct WatchSeekView: View {
     let isActive: Bool
+    let onDialDraggingChanged: (Bool) -> Void
     @Environment(WatchPlayerStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
     @State private var isVisible = false
@@ -103,10 +104,13 @@ struct WatchSeekView: View {
     @State private var pendingSeekSongID: String?
     /// 程序化改写 crownTime 时置 true, 让 .onChange 跳过这一次, 不当成用户转动。
     @State private var programmaticCrownUpdate = false
+    @State private var dialDrag: WatchSeekDialDrag?
+    @State private var ignoresDialTouchUntilEnd = false
+    @GestureState private var isDialTouchActive = false
     @FocusState private var isCrownFocused: Bool
 
     private var isAdjusting: Bool { seekDebounceTask != nil }
-    private var displayTime: Double { isAdjusting ? crownTime : store.currentTime }
+    private var displayTime: Double { dialDrag?.time ?? (isAdjusting ? crownTime : store.currentTime) }
     private var backwardStep: Int { store.usesSkipIntervals ? store.skipBackwardSeconds : 15 }
     private var forwardStep: Int { store.usesSkipIntervals ? store.skipForwardSeconds : 15 }
     /// 很长的有声书一格 1 秒转不动, 半小时以上改成一格 10 秒。
@@ -148,7 +152,7 @@ struct WatchSeekView: View {
                 .minimumScaleFactor(0.75)
         }
         .padding(.horizontal, 12)
-        .padding(.top, -10)
+        .padding(.top, -26)
         .padding(.bottom, WatchNowPlayingMetrics.bottomInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .focusable(acceptsInput)
@@ -171,6 +175,7 @@ struct WatchSeekView: View {
                 syncCrown(to: store.currentTime)
                 isCrownFocused = true
             } else {
+                finishDialDrag(commit: false)
                 isCrownFocused = false
                 finishPendingSeek()
             }
@@ -180,7 +185,7 @@ struct WatchSeekView: View {
                 programmaticCrownUpdate = false
                 return
             }
-            guard acceptsInput else { return }
+            guard acceptsInput, dialDrag == nil else { return }
             seekDebounceTask?.cancel()
             pendingSeekSongID = store.songID
             seekDebounceTask = Task { @MainActor [newValue] in
@@ -194,17 +199,28 @@ struct WatchSeekView: View {
         }
         // 换歌或空闲时让表冠跟着播放进度走, 否则轻转一格会从几分钟前的旧值起跳。
         .onChange(of: store.songID) { _, _ in
+            finishDialDrag(commit: false)
             seekDebounceTask?.cancel()
             seekDebounceTask = nil
             pendingSeekSongID = nil
             syncCrown(to: store.currentTime)
         }
         .onChange(of: store.currentTime) { _, newTime in
-            guard seekDebounceTask == nil else { return }
+            guard seekDebounceTask == nil, dialDrag == nil else { return }
             if abs(newTime - crownTime) > crownStep { syncCrown(to: newTime) }
+        }
+        .onChange(of: store.duration) { _, _ in
+            finishDialDrag(commit: false)
+        }
+        .onChange(of: isDialTouchActive) { _, active in
+            if !active {
+                finishDialDrag(commit: false)
+                ignoresDialTouchUntilEnd = false
+            }
         }
         .onDisappear {
             isVisible = false
+            finishDialDrag(commit: false)
             isCrownFocused = false
             finishPendingSeek()
         }
@@ -235,6 +251,7 @@ struct WatchSeekView: View {
                     .frame(width: lineWidth + 1, height: lineWidth + 1)
                     .padding(3)
                     .background(store.accent, in: Circle())
+                    .scaleEffect(dialDrag == nil ? 1 : 1.25)
                     .offset(y: -radius)
                     .rotationEffect(.degrees(progress * 360))
                 VStack(spacing: 2) {
@@ -253,7 +270,18 @@ struct WatchSeekView: View {
             .padding(lineWidth / 2 + 2)
             .frame(width: side, height: side)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+                    .offset(x: sin(progress * 2 * .pi) * radius,
+                            y: -cos(progress * 2 * .pi) * radius)
+                    .gesture(dialGesture(center: CGPoint(x: geometry.size.width / 2,
+                                                        y: geometry.size.height / 2), radius: radius))
+                    .accessibilityHidden(true)
+            }
         }
+        .coordinateSpace(name: "watch.seek.dial")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(WatchString("ext.watch.seek.title"))
         .accessibilityValue(formatTime(displayTime) + " / " + formatTime(store.duration))
@@ -265,6 +293,45 @@ struct WatchSeekView: View {
             @unknown default: break
             }
         }
+    }
+
+    private func dialGesture(center: CGPoint, radius: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("watch.seek.dial"))
+            .updating($isDialTouchActive) { _, active, _ in active = true }
+            .onChanged { value in
+                guard acceptsInput, !ignoresDialTouchUntilEnd else { return }
+                if dialDrag == nil {
+                    guard let drag = WatchSeekDialDrag(songID: store.songID, time: displayTime,
+                                                      duration: store.duration, location: value.startLocation,
+                                                      center: center, radius: radius) else { return }
+                    seekDebounceTask?.cancel()
+                    seekDebounceTask = nil
+                    pendingSeekSongID = nil
+                    dialDrag = drag
+                    onDialDraggingChanged(true)
+                    isCrownFocused = false
+                    WKInterfaceDevice.current().play(.click)
+                }
+                dialDrag?.update(location: value.location)
+            }
+            .onEnded { value in
+                dialDrag?.update(location: value.location)
+                finishDialDrag(commit: true)
+            }
+    }
+
+    private func finishDialDrag(commit: Bool) {
+        guard let drag = dialDrag else { return }
+        if !commit, isDialTouchActive { ignoresDialTouchUntilEnd = true }
+        dialDrag = nil
+        onDialDraggingChanged(false)
+        if commit, acceptsInput, let time = drag.destination(songID: store.songID, duration: store.duration) {
+            store.seek(to: time)
+            syncCrown(to: time)
+        } else {
+            syncCrown(to: store.currentTime)
+        }
+        isCrownFocused = acceptsInput
     }
 
     private func stepButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {

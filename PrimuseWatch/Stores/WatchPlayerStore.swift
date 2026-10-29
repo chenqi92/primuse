@@ -243,6 +243,12 @@ final class WatchPlayerStore: NSObject, WCSessionDelegate {
     func seek(to time: TimeInterval) {
         if isOfflinePlayback { offlinePlayer.seek(time); return }
         guard !isLiveStream else { return }
+        #if DEBUG
+        if isDemo {
+            _ = moveOptimistically(to: time)
+            return
+        }
+        #endif
         guard canSendRealtimeCommand else {
             requestCurrentState()
             return
@@ -860,7 +866,7 @@ struct ContextSnapshot: Sendable {
 #if DEBUG
 extension WatchPlayerStore {
     /// 截图用的演示状态: PRIMUSE_WATCH_DEMO = music / lyrics / lyricsLong / audiobook / radio / offline / empty。
-    /// 不连 iPhone, 不发任何命令以外的消息 (按键照常走 send, 模拟器里没有配对的 iPhone 就丢掉)。
+    /// 不连 iPhone；进度调节只更新演示时钟，其他按键仍走原有命令路径。
     fileprivate func applyDemo(_ kind: String) {
         isDemo = true
         isReachable = kind != "offline"

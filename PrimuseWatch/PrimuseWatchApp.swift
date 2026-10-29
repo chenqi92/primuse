@@ -38,6 +38,7 @@ private struct WatchPlaybackPager: View {
     @State private var visibleRoots: Set<Page> = []
     @State private var didOpenInitialPage = false
     @State private var showsOptions = false
+    @State private var isDraggingSeek = false
 
     private enum Page: Hashable {
         case queue, playing, seek
@@ -95,6 +96,13 @@ private struct WatchPlaybackPager: View {
                         NavigationLink { OfflineLibraryWatchView() } label: { Image(systemName: "applewatch") }
                             .accessibilityLabel(WatchString("ext.watch.offline.title"))
                     }
+                } else if selection == .seek {
+                    ToolbarItem(placement: .topBarLeading) {
+                        clockAlignmentSpace
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        clockAlignmentSpace
+                    }
                 }
             }
         }
@@ -134,6 +142,14 @@ private struct WatchPlaybackPager: View {
         }
     }
 
+    // 对称保留工具栏空间，让系统时间与正在播放页一样居中。
+    private var clockAlignmentSpace: some View {
+        Color.clear
+            .frame(width: 32, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private func content(for page: Page, width: CGFloat) -> some View {
         switch page {
@@ -146,7 +162,8 @@ private struct WatchPlaybackPager: View {
                 onShowSeek: { turn(direction: 1, width: width) }
             )
         case .seek:
-            WatchSeekView(isActive: selection == .seek && !isTransitioning && offset == 0)
+            WatchSeekView(isActive: selection == .seek && !isTransitioning && offset == 0,
+                          onDialDraggingChanged: { isDraggingSeek = $0 })
         }
     }
 
@@ -161,6 +178,10 @@ private struct WatchPlaybackPager: View {
     private func swipe(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 18)
             .onChanged { value in
+                if isDraggingSeek {
+                    horizontalDrag = false
+                    return
+                }
                 guard pages.count > 1, !isTransitioning, visibleRoots.contains(selection) else { return }
                 if horizontalDrag == nil {
                     horizontalDrag = abs(value.translation.width) > abs(value.translation.height) * 1.2
@@ -170,7 +191,7 @@ private struct WatchPlaybackPager: View {
             }
             .onEnded { value in
                 defer { horizontalDrag = nil }
-                guard horizontalDrag == true, !isTransitioning else { return }
+                guard horizontalDrag == true, !isTransitioning, !isDraggingSeek else { return }
                 let translation = value.translation.width
                 let predicted = value.predictedEndTranslation.width
                 if abs(translation) > width * 0.25 || abs(predicted) > width * 0.5 {
@@ -182,7 +203,8 @@ private struct WatchPlaybackPager: View {
     }
 
     private func turn(direction: Int, width: CGFloat) {
-        guard pages.count > 1, !isTransitioning, let current = pages.firstIndex(of: selection) else { return }
+        guard pages.count > 1, !isTransitioning, !isDraggingSeek,
+              let current = pages.firstIndex(of: selection) else { return }
         let target = pages[(current + direction + pages.count) % pages.count]
         transitionID &+= 1
         let id = transitionID

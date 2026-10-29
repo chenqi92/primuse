@@ -2161,6 +2161,7 @@
 		EA0FE145A9DCEAAEC3AB360C /* OfflineLibraryWatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2F1834CBAC982130D005BC /* OfflineLibraryWatchView.swift */; };
 		FA3D0D432FDFD3CBEFF22BCC /* WatchFileTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1949B8417ED490628653C570 /* WatchFileTransferService.swift */; };
 		CA55B96EE25ACCD3CACD0D85 /* WatchOfflineLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */; };
+		E528BE5C743446EBB1FCF4C5 /* WatchSeekDialDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796067959F6A4EB8A23553F0 /* WatchSeekDialDrag.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3986,6 +3987,7 @@
 		4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchOfflineLocalization.swift; sourceTree = "<group>"; };
 		BA2F1834CBAC982130D005BC /* OfflineLibraryWatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineLibraryWatchView.swift; sourceTree = "<group>"; };
 
+		796067959F6A4EB8A23553F0 /* WatchSeekDialDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSeekDialDrag.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -5686,6 +5688,7 @@
 			children = (
 				136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */,
 				3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */,
+				796067959F6A4EB8A23553F0 /* WatchSeekDialDrag.swift */,
 				4B1164F5D4FE9D4012B6A956 /* WatchOfflineLocalization.swift */,
 				0ADFA7021944251BFFBF8042 /* WatchOfflineMedia.swift */,
 			);
@@ -6887,6 +6890,7 @@
 				F92FCB0CCB720B0F2A644274 /* SharedNowPlayingState.swift in Sources */,
 				B4919DB98A38031DE3CB8C9E /* WatchPlayerStore.swift in Sources */,
 				F2CD041D57050FD33E8A5B11 /* WatchConnectionPresentation.swift in Sources */,
+				E528BE5C743446EBB1FCF4C5 /* WatchSeekDialDrag.swift in Sources */,
 				EA0FE145A9DCEAAEC3AB360C /* OfflineLibraryWatchView.swift in Sources */,
 				13634D89E919EBB65E6AA37A /* WatchOfflineLocalization.swift in Sources */,
 				C9D20B390B8FBE049BC9ED3D /* WatchOfflineMedia.swift in Sources */,
