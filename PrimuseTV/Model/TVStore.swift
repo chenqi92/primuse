@@ -575,6 +575,7 @@ final class TVStore {
     let library: MusicLibrary
     let sourcesStore: SourcesStore
     private let defaults: UserDefaults
+    @ObservationIgnored private let podcastStore: PodcastStore
     @ObservationIgnored private let snapshotRecovery: @MainActor () throws -> Bool
     @ObservationIgnored private let scanPersistence: @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure>
     @ObservationIgnored let engine = TVAudioEngine()
@@ -642,6 +643,7 @@ final class TVStore {
 
     init(sourcesStore: SourcesStore? = nil, library: MusicLibrary? = nil,
          defaults: UserDefaults = .standard,
+         podcastStore: PodcastStore? = nil,
          sessionStore: PlaybackSessionStore = PlaybackSessionStore(),
          snapshotRecovery: (@MainActor () throws -> Bool)? = nil,
          scanPersistence: @escaping @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure> = {
@@ -673,6 +675,7 @@ final class TVStore {
             return Set(initialSources.allSources.lazy.filter { $0.type == .local && !$0.isDeleted }.map(\.id))
         }
         self.defaults = defaults
+        self.podcastStore = podcastStore ?? .shared
         self.scraperSettings = ScraperSettingsStore(defaults: defaults)
         medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(
             (defaults.object(forKey: "tv.medley.segmentSeconds") as? Int)
@@ -767,6 +770,15 @@ final class TVStore {
             forName: .primuseSpokenWordDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.publishTopShelf() }
+        }
+        podcastTopShelfObserver = NotificationCenter.default.addObserver(
+            forName: .primusePodcastsDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.publishTopShelf()
+                if self.pendingDeepLink?.host == "podcast" { self.flushPendingDeepLink() }
+            }
         }
         if library == nil {
             let target = self.library
@@ -1112,6 +1124,8 @@ final class TVStore {
     @ObservationIgnored private var spokenWordClassificationObserver: NSObjectProtocol?
     @ObservationIgnored private var spokenWordIntroOutroObserver: NSObjectProtocol?
     @ObservationIgnored private var spokenWordTopShelfObserver: NSObjectProtocol?
+    @ObservationIgnored private var podcastTopShelfObserver: NSObjectProtocol?
+    @ObservationIgnored private var topShelfPlaybackRequestID: UUID?
     @ObservationIgnored private var playbackRangeObserver: NSObjectProtocol?
     @ObservationIgnored private var playbackRangeRefreshTask: Task<Void, Never>?
     /// The playback range the current selection plays, if any.
@@ -4114,7 +4128,7 @@ final class TVStore {
         }
     }
 
-    /// 生成 Top Shelf 展示数据(最近播放 + 电台 + 资料库专辑),后台预取封面并写入 App Group,
+    /// 生成 Top Shelf 的续听、电台与资料库内容,后台预取封面并写入 App Group,
     /// 供 Apple TV 主屏「顶部内容展示」扩展读取。没配 App Group 时发布器自身会跳过。
     func publishTopShelf() {
         topShelfTask?.cancel()
@@ -4128,13 +4142,17 @@ final class TVStore {
     private func publishSettledTopShelf() async {
         let startedAt = ProcessInfo.processInfo.systemUptime
         guard !Task.isCancelled, TopShelfStore.containerURL != nil else { return }
+        guard podcastStore.isLoaded else {
+            podcastStore.loadIfNeeded()
+            return
+        }
         await topShelfBookShelf.refresh(songs: library.spokenWordSongs, inputs: .init(
             libraryRevision: library.spokenWordContentRevision,
             storeRevision: SpokenWordStore.shared.revision
         ))
         guard !Task.isCancelled else { return }
         let currentBookID = currentSpokenWordBookID
-        let books: [TopShelfPublisher.Draft] = topShelfBookShelf.books
+        let listeningBooks = topShelfBookShelf.books
             .filter { ($0.isInProgress || $0.id == currentBookID) && !SpokenWordStore.shared.isArchived(bookID: $0.id) }
             .sorted {
                 if ($0.id == currentBookID) != ($1.id == currentBookID) { return $0.id == currentBookID }
@@ -4142,16 +4160,18 @@ final class TVStore {
                 let rhs = $1.lastListenedAt ?? .distantPast
                 return lhs == rhs ? $0.id < $1.id : lhs > rhs
             }
-            .prefix(8).map { book in
-                let cover = library.song(id: book.resumeItemID ?? book.items.first?.id ?? "")
-                return .init(
-                    id: "book:" + book.id, title: book.title, subtitle: book.author ?? "",
-                    artist: "", album: "", coverKey: "", songID: cover?.id,
-                    coverRef: cover?.coverArtFileName,
-                    playURL: Self.topShelfLink(host: "book", key: "id", book.id),
-                    playbackProgress: (book.fractionComplete * 100).rounded(.down) / 100
-                )
-            }
+            .prefix(8)
+        let books: [TopShelfPublisher.Draft] = listeningBooks.map { book in
+            let cover = library.song(id: book.resumeItemID ?? book.items.first?.id ?? "")
+            return .init(
+                id: "book:" + book.id, title: book.title, subtitle: book.author ?? "",
+                artist: "", album: "", coverKey: "", songID: cover?.id,
+                coverRef: cover?.coverArtFileName,
+                playURL: Self.topShelfLink(host: "book", key: "id", book.id),
+                playbackProgress: (book.fractionComplete * 100).rounded(.down) / 100
+            )
+        }
+        let podcasts = topShelfPodcastDrafts()
         let recent: [TopShelfPublisher.Draft] = recentlyPlayed.prefix(8).map { s in
             let alb = albumOf(s)
             return .init(id: s.id, title: s.title, subtitle: s.artist, artist: s.artist,
@@ -4182,13 +4202,60 @@ final class TVStore {
             self?.radioLogoSourceContext(sourceID: id)
         }
         plog("TV topShelf draft ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        var playedAt = defaults.dictionary(forKey: Self.topShelfLastPlayedKey) as? [String: Date] ?? [:]
+        let recentIDs = Set(recent.map(\.id))
+        let latestMusic = PlayHistoryStore.shared.entries.first { recentIDs.contains($0.songID) }?.playedAt
+        let latestDates = [
+            "books": listeningBooks.compactMap(\.lastListenedAt).max(),
+            "podcasts": podcasts.compactMap(\.lastListenedAt).max(),
+            "radio": playedStations.first?.lastPlayedAt,
+            "recent": latestMusic
+        ]
+        for (id, date) in latestDates {
+            if let date { playedAt[id] = max(playedAt[id] ?? .distantPast, date) }
+        }
         await TopShelfPublisher.publish(
             books: books,
+            podcasts: podcasts,
             recent: recent,
             radio: radio,
             albums: lib,
+            lastPlayedAt: playedAt,
+            activeSectionID: isPlaying ? topShelfPlaybackSectionID : nil,
             radioLogoSource: radioLogoSource
         )
+    }
+
+    private static let topShelfLastPlayedKey = "tv.topShelf.lastPlayedAt.v1"
+
+    private var topShelfPlaybackSectionID: String {
+        if currentPodcastEpisodeID != nil { return "podcasts" }
+        if isLiveRadio { return "radio" }
+        return currentItemIsSpokenWord ? "books" : "recent"
+    }
+
+    func topShelfPodcastDrafts() -> [TopShelfPublisher.PodcastDraft] {
+        var entries = podcastStore.inProgressEpisodes(limit: 8)
+        if let id = currentPodcastEpisodeID, let current = podcastStore.episode(id: id),
+           !podcastStore.state(for: current.episode).isFinished {
+            entries.removeAll { $0.episode.id == id }
+            entries.insert((current.episode, current.show,
+                            SpokenWordStore.shared.position(forSongID: id)?.updatedAt ?? .distantPast), at: 0)
+        }
+        return entries.prefix(8).map { entry in
+            let stored = SpokenWordStore.shared.position(forSongID: entry.episode.id)
+            let duration = (stored?.duration).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? entry.episode.duration ?? 0
+            let progress = duration.isFinite && duration > 0
+                ? (min(1, max(0, (stored?.position ?? 0) / duration)) * 100).rounded(.down) / 100 : nil
+            var link = URLComponents()
+            link.scheme = "primuse"
+            link.host = "podcast"
+            link.queryItems = [URLQueryItem(name: "id", value: entry.episode.id),
+                               URLQueryItem(name: "show", value: entry.show.id)]
+            return .init(episode: entry.episode, show: entry.show, playbackProgress: progress,
+                         lastListenedAt: stored?.updatedAt,
+                         playURL: link.string ?? Self.topShelfLink(host: "podcast", key: "id", entry.episode.id))
+        }
     }
 
     private static func topShelfLink(host: String, key: String, _ value: String) -> String {
@@ -4201,7 +4268,16 @@ final class TVStore {
     // MARK: 深链(主屏 Top Shelf 点击 → 播放)
 
     /// 曲库未就绪时暂存的深链,reload/bootstrap 完成后再执行。
-    @ObservationIgnored private var pendingDeepLink: URL?
+    @ObservationIgnored private var pendingDeepLink: URL? {
+        didSet {
+            guard pendingDeepLink != oldValue else { return }
+            pendingPodcastDeepLinkTask?.cancel()
+            pendingPodcastDeepLinkTask = nil
+            didRefreshPendingPodcast = false
+        }
+    }
+    @ObservationIgnored private var pendingPodcastDeepLinkTask: Task<Void, Never>?
+    @ObservationIgnored private var didRefreshPendingPodcast = false
     /// 这次启动的电台列表已经到齐过(首轮同步结束,或这次启动不会同步)。
     /// 之后再来的电台深链找不到目标台,就不必再等。
     @ObservationIgnored private var hasSettledRadioList = false
@@ -4209,6 +4285,9 @@ final class TVStore {
     /// 处理 primuse:// 深链(主屏 Top Shelf 点击)。冷启动时曲库可能还没加载好,
     /// 先暂存,bootstrap/reload 完成后由 flushPendingDeepLink 执行。
     func handleDeepLink(_ url: URL) {
+        pendingPodcastDeepLinkTask?.cancel()
+        pendingPodcastDeepLinkTask = nil
+        didRefreshPendingPodcast = false
         pendingDeepLink = url
         flushPendingDeepLink(isFinalAttempt: hasSettledRadioList)
     }
@@ -4218,6 +4297,51 @@ final class TVStore {
         guard let url = pendingDeepLink, url.scheme == "primuse" else { return }
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         func q(_ name: String) -> String? { comps?.queryItems?.first { $0.name == name }?.value }
+        if url.host == "podcast" {
+            guard let id = q("id"), !id.isEmpty else {
+                pendingDeepLink = nil
+                return
+            }
+            guard podcastStore.isLoaded else {
+                podcastStore.loadIfNeeded()
+                return
+            }
+            if let found = podcastStore.episode(id: id) {
+                let continuing = Array(PodcastEpisodeListPolicy.continuation(
+                    from: id, in: podcastStore.episodes(forShowID: found.show.id), state: podcastStore.state(for:)
+                ).dropFirst())
+                pendingDeepLink = nil
+                playPodcast(found.episode, continuing: continuing)
+                return
+            }
+            // tvOS 可能清掉单集缓存;订阅还在时先刷新这一档,再判断链接是否失效。
+            if !didRefreshPendingPodcast, let showID = q("show"), podcastStore.show(id: showID) != nil {
+                didRefreshPendingPodcast = true
+                pendingPodcastDeepLinkTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    while self.podcastStore.refreshingShowIDs.contains(showID) {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        guard !Task.isCancelled, self.pendingDeepLink == url else { return }
+                    }
+                    await self.podcastStore.refresh(showID: showID)
+                    guard !Task.isCancelled, self.pendingDeepLink == url else { return }
+                    self.pendingPodcastDeepLinkTask = nil
+                    if let failure = self.podcastStore.refreshFailures[showID] {
+                        self.pendingDeepLink = nil
+                        self.playbackIssue = .failed(failure)
+                        return
+                    }
+                    self.flushPendingDeepLink(isFinalAttempt: true)
+                }
+                return
+            }
+            guard pendingPodcastDeepLinkTask == nil else { return }
+            if isFinalAttempt || hasSettledRadioList {
+                pendingDeepLink = nil
+                playbackIssue = .failed(String(localized: "podcast_episode_missing"))
+            }
+            return
+        }
         // 电台不依赖曲库:只听电台的用户点主屏上的台也要能播。
         if url.host == "radio" {
             guard let id = q("id") else {
@@ -4264,11 +4388,10 @@ final class TVStore {
         }
     }
 
-    /// 电台列表已经到齐(首轮同步结束,或这次启动根本不会同步)时,最后找一次挂着的
-    /// 电台深链;仍找不到就放弃并说明,不让它一直挂着、几分钟后突然顶掉用户正在听的。
+    /// 首轮同步结束时重试待处理的续听链接,失效链接不再等待后续数据变化。
     func finishPendingRadioDeepLink() {
         hasSettledRadioList = true
-        guard pendingDeepLink?.host == "radio" || pendingDeepLink?.host == "book" else { return }
+        guard let host = pendingDeepLink?.host, ["radio", "book", "podcast"].contains(host) else { return }
         // 电台存储观察回调的那次重载可能还排在 yield 后面,先把刚拉下来的台并进列表。
         reloadRadioStations(fromDisk: false)
         flushPendingDeepLink(isFinalAttempt: true)
@@ -7798,7 +7921,7 @@ final class TVStore {
     /// 已经在放这一集就只是继续。
     func playPodcast(_ episode: PodcastEpisode, continuing: [PodcastEpisode] = []) {
         pendingDeepLink = nil
-        let podcasts = PodcastStore.shared
+        let podcasts = podcastStore
         if currentPodcastEpisodeID == episode.id, hasNowPlaying, !isLiveRadio {
             if !isPlaying { togglePlayPause() }
             return
@@ -7881,7 +8004,7 @@ final class TVStore {
 
     /// 同一集换管线(放画面 ⇄ 只放声音):不动队列与播放页,从 `time` 重开这一集。
     private func reloadCurrentPodcastEpisode(at time: Double, autoPlay: Bool) {
-        guard let id = currentPodcastEpisodeID, let found = PodcastStore.shared.episode(id: id) else { return }
+        guard let id = currentPodcastEpisodeID, let found = podcastStore.episode(id: id) else { return }
         rememberSpokenWordPosition(force: true)
         playbackTask?.cancel()
         let requestID = UUID()
@@ -8006,7 +8129,7 @@ final class TVStore {
 
     /// 一集放完(或片尾跳过):接着放下一集;后面没有了就停在这里。
     private func advancePodcastQueue() {
-        let podcasts = PodcastStore.shared
+        let podcasts = podcastStore
         while !podcastUpNext.isEmpty {
             let next = podcastUpNext.removeFirst()
             // 中途在别的设备上听完了的跳过。
@@ -8021,7 +8144,7 @@ final class TVStore {
     private func applyPodcastOutroSkipIfNeeded() {
         guard let episodeID = currentPodcastEpisodeID,
               podcastOutroHandledEpisodeID != episodeID,
-              let show = PodcastStore.shared.episode(id: episodeID)?.show,
+              let show = podcastStore.episode(id: episodeID)?.show,
               show.settings.skipOutroSeconds > 0 else { return }
         let total = duration > 0 ? duration : nowPlaying.duration
         let outro = Double(show.settings.skipOutroSeconds)
@@ -8208,7 +8331,18 @@ final class TVStore {
         playbackMonitorTask = nil
         persistPlaybackSession()
         // 暂停 / 停止 / 出错都会走到这里:有声内容立刻记下位置。
-        if !engine.isPlaying { rememberSpokenWordPosition(force: true) }
+        if !engine.isPlaying {
+            rememberSpokenWordPosition(force: true)
+            topShelfPlaybackRequestID = nil
+        }
+        if engine.isPlaying, engine.status == .playing, let requestID = activePlaybackRequestID,
+           topShelfPlaybackRequestID != requestID {
+            topShelfPlaybackRequestID = requestID
+            var playedAt = defaults.dictionary(forKey: Self.topShelfLastPlayedKey) as? [String: Date] ?? [:]
+            playedAt[topShelfPlaybackSectionID] = Date()
+            defaults.set(playedAt, forKey: Self.topShelfLastPlayedKey)
+            publishTopShelf()
+        }
         if currentPodcastEpisodeID != nil {
             startPodcastListeningMonitor()
             return

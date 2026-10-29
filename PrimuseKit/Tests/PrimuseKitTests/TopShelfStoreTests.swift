@@ -3,6 +3,21 @@ import Testing
 @testable import PrimuseKit
 
 struct TopShelfStoreTests {
+    @Test func sectionsFollowListeningRecencyAndKeepTiesStable() {
+        let sections = ["books", "podcasts", "recent", "radio", "albums"].map {
+            TopShelfSection(id: $0, title: $0, items: [])
+        }
+        let dates = ["books": Date(timeIntervalSince1970: 100),
+                     "podcasts": Date(timeIntervalSince1970: 300),
+                     "radio": Date(timeIntervalSince1970: 200)]
+        #expect(TopShelfSectionOrder.sorted(sections, lastPlayedAt: dates).map(\.id)
+            == ["podcasts", "radio", "books", "recent", "albums"])
+        #expect(TopShelfSectionOrder.sorted(sections, lastPlayedAt: dates, activeSectionID: "recent").map(\.id)
+            == ["recent", "podcasts", "radio", "books", "albums"])
+        #expect(TopShelfSectionOrder.sorted(sections, lastPlayedAt: [:], activeSectionID: "missing").map(\.id)
+            == sections.map(\.id))
+    }
+
     @Test func oldPayloadAndBookProgressRemainCompatible() throws {
         let old = Data(#"{"id":"song","title":"Song","subtitle":"Artist","playURL":"primuse://play?song=song"}"#.utf8)
         let decoded = try JSONDecoder().decode(TopShelfItem.self, from: old)

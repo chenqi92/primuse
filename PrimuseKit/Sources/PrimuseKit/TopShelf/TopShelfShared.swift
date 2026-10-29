@@ -45,6 +45,23 @@ public struct TopShelfPayload: Codable, Sendable, Equatable {
     }
 }
 
+public enum TopShelfSectionOrder {
+    public static func sorted(
+        _ sections: [TopShelfSection],
+        lastPlayedAt: [String: Date],
+        activeSectionID: String? = nil
+    ) -> [TopShelfSection] {
+        sections.enumerated().sorted { lhs, rhs in
+            let leftActive = lhs.element.id == activeSectionID
+            let rightActive = rhs.element.id == activeSectionID
+            if leftActive != rightActive { return leftActive }
+            let leftDate = lastPlayedAt[lhs.element.id] ?? .distantPast
+            let rightDate = lastPlayedAt[rhs.element.id] ?? .distantPast
+            return leftDate == rightDate ? lhs.offset < rhs.offset : leftDate > rightDate
+        }.map(\.element)
+    }
+}
+
 /// App Group 容器里 Top Shelf 数据的读写入口(主 app 写、扩展读)。
 public enum TopShelfStore {
     public static var containerURL: URL? {

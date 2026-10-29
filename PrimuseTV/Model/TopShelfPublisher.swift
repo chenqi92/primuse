@@ -30,13 +30,24 @@ enum TopShelfPublisher {
         let playURL: String
     }
 
+    struct PodcastDraft: Sendable {
+        let episode: PodcastEpisode
+        let show: PodcastShow
+        let playbackProgress: Double?
+        let lastListenedAt: Date?
+        let playURL: String
+    }
+
     /// `radioLogoSource`:镜像台的音乐源和凭据。只在台标缓存没命中时才回主线程要,
     /// 发布时不预先解析(那要读钥匙串)。
     static func publish(
         books: [Draft],
+        podcasts: [PodcastDraft],
         recent: [Draft],
         radio: [RadioDraft],
         albums: [Draft],
+        lastPlayedAt: [String: Date],
+        activeSectionID: String?,
         radioLogoSource: @escaping @MainActor @Sendable (String) -> TVRadioLogoSourceContext?
     ) async {
         // 没配 App Group(旧版 / 未签 entitlement)时 containerURL 为 nil,直接跳过。
@@ -46,6 +57,10 @@ enum TopShelfPublisher {
         let bookItems = await items(from: books)
         if !bookItems.isEmpty {
             sections.append(TopShelfSection(id: "books", title: String(localized: "home_books_in_progress_title"), items: bookItems))
+        }
+        let podcastItems = await podcastItems(from: podcasts)
+        if !podcastItems.isEmpty {
+            sections.append(TopShelfSection(id: "podcasts", title: String(localized: "listening_space_podcast"), items: podcastItems))
         }
         let recentItems = await items(from: recent)
         if !recentItems.isEmpty {
@@ -59,6 +74,7 @@ enum TopShelfPublisher {
         if !albumItems.isEmpty {
             sections.append(TopShelfSection(id: "albums", title: PMString("ext.tv.topShelf.library"), items: albumItems))
         }
+        sections = TopShelfSectionOrder.sorted(sections, lastPlayedAt: lastPlayedAt, activeSectionID: activeSectionID)
         guard !Task.isCancelled else { return }
         let stored = TopShelfStore.load()
         // 本次要用的封面都已落盘之后再清理,正要复用的旧文件不会先被删掉。
@@ -128,6 +144,30 @@ enum TopShelfPublisher {
                                     playURL: d.playURL))
         }
         return out
+    }
+
+    private static func podcastItems(from drafts: [PodcastDraft]) async -> [TopShelfItem] {
+        let artwork = await withTaskGroup(of: (String, Data?).self) { group in
+            for draft in drafts {
+                guard let url = draft.episode.artworkURL ?? draft.show.artworkURL else { continue }
+                group.addTask {
+                    (draft.episode.id, await TVPodcastArtworkLoader.shared.data(for: url))
+                }
+            }
+            var images: [String: Data] = [:]
+            for await (id, data) in group { images[id] = data }
+            return images
+        }
+        guard !Task.isCancelled else { return [] }
+        return drafts.map { draft in
+            let id = "podcast:" + draft.episode.id
+            return TopShelfItem(
+                id: id, title: draft.episode.title.isEmpty ? draft.show.title : draft.episode.title,
+                subtitle: draft.show.title,
+                imageFileName: artwork[draft.episode.id].flatMap { writeCover($0, key: id) },
+                playURL: draft.playURL, playbackProgress: draft.playbackProgress
+            )
+        }
     }
 
     /// 电台封面文件按**输入**命名(台标字节的摘要,或占位的种子与图标),文件已在就直接复用:

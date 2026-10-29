@@ -134,10 +134,12 @@ final class TVLibraryStateTests: XCTestCase {
                  filePath: "/Music/\(id).mp3", sourceID: source.id)
         }
 
-        func store(scanPersistence: @escaping @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure> = {
+        func store(podcastStore: PodcastStore? = nil,
+                   scanPersistence: @escaping @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure> = {
             await $0.persistNowAndWait()
         }) -> TVStore {
             TVStore(sourcesStore: sources, library: library, defaults: defaults,
+                    podcastStore: podcastStore,
                     sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
                     scanPersistence: scanPersistence)
         }
@@ -434,6 +436,139 @@ final class TVLibraryStateTests: XCTestCase {
             return XCTFail("A missing book should report that it is unavailable")
         }
         XCTAssertEqual(message, String(localized: "spoken_word_book_unavailable", bundle: Bundle(for: TVStore.self)))
+        store.playbackIssue = nil
+        store.flushPendingDeepLink(isFinalAttempt: true)
+        XCTAssertNil(store.playbackIssue)
+    }
+
+    private func makeTopShelfPodcasts(_ fixture: Fixture) throws -> (PodcastStore, [PodcastEpisode]) {
+        let directory = fixture.directory.appendingPathComponent("Podcasts", isDirectory: true)
+        let episodesDirectory = directory.appendingPathComponent("Episodes", isDirectory: true)
+        try FileManager.default.createDirectory(at: episodesDirectory, withIntermediateDirectories: true)
+        let showID = "top-shelf-show-" + fixture.source.id
+        let show = PodcastShow(id: showID, feedURL: URL(fileURLWithPath: "/missing-podcast-feed.xml"),
+                               title: "Podcast", directoryID: 1, subscribedAt: Date())
+        let episodes: [PodcastEpisode] = (0..<3).map { (index: Int) -> PodcastEpisode in
+            let guid = String(index)
+            let published = Date(timeIntervalSince1970: Double(3 - index))
+            let duration: TimeInterval? = index == 0 ? nil : 600
+            let enclosure = URL(fileURLWithPath: "/missing-podcast-\(index).mp3")
+            return PodcastEpisode(id: PodcastIdentity.episodeID(showID: showID, guid: guid),
+                                  showID: showID, guid: guid, title: "Episode \(index)",
+                                  publishedAt: published, duration: duration,
+                                  enclosureURL: enclosure, firstSeenAt: Date())
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        try encoder.encode(["shows": [show]]).write(to: directory.appendingPathComponent("shows.json"))
+        try encoder.encode(episodes).write(to: episodesDirectory.appendingPathComponent(PodcastIdentity.digest(showID) + ".json"))
+        let checks = [showID: PodcastRegionGate.Check(
+            country: PodcastAvailabilityService.shared.policy.directoryCountry, available: true, checkedAt: Date()
+        )]
+        fixture.defaults.set(try JSONEncoder().encode(checks), forKey: "primuse.podcast.regionChecks.v1")
+        return (PodcastStore(defaults: fixture.defaults, directory: directory), episodes)
+    }
+
+    private func waitForPodcasts(_ podcasts: PodcastStore) async throws {
+        let deadline = Date().addingTimeInterval(3)
+        while !podcasts.isLoaded, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(podcasts.isLoaded)
+    }
+
+    func testTopShelfPodcastLinkWaitsForLoadAndResumesWithoutMusic() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let (podcasts, episodes) = try makeTopShelfPodcasts(fixture)
+        let episode = episodes[0]
+        let progress = SpokenWordStore.shared
+        progress.rememberPosition(120, duration: 600, forSongID: episode.id)
+        defer { progress.clearPosition(forSongID: episode.id) }
+        let store = fixture.store(podcastStore: podcasts)
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+        store.handleDeepLink(try XCTUnwrap(URL(string: "primuse://podcast?id=\(episode.id)")))
+        XCTAssertFalse(podcasts.isLoaded)
+        XCTAssertNil(store.currentPodcastEpisodeID)
+        await Task.yield()
+        try await waitForPodcasts(podcasts)
+        XCTAssertEqual(store.currentPodcastEpisodeID, episode.id)
+        XCTAssertEqual(store.nowPlaying.title, episode.title)
+        XCTAssertGreaterThan(store.currentTime, 0)
+        XCTAssertLessThanOrEqual(store.currentTime, 120)
+        XCTAssertTrue(store.songs.isEmpty)
+        let draft = try XCTUnwrap(store.topShelfPodcastDrafts().first)
+        XCTAssertEqual(draft.episode.id, episode.id)
+        XCTAssertEqual(try XCTUnwrap(draft.playbackProgress), 0.2, accuracy: 0.001)
+        store.engine.stop()
+    }
+
+    func testTopShelfPodcastsExcludeFinishedEpisodesAndPreserveProgress() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let (podcasts, episodes) = try makeTopShelfPodcasts(fixture)
+        podcasts.loadIfNeeded()
+        try await waitForPodcasts(podcasts)
+        let progress = SpokenWordStore.shared
+        episodes.forEach { progress.rememberPosition(180, duration: 600, forSongID: $0.id) }
+        progress.markFinished(true, songIDs: [episodes[1].id])
+        defer {
+            progress.markFinished(false, songIDs: [episodes[1].id])
+            episodes.forEach { progress.clearPosition(forSongID: $0.id) }
+        }
+        let store = fixture.store(podcastStore: podcasts)
+        let drafts = store.topShelfPodcastDrafts()
+        XCTAssertEqual(drafts.map(\.episode.id), [episodes[2].id, episodes[0].id])
+        XCTAssertEqual(drafts.compactMap(\.playbackProgress), [0.3, 0.3])
+        let link = try XCTUnwrap(URLComponents(string: drafts[0].playURL))
+        XCTAssertEqual(link.host, "podcast")
+        XCTAssertEqual(link.queryItems?.first { $0.name == "show" }?.value, episodes[2].showID)
+    }
+
+    func testUnavailableTopShelfPodcastLinkIsConsumedAfterLoad() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let (podcasts, _) = try makeTopShelfPodcasts(fixture)
+        let store = fixture.store(podcastStore: podcasts)
+        store.handleDeepLink(try XCTUnwrap(URL(string: "primuse://podcast?id=missing")))
+        store.finishPendingRadioDeepLink()
+        try await waitForPodcasts(podcasts)
+        guard case .failed(let message) = store.playbackIssue else {
+            return XCTFail("A missing episode should report that it is unavailable after loading")
+        }
+        XCTAssertEqual(message, String(localized: "podcast_episode_missing", bundle: Bundle(for: TVStore.self)))
+        store.playbackIssue = nil
+        store.flushPendingDeepLink(isFinalAttempt: true)
+        XCTAssertNil(store.playbackIssue)
+    }
+
+    func testPendingPodcastLinkDoesNotReplaceANewerListeningChoice() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let (podcasts, episodes) = try makeTopShelfPodcasts(fixture)
+        let store = fixture.store(podcastStore: podcasts)
+        store.handleDeepLink(try XCTUnwrap(URL(string: "primuse://podcast?id=\(episodes[0].id)")))
+        store.playPodcast(episodes[1])
+        try await waitForPodcasts(podcasts)
+        store.flushPendingDeepLink(isFinalAttempt: true)
+        XCTAssertEqual(store.currentPodcastEpisodeID, episodes[1].id)
+        store.engine.stop()
+    }
+
+    func testMissingCachedPodcastReportsRefreshFailure() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let (podcasts, episodes) = try makeTopShelfPodcasts(fixture)
+        podcasts.loadIfNeeded()
+        try await waitForPodcasts(podcasts)
+        let store = fixture.store(podcastStore: podcasts)
+        let showID = episodes[0].showID
+        store.handleDeepLink(try XCTUnwrap(URL(string: "primuse://podcast?id=missing&show=\(showID)")))
+        let deadline = Date().addingTimeInterval(3)
+        while store.playbackIssue == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let failure = try XCTUnwrap(podcasts.refreshFailures[showID])
+        guard case .failed(let message) = store.playbackIssue else {
+            return XCTFail("A failed feed refresh should report its error")
+        }
+        XCTAssertEqual(message, failure)
         store.playbackIssue = nil
         store.flushPendingDeepLink(isFinalAttempt: true)
         XCTAssertNil(store.playbackIssue)
