@@ -5591,6 +5591,12 @@ final class AudioPlayerService {
                 // Cloud-stream URLs can't be opened by the FFmpeg fallback,
                 // so let the caller surface the error instead.
                 guard !Task.isCancelled, playID == id else { return }
+                if SourceManager.isMissingFileError(error) {
+                    showPlaybackError(SourceError.fileNotFound(song.title).localizedDescription)
+                    isLoading = false
+                    await autoAdvanceAfterFailure()
+                    return
+                }
                 plog("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
                 if activeDecoderKind == .httpStream {
                     if isExternalURLItem(song), assetReaderDecoder.canDecode(url: url) {
@@ -5867,6 +5873,11 @@ final class AudioPlayerService {
                 case .failed(let error, let buffer, let scheduledCount):
                     lastBuffer = buffer
                     guard !Task.isCancelled, self.playID == id else { return }
+                    if SourceManager.isMissingFileError(error) {
+                        self.showPlaybackError(SourceError.fileNotFound(song.title).localizedDescription)
+                        await self.autoAdvanceAfterFailure()
+                        return
+                    }
                     midStreamError = true
                     plog("⚠️ Decode error mid-stream for '\(song.title)' (scheduled \(scheduledCount) buffers): \(error.localizedDescription)")
                     let quotaMessage = self.activeDecoderKind == .cloudStream

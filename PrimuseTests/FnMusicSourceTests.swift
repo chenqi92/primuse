@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import Foundation
 import PrimuseKit
@@ -822,6 +823,62 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 2)
     }
 
+    func testMissingMediaStopsDecoderProbesAndPreservesResourceError() async throws {
+        let source = makeSource()
+        let sourceID = await source.sourceID
+        FnMusicSourceURLProtocol.setMissingMedia(host: sourceID)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let song = Song(id: "missing-media", title: "Missing media", fileFormat: .m4a,
+                        filePath: "/fnmusic/tracks/missing.m4a", sourceID: sourceID)
+        let input = try XCTUnwrap(CloudPlaybackSource.makeInputSource(
+            song: song, totalLength: 1_048_576, connector: source,
+            cacheURL: directory.appendingPathComponent("missing.m4a"),
+            streamEpoch: CloudPlaybackSource.streamEpochTicket(sourceID: sourceID),
+            prefetchAhead: 0, allowsTrailingFill: false
+        ) as? CloudInputSourceObjC)
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        do {
+            for try await _ in NativeAudioDecoder().decode(from: input, outputFormat: format) {
+                XCTFail("Missing media must not produce audio")
+            }
+            XCTFail("Expected missing-resource error")
+        } catch {
+            XCTAssertTrue(SourceManager.isMissingFileError(error), "Unexpected error: \(error)")
+        }
+        XCTAssertEqual(FnMusicSourceURLProtocol.streamRequestCount(host: sourceID), 1)
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 1)
+        await source.disconnect()
+    }
+
+    func testMissingMediaIsNotRetriedOrTreatedAsSourceOutage() {
+        let failure = SourceError.fileNotFound("missing")
+        let kind = AutomaticOfflineFailureClassifier.classify(failure)
+        XCTAssertFalse(kind.allowsBatchRetry)
+        XCTAssertFalse(kind.requiresSourceCooldown)
+        XCTAssertNil(OfflineRangeDownloadRetry.delay(after: failure, failedAttempts: 1))
+        XCTAssertEqual(OfflineBatchFailureCategory.classify(failure, kind: kind, deviceIsOffline: false), .other)
+    }
+
+    func testSparseCacheWritesOnlyMissingIntervals() {
+        let mb: Int64 = 1_048_576
+        let missing = CloudPlaybackSource.uncachedWriteRanges(
+            requested: 0..<(8 * mb), cachedRanges: [0..<mb, (7 * mb)..<(9 * mb)]
+        )
+        XCTAssertEqual(missing, [mb..<(7 * mb)])
+        XCTAssertEqual(missing.reduce(0) { $0 + $1.count }, 6 * Int(mb))
+        XCTAssertEqual(CloudPlaybackSource.uncachedWriteRanges(
+            requested: mb..<(2 * mb), cachedRanges: [0..<(3 * mb)]
+        ), [])
+        XCTAssertEqual(CloudPlaybackSource.uncachedWriteRanges(
+            requested: 0..<20, cachedRanges: [12..<15, 3..<8, 6..<10]
+        ), [0..<3, 10..<12, 15..<20])
+    }
+
     func testRangeRefreshesBusinessAuthenticationFailure() async throws {
         let source = makeSource()
         let data = try await source.fetchRange(path: "/fnmusic/tracks/song.flac", offset: 0, length: 2)
@@ -1528,6 +1585,8 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     private struct State {
         var logins = 0
         var logouts = 0
+        var missingMedia = false
+        var streamRequests = 0
         var favorite = false
         var loginDelay: TimeInterval
         var discoveryDelay: TimeInterval
@@ -1554,6 +1613,8 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     static func setDiscoveryDelay(_ delay: TimeInterval, host: String) {
         lock.withLock { states[host]?.discoveryDelay = delay }
     }
+    static func setMissingMedia(host: String) { lock.withLock { states[host]?.missingMedia = true } }
+    static func streamRequestCount(host: String) -> Int { lock.withLock { states[host]?.streamRequests ?? 0 } }
     static func loginCount(host: String) -> Int { lock.withLock { states[host]?.logins ?? 0 } }
     static func logoutCount(host: String) -> Int { lock.withLock { states[host]?.logouts ?? 0 } }
     static func playlistRequestCount(host: String) -> Int { lock.withLock { states[host]?.playlistRequests ?? 0 } }
@@ -1647,6 +1708,8 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                 state.logouts += 1
                 return (200, jsonHeaders, json(["code": 0, "data": NSNull()]))
             case "stream":
+                state.streamRequests += 1
+                if state.missingMedia { return (200, jsonHeaders, json(["code": 100005, "msg": "resource not found"])) }
                 if state.logins == 1 { return (200, jsonHeaders, json(["code": 120001, "msg": "INVALID TOKEN"])) }
                 // 飞牛同一设备号只认最后一次登录发出的 token。
                 let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""

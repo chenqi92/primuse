@@ -97,6 +97,23 @@ enum CloudPlaybackSource {
         }
     }
 
+    static func uncachedWriteRanges(
+        requested: Range<Int64>, cachedRanges: [Range<Int64>]
+    ) -> [Range<Int64>] {
+        var cursor = requested.lowerBound
+        var missing: [Range<Int64>] = []
+        for cached in State.coalescedRanges(cachedRanges) {
+            guard cached.upperBound > cursor else { continue }
+            if cached.lowerBound >= requested.upperBound { break }
+            if cached.lowerBound > cursor {
+                missing.append(cursor..<min(cached.lowerBound, requested.upperBound))
+            }
+            cursor = min(requested.upperBound, max(cursor, cached.upperBound))
+        }
+        if cursor < requested.upperBound { missing.append(cursor..<requested.upperBound) }
+        return missing
+    }
+
     /// Build an `InputSource` for `song` whose reads are backed by
     /// `connector.fetchRange` + a sparse on-disk cache at `cacheURL`.
     /// `totalLength` should be the song's known fileSize (cloud sources
@@ -1264,6 +1281,7 @@ private final class State: @unchecked Sendable {
     /// — Baidu's anti-abuse then rate-limits the account globally.
     /// Cleared on the next successful serve.
     private var fetchDisabled: Bool = false
+    private var missingResourceError: NSError?
     /// Set when AudioPlayerService finalizes the stream on stop / track
     /// change. Decoder reads arriving after that point belong to the old
     /// source and should fail fast instead of starting stale OneDrive Range
@@ -1285,6 +1303,8 @@ private final class State: @unchecked Sendable {
     /// 反复跨 chunk 边界 cache miss, 还是云盘真的拉不动"。
     private var cacheHitCount: Int = 0
     private var cacheHitBytes: Int = 0
+    private var cacheWriteBytes: Int64 = 0
+    private var cacheWriteSkippedBytes: Int64 = 0
     /// Core Audio walks an MP3 packet by packet on its way to a seek target,
     /// one small read per packet; resuming deep into an audiobook makes
     /// hundreds of thousands of them, nearly all in bytes the session holds.
@@ -1412,6 +1432,10 @@ private final class State: @unchecked Sendable {
             return nil
         }
         let endOffset = min(requestedEnd, totalLength)
+        if let error = lock.withLock({ missingResourceError }) {
+            errorOut?.pointee = error
+            return nil
+        }
 
         let served: Data?
 
@@ -1639,8 +1663,12 @@ private final class State: @unchecked Sendable {
                     )
                     return nil
                 }
-                // Disable further prefetches — see fetchDisabled doc.
-                lock.lock(); fetchDisabled = true; lock.unlock()
+                // Decoder format probes may read again after a failed read.
+                // A missing resource cannot recover within this stream.
+                lock.lock()
+                fetchDisabled = true
+                if SourceManager.isMissingFileError(error) { missingResourceError = error as NSError }
+                lock.unlock()
                 plog(String(format: "⚠️ Cloud stream '%@' fetch failed chunkStart=%lld len=%lld after %.2fs: %@",
                             label, chunkStart, want, elapsed, error.localizedDescription))
                 errorOut?.pointee = error as NSError
@@ -2164,6 +2192,8 @@ private final class State: @unchecked Sendable {
         let minE = minFetchElapsed == .greatestFiniteMagnitude ? 0 : minFetchElapsed
         let hit = cacheHitCount
         let hitKB = cacheHitBytes / 1024
+        let writtenKB = cacheWriteBytes / 1024
+        let skippedKB = cacheWriteSkippedBytes / 1024
         let pwCount = prefetchWaitCount
         let pwElapsed = prefetchWaitTotalElapsed
         let retries = fetchAttemptByChunk.values.filter { $0 > 1 }.count
@@ -2190,7 +2220,7 @@ private final class State: @unchecked Sendable {
             "📊 Cloud SUMMARY '\(label)' \(cachedKB)KB/\(totalKB)KB cached, "
                 + "fetch=\(count) (\(timing)@\(slow)) retry=\(retries) "
                 + "hit=\(hit)/\(hitKB)KB prefetchWait=\(pwCount)/\(prefetchElapsed) "
-                + "lifetime=\(lifetime)"
+                + "cacheWrite=\(writtenKB)KB deduplicated=\(skippedKB)KB lifetime=\(lifetime)"
         )
     }
 
@@ -2346,28 +2376,43 @@ private final class State: @unchecked Sendable {
         data: Data,
         allowClosedPromotion: Bool
     ) -> CacheWriteOutcome {
+        let proposedEnd = data.isEmpty ? offset : SafeByteRange.exclusiveEnd(offset: offset, length: Int64(data.count))
+        guard offset >= 0, let end = proposedEnd, end <= totalLength else { return .noChange }
         lock.lock()
         let url = activeURL
+        let missing = CloudPlaybackSource.uncachedWriteRanges(
+            requested: offset..<end, cachedRanges: cachedRanges
+        )
         lock.unlock()
 
-        guard let handle = try? FileHandle(forWritingTo: url) else {
-            return .noChange
-        }
-        do {
-            try handle.seek(toOffset: UInt64(offset))
-            try handle.write(contentsOf: data)
-            try? handle.close()
-        } catch {
-            try? handle.close()
-            lock.lock()
-            let firstFailure = !cacheUnwritable
-            cacheUnwritable = true
-            lock.unlock()
-            if firstFailure {
-                plog("⚠️ Cloud stream '\(label)' cache write failed at \(offset): \(error.localizedDescription); read-ahead stops, reads go straight to the source")
+        var written: Int64 = 0
+        if !missing.isEmpty {
+            guard let handle = try? FileHandle(forWritingTo: url) else { return .noChange }
+            defer { try? handle.close() }
+            do {
+                for range in missing {
+                    try handle.seek(toOffset: UInt64(range.lowerBound))
+                    let start = data.startIndex + Int(range.lowerBound - offset)
+                    let stop = data.startIndex + Int(range.upperBound - offset)
+                    try handle.write(contentsOf: data[start..<stop])
+                    written += range.upperBound - range.lowerBound
+                }
+            } catch {
+                lock.lock()
+                cacheWriteBytes += written
+                let firstFailure = !cacheUnwritable
+                cacheUnwritable = true
+                lock.unlock()
+                if firstFailure {
+                    plog("⚠️ Cloud stream '\(label)' cache write failed at \(offset): \(error.localizedDescription); read-ahead stops, reads go straight to the source")
+                }
+                return .noChange
             }
-            return .noChange
         }
+        lock.lock()
+        cacheWriteBytes += written
+        cacheWriteSkippedBytes += Int64(data.count) - written
+        lock.unlock()
 
         lock.lock()
         // The bytes went to a file the session has since left (detached or

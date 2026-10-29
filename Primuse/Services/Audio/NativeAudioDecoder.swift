@@ -220,7 +220,12 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                         defersLength: defersLength
                     )
                 } catch {
-                    continuation.finish(throwing: error)
+                    if let sourceError = (inputBox.value as? CloudInputSourceObjC)?.lastReadError,
+                       SourceManager.isMissingFileError(sourceError) {
+                        continuation.finish(throwing: sourceError)
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
                 }
             }
             continuation.onTermination = { _ in task.cancel() }

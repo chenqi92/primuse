@@ -379,7 +379,7 @@ actor FnMusicAPI {
             }
             return FnMusicRangeResponse(data: data, statusCode: http.statusCode)
         case 200:
-            try validateMediaPayload(http, data: data, requestToken: requestToken)
+            try validateMediaPayload(http, data: data, requestToken: requestToken, resourceID: trackGUID)
             throw SourceError.connectionFailed(PMString("error.catalog.invalidRangeResponse"))
         default:
             throw SourceError.connectionFailed(PMString("error.fnMusic.http", String(http.statusCode)))
@@ -413,7 +413,7 @@ actor FnMusicAPI {
             guard !prefix.isEmpty else {
                 throw SourceError.connectionFailed(PMString("error.catalog.mediaEndpointNonMedia"))
             }
-            try validateMediaPayload(http, data: prefix, requestToken: requestToken)
+            try validateMediaPayload(http, data: prefix, requestToken: requestToken, resourceID: trackGUID)
             return temporaryURL
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
@@ -747,7 +747,8 @@ actor FnMusicAPI {
     private func validateMediaPayload(
         _ response: HTTPURLResponse,
         data: Data,
-        requestToken: String
+        requestToken: String,
+        resourceID: String? = nil
     ) throws {
         guard httpMediaResponseLooksLikeErrorBody(response, data: data) else { return }
         if let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -756,6 +757,9 @@ actor FnMusicAPI {
             if code == 99999 || code == 120001 || code == 401 || code == 403 {
                 invalidateToken(ifMatching: requestToken)
                 throw SourceError.authenticationFailed
+            }
+            if code == 100005, let resourceID {
+                throw SourceError.fileNotFound(resourceID)
             }
             let message = stringValue(envelope["msg"])
                 ?? stringValue(envelope["message"])

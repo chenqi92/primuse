@@ -216,16 +216,17 @@ enum AutomaticOfflineFailureKind: String, Sendable {
     case rateLimited
     case sourceUnavailable
     case resourceDeferred
+    case resourceMissing
     case transient
 
     var authenticationRequired: Bool { self == .authentication }
-    var requiresSourceCooldown: Bool { self != .transient }
+    var requiresSourceCooldown: Bool { self != .transient && self != .resourceMissing }
 
     /// 手动整源缓存里，这一类失败重试有没有意义。
     /// 凭据错误和权限拒绝要用户先去改设置，重试只是拿同一份错凭据反复敲服务端。
     var allowsBatchRetry: Bool {
         switch self {
-        case .authentication, .sourceAccessDenied:
+        case .authentication, .sourceAccessDenied, .resourceMissing:
             return false
         case .rateLimited, .sourceUnavailable, .resourceDeferred, .transient:
             return true
@@ -246,7 +247,7 @@ extension OfflineBatchFailureCategory {
         switch kind {
         case .authentication: return .authentication
         case .sourceAccessDenied: return .accessDenied
-        case .rateLimited, .sourceUnavailable, .resourceDeferred, .transient: break
+        case .rateLimited, .sourceUnavailable, .resourceDeferred, .resourceMissing, .transient: break
         }
         if deviceIsOffline || SourceNetworkFailurePolicy.isNetworkFailure(error) { return .connectivity }
         if case SourceError.timeout = error { return .connectivity }
@@ -256,6 +257,7 @@ extension OfflineBatchFailureCategory {
 
 enum AutomaticOfflineFailureClassifier {
     static func classify(_ error: Error) -> AutomaticOfflineFailureKind {
+        if SourceManager.isMissingFileError(error) { return .resourceMissing }
         if let failure = error as? HTTPResponseFailure {
             if failure.isRateLimited || failure.retryAfter != nil || [429, 503].contains(failure.statusCode) { return .rateLimited }
             if [400, 404].contains(failure.statusCode) { return .sourceUnavailable }

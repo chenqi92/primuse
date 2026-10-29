@@ -23,6 +23,9 @@ typedef NSData * _Nullable (^CloudInputFetchBlock)(int64_t offset, int64_t lengt
 /// SFBAudioEngine's decoder can determine seek bounds.
 @property(nonatomic, readonly) int64_t totalLength;
 
+/// Preserves a transport failure when decoder format probing replaces its error.
+@property(atomic, readonly, nullable) NSError *lastReadError;
+
 /// Designated initializer. Bridges to SFBInputSource's hidden
 /// `-initWithURL:` so the inherited base class state (notably `_url`) is
 /// initialized — without it `[super description]` and KVC paths break.

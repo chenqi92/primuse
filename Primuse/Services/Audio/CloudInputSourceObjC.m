@@ -14,6 +14,7 @@
     BOOL _open;
 }
 @property(nonatomic, copy) CloudInputFetchBlock fetchBlock;
+@property(atomic, strong, readwrite, nullable) NSError *lastReadError;
 @end
 
 @implementation CloudInputSourceObjC
@@ -77,6 +78,7 @@
         NSData *data = self.fetchBlock(_offset + copied, toRead - copied, &fetchError);
         NSInteger chunk = data == nil ? 0 : (NSInteger)MIN((NSUInteger)(toRead - copied), data.length);
         if (chunk == 0) {
+            if (fetchError) { self.lastReadError = fetchError; }
             // Bytes already copied are real data; hand them over and let the
             // next read report the failure.
             if (copied > 0) { break; }
@@ -128,6 +130,7 @@
     NSError *fetchError = nil;
     NSData *data = fetch(offset, requested, &fetchError);
     if (data == nil) {
+        if (fetchError) { self.lastReadError = fetchError; }
         if (error) {
             *error = fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil];
         }
