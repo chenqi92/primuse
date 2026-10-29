@@ -50,15 +50,28 @@ struct HomeListeningRankingSection: View {
         _preparedRequest = State(initialValue: board.request)
     }
 
-    /// 歌曲、艺人、专辑榜只看播放记录和资料库里有哪些歌，冷启动不必等文件夹索引
-    /// 建好（那要把整库过一遍），回填一首首改标签也不重算。只有目录榜跟着索引走。
-    private struct Request: Equatable {
+    /// 歌曲、艺人、专辑榜不必等目录索引。内容分类变化独立刷新榜单，
+    /// 普通元数据回填不触发重算；只有目录榜跟着索引走。
+    struct Request: Equatable {
         let history: Int
         let collection: Int
+        let classification: Int
         let folders: Int
         let period: HomeListeningPeriod
         let category: HomeListeningCategory
         let calendar: Calendar
+
+        @MainActor
+        init(model: HomeDiscoveryModel, library: MusicLibrary, period: HomeListeningPeriod,
+             category: HomeListeningCategory, calendar: Calendar = ListeningCalendar.current) {
+            history = model.historyRevision
+            collection = library.visibleSongCollectionRevision
+            classification = library.spokenWordClassificationRevision
+            folders = category == .folders ? model.revision : 0
+            self.period = period
+            self.category = category
+            self.calendar = calendar
+        }
     }
 
     /// 想要「领奖台在左、名次榜在右」：iPad，以及所有横屏的手机。真正并不并排还要看
@@ -460,10 +473,7 @@ struct HomeListeningRankingSection: View {
 
     private var currentRequest: Request {
         Request(
-            history: model.historyRevision,
-            collection: library.visibleSongCollectionRevision,
-            folders: category == .folders ? model.revision : 0,
-            period: period, category: category, calendar: ListeningCalendar.current
+            model: model, library: library, period: period, category: category
         )
     }
 
@@ -489,7 +499,7 @@ struct HomeListeningRankingSection: View {
             return HomeListeningRanking.ranks(events: events, songs: songs, folders: folders, period: period, category: category, calendar: request.calendar)
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, currentRequest == request else { return }
         // 结果没变就不写：写一次整张榜连同领奖台都要重新描述。
         if result != ranks { ranks = result }
         rankedCategory = category

@@ -1939,6 +1939,112 @@ extension ListeningFeaturesTests {
         XCTAssertGreaterThan(library.spokenWordContentRevision, classified)
     }
 
+    func testHomeRankingRefreshesAfterReclassificationWithoutNewPlays() async throws {
+        let history = PlayHistoryStore.shared
+        let originalSpokenWordIDs = history.spokenWordSongIDs
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let model = HomeDiscoveryModel()
+        let item = song("ranking-classification-\(UUID().uuidString)")
+        let store = SpokenWordStore.shared
+        defer {
+            store.setKind(nil, forSongIDs: [item.id])
+            history.spokenWordSongIDs = originalSpokenWordIDs
+        }
+        library.addSongs([item])
+        for _ in 0..<200 where library.visibleSongs.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.visibleSongs.map(\.id), [item.id])
+        model.refreshHistory()
+        let calendar = ListeningCalendar.current
+        func requests() -> [HomeListeningRankingSection.Request] {
+            HomeListeningPeriod.allCases.flatMap { period in
+                HomeListeningCategory.allCases.map { category in
+                    HomeListeningRankingSection.Request(
+                        model: model, library: library, period: period, category: category, calendar: calendar
+                    )
+                }
+            }
+        }
+        let entries = [PlayHistoryStore.Entry(
+            songID: item.id, songTitle: item.title, artistName: "Artist", albumTitle: "Album",
+            playedAt: Date().addingTimeInterval(-60), listenedSec: 180, sourceID: item.sourceID
+        )]
+        let collection = library.visibleSongCollectionRevision
+        let historyRevision = model.historyRevision
+        var cachedRequests = requests()
+        for kind: ListeningContentKind in [.spokenWord, .music, .podcast, .music] {
+            store.setKind(kind, forSongIDs: [item.id])
+            library.refreshContentClassification()
+            model.refreshHistory()
+            XCTAssertEqual(library.visibleSongCollectionRevision, collection)
+            XCTAssertEqual(model.historyRevision, historyRevision)
+            let nextRequests = requests()
+            for (cached, next) in zip(cachedRequests, nextRequests) {
+                XCTAssertNotEqual(cached, next, "\(kind): \(next.period)/\(next.category) must discard its cached ranking")
+            }
+            let music = PlayHistoryStore.musicEntries(entries, excluding: library.spokenWordSongIDs)
+            XCTAssertEqual(music.map(\.songID), kind == .music ? [item.id] : [])
+            XCTAssertEqual(nextRequests, requests(), "Unchanged classification must reuse the ranking")
+            cachedRequests = nextRequests
+        }
+    }
+
+    func testHomeRankingExcludesNonMusicAcrossCategoriesAndPeriods() throws {
+        let calendar = ListeningCalendar.make(
+            locale: Locale(identifier: "zh_CN"), timeZone: try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        )
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 12)))
+        let music = song("ranking-music", path: "/music/album/music.flac")
+        let book = song("ranking-book", path: "/music/album/book.flac")
+        let localPodcast = song("ranking-local-podcast", path: "/music/album/podcast.flac")
+        let songs = [music, book, localPodcast]
+        let folders = LibraryFolderIndexBuilder.build(
+            sources: [.init(sourceID: music.sourceID, displayName: "Local", scanRoots: ["/music"], pathSemantics: .hierarchical)],
+            songs: songs
+        )
+        let identities = songs.map { (id: $0.id, source: $0.sourceID) } + [
+            (id: "podcast:ranking-episode", source: "old-source"),
+            (id: "legacy-episode", source: PodcastPlaybackSong.sourceID),
+            (id: "radio:ranking-station", source: "server-source"),
+            (id: "legacy-station", source: RadioStation.playbackSourceID),
+        ]
+        let dates = [
+            now.addingTimeInterval(-60),
+            try XCTUnwrap(HomeListeningPeriod.week.previousInterval(now: now, calendar: calendar)).start.addingTimeInterval(60),
+            try XCTUnwrap(HomeListeningPeriod.month.previousInterval(now: now, calendar: calendar)).start.addingTimeInterval(60),
+        ]
+        let entries = dates.flatMap { date in
+            identities.map { identity in
+                PlayHistoryStore.Entry(
+                    songID: identity.id, songTitle: identity.id, artistName: "Artist", albumTitle: "Album",
+                    playedAt: date, listenedSec: 180, sourceID: identity.source
+                )
+            }
+        }
+        let musicEntries = PlayHistoryStore.musicEntries(entries, excluding: [book.id, localPodcast.id])
+        XCTAssertEqual(musicEntries.count, dates.count)
+        XCTAssertEqual(Set(musicEntries.map(\.songID)), [music.id])
+        let songsByID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+        for period in HomeListeningPeriod.allCases {
+            let interval = period.interval(now: now, calendar: calendar)
+            let expectedCount = dates.filter { $0 >= interval.start && $0 <= interval.end }.count
+            for category in HomeListeningCategory.allCases {
+                let ranks = HomeListeningRanking.ranks(
+                    events: musicEntries.map(\.listeningEvent), songs: songsByID, folders: folders,
+                    period: period, category: category, now: now, calendar: calendar
+                )
+                XCTAssertEqual(ranks.count, 1, "\(period)/\(category)")
+                let rank = try XCTUnwrap(ranks.first)
+                XCTAssertEqual(rank.songIDs, [music.id])
+                XCTAssertEqual(rank.playCount, expectedCount)
+                XCTAssertEqual(rank.listenedSeconds, Double(expectedCount) * 180)
+                XCTAssertFalse(rank.isNewEntry)
+                XCTAssertEqual(rank.positionsGained, period == .all ? nil : 0)
+            }
+        }
+    }
+
     func testHomeBookProjectionKeepsChapterOrderAndTracksProgressAndRemoval() async {
         let model = SpokenWordBooksModel()
         var first = song("chapter-1", genre: "Audiobook")
