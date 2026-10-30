@@ -4,6 +4,28 @@ import Testing
 
 @Suite("Search result section layout")
 struct SearchResultSectionLayoutTests {
+    @Test("Category tabs follow saved order and exclude hidden or empty categories")
+    func tabsRespectVisibleOrder() {
+        let order = SearchResultSectionLayout.decodeOrder(#"["metadata","artists","albums"]"#)
+        let layout = SearchResultTabLayout(order: order, available: [.metadata, .albums], selection: nil)
+        #expect(layout.sections == [.metadata, .albums])
+        #expect(layout.displayedSections == [.metadata, .albums])
+        #expect(layout.selectedSection == nil)
+    }
+
+    @Test("A selected category excludes other categories and falls back to all when unavailable")
+    func tabsReconcileSelection() {
+        let order: [SearchResultSection] = [.artists, .metadata, .albums]
+        let selected = SearchResultTabLayout(order: order, available: Set(order), selection: .metadata)
+        #expect(selected.displayedSections == [.metadata])
+        let hidden = SearchResultTabLayout(order: order, available: [.artists, .albums], selection: .metadata)
+        #expect(hidden.selectedSection == nil)
+        #expect(hidden.displayedSections == [.artists, .albums])
+        let empty = SearchResultTabLayout(order: order, available: [], selection: .metadata)
+        #expect(empty.displayedSections.isEmpty)
+        #expect(empty.selectedSection == nil)
+    }
+
     @Test("An empty or unreadable store keeps the original search page order")
     func defaultsWhenNothingStored() {
         #expect(SearchResultSectionLayout.decodeOrder("") == SearchResultSectionLayout.defaultOrder)

@@ -392,6 +392,18 @@ private struct SearchAlbumResultsView<Actions: View>: View {
     let intelligentRecommendationIDs: Set<String>
     @ViewBuilder var actions: (PrimuseKit.Album) -> Actions
 
+    var body: some View {
+        SearchAlbumResultsGrid(albums: albums, intelligentRecommendationIDs: intelligentRecommendationIDs, actions: actions)
+            .navigationTitle(Text("tab_albums"))
+            .minimalNavigationDetail()
+    }
+}
+
+private struct SearchAlbumResultsGrid<Actions: View>: View {
+    let albums: [PrimuseKit.Album]
+    let intelligentRecommendationIDs: Set<String>
+    @ViewBuilder var actions: (PrimuseKit.Album) -> Actions
+
     @Environment(\.pmHeightClass) private var heightClass
 
     var body: some View {
@@ -413,8 +425,6 @@ private struct SearchAlbumResultsView<Actions: View>: View {
             }
             .padding(20)
         }
-        .navigationTitle(Text("tab_albums"))
-        .minimalNavigationDetail()
     }
 }
 #endif
@@ -581,6 +591,8 @@ struct SearchView: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @AppStorage(SearchResultDisplayMode.storageKey) private var resultDisplayMode: SearchResultDisplayMode = .continuous
+    @State private var selectedResultSection: SearchResultSection?
     #endif
     /// 手机横屏时结果区只剩两百多点, 范围卡片与专辑架都要收一档。
     @Environment(\.pmHeightClass) private var heightClass
@@ -737,6 +749,46 @@ struct SearchView: View {
             showsRadioRow: radioSearchAvailable,
             showsSpokenWordRow: spokenWordSearchAvailable
         )
+    }
+
+    private var resultTabLayout: SearchResultTabLayout {
+        let available = Set(orderedResultSections.filter { section in
+            switch section {
+            case .albums: !matchingAlbums.isEmpty
+            case .artists: !matchingArtists.isEmpty
+            case .playlists, .folders: !matchingCollections(section).isEmpty
+            case .metadata, .path, .lyrics, .fuzzy:
+                searchResults.contains { $0.matchKind == section.libraryMatchKind }
+            case .intelligent:
+                semanticSearchFeedback.isVisible || !visibleSemanticResults.isEmpty || !visibleSemanticAlbums.isEmpty
+            case .appleMusic: appleMusicSearchEnabled
+            case .radio: !radioHits.isEmpty
+            case .spokenWord: !bookHits.isEmpty
+            }
+        })
+        #if os(iOS)
+        let selected = resultDisplayMode == .tabs ? selectedResultSection : nil
+        #else
+        let selected: SearchResultSection? = nil
+        #endif
+        return SearchResultTabLayout(order: orderedResultSections, available: available, selection: selected)
+    }
+
+    private var focusedResultSection: SearchResultSection? {
+        #if os(iOS)
+        guard resultDisplayMode == .tabs, let selectedResultSection,
+              orderedResultSections.contains(selectedResultSection) else { return nil }
+        return selectedResultSection
+        #else
+        nil
+        #endif
+    }
+
+    private var displayedResultSections: [SearchResultSection] {
+        #if os(iOS)
+        if resultDisplayMode == .tabs { return resultTabLayout.displayedSections }
+        #endif
+        return orderedResultSections
     }
 
     // MARK: 收听空间
@@ -1150,7 +1202,7 @@ struct SearchView: View {
     /// Apple Music 在线结果不是本地曲库条目，不参与多选; 电台、有声也不参与。
     private var selectableSongIDs: [String] {
         guard showsSpace(.music) else { return [] }
-        let sections = orderedResultSections
+        let sections = displayedResultSections
         #if os(macOS)
         switch macResultFilter {
         case .albums, .artists, .appleMusic:
@@ -1177,10 +1229,10 @@ struct SearchView: View {
         return sections.flatMap { section -> [String] in
             if let kind = section.libraryMatchKind {
                 let bucket = searchResults.filter { $0.matchKind == kind }
-                return bucket.prefix(scope == nil ? 40 : bucket.count).map(\.song.id)
+                return bucket.prefix(scope == nil && focusedResultSection == nil ? 40 : bucket.count).map(\.song.id)
             }
             return section == .intelligent
-                ? visibleSemanticResults.prefix(40).map(\.song.id)
+                ? visibleSemanticResults.prefix(focusedResultSection == .intelligent ? visibleSemanticResults.count : 40).map(\.song.id)
                 : []
         }
         #endif
@@ -1400,6 +1452,9 @@ struct SearchView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, heightClass.value(10, compact: 4))
             }
+            if resultDisplayMode == .tabs, !searchText.isEmpty, !resultTabLayout.sections.isEmpty {
+                resultTabs
+            }
             #endif
             iosSearchResults
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1443,6 +1498,14 @@ struct SearchView: View {
         .sheet(isPresented: $showsResultLayoutEditor) {
             resultLayoutEditor
         }
+        .onChange(of: focusedResultSection) { _, _ in
+            selection.deactivate()
+        }
+        .onChange(of: resultTabLayout.sections) { _, sections in
+            if let selectedResultSection, !sections.contains(selectedResultSection) {
+                self.selectedResultSection = nil
+            }
+        }
         .onChange(of: requestsResultLayoutEditor) { _, requested in
             guard requested else { return }
             requestsResultLayoutEditor = false
@@ -1484,6 +1547,49 @@ struct SearchView: View {
         #endif
     }
 
+    #if os(iOS)
+    private var resultTabs: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    resultTab(nil, title: "search_chip_all")
+                    ForEach(resultTabLayout.sections) { section in
+                        resultTab(section, title: section.title)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, heightClass.value(8, compact: 2))
+            }
+            .onChange(of: focusedResultSection) { _, section in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(section?.rawValue ?? "all", anchor: .center)
+                }
+            }
+        }
+        .accessibilityIdentifier("search.resultTabs")
+    }
+
+    private func resultTab(_ section: SearchResultSection?, title: LocalizedStringKey) -> some View {
+        let isSelected = focusedResultSection == section
+        return Button {
+            selectedResultSection = section
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.08), in: Capsule())
+                .frame(minHeight: 44)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("search.tab.\(section?.rawValue ?? "all")")
+        .id(section?.rawValue ?? "all")
+    }
+    #endif
+
     private var iosSearchResults: some View {
         // 只给"不随击键翻转"的几支补淡入: 旧分支瞬间消失、新分支自己淡进来,
         // 两棵子树不并存。搜索中占位 ⇄ 结果表每敲一键就翻一次, 保持硬切。
@@ -1510,7 +1616,17 @@ struct SearchView: View {
                         .pmAppearFade(.contentAppear)
                 }
             } else {
+                #if os(iOS)
+                if focusedResultSection == .albums {
+                    SearchAlbumResultsGrid(albums: matchingAlbums, intelligentRecommendationIDs: intelligentAlbumIDs) { album in
+                        resultActions(.album(album.id))
+                    }
+                } else {
+                    searchResultsView
+                }
+                #else
                 searchResultsView
+                #endif
             }
         }
     }
@@ -2527,7 +2643,7 @@ struct SearchView: View {
     private func macSongSection(_ section: SearchResultSection, showsAllResults: Bool) -> some View {
         switch section {
         case .metadata:
-            macSongBucket(kind: .metadata, title: "search_section_metadata", showsAllResults: showsAllResults)
+            macSongBucket(kind: .metadata, title: "tab_songs", showsAllResults: showsAllResults)
         case .path:
             macSongBucket(kind: .path, title: "search_section_path", showsAllResults: showsAllResults)
         case .lyrics:
@@ -3488,7 +3604,7 @@ struct SearchView: View {
             }
 
             if showsSpace(.music) {
-                ForEach(orderedResultSections) { section in
+                ForEach(displayedResultSections) { section in
                     resultSection(section)
                 }
             }
@@ -3498,6 +3614,7 @@ struct SearchView: View {
         .pmExtendsUnderVerticalBar()
         // 结果表够宽时, 歌曲行把专辑与时长排成对齐列。
         .songRowColumnsContainer()
+        .id(focusedResultSection)
     }
 
     /// 结果表里的一块。先后与显隐由右上角的「调整搜索结果」决定。
@@ -3515,10 +3632,7 @@ struct SearchView: View {
         case .spokenWord:
             bookResultsSection
         case .metadata:
-            // Songs grouped by match kind — 用户能一眼区分"标题/艺术家命中"、
-            // "路径命中"、"歌词命中"和"拼音/模糊命中"。
-            // 每组限 40 条 (worker 整体也限 120), 防止单组撑满屏。
-            songSection(kind: .metadata, titleKey: "search_section_metadata")
+            songSection(kind: .metadata, titleKey: "tab_songs")
         case .path:
             songSection(kind: .path, titleKey: "search_section_path")
         case .lyrics:
@@ -3536,7 +3650,7 @@ struct SearchView: View {
 
     @ViewBuilder
     private var radioResultsSection: some View {
-        let isPreview = !expandedSpaceGroups.contains(.radio)
+        let isPreview = focusedResultSection != .radio && !expandedSpaceGroups.contains(.radio)
         let hits = isPreview ? Array(radioHits.prefix(spacePreviewLimit())) : radioHits
         if !hits.isEmpty {
             Section {
@@ -3550,17 +3664,19 @@ struct SearchView: View {
                     .contentShape(Rectangle())
                 }
             } header: {
-                spaceSectionHeader(
-                    title: "radio_title",
-                    seeAll: isPreview && radioHits.count > hits.count ? .radio : nil
-                )
+                if focusedResultSection != .radio {
+                    spaceSectionHeader(
+                        title: "radio_title",
+                        seeAll: isPreview && radioHits.count > hits.count ? .radio : nil
+                    )
+                }
             }
         }
     }
 
     @ViewBuilder
     private var bookResultsSection: some View {
-        let isPreview = !expandedSpaceGroups.contains(.spokenWord)
+        let isPreview = focusedResultSection != .spokenWord && !expandedSpaceGroups.contains(.spokenWord)
         let hits = isPreview ? Array(bookHits.prefix(spacePreviewLimit())) : bookHits
         if !hits.isEmpty {
             Section {
@@ -3574,10 +3690,12 @@ struct SearchView: View {
                     .contentShape(Rectangle())
                 }
             } header: {
-                spaceSectionHeader(
-                    title: "tab_spoken_word",
-                    seeAll: isPreview && bookHits.count > hits.count ? .spokenWord : nil
-                )
+                if focusedResultSection != .spokenWord {
+                    spaceSectionHeader(
+                        title: "tab_spoken_word",
+                        seeAll: isPreview && bookHits.count > hits.count ? .spokenWord : nil
+                    )
+                }
             }
         }
     }
@@ -3640,8 +3758,8 @@ struct SearchView: View {
         // matchingArtists 每次读都要按搜索结果逐首取艺术家, 这一块只算一次。
         let artists = matchingArtists
         if !artists.isEmpty {
-            Section("tab_artists") {
-                ForEach(artists.prefix(3)) { artist in
+            Section {
+                ForEach(artists.prefix(focusedResultSection == .artists ? artists.count : 3)) { artist in
                     HStack {
                         NavigationLink(value: artist) {
                             HStack(spacing: 12) {
@@ -3658,11 +3776,13 @@ struct SearchView: View {
                         resultActions(.artist(artist.id))
                     }
                 }
-                if artists.count > 3 {
+                if focusedResultSection != .artists, artists.count > 3 {
                     #if os(iOS)
                     NavigationLink("see_all", value: SearchCatalogDestination.artists)
                     #endif
                 }
+            } header: {
+                if focusedResultSection != .artists { Text("tab_artists") }
             }
         }
     }
@@ -3704,9 +3824,11 @@ struct SearchView: View {
                 }
             }
         } header: {
-            HStack {
-                Image(systemName: "applelogo")
-                Text("search_section_apple_music")
+            if focusedResultSection != .appleMusic {
+                HStack {
+                    Image(systemName: "applelogo")
+                    Text("search_section_apple_music")
+                }
             }
         }
     }
@@ -3715,7 +3837,7 @@ struct SearchView: View {
     @ViewBuilder
     private func songSection(kind: LibrarySearchMatchKind, titleKey: LocalizedStringKey) -> some View {
         let matches = searchResults.filter { $0.matchKind == kind }
-        let bucket = matches.prefix(scope == nil ? 40 : matches.count)
+        let bucket = matches.prefix(scope == nil && focusedResultSection == nil ? 40 : matches.count)
         if !bucket.isEmpty {
             Section {
                 ForEach(Array(bucket)) { result in
@@ -3778,14 +3900,14 @@ struct SearchView: View {
                     }
                 }
             } header: {
-                Text(titleKey)
+                if focusedResultSection == nil { Text(titleKey) }
             }
         }
     }
 
     @ViewBuilder
     private var semanticSongSection: some View {
-        let results = Array(visibleSemanticResults.prefix(40))
+        let results = focusedResultSection == .intelligent ? visibleSemanticResults : Array(visibleSemanticResults.prefix(40))
         let albums = visibleSemanticAlbums
         let albumsFirst = semanticResultGroups.first == .albums
         if semanticSearchFeedback.isVisible || !results.isEmpty || !albums.isEmpty {
@@ -3850,7 +3972,9 @@ struct SearchView: View {
                     semanticAlbumRows(albums, titled: !results.isEmpty)
                 }
             } header: {
-                Label("search_ai_section", systemImage: "sparkles")
+                if focusedResultSection != .intelligent {
+                    Label("search_ai_section", systemImage: "sparkles")
+                }
             }
         }
     }
@@ -4846,16 +4970,18 @@ struct SearchView: View {
     @ViewBuilder
     private func collectionSection(_ section: SearchResultSection) -> some View {
         let hits = matchingCollections(section)
-        let shown = expandedCollections.contains(section) ? hits : Array(hits.prefix(4))
+        let shown = focusedResultSection == section || expandedCollections.contains(section) ? hits : Array(hits.prefix(4))
         if !shown.isEmpty {
             Section {
                 ForEach(shown) { collectionResultRow($0) }
             } header: {
-                HStack {
-                    Text(section.title)
-                    Spacer()
-                    if hits.count > shown.count {
-                        Button("see_all") { expandedCollections.insert(section) }.textCase(nil)
+                if focusedResultSection != section {
+                    HStack {
+                        Text(section.title)
+                        Spacer()
+                        if hits.count > shown.count {
+                            Button("see_all") { expandedCollections.insert(section) }.textCase(nil)
+                        }
                     }
                 }
             }

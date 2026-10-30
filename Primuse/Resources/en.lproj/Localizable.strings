@@ -4540,6 +4540,8 @@
 "tag_editor_lyrics_writeback_embedded" = "Target checked. The lyrics will be embedded in the audio file; no lyrics file will be created.";
 "tag_editor_lyrics_writeback_also_embedded" = "They will also be embedded in the audio file.";
 "search_layout_title" = "Arrange Search Results";
+"search_display_continuous" = "Continuous Scroll";
+"search_display_tabs" = "Category Tabs";
 "search_layout_footer" = "Sections you turn off are hidden and skipped when searching.";
 "search_layout_restore_default" = "Restore Defaults";
 "search_layout_move_up" = "Move Up";

@@ -4682,6 +4682,8 @@
 "tag_editor_lyrics_writeback_embedded" = "Hedef kontrol edildi. Şarkı sözleri ses dosyasına gömülecek; söz dosyası oluşturulmayacak.";
 "tag_editor_lyrics_writeback_also_embedded" = "Ses dosyasına da gömülecek.";
 "search_layout_title" = "Arama sonuçlarını düzenle";
+"search_display_continuous" = "Sürekli kaydırma";
+"search_display_tabs" = "Kategori sekmeleri";
 "search_layout_footer" = "Kapattığınız bölümler gizlenir ve aramada atlanır.";
 "search_layout_restore_default" = "Varsayılanlara dön";
 "search_layout_move_up" = "Yukarı taşı";

@@ -4682,6 +4682,8 @@
 "tag_editor_lyrics_writeback_embedded" = "लक्ष्य की जाँच हो गई। बोल ऑडियो फ़ाइल में एम्बेड किए जाएँगे; कोई बोल फ़ाइल नहीं बनेगी।";
 "tag_editor_lyrics_writeback_also_embedded" = "ये ऑडियो फ़ाइल में भी एम्बेड किए जाएँगे।";
 "search_layout_title" = "खोज परिणाम व्यवस्थित करें";
+"search_display_continuous" = "लगातार स्क्रॉल";
+"search_display_tabs" = "श्रेणी टैब";
 "search_layout_footer" = "बंद किए गए अनुभाग छिप जाते हैं और खोज में छोड़ दिए जाते हैं।";
 "search_layout_restore_default" = "डिफ़ॉल्ट पर लौटाएँ";
 "search_layout_move_up" = "ऊपर ले जाएँ";

@@ -4682,6 +4682,8 @@
 "tag_editor_lyrics_writeback_embedded" = "ตรวจสอบเป้าหมายแล้ว เนื้อเพลงจะถูกฝังลงในไฟล์เสียง และจะไม่สร้างไฟล์เนื้อเพลง";
 "tag_editor_lyrics_writeback_also_embedded" = "จะฝังลงในไฟล์เสียงด้วย";
 "search_layout_title" = "จัดเรียงผลการค้นหา";
+"search_display_continuous" = "เลื่อนต่อเนื่อง";
+"search_display_tabs" = "แท็บหมวดหมู่";
 "search_layout_footer" = "ส่วนที่ปิดไว้จะถูกซ่อนและข้ามไปเมื่อค้นหา";
 "search_layout_restore_default" = "คืนค่าเริ่มต้น";
 "search_layout_move_up" = "เลื่อนขึ้น";

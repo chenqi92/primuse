@@ -4682,6 +4682,8 @@
 "tag_editor_lyrics_writeback_embedded" = "Cel sprawdzony. Tekst zostanie osadzony w pliku audio; plik z tekstem nie zostanie utworzony.";
 "tag_editor_lyrics_writeback_also_embedded" = "Zostanie też osadzony w pliku audio.";
 "search_layout_title" = "Układ wyników wyszukiwania";
+"search_display_continuous" = "Ciągłe przewijanie";
+"search_display_tabs" = "Karty kategorii";
 "search_layout_footer" = "Wyłączone sekcje są ukryte i pomijane podczas wyszukiwania.";
 "search_layout_restore_default" = "Przywróć domyślne";
 "search_layout_move_up" = "Przenieś w górę";

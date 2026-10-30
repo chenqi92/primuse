@@ -4777,6 +4777,8 @@
 "tag_editor_lyrics_writeback_embedded" = "保存先を確認しました。歌詞はオーディオファイルに埋め込み、歌詞ファイルは作成しません。";
 "tag_editor_lyrics_writeback_also_embedded" = "オーディオファイルにも埋め込みます。";
 "search_layout_title" = "検索結果の表示を調整";
+"search_display_continuous" = "連続スクロール";
+"search_display_tabs" = "カテゴリタブ";
 "search_layout_footer" = "オフにしたセクションは表示されず、検索も行われません。";
 "search_layout_restore_default" = "デフォルトに戻す";
 "search_layout_move_up" = "上へ移動";

@@ -8,7 +8,7 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
     case artists
     case playlists
     case folders
-    /// 标题 / 艺术家 / 专辑命中。
+    /// 歌曲结果；保留存档名称以兼容已有排序和显隐设置。
     case metadata
     case path
     case lyrics
@@ -28,7 +28,7 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         case .artists: "tab_artists"
         case .playlists: "tab_playlists"
         case .folders: "library_browse_folder"
-        case .metadata: "search_section_metadata"
+        case .metadata: "tab_songs"
         case .path: "search_section_path"
         case .lyrics: "search_section_lyrics"
         case .fuzzy: "search_section_fuzzy"
@@ -66,6 +66,35 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         case .lyrics: .cards
         case .metadata, .path, .fuzzy, .intelligent, .playlists, .folders, .radio, .spokenWord: .list
         }
+    }
+}
+
+public enum SearchResultDisplayMode: String, CaseIterable, Sendable {
+    case continuous
+    case tabs
+
+    public static let storageKey = "primuse.search.displayMode.v1"
+
+    public var titleKey: String {
+        switch self {
+        case .continuous: "search_display_continuous"
+        case .tabs: "search_display_tabs"
+        }
+    }
+}
+
+public struct SearchResultTabLayout: Equatable, Sendable {
+    public let sections: [SearchResultSection]
+    public let selectedSection: SearchResultSection?
+
+    public init(order: [SearchResultSection], available: Set<SearchResultSection>, selection: SearchResultSection?) {
+        let sections = order.filter { available.contains($0) }
+        self.sections = sections
+        selectedSection = selection.flatMap { sections.contains($0) ? $0 : nil }
+    }
+
+    public var displayedSections: [SearchResultSection] {
+        selectedSection.map { [$0] } ?? sections
     }
 }
 

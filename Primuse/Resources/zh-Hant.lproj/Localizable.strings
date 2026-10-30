@@ -4753,6 +4753,8 @@
 "tag_editor_lyrics_writeback_embedded" = "已檢查目標，歌詞將嵌入音訊檔案，不新建歌詞檔。";
 "tag_editor_lyrics_writeback_also_embedded" = "同時嵌入音訊檔案。";
 "search_layout_title" = "調整搜尋結果";
+"search_display_continuous" = "連續捲動";
+"search_display_tabs" = "分類標籤";
 "search_layout_footer" = "關閉的部分不再顯示，搜尋時也會略過。";
 "search_layout_restore_default" = "恢復預設";
 "search_layout_move_up" = "上移";

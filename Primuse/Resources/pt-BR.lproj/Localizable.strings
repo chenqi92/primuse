@@ -4682,6 +4682,8 @@
 "tag_editor_lyrics_writeback_embedded" = "Destino verificado. A letra será incorporada ao arquivo de áudio; nenhum arquivo de letra será criado.";
 "tag_editor_lyrics_writeback_also_embedded" = "Ela também será incorporada ao arquivo de áudio.";
 "search_layout_title" = "Organizar resultados da busca";
+"search_display_continuous" = "Rolagem contínua";
+"search_display_tabs" = "Abas por categoria";
 "search_layout_footer" = "As seções desativadas ficam ocultas e são ignoradas na busca.";
 "search_layout_restore_default" = "Restaurar padrão";
 "search_layout_move_up" = "Mover para cima";

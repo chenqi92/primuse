@@ -4682,6 +4682,8 @@
 "tag_editor_lyrics_writeback_embedded" = "Ціль перевірено. Текст буде вбудовано в аудіофайл; файл із текстом не створюватиметься.";
 "tag_editor_lyrics_writeback_also_embedded" = "Текст також буде вбудовано в аудіофайл.";
 "search_layout_title" = "Порядок результатів пошуку";
+"search_display_continuous" = "Безперервне прокручування";
+"search_display_tabs" = "Вкладки категорій";
 "search_layout_footer" = "Вимкнені розділи приховуються й не беруть участі в пошуку.";
 "search_layout_restore_default" = "Відновити типові";
 "search_layout_move_up" = "Вгору";

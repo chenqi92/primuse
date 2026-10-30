@@ -4776,6 +4776,8 @@
 "tag_editor_lyrics_writeback_embedded" = "Ziel geprüft. Der Liedtext wird in die Audiodatei eingebettet; es wird keine Liedtextdatei angelegt.";
 "tag_editor_lyrics_writeback_also_embedded" = "Er wird zusätzlich in die Audiodatei eingebettet.";
 "search_layout_title" = "Suchergebnisse anordnen";
+"search_display_continuous" = "Fortlaufend scrollen";
+"search_display_tabs" = "Kategorie-Tabs";
 "search_layout_footer" = "Ausgeschaltete Bereiche werden ausgeblendet und bei der Suche übersprungen.";
 "search_layout_restore_default" = "Standard wiederherstellen";
 "search_layout_move_up" = "Nach oben";

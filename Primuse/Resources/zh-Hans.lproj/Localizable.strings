@@ -4869,6 +4869,8 @@
 "tag_editor_lyrics_writeback_embedded" = "已检查目标，歌词将嵌入音频文件，不新建歌词文件。";
 "tag_editor_lyrics_writeback_also_embedded" = "同时嵌入音频文件。";
 "search_layout_title" = "调整搜索结果";
+"search_display_continuous" = "连续滚动";
+"search_display_tabs" = "分类标签";
 "search_layout_footer" = "关掉的部分不再显示，搜索时也会跳过。";
 "search_layout_restore_default" = "恢复默认";
 "search_layout_move_up" = "上移";

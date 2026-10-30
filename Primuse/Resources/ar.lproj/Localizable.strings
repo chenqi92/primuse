@@ -4682,6 +4682,8 @@
 "tag_editor_lyrics_writeback_embedded" = "تم التحقق من الهدف. ستُضمَّن الكلمات في ملف الصوت ولن يُنشأ ملف كلمات.";
 "tag_editor_lyrics_writeback_also_embedded" = "ستُضمَّن أيضًا في ملف الصوت.";
 "search_layout_title" = "ترتيب نتائج البحث";
+"search_display_continuous" = "تمرير متواصل";
+"search_display_tabs" = "علامات تبويب الفئات";
 "search_layout_footer" = "الأقسام التي توقفها تُخفى ولا يُبحث فيها.";
 "search_layout_restore_default" = "استعادة الإعدادات الافتراضية";
 "search_layout_move_up" = "نقل لأعلى";

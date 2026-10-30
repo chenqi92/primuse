@@ -2,6 +2,82 @@ import XCTest
 
 @MainActor
 final class SearchExperienceUITests: XCTestCase {
+    func testCategoryTabsFilterResultsAndKeepSavedOrder() {
+        continueAfterFailure = false
+        let app = searchApp(navigationMode: "standard")
+        app.launchArguments += [
+            "-primuse.search.displayMode.v1", "tabs",
+            "-primuse.search.sectionOrder.v1", #""[\"metadata\",\"albums\",\"artists\"]""#,
+            "-primuse.search.hiddenSections.v1", #""[]""#
+        ]
+        app.launch()
+        defer { app.terminate() }
+        submitSearch(in: app)
+        let songs = app.buttons["search.tab.metadata"]
+        let albums = app.buttons["search.tab.albums"]
+        XCTAssertTrue(songs.waitForExistence(timeout: 15))
+        XCTAssertTrue(albums.exists)
+        XCTAssertEqual(songs.label, "歌曲")
+        XCTAssertLessThan(songs.frame.minX, albums.frame.minX)
+        songs.tap()
+        XCTAssertTrue(songs.isSelected)
+        let songMenu = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'song.actions.' AND label == '更多操作'")).firstMatch
+        XCTAssertTrue(songMenu.waitForExistence(timeout: 5))
+        let albumMenu = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'search.album.more.'")).firstMatch
+        XCTAssertFalse(albumMenu.exists)
+        XCTAssertFalse(app.staticTexts["标题 / 艺术家 / 专辑"].exists)
+        attach(app, "search-tabs-songs")
+        albums.tap()
+        XCTAssertTrue(albums.isSelected)
+        XCTAssertTrue(albumMenu.waitForExistence(timeout: 5))
+        XCTAssertFalse(songMenu.exists)
+        attach(app, "search-tabs-albums")
+        app.buttons["search.tab.all"].tap()
+        XCTAssertTrue(albumMenu.waitForExistence(timeout: 5))
+        XCTAssertTrue(songMenu.waitForExistence(timeout: 5))
+        attach(app, "search-tabs-all")
+    }
+
+    func testDisplayModeSwitchPersistsAcrossLaunches() {
+        continueAfterFailure = false
+        let app = searchApp(navigationMode: "standard")
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["search.layout.button"].waitForExistence(timeout: 25))
+        app.buttons["search.layout.button"].tap()
+        let continuous = app.buttons["连续滚动"]
+        let tabs = app.buttons["分类标签"]
+        XCTAssertTrue(continuous.waitForExistence(timeout: 5))
+        let originallyTabbed = tabs.isSelected
+        continuous.tap()
+        app.buttons["完成"].tap()
+        submitSearch(in: app)
+        XCTAssertFalse(app.buttons["search.tab.all"].exists)
+        app.buttons["search.layout.button"].tap()
+        tabs.tap()
+        attach(app, "search-display-mode-settings")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["search.tab.all"].waitForExistence(timeout: 10))
+        app.terminate()
+        app.launch()
+        submitSearch(in: app)
+        XCTAssertTrue(app.buttons["search.tab.all"].waitForExistence(timeout: 15))
+        app.buttons["search.layout.button"].tap()
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        XCTAssertTrue(tabs.isSelected)
+        if !originallyTabbed { continuous.tap() }
+        app.buttons["完成"].tap()
+    }
+
+    private func submitSearch(in app: XCUIApplication) {
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 25))
+        field.tap()
+        let query = ProcessInfo.processInfo.environment["PRIMUSE_SEARCH_TEST_QUERY"] ?? "大鱼"
+        field.typeText(query + "\n")
+        XCTAssertTrue(app.buttons["search.reopen"].waitForExistence(timeout: 10))
+    }
+
     func testAlbumMoreIncludesPlayAllAndSongMoreKeepsFullMenu() throws {
         continueAfterFailure = false
         let app = searchApp(navigationMode: "standard")

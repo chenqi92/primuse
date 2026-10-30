@@ -83,6 +83,7 @@ struct SearchResultLayoutEditor: View {
     private var appleMusicCatalogSearchEnabled = true
     #if os(iOS)
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(SearchResultDisplayMode.storageKey) private var displayMode: SearchResultDisplayMode = .continuous
     #endif
 
     private var order: [SearchResultSection] {
@@ -106,7 +107,12 @@ struct SearchResultLayoutEditor: View {
     }
 
     private var isDefault: Bool {
-        order == SearchResultSectionLayout.defaultOrder && hidden.isEmpty
+        let sectionsAreDefault = order == SearchResultSectionLayout.defaultOrder && hidden.isEmpty
+        #if os(iOS)
+        return sectionsAreDefault && displayMode == .continuous
+        #else
+        return sectionsAreDefault
+        #endif
     }
 
     var body: some View {
@@ -121,6 +127,17 @@ struct SearchResultLayoutEditor: View {
     private var iosBody: some View {
         NavigationStack {
             List {
+                Section("songs_display_mode") {
+                    Picker("songs_display_mode", selection: $displayMode) {
+                        ForEach(SearchResultDisplayMode.allCases, id: \.self) { mode in
+                            Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    .accessibilityIdentifier("search.layout.displayMode")
+                }
+
                 Section {
                     ForEach(displayed) { section in
                         Toggle(isOn: visibilityBinding(for: section)) {
@@ -252,5 +269,8 @@ struct SearchResultLayoutEditor: View {
     private func restoreDefaults() {
         orderRawValue = ""
         hiddenRawValue = ""
+        #if os(iOS)
+        displayMode = .continuous
+        #endif
     }
 }
