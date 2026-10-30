@@ -52,8 +52,8 @@ struct PlaylistDetailView: View {
     @State private var selection = SongSelectionModel()
     @State private var songLocation = SongListLocation()
     @State private var sortedSongsCache = PlaylistSortedSongsCache()
-    /// 空串 = 歌单顺序。存 raw value 是为了让"歌单顺序"也能占一个合法取值。
-    @AppStorage("playlistDetailSortOrder") private var displaySortRawValue = ""
+    /// nil = 尚未选择；空串 = 用户选择了歌单顺序，不能用默认排序覆盖。
+    @AppStorage(PlaylistSongSortOrderPreference.storageKey) private var displaySortRawValue: String?
     /// 收藏的顺序就是收藏歌单的账：头部那颗心看它。
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
@@ -97,7 +97,7 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 界面上看到的顺序。默认就是歌单顺序(不额外排,零开销);选了排序维度之后,
+    /// 界面上看到的顺序。「我喜欢」默认按添加日期倒序，其他歌单默认保持歌单顺序；
     /// 播放全部 / 加入队列 / 离线下载 / 导出也一并按看到的顺序走 —— 用户按的是
     /// 眼前这一列,不是歌单里存的那一列。
     private var songs: [Song] {
@@ -179,7 +179,10 @@ struct PlaylistDetailView: View {
 
     /// nil = 保持歌单自己的顺序。
     private var displaySortOrder: LibrarySongSortOrder? {
-        LibrarySongSortOrder(rawValue: displaySortRawValue)
+        PlaylistSongSortOrderPreference.resolve(
+            displaySortRawValue,
+            isLikedSongs: playlist.id == MusicLibrary.likedSongsPlaylistID
+        )
     }
 
     /// 歌单里的「添加日期」指加进这张歌单的先后, 不是歌入库的日子。歌单没记每首是

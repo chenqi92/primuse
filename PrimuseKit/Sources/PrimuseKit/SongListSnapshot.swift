@@ -214,6 +214,15 @@ public enum LibrarySongSortOrderPreference {
     }
 }
 
+public enum PlaylistSongSortOrderPreference {
+    public static let storageKey = "playlistDetailSortOrder"
+
+    public static func resolve(_ rawValue: String?, isLikedSongs: Bool) -> LibrarySongSortOrder? {
+        guard let rawValue else { return isLikedSongs ? .dateAdded : nil }
+        return LibrarySongSortOrder(rawValue: rawValue)
+    }
+}
+
 public struct SongListSectionIndexEntry: Identifiable, Equatable, Hashable, Sendable {
     public let label: String
     public let rowOffset: Int

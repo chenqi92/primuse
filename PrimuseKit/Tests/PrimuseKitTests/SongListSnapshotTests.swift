@@ -645,6 +645,37 @@ struct SongListSnapshotTests {
         #expect(LibrarySongSortOrderPreference.load(from: reopened) == .albumDescending)
     }
 
+    @Test("Only an unset liked-songs preference defaults to newest additions first")
+    func playlistSortPreferenceDefaults() throws {
+        let suiteName = "PlaylistSongSortOrderPreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let rawValue = defaults.string(forKey: PlaylistSongSortOrderPreference.storageKey)
+        let likedOrder = try #require(PlaylistSongSortOrderPreference.resolve(rawValue, isLikedSongs: true))
+        #expect(likedOrder.criterion == .dateAdded)
+        #expect(!likedOrder.isAscending)
+        #expect(likedOrder.selecting(.dateAdded) == .dateAddedOldest)
+        #expect(PlaylistSongSortOrderPreference.resolve(rawValue, isLikedSongs: false) == nil)
+        #expect(defaults.object(forKey: PlaylistSongSortOrderPreference.storageKey) == nil)
+    }
+
+    @Test("Saved playlist sorting, including manual order, survives reopening", arguments: [""] + LibrarySongSortOrder.allCases.map(\.rawValue))
+    func playlistSortPreferencePreservesUserChoice(rawValue: String) throws {
+        let suiteName = "PlaylistSongSortOrderPreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(rawValue, forKey: PlaylistSongSortOrderPreference.storageKey)
+        let reopened = try #require(UserDefaults(suiteName: suiteName))
+        let saved = reopened.string(forKey: PlaylistSongSortOrderPreference.storageKey)
+        #expect(saved == rawValue)
+        for isLikedSongs in [true, false] {
+            #expect(PlaylistSongSortOrderPreference.resolve(saved, isLikedSongs: isLikedSongs)
+                == LibrarySongSortOrder(rawValue: rawValue))
+        }
+    }
+
     @Test("Alphabetic sorts expose a complete directional section index")
     func alphabeticSortBuildsSectionIndex() {
         let songs = [
