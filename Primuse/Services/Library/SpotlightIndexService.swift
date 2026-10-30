@@ -196,6 +196,7 @@ final class SpotlightIndexService {
     private var isForegroundSynchronizationRequested = false
     private var isStatusVisible = false
     private var pendingTask: Task<Void, Never>?
+    private var diagnosticExportTask: Task<Void, Never>?
     private var pendingGeneration: UUID?
     private var queuedSnapshot: LibrarySnapshot?
     /// 设置页核对时清单记着、系统索引里却查不到的条目,交给下一轮同步当作未确认重写。
@@ -430,6 +431,27 @@ final class SpotlightIndexService {
         }
     }
 
+    func prepareDiagnosticsForExport(library: MusicLibrary) async {
+        guard FileLogger.isDiagnosticModeActive else { return }
+        if let diagnosticExportTask {
+            await diagnosticExportTask.value
+            return
+        }
+        guard library.isReady else {
+            spotlightDiagnostic("search export skipped reason=library-not-ready")
+            return
+        }
+        let snapshot = makeLibrarySnapshot(library: library)
+        spotlightDiagnostic("search export state songs=\(snapshot.songs.count) limit=\(Self.maxIndexedSongs) phase=\(workPhase) pending=\(Self.isSynchronizationPending)")
+        let task = Task.detached(priority: .utility) {
+            guard let prepared = Self.prepareSnapshot(snapshot) else { return }
+            await Self.logSearchDiagnostics(snapshot: snapshot, prepared: prepared, found: nil, forExport: true)
+        }
+        diagnosticExportTask = task
+        await task.value
+        diagnosticExportTask = nil
+    }
+
     private func finishStatusMeasurement(
         _ coverage: SpotlightIndexCoverage?, missing: Set<String>, revision: Int,
         library: MusicLibrary, exceedsSongLimit: Bool
@@ -481,53 +503,136 @@ final class SpotlightIndexService {
 
     private nonisolated static let searchDiagnosticGate = SpotlightSearchDiagnosticGate()
 
-    private nonisolated static func logSearchDiagnostics(
-        snapshot: LibrarySnapshot, prepared: PreparedSnapshot, found: [String: String]?
-    ) async {
-        guard FileLogger.isDiagnosticModeActive, searchDiagnosticGate.begin() else { return }
-        defer { searchDiagnosticGate.end() }
-        let signatures = Dictionary(prepared.records.map { ($0.identifier, $0.signature) },
-                                    uniquingKeysWith: { _, latest in latest })
-        let songs = indexedSongs(of: snapshot).songs
-        // One stable sample per title-length/script group catches short Chinese
-        // matching differences without querying hundreds of personal titles.
+    struct SearchDiagnosticSample: Sendable {
+        let group: String
+        let identifier: String
+        let title: String
+    }
+
+    struct SearchDiagnosticReport: Sendable {
+        let sample: SearchDiagnosticSample
+        let stored: SpotlightSearchQueryResult
+        let title: SpotlightSearchQueryResult
+        let user: SpotlightSearchQueryResult
+        let ranked: SpotlightSearchQueryResult
+    }
+
+    nonisolated static func searchDiagnosticSamples(
+        songs: [Song], prioritySongIDs: [String]
+    ) -> [SearchDiagnosticSample] {
+        let byID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var selected: [SearchDiagnosticSample] = []
+        var seen: Set<String> = []
+        func append(_ song: Song, group: String) {
+            guard !song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  seen.insert(song.id).inserted else { return }
+            selected.append(SearchDiagnosticSample(group: group, identifier: "song:" + song.id, title: song.title))
+        }
+        // Replaying a failing song must make it into the next diagnostic export.
+        for id in prioritySongIDs {
+            if let song = byID[id] { append(song, group: "priority\(selected.count + 1)") }
+            if selected.count == 6 { break }
+        }
         var groups: [String: Song] = [:]
         for song in songs where !song.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let hasHan = song.title.unicodeScalars.contains { (0x3400...0x9FFF).contains($0.value) }
             let group = hasHan ? "han\(min(4, song.title.count))" : "other"
             if groups[group] == nil || song.id < groups[group]!.id { groups[group] = song }
         }
-        spotlightDiagnostic("search diagnostics begin artwork=\(snapshot.showsArtwork) available=\(CSSearchableIndex.isIndexingAvailable()) samples=\(groups.count) locale=\(Locale.current.identifier)")
         for group in groups.keys.sorted() {
-            guard !Task.isCancelled, FileLogger.isDiagnosticModeActive, let song = groups[group] else { break }
-            let id = "song:" + song.id
-            let escapedTitle = song.title.replacingOccurrences(of: "\\", with: "\\\\")
+            if let song = groups[group] { append(song, group: group) }
+        }
+        return selected
+    }
+
+    nonisolated static func searchDiagnostics(
+        for samples: [SearchDiagnosticSample],
+        shouldContinue: @Sendable () -> Bool = { !Task.isCancelled }
+    ) async -> [SearchDiagnosticReport] {
+        guard !samples.isEmpty, shouldContinue() else { return [] }
+        let deadline = ProcessInfo.processInfo.systemUptime + 15
+        let fields = ["title", "displayName", "keywords", spotlightContentVersionKey().keyName]
+        let context = CSSearchQueryContext()
+        context.fetchAttributes = fields
+        let stored = await diagnosticQuery(
+            CSSearchQuery(queryString: "contentType == \"public.audio\"", queryContext: context),
+            identifiers: Set(samples.map(\.identifier))
+        )
+        var reports: [SearchDiagnosticReport] = []
+        for sample in samples {
+            guard shouldContinue(), ProcessInfo.processInfo.systemUptime < deadline else { break }
+            let escaped = sample.title.replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
-            let context = CSSearchQueryContext()
-            context.fetchAttributes = []
-            let exact = CSSearchQuery(queryString: "title == \"\(escapedTitle)\"cd", queryContext: context)
-            let titleMatch = await diagnosticMatch(exact, identifier: id)
+            let exactContext = CSSearchQueryContext()
+            exactContext.fetchAttributes = fields
+            let title = await diagnosticQuery(
+                CSSearchQuery(queryString: "title == \"\(escaped)\"cd", queryContext: exactContext),
+                identifiers: [sample.identifier]
+            )
+            guard shouldContinue(), ProcessInfo.processInfo.systemUptime < deadline else { break }
             let userContext = CSUserQueryContext()
             userContext.enableRankedResults = false
             userContext.disableSemanticSearch = true
             userContext.maxResultCount = 0
-            userContext.fetchAttributes = []
-            let user = CSUserQuery(userQueryString: song.title, userQueryContext: userContext)
-            let userMatch = await diagnosticMatch(user, identifier: id)
-            spotlightDiagnostic("search sample group=\(group) item=\(contentSignature([id]).prefix(12)) titleHash=\(contentSignature([song.title]).prefix(12)) titleLength=\(song.title.count) stored=\(found?[id] != nil) versionMatches=\(found?[id] == signatures[id]) titleQuery=\(titleMatch) userQuery=\(userMatch)")
+            userContext.fetchAttributes = fields
+            let user = await diagnosticQuery(
+                CSUserQuery(userQueryString: sample.title, userQueryContext: userContext),
+                identifiers: [sample.identifier]
+            )
+            guard shouldContinue(), ProcessInfo.processInfo.systemUptime < deadline else { break }
+            let rankedContext = CSUserQueryContext()
+            rankedContext.enableRankedResults = true
+            rankedContext.disableSemanticSearch = true
+            rankedContext.maxRankedResultCount = 100
+            rankedContext.fetchAttributes = fields
+            let ranked = await diagnosticQuery(
+                CSUserQuery(userQueryString: sample.title, userQueryContext: rankedContext),
+                identifiers: [sample.identifier]
+            )
+            reports.append(SearchDiagnosticReport(sample: sample, stored: stored, title: title, user: user, ranked: ranked))
+        }
+        return reports
+    }
+
+    private nonisolated static func logSearchDiagnostics(
+        snapshot: LibrarySnapshot, prepared: PreparedSnapshot, found: [String: String]?, forExport: Bool = false
+    ) async {
+        guard FileLogger.isDiagnosticModeActive else { return }
+        // An explicit export must include fresh results even after a recent status check.
+        guard forExport || searchDiagnosticGate.begin() else { return }
+        defer { if !forExport { searchDiagnosticGate.end() } }
+        let run = String(UUID().uuidString.prefix(8))
+        let signatures = Dictionary(prepared.records.map { ($0.identifier, $0.signature) },
+                                    uniquingKeysWith: { _, latest in latest })
+        let samples = searchDiagnosticSamples(songs: snapshot.songs, prioritySongIDs: snapshot.prioritySongIDs)
+        spotlightDiagnostic("search diagnostics begin run=\(run) trigger=\(forExport ? "export" : "status") artwork=\(snapshot.showsArtwork) available=\(CSSearchableIndex.isIndexingAvailable()) samples=\(samples.count) locale=\(Locale.current.identifier) languages=\(Locale.preferredLanguages.joined(separator: ",")) os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+        let reports = await searchDiagnostics(for: samples) { !Task.isCancelled && FileLogger.isDiagnosticModeActive }
+        for report in reports {
+            let sample = report.sample
+            let id = sample.identifier
+            let fields = report.stored.items[id]
+            let actualTitle = fields?.title
+            let actualVersion = fields?.contentVersion
+            spotlightDiagnostic("search sample run=\(run) group=\(sample.group) item=\(contentSignature([id]).prefix(12)) titleHash=\(contentSignature([sample.title]).prefix(12)) titleLength=\(sample.title.count) planned=\(signatures[id] != nil) stored=\(fields != nil) versionMatches=\(actualVersion != nil && actualVersion == signatures[id]) readback=\(report.stored.summary(for: id)) titleMatches=\(actualTitle == sample.title) titleBytesMatch=\(actualTitle.map { Array($0.utf8) == Array(sample.title.utf8) } ?? false) actualTitleHash=\(contentSignature([actualTitle]).prefix(12)) actualTitleLength=\(actualTitle?.count ?? -1) displayMatches=\(fields?.displayName == sample.title) keywordMatches=\(fields?.keywords?.contains(sample.title) ?? false) titleQuery=\(report.title.summary(for: id)) userQuery=\(report.user.summary(for: id)) rankedQuery=\(report.ranked.summary(for: id))")
         }
         // Component hashes help distinguish cover changes from text/configuration
         // changes across reports without exporting titles or source identifiers.
-        for record in prepared.records.filter({ found?[$0.identifier] != $0.signature }).prefix(5) {
+        for record in prepared.records.filter({ found?[$0.identifier] != $0.signature }).prefix(forExport ? 0 : 5) {
             guard case let .song(song, artist, cover) = prepared.payloadsByIdentifier[record.identifier] else { continue }
-            spotlightDiagnostic("version sample item=\(contentSignature([record.identifier]).prefix(12)) expected=\(record.signature.prefix(12)) actual=\(found?[record.identifier]?.prefix(12) ?? "absent") title=\(contentSignature([song.title]).prefix(12)) artist=\(contentSignature([artist]).prefix(12)) album=\(contentSignature([song.albumTitle]).prefix(12)) config=\(contentSignature([snapshot.artistNameConfiguration.cacheSignature]).prefix(12)) cover=\(contentSignature([cover?.contentIdentifier]).prefix(12)) artwork=\(snapshot.showsArtwork)")
+            spotlightDiagnostic("version sample run=\(run) item=\(contentSignature([record.identifier]).prefix(12)) expected=\(record.signature.prefix(12)) actual=\(found?[record.identifier]?.prefix(12) ?? "absent") title=\(contentSignature([song.title]).prefix(12)) artist=\(contentSignature([artist]).prefix(12)) album=\(contentSignature([song.albumTitle]).prefix(12)) config=\(contentSignature([snapshot.artistNameConfiguration.cacheSignature]).prefix(12)) cover=\(contentSignature([cover?.contentIdentifier]).prefix(12)) artwork=\(snapshot.showsArtwork)")
         }
-        spotlightDiagnostic("search diagnostics finished")
+        spotlightDiagnostic("search diagnostics finished run=\(run) trigger=\(forExport ? "export" : "status") completed=\(reports.count) requested=\(samples.count)")
     }
 
     private nonisolated static func diagnosticMatch(_ query: CSSearchQuery, identifier: String) async -> String {
+        await diagnosticQuery(query, identifiers: [identifier]).summary(for: identifier)
+    }
+
+    private nonisolated static func diagnosticQuery(
+        _ query: CSSearchQuery, identifiers: Set<String>
+    ) async -> SpotlightSearchQueryResult {
         await withCheckedContinuation { continuation in
-            SpotlightDiagnosticQuery().start(query, identifier: identifier, continuation: continuation)
+            SpotlightDiagnosticQuery().start(query, identifiers: identifiers, continuation: continuation)
         }
     }
 
@@ -1211,18 +1316,7 @@ final class SpotlightIndexService {
     ) -> (searchableItem: CSSearchableItem, thumbnail: ThumbnailOutcome) {
         switch payload {
         case let .song(song, artistDisplayName, cover):
-            let attrs = CSSearchableItemAttributeSet(contentType: .audio)
-            attrs.title = song.title
-            attrs.displayName = song.title
-            attrs.album = song.albumTitle
-            attrs.artist = artistDisplayName
-            attrs.contentDescription = [artistDisplayName, song.albumTitle]
-                .compactMap { $0 }
-                .joined(separator: " — ")
-            attrs.keywords = [song.title, artistDisplayName, song.albumTitle].compactMap { $0 }
-            if song.duration > 0 {
-                attrs.duration = NSNumber(value: song.duration)
-            }
+            let attrs = searchableSongAttributes(song, artistDisplayName: artistDisplayName)
             let thumbnail = attachThumbnail(
                 cover,
                 to: attrs,
@@ -1295,6 +1389,20 @@ final class SpotlightIndexService {
                 .none
             )
         }
+    }
+
+    nonisolated static func searchableSongAttributes(
+        _ song: Song, artistDisplayName: String?
+    ) -> CSSearchableItemAttributeSet {
+        let attrs = CSSearchableItemAttributeSet(contentType: .audio)
+        attrs.title = song.title
+        attrs.displayName = song.title
+        attrs.album = song.albumTitle
+        attrs.artist = artistDisplayName
+        attrs.contentDescription = [artistDisplayName, song.albumTitle].compactMap { $0 }.joined(separator: " — ")
+        attrs.keywords = [song.title, artistDisplayName, song.albumTitle].compactMap { $0 }
+        if song.duration > 0 { attrs.duration = NSNumber(value: song.duration) }
+        return attrs
     }
 
     /// Spotlight renders results in its own process, which cannot open files
@@ -1626,18 +1734,35 @@ private final class SpotlightSearchDiagnosticGate: @unchecked Sendable {
     func end() { lock.withLock { running = false } }
 }
 
+struct SpotlightSearchItemFields: Sendable {
+    let title: String?
+    let displayName: String?
+    let keywords: [String]?
+    let contentVersion: String?
+}
+
+struct SpotlightSearchQueryResult: Sendable {
+    let count: Int
+    let items: [String: SpotlightSearchItemFields]
+    let failure: String?
+
+    func summary(for identifier: String) -> String {
+        failure ?? "\(items[identifier] == nil ? "miss" : "hit")(count=\(count))"
+    }
+}
+
 private final class SpotlightDiagnosticQuery: @unchecked Sendable {
     private let lock = NSLock()
     private var query: CSSearchQuery?
-    private var continuation: CheckedContinuation<String, Never>?
-    private var identifier = ""
-    private var matched = false
+    private var continuation: CheckedContinuation<SpotlightSearchQueryResult, Never>?
+    private var identifiers: Set<String> = []
+    private var matched: [String: SpotlightSearchItemFields] = [:]
     private var count = 0
 
-    func start(_ query: CSSearchQuery, identifier: String, continuation: CheckedContinuation<String, Never>) {
+    func start(_ query: CSSearchQuery, identifiers: Set<String>, continuation: CheckedContinuation<SpotlightSearchQueryResult, Never>) {
         lock.withLock {
             self.query = query
-            self.identifier = identifier
+            self.identifiers = identifiers
             self.continuation = continuation
         }
         query.foundItemsHandler = { [weak self] items in self?.append(items) }
@@ -1653,14 +1778,20 @@ private final class SpotlightDiagnosticQuery: @unchecked Sendable {
         lock.withLock {
             guard continuation != nil else { return }
             count += items.count
-            matched = matched || items.contains { $0.uniqueIdentifier == identifier }
+            for item in items where identifiers.contains(item.uniqueIdentifier) {
+                matched[item.uniqueIdentifier] = SpotlightSearchItemFields(
+                    title: item.attributeSet.title, displayName: item.attributeSet.displayName,
+                    keywords: item.attributeSet.keywords,
+                    contentVersion: item.attributeSet.value(forCustomKey: spotlightContentVersionKey()) as? String
+                )
+            }
         }
     }
 
     private func finish(failure: String?) {
-        let completed = lock.withLock { () -> (CheckedContinuation<String, Never>, CSSearchQuery?, String)? in
+        let completed = lock.withLock { () -> (CheckedContinuation<SpotlightSearchQueryResult, Never>, CSSearchQuery?, SpotlightSearchQueryResult)? in
             guard let continuation else { return nil }
-            let result = failure ?? "\(matched ? "hit" : "miss")(count=\(count))"
+            let result = SpotlightSearchQueryResult(count: count, items: matched, failure: failure)
             let query = self.query
             self.query = nil
             self.continuation = nil

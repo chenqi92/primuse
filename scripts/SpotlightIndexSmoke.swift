@@ -1,7 +1,15 @@
 import UniformTypeIdentifiers
 
-nonisolated func plog(_ message: String) { print(message) }
+nonisolated func plog(_ message: String) { SmokeLog.shared.append(message); print(message) }
 enum FileLogger { static let isDiagnosticModeActive = true }
+
+private final class SmokeLog: @unchecked Sendable {
+    static let shared = SmokeLog()
+    private let lock = NSLock()
+    private var lines: [String] = []
+    func append(_ line: String) { lock.withLock { lines.append(line) } }
+    func snapshot() -> [String] { lock.withLock { lines } }
+}
 
 // Library and artwork dependencies are fixtures; the service, planner and
 // Core Spotlight writes/queries are production code and the real framework.
@@ -164,6 +172,21 @@ extension SpotlightIndexService {
         AppServices.shared.spotlightIndex = service
         defer { service.suspendSynchronization() }
         try FileManager.default.createDirectory(at: service.manifestURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        if let filter = ProcessInfo.processInfo.environment["SPOTLIGHT_SMOKE_FILTER"] {
+            if filter == "search-diagnostics" {
+                try await searchDiagnosticsCoverShortTitles(library: library, service: service)
+            } else if filter == "system-reindex" {
+                let complete = await performSynchronization(snapshot: service.makeLibrarySnapshot(library: library),
+                    manifestURL: service.manifestURL, thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+                    status: SpotlightIndexStatus())
+                try require(complete, "System recovery fixture did not index")
+                try await systemReindexRequests(library: library, service: service)
+            } else {
+                throw SmokeFailure(description: "Unknown smoke filter: \(filter)")
+            }
+            return
+        }
 
         let attributes = CSSearchableItemAttributeSet(contentType: .text)
         attributes.title = "Unrelated control"
@@ -511,8 +534,15 @@ extension SpotlightIndexService {
     }
 
     private static func searchDiagnosticsCoverShortTitles(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        library.visibleSongs.append(Song(id: "aaa-diagnostic-control", title: "晴天"))
         library.visibleSongs.append(Song(id: "diagnostic-short", title: "绿光"))
         library.visibleSongs.append(Song(id: "diagnostic-long", title: "待你归来"))
+        library.visibleSongs.append(Song(id: "diagnostic-stale", title: "旧的标题"))
+        library.recentPlaybackSongIDsForSync = ["diagnostic-short", "diagnostic-short", "absent"]
+        let selected = searchDiagnosticSamples(songs: library.visibleSongs, prioritySongIDs: library.recentPlaybackSongIDsForSync)
+        try require(selected.first?.identifier == "song:diagnostic-short", "The recently replayed failing song was omitted")
+        try require(selected.filter { $0.identifier == "song:diagnostic-short" }.count == 1, "Diagnostic samples were duplicated")
+        try require(selected.contains { $0.identifier == "song:aaa-diagnostic-control" }, "Title-group control was lost")
         let snapshot = service.makeLibrarySnapshot(library: library)
         let complete = await performSynchronization(snapshot: snapshot, manifestURL: service.manifestURL,
             thumbnailDirectoryURL: service.thumbnailDirectoryURL, status: SpotlightIndexStatus())
@@ -522,8 +552,39 @@ extension SpotlightIndexService {
         let query = CSSearchQuery(queryString: "title == \"绿光\"cd", queryContext: context)
         let match = await diagnosticMatch(query, identifier: "song:diagnostic-short")
         try require(match.hasPrefix("hit"), "Short Chinese title predicate failed: \(match)")
+        let reports = await searchDiagnostics(for: [
+            SearchDiagnosticSample(group: "target", identifier: "song:diagnostic-short", title: "绿光"),
+            SearchDiagnosticSample(group: "stale", identifier: "song:diagnostic-stale", title: "绿光"),
+        ])
+        try require(reports.count == 2, "Targeted diagnostics did not complete")
+        try require(reports[0].stored.items["song:diagnostic-short"]?.title == "绿光", "Stored title was not read back")
+        try require(reports[0].stored.items["song:diagnostic-short"]?.keywords?.contains("绿光") == true, "Stored keywords were not read back")
+        try require(reports[0].user.items["song:diagnostic-short"] != nil, "User query did not match the target")
+        try require(reports[0].ranked.failure == nil, "Ranked query failed")
+        try require(reports[1].stored.items["song:diagnostic-stale"]?.title == "旧的标题", "Stale metadata could not be distinguished from a missing item")
+        try require(reports[1].title.count > 0 && reports[1].title.items["song:diagnostic-stale"] == nil,
+                    "Another item's title match was mistaken for the requested song")
+        let cancelled = await searchDiagnostics(for: selected, shouldContinue: { false })
+        try require(cancelled.isEmpty, "Disabled diagnostics still ran queries")
+        print("PASS: recent failing songs are sampled, actual fields are read back, and another item's matches cannot mask stale metadata")
         searchDiagnosticGate.resetForTesting()
         await logSearchDiagnostics(snapshot: snapshot, prepared: prepareSnapshot(snapshot)!, found: await indexedSignatures())
+        let manifestBefore = try Data(contentsOf: service.manifestURL)
+        let rowsBefore = try await indexedRows()
+        let greenIndex = library.visibleSongs.firstIndex { $0.id == "diagnostic-short" }!
+        library.visibleSongs[greenIndex].title = "绿光改名"
+        let logOffset = SmokeLog.shared.snapshot().count
+        await service.prepareDiagnosticsForExport(library: library)
+        let exported = SmokeLog.shared.snapshot().dropFirst(logOffset)
+        try require(exported.contains { $0.contains("search diagnostics finished") && $0.contains("trigger=export") },
+                    "Explicit export skipped the probe after a recent status measurement or returned before completion")
+        try require(exported.contains { $0.contains("group=priority1") && $0.contains("titleMatches=false") && $0.contains("versionMatches=false") },
+                    "Export did not capture newly changed metadata")
+        let rowsAfter = try await indexedRows()
+        try require(rowsAfter == rowsBefore && (try Data(contentsOf: service.manifestURL)) == manifestBefore,
+                    "Diagnostic export changed the index or manifest")
+        library.visibleSongs[greenIndex].title = "绿光"
+        print("PASS: explicit export captures fresh mismatches despite throttling, awaits completion, and does not repair the index")
         let timeout = await diagnosticMatch(SilentDiagnosticQuery(queryString: "title == \"never\"", queryContext: context), identifier: "none")
         try require(timeout == "timeout", "An unresponsive diagnostic query did not time out")
         print("PASS: short Chinese title matching is checked separately, and diagnostic queries have a bounded timeout")

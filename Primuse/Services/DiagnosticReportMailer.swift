@@ -72,6 +72,7 @@ enum DiagnosticReportMailer {
         // 只带末尾一段(与上传同一个长度)。
         let logData: Data?
         if selection.includesLogs {
+            await AppServices.shared.spotlightIndex.prepareDiagnosticsForExport(library: AppServices.shared.musicLibrary)
             let channel = Bundle.main.distributionChannel
             if DiagnosticLogExportPolicy.exposesExportEntry(channel: channel) {
                 logData = try await FileLogger.shared.exportData()
@@ -682,6 +683,9 @@ final class DiagnosticReportUploader {
     private static func packagerInput(_ selection: Selection) async -> DiagnosticReportPackager.Input {
         var log: Data?
         if selection.includesLog {
+            #if os(iOS) || os(macOS)
+            await AppServices.shared.spotlightIndex.prepareDiagnosticsForExport(library: AppServices.shared.musicLibrary)
+            #endif
             let tail = DiagnosticUpload.logTailBytes(
                 channel: Bundle.main.distributionChannel,
                 diagnosticMode: FileLogger.isDiagnosticModeActive

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreSpotlight
 import Foundation
 import MediaPlayer
 import MusicKit
@@ -55,6 +56,130 @@ private final class RepeatPlaybackAudioProbe: @unchecked Sendable {
 }
 
 final class DeviceMusicPlaybackTests: XCTestCase {
+    @MainActor
+    func testSpotlightSearchDiagnostics() async throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEVICE_SPOTLIGHT_QA"] == "1" else {
+            throw XCTSkip("Opt-in device Spotlight diagnostics.")
+        }
+        let started = ProcessInfo.processInfo.systemUptime
+        let library = AppServices.shared.musicLibrary
+        let ready = await waitUntil(timeout: 30) { library.isReady }
+        XCTAssertTrue(ready)
+        guard ready else { return }
+        let originalSongCount = library.visibleSongs.count
+        let domain = "com.primuse.tests.spotlight." + UUID().uuidString
+        let index = CSSearchableIndex(name: domain)
+        let definitions = [("green", "绿光"), ("normal", "待你归来"), ("stale", "旧的标题")]
+        let songs = definitions.map { id, title in
+            Song(id: domain + ":" + id, title: title, albumTitle: "Spotlight diagnostic",
+                 artistName: "Diagnostic artist", fileFormat: .flac, filePath: "", sourceID: domain)
+        }
+        let items = songs.map { song in
+            let item = CSSearchableItem(uniqueIdentifier: "song:" + song.id, domainIdentifier: domain,
+                attributeSet: SpotlightIndexService.searchableSongAttributes(song, artistDisplayName: song.artistName))
+            item.expirationDate = Date().addingTimeInterval(3600)
+            return item
+        }
+        let ids = items.map(\.uniqueIdentifier)
+        do {
+            try await index.indexSearchableItems(items)
+            let samples = songs.map { song in
+                SpotlightIndexService.SearchDiagnosticSample(group: "fixture", identifier: "song:" + song.id,
+                    title: song.id.hasSuffix(":stale") ? "绿光" : song.title)
+            }
+            var reports = await SpotlightIndexService.searchDiagnostics(for: samples)
+            for _ in 0..<3 where reports.first?.stored.items[ids[0]] == nil {
+                try await Task.sleep(for: .seconds(1))
+                reports = await SpotlightIndexService.searchDiagnostics(for: samples)
+            }
+            XCTAssertEqual(reports.count, 3)
+            let green = try XCTUnwrap(reports.first)
+            XCTAssertNil(green.stored.failure)
+            XCTAssertEqual(green.stored.items[ids[0]]?.title, "绿光")
+            XCTAssertEqual(green.stored.items[ids[0]]?.displayName, "绿光")
+            XCTAssertTrue(green.stored.items[ids[0]]?.keywords?.contains("绿光") == true)
+            XCTAssertNotNil(green.title.items[ids[0]])
+            XCTAssertNotNil(green.user.items[ids[0]])
+            XCTAssertNil(green.ranked.failure)
+            let stale = try XCTUnwrap(reports.last)
+            XCTAssertEqual(stale.stored.items[ids[2]]?.title, "旧的标题")
+            XCTAssertGreaterThan(stale.title.count, 0)
+            XCTAssertNil(stale.title.items[ids[2]])
+
+            let recent = SpotlightIndexService.searchDiagnosticSamples(songs: songs,
+                prioritySongIDs: [songs[0].id, songs[0].id])
+            XCTAssertEqual(recent.first?.identifier, ids[0])
+            XCTAssertEqual(recent.filter { $0.identifier == ids[0] }.count, 1)
+            let actualSamples = SpotlightIndexService.searchDiagnosticSamples(songs: library.visibleSongs,
+                prioritySongIDs: library.recentPlaybackSongIDsForSync)
+            let actual = await SpotlightIndexService.searchDiagnostics(for: actualSamples)
+            func row(_ report: SpotlightIndexService.SearchDiagnosticReport) -> [String: Any] {
+                let id = report.sample.identifier
+                return ["title": report.sample.title, "group": report.sample.group,
+                        "stored": report.stored.summary(for: id),
+                        "titleMatches": report.stored.items[id]?.title == report.sample.title,
+                        "titleQuery": report.title.summary(for: id),
+                        "userQuery": report.user.summary(for: id),
+                        "rankedQuery": report.ranked.summary(for: id)]
+            }
+            try await index.deleteSearchableItems(withIdentifiers: ids)
+            let cleaned = await SpotlightIndexService.searchDiagnostics(for: [samples[0]])
+            XCTAssertNil(cleaned.first?.stored.failure)
+            XCTAssertNil(cleaned.first?.stored.items[ids[0]])
+            XCTAssertEqual(library.visibleSongs.count, originalSongCount)
+            let evidence: [String: Any] = ["osVersion": UIDevice.current.systemVersion,
+                "fixture": reports.map(row), "library": actual.map(row),
+                "librarySongCount": originalSongCount,
+                "cleanupVerified": cleaned.first?.stored.failure == nil && cleaned.first?.stored.items[ids[0]] == nil]
+            let url = try XCTUnwrap(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first)
+                .appendingPathComponent("spotlight-device-validation.json")
+            try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]).write(to: url)
+            print("SPOTLIGHT_DEVICE \(String(data: try JSONSerialization.data(withJSONObject: evidence), encoding: .utf8)!)")
+        } catch {
+            try? await index.deleteSearchableItems(withIdentifiers: ids)
+            throw error
+        }
+        // Let the app's eight-second startup sentinel settle before XCTest exits.
+        let remaining = 9 - (ProcessInfo.processInfo.systemUptime - started)
+        if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
+    }
+
+    @MainActor
+    func testSpotlightDiagnosticExportCapturesFreshResults() async throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEVICE_SPOTLIGHT_QA"] == "1" else {
+            throw XCTSkip("Opt-in Spotlight export diagnostics.")
+        }
+        let library = AppServices.shared.musicLibrary
+        let ready = await waitUntil(timeout: 30) { library.isReady }
+        XCTAssertTrue(ready)
+        guard ready else { return }
+        let wasEnabled = FileLogger.isDiagnosticModeActive
+        if !wasEnabled { FileLogger.shared.setDiagnosticMode(enabled: true) }
+        defer { if !wasEnabled { FileLogger.shared.setDiagnosticMode(enabled: false) } }
+        let marker = "SPOTLIGHT_EXPORT_TEST_" + UUID().uuidString
+        plog(marker)
+        let draft = try await DiagnosticReportMailer.prepare(selection: .logs, reportURLs: [])
+        let attachment = try XCTUnwrap(draft.attachments.first { $0.fileName == "primuse_debug.log" })
+        let text = String(decoding: attachment.data, as: UTF8.self)
+        let boundary = try XCTUnwrap(text.range(of: marker))
+        let fresh = text[boundary.upperBound...]
+        XCTAssertTrue(fresh.contains("search diagnostics begin"))
+        XCTAssertTrue(fresh.contains("trigger=export"))
+        XCTAssertTrue(fresh.contains("search diagnostics finished"))
+
+        let archiveMarker = "SPOTLIGHT_ARCHIVE_TEST_" + UUID().uuidString
+        plog(archiveMarker)
+        let archive = try await DiagnosticReportUploader.shareableArchive(.init(
+            reportURLs: [], includesLog: true, message: "", screenshots: []))
+        defer { archive.remove() }
+        XCTAssertGreaterThan(archive.byteCount, 0)
+        let afterArchive = String(decoding: await FileLogger.shared.tailData(maxBytes: 1_048_576), as: UTF8.self)
+        let archiveBoundary = try XCTUnwrap(afterArchive.range(of: archiveMarker))
+        XCTAssertTrue(afterArchive[archiveBoundary.upperBound...].contains("search diagnostics finished"))
+        print("SPOTLIGHT_EXPORT: mail and share archive await fresh diagnostics without opening Spotlight settings")
+        try await Task.sleep(for: .seconds(9))
+    }
+
     @MainActor
     func testPhysicalRepeatPlaybackKeepsOutputContinuous() async throws {
         #if targetEnvironment(simulator)
