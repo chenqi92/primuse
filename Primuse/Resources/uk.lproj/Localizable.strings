@@ -6933,3 +6933,13 @@
 "content_explicit" = "Ненормативна лексика";
 "content_rating" = "Маркування вмісту";
 "copyright_label" = "Авторські права";
+
+"playlist_group_new" = "Нова група";
+"playlist_group_name" = "Назва групи";
+"playlist_group_move" = "Перемістити до групи";
+"playlist_group_ungrouped" = "Без групи";
+"playlist_group_rename" = "Перейменувати групу";
+"playlist_group_dissolve" = "Розформувати групу";
+"playlist_group_dissolve_message" = "Плейлисти повернуться до розділу «Без групи». Плейлисти та пісні не буде видалено.";
+"playlist_delete_local_confirm_format" = "Буде видалено локальних списків відтворення: %lld. Їх можна відновити з розділу «Нещодавно видалені». Пісні не буде видалено.";
+"playlist_delete_mirror_confirm_format" = "Списки відтворення з музичних сервісів або Apple Music (%lld) буде приховано лише на цьому пристрої. Списки відтворення та пісні у вихідному сервісі не буде видалено.";

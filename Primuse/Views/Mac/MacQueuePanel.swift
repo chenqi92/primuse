@@ -46,6 +46,7 @@ struct MacQueuePanel: View {
     @ViewBuilder
     private var list: some View {
         let entries = player.queueEntries
+        let displayedCount = 1 + player.upcomingQueueEntries.count + player.playedQueueEntries.count
         if entries.isEmpty {
             emptyState
         } else {
@@ -69,8 +70,8 @@ struct MacQueuePanel: View {
                         let playedEntries = player.playedQueueEntries
                         if !playedEntries.isEmpty {
                             queueSection(title: "played") {
-                                ForEach(playedEntries) { entry in
-                                    queueRow(entry: entry.entry, dimmed: true)
+                                ForEach(Array(playedEntries.enumerated()), id: \.element.id) { index, entry in
+                                    queueRow(entry: entry.entry, ordinal: index + 1, totalCount: displayedCount, dimmed: true)
                                 }
                             }
                         }
@@ -78,7 +79,7 @@ struct MacQueuePanel: View {
                         if let current = player.currentSong {
                             let currentEntry = entries[cur]
                             queueSection(title: "now_playing", accent: true) {
-                                queueRow(entry: currentEntry, displayedSong: current, isPlaying: true)
+                                queueRow(entry: currentEntry, ordinal: playedEntries.count + 1, totalCount: displayedCount, displayedSong: current, isPlaying: true)
                                     .id(currentEntry.id)
                             }
                             .id(Self.nowPlayingAnchor)
@@ -92,15 +93,15 @@ struct MacQueuePanel: View {
                         }
                         if !upNext.queued.isEmpty {
                             queueSection(title: "up_next") {
-                                ForEach(upNext.queued) { entry in
-                                    upcomingRow(entry, currentEntryID: currentEntryID)
+                                ForEach(Array(upNext.queued.enumerated()), id: \.element.id) { index, entry in
+                                    upcomingRow(entry, currentEntryID: currentEntryID, ordinal: playedEntries.count + index + 2, totalCount: displayedCount)
                                 }
                             }
                         }
                         if !upNext.autoplay.isEmpty {
                             queueSection(title: "queue_autoplay_section") {
-                                ForEach(upNext.autoplay) { entry in
-                                    upcomingRow(entry, currentEntryID: currentEntryID)
+                                ForEach(Array(upNext.autoplay.enumerated()), id: \.element.id) { index, entry in
+                                    upcomingRow(entry, currentEntryID: currentEntryID, ordinal: playedEntries.count + upNext.queued.count + index + 2, totalCount: displayedCount)
                                 }
                             }
                         }
@@ -163,9 +164,11 @@ struct MacQueuePanel: View {
         .pmAppearFade(.contentAppear)
     }
 
-    private func upcomingRow(_ entry: QueuePresentationEntry, currentEntryID: UUID) -> some View {
+    private func upcomingRow(_ entry: QueuePresentationEntry, currentEntryID: UUID, ordinal: Int, totalCount: Int) -> some View {
         queueRow(
             entry: entry.entry,
+            ordinal: ordinal,
+            totalCount: totalCount,
             reorderID: QueueReorderOccurrenceID(
                 queueEntryID: entry.id.queueEntryID,
                 roundOffset: entry.id.roundOffset
@@ -224,6 +227,8 @@ struct MacQueuePanel: View {
 
     @ViewBuilder
     private func queueRow(entry: QueueEntry,
+                          ordinal: Int,
+                          totalCount: Int,
                           displayedSong: Song? = nil,
                           isPlaying: Bool = false,
                           dimmed: Bool = false,
@@ -232,7 +237,7 @@ struct MacQueuePanel: View {
                           unreachable: Bool = false) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
-        let accessibilityLabel = [song.title, library.artistDisplayName(for: song)]
+        let accessibilityLabel = [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: ", ")
         let row = HStack(alignment: .center, spacing: 8) {
@@ -245,6 +250,9 @@ struct MacQueuePanel: View {
                 filePath: song.filePath,
                 fileFormat: song.fileFormat
             )
+
+            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title)

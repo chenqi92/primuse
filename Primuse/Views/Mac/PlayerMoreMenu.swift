@@ -2366,8 +2366,8 @@ struct MacSimilarSongsPopover: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 1) {
-                    ForEach(displayRows) { row in
-                        rowView(row)
+                    ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
+                        rowView(row, ordinal: index + 1, totalCount: displayRows.count)
                     }
                 }
                 .padding(.horizontal, 6)
@@ -2380,7 +2380,7 @@ struct MacSimilarSongsPopover: View {
         }
     }
 
-    private func rowView(_ row: Row) -> some View {
+    private func rowView(_ row: Row, ordinal: Int, totalCount: Int) -> some View {
         Button {
             play(row.song)
         } label: {
@@ -2395,6 +2395,8 @@ struct MacSimilarSongsPopover: View {
                     fileFormat: row.song.fileFormat
                 )
 
+                SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(row.song.title)
                         .font(.system(size: 13, weight: .medium))

@@ -7027,3 +7027,13 @@
 "content_explicit" = "유해 콘텐츠";
 "content_rating" = "콘텐츠 등급";
 "copyright_label" = "저작권";
+
+"playlist_group_new" = "새 그룹";
+"playlist_group_name" = "그룹 이름";
+"playlist_group_move" = "그룹으로 이동";
+"playlist_group_ungrouped" = "그룹 없음";
+"playlist_group_rename" = "그룹 이름 변경";
+"playlist_group_dissolve" = "그룹 해제";
+"playlist_group_dissolve_message" = "플레이리스트가 그룹 없음으로 돌아갑니다. 플레이리스트나 곡은 삭제되지 않습니다.";
+"playlist_delete_local_confirm_format" = "로컬 플레이리스트 %lld개를 삭제합니다. 최근 삭제된 항목에서 복원할 수 있습니다. 곡은 삭제되지 않습니다.";
+"playlist_delete_mirror_confirm_format" = "음악 서비스 또는 Apple Music의 플레이리스트 %lld개는 이 기기에서만 숨겨집니다. 원래 서비스의 플레이리스트와 곡은 삭제되지 않습니다.";

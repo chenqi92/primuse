@@ -2653,6 +2653,7 @@ struct SongListView: View {
                     if let song = library.unobservedVisibleSong(id: row.id) {
                         songGridTile(
                             song,
+                            ordinal: row.offset + 1,
                             isCurrent: player.currentSong?.id == song.id,
                             isLocated: locatedSongID == song.id
                         )
@@ -2677,7 +2678,7 @@ struct SongListView: View {
         .padding(.top, 12)
     }
 
-    private func songGridTile(_ song: Song, isCurrent: Bool, isLocated: Bool) -> some View {
+    private func songGridTile(_ song: Song, ordinal: Int, isCurrent: Bool, isLocated: Bool) -> some View {
         let isEmphasized = isCurrent || isLocated
         return Button { playSong(song) } label: {
             VStack(alignment: .leading, spacing: 0) {
@@ -2703,7 +2704,7 @@ struct SongListView: View {
                     }
                 }
 
-                Text(song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
                     .lineLimit(1)
@@ -4363,6 +4364,8 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
                 ForEach(projection.rows) { row in
                     IOSSongListProjectedRow(
                         songID: row.id,
+                        ordinal: row.offset + 1,
+                        totalCount: projection.rows.count,
                         cache: cache,
                         selection: selection,
                         onPlay: onPlay
@@ -4396,6 +4399,8 @@ private struct IOSSongListProjectedRow: View {
     @Environment(MusicLibrary.self) private var library
 
     let songID: String
+    let ordinal: Int
+    let totalCount: Int
     let cache: SongListCache
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
@@ -4406,7 +4411,7 @@ private struct IOSSongListProjectedRow: View {
             id: songID,
             song: library.unobservedVisibleSong(id: songID)
         ) {
-            IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+            IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
                 .accessibilityIdentifier("songRow.\(songID)")
         }
     }
@@ -4625,9 +4630,11 @@ private struct MacLibraryFolderInlineContent: View {
 
                 if !visibleSongIDs.isEmpty {
                     sectionHeader("tab_songs")
-                    ForEach(visibleSongIDs, id: \.self) { songID in
+                    ForEach(Array(visibleSongIDs.enumerated()), id: \.element) { index, songID in
                         LibraryFolderSongRow(
                             songID: songID,
+                            ordinal: index + 1,
+                            totalCount: visibleSongIDs.count,
                             orderedIDs: { visibleSongIDs },
                             listCache: listCache,
                             selection: selection,
@@ -5269,9 +5276,11 @@ private struct LibraryFolderNodeView: View {
 
                     if !visibleSongIDs.isEmpty {
                         sectionHeader("tab_songs")
-                        ForEach(visibleSongIDs, id: \.self) { songID in
+                        ForEach(Array(visibleSongIDs.enumerated()), id: \.element) { index, songID in
                             LibraryFolderSongRow(
                                 songID: songID,
+                                ordinal: index + 1,
+                                totalCount: visibleSongIDs.count,
                                 orderedIDs: { visibleSongIDs },
                                 listCache: listCache,
                                 selection: selection,
@@ -5518,6 +5527,8 @@ private struct LibraryFolderSongRow: View {
     @Environment(MusicLibrary.self) private var library
 
     let songID: String
+    let ordinal: Int
+    let totalCount: Int
     let orderedIDs: () -> [String]
     let listCache: SongListCache
     let selection: SongSelectionModel
@@ -5530,11 +5541,11 @@ private struct LibraryFolderSongRow: View {
             song: library.unobservedVisibleSong(id: songID)
         ) {
             #if os(iOS)
-            IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+            IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
             #else
-            IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+            IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
                 .songSelectable(
                     songID: songID,
                     selection: selection,
@@ -5575,6 +5586,8 @@ private struct IOSSongListPositionRow: View {
                 #if os(iOS)
                 IOSSongListRow(
                     model: model,
+                    ordinal: position + 1,
+                    totalCount: cache.positionCount,
                     selection: selection,
                     onPlay: onPlay,
                     isLocated: row.id == locatedSongID
@@ -5583,7 +5596,7 @@ private struct IOSSongListPositionRow: View {
                     // while VoiceOver tracks the song currently occupying it.
                     .accessibilityIdentifier("songRow.\(row.id)")
                 #else
-                IOSSongListRow(model: model, selection: selection, onPlay: onPlay)
+                IOSSongListRow(model: model, ordinal: position + 1, totalCount: cache.positionCount, selection: selection, onPlay: onPlay)
                     .songSelectable(
                         songID: row.id,
                         selection: selection,
@@ -6148,6 +6161,8 @@ private struct IOSSongListRow: View {
     @Environment(MetadataBackfillService.self) private var backfill
 
     let model: SongListRowModel
+    let ordinal: Int
+    let totalCount: Int
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
     var isLocated = false
@@ -6163,12 +6178,16 @@ private struct IOSSongListRow: View {
                 IOSSelectionSongRow(
                     song: song,
                     isPlaying: player.currentSong?.id == song.id,
+                    ordinal: ordinal,
+                    totalCount: totalCount,
                     membership: membership
                 )
             } else {
                 SongRowView(
                     song: song,
                     isPlaying: player.currentSong?.id == song.id,
+                    trackNumber: ordinal,
+                    largestTrackNumber: totalCount,
                     selection: selection,
                     context: SongRowView.context(
                         for: song,
@@ -6224,12 +6243,17 @@ private struct IOSSelectionSongRow: View {
 
     let song: Song
     let isPlaying: Bool
+    let ordinal: Int
+    let totalCount: Int
     let membership: SongSelectionMembership
 
     var body: some View {
         HStack(spacing: 12) {
             SongSelectionCheckmark(isSelected: membership.isSelected)
                 .frame(width: 28, height: 44)
+
+            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                .font(.subheadline).foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)
@@ -6255,7 +6279,7 @@ private struct IOSSelectionSongRow: View {
         .frame(minHeight: 52)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: [song.title, library.artistDisplayName(for: song)]
+        .accessibilityLabel(Text(verbatim: [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
             .compactMap { $0 }
             .joined(separator: " — ")))
     }

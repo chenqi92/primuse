@@ -1421,11 +1421,13 @@ struct ListeningIntentSongsView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                     Divider().padding(.leading, 20)
-                    ForEach(ids, id: \.self) { songID in
+                    ForEach(Array(ids.enumerated()), id: \.element) { index, songID in
                         if let song = library.unobservedVisibleSong(id: songID) {
                             SongRowView(
                                 song: song,
                                 isPlaying: player.currentSong?.id == song.id,
+                                trackNumber: index + 1,
+                                largestTrackNumber: ids.count,
                                 context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                             )
                             .padding(.horizontal, 16)

@@ -1284,6 +1284,7 @@ private struct TVLocalRemovalsView: View {
             focusBinding: $focusedID, focusID: focusID
         ) { focused in
             HStack(spacing: 20) {
+                TVSongOrdinal(number: row.ordinal, largestNumber: loadedCount)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: row.title)
                         .tvFont(.rowTitle)
@@ -1355,6 +1356,7 @@ private struct TVLocalRemovalAlbumHeader {
 
 private struct TVLocalRemovalSongRow {
     let songID: String
+    let ordinal: Int
     let title: String
     let artist: String
     /// 排除表 v2 的旧记录没有移除时间(记成 0),那种不显示时间。
@@ -1401,6 +1403,7 @@ private enum TVLocalRemovalItem: Identifiable {
         let unknownArtist = String(localized: "unknown_artist")
         let unknownAlbum = PMString("ext.widget.unknownAlbum")
         var items: [TVLocalRemovalItem] = []
+        var songOrdinal = 0
         items.reserveCapacity(entries.count + albumKeys.count)
         for key in albumKeys {
             guard let albumEntries = entriesByAlbum[key],
@@ -1423,8 +1426,10 @@ private enum TVLocalRemovalItem: Identifiable {
                 isFirst: items.isEmpty
             )))
             for song in songs {
+                songOrdinal += 1
                 items.append(.song(TVLocalRemovalSongRow(
                     songID: song.id,
+                    ordinal: songOrdinal,
                     title: song.title,
                     artist: library.artistDisplayName(for: song) ?? unknownArtist,
                     removedAt: removedAtBySongID[song.id]

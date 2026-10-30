@@ -6788,3 +6788,13 @@
 "content_explicit" = "Explicit Content";
 "content_rating" = "Content Rating";
 "copyright_label" = "Copyright";
+
+"playlist_group_new" = "New Group";
+"playlist_group_name" = "Group Name";
+"playlist_group_move" = "Move to Group";
+"playlist_group_ungrouped" = "Ungrouped";
+"playlist_group_rename" = "Rename Group";
+"playlist_group_dissolve" = "Ungroup Playlists";
+"playlist_group_dissolve_message" = "Playlists will return to Ungrouped. No playlists or songs will be deleted.";
+"playlist_delete_local_confirm_format" = "%lld local playlists will be deleted. You can restore them from Recently Deleted. Songs will not be deleted.";
+"playlist_delete_mirror_confirm_format" = "%lld playlists from music services or Apple Music will only be hidden on this device. Playlists and songs in the original service will not be deleted.";

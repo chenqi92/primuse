@@ -638,12 +638,12 @@ struct AIRecommendationLibraryView: View {
             spacing: 14
         ) {
             // 网格嵌在页面的 LazyVStack 里，异步渲染帧会在别的线程上现建格子，见 `LazyItemCell`。
-            ForEach(displayedResults) { @Sendable result in
+            ForEach(Array(displayedResults.enumerated()), id: \.element.id) { @Sendable index, result in
                 LazyItemCell {
                     Button {
                         play(result.song)
                     } label: {
-                        recommendationCard(result)
+                        recommendationCard(result, ordinal: index + 1)
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity.combined(with: .scale(scale: 0.97)))
@@ -694,11 +694,11 @@ struct AIRecommendationLibraryView: View {
     /// 面板里一列紧凑的行; AI 一首首写出来时从右边滑进来。
     private var panelResultsList: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(displayedResults) { result in
+            ForEach(Array(displayedResults.enumerated()), id: \.element.id) { index, result in
                 Button {
                     play(result.song)
                 } label: {
-                    panelRow(result)
+                    panelRow(result, ordinal: index + 1)
                 }
                 .buttonStyle(.plain)
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -707,7 +707,7 @@ struct AIRecommendationLibraryView: View {
         .animation(.snappy(duration: 0.28), value: aiRecommendation.orderedSongIDs)
     }
 
-    private func panelRow(_ result: MusicDiscoveryResult) -> some View {
+    private func panelRow(_ result: MusicDiscoveryResult, ordinal: Int) -> some View {
         let song = result.song
         let isCurrent = player.currentSong?.id == song.id
         return HStack(spacing: 11) {
@@ -721,7 +721,7 @@ struct AIRecommendationLibraryView: View {
                 fileFormat: song.fileFormat
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(isCurrent ? platformAccentColor : platformPrimaryTextColor)
                     .lineLimit(1)
@@ -841,7 +841,7 @@ struct AIRecommendationLibraryView: View {
             .frame(width: width, height: height)
     }
 
-    private func recommendationCard(_ result: MusicDiscoveryResult) -> some View {
+    private func recommendationCard(_ result: MusicDiscoveryResult, ordinal: Int) -> some View {
         let song = result.song
         return HStack(spacing: 13) {
             CachedArtworkView(
@@ -867,7 +867,7 @@ struct AIRecommendationLibraryView: View {
                         .foregroundStyle(platformSecondaryTextColor)
                         .lineLimit(1)
                 }
-                Text(verbatim: song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.headline)
                     .foregroundStyle(platformPrimaryTextColor)
                     .lineLimit(2)

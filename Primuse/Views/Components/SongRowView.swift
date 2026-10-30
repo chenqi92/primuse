@@ -1664,11 +1664,11 @@ struct SimilarSongsSheet: View {
                 } else {
                     if !results.isEmpty {
                         Section(String(localized: "similar_songs")) {
-                            ForEach(results) { result in
+                            ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                                 Button {
                                     play(result.song)
                                 } label: {
-                                    SimilarSongResultRow(result: result)
+                                    SimilarSongResultRow(result: result, ordinal: index + 1, totalCount: results.count)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1684,12 +1684,13 @@ struct SimilarSongsSheet: View {
                         }
                     } else if !lastFmCandidates.isEmpty {
                         Section {
-                            ForEach(lastFmCandidates) { candidate in
+                            let candidates = lastFmCandidates.filter { $0.librarySong != nil }
+                            ForEach(Array(candidates.enumerated()), id: \.element.id) { index, candidate in
                                 if let song = candidate.librarySong {
                                     Button {
                                         play(song)
                                     } label: {
-                                        LastFmSimilarRow(song: song, match: candidate.match)
+                                        LastFmSimilarRow(song: song, match: candidate.match, ordinal: index + 1, totalCount: candidates.count)
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -1826,6 +1827,8 @@ private struct LastFmSimilarRow: View {
 
     let song: Song
     let match: Double
+    let ordinal: Int
+    let totalCount: Int
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1838,6 +1841,8 @@ private struct LastFmSimilarRow: View {
                 filePath: song.filePath,
                 fileFormat: song.fileFormat
             )
+            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                .font(.subheadline).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(library.displayTitle(for: song)).font(.subheadline).lineLimit(1)
                 Text(library.artistDisplayName(for: song) ?? "")
@@ -1861,6 +1866,8 @@ private struct SimilarSongResultRow: View {
     @Environment(MusicLibrary.self) private var library
 
     let result: MusicDiscoveryResult
+    let ordinal: Int
+    let totalCount: Int
 
     var body: some View {
         let song = result.song
@@ -1875,6 +1882,8 @@ private struct SimilarSongResultRow: View {
                 fileFormat: song.fileFormat
             )
 
+            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                .font(.subheadline).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(library.displayTitle(for: song))
                     .font(.subheadline)
@@ -1941,7 +1950,7 @@ struct SongRowTrackNumber: View {
     let largestNumber: Int
 
     var body: some View {
-        // 用整张专辑最长的编号占位，让各行标题对齐并随字号缩放。
+        // 用整份列表最长的编号占位，让各行标题对齐并随字号缩放。
         Text(max(number, largestNumber), format: .number.grouping(.never))
             .hidden()
             .overlay(alignment: .trailing) {

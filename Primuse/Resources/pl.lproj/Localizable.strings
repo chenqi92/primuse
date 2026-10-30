@@ -6933,3 +6933,13 @@
 "content_explicit" = "Treści niecenzuralne";
 "content_rating" = "Klasyfikacja treści";
 "copyright_label" = "Prawa autorskie";
+
+"playlist_group_new" = "Nowa grupa";
+"playlist_group_name" = "Nazwa grupy";
+"playlist_group_move" = "Przenieś do grupy";
+"playlist_group_ungrouped" = "Bez grupy";
+"playlist_group_rename" = "Zmień nazwę grupy";
+"playlist_group_dissolve" = "Rozgrupuj playlisty";
+"playlist_group_dissolve_message" = "Playlisty wrócą do sekcji Bez grupy. Żadna playlista ani utwór nie zostanie usunięty.";
+"playlist_delete_local_confirm_format" = "%lld lokalnych playlist zostanie usuniętych. Możesz je przywrócić z Ostatnio usuniętych. Utwory nie zostaną usunięte.";
+"playlist_delete_mirror_confirm_format" = "%lld playlist z serwisów muzycznych lub Apple Music zostanie ukrytych tylko na tym urządzeniu. Playlisty i utwory w źródłowym serwisie nie zostaną usunięte.";

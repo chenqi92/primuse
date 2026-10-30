@@ -526,9 +526,11 @@ struct TVSearchView: View {
 
     private var appleMusicList: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(appleMusicResults) { hit in
+            ForEach(Array(appleMusicResults.enumerated()), id: \.element.id) { index, hit in
                 TVAppleMusicSearchRow(
                     hit: hit,
+                    ordinal: index + 1,
+                    largestOrdinal: appleMusicResults.count,
                     focusedResultID: $focusedResultID,
                     focusID: Self.appleMusicFocusID(hit),
                     action: openPlayer
@@ -539,9 +541,11 @@ struct TVSearchView: View {
 
     private func songList(_ hits: [TVStore.TVSearchHit]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(hits) { hit in
+            ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
                 TVSearchSongRow(
                     hit: hit,
+                    ordinal: index + 1,
+                    largestOrdinal: hits.count,
                     focusedResultID: $focusedResultID,
                     focusID: Self.songFocusID(hit),
                     action: openPlayer
@@ -812,6 +816,8 @@ struct TVSearchView: View {
 private struct TVSearchSongRow: View {
     @Environment(TVStore.self) private var store
     let hit: TVStore.TVSearchHit
+    let ordinal: Int
+    let largestOrdinal: Int
     @FocusState.Binding var focusedResultID: String?
     let focusID: String
     var action: () -> Void = {}
@@ -826,6 +832,7 @@ private struct TVSearchSongRow: View {
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 56, radius: 6)
+                TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(song.title).tvFont(.cardTitle).foregroundStyle(TVColor.text).lineLimit(1)
                     if hit.isLyric, let snippet = hit.lyricSnippet, !snippet.isEmpty {
@@ -871,6 +878,8 @@ private struct TVSearchSongRow: View {
 private struct TVAppleMusicSearchRow: View {
     @Environment(TVStore.self) private var store
     let hit: AppleMusicCatalogHit
+    let ordinal: Int
+    let largestOrdinal: Int
     @FocusState.Binding var focusedResultID: String?
     let focusID: String
     var action: () -> Void = {}
@@ -880,6 +889,7 @@ private struct TVAppleMusicSearchRow: View {
                       action: { store.playAppleMusicCatalogHit(hit); action() }) { focused in
             HStack(spacing: 16) {
                 artwork
+                TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(hit.title).tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text).lineLimit(1)

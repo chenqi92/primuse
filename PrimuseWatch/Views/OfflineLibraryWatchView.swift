@@ -18,13 +18,13 @@ struct OfflineLibraryWatchView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             } else {
                 Section {
-                    ForEach(store.offlineFiles.filter(\.isAudio)) { file in
+                    ForEach(Array(store.offlineFiles.filter(\.isAudio).enumerated()), id: \.element.id) { index, file in
                         Button {
                             store.playOffline(file)
                             dismiss()
                         } label: {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(file.title).lineLimit(2)
+                                Text(verbatim: "\((index + 1).formatted()). \(file.title)").lineLimit(2)
                                 Text([file.artist, ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)]
                                     .filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)

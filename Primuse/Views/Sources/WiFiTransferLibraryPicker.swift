@@ -119,28 +119,49 @@ final class TransferTreeRows {
     }
 
     let count: Int
+    let songCount: Int
     private let segments: [Segment]
     private let starts: [Int]
+    private let songStarts: [Int]
 
     init(_ segments: [Segment] = []) {
         self.segments = segments
-        var starts: [Int] = [], count = 0
-        for segment in segments { starts.append(count); count += segment.count }
+        var starts: [Int] = [], songStarts: [Int] = []
+        var count = 0, songCount = 0
+        for segment in segments {
+            starts.append(count)
+            songStarts.append(songCount)
+            count += segment.count
+            if case .songs(_, let ids) = segment { songCount += ids.count }
+        }
         self.starts = starts
+        self.songStarts = songStarts
         self.count = count
+        self.songCount = songCount
     }
 
     func node(at position: Int) -> TransferTreeNode {
+        let segment = segmentIndex(at: position)
+        switch segments[segment] {
+        case .node(let node): return node
+        case .songs(let group, let ids): return .song(ids[position - starts[segment]], group)
+        }
+    }
+
+    func songOrdinal(at position: Int) -> Int? {
+        guard (0..<count).contains(position) else { return nil }
+        let segment = segmentIndex(at: position)
+        guard case .songs = segments[segment] else { return nil }
+        return songStarts[segment] + position - starts[segment] + 1
+    }
+
+    private func segmentIndex(at position: Int) -> Int {
         var low = 0, high = starts.count
         while low < high {
             let middle = (low + high) / 2
             if starts[middle] <= position { low = middle + 1 } else { high = middle }
         }
-        let segment = max(0, low - 1)
-        switch segments[segment] {
-        case .node(let node): return node
-        case .songs(let group, let ids): return .song(ids[position - starts[segment]], group)
-        }
+        return max(0, low - 1)
     }
 }
 
@@ -466,8 +487,8 @@ private struct TransferLibraryWindow: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Color.clear.frame(height: Double(range.lowerBound) * rowHeight).accessibilityHidden(true)
-                ForEach(nodes) { node in
-                    row(node)
+                ForEach(Array(nodes.enumerated()), id: \.element.id) { offset, node in
+                    row(node, ordinal: rows.songOrdinal(at: range.lowerBound + offset), totalCount: rows.songCount)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: rowHeight)
                         .background(rowBackground(node))
@@ -501,7 +522,7 @@ private struct TransferLibraryWindow: View {
         #endif
     }
 
-    @ViewBuilder private func row(_ node: TransferTreeNode) -> some View {
+    @ViewBuilder private func row(_ node: TransferTreeNode, ordinal: Int?, totalCount: Int) -> some View {
         switch node {
         case .source(let id):
             if let source = model.sourceByID[id] {
@@ -546,7 +567,7 @@ private struct TransferLibraryWindow: View {
             }
         case .song(let id, let group):
             if let song = library.unobservedVisibleSong(id: id), let source = model.sourceByID[group.sourceID] {
-                songRow(song, source: source)
+                songRow(song, source: source, ordinal: ordinal, totalCount: totalCount)
             }
         case .loading:
             HStack { ProgressView().controlSize(.small); Spacer() }.padding(.leading, 32)
@@ -576,7 +597,7 @@ private struct TransferLibraryWindow: View {
             .pmAnimation(.hover, value: expanded)
     }
 
-    private func songRow(_ song: Song, source: TransferLibraryTreeModel.Source) -> some View {
+    private func songRow(_ song: Song, source: TransferLibraryTreeModel.Source, ordinal: Int?, totalCount: Int) -> some View {
         let reason = WiFiTransferFilePreparation.unavailableReason(song: song, sourceType: source.type)
         let checked = model.selected.contains(song.id)
         return HStack(spacing: 6) {
@@ -588,6 +609,10 @@ private struct TransferLibraryWindow: View {
             }
             Image(systemName: "music.note").font(TransferTreeLayout.titleFont)
                 .foregroundStyle(.secondary).frame(width: TransferTreeLayout.iconWidth)
+            if let ordinal {
+                SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    .font(TransferTreeLayout.titleFont).foregroundStyle(.secondary)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title).font(TransferTreeLayout.titleFont).lineLimit(1)
                 Text(reason.map(WiFiTransferText.string) ?? song.artistName ?? "")

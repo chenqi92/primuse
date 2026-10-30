@@ -14,9 +14,11 @@ struct DislikedSongsView: View {
         List {
             if !songs.isEmpty {
                 Section {
-                    ForEach(songs) { song in
+                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                         DislikedSongRow(
                             song: song,
+                            ordinal: index + 1,
+                            totalCount: songs.count,
                             artistName: library.artistDisplayName(for: song) ?? song.artistName
                         ) {
                             library.setDisliked(songID: song.id, isDisliked: false)
@@ -52,6 +54,8 @@ struct DislikedSongsView: View {
 
 private struct DislikedSongRow: View {
     let song: Song
+    let ordinal: Int
+    let totalCount: Int
     let artistName: String?
     let onRemove: () -> Void
 
@@ -65,6 +69,8 @@ private struct DislikedSongRow: View {
                 sourceID: song.sourceID,
                 filePath: song.filePath
             )
+            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                .font(.subheadline).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: song.title)
                     .lineLimit(1)

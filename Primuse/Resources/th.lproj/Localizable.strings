@@ -6933,3 +6933,13 @@
 "content_explicit" = "เนื้อหาโจ่งแจ้ง";
 "content_rating" = "การจัดประเภทเนื้อหา";
 "copyright_label" = "ลิขสิทธิ์";
+
+"playlist_group_new" = "กลุ่มใหม่";
+"playlist_group_name" = "ชื่อกลุ่ม";
+"playlist_group_move" = "ย้ายไปยังกลุ่ม";
+"playlist_group_ungrouped" = "ไม่มีกลุ่ม";
+"playlist_group_rename" = "เปลี่ยนชื่อกลุ่ม";
+"playlist_group_dissolve" = "ยกเลิกกลุ่ม";
+"playlist_group_dissolve_message" = "เพลย์ลิสต์จะกลับไปอยู่ในส่วนไม่มีกลุ่ม โดยจะไม่ลบเพลย์ลิสต์หรือเพลงใด ๆ";
+"playlist_delete_local_confirm_format" = "เพลย์ลิสต์ในเครื่อง %lld รายการจะถูกลบ คุณสามารถกู้คืนได้จากรายการที่ลบล่าสุด เพลงจะไม่ถูกลบ";
+"playlist_delete_mirror_confirm_format" = "เพลย์ลิสต์จากบริการเพลงหรือ Apple Music %lld รายการจะถูกซ่อนเฉพาะบนอุปกรณ์นี้ เพลย์ลิสต์และเพลงในบริการต้นทางจะไม่ถูกลบ";

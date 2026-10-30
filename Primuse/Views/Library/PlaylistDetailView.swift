@@ -43,7 +43,8 @@ struct PlaylistDetailView: View {
     @State private var showExportFormats = false
     @State private var pendingOfflineRemoval: PlaylistOfflineRemoval?
     @State private var showsNoOfflineDownloads = false
-    @State private var showReorderSheet = false
+    @State private var songOrderDraft: PlaylistSongOrderDraft?
+    @State private var pendingPlaylistRemoval: PlaylistRemovalRequest?
     @State private var scrapeFeedback: ScrapeFeedback?
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
@@ -81,6 +82,46 @@ struct PlaylistDetailView: View {
     /// 歌单里存着的顺序 —— 手动重排改的是它,不跟随下面的显示排序。
     private var storedSongs: [Song] {
         library.songs(forPlaylist: playlist.id)
+    }
+
+    private var isReorderingSongs: Bool { songOrderDraft != nil }
+
+    private var reorderEntries: [MusicLibrary.PlaylistEntry] {
+        guard let songOrderDraft else { return [] }
+        let entries = Dictionary(
+            library.entries(forPlaylist: playlist.id).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return songOrderDraft.ids.compactMap { entries[$0] }
+    }
+
+    private func beginSongReordering() {
+        guard allowsPlaylistRemoval else { return }
+        let entries = displayEntries
+        guard entries.count > 1 else { return }
+        selection.deactivate()
+        songLocation.cancel()
+        songOrderDraft = PlaylistSongOrderDraft(entries.map(\.id))
+    }
+
+    private func finishSongReordering() {
+        defer { songOrderDraft = nil }
+        guard let songOrderDraft,
+              let currentPlaylist, currentPlaylist.allowsManualSongMembership,
+              let order = songOrderDraft.changedOrder(
+                availableIDs: Set(library.entries(forPlaylist: playlist.id).map(\.id))
+              ) else { return }
+        library.reorderPlaylistSongs(playlistID: playlist.id, listedOrder: order)
+        displaySortRawValue = ""
+    }
+
+    private func moveDraftEntries(from offsets: IndexSet, to destination: Int) {
+        let availableIDs = Set(reorderEntries.map(\.id))
+        songOrderDraft?.move(
+            fromOffsets: offsets,
+            toOffset: destination,
+            availableIDs: availableIDs
+        )
     }
 
     /// 这张歌单发起的批量离线下载在 `SourceManager` 里的登记键。
@@ -215,6 +256,13 @@ struct PlaylistDetailView: View {
             } else {
                 Text("playlist_order_title")
             }
+        }
+        if allowsPlaylistRemoval {
+            Button("playlist_reorder", systemImage: "line.3.horizontal") {
+                beginSongReordering()
+            }
+            .disabled(displayEntries.count < 2)
+            .accessibilityIdentifier("playlistDetail.reorder")
         }
         Divider()
         ForEach(Self.sortCriteria, id: \.self) { criterion in
@@ -354,11 +402,15 @@ struct PlaylistDetailView: View {
     @ViewBuilder
     var body: some View {
         Group {
+            if isReorderingSongs {
+                inlineSongReordering
+            } else {
         #if os(macOS)
-            macPlaylistDetail
+                macPlaylistDetail
         #else
-            legacyPlaylistDetail
+                legacyPlaylistDetail
         #endif
+            }
         }
         #if os(macOS)
         .environment(\.songListLocation, songLocation)
@@ -367,8 +419,6 @@ struct PlaylistDetailView: View {
         #endif
         .onDisappear { songLocation.cancel() }
         #if os(iOS)
-        // 平时不占地方, 点右上角的放大镜才在导航栏下面钉出输入框。
-        .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: currentPlaylist?.name ?? playlist.name, songIDs: Set(songs.map(\.id)))
@@ -403,6 +453,13 @@ struct PlaylistDetailView: View {
             Button("ok", role: .cancel) {}
         }
         .playlistRenameAlert($renamingPlaylist)
+        .playlistRemovalAlert($pendingPlaylistRemoval) { _ in
+            #if os(macOS)
+            NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
+            #else
+            dismiss()
+            #endif
+        }
         .sheet(isPresented: $showsDescriptionEditor) {
             PlaylistDescriptionEditor(playlist: currentPlaylist ?? playlist)
         }
@@ -466,7 +523,102 @@ struct PlaylistDetailView: View {
         }
         .onDisappear {
             isViewVisible = false
+            songOrderDraft = nil
         }
+    }
+
+    private var inlineSongReordering: some View {
+        let entries = reorderEntries
+        return VStack(spacing: 0) {
+            #if os(macOS)
+            HStack(spacing: 16) {
+                Text(currentPlaylist?.name ?? playlist.name)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                Button("cancel") { songOrderDraft = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button("done") { finishSongReordering() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, PMSpace.xxxl)
+            .padding(.vertical, PMSpace.l)
+            #endif
+            List {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                    inlineReorderRow(entry, index: index, count: entries.count)
+                        .listRowSeparator(.visible)
+                        .listRowBackground(Color.clear)
+                        .accessibilityAction(named: Text("home_edit_move_up")) {
+                            guard index > 0 else { return }
+                            moveDraftEntries(from: IndexSet(integer: index), to: index - 1)
+                        }
+                        .accessibilityAction(named: Text("home_edit_move_down")) {
+                            guard index + 1 < entries.count else { return }
+                            moveDraftEntries(from: IndexSet(integer: index), to: index + 2)
+                        }
+                        .contextMenu {
+                            Button("radio_manage_pin_top", systemImage: "arrow.up.to.line") {
+                                moveDraftEntries(from: IndexSet(integer: index), to: 0)
+                            }
+                            .disabled(index == 0)
+                        }
+                }
+                .onMove(perform: moveDraftEntries)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            #if os(iOS)
+            .environment(\.editMode, .constant(.active))
+            .songRowColumnsContainer()
+            #endif
+        }
+        .navigationTitle(currentPlaylist?.name ?? playlist.name)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("cancel") { songOrderDraft = nil }
+                    .accessibilityIdentifier("playlistDetail.reorder.cancel")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("done") { finishSongReordering() }
+                    .fontWeight(.semibold)
+                    .accessibilityIdentifier("playlistDetail.reorder.done")
+            }
+        }
+        #elseif os(macOS)
+        .background(PMColor.bg.ignoresSafeArea())
+        #endif
+    }
+
+    private func inlineReorderRow(_ entry: MusicLibrary.PlaylistEntry, index: Int, count: Int) -> some View {
+        HStack(spacing: 12) {
+            switch entry {
+            case .song(let song):
+                SongRowView(
+                    song: song,
+                    isPlaying: player.currentSong?.id == song.id,
+                    trackNumber: index + 1,
+                    largestTrackNumber: count,
+                    showsActions: false,
+                    queueSwipeActionsEnabled: false,
+                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                )
+                .allowsHitTesting(false)
+            case .pending(let pending):
+                numberedPendingRow(pending, number: index + 1, count: count, allowsEditing: false)
+                    .allowsHitTesting(false)
+            }
+            #if os(macOS)
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            #endif
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private var legacyPlaylistDetail: some View {
@@ -501,6 +653,9 @@ struct PlaylistDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        #if os(iOS)
+        .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
+        #endif
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { locateCurrentButton }
             #if os(iOS)
@@ -559,14 +714,6 @@ struct PlaylistDetailView: View {
         }
         .sheet(item: $exportShareItem) { item in
             ShareSheet(items: [item.url])
-        }
-        .sheet(isPresented: $showReorderSheet) {
-            PlaylistReorderSheet(playlist: playlist, songs: storedSongs) { newOrder in
-                library.reorderPlaylistSongs(
-                    playlistID: playlist.id,
-                    listedOrder: newOrder.map(\.id)
-                )
-            }
         }
         .alert(String(localized: "playlist_export_failed_title"),
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
@@ -702,14 +849,11 @@ struct PlaylistDetailView: View {
             // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
             if allowsPlaylistRemoval {
                 Button {
-                    // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
-                    // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
-                    displaySortRawValue = ""
-                    showReorderSheet = true
+                    beginSongReordering()
                 } label: {
                     Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
                 }
-                .disabled(songs.count < 2)
+                .disabled(displayEntries.count < 2)
             }
             if PlaylistDescriptionService.canEdit(currentPlaylist ?? playlist, sourcesStore: sourcesStore) {
                 Button { showsDescriptionEditor = true } label: {
@@ -769,14 +913,6 @@ struct PlaylistDetailView: View {
                     Label("delete_playlist", systemImage: "trash")
                 }
             }
-        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-            Section {
-                Button {
-                    hideCurrentPlaylist()
-                } label: {
-                    Label("hide_playlist_from_primuse", systemImage: "eye.slash")
-                }
-            }
         }
     }
 
@@ -827,15 +963,21 @@ struct PlaylistDetailView: View {
         // 歌单顺序下，已经在最前面的歌曲不再显示「置顶」。
         let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
         return LazyVStack(spacing: 0) {
-            ForEach(entries) { entry in
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                 switch entry {
                 case .song(let song):
-                    songRow(song, canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil))
+                    songRow(
+                        song,
+                        number: index + 1,
+                        count: entries.count,
+                        canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil)
+                    )
                         .songLocationRow(song.id)
                 case .pending(let pending):
-                    PlaylistPendingEntryRow(
-                        entry: pending,
-                        playlistID: playlist.id,
+                    numberedPendingRow(
+                        pending,
+                        number: index + 1,
+                        count: entries.count,
                         allowsEditing: allowsPlaylistRemoval
                     )
                     .padding(.horizontal)
@@ -1069,7 +1211,7 @@ struct PlaylistDetailView: View {
     }
 
     @ViewBuilder
-    private func songRow(_ song: Song, canMoveToTop: Bool) -> some View {
+    private func songRow(_ song: Song, number: Int, count: Int, canMoveToTop: Bool) -> some View {
         // 「移出歌单」「置顶」挂在行自己的长按菜单里 —— 在行外面再套一层
         // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
         // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
@@ -1077,6 +1219,8 @@ struct PlaylistDetailView: View {
         SongRowView(
             song: song,
             isPlaying: player.currentSong?.id == song.id,
+            trackNumber: number,
+            largestTrackNumber: count,
             showsActions: false,
             selection: selection,
             onRemoveFromPlaylist: allowsPlaylistRemoval
@@ -1101,6 +1245,21 @@ struct PlaylistDetailView: View {
                 playSong(song)
             }
         }
+    }
+
+    private func numberedPendingRow(
+        _ pending: PlaylistPendingEntry,
+        number: Int,
+        count: Int,
+        allowsEditing: Bool
+    ) -> some View {
+        PlaylistPendingEntryRow(
+            entry: pending,
+            playlistID: playlist.id,
+            allowsEditing: allowsEditing,
+            trackNumber: number,
+            largestTrackNumber: count
+        )
     }
 
     /// The set is empty on a network that reaches everything. During an outage
@@ -1436,14 +1595,6 @@ struct PlaylistDetailView: View {
             }
         }
         .background(PMColor.bg.ignoresSafeArea())
-        .sheet(isPresented: $showReorderSheet) {
-            PlaylistReorderSheet(playlist: playlist, songs: storedSongs) { newOrder in
-                library.reorderPlaylistSongs(
-                    playlistID: playlist.id,
-                    listedOrder: newOrder.map(\.id)
-                )
-            }
-        }
         .alert(String(localized: "playlist_export_failed_title"),
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("ok", role: .cancel) {}
@@ -1488,10 +1639,10 @@ struct PlaylistDetailView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                Button("playlist_reorder") { showReorderSheet = true }
+                Button("playlist_reorder") { beginSongReordering() }
                     .buttonStyle(.borderless)
                     .font(.system(size: 11.5, weight: .medium))
-                    .disabled(songs.count < 2)
+                    .disabled(displayEntries.count < 2)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -1561,7 +1712,6 @@ struct PlaylistDetailView: View {
         // 页面每重画一次就重建一遍菜单: 这里只判断有没有, 要用的列表等点下去再取。
         let availability = songAvailability
         let hasPlayable = availability.hasPlayable
-        let isMirror = MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id)
         let canDelete = canDeletePlaylist(playlist.id)
 
         var middle: [MacHeaderMoreMenu.Item] = []
@@ -1581,9 +1731,8 @@ struct PlaylistDetailView: View {
         })
         if allowsPlaylistRemoval {
             middle.append(.init(icon: "arrow.up.arrow.down", title: String(localized: "playlist_reorder"),
-                                enabled: songs.count >= 2) {
-                displaySortRawValue = ""
-                showReorderSheet = true
+                                enabled: displayEntries.count >= 2) {
+                beginSongReordering()
             })
         }
         if availability.hasDownloadable {
@@ -1675,15 +1824,11 @@ struct PlaylistDetailView: View {
             canDelete ? [
                 .init(icon: "trash", title: String(localized: "delete_playlist"),
                       isDestructive: true) { deleteCurrentPlaylist() },
-            ] : isMirror ? [
-                .init(icon: "eye.slash", title: String(localized: "hide_playlist_from_primuse")) {
-                    hideCurrentPlaylist()
-                },
             ] : [],
         ]))
     }
 
-    /// 歌曲表的一行。序号只数真正的歌, 置灰的行不占号。
+    /// 歌曲与待匹配条目都按当前显示顺序编号。
     private struct MacTableRow: Identifiable {
         let entry: MusicLibrary.PlaylistEntry
         let songIndex: Int
@@ -1745,19 +1890,12 @@ struct PlaylistDetailView: View {
     }
 
     private func makeMacTableRows() -> MacTableRows {
-        var songCounter = 0
-        var rows = orderedEntries.map { entry in
-            guard case .song = entry else { return MacTableRow(entry: entry, songIndex: songCounter) }
-            defer { songCounter += 1 }
-            return MacTableRow(entry: entry, songIndex: songCounter)
-        }
-        // 找歌时序号照旧是在整张歌单里的位置, 一眼看出这首排在第几。
-        if let query = findQuery {
-            rows = rows.filter { Self.entry($0.entry, matches: query) }
+        let rows = displayEntries.enumerated().map { index, entry in
+            MacTableRow(entry: entry, songIndex: index)
         }
         return MacTableRows(
             rows: rows,
-            songCount: songCounter,
+            songCount: rows.count,
             offsets: SongListScrollRowOffsets(
                 rowHeights: rows.lazy.map { Double(Self.macRowHeight($0.entry) + Self.macRowSpacing) }
             )
@@ -1772,7 +1910,7 @@ struct PlaylistDetailView: View {
         // 已经排在歌单最前面的那首不给「置顶」。
         let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
         let indexColumnWidth = MacOrdinalColumn.width(
-            for: table.songCount, minimum: 32, fontSize: 11, locale: locale
+            for: table.rows.count, minimum: 32, fontSize: 11, locale: locale
         )
         let window = SongListScrollWindow.range(
             totalCount: table.rows.count,
@@ -1818,11 +1956,17 @@ struct PlaylistDetailView: View {
                                         defaultAction: { playSong(song) }
                                     )
                             case .pending(let pending):
-                                PlaylistPendingEntryRow(
-                                    entry: pending,
-                                    playlistID: playlist.id,
-                                    allowsEditing: allowsPlaylistRemoval
-                                )
+                                HStack(spacing: 12) {
+                                    Text(row.songIndex + 1, format: .number.grouping(.never))
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(PMColor.textFaint)
+                                        .frame(width: indexColumnWidth, alignment: .leading)
+                                    PlaylistPendingEntryRow(
+                                        entry: pending,
+                                        playlistID: playlist.id,
+                                        allowsEditing: allowsPlaylistRemoval
+                                    )
+                                }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4)
                             }
@@ -1936,16 +2080,11 @@ struct PlaylistDetailView: View {
                 if isSelectionActive {
                     SongSelectionCheckmark(isSelected: membership.isSelected)
                         .pmFadeTransition(motion: .list)
-                } else if isCurrent {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.brand)
-                        .pmFadeTransition(motion: .list)
                 } else {
                     Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                         .font(.system(size: 11, design: .monospaced))
                         .lineLimit(1)
-                        .foregroundStyle(PMColor.textFaint)
+                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.textFaint)
                         .pmFadeTransition(motion: .list)
                 }
             }
@@ -1980,8 +2119,7 @@ struct PlaylistDetailView: View {
     }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
-        !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
-            && playlistID != MusicLibrary.likedSongsPlaylistID
+        playlistID != MusicLibrary.likedSongsPlaylistID
     }
 
     private func startPlaylistScrape() {
@@ -2108,22 +2246,7 @@ struct PlaylistDetailView: View {
 
     private func deleteCurrentPlaylist() {
         guard canDeletePlaylist(playlist.id) else { return }
-        library.deletePlaylist(id: playlist.id)
-        #if os(macOS)
-        NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
-        #else
-        dismiss()
-        #endif
-    }
-
-    private func hideCurrentPlaylist() {
-        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) else { return }
-        library.hideMirrorPlaylist(id: playlist.id)
-        #if os(macOS)
-        NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
-        #else
-        dismiss()
-        #endif
+        pendingPlaylistRemoval = PlaylistRemovalRequest(playlists: [currentPlaylist ?? playlist])
     }
 
      private func export(format: PlaylistExporter.Format) {
@@ -2147,7 +2270,7 @@ struct PlaylistDetailView: View {
 
     private var locateCurrentButton: some View {
         LocateCurrentSongButton(
-            isEditing: selection.isActive || showReorderSheet,
+            isEditing: selection.isActive || isReorderingSongs,
             titled: verticalBarEdge != nil,
             contains: { id in songs.contains { $0.id == id } },
             isVisible: { id in
@@ -2182,6 +2305,30 @@ struct PlaylistDetailView: View {
         // 从歌单里点一首也是在放这个歌单, 捐歌单而不是这一首。
         SiriMediaInteractionDonor.donate(.playlist(id: playlist.id), shuffled: false)
         Task { await player.play(queue: queue, startingAt: index) }
+    }
+}
+
+struct PlaylistSongOrderDraft {
+    private let initialIDs: [String]
+    private(set) var ids: [String]
+
+    init(_ ids: [String]) {
+        self.initialIDs = ids
+        self.ids = ids
+    }
+
+    mutating func move(fromOffsets offsets: IndexSet, toOffset destination: Int, availableIDs: Set<String>) {
+        ids.removeAll { !availableIDs.contains($0) }
+        guard !offsets.isEmpty,
+              offsets.allSatisfy({ ids.indices.contains($0) }),
+              (0...ids.count).contains(destination) else { return }
+        ids.move(fromOffsets: offsets, toOffset: destination)
+    }
+
+    func changedOrder(availableIDs: Set<String>) -> [String]? {
+        let currentIDs = ids.filter { availableIDs.contains($0) }
+        let startingIDs = initialIDs.filter { availableIDs.contains($0) }
+        return currentIDs != startingIDs ? currentIDs : nil
     }
 }
 
@@ -2244,7 +2391,7 @@ struct PlaylistReorderSheet: View {
     private var iosBody: some View {
         NavigationStack {
             List {
-                ForEach(localSongs) { song in
+                ForEach(Array(localSongs.enumerated()), id: \.element.id) { index, song in
                     HStack(spacing: 10) {
                         CachedArtworkView(
                             coverRef: song.coverArtFileName,
@@ -2255,6 +2402,9 @@ struct PlaylistReorderSheet: View {
                             filePath: song.filePath,
                             fileFormat: song.fileFormat
                         )
+                        SongRowTrackNumber(number: index + 1, largestNumber: localSongs.count)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.title).font(.subheadline).lineLimit(1)
                             if let artist = library.artistDisplayName(for: song) {

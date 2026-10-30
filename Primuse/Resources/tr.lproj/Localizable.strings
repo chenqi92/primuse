@@ -6933,3 +6933,13 @@
 "content_explicit" = "Uygunsuz İçerik";
 "content_rating" = "İçerik Derecelendirmesi";
 "copyright_label" = "Telif Hakkı";
+
+"playlist_group_new" = "Yeni Grup";
+"playlist_group_name" = "Grup Adı";
+"playlist_group_move" = "Gruba Taşı";
+"playlist_group_ungrouped" = "Grupsuz";
+"playlist_group_rename" = "Grubu Yeniden Adlandır";
+"playlist_group_dissolve" = "Grubu Dağıt";
+"playlist_group_dissolve_message" = "Çalma listeleri Grupsuz bölümüne döner. Hiçbir çalma listesi veya şarkı silinmez.";
+"playlist_delete_local_confirm_format" = "%lld yerel çalma listesi silinecek. Bunları Son Silinenler bölümünden geri yükleyebilirsiniz. Şarkılar silinmeyecek.";
+"playlist_delete_mirror_confirm_format" = "Müzik servislerinden veya Apple Music’ten %lld çalma listesi yalnızca bu aygıtta gizlenecek. Asıl servisteki çalma listeleri ve şarkılar silinmeyecek.";

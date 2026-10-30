@@ -2019,7 +2019,7 @@ struct PlaylistImportView: View {
                 }
                 .padding(16)
 
-            List(manualMatchResults, id: \.id) { song in
+            List(Array(manualMatchResults.enumerated()), id: \.element.id) { index, song in
                 Button {
                     applyManualMatch(entry: entry, song: song)
                 } label: {
@@ -2027,6 +2027,8 @@ struct PlaylistImportView: View {
                         Image(systemName: "music.note")
                             .foregroundStyle(PMColor.brand)
                             .frame(width: 18)
+                        SongRowTrackNumber(number: index + 1, largestNumber: manualMatchResults.count)
+                            .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.title)
                                 .font(.system(size: 12.5, weight: .medium))

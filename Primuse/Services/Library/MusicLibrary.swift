@@ -9451,21 +9451,41 @@ final class MusicLibrary {
     /// change notification. Calling `deletePlaylist` in a selection loop makes
     /// a nominal batch operation perform a full persistence pass per row.
     func deletePlaylists(ids: Set<String>) {
+        deletePlaylists(ids: ids, hideMirrors: false)
+    }
+
+    func removePlaylistsFromLibrary(ids: Set<String>) {
+        deletePlaylists(ids: ids.subtracting([Self.likedSongsPlaylistID]), hideMirrors: true)
+    }
+
+    private func deletePlaylists(ids: Set<String>, hideMirrors: Bool) {
         // S2: 软删除要打在发布后的歌单行上 (`deletePlaylist(id:)` 也走这里)。
-        if deferringUntilReady({ [weak self] in self?.deletePlaylists(ids: ids) }) { return }
-        let editableIDs = Set(ids.filter { !MirrorPlaylistIdentity.isMirrorPlaylist($0) })
-        guard !editableIDs.isEmpty else { return }
+        if deferringUntilReady({ [weak self] in self?.deletePlaylists(ids: ids, hideMirrors: hideMirrors) }) { return }
+        guard !ids.isEmpty else { return }
         var changedIDs: [String] = []
         var originals: [String: Playlist] = [:]
-        changedIDs.reserveCapacity(editableIDs.count)
-        for index in allPlaylists.indices where editableIDs.contains(allPlaylists[index].id) {
+        let originalSuppressions = mirrorPlaylistSuppressions
+        changedIDs.reserveCapacity(ids.count)
+        for index in allPlaylists.indices where ids.contains(allPlaylists[index].id) {
             guard !allPlaylists[index].isDeleted else { continue }
+            let playlist = allPlaylists[index]
+            if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+                if hideMirrors, let key = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id),
+                   mirrorPlaylistSuppressions[keyID(key)] == nil {
+                    mirrorPlaylistSuppressions[keyID(key)] = MirrorPlaylistSuppression(
+                        key: key, playlistID: playlist.id, displayName: playlist.name
+                    )
+                }
+                continue
+            }
             originals[allPlaylists[index].id] = allPlaylists[index]
             allPlaylists[index] = stampedPlaylist(allPlaylists[index], deleting: true)
             changedIDs.append(allPlaylists[index].id)
         }
-        guard !changedIDs.isEmpty else { return }
+        let hiddenChanged = mirrorPlaylistSuppressions != originalSuppressions
+        guard !changedIDs.isEmpty || hiddenChanged else { return }
         guard persistPlaylistDurabilityLedger() else {
+            mirrorPlaylistSuppressions = originalSuppressions
             for index in allPlaylists.indices {
                 if let original = originals[allPlaylists[index].id] {
                     allPlaylists[index] = original
@@ -9474,7 +9494,11 @@ final class MusicLibrary {
             return
         }
         persistSnapshot()
-        notifyPlaylistsChanged(changedIDs)
+        if changedIDs.isEmpty {
+            playlistCollectionRevision &+= 1
+        } else {
+            notifyPlaylistsChanged(changedIDs)
+        }
     }
 
     /// Restore a soft-deleted playlist (e.g. from the Recently Deleted view).
@@ -14917,7 +14941,8 @@ final class MusicLibrary {
                 .values
                 .sorted { $0.sourceID < $1.sourceID },
             artworkAssets: nil,
-            mirrorPlaylistSuppressions: hiddenMirrorPlaylists.isEmpty ? nil : hiddenMirrorPlaylists,
+            // 隐藏记录只写本机的歌单账本，整库快照可能直接传给其他设备。
+            mirrorPlaylistSuppressions: nil,
             smartPlaylists: allSmartPlaylists.isEmpty ? nil : allSmartPlaylists,
             playlistSongIDs: playlistSongIDs,
             playlistSyncBaseSongIDs: playlistSyncBaseSongIDs.isEmpty ? nil : playlistSyncBaseSongIDs,

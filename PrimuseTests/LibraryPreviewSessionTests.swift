@@ -772,6 +772,106 @@ final class SourcePlaylistVisibilityTests: XCTestCase {
             XCTAssertTrue(library.playlists.contains { $0.id == id })
         }
     }
+
+    func testMixedRemovalDeletesLocalPlaylistsAndOnlyHidesMirrorsAfterReload() async throws {
+        try await withLibrary { library, directory in
+            let local = library.createPlaylist(name: "Local", songIDs: ["remote", "other"])
+            let untouched = library.createPlaylist(name: "Untouched", songIDs: ["other"])
+            let server = mirror(in: library)
+            let apple = AppleMusicLibraryIdentity.systemPlaylistID
+            library.ensurePlaylist(id: apple, name: "Apple Music")
+            library.ensurePlaylist(id: MusicLibrary.likedSongsPlaylistID, name: "Liked")
+            let mirrorRevision = library.allPlaylists.first { $0.id == server }?.syncRevision
+
+            library.removePlaylistsFromLibrary(ids: [local.id, server, apple, MusicLibrary.likedSongsPlaylistID, "missing"])
+
+            XCTAssertEqual(Set(library.hiddenMirrorPlaylists.map(\.playlistID)), [server, apple])
+            XCTAssertTrue(library.recentlyDeletedPlaylists.contains { $0.id == local.id })
+            XCTAssertFalse(library.recentlyDeletedPlaylists.contains { $0.id == server || $0.id == apple })
+            XCTAssertTrue(library.playlists.contains { $0.id == untouched.id })
+            XCTAssertTrue(library.playlists.contains { $0.id == MusicLibrary.likedSongsPlaylistID })
+            XCTAssertEqual(library.allPlaylists.first { $0.id == server }?.syncRevision, mirrorRevision)
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: server), ["remote"])
+            XCTAssertEqual(Set(library.songs.map(\.id)), ["remote", "other"])
+            guard case .success = await library.persistNowAndWait() else {
+                return XCTFail("Removal did not persist")
+            }
+            let diskSnapshot = try XCTUnwrap(JSONSerialization.jsonObject(
+                with: Data(contentsOf: directory.appendingPathComponent("library-cache.json"))
+            ) as? [String: Any])
+            XCTAssertNil(diskSnapshot["mirrorPlaylistSuppressions"])
+            let reopened = MusicLibrary(storageDirectory: directory)
+            XCTAssertEqual(Set(reopened.hiddenMirrorPlaylists.map(\.playlistID)), [server, apple])
+            XCTAssertFalse(reopened.playlists.contains { $0.id == server || $0.id == local.id })
+            XCTAssertEqual(reopened.rawSongIDs(forPlaylist: local.id), ["remote", "other"])
+            reopened.restorePlaylist(id: local.id)
+            XCTAssertTrue(reopened.playlists.contains { $0.id == local.id })
+            guard case .success = await reopened.persistNowAndWait() else {
+                return XCTFail("Restoration did not persist")
+            }
+        }
+    }
+
+    func testMirrorOnlyRemovalDoesNotTravelInPortableSnapshot() async throws {
+        try await withLibrary { library, directory in
+            let server = mirror(in: library)
+            let apple = AppleMusicLibraryIdentity.systemPlaylistID
+            library.ensurePlaylist(id: apple, name: "Apple Music")
+            let revision = library.playlistCollectionRevision
+            library.removePlaylistsFromLibrary(ids: [server, apple])
+            XCTAssertGreaterThan(library.playlistCollectionRevision, revision)
+            XCTAssertFalse(library.playlists.contains { $0.id == server })
+            XCTAssertEqual(library.hiddenMirrorPlaylists.count, 2)
+
+            guard case .snapshot(let data) = await library.portableSnapshotIncludingSongs(byteLimit: .max) else {
+                return XCTFail("Snapshot was not exported")
+            }
+            let snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertNil(snapshot["mirrorPlaylistSuppressions"])
+            let receivingDirectory = directory.appendingPathComponent("receiving", isDirectory: true)
+            try FileManager.default.createDirectory(at: receivingDirectory, withIntermediateDirectories: true)
+            try data.write(to: receivingDirectory.appendingPathComponent("library-cache.json"))
+            let receiving = MusicLibrary(storageDirectory: receivingDirectory)
+            XCTAssertTrue(receiving.hiddenMirrorPlaylists.isEmpty)
+            XCTAssertTrue(receiving.playlists.contains { $0.id == server })
+            XCTAssertFalse(receiving.allPlaylists.first { $0.id == apple }?.isDeleted ?? true)
+            guard case .success = await receiving.persistNowAndWait() else {
+                return XCTFail("Receiving library did not persist")
+            }
+        }
+    }
+
+    func testMixedRemovalRollsBackDeletionAndHidingWhenLedgerCannotBeWritten() async throws {
+        try await withLibrary { library, directory in
+            let local = library.createPlaylist(name: "Local", songIDs: ["remote"])
+            let server = mirror(in: library)
+            let ledger = directory.appendingPathComponent("playlist-durability.json")
+            let backup = directory.appendingPathComponent("ledger-backup.json")
+            try FileManager.default.moveItem(at: ledger, to: backup)
+            try FileManager.default.createDirectory(at: ledger, withIntermediateDirectories: false)
+            defer {
+                try? FileManager.default.removeItem(at: ledger)
+                try? FileManager.default.moveItem(at: backup, to: ledger)
+            }
+            library.removePlaylistsFromLibrary(ids: [local.id, server])
+            XCTAssertTrue(library.playlists.contains { $0.id == local.id })
+            XCTAssertTrue(library.playlists.contains { $0.id == server })
+            XCTAssertTrue(library.hiddenMirrorPlaylists.isEmpty)
+            XCTAssertFalse(library.recentlyDeletedPlaylists.contains { $0.id == local.id })
+        }
+    }
+
+    func testRemovalConfirmationCountsLocalAndMirrorSelectionsSeparately() {
+        let local = Playlist(name: "Local")
+        let server = Playlist(id: ServerPlaylistIdentity.playlistID(sourceID: "server", serverPlaylistID: "one"), name: "Server")
+        let apple = Playlist(id: AppleMusicLibraryIdentity.systemPlaylistID, name: "Apple Music")
+        let liked = Playlist(id: MusicLibrary.likedSongsPlaylistID, name: "Liked")
+        let removal = PlaylistRemovalRequest(playlists: [local, local, server, apple, liked], smartPlaylistIDs: ["smart"])
+        XCTAssertEqual(removal.localCount, 2)
+        XCTAssertEqual(removal.mirrorCount, 2)
+        XCTAssertEqual(removal.playlistIDs, [local.id, server.id, apple.id])
+        XCTAssertEqual(removal.smartPlaylistIDs, ["smart"])
+    }
 }
 
 @MainActor

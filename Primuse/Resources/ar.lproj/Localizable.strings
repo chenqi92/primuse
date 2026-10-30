@@ -6933,3 +6933,13 @@
 "content_explicit" = "محتوى صريح";
 "content_rating" = "تصنيف المحتوى";
 "copyright_label" = "حقوق النشر";
+
+"playlist_group_new" = "مجموعة جديدة";
+"playlist_group_name" = "اسم المجموعة";
+"playlist_group_move" = "نقل إلى مجموعة";
+"playlist_group_ungrouped" = "بلا مجموعة";
+"playlist_group_rename" = "إعادة تسمية المجموعة";
+"playlist_group_dissolve" = "إلغاء تجميع قوائم التشغيل";
+"playlist_group_dissolve_message" = "ستعود قوائم التشغيل إلى «بلا مجموعة». لن يتم حذف أي قائمة تشغيل أو أغنية.";
+"playlist_delete_local_confirm_format" = "سيتم حذف %lld من قوائم التشغيل المحلية. يمكنك استعادتها من «المحذوفة مؤخرًا». لن يتم حذف الأغاني.";
+"playlist_delete_mirror_confirm_format" = "سيتم إخفاء %lld من قوائم تشغيل خدمات الموسيقى أو Apple Music على هذا الجهاز فقط. لن تُحذف قوائم التشغيل أو الأغاني من الخدمة الأصلية.";

@@ -29,6 +29,7 @@ struct MacSidebar: View {
     @State private var copyToServerPlaylist: Playlist?
     /// 右键「重命名」的那一个歌单。
     @State private var renamingPlaylist: Playlist?
+    @State private var pendingRemoval: PlaylistRemovalRequest?
 
     private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
@@ -79,6 +80,16 @@ struct MacSidebar: View {
             PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
         }
         .playlistRenameAlert($renamingPlaylist)
+        .playlistRemovalAlert($pendingRemoval) { removal in
+            switch routeSwitch.requested {
+            case .playlist(let playlist) where removal.playlistIDs.contains(playlist.id):
+                select(.home)
+            case .smartPlaylist(let smart) where removal.smartPlaylistIDs.contains(smart.id):
+                select(.home)
+            default:
+                break
+            }
+        }
     }
 
     // MARK: - Brand header
@@ -501,13 +512,6 @@ struct MacSidebar: View {
             } label: {
                 Label("delete_playlist", systemImage: "trash")
             }
-        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-            Divider()
-            Button {
-                hidePlaylist(playlist)
-            } label: {
-                Label("hide_playlist_from_primuse", systemImage: "eye.slash")
-            }
         }
     }
 
@@ -606,24 +610,12 @@ struct MacSidebar: View {
     }
 
     private func canDeletePlaylist(_ playlistID: String) -> Bool {
-        !MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
-            && playlistID != MusicLibrary.likedSongsPlaylistID
+        playlistID != MusicLibrary.likedSongsPlaylistID
     }
 
     private func deletePlaylist(_ playlist: Playlist) {
         guard canDeletePlaylist(playlist.id) else { return }
-        library.deletePlaylist(id: playlist.id)
-        if case .playlist(let selectedPlaylist) = routeSwitch.requested, selectedPlaylist.id == playlist.id {
-            select(.home)
-        }
-    }
-
-    private func hidePlaylist(_ playlist: Playlist) {
-        guard MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) else { return }
-        library.hideMirrorPlaylist(id: playlist.id)
-        if case .playlist(let selectedPlaylist) = routeSwitch.requested, selectedPlaylist.id == playlist.id {
-            select(.home)
-        }
+        pendingRemoval = PlaylistRemovalRequest(playlists: [playlist])
     }
 
     private func playSmart(_ smart: SmartPlaylist, shuffled: Bool = false) {
@@ -636,10 +628,7 @@ struct MacSidebar: View {
     }
 
     private func deleteSmart(_ smart: SmartPlaylist) {
-        library.deleteSmartPlaylist(id: smart.id)
-        if case .smartPlaylist(let selectedSmart) = routeSwitch.requested, selectedSmart.id == smart.id {
-            select(.home)
-        }
+        pendingRemoval = PlaylistRemovalRequest(smartPlaylistIDs: [smart.id])
     }
 
     private func sourceDotColor(for source: MusicSource) -> Color {

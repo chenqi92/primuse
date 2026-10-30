@@ -138,8 +138,8 @@ final class AlbumMetadataTests: XCTestCase {
         let tracks = [track("a", title: "Intro", number: 1, disc: 1), track("b", title: "Intro", number: 1, disc: 2)]
         let view = NavigationStack {
             List {
-                AlbumMetadataTrackRow(song: first, tracks: tracks, assignments: .constant(["first": "a"]))
-                AlbumMetadataTrackRow(song: second, tracks: tracks, assignments: .constant([:]))
+                AlbumMetadataTrackRow(song: first, ordinal: 1, tracks: tracks, assignments: .constant(["first": "a"]))
+                AlbumMetadataTrackRow(song: second, ordinal: 2, tracks: tracks, assignments: .constant([:]))
             }.navigationTitle("album_metadata_match")
         }
         let window = try show(view, size: CGSize(width: 390, height: 844))

@@ -528,6 +528,7 @@ struct TVAlbumCard: View {
 struct TVSongCard: View {
     @Environment(TVStore.self) private var store
     let song: TVSong
+    var ordinal: Int? = nil
     var width: CGFloat = 240
     var reason: String? = nil
     var action: () -> Void = {}
@@ -550,7 +551,7 @@ struct TVSongCard: View {
                             .lineLimit(1, reservesSpace: true)
                             .opacity(reason.isEmpty ? 0 : 1)
                     }
-                    Text(song.title).tvFont(.cardTitle)
+                    Text(verbatim: ordinal.map { "\($0.formatted()). \(song.title)" } ?? song.title).tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text).lineLimit(2, reservesSpace: true)
                     Text(song.artist).tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)

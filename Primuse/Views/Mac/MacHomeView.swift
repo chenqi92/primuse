@@ -1524,9 +1524,9 @@ struct MacHomeView: View {
                 alignment: .leading,
                 spacing: PMSpace.m
             ) {
-                ForEach(recentSongs.prefix(8)) { song in
+                ForEach(Array(recentSongs.prefix(8).enumerated()), id: \.element.id) { index, song in
                     Button { playSong(song) } label: {
-                        recentSongRow(song)
+                        recentSongRow(song, ordinal: index + 1)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1534,7 +1534,7 @@ struct MacHomeView: View {
         }
     }
 
-    private func recentSongRow(_ song: Song) -> some View {
+    private func recentSongRow(_ song: Song, ordinal: Int) -> some View {
         HStack(spacing: 10) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
@@ -1545,7 +1545,7 @@ struct MacHomeView: View {
                 fileFormat: song.fileFormat
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
@@ -1743,9 +1743,9 @@ struct MacHomeView: View {
                     alignment: .leading,
                     spacing: PMSpace.m
                 ) {
-                    ForEach(songs) { song in
+                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                         Button { playSong(song) } label: {
-                            recentSongRow(song)
+                            recentSongRow(song, ordinal: index + 1)
                         }
                         .buttonStyle(.plain)
                     }

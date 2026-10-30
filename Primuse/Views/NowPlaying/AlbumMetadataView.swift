@@ -134,8 +134,8 @@ private struct AlbumMetadataSearchView: View {
                     }
                 }
                 Section("album_metadata_match") {
-                    ForEach(group.songs) { song in
-                        AlbumMetadataTrackRow(song: song, tracks: tracks, assignments: $assignments)
+                    ForEach(Array(group.songs.enumerated()), id: \.element.id) { index, song in
+                        AlbumMetadataTrackRow(song: song, ordinal: index + 1, tracks: tracks, assignments: $assignments)
                     }
                 }
             } else {
@@ -231,12 +231,13 @@ private struct AlbumMetadataSearchView: View {
 
 struct AlbumMetadataTrackRow: View {
     let song: Song
+    let ordinal: Int
     let tracks: [ScraperDetail]
     @Binding var assignments: [String: String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: song.title)
+            Text(verbatim: "\(ordinal.formatted()). \(song.title)")
             Text(verbatim: song.filePath.split(separator: "/").suffix(2).joined(separator: "/"))
                 .font(.caption).foregroundStyle(.secondary)
             Picker("album_metadata_match", selection: Binding(

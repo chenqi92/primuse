@@ -473,6 +473,8 @@ struct HomeHeroRecommendationDetail: View {
                 HStack(spacing: 12) {
                     HomeHeroRecommendationArtwork(songs: [song], side: 48)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                    SongRowTrackNumber(number: index + 1, largestNumber: model.songs.count)
+                        .font(.body).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(verbatim: song.title)
                             .font(.body.weight(.medium))

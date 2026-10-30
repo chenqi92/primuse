@@ -7028,3 +7028,13 @@
 "content_explicit" = "露骨な表現を含む";
 "content_rating" = "コンテンツレーティング";
 "copyright_label" = "著作権";
+
+"playlist_group_new" = "新規グループ";
+"playlist_group_name" = "グループ名";
+"playlist_group_move" = "グループに移動";
+"playlist_group_ungrouped" = "未分類";
+"playlist_group_rename" = "グループ名を変更";
+"playlist_group_dissolve" = "グループを解除";
+"playlist_group_dissolve_message" = "プレイリストは未分類に戻ります。プレイリストや曲は削除されません。";
+"playlist_delete_local_confirm_format" = "%lld 個のローカルプレイリストを削除します。「最近削除した項目」から復元できます。曲は削除されません。";
+"playlist_delete_mirror_confirm_format" = "音楽サービスまたは Apple Music の %lld 個のプレイリストは、このデバイスでのみ非表示になります。元のサービスのプレイリストや曲は削除されません。";

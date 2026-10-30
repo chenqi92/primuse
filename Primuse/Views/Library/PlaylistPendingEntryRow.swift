@@ -10,6 +10,8 @@ struct PlaylistPendingEntryRow: View {
     let playlistID: String
     /// 镜像/文件夹歌单不允许手动改成员。
     let allowsEditing: Bool
+    var trackNumber: Int? = nil
+    var largestTrackNumber: Int = 1
 
     @State private var showMatchSheet = false
 
@@ -34,6 +36,12 @@ struct PlaylistPendingEntryRow: View {
                         .foregroundStyle(.tertiary)
                 }
                 .accessibilityHidden(true)
+
+            if let trackNumber {
+                SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.title.isEmpty ? String(localized: "unknown_title") : entry.title)
@@ -168,20 +176,24 @@ struct PlaylistPendingMatchSheet: View {
                         Text("playlist_pending_no_results")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(results) { song in
+                    ForEach(Array(results.enumerated()), id: \.element.id) { index, song in
                         Button {
                             library.resolvePendingEntry(entry.id, inPlaylist: playlistID, with: song.id)
                             dismiss()
                         } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(song.title).foregroundStyle(.primary)
-                                Text(
-                                    [library.artistDisplayName(for: song), song.albumTitle]
-                                        .compactMap { $0 }
-                                        .joined(separator: " · ")
-                                )
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 10) {
+                                SongRowTrackNumber(number: index + 1, largestNumber: results.count)
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(song.title).foregroundStyle(.primary)
+                                    Text(
+                                        [library.artistDisplayName(for: song), song.albumTitle]
+                                            .compactMap { $0 }
+                                            .joined(separator: " · ")
+                                    )
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())

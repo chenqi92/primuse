@@ -31,6 +31,7 @@ struct SmartPlaylistDetailView: View {
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     @State private var showEditor = false
+    @State private var pendingRemoval: PlaylistRemovalRequest?
     @State private var songLocation = SongListLocation()
     @State private var matchedCache = SmartPlaylistMatchedCache()
     @State private var showNoScraperSourceAlert = false
@@ -97,7 +98,6 @@ struct SmartPlaylistDetailView: View {
     }
 
     private struct ShownRow: Identifiable {
-        /// 在整张歌单里的位置: 找歌时 Mac 曲目表的序号照旧是它。
         let offset: Int
         let song: Song
         var id: String { song.id }
@@ -119,6 +119,9 @@ struct SmartPlaylistDetailView: View {
         return AnyView(macBody(matched)
             .songLocationReader(songLocation, revision: shownRows(matched).map(\.id))
             .onDisappear { songLocation.cancel() }
+            .playlistRemovalAlert($pendingRemoval) { _ in
+                NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
+            }
             .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
         #else
         return AnyView(
@@ -279,11 +282,13 @@ struct SmartPlaylistDetailView: View {
                 .padding(.top, 40)
         } else {
             LazyVStack(spacing: 0) {
-                ForEach(rows) { row in
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     let song = row.song
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
+                        trackNumber: index + 1,
+                        largestTrackNumber: rows.count,
                         showsActions: false,
                         context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                     )
@@ -645,9 +650,7 @@ struct SmartPlaylistDetailView: View {
     }
 
     private func deleteSmart(_ smart: SmartPlaylist) {
-        library.deleteSmartPlaylist(id: smart.id)
-        // 删完回到首页 (歌单总览页已移除), 同时清详情栈避免压着空详情。
-        NotificationCenter.default.post(name: .primuseSelectPlaylists, object: nil)
+        pendingRemoval = PlaylistRemovalRequest(smartPlaylistIDs: [smart.id])
     }
 
     private func macDefinitionCard(_ smart: SmartPlaylist) -> some View {
@@ -731,8 +734,8 @@ struct SmartPlaylistDetailView: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             LazyVStack(spacing: 1) {
-                ForEach(shownRows(matched)) { row in
-                    macSongRow(row.song, index: row.offset, ordinalWidth: ordinalWidth)
+                ForEach(Array(shownRows(matched).enumerated()), id: \.element.id) { index, row in
+                    macSongRow(row.song, index: index, ordinalWidth: ordinalWidth)
                         .songLocationRow(row.song.id)
                 }
             }

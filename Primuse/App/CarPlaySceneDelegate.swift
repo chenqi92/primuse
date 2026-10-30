@@ -632,6 +632,7 @@ extension CarPlaySceneDelegate {
         let items = matches.enumerated().map { index, song -> CPListItem in
             let item = songItem(
                 song,
+                ordinal: index + 1,
                 queueProvider: { (matches, index) },
                 loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index)
             )
@@ -858,10 +859,13 @@ extension CarPlaySceneDelegate {
             songs.enumerated().map { ($1.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        var songOrdinal = 0
         let sections = Self.sectionedByIndexLetter(songs, titleKey: \.title) { song in
+            songOrdinal += 1
             let index = indexByID[song.id] ?? 0
             return self.songItem(
                 song,
+                ordinal: songOrdinal,
                 queueProvider: { (songs, index) },
                 loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index)
             )
@@ -1027,7 +1031,17 @@ extension CarPlaySceneDelegate {
     private func homeSections() -> [CPListSection] {
         var remainingArtworkBudget = CarPlayArtworkLoadPolicy.maximumEagerArtworkCount
         let sections = CarPlayHomeContent.resolve(layout).flatMap { block in
-            let entries = block.items.map(homeEntry)
+            var songOrdinal = 0
+            let entries = block.items.map { item in
+                let ordinal: Int?
+                if case .song = item.target {
+                    songOrdinal += 1
+                    ordinal = songOrdinal
+                } else {
+                    ordinal = nil
+                }
+                return homeEntry(item, ordinal: ordinal)
+            }
             let artworkBudget = min(remainingArtworkBudget, entries.count)
             remainingArtworkBudget -= artworkBudget
             return collectionSections(entries,
@@ -1054,8 +1068,9 @@ extension CarPlaySceneDelegate {
         return sections + collectionSections(navigation, style: .list)
     }
 
-    private func homeEntry(_ item: CarPlayHomeItem) -> CollectionEntry {
-        CollectionEntry(title: item.title, subtitle: item.subtitle, symbol: item.symbol,
+    private func homeEntry(_ item: CarPlayHomeItem, ordinal: Int?) -> CollectionEntry {
+        CollectionEntry(title: ordinal.map { "\($0.formatted()). \(item.title)" } ?? item.title,
+                        subtitle: item.subtitle, symbol: item.symbol,
                         artwork: item.artwork, enabled: item.enabled) { [weak self] in
             self?.activateHomeItem(item)
         }
@@ -1501,6 +1516,7 @@ extension CarPlaySceneDelegate {
             let items = songs.prefix(100).enumerated().map { index, song in
                 songItem(
                     song,
+                    ordinal: index + 1,
                     queueProvider: { (songs, index) },
                     loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index)
                 )
@@ -1630,7 +1646,7 @@ extension CarPlaySceneDelegate {
         // playlistSongIDs 已经按用户排序保留, 不需要再 sort。
         let songs = AppServices.shared.musicLibrary.songs(forPlaylist: playlistID)
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
-            songItem(song, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
+            songItem(song, ordinal: idx + 1, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
         }
         return CPListSection(items: collectionPlaybackItems(songs, donating: .playlist(id: playlistID)) + items)
     }
@@ -1638,7 +1654,7 @@ extension CarPlaySceneDelegate {
     private func albumDetailSection(albumID: String) -> CPListSection {
         let songs = AppServices.shared.musicLibrary.songs(forAlbum: albumID)
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
-            songItem(song, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
+            songItem(song, ordinal: idx + 1, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
         }
         return CPListSection(items: collectionPlaybackItems(songs, donating: .album(id: albumID)) + items)
     }
@@ -1652,7 +1668,7 @@ extension CarPlaySceneDelegate {
             .filter { !spokenWordIDs.contains($0.id) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
-            songItem(song, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
+            songItem(song, ordinal: idx + 1, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
         }
         return CPListSection(items: collectionPlaybackItems(songs) + items)
     }
@@ -1961,6 +1977,7 @@ extension CarPlaySceneDelegate {
 extension CarPlaySceneDelegate {
     private func songItem(
         _ song: Song,
+        ordinal: Int,
         queueProvider: @escaping () -> ([Song], Int),
         loadsArtwork: Bool = true
     ) -> CPListItem {
@@ -1968,7 +1985,7 @@ extension CarPlaySceneDelegate {
             ? initialArtwork(.song(song), pixelSize: Int(CarPlayTemplateImages.listSide * artworkScale))
             : nil
         let item = CPListItem(
-            text: song.title,
+            text: "\(ordinal.formatted()). \(song.title)",
             detailText: AppServices.shared.musicLibrary.artistDisplayName(for: song)
                 ?? song.albumTitle,
             image: cached ?? CarPlayTemplateImages.placeholder("music.note")
@@ -2423,7 +2440,7 @@ extension CarPlaySceneDelegate {
         let items = rows.prefix(CPListTemplate.maximumItemCount).enumerated().map { offset, row -> CPListItem in
             let song = row.song
             let item = CPListItem(
-                text: song.title,
+                text: "\((offset + 1).formatted()). \(song.title)",
                 detailText: AppServices.shared.musicLibrary.artistDisplayName(for: song)
                     ?? song.albumTitle,
                 image: initialArtwork(.song(song), pixelSize: pixelSize)

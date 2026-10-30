@@ -286,15 +286,15 @@ struct TVHomeView: View {
             if store.hasRealLibrary {
                 if !store.recentlyPlayed.isEmpty {
                     TVRow(label: PMString("ext.tv.home.recentlyPlayed"), rule: true) {
-                        ForEach(store.recentlyPlayed) { song in
-                            TVSongCard(song: song, action: playerOpener(cardID("recent", song.id)))
+                        ForEach(Array(store.recentlyPlayed.enumerated()), id: \.element.id) { index, song in
+                            TVSongCard(song: song, ordinal: index + 1, action: playerOpener(cardID("recent", song.id)))
                                 .focused($focusedCardID, equals: cardID("recent", song.id))
                         }
                     }
                 } else if heroAlbum == nil {
                     TVRow(label: PMString("ext.tv.nav.library"), rule: true) {
-                        ForEach(Array(store.songs.prefix(15))) { song in
-                            TVSongCard(song: song, action: playerOpener(cardID("songs", song.id)))
+                        ForEach(Array(store.songs.prefix(15).enumerated()), id: \.element.id) { index, song in
+                            TVSongCard(song: song, ordinal: index + 1, action: playerOpener(cardID("songs", song.id)))
                                 .focused($focusedCardID, equals: cardID("songs", song.id))
                         }
                     }
@@ -557,6 +557,10 @@ struct TVHomeView: View {
                     .lineLimit(2)
                     .padding(.horizontal, 20)
             }
+            let songOrdinals = Dictionary(recommendationEntries.compactMap { entry -> String? in
+                if case .song(let id) = entry { return id }
+                return nil
+            }.enumerated().map { ($0.element, $0.offset + 1) }, uniquingKeysWith: { first, _ in first })
             TVRow(
                 label: PMString("ai_recommendation_home_title"),
                 sub: aiRecommendation.statusText
@@ -571,6 +575,7 @@ struct TVHomeView: View {
                         if let song = store.song(songID) {
                             TVSongCard(
                                 song: song,
+                                ordinal: songOrdinals[songID],
                                 reason: aiRecommendation.reason(for: song.id) ?? "",
                                 action: playerOpener(cardID("ai", song.id))
                             )

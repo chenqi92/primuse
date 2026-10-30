@@ -199,6 +199,7 @@ struct QueueView: View {
     @ViewBuilder
     private var content: some View {
         let entries = player.queueEntries
+        let displayedCount = 1 + player.upcomingQueueEntries.count + player.playedQueueEntries.count
         if entries.isEmpty {
             EmptyStateView(
                 titleKey: "queue_empty",
@@ -219,6 +220,8 @@ struct QueueView: View {
                     queueSection(title: "now_playing") {
                         queueRow(
                             entry: currentEntry,
+                            ordinal: 1,
+                            totalCount: displayedCount,
                             displayedSong: player.currentSong ?? currentEntry.song,
                             isPlaying: true
                         )
@@ -230,18 +233,18 @@ struct QueueView: View {
                     }
                     if !upcoming.queued.isEmpty {
                         queueSection(title: "up_next") {
-                            ForEach(upcoming.queued) { @Sendable presentation in
+                            ForEach(Array(upcoming.queued.enumerated()), id: \.element.id) { @Sendable index, presentation in
                                 LazyItemCell {
-                                    upcomingRow(presentation, currentEntry: currentEntry)
+                                    upcomingRow(presentation, currentEntry: currentEntry, ordinal: index + 2, totalCount: displayedCount)
                                 }
                             }
                         }
                     }
                     if !upcoming.autoplay.isEmpty {
                         queueSection(title: "queue_autoplay_section") {
-                            ForEach(upcoming.autoplay) { @Sendable presentation in
+                            ForEach(Array(upcoming.autoplay.enumerated()), id: \.element.id) { @Sendable index, presentation in
                                 LazyItemCell {
-                                    upcomingRow(presentation, currentEntry: currentEntry)
+                                    upcomingRow(presentation, currentEntry: currentEntry, ordinal: upcoming.queued.count + index + 2, totalCount: displayedCount)
                                 }
                             }
                         }
@@ -250,9 +253,9 @@ struct QueueView: View {
                     let played = player.playedQueueEntries
                     if !played.isEmpty {
                         queueSection(title: "played") {
-                            ForEach(played) { @Sendable presentation in
+                            ForEach(Array(played.enumerated()), id: \.element.id) { @Sendable index, presentation in
                                 LazyItemCell {
-                                    queueRow(entry: presentation.entry, dimmed: true)
+                                    queueRow(entry: presentation.entry, ordinal: upcoming.queued.count + upcoming.autoplay.count + index + 2, totalCount: displayedCount, dimmed: true)
                                 }
                             }
                         }
@@ -270,9 +273,11 @@ struct QueueView: View {
         }
     }
 
-    private func upcomingRow(_ presentation: QueuePresentationEntry, currentEntry: QueueEntry) -> some View {
+    private func upcomingRow(_ presentation: QueuePresentationEntry, currentEntry: QueueEntry, ordinal: Int, totalCount: Int) -> some View {
         queueRow(
             entry: presentation.entry,
+            ordinal: ordinal,
+            totalCount: totalCount,
             reorderID: QueueReorderOccurrenceID(
                 queueEntryID: presentation.id.queueEntryID,
                 roundOffset: presentation.id.roundOffset
@@ -302,6 +307,8 @@ struct QueueView: View {
     @ViewBuilder
     private func queueRow(
         entry: QueueEntry,
+        ordinal: Int,
+        totalCount: Int,
         displayedSong: Song? = nil,
         isPlaying: Bool = false,
         dimmed: Bool = false,
@@ -311,7 +318,7 @@ struct QueueView: View {
     ) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
-        let accessibilityLabel = [song.title, library.artistDisplayName(for: song)]
+        let accessibilityLabel = [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value
@@ -341,6 +348,9 @@ struct QueueView: View {
                         .pmAnimation(.control, value: player.showsLoadingIndicator)
                 }
             }
+
+            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                .font(.subheadline).foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)

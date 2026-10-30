@@ -27,31 +27,42 @@ struct PlaylistListView: View {
     /// 歌单批量管理态。普通态和管理态用两个独立的列表 —— 在同一个 List 上
     /// 混 NavigationLink 与 selection，点一下到底是进歌单还是勾选会变得不确定。
     @State private var isManagingPlaylists = false
-    @State private var showPlaylistOrder = false
+    @State private var isOrderingPlaylists = false
+    @State private var playlistOrderDraft: [String] = []
+    @State private var initialPlaylistOrder: [String] = []
+    @AppStorage(PlaylistGrouping.storageKey) private var groupingRawValue = ""
+    @State private var collapsedGroupIDs: Set<String> = []
+    @State private var showsGroupEditor = false
+    @State private var editingGroupID: String?
+    @State private var groupName = ""
+    @State private var groupEditorReferences: [String] = []
+    @State private var dissolvingGroup: PlaylistGrouping.Group?
     @State private var playlistSelection: Set<String> = []
     @State private var showCopyToServer = false
     /// 长按「同步歌单」时直接带上的那一个歌单。
     @State private var copyToServerPlaylist: Playlist?
     /// 长按「重命名」的那一个歌单。
     @State private var renamingPlaylist: Playlist?
-    @State private var showBatchDeleteConfirm = false
+    @State private var pendingRemoval: PlaylistRemovalRequest?
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @AppStorage(PlaylistListOrder.storageKey) private var listOrderRawValue = PlaylistListOrder.custom.rawValue
     /// 「在本页里找」。只按名字筛三类歌单、顺序不变；管理、排序仍对整份列表。
     @State private var findText = ""
 
-    /// 系统歌单（Apple Music 镜像 / 「我喜欢」）不参与批量删除，理由同
-    /// `isSystemPlaylist`：删完下次 sync 或 heart toggle 又会重建。
-    private var deletablePlaylistIDs: Set<String> {
-        playlistSelection.filter { !isSystemPlaylist($0) }
-    }
-
     // liked 系统歌单已作为「资料库 · 我喜欢的」固定入口展示, 歌单总览里不再重复列出。
     private var playlists: [Playlist] {
         library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }
     }
     private var smartPlaylists: [SmartPlaylist] { library.smartPlaylists }
+    private var selectedPlaylistIDs: Set<String> {
+        playlistSelection.intersection(playlists.map(\.id))
+    }
+    private var selectedSmartPlaylistIDs: Set<String> {
+        Set(smartPlaylists.filter {
+            playlistSelection.contains(PlaylistGrouping.reference(id: $0.id, smart: true))
+        }.map(\.id))
+    }
     private var aiSmartPlaylists: [SmartPlaylist] {
         smartPlaylists.filter { $0.effectiveKind == .ai }
     }
@@ -112,14 +123,9 @@ struct PlaylistListView: View {
                     .pmSlideTransition(edge: .bottom, motion: .list)
             }
         }
-        .alert("delete_playlist", isPresented: $showBatchDeleteConfirm) {
-            Button("cancel", role: .cancel) {}
-            Button("delete", role: .destructive) { deleteSelectedPlaylists() }
-        } message: {
-            Text(verbatim: String(
-                format: String(localized: "batch_playlists_delete_confirm_format"),
-                deletablePlaylistIDs.count
-            ))
+        .playlistRemovalAlert($pendingRemoval) { _ in
+            playlistSelection = []
+            isManagingPlaylists = false
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .sheet(isPresented: $showPlaylistImport) {
@@ -141,12 +147,33 @@ struct PlaylistListView: View {
         .sheet(item: $copyToServerPlaylist) { playlist in
             PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
         }
-        .sheet(isPresented: $showPlaylistOrder) {
-            // 从眼前这一列开始拖: 按名字排好再手动挪几个, 完成后就成了自定义顺序。
-            PlaylistOrderSheet(playlists: playlists, startingWith: ordered(playlists)) { arranged in
-                library.reorderPlaylists(arranged.map(\.id))
-                listOrderRawValue = PlaylistListOrder.custom.rawValue
+        .alert(LocalizedStringKey(editingGroupID == nil ? "playlist_group_new" : "playlist_group_rename"), isPresented: $showsGroupEditor) {
+            TextField("playlist_group_name", text: $groupName)
+            Button("cancel", role: .cancel) {}
+            Button("save") { saveGroup() }
+                .disabled(!grouping.acceptsName(groupName, replacing: editingGroupID))
+        }
+        .confirmationDialog("playlist_group_dissolve", isPresented: Binding(
+            get: { dissolvingGroup != nil },
+            set: { if !$0 { dissolvingGroup = nil } }
+        ), titleVisibility: .visible) {
+            if let group = dissolvingGroup {
+                Button("playlist_group_dissolve", role: .destructive) {
+                    var updated = grouping
+                    updated.dissolve(id: group.id)
+                    groupingRawValue = updated.encoded()
+                    collapsedGroupIDs.remove(group.id)
+                    dissolvingGroup = nil
+                }
             }
+        } message: {
+            Text("playlist_group_dissolve_message")
+        }
+        .onChange(of: findText) { _, _ in
+            if isOrderingPlaylists { finishPlaylistOrder(save: false) }
+        }
+        .onDisappear {
+            if isOrderingPlaylists { finishPlaylistOrder(save: false) }
         }
     }
 
@@ -158,10 +185,239 @@ struct PlaylistListView: View {
     /// 顺序只在有得排的时候才给入口。
     private var canReorderPlaylists: Bool { playlists.count >= 2 }
 
+    private var grouping: PlaylistGrouping { PlaylistGrouping.decode(groupingRawValue) }
+
+    private var pagePlaylists: [Playlist] {
+        guard isOrderingPlaylists else { return shownPlaylists }
+        let byID = Dictionary(playlists.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return playlistOrderDraft.compactMap { byID[$0] }
+    }
+
+    private func playlists(in groupID: String?) -> [Playlist] {
+        let state = grouping
+        return pagePlaylists.filter { state.groupID(for: PlaylistGrouping.reference(id: $0.id)) == groupID }
+    }
+
+    private func smartPlaylists(in groupID: String?) -> [SmartPlaylist] {
+        let state = grouping
+        return shown(smartPlaylists, name: \.name).filter {
+            state.groupID(for: PlaylistGrouping.reference(id: $0.id, smart: true)) == groupID
+        }
+    }
+
+    private var ungroupedPlaylists: [Playlist] { playlists(in: nil) }
+    private var ungroupedAISmartPlaylists: [SmartPlaylist] { smartPlaylists(in: nil).filter { $0.effectiveKind == .ai } }
+    private var ungroupedRuleSmartPlaylists: [SmartPlaylist] { smartPlaylists(in: nil).filter { $0.effectiveKind == .rules } }
+    private var visibleGroups: [PlaylistGrouping.Group] {
+        grouping.groups.filter {
+            findQuery == nil || !playlists(in: $0.id).isEmpty || !smartPlaylists(in: $0.id).isEmpty
+        }
+    }
+
+    private func beginPlaylistOrder() {
+        initialPlaylistOrder = shownPlaylists.map(\.id)
+        playlistOrderDraft = initialPlaylistOrder
+        isManagingPlaylists = false
+        playlistSelection = []
+        isOrderingPlaylists = true
+    }
+
+    private func finishPlaylistOrder(save: Bool) {
+        let available = Set(playlists.map(\.id))
+        if save, playlistOrderDraft.filter(available.contains) != initialPlaylistOrder.filter(available.contains) {
+            let merged = PlaylistMemberOrderPolicy.reordered(
+                ordered(playlists).map(\.id), listedOrder: playlistOrderDraft
+            )
+            library.reorderPlaylists(merged)
+            listOrderRawValue = PlaylistListOrder.custom.rawValue
+        }
+        isOrderingPlaylists = false
+        playlistOrderDraft = []
+        initialPlaylistOrder = []
+    }
+
+    private func movePlaylists(_ items: [Playlist], from: IndexSet, to: Int) {
+        guard isOrderingPlaylists, from.allSatisfy(items.indices.contains), (0...items.count).contains(to) else { return }
+        var ids = items.map(\.id)
+        ids.move(fromOffsets: from, toOffset: to)
+        playlistOrderDraft = PlaylistMemberOrderPolicy.reordered(playlistOrderDraft, listedOrder: ids)
+    }
+
+    @ViewBuilder
+    private var playlistSections: some View {
+        ForEach(visibleGroups) { group in
+            Section {
+                if isOrderingPlaylists || findQuery != nil || !collapsedGroupIDs.contains(group.id) {
+                    playlistRows(playlists(in: group.id))
+                    ForEach(smartPlaylists(in: group.id)) { smart in
+                        smartPlaylistLink(smart)
+                    }
+                    if playlists(in: group.id).isEmpty && smartPlaylists(in: group.id).isEmpty {
+                        Text("no_playlists").foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                groupHeader(group)
+            }
+        }
+        if !ungroupedAISmartPlaylists.isEmpty {
+            Section("ai_smart_playlists_section") {
+                ForEach(ungroupedAISmartPlaylists) { smart in smartPlaylistLink(smart) }
+                    .onDelete { deleteSmartPlaylists(at: $0, in: ungroupedAISmartPlaylists) }
+                    .deleteDisabled(isOrderingPlaylists)
+            }
+        }
+        if !ungroupedRuleSmartPlaylists.isEmpty {
+            Section("rule_smart_playlists_section") {
+                ForEach(ungroupedRuleSmartPlaylists) { smart in smartPlaylistLink(smart) }
+                    .onDelete { deleteSmartPlaylists(at: $0, in: ungroupedRuleSmartPlaylists) }
+                    .deleteDisabled(isOrderingPlaylists)
+            }
+        }
+        if !ungroupedPlaylists.isEmpty {
+            Section {
+                playlistRows(ungroupedPlaylists)
+            } header: {
+                if !grouping.groups.isEmpty {
+                    Text("playlist_group_ungrouped")
+                } else if !smartPlaylists.isEmpty {
+                    Text("playlists_section")
+                }
+            }
+        }
+    }
+
+    private func playlistRows(_ items: [Playlist]) -> some View {
+        ForEach(items) { playlist in
+            if isOrderingPlaylists {
+                playlistRow(playlist)
+                    #if os(macOS)
+                    .overlay(alignment: .trailing) {
+                        Image(systemName: "line.3.horizontal").foregroundStyle(.secondary)
+                    }
+                    #endif
+            } else {
+                NavigationLink(value: playlist) { playlistRow(playlist) }
+                    .mediaZoomSource(.playlist, id: playlist.id)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if playlist.id != MusicLibrary.likedSongsPlaylistID {
+                            Button(role: .destructive) { pendingRemoval = PlaylistRemovalRequest(playlists: [playlist]) } label: {
+                                Label("delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                    .contextMenu {
+                        favoriteToggleButton(for: playlist)
+                        PlaylistRenameButton(playlist: playlist) { renamingPlaylist = playlist }
+                        groupMoveMenu(references: [PlaylistGrouping.reference(id: playlist.id)])
+                        serverMediaShareButton(for: playlist)
+                        copyToServerButton(for: playlist)
+                        playlistRemovalButtons(for: playlist)
+                    }
+            }
+        }
+        .onMove { movePlaylists(items, from: $0, to: $1) }
+        .moveDisabled(!isOrderingPlaylists)
+    }
+
+    private func smartPlaylistLink(_ smart: SmartPlaylist) -> some View {
+        NavigationLink(value: smart) { smartPlaylistRow(smart) }
+            .disabled(isOrderingPlaylists)
+            .contextMenu { if !isOrderingPlaylists { smartPlaylistContextMenu(smart) } }
+    }
+
+    @ViewBuilder
+    private func smartPlaylistContextMenu(_ smart: SmartPlaylist) -> some View {
+        SmartPlaylistIntentPinButton(playlistID: smart.id)
+        groupMoveMenu(references: [PlaylistGrouping.reference(id: smart.id, smart: true)])
+        Divider()
+        Button(role: .destructive) {
+            pendingRemoval = PlaylistRemovalRequest(smartPlaylistIDs: [smart.id])
+        } label: {
+            Label("delete_playlist", systemImage: "trash")
+        }
+    }
+
+    private func groupHeader(_ group: PlaylistGrouping.Group) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                if collapsedGroupIDs.contains(group.id) { collapsedGroupIDs.remove(group.id) }
+                else { collapsedGroupIDs.insert(group.id) }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder")
+                    Text(verbatim: group.name)
+                    Spacer()
+                    Text(verbatim: (playlists(in: group.id).count + smartPlaylists(in: group.id).count).formatted())
+                        .monospacedDigit()
+                    Image(systemName: collapsedGroupIDs.contains(group.id) && findQuery == nil && !isOrderingPlaylists
+                          ? "chevron.right" : "chevron.down")
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Menu {
+                Button("playlist_group_rename") { editGroup(group) }
+                Button("playlist_group_dissolve", role: .destructive) { dissolvingGroup = group }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text(verbatim: group.name + ", ") + Text("a11y_more_actions"))
+            .accessibilityIdentifier("playlistGroup.more.\(group.id)")
+        }
+        .textCase(nil)
+        .disabled(isOrderingPlaylists)
+    }
+
+    private func groupMoveMenu(references: [String]) -> some View {
+        Menu {
+            Button("playlist_group_ungrouped") { moveToGroup(references, groupID: nil) }
+            ForEach(grouping.groups) { group in
+                Button { moveToGroup(references, groupID: group.id) } label: {
+                    if references.allSatisfy({ grouping.groupID(for: $0) == group.id }) {
+                        Label(group.name, systemImage: "checkmark")
+                    } else {
+                        Text(verbatim: group.name)
+                    }
+                }
+            }
+            Divider()
+            Button("playlist_group_new") { editGroup(references: references) }
+        } label: {
+            Label("playlist_group_move", systemImage: "folder")
+        }
+    }
+
+    private func moveToGroup(_ references: [String], groupID: String?) {
+        var updated = grouping
+        updated.move(references, to: groupID)
+        groupingRawValue = updated.encoded()
+        if let groupID { collapsedGroupIDs.remove(groupID) }
+    }
+
+    private func editGroup(_ group: PlaylistGrouping.Group? = nil, references: [String] = []) {
+        editingGroupID = group?.id
+        groupName = group?.name ?? ""
+        groupEditorReferences = references
+        showsGroupEditor = true
+    }
+
+    private func saveGroup() {
+        var updated = grouping
+        if let id = editingGroupID {
+            updated.rename(id: id, name: groupName)
+        } else if let id = updated.create(name: groupName) {
+            updated.move(groupEditorReferences, to: id)
+        }
+        groupingRawValue = updated.encoded()
+    }
+
     @ViewBuilder
     private var iosBody: some View {
         Group {
-            if playlists.isEmpty && smartPlaylists.isEmpty {
+            if playlists.isEmpty && smartPlaylists.isEmpty && grouping.groups.isEmpty {
                 EmptyStateView(
                     titleKey: "no_playlists",
                     descriptionKey: "no_playlists_desc",
@@ -172,102 +428,10 @@ struct PlaylistListView: View {
             } else if isManagingPlaylists {
                 playlistManageList
             } else {
-                List {
-                    if !shownAISmartPlaylists.isEmpty {
-                        Section {
-                            ForEach(shownAISmartPlaylists) { smart in
-                                NavigationLink(value: smart) {
-                                    smartPlaylistRow(smart)
-                                }
-                                .contextMenu {
-                                    SmartPlaylistIntentPinButton(playlistID: smart.id)
-                                    Divider()
-                                    Button(role: .destructive) {
-                                        library.deleteSmartPlaylist(id: smart.id)
-                                    } label: {
-                                        Label("delete_playlist", systemImage: "trash")
-                                    }
-                                }
-                            }
-                            .onDelete { offsets in
-                                deleteSmartPlaylists(at: offsets, in: shownAISmartPlaylists)
-                            }
-                        } header: {
-                            Text("ai_smart_playlists_section")
-                        }
-                    }
-
-                    if !shownRuleSmartPlaylists.isEmpty {
-                        Section {
-                            ForEach(shownRuleSmartPlaylists) { smart in
-                                NavigationLink(value: smart) {
-                                    smartPlaylistRow(smart)
-                                }
-                                .contextMenu {
-                                    SmartPlaylistIntentPinButton(playlistID: smart.id)
-                                    Divider()
-                                    Button(role: .destructive) {
-                                        library.deleteSmartPlaylist(id: smart.id)
-                                    } label: {
-                                        Label("delete_playlist", systemImage: "trash")
-                                    }
-                                }
-                            }
-                            .onDelete { offsets in
-                                deleteSmartPlaylists(at: offsets, in: shownRuleSmartPlaylists)
-                            }
-                        } header: {
-                            Text("rule_smart_playlists_section")
-                        }
-                    }
-
-                    if !shownPlaylists.isEmpty {
-                        Section {
-                            ForEach(shownPlaylists) { playlist in
-                                NavigationLink(value: playlist) {
-                                    playlistRow(playlist)
-                                }
-                                .mediaZoomSource(.playlist, id: playlist.id)
-                                // 用 swipeActions 而不是 .onDelete ── 后者无法
-                                // 按行条件禁用, 之前在 deletePlaylists 里 continue
-                                // 跳过 system 歌单时 SwiftUI 已经做了消失动画
-                                // 等下一帧数据刷回来又出现, 用户看到"删了又回来"。
-                                // 改成 swipeActions 让 system 歌单根本没有 swipe
-                                // 入口, 视觉一致。
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if !isSystemPlaylist(playlist.id) {
-                                        Button(role: .destructive) {
-                                            library.deletePlaylist(id: playlist.id)
-                                        } label: {
-                                            Label("delete", systemImage: "trash")
-                                        }
-                                    } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-                                        Button {
-                                            library.hideMirrorPlaylist(id: playlist.id)
-                                        } label: {
-                                            Label("hide_playlist_from_primuse", systemImage: "eye.slash")
-                                        }
-                                    }
-                                }
-                                .contextMenu {
-                                    favoriteToggleButton(for: playlist)
-                                    PlaylistRenameButton(playlist: playlist) { renamingPlaylist = playlist }
-                                    serverMediaShareButton(for: playlist)
-                                    copyToServerButton(for: playlist)
-                                    playlistRemovalButtons(for: playlist)
-                                }
-                            }
-                        } header: {
-                            // 只有一类时不显示 header, 跟原版视觉一致;
-                            // 两类都有时才显示 "歌单" header 区分。
-                            if !smartPlaylists.isEmpty {
-                                Text("playlists_section")
-                            } else {
-                                EmptyView()
-                            }
-                        }
-                    }
-                }
+                List { playlistSections }
+                #if os(iOS)
+                .environment(\.editMode, .constant(isOrderingPlaylists ? .active : .inactive))
+                #endif
                 .overlay {
                     if findHasNoResults {
                         ContentUnavailableView.search(text: findText)
@@ -279,7 +443,15 @@ struct PlaylistListView: View {
             }
         }
         .toolbar {
-            if isManagingPlaylists {
+            if isOrderingPlaylists {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { finishPlaylistOrder(save: false) }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { finishPlaylistOrder(save: true) }
+                        .fontWeight(.semibold)
+                }
+            } else if isManagingPlaylists {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("done") {
                         isManagingPlaylists = false
@@ -291,7 +463,7 @@ struct PlaylistListView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     playlistAddMenu(titled: verticalBarEdge != nil)
                 }
-                if !playlists.isEmpty {
+                if !playlists.isEmpty || !smartPlaylists.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         playlistMoreMenu(titled: verticalBarEdge != nil)
                     }
@@ -299,12 +471,17 @@ struct PlaylistListView: View {
             }
         }
         #if os(iOS)
+        .navigationBarBackButtonHidden(isOrderingPlaylists)
         // 极简模式根页没有导航栏：歌单数与上面两颗键排成页头。
         .minimalPageHeader {
             HStack(spacing: 4) {
                 MinimalHeaderCount(text: playlistCountText)
                 Spacer(minLength: 8)
-                if isManagingPlaylists {
+                if isOrderingPlaylists {
+                    Button("cancel") { finishPlaylistOrder(save: false) }
+                    Button("done") { finishPlaylistOrder(save: true) }
+                        .fontWeight(.semibold)
+                } else if isManagingPlaylists {
                     Button {
                         isManagingPlaylists = false
                         playlistSelection = []
@@ -320,7 +497,7 @@ struct PlaylistListView: View {
                     MinimalHeaderActions {
                         MinimalPageFindButton()
                         playlistAddMenu(titled: false)
-                        if !playlists.isEmpty {
+                        if !playlists.isEmpty || !smartPlaylists.isEmpty {
                             playlistMoreMenu(titled: false)
                         }
                     }
@@ -347,11 +524,19 @@ struct PlaylistListView: View {
     /// 再要求他在里面点一次才出现勾选圈，中间那个状态看着像坏了。
     private var playlistManageList: some View {
         List(selection: $playlistSelection) {
+            if !smartPlaylists.isEmpty {
+                Section("smart_playlists_section") {
+                    ForEach(smartPlaylists) { smart in
+                        smartPlaylistRow(smart)
+                            .tag(PlaylistGrouping.reference(id: smart.id, smart: true))
+                    }
+                }
+            }
             Section {
                 ForEach(ordered(playlists)) { playlist in
                     playlistRow(playlist)
                         .tag(playlist.id)
-                        .selectionDisabled(isSystemPlaylist(playlist.id))
+
                 }
             }
         }
@@ -365,7 +550,7 @@ struct PlaylistListView: View {
         HStack(spacing: 12) {
             Text(verbatim: String(
                 format: String(localized: "batch_playlists_selected_count_format"),
-                deletablePlaylistIDs.count
+                playlistSelection.count
             ))
             .font(.subheadline.weight(.semibold))
             .monospacedDigit()
@@ -373,16 +558,25 @@ struct PlaylistListView: View {
             Spacer(minLength: 8)
 
             Button("batch_select_all") {
-                playlistSelection = Set(playlists.map(\.id).filter { !isSystemPlaylist($0) })
+                playlistSelection = Set(playlists.map(\.id) + smartPlaylists.map {
+                    PlaylistGrouping.reference(id: $0.id, smart: true)
+                })
             }
             .font(.subheadline)
 
+            groupMoveMenu(references: selectedPlaylistIDs.map { PlaylistGrouping.reference(id: $0) }
+                          + selectedSmartPlaylistIDs.map { PlaylistGrouping.reference(id: $0, smart: true) })
+                .disabled(playlistSelection.isEmpty)
+
             Button(role: .destructive) {
-                showBatchDeleteConfirm = true
+                pendingRemoval = PlaylistRemovalRequest(
+                    playlists: playlists.filter { selectedPlaylistIDs.contains($0.id) },
+                    smartPlaylistIDs: selectedSmartPlaylistIDs
+                )
             } label: {
                 Label("delete", systemImage: "trash")
             }
-            .disabled(deletablePlaylistIDs.isEmpty)
+            .disabled(playlistSelection.isEmpty)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -408,6 +602,11 @@ struct PlaylistListView: View {
             } label: {
                 Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
             }
+            Button {
+                editGroup()
+            } label: {
+                Label("playlist_group_new", systemImage: "folder.badge.plus")
+            }
             if operationAvailability.supportsImport {
                 Divider()
                 Button {
@@ -432,7 +631,7 @@ struct PlaylistListView: View {
                     Label("sort_by", systemImage: "arrow.up.arrow.down")
                 }
                 Button {
-                    showPlaylistOrder = true
+                    beginPlaylistOrder()
                 } label: {
                     Label("playlist_order_action", systemImage: "line.3.horizontal")
                 }
@@ -482,12 +681,6 @@ struct PlaylistListView: View {
         #else
         return 0
         #endif
-    }
-
-    private func deleteSelectedPlaylists() {
-        library.deletePlaylists(ids: deletablePlaylistIDs)
-        playlistSelection = []
-        isManagingPlaylists = false
     }
 
     private func playlistRow(_ playlist: Playlist) -> some View {
@@ -549,12 +742,93 @@ struct PlaylistListView: View {
 
     #if os(macOS)
     @ViewBuilder
+    private func macSmartPlaylistCard(_ smart: SmartPlaylist) -> some View {
+        let reference = PlaylistGrouping.reference(id: smart.id, smart: true)
+        if isManagingPlaylists {
+            smartPlaylistCard(smart)
+                .overlay(alignment: .topTrailing) {
+                    SongSelectionCheckmark(isSelected: playlistSelection.contains(reference))
+                        .padding(10)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if playlistSelection.contains(reference) { playlistSelection.remove(reference) }
+                    else { playlistSelection.insert(reference) }
+                }
+        } else {
+            NavigationLink(value: smart) { smartPlaylistCard(smart) }
+                .buttonStyle(.plain)
+                .pmHoverLift()
+                .contextMenu { smartPlaylistContextMenu(smart) }
+        }
+    }
+
+    private var macGroupedPlaylists: some View {
+        ForEach(visibleGroups) { group in
+            VStack(alignment: .leading, spacing: 10) {
+                groupHeader(group)
+                    .font(.subheadline.weight(.semibold))
+                if findQuery != nil || !collapsedGroupIDs.contains(group.id) {
+                    LazyVGrid(columns: macPlaylistGridColumns, alignment: .leading, spacing: 12) {
+                        ForEach(playlists(in: group.id)) { playlist in
+                            if isManagingPlaylists {
+                                playlistCard(playlist)
+                                    .overlay(alignment: .topTrailing) {
+                                        SongSelectionCheckmark(isSelected: playlistSelection.contains(playlist.id))
+                                            .padding(10)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        if playlistSelection.contains(playlist.id) { playlistSelection.remove(playlist.id) }
+                                        else { playlistSelection.insert(playlist.id) }
+                                    }
+                            } else {
+                                NavigationLink(value: playlist) { playlistCard(playlist) }
+                                    .buttonStyle(.plain)
+                                    .contextMenu { playlistContextMenu(for: playlist) }
+                                    .pmHoverLift()
+                            }
+                        }
+                        ForEach(smartPlaylists(in: group.id)) { smart in
+                            macSmartPlaylistCard(smart)
+                        }
+                    }
+                    if playlists(in: group.id).isEmpty && smartPlaylists(in: group.id).isEmpty {
+                        Text("no_playlists").foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var macBody: some View {
+        if isOrderingPlaylists {
+            VStack(spacing: 16) {
+                HStack {
+                    Text("tab_playlists").font(.largeTitle.bold())
+                    Spacer()
+                    Button("cancel") { finishPlaylistOrder(save: false) }
+                    Button("done") { finishPlaylistOrder(save: true) }
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(.horizontal, 36)
+                .padding(.top, 32)
+                List { playlistSections }
+                    .listStyle(.plain)
+            }
+            .background(PMColor.bg.ignoresSafeArea())
+        } else {
+            macBrowseBody
+        }
+    }
+
+    private var macBrowseBody: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 macPlaylistsHeader
 
-                if playlists.isEmpty && smartPlaylists.isEmpty {
+                if playlists.isEmpty && smartPlaylists.isEmpty && grouping.groups.isEmpty {
                     ContentUnavailableView(
                         "no_playlists",
                         systemImage: "music.note.list",
@@ -566,8 +840,9 @@ struct PlaylistListView: View {
                         .frame(maxWidth: .infinity, minHeight: 320)
                 } else {
                     playlistOverview
+                    macGroupedPlaylists
 
-                    if !shownAISmartPlaylists.isEmpty {
+                    if !ungroupedAISmartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             macSubsectionTitle("ai_smart_playlists_section")
                             LazyVGrid(
@@ -575,19 +850,15 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(shownAISmartPlaylists) { smart in
-                                    NavigationLink(value: smart) {
-                                        smartPlaylistCard(smart)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .pmHoverLift()
+                                ForEach(ungroupedAISmartPlaylists) { smart in
+                                    macSmartPlaylistCard(smart)
                                 }
                             }
                         }
                         .pmFadeTransition(motion: .contentAppear)
                     }
 
-                    if !shownRuleSmartPlaylists.isEmpty {
+                    if !ungroupedRuleSmartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             macSubsectionTitle("rule_smart_playlists_section")
                             LazyVGrid(
@@ -595,21 +866,19 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(shownRuleSmartPlaylists) { smart in
-                                    NavigationLink(value: smart) {
-                                        smartPlaylistCard(smart)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .pmHoverLift()
+                                ForEach(ungroupedRuleSmartPlaylists) { smart in
+                                    macSmartPlaylistCard(smart)
                                 }
                             }
                         }
                         .pmFadeTransition(motion: .contentAppear)
                     }
 
-                    if !shownPlaylists.isEmpty {
+                    if !ungroupedPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            if !smartPlaylists.isEmpty {
+                            if !grouping.groups.isEmpty {
+                                macSubsectionTitle("playlist_group_ungrouped")
+                            } else if !smartPlaylists.isEmpty {
                                 macSubsectionTitle("playlists_section")
                             }
 
@@ -618,21 +887,17 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(shownPlaylists) { playlist in
+                                ForEach(ungroupedPlaylists) { playlist in
                                     if isManagingPlaylists {
                                         playlistCard(playlist)
-                                            .opacity(isSystemPlaylist(playlist.id) ? 0.45 : 1)
                                             .overlay(alignment: .topTrailing) {
-                                                if !isSystemPlaylist(playlist.id) {
-                                                    SongSelectionCheckmark(
+                                                SongSelectionCheckmark(
                                                         isSelected: playlistSelection.contains(playlist.id)
                                                     )
                                                     .padding(10)
-                                                }
                                             }
                                             .contentShape(Rectangle())
                                             .onTapGesture {
-                                                guard !isSystemPlaylist(playlist.id) else { return }
                                                 if playlistSelection.contains(playlist.id) {
                                                     playlistSelection.remove(playlist.id)
                                                 } else {
@@ -789,11 +1054,18 @@ struct PlaylistListView: View {
                 .help(Text("server_playlist_copy_action"))
             }
 
+            Button {
+                editGroup()
+            } label: {
+                Image(systemName: "folder.badge.plus")
+            }
+            .help(Text("playlist_group_new"))
+
             if canReorderPlaylists {
                 macSortMenu
             }
 
-            if !playlists.isEmpty {
+            if !playlists.isEmpty || !smartPlaylists.isEmpty {
                 Button {
                     isManagingPlaylists.toggle()
                     if !isManagingPlaylists { playlistSelection = [] }
@@ -826,7 +1098,7 @@ struct PlaylistListView: View {
             PlaylistListSortMenuItems(order: listOrderBinding)
             Section {
                 Button {
-                    showPlaylistOrder = true
+                    beginPlaylistOrder()
                 } label: {
                     Label("playlist_order_action", systemImage: "line.3.horizontal")
                 }
@@ -1035,6 +1307,7 @@ struct PlaylistListView: View {
 
         favoriteToggleButton(for: playlist)
         PlaylistRenameButton(playlist: playlist) { renamingPlaylist = playlist }
+        groupMoveMenu(references: [PlaylistGrouping.reference(id: playlist.id)])
         serverMediaShareButton(for: playlist)
         copyToServerButton(for: playlist)
         playlistRemovalButtons(for: playlist)
@@ -1054,22 +1327,14 @@ struct PlaylistListView: View {
         }
     }
 
-    /// 自己的歌单能删; 镜像歌单删了下次同步又回来, 只给「在 Primuse 中隐藏」。
     @ViewBuilder
     private func playlistRemovalButtons(for playlist: Playlist) -> some View {
-        if !isSystemPlaylist(playlist.id) {
+        if playlist.id != MusicLibrary.likedSongsPlaylistID {
             Divider()
             Button(role: .destructive) {
-                library.deletePlaylist(id: playlist.id)
+                pendingRemoval = PlaylistRemovalRequest(playlists: [playlist])
             } label: {
                 Label("delete_playlist", systemImage: "trash")
-            }
-        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-            Divider()
-            Button {
-                library.hideMirrorPlaylist(id: playlist.id)
-            } label: {
-                Label("hide_playlist_from_primuse", systemImage: "eye.slash")
             }
         }
     }
@@ -1124,22 +1389,11 @@ struct PlaylistListView: View {
         newPlaylistName = ""
     }
 
-    /// system 歌单 (Apple Music / 服务端曲库镜像, 「我喜欢」) 不允许从这里删:
-    /// - 镜像歌单下次 sync / 扫描自动重建, "删了又出现"
-    /// - 「我喜欢」heart toggle 又会触发 ensure 重建
-    /// 镜像内容必须在源端管理（或删除对应音乐源）；「我喜欢」则通过心形按钮管理。
-    private func isSystemPlaylist(_ playlistID: String) -> Bool {
-        MirrorPlaylistIdentity.isMirrorPlaylist(playlistID)
-            || playlistID == MusicLibrary.likedSongsPlaylistID
-    }
-
     private func deleteSmartPlaylists(
         at offsets: IndexSet,
         in playlists: [SmartPlaylist]
     ) {
-        for index in offsets {
-            library.deleteSmartPlaylist(id: playlists[index].id)
-        }
+        pendingRemoval = PlaylistRemovalRequest(smartPlaylistIDs: Set(offsets.map { playlists[$0].id }))
     }
 
     private func playPlaylist(_ playlist: Playlist, shuffled: Bool = false) {
@@ -1341,265 +1595,6 @@ struct PlaylistListSortMenuItems: View {
     }
 }
 
-// MARK: - Playlist Order Sheet
-
-/// 调整歌单在列表里的顺序。歌单原本固定按最近更新倒序排,往任何一个歌单里加
-/// 一首歌它就跳到最前面,用户排不了;这里把顺序交给用户,写回 `sortOrder` 之后
-/// 跨设备一致。交互跟歌单内歌曲重排 (`PlaylistReorderSheet`) 保持一致:
-/// 两端都是拖动;Mac 上整行按住即可拖,右键可直接置顶。
-struct PlaylistOrderSheet: View {
-    let initialPlaylists: [Playlist]
-    let onDone: ([Playlist]) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    #if os(macOS)
-    @Environment(\.locale) private var locale
-    @Environment(MusicLibrary.self) private var library
-    @Environment(SourceManager.self) private var sourceManager
-    #endif
-    @State private var localPlaylists: [Playlist]
-
-    /// - Parameter startingWith: 面板一打开时摆出来的顺序, 默认就是歌单现在的顺序。
-    ///   歌单页按名字等排着的时候传眼前那一列; 跟现在的顺序不一样, 点「完成」就照它写回。
-    init(
-        playlists: [Playlist],
-        startingWith startingOrder: [Playlist]? = nil,
-        onDone: @escaping ([Playlist]) -> Void
-    ) {
-        self.initialPlaylists = playlists
-        self._localPlaylists = State(initialValue: startingOrder ?? playlists)
-        self.onDone = onDone
-    }
-
-    private var hasChanges: Bool {
-        localPlaylists.map(\.id) != initialPlaylists.map(\.id)
-    }
-
-    private func commit() {
-        // 顺序没动就不写库, 免得白白推一次 iCloud 同步。
-        if hasChanges { onDone(localPlaylists) }
-        dismiss()
-    }
-
-    var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        iosBody
-        #endif
-    }
-
-    #if !os(macOS)
-    private var iosBody: some View {
-        NavigationStack {
-            List {
-                ForEach(localPlaylists) { playlist in
-                    HStack(spacing: 10) {
-                        PlaylistArtworkView(playlist: playlist, size: 36, cornerRadius: 5)
-                        Text(playlist.name)
-                            .font(.subheadline)
-                            .lineLimit(1)
-                    }
-                }
-                .onMove { from, to in
-                    localPlaylists.move(fromOffsets: from, toOffset: to)
-                }
-            }
-            #if os(iOS)
-            .environment(\.editMode, .constant(.active))
-            #endif
-            .navigationTitle("playlist_order_title")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(String(localized: "cancel")) { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(String(localized: "done")) { commit() }
-                        .fontWeight(.semibold)
-                }
-            }
-            #else
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "cancel")) { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "done")) { commit() }
-                        .fontWeight(.semibold)
-                }
-            }
-            #endif
-        }
-    }
-    #endif
-
-    #if os(macOS)
-    private var macBody: some View {
-        let ordinalWidth = MacOrdinalColumn.width(
-            for: localPlaylists.count, minimum: 26, fontSize: 11, locale: locale
-        )
-        return VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(PMColor.brand.opacity(0.16))
-                    .frame(width: 44, height: 44)
-                    .overlay {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(PMColor.brand)
-                    }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("playlist_order_title")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Text(verbatim: "\(localPlaylists.count) \(String(localized: "playlists_section"))")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(PMColor.textMuted)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.textMuted)
-                        .frame(width: 26, height: 26)
-                        .background(PMColor.glassBtn, in: .circle)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            // 原生 List 的拖动排序:插入线、拖到边缘自动滚动都由系统负责,
-            // 几百个歌单也能一次拖到位。
-            List {
-                ForEach(Array(localPlaylists.enumerated()), id: \.element.id) { index, playlist in
-                    macPlaylistRow(playlist, index: index, ordinalWidth: ordinalWidth)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-                .onMove { from, to in
-                    localPlaylists.move(fromOffsets: from, toOffset: to)
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .contentMargins(.vertical, 10, for: .scrollContent)
-
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            HStack {
-                Text(hasChanges
-                    ? String(localized: "playlist_reorder_changed")
-                    : String(localized: "playlist_order_hint"))
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(hasChanges ? PMColor.brand : PMColor.textFaint)
-                Spacer()
-                Button("cancel") { dismiss() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(PMColor.text)
-                    .padding(.horizontal, 14)
-                    .frame(height: 30)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
-                    .keyboardShortcut(.cancelAction)
-                Button("done") { commit() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(height: 30)
-                    .background(PMColor.brand, in: .rect(cornerRadius: 7))
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-        }
-        .frame(width: 520, height: 620)
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(PMColor.bg.opacity(0.78))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.24), radius: 28, y: 14)
-    }
-
-    private func macPlaylistRow(_ playlist: Playlist, index: Int, ordinalWidth: CGFloat) -> some View {
-        HStack(spacing: 10) {
-            Text(verbatim: (index + 1).formatted(.number.locale(locale)))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(PMColor.textFaint)
-                .lineLimit(1)
-                .frame(width: ordinalWidth, alignment: .trailing)
-
-            PlaylistArtworkView(playlist: playlist, size: 38, cornerRadius: 5)
-
-            Text(playlist.name)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(PMColor.text)
-                .lineLimit(1)
-
-            Spacer()
-
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(PMColor.textFaint)
-                .frame(width: 24, height: 24)
-                .accessibilityHidden(true)
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 52)
-        .background(PMColor.bgElev.opacity(0.84), in: .rect(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-        .contentShape(.rect(cornerRadius: 10))
-        .help(Text("Drag to Reorder"))
-        .contextMenu {
-            Button("radio_manage_pin_top", systemImage: "arrow.up.to.line") {
-                movePlaylist(from: index, to: 0)
-            }
-            .disabled(index == 0)
-        }
-        .accessibilityAction(named: Text("home_edit_move_up")) {
-            movePlaylist(from: index, to: index - 1)
-        }
-        .accessibilityAction(named: Text("home_edit_move_down")) {
-            movePlaylist(from: index, to: index + 1)
-        }
-        // 拖起的行可能被搬进独立的预览宿主渲染, 封面要读的两个模型显式带上。
-        .environment(library)
-        .environment(sourceManager)
-    }
-
-    private func movePlaylist(from source: Int, to destination: Int) {
-        guard localPlaylists.indices.contains(source),
-              localPlaylists.indices.contains(destination),
-              source != destination else { return }
-        pmWithAnimation(.list) {
-            let item = localPlaylists.remove(at: source)
-            localPlaylists.insert(item, at: destination)
-        }
-    }
-    #endif
-}
-
 /// 智能歌单详情：资料库导航栈已经在根上登记过就不再登记（极简模式下登记在这一页里面
 /// 点卡片接不住）；iPad 侧栏、Mac 单独挂出来时照旧在这里登记。
 private struct SmartPlaylistDestinationModifier: ViewModifier {
@@ -1662,5 +1657,62 @@ private struct PlaylistRenameAlert: ViewModifier {
 extension View {
     func playlistRenameAlert(_ playlist: Binding<Playlist?>) -> some View {
         modifier(PlaylistRenameAlert(playlist: playlist))
+    }
+}
+
+struct PlaylistRemovalRequest {
+    let playlistIDs: Set<String>
+    let smartPlaylistIDs: Set<String>
+    let localCount: Int
+    let mirrorCount: Int
+
+    init(playlists: [Playlist] = [], smartPlaylistIDs: Set<String> = []) {
+        let ids = Set(playlists.map(\.id)).subtracting([MusicLibrary.likedSongsPlaylistID])
+        self.playlistIDs = ids
+        self.smartPlaylistIDs = smartPlaylistIDs
+        self.mirrorCount = ids.filter(MirrorPlaylistIdentity.isMirrorPlaylist).count
+        self.localCount = ids.count - mirrorCount + smartPlaylistIDs.count
+    }
+
+    var message: String {
+        var parts: [String] = []
+        if localCount > 0 {
+            parts.append(String(format: String(localized: "playlist_delete_local_confirm_format"), localCount))
+        }
+        if mirrorCount > 0 {
+            parts.append(String(format: String(localized: "playlist_delete_mirror_confirm_format"), mirrorCount))
+        }
+        return parts.joined(separator: "\n\n")
+    }
+}
+
+private struct PlaylistRemovalAlert: ViewModifier {
+    @Binding var request: PlaylistRemovalRequest?
+    @Environment(MusicLibrary.self) private var library
+    let onRemoved: (PlaylistRemovalRequest) -> Void
+
+    func body(content: Content) -> some View {
+        content.alert("delete_playlist", isPresented: Binding(
+            get: { request != nil },
+            set: { if !$0 { request = nil } }
+        ), presenting: request) { removal in
+            Button("cancel", role: .cancel) {}
+            Button("delete", role: .destructive) {
+                library.removePlaylistsFromLibrary(ids: removal.playlistIDs)
+                for id in removal.smartPlaylistIDs { library.deleteSmartPlaylist(id: id) }
+                onRemoved(removal)
+            }
+        } message: { removal in
+            Text(verbatim: removal.message)
+        }
+    }
+}
+
+extension View {
+    func playlistRemovalAlert(
+        _ request: Binding<PlaylistRemovalRequest?>,
+        onRemoved: @escaping (PlaylistRemovalRequest) -> Void = { _ in }
+    ) -> some View {
+        modifier(PlaylistRemovalAlert(request: request, onRemoved: onRemoved))
     }
 }

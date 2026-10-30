@@ -520,9 +520,10 @@ private struct HomeRankedSongsView: View {
 
     var body: some View {
         List {
-            ForEach(songIDs, id: \.self) { id in
+            ForEach(Array(songIDs.enumerated()), id: \.element) { index, id in
                 if let song = library.unobservedVisibleSong(id: id) {
-                    SongRowView(song: song, isPlaying: player.currentSong?.id == id)
+                    SongRowView(song: song, isPlaying: player.currentSong?.id == id,
+                                trackNumber: index + 1, largestTrackNumber: songIDs.count)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             HomeDiscoveryPlayback.play(ids: songIDs, startingAt: id, library: library, player: player)

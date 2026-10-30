@@ -4598,9 +4598,9 @@ struct HomeView: View {
                 let shownSongs = songs.prefix(sectionItemCount(.continueListening, 12))
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(rows: carouselRows(.continueListening, height: 60, spacing: 10, itemCount: shownSongs.count), spacing: 10) {
-                        ForEach(shownSongs, id: \.id) { song in
+                        ForEach(Array(shownSongs.enumerated()), id: \.element.id) { index, song in
                             Button { playSong(song) } label: {
-                                continueListeningRow(song)
+                                continueListeningRow(song, ordinal: index + 1)
                             }
                             .buttonStyle(.pmPressable)
                         }
@@ -4610,9 +4610,9 @@ struct HomeView: View {
                 .pmStopsAtVerticalBar()
             case .list:
                 VStack(spacing: 8) {
-                    ForEach(songs.prefix(sectionItemCount(.continueListening, usesPadMetrics ? 8 : 5)), id: \.id) { song in
+                    ForEach(Array(songs.prefix(sectionItemCount(.continueListening, usesPadMetrics ? 8 : 5)).enumerated()), id: \.element.id) { index, song in
                         Button { playSong(song) } label: {
-                            continueListeningRow(song, fillsWidth: true)
+                            continueListeningRow(song, ordinal: index + 1, fillsWidth: true)
                         }
                         .buttonStyle(.pmPressable)
                     }
@@ -4623,7 +4623,7 @@ struct HomeView: View {
     }
 
     /// 纵向列表里要铺满一行 —— 沿用横排的固定宽度会在右侧留一条空白。
-    private func continueListeningRow(_ song: Song, fillsWidth: Bool = false) -> some View {
+    private func continueListeningRow(_ song: Song, ordinal: Int, fillsWidth: Bool = false) -> some View {
         HStack(spacing: 10) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
@@ -4636,7 +4636,7 @@ struct HomeView: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)

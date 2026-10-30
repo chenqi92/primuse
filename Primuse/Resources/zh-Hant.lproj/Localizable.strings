@@ -7004,3 +7004,13 @@
 "content_explicit" = "含露骨內容";
 "content_rating" = "內容分級";
 "copyright_label" = "版權";
+
+"playlist_group_new" = "新增群組";
+"playlist_group_name" = "群組名稱";
+"playlist_group_move" = "移至群組";
+"playlist_group_ungrouped" = "未分組";
+"playlist_group_rename" = "重新命名群組";
+"playlist_group_dissolve" = "解散群組";
+"playlist_group_dissolve_message" = "播放清單將回到未分組，不會刪除播放清單或歌曲。";
+"playlist_delete_local_confirm_format" = "將刪除 %lld 個本機歌單，可在「最近刪除」中復原。歌曲不會被刪除。";
+"playlist_delete_mirror_confirm_format" = "選取的 %lld 個音樂服務或 Apple Music 歌單只會在本機隱藏，不會刪除原服務中的歌單或歌曲。";

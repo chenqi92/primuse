@@ -6933,3 +6933,13 @@
 "content_explicit" = "Ненормативная лексика";
 "content_rating" = "Возрастная маркировка";
 "copyright_label" = "Авторские права";
+
+"playlist_group_new" = "Новая группа";
+"playlist_group_name" = "Название группы";
+"playlist_group_move" = "Переместить в группу";
+"playlist_group_ungrouped" = "Без группы";
+"playlist_group_rename" = "Переименовать группу";
+"playlist_group_dissolve" = "Расформировать группу";
+"playlist_group_dissolve_message" = "Плейлисты вернутся в раздел «Без группы». Плейлисты и песни не будут удалены.";
+"playlist_delete_local_confirm_format" = "Будет удалено локальных плейлистов: %lld. Их можно восстановить из раздела «Недавно удалённые». Песни не будут удалены.";
+"playlist_delete_mirror_confirm_format" = "Плейлисты из музыкальных сервисов или Apple Music (%lld) будут скрыты только на этом устройстве. Плейлисты и песни в исходном сервисе не будут удалены.";

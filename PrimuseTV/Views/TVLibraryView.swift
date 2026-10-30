@@ -946,9 +946,11 @@ struct TVLibraryView: View {
                 let recommendationSongs = displayedRecommendationSongs
                 let recommendationQueueSongIDs = recommendationSongs.map(\.id)
                 LazyVStack(spacing: 10) {
-                    ForEach(recommendationSongs) { song in
+                    ForEach(Array(recommendationSongs.enumerated()), id: \.element.id) { index, song in
                         TVSongRow(
                             song: song,
+                            ordinal: index + 1,
+                            largestOrdinal: recommendationSongs.count,
                             reason: aiRecommendation.reason(for: song.id),
                             queueSongIDs: recommendationQueueSongIDs,
                             action: openPlayer
@@ -1009,6 +1011,8 @@ struct TVLibraryView: View {
                     if let song = store.song(item.id) {
                         TVSongRow(
                             song: song,
+                            ordinal: index + 1,
+                            largestOrdinal: songIDs.count,
                             queueSongIDs: songIDs,
                             action: openPlayer,
                             onFocusChanged: { focused in
@@ -2174,11 +2178,29 @@ struct TVAlbumDetailView: View {
     }
 }
 
+struct TVSongOrdinal: View {
+    let number: Int
+    let largestNumber: Int
+
+    var body: some View {
+        Text(max(number, largestNumber), format: .number.grouping(.never))
+            .hidden()
+            .overlay(alignment: .trailing) {
+                Text(number, format: .number.grouping(.never))
+            }
+            .tvFont(.meta, design: .monospaced)
+            .foregroundStyle(TVColor.textFaint)
+            .fixedSize()
+    }
+}
+
 /// 歌曲行 — 封面 + 标题/艺术家 + 时长。
 struct TVSongRow: View {
     @Environment(TVStore.self) private var store
     @State private var pendingRemoval: TVLibraryRemovalRequest?
     let song: TVSong
+    var ordinal: Int? = nil
+    var largestOrdinal: Int = 1
     var reason: String? = nil
     var queueSongIDs: [String]? = nil
     var action: () -> Void = {}
@@ -2217,6 +2239,9 @@ struct TVSongRow: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                     }
+                if let ordinal {
+                    TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     if let reason {
                         Label(reason, systemImage: "sparkles")
@@ -2343,10 +2368,12 @@ struct TVPagedSongIDList: View {
         TVPagedList(
             songIDs, id: \.self, alignment: alignment, spacing: spacing,
             revealing: revealingSongID.flatMap { songIDs.firstIndex(of: $0) }
-        ) { _, songID, onFocusChanged in
+        ) { index, songID, onFocusChanged in
             if let song = store.song(songID) {
                 TVSongRow(
                     song: song,
+                    ordinal: index + 1,
+                    largestOrdinal: songIDs.count,
                     queueSongIDs: songIDs,
                     action: action,
                     onFocusChanged: onFocusChanged,

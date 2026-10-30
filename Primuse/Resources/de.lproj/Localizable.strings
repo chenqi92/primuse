@@ -7027,3 +7027,13 @@
 "content_explicit" = "Explizite Inhalte";
 "content_rating" = "Inhaltsbewertung";
 "copyright_label" = "Copyright";
+
+"playlist_group_new" = "Neue Gruppe";
+"playlist_group_name" = "Gruppenname";
+"playlist_group_move" = "In Gruppe verschieben";
+"playlist_group_ungrouped" = "Ohne Gruppe";
+"playlist_group_rename" = "Gruppe umbenennen";
+"playlist_group_dissolve" = "Gruppe auflösen";
+"playlist_group_dissolve_message" = "Die Playlists werden keiner Gruppe mehr zugeordnet. Playlists und Titel bleiben erhalten.";
+"playlist_delete_local_confirm_format" = "%lld lokale Playlists werden gelöscht. Du kannst sie unter „Zuletzt gelöscht“ wiederherstellen. Songs werden nicht gelöscht.";
+"playlist_delete_mirror_confirm_format" = "%lld Playlists von Musikdiensten oder Apple Music werden nur auf diesem Gerät ausgeblendet. Playlists und Songs im ursprünglichen Dienst werden nicht gelöscht.";

@@ -400,8 +400,8 @@ struct AIPlaylistEditorView: View {
                             }
                         }
 
-                        ForEach(generatedSongs) { song in
-                            previewRow(song)
+                        ForEach(Array(generatedSongs.enumerated()), id: \.element.id) { index, song in
+                            previewRow(song, ordinal: index + 1)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
 
@@ -456,7 +456,7 @@ struct AIPlaylistEditorView: View {
         return "ai_playlist_prompt_footer"
     }
 
-    private func previewRow(_ song: Song) -> some View {
+    private func previewRow(_ song: Song, ordinal: Int) -> some View {
         HStack(spacing: 10) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
@@ -468,6 +468,8 @@ struct AIPlaylistEditorView: View {
                 fileFormat: song.fileFormat
             )
 
+            SongRowTrackNumber(number: ordinal, largestNumber: generatedSongs.count)
+                .font(.subheadline).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)
                     .lineLimit(1)

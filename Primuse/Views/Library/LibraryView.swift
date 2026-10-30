@@ -2574,11 +2574,13 @@ private struct GenreDetailView: View {
             let ids = songIDs
             let lastID = ids.last
             LazyVStack(spacing: 0) {
-                ForEach(ids, id: \.self) { songID in
+                ForEach(Array(ids.enumerated()), id: \.element) { index, songID in
                     if let song = library.unobservedVisibleSong(id: songID) {
                         SongRowView(
                             song: song,
                             isPlaying: player.currentSong?.id == song.id,
+                            trackNumber: index + 1,
+                            largestTrackNumber: ids.count,
                             selection: selection,
                             context: SongRowView.context(
                                 for: song,

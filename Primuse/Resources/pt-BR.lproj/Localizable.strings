@@ -6933,3 +6933,13 @@
 "content_explicit" = "Conteúdo explícito";
 "content_rating" = "Classificação de conteúdo";
 "copyright_label" = "Direitos autorais";
+
+"playlist_group_new" = "Novo grupo";
+"playlist_group_name" = "Nome do grupo";
+"playlist_group_move" = "Mover para grupo";
+"playlist_group_ungrouped" = "Sem grupo";
+"playlist_group_rename" = "Renomear grupo";
+"playlist_group_dissolve" = "Desagrupar playlists";
+"playlist_group_dissolve_message" = "As playlists voltarão para Sem grupo. Nenhuma playlist ou música será excluída.";
+"playlist_delete_local_confirm_format" = "%lld playlists locais serão excluídas. Você pode restaurá-las em Excluídas recentemente. As músicas não serão excluídas.";
+"playlist_delete_mirror_confirm_format" = "%lld playlists de serviços de música ou do Apple Music serão ocultadas apenas neste dispositivo. As playlists e músicas no serviço original não serão excluídas.";

@@ -624,6 +624,8 @@ struct ArtistDetailView: View {
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
+                        trackNumber: index + 1,
+                        largestTrackNumber: popular.count,
                         selection: selection,
                         context: SongRowView.context(
                             for: song,
@@ -1111,6 +1113,8 @@ private struct ArtistAllSongsView: View {
                             SongRowView(
                                 song: song,
                                 isPlaying: player.currentSong?.id == song.id,
+                                trackNumber: index + 1,
+                                largestTrackNumber: songs.count,
                                 selection: selection,
                                 context: SongRowView.context(
                                     for: song,

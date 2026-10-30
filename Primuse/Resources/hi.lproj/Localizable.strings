@@ -6933,3 +6933,13 @@
 "content_explicit" = "अश्लील सामग्री";
 "content_rating" = "सामग्री रेटिंग";
 "copyright_label" = "कॉपीराइट";
+
+"playlist_group_new" = "नया समूह";
+"playlist_group_name" = "समूह का नाम";
+"playlist_group_move" = "समूह में ले जाएँ";
+"playlist_group_ungrouped" = "बिना समूह";
+"playlist_group_rename" = "समूह का नाम बदलें";
+"playlist_group_dissolve" = "समूह हटाएँ";
+"playlist_group_dissolve_message" = "प्लेलिस्ट बिना समूह वाली सूची में वापस आ जाएँगी। कोई प्लेलिस्ट या गाना नहीं मिटेगा।";
+"playlist_delete_local_confirm_format" = "%lld स्थानीय प्लेलिस्ट हटाई जाएँगी। आप उन्हें हाल ही में हटाए गए से बहाल कर सकते हैं। गाने नहीं हटाए जाएँगे।";
+"playlist_delete_mirror_confirm_format" = "संगीत सेवाओं या Apple Music की %lld प्लेलिस्ट केवल इस डिवाइस पर छिपाई जाएँगी। मूल सेवा की प्लेलिस्ट और गाने नहीं हटाए जाएँगे।";

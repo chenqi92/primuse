@@ -656,12 +656,13 @@ struct HomeFolderBrowser: View {
                 let ids = directSongIDs
                 if !ids.isEmpty {
                     Section("tab_songs") {
-                        ForEach(ids.prefix(Self.inlineSongLimit), id: \.self) { songID in
+                        ForEach(Array(ids.prefix(Self.inlineSongLimit).enumerated()), id: \.element) { index, songID in
                             if let song = library.unobservedVisibleSong(id: songID) {
                                 // A fixed row container prevents List from expanding
                                 // SongRowView's conditional menu tree for every song.
                                 HStack(spacing: 0) {
-                                    SongRowView(song: song, isPlaying: player.currentSong?.id == song.id)
+                                    SongRowView(song: song, isPlaying: player.currentSong?.id == song.id,
+                                                trackNumber: index + 1, largestTrackNumber: min(ids.count, Self.inlineSongLimit))
                                 }
                                     .contentShape(Rectangle())
                                     .onTapGesture {

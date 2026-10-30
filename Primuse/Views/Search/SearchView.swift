@@ -2127,7 +2127,7 @@ struct SearchView: View {
         spacing: CGFloat,
         rowSpacing: CGFloat,
         lazily: Bool = false,
-        @ViewBuilder content: @escaping (Item) -> Content
+        @ViewBuilder content: @escaping (Int, Item) -> Content
     ) -> some View {
         let chunks = SearchResultPageLayout.columnMajorChunks(items, columns: columns)
         return HStack(alignment: .top, spacing: spacing) {
@@ -2136,16 +2136,16 @@ struct SearchView: View {
                     if lazily {
                         LazyVStack(spacing: rowSpacing) {
                             if chunks.indices.contains(index) {
-                                ForEach(chunks[index]) { item in
-                                    content(item)
+                                ForEach(Array(chunks[index].enumerated()), id: \.element.id) { row, item in
+                                    content(chunks.prefix(index).reduce(0) { $0 + $1.count } + row, item)
                                 }
                             }
                         }
                     } else {
                         VStack(spacing: rowSpacing) {
                             if chunks.indices.contains(index) {
-                                ForEach(chunks[index]) { item in
-                                    content(item)
+                                ForEach(Array(chunks[index].enumerated()), id: \.element.id) { row, item in
+                                    content(chunks.prefix(index).reduce(0) { $0 + $1.count } + row, item)
                                 }
                             }
                         }
@@ -2417,9 +2417,9 @@ struct SearchView: View {
                 .frame(maxWidth: 680, alignment: .leading)
             } else {
                 LazyVGrid(columns: macShelfGrid(columns: columns), alignment: .leading, spacing: 22) {
-                    ForEach(shown, id: \.id) { @Sendable song in
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { @Sendable index, song in
                         LazyItemCell {
-                            macAppleMusicCard(song)
+                            macAppleMusicCard(song, ordinal: index + 1)
                         }
                     }
                 }
@@ -2476,7 +2476,7 @@ struct SearchView: View {
             .background(Color(red: 0.98, green: 0.14, blue: 0.23), in: .rect(cornerRadius: size * 0.22))
     }
 
-    private func macAppleMusicCard(_ song: MusicKit.Song) -> some View {
+    private func macAppleMusicCard(_ song: MusicKit.Song, ordinal: Int) -> some View {
         Button {
             playAppleMusicCatalogSong(song)
         } label: {
@@ -2498,7 +2498,7 @@ struct SearchView: View {
                         macAppleMusicBadge(size: 18)
                             .padding(6)
                     }
-                Text(song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
@@ -2541,8 +2541,8 @@ struct SearchView: View {
                     columns: result.columns,
                     spacing: isLyrics ? 12 : 16,
                     rowSpacing: isLyrics ? 12 : 4
-                ) { item in
-                    macSongBlockItem(item)
+                ) { index, item in
+                    macSongBlockItem(item, ordinal: index + 1, totalCount: result.shown.count)
                 }
             }
         }
@@ -2573,8 +2573,8 @@ struct SearchView: View {
                 if albumsFirst {
                     macSemanticAlbumRow(albums, width: width)
                 }
-                macColumns(result.shown, columns: result.columns, spacing: 16, rowSpacing: 4) { item in
-                    macSemanticResultRow(item)
+                macColumns(result.shown, columns: result.columns, spacing: 16, rowSpacing: 4) { index, item in
+                    macSemanticResultRow(item, ordinal: index + 1, totalCount: result.shown.count)
                         .songSelectable(
                             songID: item.song.id,
                             selection: selection,
@@ -2614,9 +2614,9 @@ struct SearchView: View {
     }
 
     @ViewBuilder
-    private func macSongBlockItem(_ result: LibrarySearchResult) -> some View {
+    private func macSongBlockItem(_ result: LibrarySearchResult, ordinal: Int, totalCount: Int) -> some View {
         if result.matchKind == .lyrics, let snippet = result.lyricSnippet {
-            macLyricsResultCard(result: result, snippet: snippet)
+            macLyricsResultCard(result: result, snippet: snippet, ordinal: ordinal, totalCount: totalCount)
                 .songSelectable(
                     songID: result.song.id,
                     selection: selection,
@@ -2626,7 +2626,7 @@ struct SearchView: View {
                     }
                 )
         } else {
-            macSongResultRow(result)
+            macSongResultRow(result, ordinal: ordinal, totalCount: totalCount)
                 .songSelectable(
                     songID: result.song.id,
                     selection: selection,
@@ -2754,7 +2754,7 @@ struct SearchView: View {
                     systemImage: "dot.radiowaves.left.and.right",
                     seeAll: !showsAll && radioHits.count > hits.count ? .radio : nil
                 )
-                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4, lazily: showsAll) { hit in
+                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4, lazily: showsAll) { _, hit in
                     Button {
                         playStation(hit.station)
                     } label: {
@@ -2780,7 +2780,7 @@ struct SearchView: View {
                     systemImage: "books.vertical",
                     seeAll: !showsAll && bookHits.count > hits.count ? .spokenWord : nil
                 )
-                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4, lazily: showsAll) { hit in
+                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4, lazily: showsAll) { _, hit in
                     Button {
                         playBook(hit)
                     } label: {
@@ -2864,7 +2864,7 @@ struct SearchView: View {
                     .pmRowBackground(cornerRadius: 6)
             }
 
-            ForEach(results, id: \.id) { song in
+            ForEach(Array(results.enumerated()), id: \.element.id) { index, song in
                 Button {
                     playAppleMusicCatalogSong(song)
                 } label: {
@@ -2880,6 +2880,8 @@ struct SearchView: View {
                         .frame(width: 32, height: 32)
                         .clipShape(RoundedRectangle(cornerRadius: 5))
 
+                        SongRowTrackNumber(number: index + 1, largestNumber: results.count)
+                            .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.title)
                                 .font(.system(size: 12, weight: .medium))
@@ -2962,8 +2964,8 @@ struct SearchView: View {
             // 在文件夹里搜索时命中不设上限, 可能上千首: 用懒加载, 只建滚到的行。
             LazyVStack(alignment: .leading, spacing: 6) {
                 macSectionLabel(title)
-                ForEach(bucket) { result in
-                    macSongBlockItem(result)
+                ForEach(Array(bucket.enumerated()), id: \.element.id) { index, result in
+                    macSongBlockItem(result, ordinal: index + 1, totalCount: bucket.count)
                 }
             }
         }
@@ -2981,8 +2983,8 @@ struct SearchView: View {
                 semanticFeedbackRow
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
-                ForEach(results) { result in
-                    macSemanticResultRow(result)
+                ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                    macSemanticResultRow(result, ordinal: index + 1, totalCount: results.count)
                         .songSelectable(
                             songID: result.song.id,
                             selection: selection,
@@ -3075,7 +3077,7 @@ struct SearchView: View {
         }
     }
 
-    private func macSemanticResultRow(_ result: SemanticLibrarySearchResult) -> some View {
+    private func macSemanticResultRow(_ result: SemanticLibrarySearchResult, ordinal: Int, totalCount: Int) -> some View {
         HStack(spacing: 0) {
             Button {
                 playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
@@ -3090,6 +3092,8 @@ struct SearchView: View {
                         filePath: result.song.filePath,
                         fileFormat: result.song.fileFormat
                     )
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                        .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(result.song.title)
                             .font(.system(size: 12.5, weight: .medium))
@@ -3178,7 +3182,7 @@ struct SearchView: View {
         .pmCard(cornerRadius: 12)
     }
 
-    private func macSongResultRow(_ result: LibrarySearchResult) -> some View {
+    private func macSongResultRow(_ result: LibrarySearchResult, ordinal: Int, totalCount: Int) -> some View {
         HStack(spacing: 0) {
             Button {
                 playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
@@ -3191,6 +3195,8 @@ struct SearchView: View {
                                       sourceID: result.song.sourceID,
                                       filePath: result.song.filePath,
                                       fileFormat: result.song.fileFormat)
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                        .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(result.song.title)
                             .font(.system(size: 12.5, weight: .medium))
@@ -3227,7 +3233,7 @@ struct SearchView: View {
     }
 
     /// 歌词命中做成引文卡: 摘句在前, 歌名在后, 一眼能看出是哪一句对上了。
-    private func macLyricsResultCard(result: LibrarySearchResult, snippet: String) -> some View {
+    private func macLyricsResultCard(result: LibrarySearchResult, snippet: String, ordinal: Int, totalCount: Int) -> some View {
         HStack(spacing: 0) {
             Button {
                 playSong(result.song, lyricsHint: snippet, matchKind: .lyrics)
@@ -3262,6 +3268,8 @@ struct SearchView: View {
                             filePath: result.song.filePath,
                             fileFormat: result.song.fileFormat
                         )
+                        SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                            .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(result.song.title)
                                 .font(.system(size: 11.5, weight: .semibold))
@@ -3815,8 +3823,8 @@ struct SearchView: View {
                 } else {
                     if !visibleAppleMusicArtists.isEmpty { appleMusicArtistShelf }
                     if !visibleAppleMusicAlbums.isEmpty { appleMusicAlbumShelf }
-                    ForEach(visibleAppleMusicSearchResults, id: \.id) { song in
-                        appleMusicRow(song)
+                    ForEach(Array(visibleAppleMusicSearchResults.enumerated()), id: \.element.id) { index, song in
+                        appleMusicRow(song, number: index + 1)
                     }
                 }
                 if let err = appleMusic.lastPlaybackError {
@@ -3840,11 +3848,13 @@ struct SearchView: View {
         let bucket = matches.prefix(scope == nil && focusedResultSection == nil ? 40 : matches.count)
         if !bucket.isEmpty {
             Section {
-                ForEach(Array(bucket)) { result in
+                ForEach(Array(bucket.enumerated()), id: \.element.id) { index, result in
                     VStack(alignment: .leading, spacing: 4) {
                         SongRowView(
                             song: result.song,
                             isPlaying: player.currentSong?.id == result.song.id,
+                            trackNumber: index + 1,
+                            largestTrackNumber: bucket.count,
                             showsActions: !selection.isActive,
                             selection: selection,
                             queueSwipeActionsEnabled: false,
@@ -3919,11 +3929,13 @@ struct SearchView: View {
                 if !albums.isEmpty, !results.isEmpty {
                     semanticGroupTitle("tab_songs")
                 }
-                ForEach(results) { result in
+                ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                     VStack(alignment: .leading, spacing: 3) {
                         SongRowView(
                             song: result.song,
                             isPlaying: player.currentSong?.id == result.song.id,
+                            trackNumber: index + 1,
+                            largestTrackNumber: results.count,
                             showsActions: !selection.isActive,
                             selection: selection,
                             queueSwipeActionsEnabled: false,
@@ -4021,7 +4033,7 @@ struct SearchView: View {
         Task { await player.play(queue: queue, startingAt: 0) }
     }
 
-    private func appleMusicRow(_ song: MusicKit.Song) -> some View {
+    private func appleMusicRow(_ song: MusicKit.Song, number: Int) -> some View {
         HStack(spacing: 8) {
             Button {
                 playAppleMusicCatalogSong(song)
@@ -4041,6 +4053,8 @@ struct SearchView: View {
                         AppleMusicCatalogBadge(size: 14).offset(x: 5, y: 5)
                     }
 
+                    SongRowTrackNumber(number: number, largestNumber: visibleAppleMusicSearchResults.count)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(song.title).font(.subheadline).lineLimit(1)
                         Text(song.artistName).font(.caption).foregroundStyle(.secondary).lineLimit(1)

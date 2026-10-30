@@ -176,6 +176,7 @@ struct HomeForYouPresentation {
     let entries: [AIRecommendationFeedEntry]
     let songs: [MusicDiscoveryResult]
     let songsByID: [String: MusicDiscoveryResult]
+    let songOrdinals: [String: Int]
     let albumsByID: [String: AlbumRecommendation]
     let albumCandidates: [AIRecommendationAlbumCandidate]
     /// 要专辑时,等本地专辑推荐算出来再去问智能服务,免得冷启动时先问一次只有歌曲的。
@@ -221,6 +222,10 @@ struct HomeForYouPresentation {
             localAlbumKeys: albumPool.map(\.albumID),
             songIDs: songs.map(\.song.id)
         )
+        songOrdinals = Dictionary(entries.compactMap { entry -> String? in
+            if case .song(let id) = entry { return id }
+            return nil
+        }.enumerated().map { ($0.element, $0.offset + 1) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// 点歌曲时的队列:这一排里的歌,按显示的顺序。
@@ -334,7 +339,7 @@ struct HomeForYouSection: View {
         case .song(let songID):
             if let result = presentation.songsByID[songID] {
                 Button { play(result.song, in: presentation) } label: {
-                    songCard(result, reason: feed.reason(
+                    songCard(result, ordinal: presentation.songOrdinals[songID] ?? 1, reason: feed.reason(
                         for: songID, key: presentation.key, isAvailable: presentation.isAvailable
                     ))
                 }
@@ -361,7 +366,7 @@ struct HomeForYouSection: View {
         case .song(let songID):
             if let result = presentation.songsByID[songID] {
                 Button { play(result.song, in: presentation) } label: {
-                    listRow(result, reason: feed.reason(
+                    listRow(result, ordinal: presentation.songOrdinals[songID] ?? 1, reason: feed.reason(
                         for: songID, key: presentation.key, isAvailable: presentation.isAvailable
                     ))
                 }
@@ -395,13 +400,13 @@ struct HomeForYouSection: View {
 
     // MARK: Song cards
 
-    private func songCard(_ result: MusicDiscoveryResult, reason: String?) -> some View {
+    private func songCard(_ result: MusicDiscoveryResult, ordinal: Int, reason: String?) -> some View {
         let song = result.song
         return HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 reasonLine(result, reason: reason, lineLimit: 2)
 
-                Text(song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(2)
@@ -437,7 +442,7 @@ struct HomeForYouSection: View {
 
     /// 列表档只保留一条推荐理由 —— 竖排里理由一多就把标题挤成两行,
     /// 反而不如横排卡片好读。
-    private func listRow(_ result: MusicDiscoveryResult, reason: String?) -> some View {
+    private func listRow(_ result: MusicDiscoveryResult, ordinal: Int, reason: String?) -> some View {
         let song = result.song
         return HStack(spacing: 12) {
             CachedArtworkView(
@@ -452,7 +457,7 @@ struct HomeForYouSection: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 reasonLine(result, reason: reason, lineLimit: 1)
-                Text(song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -916,7 +921,7 @@ struct MacHomeForYouSection: View {
         case .song(let songID):
             if let result = presentation.songsByID[songID] {
                 Button { play(result.song, in: presentation) } label: {
-                    songCard(result, reason: feed.reason(
+                    songCard(result, ordinal: presentation.songOrdinals[songID] ?? 1, reason: feed.reason(
                         for: songID, key: presentation.key, isAvailable: presentation.isAvailable
                     ))
                 }
@@ -930,7 +935,7 @@ struct MacHomeForYouSection: View {
         }
     }
 
-    private func songCard(_ result: MusicDiscoveryResult, reason: String?) -> some View {
+    private func songCard(_ result: MusicDiscoveryResult, ordinal: Int, reason: String?) -> some View {
         let song = result.song
         return HStack(spacing: 12) {
             CachedArtworkView(
@@ -950,7 +955,7 @@ struct MacHomeForYouSection: View {
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(PMColor.textFaint)
                 }
-                Text(song.title)
+                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
