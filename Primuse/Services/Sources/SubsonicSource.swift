@@ -14,7 +14,7 @@ import PrimuseKit
 ///   稀疏缓存(边下边播, 播完整曲落盘, 与离线下载一致)。
 /// - 本地解不了的格式(主要 WMA) → 服务端转码 mp3 渐进流, 不做持久缓存。
 ///
-/// 离线下载始终取 `download` 原文件。
+/// 普通曲目下载取 `download` 原文件;STRM 通过 `stream` 取实际媒体。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
     ServerCollectionFavoriteConnector,
     NetworkAdaptiveTranscodingConnector,
@@ -37,6 +37,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private let encodedPassword: String
     private var usesEncodedPassword: Bool
     private let session: URLSession
+    private let mediaSession: URLSession
+    private var mediaTransportGeneration: UInt64 = 0
+    private var resolvedMediaCacheURLs: [String: URL] = [:]
     private let cacheDirectory: URL
     private let mirrorsStarredSongsAsPlaylist: Bool
 
@@ -270,6 +273,21 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             )
         }
 
+        let mediaConfiguration = self.session.configuration
+        mediaConfiguration.httpShouldSetCookies = false
+        mediaConfiguration.httpCookieStorage = nil
+        mediaConfiguration.urlCredentialStorage = nil
+        mediaConfiguration.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
+        self.mediaSession = URLSession(
+            configuration: mediaConfiguration,
+            delegate: MediaHTTPRedirectSessionDelegate(trust: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: alternateTLSValidationHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(url: self.baseURL)
+            )),
+            delegateQueue: nil
+        )
+
         let cacheDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_subsonic_cache_\(sourceID)")
             .appendingPathComponent(
@@ -310,7 +328,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     func disconnect() async {
+        mediaTransportGeneration &+= 1
         isConnected = false
+    }
+
+    deinit {
+        mediaSession.invalidateAndCancel()
     }
 
     // MARK: - Library listing / scanning
@@ -1045,26 +1068,60 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         try await connect()
         guard let songID = songID(from: path) else { throw SourceError.fileNotFound(path) }
 
-        let ext = (path as NSString).pathExtension.isEmpty ? "bin" : (path as NSString).pathExtension
-        let fileURL = cacheDirectory.appendingPathComponent("\(songID).\(ext)")
+        let generation = mediaTransportGeneration
+        let ext = (path as NSString).pathExtension.lowercased()
+        let isDescriptor = ext == "strm"
+        var fileURL = resolvedMediaCacheURLs[songID]
+            ?? cacheDirectory.appendingPathComponent("\(songID).\(ext.isEmpty ? "bin" : ext)")
+        // A legacy .strm cache may contain the descriptor instead of audio.
+        if isDescriptor, resolvedMediaCacheURLs[songID] == nil {
+            fileURL = cacheDirectory.appendingPathComponent("\(songID).bin")
+        }
         if FileManager.default.fileExists(atPath: fileURL.path) { return fileURL }
 
-        // 离线下载始终取原文件(download), 不转码 → 大小与扫描一致, 可被缓存校验。
-        guard let remoteURL = buildRESTURL(method: "download", query: [URLQueryItem(name: "id", value: songID)]) else {
+        // A server-owned STRM must use stream: download may return the small
+        // descriptor itself. Its catalogue size is not the media byte count.
+        var query = [URLQueryItem(name: "id", value: songID)]
+        if isDescriptor { query.append(URLQueryItem(name: "format", value: "raw")) }
+        guard let remoteURL = buildRESTURL(method: isDescriptor ? "stream" : "download", query: query) else {
             throw SourceError.fileNotFound(path)
         }
-        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
-            from: remoteURL,
-            session: session,
-            timeout: 120
+        var request = URLRequest(url: remoteURL)
+        request.timeoutInterval = 120
+        let (temporaryURL, response) = try await mediaResponseFollowingRedirects(
+            for: request,
+            load: { request, session in
+                try await TrustedHTTPTransport.downloadWithoutRedirects(for: request, session: session)
+            },
+            discard: { try? FileManager.default.removeItem(at: $0) }
         )
         do {
-            try validate(response)
+            try checkMediaTransportGeneration(generation)
+            guard let http = response as? HTTPURLResponse else {
+                throw SourceError.connectionFailed("Invalid Subsonic download response")
+            }
+            guard http.statusCode == 200 else { throw mediaHTTPError(http) }
+            let handle = try FileHandle(forReadingFrom: temporaryURL)
+            let prefix: Data
+            do {
+                defer { try? handle.close() }
+                prefix = try handle.read(upToCount: 4 * 1024) ?? Data()
+            }
+            guard !prefix.isEmpty, !httpMediaResponseLooksLikeErrorBody(http, data: prefix) else {
+                throw SourceError.connectionFailed("Subsonic returned a non-audio response")
+            }
+            if isDescriptor {
+                let mediaExtension = AudioFileSignaturePolicy.inspect(prefix).parserFileExtension
+                    ?? http.url.flatMap { AudioFormat.from(fileExtension: $0.pathExtension)?.rawValue }
+                    ?? "bin"
+                fileURL = cacheDirectory.appendingPathComponent("\(songID).\(mediaExtension)")
+            }
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 try? FileManager.default.removeItem(at: temporaryURL)
             } else {
                 try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
             }
+            if isDescriptor { resolvedMediaCacheURLs[songID] = fileURL }
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw error
@@ -1118,13 +1175,23 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let responseLimit = requestedBytes > Int.max - 64 * 1024
             ? Int.max
             : requestedBytes + 64 * 1024
-        let (data, response) = try await TrustedHTTPTransport.data(
+        let (data, response) = try await mediaResponseFollowingRedirects(
             for: request,
-            session: session,
-            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+            load: { request, session in
+                try await TrustedHTTPTransport.dataWithoutRedirects(
+                    for: request,
+                    session: session,
+                    maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+                )
+            },
+            discard: { _ in }
         )
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid Subsonic range response")
+        }
+        guard (200...299).contains(http.statusCode) else { throw mediaHTTPError(http) }
+        guard !httpMediaResponseLooksLikeErrorBody(http, data: data) else {
+            throw SourceError.connectionFailed("Subsonic returned a non-audio response")
         }
         switch http.statusCode {
         case 206:
@@ -1154,6 +1221,33 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 retryAfter: RemoteMediaHTTPError.retryDelay(from: http)
             )
         }
+    }
+
+    private func checkMediaTransportGeneration(_ generation: UInt64) throws {
+        try Task.checkCancellation()
+        guard generation == mediaTransportGeneration else { throw CancellationError() }
+    }
+
+    private func mediaHTTPError(_ response: HTTPURLResponse) -> RemoteMediaHTTPError {
+        RemoteMediaHTTPError(
+            service: "Subsonic", statusCode: response.statusCode,
+            retryAfter: RemoteMediaHTTPError.retryDelay(from: response)
+        )
+    }
+
+    private func mediaResponseFollowingRedirects<Payload: Sendable>(
+        for request: URLRequest,
+        load: @Sendable (URLRequest, URLSession) async throws -> (Payload, URLResponse),
+        discard: @Sendable (Payload) -> Void
+    ) async throws -> (Payload, URLResponse) {
+        let generation = mediaTransportGeneration
+        return try await TrustedHTTPTransport.mediaResponseFollowingRedirects(
+            for: request,
+            session: mediaSession,
+            validate: { try await self.checkMediaTransportGeneration(generation) },
+            load: load,
+            discard: discard
+        )
     }
 
     // MARK: - Scrobble (ServerScrobblingConnector)

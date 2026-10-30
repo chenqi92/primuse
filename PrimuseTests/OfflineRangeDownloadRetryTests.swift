@@ -130,7 +130,7 @@ final class OfflineRangeDownloadRetryTests: XCTestCase {
 
     @MainActor
     func testLegacyServerSTRMUsesMediaEndpointWithoutReadingDescriptorBytes() async throws {
-        for type: MusicSourceType in [.emby, .jellyfin, .plex] {
+        for type: MusicSourceType in [.emby, .jellyfin, .plex, .subsonic, .navidrome, .airsonic, .gonic] {
             let source = MusicSource(id: UUID().uuidString, name: "Fixture", type: type)
             let manager = SourceManager(sourcesProvider: { [source] })
             let connector = DescriptorConnector(sourceID: source.id)

@@ -1135,14 +1135,22 @@ final class HTTPRangeFetcher: @unchecked Sendable {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 6
-        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        config.httpShouldSetCookies = false
+        config.httpCookieStorage = nil
+        config.urlCredentialStorage = nil
+        return URLSession(
+            configuration: config,
+            delegate: MediaHTTPRedirectSessionDelegate(trust: SmartSSLDelegate()),
+            delegateQueue: nil
+        )
     }()
 
-    private var session: URLSession { Self.sharedSession }
+    private let session: URLSession
 
-    init(url: URL, totalLength: Int64) {
+    init(url: URL, totalLength: Int64, session: URLSession? = nil) {
         self.url = url
         self.totalLength = totalLength
+        self.session = session ?? Self.sharedSession
     }
 
     func fetch(offset: Int64, length: Int64) async throws -> Data {
@@ -1159,10 +1167,15 @@ final class HTTPRangeFetcher: @unchecked Sendable {
         let maxBytes = wholeResourceLimit > Int.max - 64 * 1_024
             ? Int.max
             : max(PlainHTTPClient.defaultMaxBytes, wholeResourceLimit + 64 * 1_024)
-        let (data, response) = try await TrustedHTTPTransport.data(
+        let (data, response) = try await TrustedHTTPTransport.mediaResponseFollowingRedirects(
             for: request,
             session: session,
-            maxBytes: maxBytes
+            load: { request, session in
+                try await TrustedHTTPTransport.dataWithoutRedirects(
+                    for: request, session: session, maxBytes: maxBytes
+                )
+            },
+            discard: { _ in }
         )
         guard let http = response as? HTTPURLResponse else {
             throw AudioDecoderError.decodingFailed("Invalid HTTP range response")

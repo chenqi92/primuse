@@ -5458,7 +5458,7 @@ final class SourceManager {
         // Older server scans stored virtual item paths with a .strm suffix.
         // Their media endpoint already resolves the descriptor on the server.
         if let source = try await sourcesProvider().first(where: { $0.id == song.sourceID }),
-           source.type.isMediaServer {
+           source.type.isMediaServer || source.type.isSubsonicFamily {
             return .sourcePath(song.filePath)
         }
         let descriptor = try await connector.readSTRMDescriptor(path: song.filePath)
@@ -5594,7 +5594,7 @@ final class SourceManager {
             case .sourcePath(let path):
                 // Legacy server STRM rows can still carry the wrapper's byte
                 // length. Materialize them before choosing a bounded decoder.
-                if !source.type.isMediaServer,
+                if !source.type.isMediaServer, !source.type.isSubsonicFamily,
                    permitsConfiguredDirectURL(for: source, song: song, plan: .original) {
                     let streamURL = try await conn.streamingURL(for: path)
                     try await ensureCurrentPlaybackResolutionScope(

@@ -33,8 +33,78 @@ enum TrustedHTTPTransport {
         return try await boundedSessionData(for: request, session: session, maxBytes: maxBytes)
     }
 
+    /// The media session rejects implicit redirects so every hop uses the
+    /// same credential isolation, retry budget, and cancellation checks.
+    static func mediaResponseFollowingRedirects<Payload: Sendable>(
+        for request: URLRequest,
+        session: URLSession,
+        validate: @Sendable () async throws -> Void = { try Task.checkCancellation() },
+        load: @Sendable (URLRequest, URLSession) async throws -> (Payload, URLResponse),
+        discard: @Sendable (Payload) -> Void
+    ) async throws -> (Payload, URLResponse) {
+        attempts: for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
+            var currentRequest = request
+            currentRequest.httpShouldHandleCookies = false
+            var hasRedirected = false
+            for redirectCount in 0...HTTPMediaRedirectRequestPolicy.maximumRedirects {
+                try await validate()
+                let result: (Payload, URLResponse)
+                do {
+                    result = try await load(currentRequest, session)
+                } catch {
+                    try await validate()
+                    if hasRedirected, attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                       HTTPMediaRedirectRetryPolicy.isRetryable(error: error) {
+                        continue attempts
+                    }
+                    throw error
+                }
+                do {
+                    try await validate()
+                } catch {
+                    discard(result.0)
+                    throw error
+                }
+                guard let http = result.1 as? HTTPURLResponse else { return result }
+                if let redirected = HTTPMediaRedirectRequestPolicy.redirectedRequest(
+                    from: currentRequest, response: http
+                ) {
+                    discard(result.0)
+                    guard redirectCount < HTTPMediaRedirectRequestPolicy.maximumRedirects else {
+                        throw URLError(.httpTooManyRedirects)
+                    }
+                    currentRequest = redirected
+                    hasRedirected = true
+                    continue
+                }
+                if hasRedirected, attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
+                   http.statusCode != 429, RemoteMediaHTTPError.retryDelay(from: http) == nil,
+                   HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: http.statusCode) {
+                    discard(result.0)
+                    continue attempts
+                }
+                return result
+            }
+        }
+        throw URLError(.httpTooManyRedirects)
+    }
+
     static func requiresPlainSocket(for url: URL) -> Bool {
         InsecureHTTPHostPolicy.requiresExplicitTrust(for: url)
+    }
+
+    /// The caller owns the complete media redirect chain, including public
+    /// HTTP hops. The supplied session must reject automatic redirects.
+    static func downloadWithoutRedirects(
+        for request: URLRequest, session: URLSession
+    ) async throws -> (URL, URLResponse) {
+        try Task.checkCancellation()
+        guard let url = request.url else { throw URLError(.badURL) }
+        if requiresPlainSocket(for: url) {
+            _ = try await trustedPublicHTTPHost(for: url)
+            return try await PlainHTTPClient.download(for: request)
+        }
+        return try await session.download(for: request)
     }
 
     static func trustTarget(for url: URL) -> String? {
@@ -299,5 +369,23 @@ enum TrustedHTTPTransport {
             throw TrustedHTTPTransportError.permissionRequired(host: endpoint)
         }
         return endpoint
+    }
+}
+
+final class MediaHTTPRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    private let trust: SmartSSLDelegate
+    init(trust: SmartSSLDelegate) { self.trust = trust }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? { nil }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await trust.urlSession(session, didReceive: challenge)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await trust.urlSession(session, task: task, didReceive: challenge)
     }
 }

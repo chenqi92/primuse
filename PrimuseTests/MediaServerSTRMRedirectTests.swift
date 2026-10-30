@@ -325,6 +325,276 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         "\(label)-\(UUID().uuidString.lowercased()).invalid"
     }
 
+    func testSubsonicRedirectPreservesInitialAndSeekRangesWithoutSourceCredentials() async throws {
+        let host = uniqueHost("subsonic")
+        let cdn = uniqueHost("cdn")
+        let content = Data("0123456789abcdef".utf8)
+        configureSubsonicOrigin(host, location: "https://\(cdn)/audio?signature=cdn-only")
+        MediaServerRedirectURLProtocol.configure(host: cdn) { request in
+            Self.rangedReply(request, content: content)
+        }
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let first = try await source.fetchRange(path: "/songs/song.strm", offset: 0, length: 4)
+        let seek = try await source.fetchRange(path: "/songs/song.strm", offset: 8, length: 4)
+        XCTAssertEqual(first, Data("0123".utf8))
+        XCTAssertEqual(seek, Data("89ab".utf8))
+        let requests = MediaServerRedirectURLProtocol.requests(host: cdn)
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "Range") }, ["bytes=0-3", "bytes=8-11"])
+        for request in requests {
+            XCTAssertEqual(request.url?.query, "signature=cdn-only")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept-Encoding"), "identity")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+            XCTAssertFalse(request.httpShouldHandleCookies)
+        }
+        await source.disconnect()
+    }
+
+    func testSubsonicSTRMDownloadsResolvedMediaAndDetectsItsActualFormat() async throws {
+        for (prefix, expectedExtension) in [("fLaC", "flac"), ("OggS", "ogg")] {
+            let host = uniqueHost("subsonic-download")
+            let cdn = uniqueHost("cdn")
+            let content = Data((prefix + "-media-fixture").utf8)
+            configureSubsonicOrigin(host, location: "https://\(cdn)/opaque?signature=download")
+            MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+                .init(headers: ["Content-Type": "application/octet-stream"], body: content)
+            }
+            let (source, session) = makeSubsonicSource(host: host)
+            defer { session.invalidateAndCancel() }
+            let local = try await source.localURL(for: "/songs/song.strm")
+            defer { try? FileManager.default.removeItem(at: local) }
+            XCTAssertEqual(local.pathExtension, expectedExtension)
+            XCTAssertEqual(try Data(contentsOf: local), content)
+            let cached = try await source.localURL(for: "/songs/song.strm")
+            XCTAssertEqual(cached, local)
+            XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: cdn).count, 1)
+            let origin = MediaServerRedirectURLProtocol.requests(host: host)
+            XCTAssertEqual(origin.compactMap(\.url?.lastPathComponent), ["ping.view", "stream.view"])
+            let streamURL = try XCTUnwrap(origin.last?.url)
+            let query = URLComponents(url: streamURL, resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(query?.first { $0.name == "format" }?.value, "raw")
+            await source.disconnect()
+        }
+    }
+
+    func testSubsonicOrdinaryDownloadStillUsesDownloadEndpoint() async throws {
+        let host = uniqueHost("subsonic-original")
+        let cdn = uniqueHost("cdn")
+        let content = Data("fLaC-media-fixture".utf8)
+        configureSubsonicOrigin(host, location: "https://\(cdn)/song.flac")
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+            .init(headers: ["Content-Type": "audio/flac"], body: content)
+        }
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let local = try await source.localURL(for: "/songs/song.flac")
+        defer { try? FileManager.default.removeItem(at: local) }
+        XCTAssertEqual(try Data(contentsOf: local), content)
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).last?.url?.lastPathComponent, "download.view")
+        await source.disconnect()
+    }
+
+    func testSubsonicRejectsRedirectedErrorDocumentsAndDoesNotCacheThem() async throws {
+        let host = uniqueHost("subsonic-error")
+        let cdn = uniqueHost("cdn")
+        configureSubsonicOrigin(host, location: "https://\(cdn)/song.flac")
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        for contentType in ["text/html", "text/xml", "application/octet-stream"] {
+            MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+                .init(headers: ["Content-Type": contentType], body: Data("<error>Expired</error>".utf8))
+            }
+            do {
+                _ = try await source.localURL(for: "/songs/song.strm")
+                XCTFail("An error document must not become a cached media file")
+            } catch is SourceError {}
+            do {
+                _ = try await source.fetchRange(path: "/songs/song.strm", offset: 0, length: 100)
+                XCTFail("An error document must not become a media range")
+            } catch is SourceError {}
+        }
+        let content = Data("fLaC-media-fixture".utf8)
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in .init(body: content) }
+        let local = try await source.localURL(for: "/songs/song.strm")
+        defer { try? FileManager.default.removeItem(at: local) }
+        XCTAssertEqual(try Data(contentsOf: local), content)
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: cdn).count, 7)
+        await source.disconnect()
+    }
+
+    func testSubsonicExpiredRedirectRetriesOnceAndRateLimitPreservesRetryAfter() async throws {
+        for status in [403, 429] {
+            let host = uniqueHost("subsonic-retry")
+            let cdn = uniqueHost("cdn")
+            configureSubsonicOrigin(host, location: "https://\(cdn)/song.flac?signature=expired")
+            MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+                .init(status: status, headers: status == 429 ? ["Retry-After": "7"] : [:])
+            }
+            let (source, session) = makeSubsonicSource(host: host)
+            defer { session.invalidateAndCancel() }
+            do {
+                _ = try await source.fetchRange(path: "/songs/song.strm", offset: 0, length: 4)
+                XCTFail("The final HTTP failure must remain observable")
+            } catch let error as RemoteMediaHTTPError {
+                XCTAssertEqual(error.statusCode, status)
+                XCTAssertEqual(error.retryAfter, status == 429 ? 7 : nil)
+            }
+            XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: cdn).count, status == 429 ? 1 : 2)
+            XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).filter { $0.url?.lastPathComponent == "ping.view" }.count, 1)
+            await source.disconnect()
+        }
+    }
+
+    func testSubsonicRedirectLoopHasFiniteHopLimit() async throws {
+        let host = uniqueHost("subsonic-loop")
+        configureSubsonicOrigin(host, location: "https://\(host)/again")
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await source.fetchRange(path: "/songs/song.strm", offset: 0, length: 4)
+            XCTFail("Expected the redirect limit")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .httpTooManyRedirects)
+        }
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).count, HTTPMediaRedirectRequestPolicy.maximumRedirects + 2)
+        await source.disconnect()
+    }
+
+    func testSubsonicDisconnectRejectsPendingMediaResponse() async throws {
+        let host = uniqueHost("subsonic-disconnect")
+        let cdn = uniqueHost("cdn")
+        let gate = MediaServerResponseGate()
+        let requested = expectation(description: "CDN requested")
+        configureSubsonicOrigin(host, location: "https://\(cdn)/song.flac")
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+            requested.fulfill()
+            return .init(body: Data("fLaC-media-fixture".utf8), responseGate: gate)
+        }
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let transfer = Task { try await source.localURL(for: "/songs/song.strm") }
+        await fulfillment(of: [requested], timeout: 3)
+        await source.disconnect()
+        gate.release()
+        do {
+            _ = try await transfer.value
+            XCTFail("A disconnected request must not install or return a cache file")
+        } catch is CancellationError {}
+    }
+
+    private func configureSubsonicOrigin(_ host: String, location: String) {
+        MediaServerRedirectURLProtocol.configure(host: host) { request in
+            if request.url?.lastPathComponent == "ping.view" {
+                return .json(#"{"subsonic-response":{"status":"ok","version":"1.16.1"}}"#)
+            }
+            return .init(status: 302, headers: ["Location": location])
+        }
+    }
+
+    func testDirectHTTPPlaybackFollowsRedirectForInitialAndSeekRanges() async throws {
+        let host = uniqueHost("direct-http")
+        let cdn = uniqueHost("cdn")
+        let content = Data("0123456789abcdef".utf8)
+        MediaServerRedirectURLProtocol.configure(host: host) { _ in
+            .init(status: 302, headers: ["Location": "https://\(cdn)/audio?signature=cdn-only"])
+        }
+        MediaServerRedirectURLProtocol.configure(host: cdn) { request in
+            Self.rangedReply(request, content: content)
+        }
+        let session = makeDirectMediaSession()
+        defer { session.invalidateAndCancel() }
+        let fetcher = HTTPRangeFetcher(
+            url: try XCTUnwrap(URL(string: "https://\(host)/rest/stream.view?u=user&t=source-token&s=salt")),
+            totalLength: Int64(content.count), session: session
+        )
+        let first = try await fetcher.fetch(offset: 0, length: 4)
+        let seek = try await fetcher.fetch(offset: 8, length: 4)
+        XCTAssertEqual(first, Data("0123".utf8))
+        XCTAssertEqual(seek, Data("89ab".utf8))
+        for request in MediaServerRedirectURLProtocol.requests(host: cdn) {
+            XCTAssertEqual(request.url?.query, "signature=cdn-only")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+            XCTAssertFalse(request.httpShouldHandleCookies)
+        }
+    }
+
+    func testDirectHTTPRedirectPreservesWholeFileAndInvalidRangeValidation() async throws {
+        let host = uniqueHost("direct-whole")
+        let cdn = uniqueHost("cdn")
+        let content = Data("fLaC-media-fixture".utf8)
+        MediaServerRedirectURLProtocol.configure(host: host) { _ in
+            .init(status: 302, headers: ["Location": "https://\(cdn)/audio"])
+        }
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in .init(body: content) }
+        let session = makeDirectMediaSession()
+        defer { session.invalidateAndCancel() }
+        let fetcher = HTTPRangeFetcher(
+            url: try XCTUnwrap(URL(string: "https://\(host)/rest/stream.view")),
+            totalLength: Int64(content.count), session: session
+        )
+        let whole = try await fetcher.fetch(offset: 0, length: 4)
+        XCTAssertEqual(whole, content)
+        do {
+            _ = try await fetcher.fetch(offset: 4, length: 4)
+            XCTFail("A whole response cannot be installed at a nonzero offset")
+        } catch is AudioDecoderError {}
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+            .init(status: 206, headers: ["Content-Range": "bytes 8-11/999"], body: Data("89ab".utf8))
+        }
+        do {
+            _ = try await fetcher.fetch(offset: 8, length: 4)
+            XCTFail("A redirect cannot bypass the known media length")
+        } catch is AudioDecoderError {}
+    }
+
+    func testMediaRedirectRejectsDowngradeAndKeepsAPITrafficRestricted() async throws {
+        let host = uniqueHost("restricted")
+        let cdn = uniqueHost("cdn")
+        configureSubsonicOrigin(host, location: "http://\(cdn):8002/song.flac")
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+            .init(body: Data("fLaC-media-fixture".utf8))
+        }
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await source.fetchRange(path: "/songs/song.strm", offset: 0, length: 4)
+            XCTFail("HTTPS cannot redirect to an unencrypted custom-port endpoint")
+        } catch let error as RemoteMediaHTTPError {
+            XCTAssertEqual(error.statusCode, 302)
+        }
+        // API calls continue to use their own transport; media permissions
+        // must not turn an arbitrary API redirect into another host's JSON.
+        do {
+            _ = try await source.fetchServerCatalogScanStatus(changedSince: nil)
+            XCTFail("An API redirect must remain rejected")
+        } catch {}
+        XCTAssertTrue(MediaServerRedirectURLProtocol.requests(host: cdn).isEmpty)
+        await source.disconnect()
+    }
+
+    private func makeDirectMediaSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MediaServerRedirectURLProtocol.self]
+        return URLSession(
+            configuration: configuration,
+            delegate: MediaHTTPRedirectSessionDelegate(trust: SmartSSLDelegate()),
+            delegateQueue: nil
+        )
+    }
+
+    private func makeSubsonicSource(host: String) -> (SubsonicSource, URLSession) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MediaServerRedirectURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["Authorization": "source-secret", "Cookie": "source-session"]
+        let session = URLSession(configuration: configuration)
+        return (SubsonicSource(
+            sourceID: host, sourceType: .subsonic, host: host, port: nil,
+            useSsl: true, basePath: nil, username: "user", password: "source-secret", session: session
+        ), session)
+    }
+
     private func makeSource(
         host: String,
         kind: MediaServerSource.Kind = .emby,
