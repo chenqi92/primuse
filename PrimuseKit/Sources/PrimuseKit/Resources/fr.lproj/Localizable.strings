@@ -668,9 +668,9 @@
 "fullscreen_effect_radial_pulse" = "Pulsation radiale";
 "fullscreen_effect_radial_pulse_subtitle" = "L’anneau du disque tourne et réagit au son réel";
 "fullscreen_effect_radial_pulse_motion" = "Spectre en direct · Disque rotatif";
-"fullscreen_effect_vinyl_deck" = "Platine vinyle";
-"fullscreen_effect_vinyl_deck_subtitle" = "La pochette devient l'étiquette d'un disque en rotation, le bras posé dans le sillon";
-"fullscreen_effect_vinyl_deck_motion" = "Le disque tourne à la lecture · Le bras se lève en pause";
+"fullscreen_effect_vinyl_deck" = "Disque";
+"fullscreen_effect_vinyl_deck_subtitle" = "Passez du vinyle au CD dans la même scène";
+"fullscreen_effect_vinyl_deck_motion" = "Le disque tourne pendant la lecture";
 "fullscreen_effect_aurora_veil" = "Aurore étoilée";
 "fullscreen_effect_aurora_veil_subtitle" = "Des rideaux d'aurore aux couleurs de la pochette ondulent sur un ciel étoilé derrière la parole en cours";
 "fullscreen_effect_aurora_veil_motion" = "Étoiles scintillantes, étoiles filantes · Aurore toujours ondoyante";
@@ -1056,3 +1056,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@ : le quota de téléchargement de ce mois est épuisé. Dans %2$d s, les morceaux de cette source seront ignorés au profit d’autres sources. Appuyez sur Lecture/Pause pour rester sur ce morceau, ou sur Suivant pour passer maintenant.";
 
 "content_explicit" = "Contenu explicite";
+
+"fullscreen_effect_compact_disc" = "Disque compact";
+"immersive_disc_position" = "Position du disque";
+"immersive_disc_move_left" = "Déplacer à gauche";
+"immersive_disc_move_right" = "Déplacer à droite";
+"immersive_disc_move_up" = "Déplacer vers le haut";
+"immersive_disc_move_down" = "Déplacer vers le bas";
+
+"immersive_disc_vinyl" = "Vinyle";
+"immersive_disc_style" = "Style du disque";
+"immersive_disc_settings" = "Réglages du disque";

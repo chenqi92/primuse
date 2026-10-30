@@ -287,9 +287,9 @@
 "ext.widget.lyrics.empty.title" = "Şarkı sözü yok";
 "ext.tv.scan.metadataValue" = "Yollar + mevcut dosya üst verileri";
 "fnmusic_connection_address" = "Sunucu Adresi";
-"fullscreen_effect_vinyl_deck" = "Pikap";
-"fullscreen_effect_vinyl_deck_subtitle" = "Kapak, dönen plağın etiketi olur; kol ise oluğa yerleşir";
-"fullscreen_effect_vinyl_deck_motion" = "Plak çalarken döner · Duraklatınca kol kalkar";
+"fullscreen_effect_vinyl_deck" = "Plak";
+"fullscreen_effect_vinyl_deck_subtitle" = "Aynı sahnede plak ve CD görünümü arasında geçiş yapın";
+"fullscreen_effect_vinyl_deck_motion" = "Disk çalma sırasında döner";
 "fullscreen_effect_aurora_veil" = "Yıldızlı Kutup Işığı";
 "fullscreen_effect_aurora_veil_subtitle" = "Kapak renklerindeki kutup ışığı perdeleri yıldızlı gökte dalgalanır, önde mevcut söz durur";
 "fullscreen_effect_aurora_veil_motion" = "Parıldayan yıldızlar, kayan yıldızlar · Durmadan dalgalanan kutup ışığı";
@@ -1003,3 +1003,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@ bu ayki indirme kotasını doldurdu. %2$d sn sonra bu kaynağın şarkıları atlanıp diğer kaynaklardan şarkılar çalınacak. Bu şarkıda kalmak için Oynat/Duraklat’a, hemen atlamak için Sonraki’ye basın.";
 
 "content_explicit" = "Uygunsuz İçerik";
+
+"fullscreen_effect_compact_disc" = "CD";
+"immersive_disc_position" = "Disk Konumu";
+"immersive_disc_move_left" = "Sola Taşı";
+"immersive_disc_move_right" = "Sağa Taşı";
+"immersive_disc_move_up" = "Yukarı Taşı";
+"immersive_disc_move_down" = "Aşağı Taşı";
+
+"immersive_disc_vinyl" = "Plak";
+"immersive_disc_style" = "Disk Stili";
+"immersive_disc_settings" = "Disk Ayarları";

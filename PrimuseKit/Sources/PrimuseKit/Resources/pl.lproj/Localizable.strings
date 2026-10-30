@@ -559,9 +559,9 @@
 "fullscreen_effect_flowing_lines" = "Płynne linie";
 "fullscreen_effect_flowing_lines_motion" = "Stale rozwijające się kontury · Trzy teksty";
 "fullscreen_effect_flowing_lines_subtitle" = "Ewoluujące kontury krążą wokół grafiki z trzema liniami tekstowymi";
-"fullscreen_effect_vinyl_deck" = "Gramofon";
-"fullscreen_effect_vinyl_deck_subtitle" = "Okładka staje się etykietą obracającej się płyty, a ramię spoczywa w rowku";
-"fullscreen_effect_vinyl_deck_motion" = "Płyta obraca się podczas odtwarzania · Ramię unosi się przy pauzie";
+"fullscreen_effect_vinyl_deck" = "Płyta";
+"fullscreen_effect_vinyl_deck_subtitle" = "Przełączaj winyl i CD w tej samej scenie";
+"fullscreen_effect_vinyl_deck_motion" = "Płyta obraca się podczas odtwarzania";
 "fullscreen_effect_aurora_veil" = "Gwiaździsta zorza";
 "fullscreen_effect_aurora_veil_subtitle" = "Kurtyny zorzy w kolorach okładki falują nad gwieździstym niebem za bieżącym wersem";
 "fullscreen_effect_aurora_veil_motion" = "Migoczące gwiazdy, spadające gwiazdy · Nieustannie falująca zorza";
@@ -1003,3 +1003,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@: wykorzystano limit pobierania na ten miesiąc. Za %2$d s utwory z tego źródła zostaną pominięte i zagrają utwory z innych źródeł. Naciśnij Odtwórz/Pauza, aby zostać przy tym utworze, lub Dalej, aby pominąć od razu.";
 
 "content_explicit" = "Treści niecenzuralne";
+
+"fullscreen_effect_compact_disc" = "Płyta CD";
+"immersive_disc_position" = "Pozycja płyty";
+"immersive_disc_move_left" = "Przesuń w lewo";
+"immersive_disc_move_right" = "Przesuń w prawo";
+"immersive_disc_move_up" = "Przesuń w górę";
+"immersive_disc_move_down" = "Przesuń w dół";
+
+"immersive_disc_vinyl" = "Winyl";
+"immersive_disc_style" = "Styl płyty";
+"immersive_disc_settings" = "Ustawienia płyty";

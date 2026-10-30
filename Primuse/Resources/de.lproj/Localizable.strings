@@ -1855,9 +1855,9 @@
 "fullscreen_effect_radial_pulse" = "Radialer Puls";
 "fullscreen_effect_radial_pulse_subtitle" = "Der Ring der rotierenden Platte reagiert auf das echte Audio";
 "fullscreen_effect_radial_pulse_motion" = "Live-Spektrum · Rotierende Platte";
-"fullscreen_effect_vinyl_deck" = "Vinyl-Deck";
-"fullscreen_effect_vinyl_deck_subtitle" = "Das Cover wird zum Label einer rotierenden Platte, der Tonarm liegt in der Rille";
-"fullscreen_effect_vinyl_deck_motion" = "Platte dreht sich bei Wiedergabe · Tonarm hebt bei Pause";
+"fullscreen_effect_vinyl_deck" = "Schallplatte";
+"fullscreen_effect_vinyl_deck_subtitle" = "Zwischen Vinyl- und CD-Optik in derselben Szene wechseln";
+"fullscreen_effect_vinyl_deck_motion" = "Die Platte dreht sich bei der Wiedergabe";
 "fullscreen_effect_aurora_veil" = "Sternklares Polarlicht";
 "fullscreen_effect_aurora_veil_subtitle" = "Polarlicht in Coverfarben wogt über einem Sternenhimmel hinter der aktuellen Zeile";
 "fullscreen_effect_aurora_veil_motion" = "Funkelnde Sterne, Sternschnuppen · Stetig wogendes Polarlicht";
@@ -7035,5 +7035,17 @@
 "playlist_group_rename" = "Gruppe umbenennen";
 "playlist_group_dissolve" = "Gruppe auflösen";
 "playlist_group_dissolve_message" = "Die Playlists werden keiner Gruppe mehr zugeordnet. Playlists und Titel bleiben erhalten.";
+
+"fullscreen_effect_compact_disc" = "CD";
+"immersive_disc_position" = "Disc-Position";
+"immersive_disc_move_left" = "Nach links";
+"immersive_disc_move_right" = "Nach rechts";
+"immersive_disc_move_up" = "Nach oben";
+"immersive_disc_move_down" = "Nach unten";
+
+"immersive_disc_vinyl" = "Vinyl";
+"immersive_disc_style" = "Plattenstil";
+"immersive_disc_settings" = "Platteneinstellungen";
+
 "playlist_delete_local_confirm_format" = "%lld lokale Playlists werden gelöscht. Du kannst sie unter „Zuletzt gelöscht“ wiederherstellen. Songs werden nicht gelöscht.";
 "playlist_delete_mirror_confirm_format" = "%lld Playlists von Musikdiensten oder Apple Music werden nur auf diesem Gerät ausgeblendet. Playlists und Songs im ursprünglichen Dienst werden nicht gelöscht.";

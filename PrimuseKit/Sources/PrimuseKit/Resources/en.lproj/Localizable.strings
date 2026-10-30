@@ -666,9 +666,9 @@
 "fullscreen_effect_radial_pulse" = "Radial Pulse";
 "fullscreen_effect_radial_pulse_subtitle" = "A rotating record ring responds to the actual audio";
 "fullscreen_effect_radial_pulse_motion" = "Live spectrum driven · Rotating record";
-"fullscreen_effect_vinyl_deck" = "Vinyl Deck";
-"fullscreen_effect_vinyl_deck_subtitle" = "The artwork becomes the label of a spinning record while the tonearm rests in the groove";
-"fullscreen_effect_vinyl_deck_motion" = "Record spins with playback · Tonearm lifts on pause";
+"fullscreen_effect_vinyl_deck" = "Records";
+"fullscreen_effect_vinyl_deck_subtitle" = "Switch between vinyl and CD artwork within the same scene";
+"fullscreen_effect_vinyl_deck_motion" = "The disc spins during playback";
 "fullscreen_effect_aurora_veil" = "Starlit Aurora";
 "fullscreen_effect_aurora_veil_subtitle" = "Artwork-colored aurora curtains ripple over a starry sky behind the current lyric";
 "fullscreen_effect_aurora_veil_motion" = "Twinkling stars, shooting stars · Ever-swaying aurora";
@@ -1054,3 +1054,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@ has used up this month’s download allowance. In %2$d s, its songs will be skipped to play songs from other sources. Press Play/Pause to stay on this song, or Next to skip now.";
 
 "content_explicit" = "Explicit Content";
+
+"fullscreen_effect_compact_disc" = "Compact Disc";
+"immersive_disc_position" = "Disc Position";
+"immersive_disc_move_left" = "Move Left";
+"immersive_disc_move_right" = "Move Right";
+"immersive_disc_move_up" = "Move Up";
+"immersive_disc_move_down" = "Move Down";
+
+"immersive_disc_vinyl" = "Vinyl";
+"immersive_disc_style" = "Disc Style";
+"immersive_disc_settings" = "Disc Settings";

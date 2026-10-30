@@ -54,6 +54,8 @@ struct MacImmersivePlayerView: View {
     @State private var isStageReady = false
     @State private var chromeTask: Task<Void, Never>?
     @State private var hasResolvedArtwork = true
+    @AppStorage(ImmersiveDiscStyle.storageKey) private var discStyle = ImmersiveDiscStyle.vinyl
+    @State private var discPosition = ImmersiveDiscPosition()
     @State private var discFace: CGImage?
     @State private var gallerySongs: [Song] = []
     @State private var flowNeighbors = AlbumFlowNeighbors()
@@ -142,11 +144,11 @@ struct MacImmersivePlayerView: View {
         ImmersiveEffectRotationSchedule(
             mode: rotationMode,
             displayedEffect: displayedEffect.rawValue,
-            isRunning: isRenderingActive && isStageReady && player.isPlaying && !isLowPower && !showsEffectPicker
+            isRunning: isRenderingActive && isStageReady && player.isPlaying && !isLowPower && !showsEffectPicker && !discPosition.isDragging
         )
     }
 
-    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),只在黑胶效果下去找。
+    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),在黑胶与光盘效果下查找。
     private var discFaceSongID: String? {
         guard presentationEffect.scene == .vinylDeck else { return nil }
         return player.currentSong?.id
@@ -253,10 +255,27 @@ struct MacImmersivePlayerView: View {
                     )
                 }
             }
+            .onChange(of: geometry.size) { _, _ in discPosition.endDrag() }
+            .onChange(of: discStyle) { _, _ in discPosition.endDrag() }
             .animation(.easeInOut(duration: 0.3), value: showsChrome)
             .animation(.easeInOut(duration: 1.2), value: isLowPower)
             .contentShape(Rectangle())
             .onTapGesture { location in handleSurfaceClick(at: location, metrics: metrics) }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 6)
+                    .onChanged { value in
+                        guard presentationEffect.scene == .vinylDeck, !showsEffectPicker,
+                              isRenderingActive, isStageReady else { return }
+                        let layout = ImmersiveDiscGeometry.layout(
+                            metrics: metrics, platform: .macOS, controlsInset: controlsInset(metrics),
+                            hasTonearm: true
+                        )
+                        if discPosition.drag(start: value.startLocation, translation: value.translation, layout: layout) {
+                            revealChrome()
+                        }
+                    }
+                    .onEnded { _ in discPosition.endDrag() }
+            )
             .onContinuousHover { phase in
                 if case .active = phase { revealChrome() }
             }
@@ -323,6 +342,7 @@ struct MacImmersivePlayerView: View {
             await observeLyricPlayback()
         }
         .onChange(of: presentationEffect) { _, value in
+            discPosition.endDrag()
             if isStageReady { updateVisualizer(for: value) }
             refreshFlowNeighbors()
         }
@@ -336,7 +356,7 @@ struct MacImmersivePlayerView: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             refreshArtworkInputs()
             if isStageReady { updateVisualizer(for: presentationEffect) }
-            if rotationMode == .perSong, isRenderingActive, isStageReady, !showsEffectPicker {
+            if rotationMode == .perSong, isRenderingActive, isStageReady, !showsEffectPicker, !discPosition.isDragging {
                 advanceRotation()
             } else if isRenderingActive, isStageReady {
                 rotator.settleAfterSongChange(on: presentationEffect, isEnabled: !reduceMotion && !isLowPower)
@@ -387,6 +407,7 @@ struct MacImmersivePlayerView: View {
             }
         }
         .onDisappear {
+            discPosition.endDrag()
             deactivatePresentation()
         }
     }
@@ -464,7 +485,9 @@ struct MacImmersivePlayerView: View {
             isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome,
             chromeBlurRadius: 52,
-            discFace: discFace
+            discFace: discFace,
+            discPosition: discPosition.value,
+            discStyle: discStyle
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)
@@ -545,6 +568,17 @@ struct MacImmersivePlayerView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 effectMenu
+                if presentationEffect.scene == .vinylDeck {
+                    Menu {
+                        ImmersiveDiscMenu(style: $discStyle, position: discPosition)
+                    } label: {
+                        Image(systemName: discStyle.symbol)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help(Text("immersive_disc_settings"))
+                    .accessibilityLabel(Text("immersive_disc_settings"))
+                }
                 Spacer()
                 Button(action: beginExitFullScreen) {
                     HStack(spacing: 7) {

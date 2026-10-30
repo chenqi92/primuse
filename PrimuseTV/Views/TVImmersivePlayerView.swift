@@ -193,8 +193,11 @@ struct TVImmersivePlayerView: View {
     @State private var chromeYieldsFocus = false
     @State private var modePickerYieldsFocus = false
     @State private var showsQueue = false
+    @State private var showsDiscPosition = false
     @State private var hasResolvedArtwork = true
-    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),只在黑胶效果下去找。
+    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),在黑胶与光盘效果下查找。
+    @AppStorage(ImmersiveDiscStyle.storageKey) private var discStyle = ImmersiveDiscStyle.vinyl
+    @State private var discPosition = ImmersiveDiscPosition()
     @State private var discFace: CGImage?
     @State private var gallerySongs: [TVSong] = []
     /// 封面流(#191)两侧：队列里刚放过的与接下来的几首；画的时候再转成界面值。
@@ -212,7 +215,7 @@ struct TVImmersivePlayerView: View {
     @FocusState private var scrubberFocused: Bool
     @FocusState private var wakesChrome: Bool
 
-    private enum Control: Hashable { case previous, playPause, next, modes, queue }
+    private enum Control: Hashable { case previous, playPause, next, modes, queue, discPosition }
 
     private var effect: FullscreenPlayerEffect {
         #if DEBUG
@@ -242,7 +245,7 @@ struct TVImmersivePlayerView: View {
             mode: rotationMode,
             displayedEffect: displayedEffect.rawValue,
             isRunning: presentationActivity.isRenderingActive && store.isPlaying && !isLowPower
-                && !showsModePicker && !showsQueue
+                && !showsModePicker && !showsQueue && !showsDiscPosition
         )
     }
 
@@ -306,7 +309,7 @@ struct TVImmersivePlayerView: View {
                         scale: rotator.focusScale,
                         maximumBlur: metrics.s(22)
                     ))
-                    .accessibilityHidden(showsModePicker)
+                    .accessibilityHidden(showsModePicker || showsDiscPosition)
 
                 if isLowPower {
                     TVImmersiveAwayClock(
@@ -328,7 +331,7 @@ struct TVImmersivePlayerView: View {
                 .buttonStyle(TVBareButtonStyle())
                 .focused($wakesChrome)
                 .focusEffectDisabled()
-                .disabled((showsChrome && !chromeYieldsFocus) || (showsModePicker && !modePickerYieldsFocus))
+                .disabled(showsDiscPosition || (showsChrome && !chromeYieldsFocus) || (showsModePicker && !modePickerYieldsFocus))
                 .accessibilityHidden(showsChrome || showsModePicker)
 
                 if showsChrome {
@@ -336,8 +339,8 @@ struct TVImmersivePlayerView: View {
                     // 「沉浸风格」键上,遥控器只有朝网格那一侧按才进得去。
                     controls(metrics: metrics)
                         .transition(.opacity)
-                        .disabled((showsModePicker && !modePickerYieldsFocus) || chromeYieldsFocus)
-                        .accessibilityHidden(showsModePicker)
+                        .disabled(showsDiscPosition || (showsModePicker && !modePickerYieldsFocus) || chromeYieldsFocus)
+                        .accessibilityHidden(showsModePicker || showsDiscPosition)
                 }
 
                 // 顶部正中:没有实时频谱、临时降档时写明原因。右上角是「返回」提示。
@@ -363,7 +366,7 @@ struct TVImmersivePlayerView: View {
             .animation(.easeInOut(duration: reduceMotion ? 0.01 : 1.2), value: isLowPower)
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.65)
-                    .onEnded { _ in presentModePicker() }
+                    .onEnded { _ in if !showsDiscPosition { presentModePicker() } }
             )
         }
         .ignoresSafeArea()
@@ -376,7 +379,9 @@ struct TVImmersivePlayerView: View {
         ))
         .onExitCommand {
             // 省电时和屏保一样：第一下只是叫醒，不直接退出全屏页。
-            if isLowPower {
+            if showsDiscPosition {
+                closeDiscPosition()
+            } else if isLowPower {
                 exitLowPower()
                 scheduleLowPower()
             } else if showsModePicker {
@@ -393,7 +398,7 @@ struct TVImmersivePlayerView: View {
         }
         .onMoveCommand(perform: handleMoveCommand)
         .modifier(TVRemoteTransportModifier(
-            shortcutsEnabled: presentationActivity.isRenderingActive && !showsQueue && !showsModePicker
+            shortcutsEnabled: presentationActivity.isRenderingActive && !showsQueue && !showsModePicker && !showsDiscPosition
         ) { command in
             guard presentationActivity.isRenderingActive else { return }
             switch command {
@@ -413,6 +418,16 @@ struct TVImmersivePlayerView: View {
             resumePresentation(after: .queueDismissed)
         }) {
             TVQueueView().environment(store)
+        }
+        .fullScreenCover(isPresented: $showsDiscPosition, onDismiss: {
+            resumePresentation(after: .queueDismissed)
+            focusedControl = .discPosition
+        }) {
+            TVImmersiveDiscPanel(discStyle: $discStyle, discPosition: discPosition, onDismiss: closeDiscPosition)
+                .padding(60)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .presentationBackground(.clear)
+                .onExitCommand { closeDiscPosition() }
         }
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
@@ -457,6 +472,7 @@ struct TVImmersivePlayerView: View {
             scheduleChromeHide()
         }
         .onChange(of: effectRawValue) { _, _ in
+            showsDiscPosition = false
             // 所选效果变了(这里选的,或别的设备同步过来的):回到所选的那一种。
             rotator.reset()
             if effect == .native, presentationActivity.isMounted {
@@ -498,7 +514,7 @@ struct TVImmersivePlayerView: View {
         .onChange(of: store.nowPlaying.songID) { _, _ in
             refreshGallerySongs()
             if rotationMode == .perSong, presentationActivity.isRenderingActive,
-               !showsModePicker, !showsQueue {
+               !showsModePicker, !showsQueue, !showsDiscPosition {
                 advanceRotation()
             } else if presentationActivity.isRenderingActive {
                 rotator.settleAfterSongChange(on: presentationEffect, isEnabled: !reduceMotion && !isLowPower)
@@ -621,7 +637,9 @@ struct TVImmersivePlayerView: View {
             isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome,
             chromeBlurRadius: 60,
-            discFace: discFace
+            discFace: discFace,
+            discPosition: discPosition.value,
+            discStyle: discStyle
         ) { side in
             if np.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ImmersiveArtworkFallback(
@@ -791,6 +809,14 @@ struct TVImmersivePlayerView: View {
 
     private func modeAndQueueControls(surface: ControlSurface) -> some View {
         HStack(spacing: 16) {
+            if presentationEffect.scene == .vinylDeck {
+                controlButton(.discPosition, icon: discStyle.symbol,
+                              accessibilityLabel: PMString("immersive_disc_settings"), surface: surface, diameter: 60) {
+                    chromeTask?.cancel()
+                    idleTask?.cancel()
+                    showsDiscPosition = true
+                }
+            }
             controlButton(
                 .modes,
                 icon: "square.grid.2x2",
@@ -810,6 +836,10 @@ struct TVImmersivePlayerView: View {
                 presentQueue()
             }
         }
+    }
+
+    private func closeDiscPosition() {
+        showsDiscPosition = false
     }
 
     private enum ControlSurface { case bare, outlined, tile }
@@ -1304,6 +1334,7 @@ struct TVImmersivePlayerView: View {
     }
 
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
+        guard !showsDiscPosition else { return }
         // 省电时第一下只是叫醒，不在黑着的屏幕上切歌。
         if isLowPower {
             exitLowPower()
@@ -1387,7 +1418,7 @@ struct TVImmersivePlayerView: View {
         }
         #endif
         guard presentationActivity.isRenderingActive,
-              !showsModePicker, !scrubberFocused,
+              !showsModePicker, !showsDiscPosition, !scrubberFocused,
               !assistiveNavigationEnabled else { return }
         chromeTask = Task { @MainActor in
             do {
@@ -1397,7 +1428,7 @@ struct TVImmersivePlayerView: View {
             }
             guard !Task.isCancelled,
                   presentationActivity.isRenderingActive,
-                  !showsModePicker, !scrubberFocused,
+                  !showsModePicker, !showsDiscPosition, !scrubberFocused,
                   !assistiveNavigationEnabled else { return }
             yieldChromeFocus()
         }
@@ -1441,7 +1472,7 @@ extension TVImmersivePlayerView {
         idleTask?.cancel()
         idleTask = nil
         guard presentationActivity.isRenderingActive,
-              !assistiveNavigationEnabled,
+              !assistiveNavigationEnabled, !showsDiscPosition,
               let idleDelay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
         let delay = Self.debugIdleDelay ?? idleDelay
         idleTask = Task { @MainActor in
@@ -1452,7 +1483,7 @@ extension TVImmersivePlayerView {
             }
             guard !Task.isCancelled,
                   presentationActivity.isRenderingActive,
-                  !showsModePicker,
+                  !showsModePicker, !showsDiscPosition,
                   !scrubberFocused,
                   !assistiveNavigationEnabled else { return }
             enterLowPower()
@@ -1688,5 +1719,64 @@ private struct TVImmersiveLibraryCountObserver: View {
             .frame(width: 0, height: 0)
             .onChange(of: store.songs.count) { _, _ in onCountChange() }
     }
+}
+private struct TVImmersiveDiscPanel: View {
+    @Binding var discStyle: ImmersiveDiscStyle
+    var discPosition: ImmersiveDiscPosition
+    var onDismiss: () -> Void
+    @FocusState private var focusedDiscAdjustment: DiscAdjustment?
+
+    private enum DiscAdjustment: Hashable { case vinyl, compactDisc, left, right, up, down, reset, done }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("immersive_disc_style").font(.headline).foregroundStyle(.white)
+            HStack(spacing: 12) {
+                discAdjustmentButton(.vinyl, title: "immersive_disc_vinyl", symbol: discStyle == .vinyl ? "checkmark" : "opticaldisc.fill") {
+                    discStyle = .vinyl
+                }
+                discAdjustmentButton(.compactDisc, title: "fullscreen_effect_compact_disc", symbol: discStyle == .compactDisc ? "checkmark" : "opticaldisc") {
+                    discStyle = .compactDisc
+                }
+            }
+            Text("immersive_disc_position").font(.headline).foregroundStyle(.white).padding(.top, 8)
+            discAdjustmentButton(.left, title: "immersive_disc_move_left", symbol: "arrow.left") {
+                discPosition.move(x: -0.15, y: 0)
+            }
+            discAdjustmentButton(.right, title: "immersive_disc_move_right", symbol: "arrow.right") {
+                discPosition.move(x: 0.15, y: 0)
+            }
+            discAdjustmentButton(.up, title: "immersive_disc_move_up", symbol: "arrow.up") {
+                discPosition.move(x: 0, y: -0.15)
+            }
+            discAdjustmentButton(.down, title: "immersive_disc_move_down", symbol: "arrow.down") {
+                discPosition.move(x: 0, y: 0.15)
+            }
+            discAdjustmentButton(.reset, title: "reset", symbol: "arrow.counterclockwise") { discPosition.reset() }
+            discAdjustmentButton(.done, title: "done", symbol: "checkmark") { onDismiss() }
+        }
+        .padding(32)
+        .frame(width: 420)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .focusSection()
+        .defaultFocus($focusedDiscAdjustment, discStyle == .vinyl ? .vinyl : .compactDisc)
+    }
+
+    private func discAdjustmentButton(_ adjustment: DiscAdjustment, title: LocalizedStringKey,
+                                      symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+                .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                .tvFocusRing(focusedDiscAdjustment == adjustment, radius: 12, accent: .white, scale: 1.04, lift: 0)
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusedDiscAdjustment, equals: adjustment)
+        .focusEffectDisabled()
+    }
+
 }
 #endif

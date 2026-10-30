@@ -9,6 +9,17 @@ import UniformTypeIdentifiers
 /// 播放背景用到的图片处理。全部是同步的纯函数，调用方放在后台执行：大图只经
 /// ImageIO 的缩略图接口按目标尺寸解码（12MP 的照片不会整张解开），模糊只做一次。
 enum PlayerBackdropImaging {
+    nonisolated static func downscaledPNG(from data: Data, maxPixel: Int) -> Data? {
+        guard let image = decodedImage(data: data, maxPixel: maxPixel) else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output, UTType.png.identifier as CFString, 1, nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
+    }
+
     /// 原始图片缩到长边 `maxPixel` 并重新编码成 JPEG（带上照片的方向）。
     nonisolated static func downscaledJPEG(from data: Data, maxPixel: Int, quality: Double = 0.84) -> Data? {
         guard let image = decodedImage(data: data, maxPixel: maxPixel) else { return nil }
@@ -255,14 +266,16 @@ enum PlayerBackdropAlbumBackCache {
             .appendingPathComponent("Primuse/PlayerBackdrops", isDirectory: true)
     }
 
-    nonisolated static func fileURL(forKey key: String) -> URL {
-        directoryURL.appendingPathComponent(PlayerBackdropImaging.contentID(for: Data(key.utf8)) + ".jpg")
+    nonisolated static func fileURL(forKey key: String, preservingAlpha: Bool = false) -> URL {
+        directoryURL.appendingPathComponent(
+            PlayerBackdropImaging.contentID(for: Data(key.utf8)) + (preservingAlpha ? ".png" : ".jpg")
+        )
     }
 
-    nonisolated static func store(_ jpeg: Data, forKey key: String) {
+    nonisolated static func store(_ data: Data, forKey key: String, preservingAlpha: Bool = false) {
         do {
             try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try jpeg.write(to: fileURL(forKey: key), options: .atomic)
+            try data.write(to: fileURL(forKey: key, preservingAlpha: preservingAlpha), options: .atomic)
         } catch {
             plog("⚠️ Player backdrop cache write failed: \(error.localizedDescription)")
         }

@@ -1,11 +1,82 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import PrimuseKit
+import SwiftUI
+import UniformTypeIdentifiers
 import XCTest
 @testable import Primuse
 
 @MainActor
 final class PlayerBackdropImagingTests: XCTestCase {
+    func testDiscPNGPreservesTransparentCenterThroughDiskCache() throws {
+        let original = try transparentDiscPNG()
+        let encoded = try XCTUnwrap(PlayerBackdropImaging.downscaledPNG(from: original, maxPixel: 100))
+        let key = "disc-alpha-test-\(UUID().uuidString)"
+        let url = PlayerBackdropAlbumBackCache.fileURL(forKey: key, preservingAlpha: true)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertNotEqual(url, PlayerBackdropAlbumBackCache.fileURL(forKey: key))
+        PlayerBackdropAlbumBackCache.store(encoded, forKey: key, preservingAlpha: true)
+        let image = try XCTUnwrap(PlayerBackdropImaging.decodedImage(url: url, maxPixel: 100))
+        XCTAssertEqual(image.width, 100)
+        let pixels = try rgbaPixels(of: image)
+        XCTAssertEqual(pixels[(50 * 100 + 50) * 4 + 3], 0)
+        XCTAssertEqual(pixels[3], 0)
+        XCTAssertGreaterThan(pixels[(50 * 100 + 80) * 4], 180)
+        XCTAssertEqual(pixels[(50 * 100 + 80) * 4 + 3], 255)
+    }
+
+    func testTransparentDiscCenterRendersDarkInBothStyles() throws {
+        let face = try XCTUnwrap(PlayerBackdropImaging.decodedImage(data: transparentDiscPNG(), maxPixel: 200))
+        for isCompactDisc in [false, true] {
+            let renderer = ImageRenderer(content: ImmersiveVinylRecord(
+                palette: .fallback, isSpinning: false, reduceMotion: true,
+                diameter: 200, face: face, isCompactDisc: isCompactDisc
+            ) { _ in Color.red })
+            let rendered = try XCTUnwrap(renderer.uiImage?.cgImage)
+            let pixels = try rgbaPixels(of: rendered)
+            let center = (rendered.height / 2 * rendered.width + rendered.width / 2) * 4
+            XCTAssertLessThan(pixels[center], 45)
+            XCTAssertLessThan(pixels[center + 1], 45)
+            XCTAssertLessThan(pixels[center + 2], 45)
+            XCTAssertEqual(pixels[center + 3], 255)
+        }
+    }
+
+    func testCDSpreadsTheAlbumAcrossTheDiscAndKeepsItsCenterEmpty() throws {
+        var surfaceRed: [UInt8] = []
+        for isCompactDisc in [false, true] {
+            let renderer = ImageRenderer(content: ImmersiveVinylRecord(
+                palette: .fallback, isSpinning: false, reduceMotion: true,
+                diameter: 200, face: nil, isCompactDisc: isCompactDisc
+            ) { _ in Color.red })
+            let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+            let pixels = try rgbaPixels(of: image)
+            let center = (100 * image.width + 100) * 4
+            XCTAssertLessThan(pixels[center], 45)
+            XCTAssertLessThan(pixels[center + 1], 45)
+            XCTAssertLessThan(pixels[center + 2], 45)
+            surfaceRed.append(pixels[(100 * image.width + 165) * 4])
+        }
+        XCTAssertGreaterThan(Int(surfaceRed[1]) - Int(surfaceRed[0]), 120)
+    }
+
+    private func transparentDiscPNG() throws -> Data {
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(CGColor(red: 0.9, green: 0.4, blue: 0.2, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 0, y: 0, width: 200, height: 200))
+        context.setBlendMode(.clear)
+        context.fillEllipse(in: CGRect(x: 70, y: 70, width: 60, height: 60))
+        let output = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return output as Data
+    }
+
     private func makeJPEG(width: Int, height: Int) throws -> Data {
         let context = try XCTUnwrap(CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,

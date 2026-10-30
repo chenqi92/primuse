@@ -332,13 +332,14 @@ enum TVAlbumBackArtwork {
     }
 
     /// 读这张封底:先看磁盘缓存,没有再从音乐源读原图、缩好存盘。在后台跑。
-    static func loader(file: File, sourceID: String, store: TVStore) -> @Sendable () async -> CGImage? {
+    static func loader(file: File, sourceID: String, store: TVStore, preservingAlpha: Bool = false) -> @Sendable () async -> CGImage? {
         let maxPixel = Self.maxPixel
         let source = store.sourcesStore.source(id: sourceID)
         let bundle = store.credentialBundle
         return {
-            let diskKey = "\(sourceID)|\(file.cacheKey)|\(maxPixel)"
-            let cachedURL = PlayerBackdropAlbumBackCache.fileURL(forKey: diskKey)
+            let format = preservingAlpha ? "disc-alpha-v1|" : ""
+            let diskKey = "\(format)\(sourceID)|\(file.cacheKey)|\(maxPixel)"
+            let cachedURL = PlayerBackdropAlbumBackCache.fileURL(forKey: diskKey, preservingAlpha: preservingAlpha)
             if let cached = PlayerBackdropImaging.decodedImage(url: cachedURL, maxPixel: maxPixel) {
                 return cached
             }
@@ -352,12 +353,15 @@ enum TVAlbumBackArtwork {
                 if length <= 0 { length = try await pool.contentLength(path: file.path, size: 0) }
                 guard length > 0, length <= Self.maximumBytes else { return nil }
                 let data = try await pool.read(path: file.path, size: length, offset: 0, length: length)
-                guard !Task.isCancelled,
-                      let jpeg = PlayerBackdropImaging.downscaledJPEG(from: data, maxPixel: maxPixel) else {
+                guard !Task.isCancelled else { return nil }
+                let encoded = preservingAlpha
+                    ? PlayerBackdropImaging.downscaledPNG(from: data, maxPixel: maxPixel)
+                    : PlayerBackdropImaging.downscaledJPEG(from: data, maxPixel: maxPixel)
+                guard let encoded else {
                     return nil
                 }
-                PlayerBackdropAlbumBackCache.store(jpeg, forKey: diskKey)
-                return PlayerBackdropImaging.decodedImage(data: jpeg, maxPixel: maxPixel)
+                PlayerBackdropAlbumBackCache.store(encoded, forKey: diskKey, preservingAlpha: preservingAlpha)
+                return PlayerBackdropImaging.decodedImage(data: encoded, maxPixel: maxPixel)
             } catch {
                 plog("🖼 TV album back read failed: \(error.localizedDescription)")
                 return nil
@@ -499,10 +503,10 @@ enum TVAlbumDiscArtwork {
         }
         guard let entry else { return nil }
         let file = TVAlbumFolderPictures.file(entry)
-        let key = "disc|" + TVAlbumBackArtwork.memoryKey(sourceID: song.sourceID, file: file)
+        let key = "disc-alpha-v1|" + TVAlbumBackArtwork.memoryKey(sourceID: song.sourceID, file: file)
         var image = PlayerBackdropMemoryCache.shared.image(forKey: key)
         if image == nil {
-            let load = TVAlbumBackArtwork.loader(file: file, sourceID: song.sourceID, store: store)
+            let load = TVAlbumBackArtwork.loader(file: file, sourceID: song.sourceID, store: store, preservingAlpha: true)
             image = await Task.detached(priority: .userInitiated) { await load() }.value
             guard let image, !Task.isCancelled else { return nil }
             PlayerBackdropMemoryCache.shared.insert(image, forKey: key)

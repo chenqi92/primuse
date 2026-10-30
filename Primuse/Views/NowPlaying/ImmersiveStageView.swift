@@ -160,6 +160,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var chromeBlurRadius: CGFloat = 52
     /// 专辑文件夹里的盘面图:黑胶唱机画成画胶唱片。
     var discFace: CGImage?
+    var discPosition = CGPoint(x: 0.5, y: 0.5)
+    var discStyle = ImmersiveDiscStyle.vinyl
     @ViewBuilder var artwork: (CGFloat) -> Artwork
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
@@ -1658,78 +1660,101 @@ struct ImmersiveStageView<Artwork: View>: View {
     // MARK: - 4. 黑胶唱机
 
     private var vinylDeckScene: some View {
-        let diameter = min(
-            metrics.size.height * (metrics.isPortrait ? 0.44 : 0.78),
-            metrics.size.width * (metrics.isPortrait ? 0.74 : 0.44)
+        let isCompactDisc = discStyle == .compactDisc
+        let layout = ImmersiveDiscGeometry.layout(
+            metrics: metrics, platform: platform, controlsInset: controlsInset, hasTonearm: true
         )
-        return ZStack {
+        let recordFrame = layout.frame(at: discPosition)
+        return ZStack(alignment: .topLeading) {
             LinearGradient(
                 colors: [palette.secondary.opacity(0.96), ImmersiveStagePalette.obsidian],
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: .top, endPoint: .bottom
             )
             RadialGradient(
                 colors: [palette.primary.opacity(0.34), .clear],
-                center: metrics.isPortrait ? UnitPoint(x: 0.5, y: 0.22) : UnitPoint(x: 0.26, y: 0.42),
-                startRadius: 0,
-                endRadius: diameter * 1.1
+                center: UnitPoint(x: recordFrame.midX / max(metrics.size.width, 1),
+                                  y: recordFrame.midY / max(metrics.size.height, 1)),
+                startRadius: 0, endRadius: layout.diameter * 1.1
             )
             ImmersiveVignette(color: .black, clearStop: 0.20, strength: 0.70)
-
-            if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(24)) {
-                    turntable(diameter: diameter)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                    titleBlock(size: metrics.s(40), weight: .semibold)
-                    formatAndLyric(
-                        fontSize: metrics.s(13),
-                        availableWidth: metrics.size.width - leadingInset - trailingInset
-                    )
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(8))
-                .padding(.bottom, bottomInset)
-            } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 90 : 52)) {
-                    turntable(diameter: diameter)
-                    VStack(alignment: .leading, spacing: metrics.s(20)) {
-                        titleBlock(size: metrics.s(platform == .tvOS ? 92 : 58), weight: .semibold)
-                        formatAndLyric(
-                            fontSize: metrics.s(platform == .tvOS ? 23 : 14),
-                            availableWidth: metrics.size.width * 0.40
-                        )
-                    }
-                    .frame(maxWidth: metrics.size.width * 0.40, alignment: .leading)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset)
+            turntable(diameter: layout.diameter, isCompactDisc: isCompactDisc)
+                .position(x: recordFrame.midX, y: recordFrame.midY)
+            ViewThatFits(in: .vertical) {
+                discText(width: layout.textBounds.width, compact: false)
+                discText(width: layout.textBounds.width, compact: true)
             }
+            .frame(width: layout.textBounds.width, height: layout.textBounds.height,
+                   alignment: metrics.isPortrait ? .topLeading : .leading)
+            .position(x: layout.textBounds.midX, y: layout.textBounds.midY)
         }
     }
 
-    private func turntable(diameter: CGFloat) -> some View {
-        let canvas = ImmersiveVinylTonearm.canvasSize(recordDiameter: diameter)
+    private func discText(width: CGFloat, compact: Bool) -> some View {
+        let isTV = platform == .tvOS
+        let titleSize = metrics.s(metrics.isWide ? (isTV ? 74 : 52) : 30) * (compact ? 0.86 : 1)
+        let detailSize = metrics.s(metrics.isWide ? (isTV ? 25 : 19) : 14)
+        let lyricSize = metrics.s(metrics.isWide ? (isTV ? 46 : 34) : 22) * (compact ? 0.86 : 1)
+        let sectionGap = metrics.s(metrics.isWide ? (isTV ? 48 : 36) : 24) * (compact ? 0.6 : 1)
+        let lines = resolvedFocusLyrics.filter { !compact || $0.offset >= 0 }
+        return VStack(alignment: .leading, spacing: sectionGap) {
+            VStack(alignment: .leading, spacing: detailSize * 0.65) {
+                Text(track.title)
+                    .font(.system(size: titleSize, weight: .semibold))
+                    .tracking(-titleSize * 0.02)
+                    .lineSpacing(titleSize * 0.12)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(track.subtitle)
+                    .font(.system(size: detailSize))
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.66))
+                    .lineSpacing(detailSize * 0.22)
+                    .lineLimit(compact ? 1 : 2)
+                Text(track.format.uppercased())
+                    .font(.system(size: detailSize * 0.76, weight: .medium, design: .monospaced))
+                    .tracking(detailSize * 0.06)
+                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.44))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            VStack(alignment: .leading, spacing: lyricSize * (compact ? 0.4 : 0.6)) {
+                ForEach(lines) { line in
+                    lyricLine(line, fontSize: line.isActive ? lyricSize : lyricSize * 0.72,
+                              lineLimit: line.isActive ? (compact ? 2 : 3) : 1,
+                              textAlignment: .leading, availableWidth: width)
+                        .lineSpacing(lyricSize * 0.2)
+                        .frame(maxWidth: .infinity, alignment: writingDirection(for: line) == .rightToLeft ? .trailing : .leading)
+                }
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .immersiveRestingText(isResting)
+    }
+
+    private func turntable(diameter: CGFloat, isCompactDisc: Bool) -> some View {
+        let width = diameter * 1.14
         return ZStack(alignment: .topLeading) {
             ImmersiveVinylRecord(
                 palette: palette,
                 isSpinning: decorativeClockIsActive,
                 reduceMotion: reduceMotion,
                 diameter: diameter,
-                face: discFace
+                face: discFace,
+                isCompactDisc: isCompactDisc
             ) { side in
                 artwork(side)
             }
-            ImmersiveVinylTonearm(
-                recordDiameter: diameter,
-                isPlaying: track.isPlaying,
-                tint: palette.primary
-            )
+            if !isCompactDisc {
+                ImmersiveVinylTonearm(
+                    recordDiameter: diameter,
+                    isPlaying: track.isPlaying,
+                    tint: palette.primary
+                )
+            }
         }
-        .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
+        .frame(width: width, height: diameter, alignment: .topLeading)
+        .animation(.easeInOut(duration: reduceMotion ? 0 : 0.3), value: discStyle)
     }
 
     // MARK: - 5. 星夜极光

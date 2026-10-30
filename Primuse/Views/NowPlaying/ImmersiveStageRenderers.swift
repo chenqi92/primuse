@@ -569,13 +569,14 @@ struct ImmersiveVinylRecord<Label: View>: View {
     var diameter: CGFloat
     var spinPeriod: Double = 4.8
     var face: CGImage?
+    var isCompactDisc = false
     @ViewBuilder var label: (CGFloat) -> Label
 
     var body: some View {
         let labelDiameter = diameter * 0.37
         ZStack {
             Group {
-                if face == nil {
+                if face == nil && !isCompactDisc {
                     ImmersiveVinylDisc(diameter: diameter)
                         .equatable()
                 } else {
@@ -598,26 +599,40 @@ struct ImmersiveVinylRecord<Label: View>: View {
                             .frame(width: diameter, height: diameter)
                             .clipShape(Circle())
                     }
-                    ImmersiveVinylScratches(diameter: diameter)
-                        .equatable()
+                    if !isCompactDisc {
+                        ImmersiveVinylScratches(diameter: diameter)
+                            .equatable()
+                    }
                     if face == nil {
-                        label(labelDiameter)
-                            .frame(width: labelDiameter, height: labelDiameter)
+                        label(isCompactDisc ? diameter : labelDiameter)
+                            .frame(width: isCompactDisc ? diameter : labelDiameter,
+                                   height: isCompactDisc ? diameter : labelDiameter)
                             .clipShape(Circle())
                             .overlay {
                                 Circle().strokeBorder(.white.opacity(0.22), lineWidth: 1)
                             }
                     }
-                    Circle()
-                        .fill(Color(white: 0.05))
-                        .frame(width: diameter * 0.028, height: diameter * 0.028)
-                        .overlay {
-                            Circle().strokeBorder(.white.opacity(0.32), lineWidth: 0.8)
-                        }
+                    if !isCompactDisc {
+                        Circle()
+                            .fill(Color(white: 0.05))
+                            .frame(width: diameter * 0.028, height: diameter * 0.028)
+                            .overlay {
+                                Circle().strokeBorder(.white.opacity(0.32), lineWidth: 0.8)
+                            }
+                    }
+                }
+                .mask {
+                    if isCompactDisc && face == nil {
+                        Circle().strokeBorder(lineWidth: diameter * 0.41)
+                    } else {
+                        Circle()
+                    }
                 }
                 .rotationEffect(.degrees(angle))
             }
-            if face != nil {
+            if isCompactDisc {
+                compactDiscFinish
+            } else if face != nil {
                 ImmersiveVinylDisc(diameter: diameter, showsSurface: false)
                     .equatable()
                     .allowsHitTesting(false)
@@ -625,6 +640,41 @@ struct ImmersiveVinylRecord<Label: View>: View {
         }
         .frame(width: diameter, height: diameter)
         .accessibilityHidden(true)
+    }
+
+    private var compactDiscFinish: some View {
+        ZStack {
+            if face == nil {
+                Circle()
+                    .fill(AngularGradient(stops: [
+                        .init(color: .white.opacity(0.08), location: 0),
+                        .init(color: .cyan.opacity(0.48), location: 0.14),
+                        .init(color: .white.opacity(0.7), location: 0.20),
+                        .init(color: .purple.opacity(0.34), location: 0.25),
+                        .init(color: .clear, location: 0.38),
+                        .init(color: .white.opacity(0.12), location: 0.5),
+                        .init(color: .orange.opacity(0.42), location: 0.64),
+                        .init(color: .white.opacity(0.65), location: 0.70),
+                        .init(color: .cyan.opacity(0.34), location: 0.75),
+                        .init(color: .clear, location: 0.88),
+                        .init(color: .white.opacity(0.08), location: 1),
+                    ], center: .center, startAngle: .degrees(-30), endAngle: .degrees(330)))
+                    .mask(Circle().strokeBorder(lineWidth: diameter * 0.40))
+                Circle()
+                    .fill(Color(white: 0.12))
+                    .frame(width: diameter * 0.18, height: diameter * 0.18)
+                    .overlay { Circle().strokeBorder(.white.opacity(0.32), lineWidth: diameter * 0.008) }
+                Circle()
+                    .strokeBorder(.white.opacity(0.22), lineWidth: diameter * 0.012)
+                    .frame(width: diameter * 0.24, height: diameter * 0.24)
+            }
+            Circle()
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.8), .gray, .white.opacity(0.45)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing),
+                              lineWidth: max(1, diameter * 0.006))
+        }
+        .frame(width: diameter, height: diameter)
+        .allowsHitTesting(false)
     }
 }
 

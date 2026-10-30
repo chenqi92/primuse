@@ -66,6 +66,8 @@ struct ImmersivePlayerView: View {
     @State private var isSeeking = false
     @State private var seekPreviewTime: TimeInterval?
     @State private var hasResolvedArtwork = true
+    @AppStorage(ImmersiveDiscStyle.storageKey) private var discStyle = ImmersiveDiscStyle.vinyl
+    @State private var discPosition = ImmersiveDiscPosition()
     @State private var discFace: CGImage?
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
@@ -138,7 +140,7 @@ struct ImmersivePlayerView: View {
         ImmersiveEffectRotationSchedule(
             mode: rotationMode,
             displayedEffect: displayedEffect.rawValue,
-            isRunning: isSceneActive && player.isPlaying && !isLowPower && !showsEffectPicker
+            isRunning: isSceneActive && player.isPlaying && !isLowPower && !showsEffectPicker && !discPosition.isDragging
         )
     }
 
@@ -157,7 +159,7 @@ struct ImmersivePlayerView: View {
         )
     }
 
-    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),只在黑胶效果下去找。
+    /// 黑胶唱机的盘面图(专辑文件夹里的 disc / cd 图),在黑胶与光盘效果下查找。
     private var discFaceSongID: String? {
         guard presentationEffect.scene == .vinylDeck else { return nil }
         return player.currentSong?.id
@@ -287,6 +289,8 @@ struct ImmersivePlayerView: View {
                     )
                 }
             }
+            .onChange(of: geometry.size) { _, _ in discPosition.endDrag() }
+            .onChange(of: discStyle) { _, _ in discPosition.endDrag() }
             .animation(.easeInOut(duration: 0.26), value: showsChrome)
             .animation(.easeInOut(duration: 0.35), value: isAmbientRest)
             .animation(.easeInOut(duration: 1.2), value: isLowPower)
@@ -334,7 +338,7 @@ struct ImmersivePlayerView: View {
         .onChange(of: player.currentSong?.id) { _, _ in
             if isSceneActive { refreshArtworkInputs() }
             synchronizeVisualizer()
-            if rotationMode == .perSong, isSceneActive, !showsEffectPicker {
+            if rotationMode == .perSong, isSceneActive, !showsEffectPicker, !discPosition.isDragging {
                 advanceRotation()
             } else if isSceneActive {
                 rotator.settleAfterSongChange(
@@ -363,6 +367,7 @@ struct ImmersivePlayerView: View {
             }
         }
         .onChange(of: presentationEffect) { _, _ in
+            discPosition.endDrag()
             synchronizeVisualizer()
             if isSceneActive { refreshFlowNeighbors() }
         }
@@ -388,6 +393,7 @@ struct ImmersivePlayerView: View {
             revealChrome()
         }
         .onChange(of: isSceneActive) { _, isActive in
+            if !isActive { discPosition.endDrag() }
             handleSceneActivityChange(isActive: isActive)
         }
         .onChange(of: voiceOverEnabled, initial: true) { _, isEnabled in
@@ -417,6 +423,7 @@ struct ImmersivePlayerView: View {
             }
         }
         .onDisappear {
+            discPosition.endDrag()
             chromeTask?.cancel()
             ambientTask?.cancel()
             ambientDriftTask?.cancel()
@@ -499,7 +506,9 @@ struct ImmersivePlayerView: View {
             isResting: isAmbientRest,
             isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome && !isAmbientRest && !presentsOnExternalDisplay,
-            discFace: discFace
+            discFace: discFace,
+            discPosition: discPosition.value,
+            discStyle: discStyle
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)
@@ -589,6 +598,15 @@ struct ImmersivePlayerView: View {
             dismissChromeButton
             Spacer()
             effectChromeMenu(metrics: metrics)
+            if presentationEffect.scene == .vinylDeck {
+                Menu {
+                    ImmersiveDiscMenu(style: $discStyle, position: discPosition)
+                } label: {
+                    ImmersiveGlassActionLabel(symbol: discStyle.symbol,
+                                              tint: chromeInk, diameter: 44)
+                }
+                .accessibilityLabel(Text("immersive_disc_settings"))
+            }
             topTrailingChromeControl
         }
     }
@@ -1355,9 +1373,26 @@ struct ImmersivePlayerView: View {
     private func surfaceDrag(in size: CGSize, metrics: ImmersiveStageMetrics) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
+                if presentationEffect.scene == .vinylDeck, !showsEffectPicker,
+                   !isControlZone(value.startLocation, in: size) {
+                    let wasDragging = discPosition.isDragging
+                    let layout = ImmersiveDiscGeometry.layout(
+                        metrics: metrics, platform: .iOS, controlsInset: controlsInset(metrics),
+                        hasTonearm: true
+                    )
+                    if discPosition.drag(start: value.startLocation, translation: value.translation, layout: layout) {
+                        if !wasDragging { registerInteraction(revealControls: true) }
+                        return
+                    }
+                }
                 updateAlbumFlowDrag(value, in: size, metrics: metrics)
             }
             .onEnded { value in
+                if discPosition.isDragging {
+                    discPosition.endDrag()
+                    registerInteraction(revealControls: true)
+                    return
+                }
                 if isDraggingFlow == true {
                     finishAlbumFlowDrag(value, metrics: metrics)
                     return

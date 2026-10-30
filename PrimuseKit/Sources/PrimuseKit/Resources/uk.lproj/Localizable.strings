@@ -287,9 +287,9 @@
 "ext.widget.lyrics.empty.title" = "Немає тексту пісні";
 "ext.tv.scan.metadataValue" = "Шляхи + доступні метадані файлу";
 "fnmusic_connection_address" = "Адреса сервера";
-"fullscreen_effect_vinyl_deck" = "Вінілова дека";
-"fullscreen_effect_vinyl_deck_subtitle" = "Обкладинка стає етикеткою платівки, що обертається, а тонарм лежить у доріжці";
-"fullscreen_effect_vinyl_deck_motion" = "Платівка обертається під час відтворення · Тонарм піднімається на паузі";
+"fullscreen_effect_vinyl_deck" = "Платівка";
+"fullscreen_effect_vinyl_deck_subtitle" = "Перемикайте вініл і CD в одній сцені";
+"fullscreen_effect_vinyl_deck_motion" = "Диск обертається під час відтворення";
 "fullscreen_effect_aurora_veil" = "Зоряне сяйво";
 "fullscreen_effect_aurora_veil_subtitle" = "Завіси сяйва в кольорах обкладинки колишуться над зоряним небом позаду поточного рядка";
 "fullscreen_effect_aurora_veil_motion" = "Мерехтливі зірки, падаючі зорі · Безупинне колихання сяйва";
@@ -1003,3 +1003,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@: ліміт завантаження на цей місяць вичерпано. Через %2$d с пісні з цього джерела буде пропущено і заграють пісні з інших джерел. Натисніть «Відтворити/Пауза», щоб залишитися на цій пісні, або «Далі», щоб пропустити одразу.";
 
 "content_explicit" = "Ненормативна лексика";
+
+"fullscreen_effect_compact_disc" = "Компакт-диск";
+"immersive_disc_position" = "Положення диска";
+"immersive_disc_move_left" = "Посунути ліворуч";
+"immersive_disc_move_right" = "Посунути праворуч";
+"immersive_disc_move_up" = "Посунути вгору";
+"immersive_disc_move_down" = "Посунути вниз";
+
+"immersive_disc_vinyl" = "Вініл";
+"immersive_disc_style" = "Стиль диска";
+"immersive_disc_settings" = "Налаштування диска";

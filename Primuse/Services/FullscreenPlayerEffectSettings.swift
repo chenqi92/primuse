@@ -850,7 +850,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .radialPulse
         case "liveWaveform", "spectrum", "visualizer", "mirrorStage":
             self = .spectrumHorizon
-        case "vinylDeck", "vinyl":
+        case "vinylDeck", "vinyl", "compactDisc":
             self = .vinylDeck
         case "auroraVeil", "auroraDrift":
             self = .auroraVeil
@@ -1429,4 +1429,16 @@ extension FullscreenPlayerEffect {
         }
         return .coverGallery
     }
+}
+
+
+enum ImmersiveDiscStyle: String, CaseIterable, Identifiable {
+    case vinyl
+    case compactDisc
+
+    static let storageKey = "immersiveDiscStyle"
+    var id: String { rawValue }
+    var hasTonearm: Bool { self == .vinyl }
+    var titleKey: String { self == .vinyl ? "immersive_disc_vinyl" : "fullscreen_effect_compact_disc" }
+    var symbol: String { self == .vinyl ? "opticaldisc.fill" : "opticaldisc" }
 }

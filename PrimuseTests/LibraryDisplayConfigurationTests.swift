@@ -865,8 +865,8 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
     }
 
     /// 动态歌词追加在最后，归在场景动态那一组，不读频谱。
-    func testKineticLyricsIsAppendedLast() {
-        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .kineticLyrics)
+    func testKineticLyricsKeepsItsStoredValueAndIndex() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .kineticLyrics), 12)
         XCTAssertEqual(FullscreenPlayerEffect.kineticLyrics.rawValue, "kineticLyrics")
         XCTAssertEqual(FullscreenPlayerEffect(rawValue: "kineticLyrics"), .kineticLyrics)
         XCTAssertEqual(FullscreenPlayerEffect.kineticLyrics.collection, .sceneMotion)
@@ -882,6 +882,36 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
             ),
             "kineticLyrics"
         )
+    }
+
+    @MainActor
+    func testDiscPositionDragPersistsAndResetRestoresCenter() throws {
+        let suite = "DiscPositionTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let position = ImmersiveDiscPosition(defaults: defaults)
+        let layout = ImmersiveDiscLayout(content: CGRect(x: 20, y: 80, width: 900, height: 600),
+                                         portrait: false, hasTonearm: true, spacing: 40)
+        let frame = layout.frame(at: position.value)
+        XCTAssertFalse(position.drag(start: .zero, translation: CGSize(width: 20, height: 30), layout: layout))
+        let center = CGPoint(x: frame.minX + layout.diameter / 2, y: frame.midY)
+        XCTAssertTrue(position.drag(start: center, translation: CGSize(width: layout.travel.width / 4, height: 0), layout: layout))
+        XCTAssertEqual(position.value.x, 0.75, accuracy: 0.001)
+        XCTAssertEqual(ImmersiveDiscPosition(defaults: defaults).value.x, 0.5)
+        position.endDrag()
+        XCTAssertFalse(position.isDragging)
+        XCTAssertEqual(ImmersiveDiscPosition(defaults: defaults).value.x, 0.75, accuracy: 0.001)
+        position.reset()
+        XCTAssertEqual(ImmersiveDiscPosition(defaults: defaults).value, CGPoint(x: 0.5, y: 0.5))
+    }
+
+    func testDiscStylesShareOneEffectWithoutChangingExistingShortcuts() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .kineticLyrics)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .vinylDeck), 4)
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "compactDisc"), .vinylDeck)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.filter { $0.scene == .vinylDeck }, [.vinylDeck])
+        XCTAssertTrue(ImmersiveDiscStyle.vinyl.hasTonearm)
+        XCTAssertFalse(ImmersiveDiscStyle.compactDisc.hasTonearm)
     }
 
     func testCoverFlowNeighboursMapOffsetsOntoBothSides() {

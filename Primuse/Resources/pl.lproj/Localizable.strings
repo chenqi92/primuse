@@ -1418,9 +1418,9 @@
 "fullscreen_effect_flowing_lines" = "Płynne linie";
 "fullscreen_effect_flowing_lines_motion" = "Stale rozwijające się kontury · Trzy teksty";
 "fullscreen_effect_flowing_lines_subtitle" = "Ewoluujące kontury krążą wokół grafiki z trzema liniami tekstowymi";
-"fullscreen_effect_vinyl_deck" = "Gramofon";
-"fullscreen_effect_vinyl_deck_subtitle" = "Okładka staje się etykietą obracającej się płyty, a ramię spoczywa w rowku";
-"fullscreen_effect_vinyl_deck_motion" = "Płyta obraca się podczas odtwarzania · Ramię unosi się przy pauzie";
+"fullscreen_effect_vinyl_deck" = "Płyta";
+"fullscreen_effect_vinyl_deck_subtitle" = "Przełączaj winyl i CD w tej samej scenie";
+"fullscreen_effect_vinyl_deck_motion" = "Płyta obraca się podczas odtwarzania";
 "fullscreen_effect_aurora_veil" = "Gwiaździsta zorza";
 "fullscreen_effect_aurora_veil_subtitle" = "Kurtyny zorzy w kolorach okładki falują nad gwieździstym niebem za bieżącym wersem";
 "fullscreen_effect_aurora_veil_motion" = "Migoczące gwiazdy, spadające gwiazdy · Nieustannie falująca zorza";
@@ -6941,5 +6941,17 @@
 "playlist_group_rename" = "Zmień nazwę grupy";
 "playlist_group_dissolve" = "Rozgrupuj playlisty";
 "playlist_group_dissolve_message" = "Playlisty wrócą do sekcji Bez grupy. Żadna playlista ani utwór nie zostanie usunięty.";
+
+"fullscreen_effect_compact_disc" = "Płyta CD";
+"immersive_disc_position" = "Pozycja płyty";
+"immersive_disc_move_left" = "Przesuń w lewo";
+"immersive_disc_move_right" = "Przesuń w prawo";
+"immersive_disc_move_up" = "Przesuń w górę";
+"immersive_disc_move_down" = "Przesuń w dół";
+
+"immersive_disc_vinyl" = "Winyl";
+"immersive_disc_style" = "Styl płyty";
+"immersive_disc_settings" = "Ustawienia płyty";
+
 "playlist_delete_local_confirm_format" = "%lld lokalnych playlist zostanie usuniętych. Możesz je przywrócić z Ostatnio usuniętych. Utwory nie zostaną usunięte.";
 "playlist_delete_mirror_confirm_format" = "%lld playlist z serwisów muzycznych lub Apple Music zostanie ukrytych tylko na tym urządzeniu. Playlisty i utwory w źródłowym serwisie nie zostaną usunięte.";

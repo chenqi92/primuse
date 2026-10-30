@@ -559,9 +559,9 @@
 "fullscreen_effect_flowing_lines" = "เส้นไหล";
 "fullscreen_effect_flowing_lines_motion" = "รูปทรงที่พัฒนาอย่างต่อเนื่อง · สามเนื้อเพลง";
 "fullscreen_effect_flowing_lines_subtitle" = "รูปทรงที่พัฒนาขึ้นโคจรรอบงานศิลปะด้วยเนื้อเพลงสามบรรทัด";
-"fullscreen_effect_vinyl_deck" = "เครื่องเล่นแผ่นเสียง";
-"fullscreen_effect_vinyl_deck_subtitle" = "ปกอัลบั้มกลายเป็นฉลากของแผ่นเสียงที่หมุน ขณะที่โทนอาร์มวางอยู่ในร่อง";
-"fullscreen_effect_vinyl_deck_motion" = "แผ่นหมุนตามการเล่น · โทนอาร์มยกขึ้นเมื่อหยุดชั่วคราว";
+"fullscreen_effect_vinyl_deck" = "แผ่นเสียง";
+"fullscreen_effect_vinyl_deck_subtitle" = "สลับระหว่างแผ่นเสียงและซีดีในฉากเดียวกัน";
+"fullscreen_effect_vinyl_deck_motion" = "แผ่นหมุนขณะเล่นเพลง";
 "fullscreen_effect_aurora_veil" = "แสงเหนือใต้ดวงดาว";
 "fullscreen_effect_aurora_veil_subtitle" = "ม่านแสงเหนือสีปกอัลบั้มพลิ้วไหวบนท้องฟ้าเต็มดาว ด้านหน้าเป็นเนื้อเพลงบรรทัดปัจจุบัน";
 "fullscreen_effect_aurora_veil_motion" = "ดาวระยิบระยับ ดาวตก · แสงเหนือพลิ้วไหวไม่หยุด";
@@ -1003,3 +1003,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@ ใช้โควตาดาวน์โหลดของเดือนนี้หมดแล้ว อีก %2$d วินาทีจะข้ามเพลงจากแหล่งนี้และเล่นเพลงจากแหล่งอื่น กดเล่น/หยุดชั่วคราวเพื่ออยู่ที่เพลงนี้ หรือกดถัดไปเพื่อข้ามทันที";
 
 "content_explicit" = "เนื้อหาโจ่งแจ้ง";
+
+"fullscreen_effect_compact_disc" = "แผ่นซีดี";
+"immersive_disc_position" = "ตำแหน่งแผ่นดิสก์";
+"immersive_disc_move_left" = "เลื่อนไปทางซ้าย";
+"immersive_disc_move_right" = "เลื่อนไปทางขวา";
+"immersive_disc_move_up" = "เลื่อนขึ้น";
+"immersive_disc_move_down" = "เลื่อนลง";
+
+"immersive_disc_vinyl" = "แผ่นเสียง";
+"immersive_disc_style" = "รูปแบบแผ่น";
+"immersive_disc_settings" = "การตั้งค่าแผ่น";

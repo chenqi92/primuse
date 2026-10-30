@@ -1457,9 +1457,9 @@
 "About" = "О нас";
 "ai_error_http_status_format" = "Поставщик вернул HTTP %d.";
 "relay_share_lifetime" = "Срок службы";
-"fullscreen_effect_vinyl_deck" = "Виниловая дека";
-"fullscreen_effect_vinyl_deck_subtitle" = "Обложка становится этикеткой вращающейся пластинки, тонарм лежит в дорожке";
-"fullscreen_effect_vinyl_deck_motion" = "Пластинка вращается при воспроизведении · Тонарм поднимается на паузе";
+"fullscreen_effect_vinyl_deck" = "Пластинка";
+"fullscreen_effect_vinyl_deck_subtitle" = "Переключайте винил и CD в одной сцене";
+"fullscreen_effect_vinyl_deck_motion" = "Диск вращается при воспроизведении";
 "fullscreen_effect_aurora_veil" = "Звёздное сияние";
 "fullscreen_effect_aurora_veil_subtitle" = "Занавесы северного сияния в цветах обложки колышутся над звёздным небом позади текущей строки";
 "fullscreen_effect_aurora_veil_motion" = "Мерцающие звёзды, падающие звёзды · Неустанно колышущееся сияние";
@@ -6941,5 +6941,17 @@
 "playlist_group_rename" = "Переименовать группу";
 "playlist_group_dissolve" = "Расформировать группу";
 "playlist_group_dissolve_message" = "Плейлисты вернутся в раздел «Без группы». Плейлисты и песни не будут удалены.";
+
+"fullscreen_effect_compact_disc" = "Компакт-диск";
+"immersive_disc_position" = "Положение диска";
+"immersive_disc_move_left" = "Сдвинуть влево";
+"immersive_disc_move_right" = "Сдвинуть вправо";
+"immersive_disc_move_up" = "Сдвинуть вверх";
+"immersive_disc_move_down" = "Сдвинуть вниз";
+
+"immersive_disc_vinyl" = "Винил";
+"immersive_disc_style" = "Стиль диска";
+"immersive_disc_settings" = "Настройки диска";
+
 "playlist_delete_local_confirm_format" = "Будет удалено локальных плейлистов: %lld. Их можно восстановить из раздела «Недавно удалённые». Песни не будут удалены.";
 "playlist_delete_mirror_confirm_format" = "Плейлисты из музыкальных сервисов или Apple Music (%lld) будут скрыты только на этом устройстве. Плейлисты и песни в исходном сервисе не будут удалены.";

@@ -559,9 +559,9 @@
 "fullscreen_effect_flowing_lines" = "الخطوط الانسيابية";
 "fullscreen_effect_flowing_lines_motion" = "معالم تتطور باستمرار · ثلاث كلمات";
 "fullscreen_effect_flowing_lines_subtitle" = "تدور الملامح المتطورة حول العمل الفني بثلاثة أسطر غنائية";
-"fullscreen_effect_vinyl_deck" = "منصة الفينيل";
-"fullscreen_effect_vinyl_deck_subtitle" = "يتحوّل الغلاف إلى ملصق أسطوانة دوّارة بينما تستقر الذراع في الأخدود";
-"fullscreen_effect_vinyl_deck_motion" = "تدور الأسطوانة أثناء التشغيل · ترتفع الذراع عند الإيقاف المؤقت";
+"fullscreen_effect_vinyl_deck" = "القرص";
+"fullscreen_effect_vinyl_deck_subtitle" = "التبديل بين الفينيل والقرص المدمج في المشهد نفسه";
+"fullscreen_effect_vinyl_deck_motion" = "يدور القرص أثناء التشغيل";
 "fullscreen_effect_aurora_veil" = "شفق مرصّع بالنجوم";
 "fullscreen_effect_aurora_veil_subtitle" = "ستائر شفق بألوان الغلاف تتموّج فوق سماء مرصّعة بالنجوم خلف السطر الحالي";
 "fullscreen_effect_aurora_veil_motion" = "نجوم تتلألأ وشهب عابرة · شفق يتموّج بلا توقف";
@@ -1003,3 +1003,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "استنفد %1$@ حصة التنزيل لهذا الشهر. بعد %2$d ث سيتم تخطي أغاني هذا المصدر وتشغيل أغانٍ من مصادر أخرى. اضغط تشغيل/إيقاف مؤقت للبقاء على هذه الأغنية، أو التالي للتخطي الآن.";
 
 "content_explicit" = "محتوى صريح";
+
+"fullscreen_effect_compact_disc" = "قرص مضغوط";
+"immersive_disc_position" = "موضع القرص";
+"immersive_disc_move_left" = "تحريك لليسار";
+"immersive_disc_move_right" = "تحريك لليمين";
+"immersive_disc_move_up" = "تحريك لأعلى";
+"immersive_disc_move_down" = "تحريك لأسفل";
+
+"immersive_disc_vinyl" = "فينيل";
+"immersive_disc_style" = "نمط القرص";
+"immersive_disc_settings" = "إعدادات القرص";

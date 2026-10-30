@@ -1856,9 +1856,9 @@
 "fullscreen_effect_radial_pulse" = "ラジアルパルス";
 "fullscreen_effect_radial_pulse_subtitle" = "回転するレコードの外周が実際の音声に反応します";
 "fullscreen_effect_radial_pulse_motion" = "ライブスペクトラム · 回転するレコード";
-"fullscreen_effect_vinyl_deck" = "レコードデッキ";
-"fullscreen_effect_vinyl_deck_subtitle" = "アートワークが回転するレコードのラベルになり、トーンアームが溝に降りる";
-"fullscreen_effect_vinyl_deck_motion" = "再生に合わせて回転 · 一時停止でアームが上がる";
+"fullscreen_effect_vinyl_deck" = "レコード";
+"fullscreen_effect_vinyl_deck_subtitle" = "同じシーンでレコードとCDの盤面を切り替え";
+"fullscreen_effect_vinyl_deck_motion" = "再生中に盤面が回転";
 "fullscreen_effect_aurora_veil" = "星夜のオーロラ";
 "fullscreen_effect_aurora_veil_subtitle" = "アートワーク色のオーロラが星空に揺らめき、その手前に現在の歌詞を表示";
 "fullscreen_effect_aurora_veil_motion" = "星のまたたき、流れ星 · 揺れ続けるオーロラ";
@@ -7036,5 +7036,17 @@
 "playlist_group_rename" = "グループ名を変更";
 "playlist_group_dissolve" = "グループを解除";
 "playlist_group_dissolve_message" = "プレイリストは未分類に戻ります。プレイリストや曲は削除されません。";
+
+"fullscreen_effect_compact_disc" = "CD";
+"immersive_disc_position" = "ディスクの位置";
+"immersive_disc_move_left" = "左に移動";
+"immersive_disc_move_right" = "右に移動";
+"immersive_disc_move_up" = "上に移動";
+"immersive_disc_move_down" = "下に移動";
+
+"immersive_disc_vinyl" = "レコード";
+"immersive_disc_style" = "盤面スタイル";
+"immersive_disc_settings" = "盤面設定";
+
 "playlist_delete_local_confirm_format" = "%lld 個のローカルプレイリストを削除します。「最近削除した項目」から復元できます。曲は削除されません。";
 "playlist_delete_mirror_confirm_format" = "音楽サービスまたは Apple Music の %lld 個のプレイリストは、このデバイスでのみ非表示になります。元のサービスのプレイリストや曲は削除されません。";

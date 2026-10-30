@@ -9185,7 +9185,7 @@ public enum ImmersivePresentationFallbackPolicy {
             return "flowingLines"
         case "radialSpectrum":
             return "radialPulse"
-        case "vinyl":
+        case "vinyl", "compactDisc":
             return "vinylDeck"
         case "liveWaveform", "spectrum", "visualizer", "mirrorStage":
             return "spectrumHorizon"

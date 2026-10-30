@@ -1418,9 +1418,9 @@
 "fullscreen_effect_flowing_lines" = "เส้นไหล";
 "fullscreen_effect_flowing_lines_motion" = "รูปทรงที่พัฒนาอย่างต่อเนื่อง · สามเนื้อเพลง";
 "fullscreen_effect_flowing_lines_subtitle" = "รูปทรงที่พัฒนาขึ้นโคจรรอบงานศิลปะด้วยเนื้อเพลงสามบรรทัด";
-"fullscreen_effect_vinyl_deck" = "เครื่องเล่นแผ่นเสียง";
-"fullscreen_effect_vinyl_deck_subtitle" = "ปกอัลบั้มกลายเป็นฉลากของแผ่นเสียงที่หมุน ขณะที่โทนอาร์มวางอยู่ในร่อง";
-"fullscreen_effect_vinyl_deck_motion" = "แผ่นหมุนตามการเล่น · โทนอาร์มยกขึ้นเมื่อหยุดชั่วคราว";
+"fullscreen_effect_vinyl_deck" = "แผ่นเสียง";
+"fullscreen_effect_vinyl_deck_subtitle" = "สลับระหว่างแผ่นเสียงและซีดีในฉากเดียวกัน";
+"fullscreen_effect_vinyl_deck_motion" = "แผ่นหมุนขณะเล่นเพลง";
 "fullscreen_effect_aurora_veil" = "แสงเหนือใต้ดวงดาว";
 "fullscreen_effect_aurora_veil_subtitle" = "ม่านแสงเหนือสีปกอัลบั้มพลิ้วไหวบนท้องฟ้าเต็มดาว ด้านหน้าเป็นเนื้อเพลงบรรทัดปัจจุบัน";
 "fullscreen_effect_aurora_veil_motion" = "ดาวระยิบระยับ ดาวตก · แสงเหนือพลิ้วไหวไม่หยุด";
@@ -6941,5 +6941,17 @@
 "playlist_group_rename" = "เปลี่ยนชื่อกลุ่ม";
 "playlist_group_dissolve" = "ยกเลิกกลุ่ม";
 "playlist_group_dissolve_message" = "เพลย์ลิสต์จะกลับไปอยู่ในส่วนไม่มีกลุ่ม โดยจะไม่ลบเพลย์ลิสต์หรือเพลงใด ๆ";
+
+"fullscreen_effect_compact_disc" = "แผ่นซีดี";
+"immersive_disc_position" = "ตำแหน่งแผ่นดิสก์";
+"immersive_disc_move_left" = "เลื่อนไปทางซ้าย";
+"immersive_disc_move_right" = "เลื่อนไปทางขวา";
+"immersive_disc_move_up" = "เลื่อนขึ้น";
+"immersive_disc_move_down" = "เลื่อนลง";
+
+"immersive_disc_vinyl" = "แผ่นเสียง";
+"immersive_disc_style" = "รูปแบบแผ่น";
+"immersive_disc_settings" = "การตั้งค่าแผ่น";
+
 "playlist_delete_local_confirm_format" = "เพลย์ลิสต์ในเครื่อง %lld รายการจะถูกลบ คุณสามารถกู้คืนได้จากรายการที่ลบล่าสุด เพลงจะไม่ถูกลบ";
 "playlist_delete_mirror_confirm_format" = "เพลย์ลิสต์จากบริการเพลงหรือ Apple Music %lld รายการจะถูกซ่อนเฉพาะบนอุปกรณ์นี้ เพลย์ลิสต์และเพลงในบริการต้นทางจะไม่ถูกลบ";

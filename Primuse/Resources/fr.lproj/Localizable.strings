@@ -1855,9 +1855,9 @@
 "fullscreen_effect_radial_pulse" = "Pulsation radiale";
 "fullscreen_effect_radial_pulse_subtitle" = "L’anneau du disque tourne et réagit au son réel";
 "fullscreen_effect_radial_pulse_motion" = "Spectre en direct · Disque rotatif";
-"fullscreen_effect_vinyl_deck" = "Platine vinyle";
-"fullscreen_effect_vinyl_deck_subtitle" = "La pochette devient l'étiquette d'un disque en rotation, le bras posé dans le sillon";
-"fullscreen_effect_vinyl_deck_motion" = "Le disque tourne à la lecture · Le bras se lève en pause";
+"fullscreen_effect_vinyl_deck" = "Disque";
+"fullscreen_effect_vinyl_deck_subtitle" = "Passez du vinyle au CD dans la même scène";
+"fullscreen_effect_vinyl_deck_motion" = "Le disque tourne pendant la lecture";
 "fullscreen_effect_aurora_veil" = "Aurore étoilée";
 "fullscreen_effect_aurora_veil_subtitle" = "Des rideaux d'aurore aux couleurs de la pochette ondulent sur un ciel étoilé derrière la parole en cours";
 "fullscreen_effect_aurora_veil_motion" = "Étoiles scintillantes, étoiles filantes · Aurore toujours ondoyante";
@@ -7035,5 +7035,17 @@
 "playlist_group_rename" = "Renommer le groupe";
 "playlist_group_dissolve" = "Dissocier les playlists";
 "playlist_group_dissolve_message" = "Les playlists retourneront dans Sans groupe. Aucune playlist ni aucun morceau ne sera supprimé.";
+
+"fullscreen_effect_compact_disc" = "Disque compact";
+"immersive_disc_position" = "Position du disque";
+"immersive_disc_move_left" = "Déplacer à gauche";
+"immersive_disc_move_right" = "Déplacer à droite";
+"immersive_disc_move_up" = "Déplacer vers le haut";
+"immersive_disc_move_down" = "Déplacer vers le bas";
+
+"immersive_disc_vinyl" = "Vinyle";
+"immersive_disc_style" = "Style du disque";
+"immersive_disc_settings" = "Réglages du disque";
+
 "playlist_delete_local_confirm_format" = "%lld playlists locales seront supprimées. Vous pourrez les restaurer dans Suppressions récentes. Les morceaux ne seront pas supprimés.";
 "playlist_delete_mirror_confirm_format" = "%lld playlists de services musicaux ou d’Apple Music seront uniquement masquées sur cet appareil. Les playlists et morceaux du service d’origine ne seront pas supprimés.";

@@ -2124,3 +2124,116 @@ enum ImmersiveAudioSpec {
         return parts.isEmpty ? "—" : parts.joined(separator: " ")
     }
 }
+
+
+@MainActor
+@Observable
+final class ImmersiveDiscPosition {
+    private(set) var value: CGPoint
+    private(set) var isDragging = false
+    private var dragOrigin: CGPoint?
+    private let defaults: UserDefaults
+    private static let xKey = "immersiveDiscPositionX"
+    private static let yKey = "immersiveDiscPositionY"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        value = ImmersiveDiscLayout.clamped(CGPoint(
+            x: defaults.object(forKey: Self.xKey) as? Double ?? 0.5,
+            y: defaults.object(forKey: Self.yKey) as? Double ?? 0.5
+        ))
+    }
+
+    func drag(start: CGPoint, translation: CGSize, layout: ImmersiveDiscLayout) -> Bool {
+        if dragOrigin == nil {
+            guard layout.containsDisc(start, at: value) else { return false }
+            dragOrigin = value
+            isDragging = true
+        }
+        value = layout.translated(dragOrigin ?? value, by: translation)
+        return true
+    }
+
+    func endDrag() {
+        guard isDragging else { return }
+        dragOrigin = nil
+        isDragging = false
+        persist()
+    }
+
+    func move(x: CGFloat, y: CGFloat) {
+        value = ImmersiveDiscLayout.clamped(CGPoint(x: value.x + x, y: value.y + y))
+        persist()
+    }
+
+    func reset() {
+        value = CGPoint(x: 0.5, y: 0.5)
+        persist()
+    }
+
+    private func persist() {
+        defaults.set(Double(value.x), forKey: Self.xKey)
+        defaults.set(Double(value.y), forKey: Self.yKey)
+    }
+}
+
+enum ImmersiveDiscGeometry {
+    static func layout(metrics: ImmersiveStageMetrics, platform: ImmersiveStagePlatform,
+                       controlsInset: CGFloat, hasTonearm: Bool) -> ImmersiveDiscLayout {
+        let horizontal: CGFloat = switch metrics.layout {
+        case .phonePortrait: metrics.s(24)
+        case .phoneLandscape: metrics.s(36)
+        case .wide: metrics.s(platform == .tvOS ? 118 : 76)
+        }
+        let left = max(metrics.safeArea.leading, horizontal)
+        let right = max(metrics.safeArea.trailing, horizontal)
+        let top = metrics.stageContentTopInset(isTV: platform == .tvOS)
+        let bottom = max(metrics.safeArea.bottom, metrics.s(14)) + controlsInset
+        return ImmersiveDiscLayout(
+            content: CGRect(x: left, y: top, width: max(0, metrics.size.width - left - right),
+                            height: max(0, metrics.size.height - top - bottom)),
+            portrait: metrics.isPortrait, hasTonearm: hasTonearm,
+            spacing: metrics.s(metrics.isPortrait ? 24 : (platform == .tvOS ? 90 : 52))
+        )
+    }
+}
+
+struct ImmersiveDiscPositionActions: View {
+    var position: ImmersiveDiscPosition
+
+    var body: some View {
+        Button { position.move(x: -0.15, y: 0) } label: {
+            Label("immersive_disc_move_left", systemImage: "arrow.left")
+        }
+        Button { position.move(x: 0.15, y: 0) } label: {
+            Label("immersive_disc_move_right", systemImage: "arrow.right")
+        }
+        Button { position.move(x: 0, y: -0.15) } label: {
+            Label("immersive_disc_move_up", systemImage: "arrow.up")
+        }
+        Button { position.move(x: 0, y: 0.15) } label: {
+            Label("immersive_disc_move_down", systemImage: "arrow.down")
+        }
+        Button { position.reset() } label: {
+            Label("reset", systemImage: "arrow.counterclockwise")
+        }
+    }
+}
+
+
+struct ImmersiveDiscMenu: View {
+    @Binding var style: ImmersiveDiscStyle
+    var position: ImmersiveDiscPosition
+
+    var body: some View {
+        Picker("immersive_disc_style", selection: $style) {
+            ForEach(ImmersiveDiscStyle.allCases) { style in
+                Label(LocalizedStringKey(style.titleKey), systemImage: style.symbol).tag(style)
+            }
+        }
+        .pickerStyle(.inline)
+        Section("immersive_disc_position") {
+            ImmersiveDiscPositionActions(position: position)
+        }
+    }
+}

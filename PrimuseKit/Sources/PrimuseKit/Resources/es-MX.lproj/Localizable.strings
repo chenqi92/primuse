@@ -559,9 +559,9 @@
 "fullscreen_effect_flowing_lines" = "Líneas fluidas";
 "fullscreen_effect_flowing_lines_motion" = "Contornos en continua evolución · Tres letras";
 "fullscreen_effect_flowing_lines_subtitle" = "Los contornos en evolución orbitan la portada con tres líneas líricas";
-"fullscreen_effect_vinyl_deck" = "Tornamesa";
-"fullscreen_effect_vinyl_deck_subtitle" = "La portada se convierte en la etiqueta de un disco que gira mientras el brazo reposa en el surco";
-"fullscreen_effect_vinyl_deck_motion" = "El disco gira al reproducir · El brazo se levanta al pausar";
+"fullscreen_effect_vinyl_deck" = "Disco";
+"fullscreen_effect_vinyl_deck_subtitle" = "Alterna entre vinilo y CD en la misma escena";
+"fullscreen_effect_vinyl_deck_motion" = "El disco gira durante la reproducción";
 "fullscreen_effect_aurora_veil" = "Aurora estrellada";
 "fullscreen_effect_aurora_veil_subtitle" = "Cortinas de aurora con los colores de la portada ondulan sobre un cielo estrellado detrás de la letra actual";
 "fullscreen_effect_aurora_veil_motion" = "Estrellas que titilan, estrellas fugaces · Aurora en vaivén constante";
@@ -1003,3 +1003,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@: se agotó la cuota de descarga de este mes. En %2$d s se omitirán las canciones de esta fuente para reproducir las de otras fuentes. Presiona Reproducir/Pausa para quedarte en esta canción o Siguiente para omitirla ahora.";
 
 "content_explicit" = "Contenido explícito";
+
+"fullscreen_effect_compact_disc" = "Disco compacto";
+"immersive_disc_position" = "Posición del disco";
+"immersive_disc_move_left" = "Mover a la izquierda";
+"immersive_disc_move_right" = "Mover a la derecha";
+"immersive_disc_move_up" = "Mover arriba";
+"immersive_disc_move_down" = "Mover abajo";
+
+"immersive_disc_vinyl" = "Vinilo";
+"immersive_disc_style" = "Estilo del disco";
+"immersive_disc_settings" = "Ajustes del disco";

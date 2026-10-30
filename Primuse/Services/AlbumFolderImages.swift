@@ -100,15 +100,16 @@ enum AlbumFolderImages {
         case nil: picture = nil
         }
         guard let picture else { return nil }
-        return await image(of: picture, maxPixel: discFaceMaxPixel, sourceManager: sourceManager)
+        return await image(of: picture, maxPixel: discFaceMaxPixel, sourceManager: sourceManager, preservingAlpha: true)
     }
 
     /// 缩到 `maxPixel` 的图:先内存、再磁盘缓存,都没有才从音乐源读。
-    static func image(of picture: Picture, maxPixel: Int, sourceManager: SourceManager) async -> CGImage? {
-        let memoryKey = "folder-image|\(picture.cacheKey)|\(maxPixel)"
+    static func image(of picture: Picture, maxPixel: Int, sourceManager: SourceManager, preservingAlpha: Bool = false) async -> CGImage? {
+        let format = preservingAlpha ? "disc-alpha-v1|" : ""
+        let memoryKey = "folder-image|\(format)\(picture.cacheKey)|\(maxPixel)"
         if let cached = PlayerBackdropMemoryCache.shared.image(forKey: memoryKey) { return cached }
-        let diskKey = "\(picture.cacheKey)|\(maxPixel)"
-        let cachedURL = PlayerBackdropAlbumBackCache.fileURL(forKey: diskKey)
+        let diskKey = "\(format)\(picture.cacheKey)|\(maxPixel)"
+        let cachedURL = PlayerBackdropAlbumBackCache.fileURL(forKey: diskKey, preservingAlpha: preservingAlpha)
         var image = await Task.detached(priority: .utility) {
             PlayerBackdropImaging.decodedImage(url: cachedURL, maxPixel: maxPixel)
         }.value
@@ -116,11 +117,14 @@ enum AlbumFolderImages {
             guard let data = await originalData(of: picture, sourceManager: sourceManager),
                   !Task.isCancelled else { return nil }
             image = await Task.detached(priority: .utility) { () -> CGImage? in
-                guard let jpeg = PlayerBackdropImaging.downscaledJPEG(from: data, maxPixel: maxPixel) else {
+                let encoded = preservingAlpha
+                    ? PlayerBackdropImaging.downscaledPNG(from: data, maxPixel: maxPixel)
+                    : PlayerBackdropImaging.downscaledJPEG(from: data, maxPixel: maxPixel)
+                guard let encoded else {
                     return nil
                 }
-                PlayerBackdropAlbumBackCache.store(jpeg, forKey: diskKey)
-                return PlayerBackdropImaging.decodedImage(data: jpeg, maxPixel: maxPixel)
+                PlayerBackdropAlbumBackCache.store(encoded, forKey: diskKey, preservingAlpha: preservingAlpha)
+                return PlayerBackdropImaging.decodedImage(data: encoded, maxPixel: maxPixel)
             }.value
         }
         guard let image else { return nil }

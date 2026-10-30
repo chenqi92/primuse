@@ -1804,9 +1804,9 @@
 "fullscreen_effect_radial_pulse" = "環形聲譜";
 "fullscreen_effect_radial_pulse_subtitle" = "旋轉唱片外圈跟隨實際聲音起伏";
 "fullscreen_effect_radial_pulse_motion" = "即時頻譜驅動 · 唱片隨播放旋轉";
-"fullscreen_effect_vinyl_deck" = "黑膠唱機";
-"fullscreen_effect_vinyl_deck_subtitle" = "封面化作旋轉唱片的圓標，唱臂隨播放落入音軌";
-"fullscreen_effect_vinyl_deck_motion" = "唱片隨播放旋轉 · 暫停時唱臂抬起";
+"fullscreen_effect_vinyl_deck" = "唱片";
+"fullscreen_effect_vinyl_deck_subtitle" = "在同一場景中切換黑膠與光碟盤面";
+"fullscreen_effect_vinyl_deck_motion" = "唱片隨播放旋轉";
 "fullscreen_effect_aurora_veil" = "星夜極光";
 "fullscreen_effect_aurora_veil_subtitle" = "封面色極光在星空上起伏流動，目前歌詞置於其前";
 "fullscreen_effect_aurora_veil_motion" = "星點閃爍、流星劃過 · 極光持續擺動";
@@ -7012,5 +7012,17 @@
 "playlist_group_rename" = "重新命名群組";
 "playlist_group_dissolve" = "解散群組";
 "playlist_group_dissolve_message" = "播放清單將回到未分組，不會刪除播放清單或歌曲。";
+
+"fullscreen_effect_compact_disc" = "光碟";
+"immersive_disc_position" = "盤面位置";
+"immersive_disc_move_left" = "向左移動";
+"immersive_disc_move_right" = "向右移動";
+"immersive_disc_move_up" = "向上移動";
+"immersive_disc_move_down" = "向下移動";
+
+"immersive_disc_vinyl" = "黑膠";
+"immersive_disc_style" = "盤面樣式";
+"immersive_disc_settings" = "盤面設定";
+
 "playlist_delete_local_confirm_format" = "將刪除 %lld 個本機歌單，可在「最近刪除」中復原。歌曲不會被刪除。";
 "playlist_delete_mirror_confirm_format" = "選取的 %lld 個音樂服務或 Apple Music 歌單只會在本機隱藏，不會刪除原服務中的歌單或歌曲。";

@@ -665,9 +665,9 @@
 "fullscreen_effect_radial_pulse" = "环形声谱";
 "fullscreen_effect_radial_pulse_subtitle" = "旋转唱片外圈跟随实际声音起伏";
 "fullscreen_effect_radial_pulse_motion" = "实时频谱驱动 · 唱片随播放旋转";
-"fullscreen_effect_vinyl_deck" = "黑胶唱机";
-"fullscreen_effect_vinyl_deck_subtitle" = "封面化作旋转唱片的圆标，唱臂随播放落入音槽";
-"fullscreen_effect_vinyl_deck_motion" = "唱片随播放旋转 · 暂停时唱臂抬起";
+"fullscreen_effect_vinyl_deck" = "唱片";
+"fullscreen_effect_vinyl_deck_subtitle" = "在同一场景中切换黑胶与光盘盘面";
+"fullscreen_effect_vinyl_deck_motion" = "唱片随播放旋转";
 "fullscreen_effect_aurora_veil" = "星夜极光";
 "fullscreen_effect_aurora_veil_subtitle" = "封面色极光在星空上起伏流动，当前歌词置于其前";
 "fullscreen_effect_aurora_veil_motion" = "星点闪烁、流星划过 · 极光持续摆动";
@@ -1053,3 +1053,14 @@
 "ext.tv.playback.quotaSkipCountdown" = "%1$@本月下载流量已用完，%2$d 秒后跳过这个来源的歌，改播其他来源的歌曲。按播放/暂停键留在这首，按下一首立即跳过。";
 
 "content_explicit" = "含露骨内容";
+
+"fullscreen_effect_compact_disc" = "光盘";
+"immersive_disc_position" = "盘面位置";
+"immersive_disc_move_left" = "向左移动";
+"immersive_disc_move_right" = "向右移动";
+"immersive_disc_move_up" = "向上移动";
+"immersive_disc_move_down" = "向下移动";
+
+"immersive_disc_vinyl" = "黑胶";
+"immersive_disc_style" = "盘面样式";
+"immersive_disc_settings" = "盘面设置";
