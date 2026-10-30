@@ -863,6 +863,7 @@
 		5AEB19F91324DD8081A9C144 /* AudioSilenceStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C97847160F9C32E9789C1FB /* AudioSilenceStream.swift */; };
 		5AF67F370EFCD4AA7528FEC6 /* CloudKitSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */; };
 		5B521BD011A5D1EDD5FF4CC4 /* PlayerOverlayDismissalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */; };
+		E3D061AF9C624BA68EB93051 /* PlayerOverlayMorphGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27A94E7D65F46AFA452A0D5 /* PlayerOverlayMorphGeometry.swift */; };
 		5B6CB118CEB161FBC2A9C0CF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */; };
 		5BCB2635C14EE8A1060D1EBE /* InsecureHTTPHostPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F21995B7200CF465C38A69 /* InsecureHTTPHostPolicy.swift */; };
 		5BFA0F2DB7AF20E3D70CD55C /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C8D0CD987CACC83D845497B /* CarPlaySceneDelegate.swift */; };
@@ -2992,6 +2993,7 @@
 		4AD7C0A9B431AEBEC047E320 /* SSLTrustStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSLTrustStore.swift; sourceTree = "<group>"; };
 		4B0DFA16D66837EFF0DB5E43 /* PlaybackSessionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSessionSnapshot.swift; sourceTree = "<group>"; };
 		4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerOverlayDismissalState.swift; sourceTree = "<group>"; };
+		A27A94E7D65F46AFA452A0D5 /* PlayerOverlayMorphGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerOverlayMorphGeometry.swift; sourceTree = "<group>"; };
 		4B5098C0B68845BCD185C89B /* TVPlaybackPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackPrefetch.swift; sourceTree = "<group>"; };
 		4B800605B17FB72D56E093AB /* GaplessSuccessorDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessSuccessorDiscardPolicy.swift; sourceTree = "<group>"; };
 		4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveStageView.swift; sourceTree = "<group>"; };
@@ -4725,6 +4727,7 @@
 				15C4A3FB0E0A7BB759142DE6 /* PlayerBackdrop.swift */,
 				34C9E870608F570F8E8862FF /* AlbumFolderArtwork.swift */,
 				4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */,
+				A27A94E7D65F46AFA452A0D5 /* PlayerOverlayMorphGeometry.swift */,
 				65E19BC1D3A821170931D905 /* PlexAccount.swift */,
 				BCCF013D8E0B66E09EA22637 /* PrimuseSignposts.swift */,
 				0849A8F36C03A6B9E0D99387 /* PrivateOverlayHostPolicy.swift */,
@@ -7262,6 +7265,7 @@
 				0A1CD5E4BBF774E6C6E2B293 /* PlayerBackdrop.swift in Sources */,
 				CA45BB50852D9B57AA0F1CCF /* AlbumFolderArtwork.swift in Sources */,
 				5B521BD011A5D1EDD5FF4CC4 /* PlayerOverlayDismissalState.swift in Sources */,
+				E3D061AF9C624BA68EB93051 /* PlayerOverlayMorphGeometry.swift in Sources */,
 				E1E6E2746C97E7523587FBF4 /* Playlist.swift in Sources */,
 				4281F357464488B1E4CC9C04 /* PlaylistOperationAvailability.swift in Sources */,
 				BC4FB01D273E39EC8728BD0C /* PlaylistPendingEntry.swift in Sources */,
