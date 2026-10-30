@@ -3,8 +3,7 @@ import PrimuseKit
 
 /// 电视专辑页左栏下面的「关于这张专辑」、艺人页右栏顶上的「关于这位艺人」。
 /// 有简介时像影片介绍页那样是风格、几行摘录和来源,垫一层半透明底;摘录放不下时自己慢慢
-/// 往上滚,按下打开全文(全文也能上下翻)。还没有时是一张「生成简介」卡片。长按可以重新生成或删除。
-/// 编辑在 iPhone、iPad 或 Mac 上做,随曲库同步过来。
+/// 往上滚,按下打开全文(全文也能上下翻)。支持手动编辑和 AI 生成,随曲库同步到其他设备。
 struct TVLibraryInsightBlock: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(TVStore.self) private var tvStore
@@ -16,6 +15,7 @@ struct TVLibraryInsightBlock: View {
     var fillsHeight = false
 
     @State private var showsReader = false
+    @State private var showsEditor = false
     @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var summaryOverflows = false
 
@@ -30,7 +30,7 @@ struct TVLibraryInsightBlock: View {
     var body: some View {
         let insight = store.record(for: subject, in: tvStore.library)
         let showsSynopsis = insight?.hasContent == true
-        if LibraryInsightStore.isIntroducible(subject), insight != nil || canAskAI {
+        if LibraryInsightStore.isIntroducible(subject) {
             VStack(alignment: .leading, spacing: 14) {
                 if !showsSynopsis {
                     TVEyebrow(text: (subject.kind == .album ? String(localized: "library_insight_album_title") : String(localized: "library_insight_artist_title")))
@@ -56,8 +56,17 @@ struct TVLibraryInsightBlock: View {
                     TVLibraryInsightReader(subject: subject)
                         .environment(tvStore)
                 }
+                .fullScreenCover(isPresented: $showsEditor) {
+                    TVLibraryInsightEditor(
+                        subject: subject,
+                        record: store.record(for: subject, in: tvStore.library),
+                        library: tvStore.library
+                    )
+                }
                 .builtInAIConsentSheet($builtInConsent)
                 .contextMenu {
+                    Button("library_insight_edit", systemImage: "pencil") { showsEditor = true }
+                        .disabled(store.isGenerating(subject))
                     if let insight, !store.isGenerating(subject) {
                         // 自己写的简介在电视上不给一键覆盖。
                         if !insight.isWorthKeeping, canAskAI {
@@ -73,6 +82,12 @@ struct TVLibraryInsightBlock: View {
                             Label(String(localized: "library_insight_remove"), systemImage: "trash")
                         }
                     }
+                }
+                if !showsSynopsis, canAskAI {
+                    TVPillButton(title: String(localized: "library_insight_edit"), systemImage: "pencil") {
+                        showsEditor = true
+                    }
+                    .disabled(store.isGenerating(subject))
                 }
             }
             .padding(.bottom, fillsHeight ? 0 : 18)
@@ -135,6 +150,10 @@ struct TVLibraryInsightBlock: View {
                     .tvFont(.body)
                     .foregroundStyle(TVColor.textMuted)
             }
+        } else if !canAskAI {
+            Label(String(localized: "library_insight_edit"), systemImage: "pencil")
+                .tvFont(.button)
+                .foregroundStyle(TVColor.text)
         } else if let failure = store.failure(for: subject) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(verbatim: LibraryInsightStore.message(for: failure))
@@ -219,6 +238,10 @@ struct TVLibraryInsightBlock: View {
             return
         }
         guard !store.isGenerating(subject) else { return }
+        guard canAskAI else {
+            showsEditor = true
+            return
+        }
         if let failure = store.failure(for: subject) {
             if failure == .needsConsent, !intelligence.needsBuiltInConsent(for: .libraryInsight) {
                 do {
@@ -380,6 +403,7 @@ private struct TVLibraryInsightReader: View {
     @Environment(\.dismiss) private var dismiss
 
     let subject: LibraryInsightSubject
+    @State private var showsEditor = false
 
     private var store: LibraryInsightStore { .shared }
 
@@ -391,6 +415,13 @@ private struct TVLibraryInsightReader: View {
             card(insight)
                 .padding(.horizontal, 90)
                 .padding(.vertical, 60)
+        }
+        .fullScreenCover(isPresented: $showsEditor) {
+            TVLibraryInsightEditor(
+                subject: subject,
+                record: store.record(for: subject, in: tvStore.library),
+                library: tvStore.library
+            )
         }
         .onExitCommand { dismiss() }
     }
@@ -438,6 +469,10 @@ private struct TVLibraryInsightReader: View {
             }
 
             HStack {
+                TVPillButton(title: String(localized: "library_insight_edit"), systemImage: "pencil") {
+                    showsEditor = true
+                }
+                .disabled(store.isGenerating(subject))
                 Spacer(minLength: 0)
                 TVFocusButton(radius: 14, scale: 1.02, lift: 0, action: { dismiss() }) { focused in
                     Text(String(localized: "done"))
@@ -454,6 +489,74 @@ private struct TVLibraryInsightReader: View {
         .padding(.horizontal, 64).padding(.vertical, 52)
         .frame(maxWidth: 1400, alignment: .leading)
         .tvPanel(radius: 26)
+    }
+}
+
+struct TVLibraryInsightEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let subject: LibraryInsightSubject
+    let library: MusicLibrary
+    @State private var summary: String
+    @State private var tagText: String
+
+    private var store: LibraryInsightStore { .shared }
+
+    init(subject: LibraryInsightSubject, record: LibraryInsightRecord?, library: MusicLibrary) {
+        self.subject = subject
+        self.library = library
+        _summary = State(initialValue: record?.summary ?? "")
+        _tagText = State(initialValue: LibraryInsightEditing.tagText(record?.tags ?? []))
+    }
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.4)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                Text(subject.kind == .album
+                    ? String(localized: "library_insight_editor_title_album")
+                    : String(localized: "library_insight_editor_title_artist"))
+                    .tvFont(.sectionTitle)
+                Text(verbatim: subject.kind == .album
+                    ? [subject.albumTitle, subject.artistName].filter { !$0.isEmpty }.joined(separator: " · ")
+                    : subject.artistName)
+                    .tvFont(.body)
+                    .foregroundStyle(TVColor.textMuted)
+                    .lineLimit(2)
+                if !summary.isEmpty {
+                    TVInsightReaderText(text: summary)
+                        .frame(height: 200)
+                }
+                TVTextFieldBox {
+                    TextField(String(localized: "library_insight_editor_summary"), text: $summary)
+                        .accessibilityIdentifier("tv.insight.summary")
+                }
+                TVTextFieldBox {
+                    TextField(String(localized: "library_insight_editor_tags"), text: $tagText)
+                        .accessibilityIdentifier("tv.insight.tags")
+                }
+                HStack(spacing: 18) {
+                    TVPillButton(title: String(localized: "save"), systemImage: "checkmark", style: .solid) {
+                        guard !store.isGenerating(subject) else { return }
+                        store.saveEdit(
+                            subject,
+                            summary: summary,
+                            tags: LibraryInsightEditing.tags(fromText: tagText),
+                            aiDraft: nil,
+                            library: library
+                        )
+                        dismiss()
+                    }
+                    .disabled(store.isGenerating(subject))
+                    .accessibilityIdentifier("tv.insight.save")
+                    TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") { dismiss() }
+                }
+            }
+            .padding(40)
+            .frame(width: 1200, alignment: .leading)
+            .tvPanel(radius: 22)
+        }
+        .onExitCommand { dismiss() }
     }
 }
 
