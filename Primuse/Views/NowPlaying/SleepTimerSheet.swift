@@ -37,21 +37,22 @@ extension EnvironmentValues {
     @Entry var presentSleepTimer: (@MainActor () -> Void)? = nil
 }
 
-/// 睡眠定时面板:进行中时顶上是倒计时环、停止时刻、延长与关闭;下面是预设时长、
-/// 「播完本首 / 本章 / 整本再停」、自定义时长或到几点停止,音乐另有「计时结束时播完当前这首」。
-/// 选项按正在听的空间给(`SleepTimerOptionPolicy`):电台只有时长,有声内容多出本章、本集、整本。
 struct SleepTimerSheet: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage(SleepTimerSchedulePolicy.finishesTrackPreferenceKey) private var finishesTrack = false
     /// 上一次自定义的时长与时刻,下次打开接着用。
     @AppStorage("primuse.sleepTimer.customMinutes") private var customMinutes = 20
     @AppStorage("primuse.sleepTimer.clockMinuteOfDay") private var clockMinuteOfDay = 23 * 60
     @State private var customMode: CustomMode = .duration
+    @State private var selectedEndOption: SleepTimerOption?
+    @State private var isEditing = false
 
     private enum CustomMode: Hashable {
         case duration
         case clock
+        case end
     }
 
     private var space: ListeningSpace { player.currentListeningSpace ?? .music }
@@ -79,45 +80,186 @@ struct SleepTimerSheet: View {
         space == .music && !player.isLiveRadio
     }
 
+    private var showsRunningTimer: Bool { player.isSleepTimerActive && !isEditing }
+
+    private var canStart: Bool {
+        guard customMode == .end else { return true }
+        guard let selectedEndOption, endOptions.contains(selectedEndOption) else { return false }
+        return !isEndOptionUnavailable(selectedEndOption)
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    if player.isSleepTimerActive {
-                        statusCard
-                    }
-                    presetSection
-                    if !endOptions.isEmpty {
-                        endSection
-                    }
-                    customSection
-                    if offersFinishTrack {
-                        finishTrackSection
-                    }
-                    Text("sleep_timer_fade_footer")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 0) {
+                if !showsRunningTimer {
+                    modePicker
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if showsRunningTimer {
+                            statusCard
+                        } else {
+                            modeEditor
+                                .frame(minHeight: 202)
+                            if offersFinishTrack && customMode != .end {
+                                Divider()
+                                finishTrackSection
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .accessibilityIdentifier("sleepTimer.content")
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) { actionFooter }
             .navigationTitle(Text("sleep_timer"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "done")) { dismiss() }
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel(Text("close"))
+                    .accessibilityIdentifier("sleepTimer.close")
                 }
+            }
+            .onAppear { selectAvailableEndOption() }
+            .onChange(of: endOptions) { _, _ in
+                selectAvailableEndOption()
+                if endOptions.isEmpty { customMode = .duration }
             }
         }
         #if os(macOS)
-        .frame(minWidth: 420, idealWidth: 460, minHeight: 520, idealHeight: 600)
+        .frame(minWidth: 420, idealWidth: 460, minHeight: 560, idealHeight: 600)
         #else
-        .presentationDetents([.medium, .large])
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.height(560), .large])
         .presentationDragIndicator(.visible)
         #endif
+    }
+
+    private var modePicker: some View {
+        Picker(selection: $customMode) {
+            Text("sleep_timer_custom_mode_duration").tag(CustomMode.duration)
+            Text("sleep_timer_custom_mode_clock").tag(CustomMode.clock)
+            if !endOptions.isEmpty {
+                Text("sleep_timer_section_end").tag(CustomMode.end)
+            }
+        } label: {
+            Text("sleep_timer")
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .accessibilityIdentifier("sleepTimer.mode")
+    }
+
+    @ViewBuilder
+    private var modeEditor: some View {
+        switch customMode {
+        case .duration:
+            VStack(spacing: 14) {
+                durationPicker
+                presetSection
+            }
+        case .clock:
+            clockPicker
+        case .end:
+            endSection
+        }
+    }
+
+    private var actionFooter: some View {
+        VStack(spacing: 12) {
+            Divider()
+            if showsRunningTimer {
+                HStack(spacing: 12) {
+                    turnOffButton
+                        .frame(maxWidth: .infinity)
+                    Button { editRunningTimer() } label: {
+                        Text("edit")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 38)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("sleepTimer.edit")
+                }
+            } else {
+                TimelineView(.everyMinute) { context in
+                    Text(verbatim: draftSummary(now: context.date))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("sleepTimer.summary")
+                }
+                Button { startTimer() } label: {
+                    Text("sleep_timer_start")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 38)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canStart)
+                .accessibilityIdentifier("sleepTimer.start")
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+        .background(.bar)
+    }
+
+    private func draftSummary(now: Date) -> String {
+        if customMode == .end {
+            return selectedEndOption.map(endTitle) ?? ""
+        }
+        let end = customEndDate(now: now)
+        return SleepTimerStatusText.stopTime(end, now: now)
+            + " · " + String(format: String(localized: "sleep_timer_length_format"),
+                              Self.lengthLabel(end.timeIntervalSince(now)))
+    }
+
+    private func selectAvailableEndOption() {
+        if let selectedEndOption, endOptions.contains(selectedEndOption),
+           !isEndOptionUnavailable(selectedEndOption) { return }
+        selectedEndOption = endOptions.first(where: { player.isSleepOptionArmed($0) })
+            ?? endOptions.first(where: { !isEndOptionUnavailable($0) })
+            ?? endOptions.first
+    }
+
+    private func startTimer() {
+        guard canStart else { return }
+        if customMode == .end, let selectedEndOption {
+            player.applySleepOption(selectedEndOption)
+        } else {
+            player.scheduleSleep(until: customEndDate(now: Date()))
+        }
+        dismiss()
+    }
+
+    private func editRunningTimer() {
+        if let end = player.sleepTimerEndDate {
+            let remainingMinutes = max(1, Int(ceil(end.timeIntervalSinceNow / 60)))
+            if remainingMinutes > 720 {
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: end)
+                clockMinuteOfDay = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+                customMode = .clock
+            } else {
+                customMinutes = remainingMinutes
+                customMode = .duration
+            }
+        } else {
+            selectedEndOption = endOptions.first(where: { player.isSleepOptionArmed($0) })
+            selectAvailableEndOption()
+            customMode = endOptions.isEmpty ? .duration : .end
+        }
+        isEditing = true
     }
 
     // MARK: Running
@@ -138,9 +280,9 @@ struct SleepTimerSheet: View {
                                 .monospacedDigit()
                         }
                         .buttonStyle(.bordered)
+                        .accessibilityIdentifier("sleepTimer.extend.\(minutes)")
                     }
                     Spacer(minLength: 8)
-                    turnOffButton
                 }
             } else {
                 HStack(spacing: 14) {
@@ -154,14 +296,9 @@ struct SleepTimerSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                 }
-                HStack {
-                    Spacer()
-                    turnOffButton
-                }
             }
         }
-        .padding(16)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 24)
     }
 
     private func countdownRow(end: Date, now: Date) -> some View {
@@ -204,69 +341,62 @@ struct SleepTimerSheet: View {
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("sleepTimer.remaining")
     }
 
     private var turnOffButton: some View {
         Button(role: .destructive) {
             player.cancelSleep()
+            isEditing = false
         } label: {
             Text("cancel_timer")
+                .frame(maxWidth: .infinity, minHeight: 38)
         }
         .buttonStyle(.bordered)
+        .accessibilityIdentifier("sleepTimer.cancel")
     }
 
     // MARK: Choices
 
-    private func sectionHeader(_ key: LocalizedStringKey) -> some View {
-        Text(key)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
-    }
-
     private var presetSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("sleep_timer_section_duration")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 10)], spacing: 10) {
-                ForEach(presetMinutes, id: \.self) { minutes in
-                    Button {
-                        player.scheduleSleep(minutes: minutes)
-                        dismiss()
-                    } label: {
-                        Text(verbatim: "\(minutes) " + String(localized: "minutes"))
-                            .font(.callout.weight(.medium))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(Color.primary.opacity(0.07), in: Capsule())
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 120 : 72), spacing: 8)], spacing: 8) {
+            ForEach(presetMinutes, id: \.self) { minutes in
+                Button {
+                    customMinutes = minutes
+                } label: {
+                    Text(verbatim: "\(minutes) " + String(localized: "minutes"))
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                        .background {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(customMinutes == minutes ? AnyShapeStyle(.tint.opacity(0.16)) : AnyShapeStyle(Color.primary.opacity(0.06)))
+                        }
+                        .foregroundStyle(customMinutes == minutes ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(customMinutes == minutes ? .isSelected : [])
+                .accessibilityIdentifier("sleepTimer.preset.\(minutes)")
             }
         }
     }
 
     private var endSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("sleep_timer_section_end")
-            VStack(spacing: 0) {
-                ForEach(Array(endOptions.enumerated()), id: \.element) { index, option in
-                    if index > 0 {
-                        Divider().padding(.leading, 48)
-                    }
-                    endRow(option)
+        VStack(spacing: 0) {
+            ForEach(Array(endOptions.enumerated()), id: \.element) { index, option in
+                if index > 0 {
+                    Divider().padding(.leading, 48)
                 }
+                endRow(option)
             }
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
     private func endRow(_ option: SleepTimerOption) -> some View {
-        let isArmed = player.isSleepOptionArmed(option)
+        let isSelected = selectedEndOption == option
         return Button {
-            player.applySleepOption(option)
-            dismiss()
+            selectedEndOption = option
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: endSymbol(option))
@@ -276,7 +406,7 @@ struct SleepTimerSheet: View {
                 Text(verbatim: endTitle(option))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 8)
-                if isArmed {
+                if isSelected {
                     Image(systemName: "checkmark")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.tint)
@@ -288,6 +418,8 @@ struct SleepTimerSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(isEndOptionUnavailable(option))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("sleepTimer.end.\(endSymbol(option))")
     }
 
     private func endTitle(_ option: SleepTimerOption) -> String {
@@ -359,7 +491,7 @@ struct SleepTimerSheet: View {
 
     private func customEndDate(now: Date) -> Date {
         switch customMode {
-        case .duration:
+        case .duration, .end:
             return now.addingTimeInterval(SleepTimerSchedulePolicy.duration(
                 hours: customMinutes / 60,
                 minutes: customMinutes % 60
@@ -370,55 +502,6 @@ struct SleepTimerSheet: View {
                 minute: clockMinuteOfDay % 60,
                 after: now
             )
-        }
-    }
-
-    private var customSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("sleep_timer_section_custom")
-            VStack(spacing: 12) {
-                Picker(selection: $customMode) {
-                    Text("sleep_timer_custom_mode_duration").tag(CustomMode.duration)
-                    Text("sleep_timer_custom_mode_clock").tag(CustomMode.clock)
-                } label: {
-                    EmptyView()
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-
-                Group {
-                    switch customMode {
-                    case .duration: durationPicker
-                    case .clock: clockPicker
-                    }
-                }
-                .frame(maxWidth: .infinity)
-
-                TimelineView(.everyMinute) { context in
-                    let end = customEndDate(now: context.date)
-                    let length = end.timeIntervalSince(context.date)
-                    Text(verbatim: SleepTimerStatusText.stopTime(end, now: context.date)
-                        + " · " + String(format: String(localized: "sleep_timer_length_format"),
-                                         Self.lengthLabel(length)))
-                        .font(.footnote)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                }
-
-                Button {
-                    player.scheduleSleep(until: customEndDate(now: Date()))
-                    dismiss()
-                } label: {
-                    Text("sleep_timer_start")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(14)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -435,6 +518,7 @@ struct SleepTimerSheet: View {
             }
             .pickerStyle(.wheel)
             .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("sleepTimer.hours")
 
             Picker(selection: customMinuteOfHour) {
                 ForEach(0..<60, id: \.self) { minutes in
@@ -446,9 +530,11 @@ struct SleepTimerSheet: View {
             .pickerStyle(.wheel)
             .frame(maxWidth: .infinity)
             .disabled(customHours.wrappedValue >= 12)
+            .accessibilityIdentifier("sleepTimer.minutes")
         }
         .frame(height: 140)
         .clipped()
+        .contentShape(Rectangle())
         #else
         HStack(spacing: 12) {
             Stepper(value: customHours, in: 0...12) {
@@ -469,6 +555,7 @@ struct SleepTimerSheet: View {
         #if os(iOS)
         ClockWheelPicker(minuteOfDay: $clockMinuteOfDay)
             .frame(height: 140)
+            .accessibilityIdentifier("sleepTimer.clock")
         #else
         DatePicker(selection: clockTime, displayedComponents: .hourAndMinute) {
             Text("sleep_timer_custom_mode_clock")
@@ -494,16 +581,15 @@ struct SleepTimerSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: $finishesTrack) {
                 Text("sleep_timer_finish_track")
-                    .font(.body.weight(.medium))
+                    .font(.subheadline)
             }
             .toggleStyle(.switch)
+            .accessibilityIdentifier("sleepTimer.finishTrack")
             Text("sleep_timer_finish_track_footer")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

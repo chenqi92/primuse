@@ -1,6 +1,215 @@
 import XCTest
 
 @MainActor
+final class SleepTimerUITests: XCTestCase {
+    func testCustomDurationModesAndRunningActionsKeepFooterVisible() throws {
+        continueAfterFailure = false
+        let app = timerApp()
+        app.launch()
+        try openTimer(app)
+        guard !app.buttons["sleepTimer.cancel"].exists else {
+            app.buttons["sleepTimer.close"].tap()
+            throw XCTSkip("An existing sleep timer must be left undisturbed")
+        }
+        let hours = app.pickerWheels.element(boundBy: 0)
+        let minutes = app.pickerWheels.element(boundBy: 1)
+        XCTAssertTrue(hours.waitForExistence(timeout: 5))
+        let originalHours = try XCTUnwrap(hours.value as? String)
+        let originalMinutes = try XCTUnwrap(minutes.value as? String)
+        addTeardownBlock { @MainActor in self.restore(app, hours: originalHours, minutes: originalMinutes) }
+
+        let start = app.buttons["sleepTimer.start"]
+        assertVisible(start, in: app)
+        let originalY = start.frame.midY
+        app.buttons["sleepTimer.preset.30"].tap()
+        XCTAssertTrue(app.buttons["sleepTimer.preset.30"].isSelected)
+        XCTAssertTrue(start.exists, "A shortcut should select the duration without starting it")
+        hours.adjust(toPickerWheelValue: "1 小时")
+        minutes.adjust(toPickerWheelValue: "20 分钟")
+        XCTAssertFalse(app.buttons["sleepTimer.preset.30"].isSelected)
+        XCTAssertEqual(hours.value as? String, "1 小时")
+        XCTAssertEqual(minutes.value as? String, "20 分钟")
+        assertVisible(start, in: app)
+        XCTAssertEqual(start.frame.midY, originalY, accuracy: 1)
+        attach(app, "sleep-custom-80-minutes")
+
+        let modes = app.segmentedControls["sleepTimer.mode"]
+        modes.buttons["到点停止"].tap()
+        XCTAssertTrue(modes.buttons["到点停止"].isSelected)
+        assertVisible(start, in: app)
+        XCTAssertEqual(start.frame.midY, originalY, accuracy: 1)
+        attach(app, "sleep-clock")
+        modes.buttons["倒计时"].tap()
+        XCTAssertTrue(modes.buttons["倒计时"].isSelected, "The clock picker must not intercept the mode control")
+        XCTAssertEqual(hours.value as? String, "1 小时")
+        XCTAssertEqual(minutes.value as? String, "20 分钟")
+
+        modes.buttons["播完再停"].tap()
+        let trackEnd = app.buttons["sleepTimer.end.play.circle"]
+        XCTAssertTrue(trackEnd.isEnabled)
+        trackEnd.tap()
+        assertVisible(start, in: app)
+        XCTAssertEqual(start.frame.midY, originalY, accuracy: 1)
+        attach(app, "sleep-track-end")
+        start.tap()
+        XCTAssertTrue(start.waitForNonExistence(timeout: 5))
+        try openTimer(app)
+        assertVisible(app.buttons["sleepTimer.cancel"], in: app)
+        XCTAssertTrue(app.staticTexts["当前曲目结束后停止"].exists)
+        app.buttons["sleepTimer.cancel"].tap()
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        modes.buttons["倒计时"].tap()
+
+        app.buttons["sleepTimer.preset.30"].tap()
+        hours.adjust(toPickerWheelValue: "1 小时")
+        minutes.adjust(toPickerWheelValue: "20 分钟")
+        start.tap()
+        XCTAssertTrue(start.waitForNonExistence(timeout: 5))
+        try openTimer(app)
+        let remaining = app.descendants(matching: .any)["sleepTimer.remaining"].firstMatch
+        XCTAssertTrue(remaining.waitForExistence(timeout: 5))
+        let before = remaining.label
+        assertVisible(app.buttons["sleepTimer.cancel"], in: app)
+        app.buttons["sleepTimer.extend.5"].tap()
+        let extended = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            remaining.label != before
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [extended], timeout: 3), .completed)
+        app.buttons["sleepTimer.edit"].tap()
+        XCTAssertEqual(hours.value as? String, "1 小时")
+        XCTAssertEqual(minutes.value as? String, "25 分钟")
+        assertVisible(start, in: app)
+        attach(app, "sleep-extended-edit")
+        hours.adjust(toPickerWheelValue: "12 小时")
+        XCTAssertEqual(minutes.value as? String, "0 分钟")
+        assertVisible(start, in: app)
+    }
+
+    func testAccessibilityTextKeepsPrimaryActionReachable() throws {
+        continueAfterFailure = false
+        let app = timerApp()
+        app.launchArguments += [
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+            "-primuse.appearance", "dark"
+        ]
+        app.launch()
+        try openTimer(app)
+        guard !app.buttons["sleepTimer.cancel"].exists else {
+            app.buttons["sleepTimer.close"].tap()
+            throw XCTSkip("An existing sleep timer must be left undisturbed")
+        }
+        addTeardownBlock { @MainActor in self.restoreNormalLaunch(app) }
+        let start = app.buttons["sleepTimer.start"]
+        assertVisible(start, in: app)
+        attach(app, "sleep-accessibility-first-open")
+        app.scrollViews["sleepTimer.content"].swipeUp()
+        assertVisible(start, in: app)
+        app.segmentedControls["sleepTimer.mode"].buttons["到点停止"].tap()
+        assertVisible(start, in: app)
+        app.segmentedControls["sleepTimer.mode"].buttons["倒计时"].tap()
+        assertVisible(start, in: app)
+    }
+
+    func testEditingNextDayClockPreservesStopTime() throws {
+        continueAfterFailure = false
+        let app = timerApp()
+        app.launch()
+        try openTimer(app)
+        guard !app.buttons["sleepTimer.cancel"].exists else {
+            app.buttons["sleepTimer.close"].tap()
+            throw XCTSkip("An existing sleep timer must be left undisturbed")
+        }
+        let modes = app.segmentedControls["sleepTimer.mode"]
+        modes.buttons["到点停止"].tap()
+        let hours = app.pickerWheels.element(boundBy: 0)
+        let minutes = app.pickerWheels.element(boundBy: 1)
+        let originalHours = try XCTUnwrap(hours.value as? String)
+        let originalMinutes = try XCTUnwrap(minutes.value as? String)
+        addTeardownBlock { @MainActor in
+            self.continueAfterFailure = true
+            if !app.buttons["sleepTimer.close"].exists {
+                app.terminate()
+                app.launch()
+                do { try self.openTimer(app) } catch { self.restoreNormalLaunch(app); return }
+            }
+            if app.buttons["sleepTimer.cancel"].exists { app.buttons["sleepTimer.cancel"].tap() }
+            modes.buttons["到点停止"].tap()
+            hours.adjust(toPickerWheelValue: String(originalHours.prefix { $0.isNumber }))
+            minutes.adjust(toPickerWheelValue: String(originalMinutes.prefix { $0.isNumber }))
+            self.restoreNormalLaunch(app)
+        }
+        let targetHour = (Calendar.current.component(.hour, from: Date()) + 23) % 24
+        hours.adjust(toPickerWheelValue: String(format: "%02d", targetHour))
+        minutes.adjust(toPickerWheelValue: "00")
+        let selectedHour = hours.value as? String
+        let selectedMinute = minutes.value as? String
+        app.buttons["sleepTimer.start"].tap()
+        try openTimer(app)
+        app.buttons["sleepTimer.edit"].tap()
+        XCTAssertTrue(modes.buttons["到点停止"].isSelected)
+        XCTAssertEqual(hours.value as? String, selectedHour)
+        XCTAssertEqual(minutes.value as? String, selectedMinute)
+        assertVisible(app.buttons["sleepTimer.start"], in: app)
+        attach(app, "sleep-next-day-edit")
+    }
+
+    private func timerApp() -> XCUIApplication {
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "home"
+        return app
+    }
+
+    private func openTimer(_ app: XCUIApplication) throws {
+        let mini = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '正在播放' AND label != '正在播放'" )).firstMatch
+        guard mini.waitForExistence(timeout: 30) else {
+            throw XCTSkip("Requires an existing paused music item in the library")
+        }
+        mini.press(forDuration: 1)
+        let timer = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '睡眠定时器'" )).firstMatch
+        XCTAssertTrue(timer.waitForExistence(timeout: 5))
+        timer.tap()
+        let custom = app.buttons["自定义…"]
+        XCTAssertTrue(custom.waitForExistence(timeout: 5))
+        custom.tap()
+        XCTAssertTrue(app.buttons["sleepTimer.close"].waitForExistence(timeout: 5))
+    }
+
+    private func restore(_ app: XCUIApplication, hours: String, minutes: String) {
+        continueAfterFailure = true
+        if app.buttons["sleepTimer.close"].exists { app.buttons["sleepTimer.close"].tap() }
+        do { try openTimer(app) } catch { restoreNormalLaunch(app); return }
+        if app.buttons["sleepTimer.cancel"].exists { app.buttons["sleepTimer.cancel"].tap() }
+        let modes = app.segmentedControls["sleepTimer.mode"]
+        modes.buttons["倒计时"].tap()
+        app.pickerWheels.element(boundBy: 0).adjust(toPickerWheelValue: hours)
+        if hours != "12 小时" { app.pickerWheels.element(boundBy: 1).adjust(toPickerWheelValue: minutes) }
+        restoreNormalLaunch(app)
+    }
+
+    private func restoreNormalLaunch(_ app: XCUIApplication) {
+        if app.buttons["sleepTimer.close"].exists { app.buttons["sleepTimer.close"].tap() }
+        app.terminate()
+        app.launchArguments = []
+        app.launchEnvironment = [:]
+        app.launch()
+    }
+
+    private func assertVisible(_ element: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(element.isHittable, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(element.frame.minY, app.frame.minY, file: file, line: line)
+        XCTAssertLessThan(element.frame.maxY, app.frame.maxY - 8, file: file, line: line)
+    }
+
+    private func attach(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
+
+@MainActor
 final class CarPlayEditorUITests: XCTestCase {
     func testBookshelfLongPressDragPersistsAcrossLayoutsAndRelaunch() {
         continueAfterFailure = false

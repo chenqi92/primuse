@@ -15,6 +15,7 @@ DerivedData/
 .swiftpm/
 
 # Local tooling
+/scripts/
 .claude/
 .idea/
 .zed/
