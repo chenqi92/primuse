@@ -472,11 +472,12 @@ public actor FnMusicServiceClient {
         token requestToken: String,
         maximumBytes: Int
     ) async throws -> Data {
-        let request = try await authenticatedRequest(
+        var request = try await authenticatedRequest(
             path: "/static/cover",
             queryItems: queryItems,
             token: requestToken
         )
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         let data: Data
         let response: URLResponse
         do {

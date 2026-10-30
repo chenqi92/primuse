@@ -138,6 +138,14 @@ final class ThemeService {
         // 后台: 冷启动时回填/缓存通知会连着触发取色, 每次在主线程同步读一整张
         // 封面文件就是一次掉帧。
         let remoteURL = Self.safeRemoteArtworkURL(from: normalizedFileName)
+        let ownedSong = songID.flatMap { AppServices.shared.musicLibrary.unobservedVisibleSong(id: $0) }
+        let ownedSourceID = ownedSong?.sourceID
+        let usesConnector = ownedSourceID != nil
+            && ownedSourceID != PodcastPlaybackSong.sourceID
+            && ownedSourceID != RadioStation.playbackSourceID
+            && ownedSourceID != AppleMusicLibraryIdentity.sourceID
+            && normalizedFileName?.contains("/") == true
+        let artworkSourceManager = usesConnector ? AppServices.shared.sourceManager : nil
         let capturedSongID = songID
         let capturedFileName = normalizedFileName
         artworkUpdateTask = Task.detached(priority: .userInitiated) {
@@ -149,7 +157,7 @@ final class ThemeService {
             if data == nil {
                 // 没有可用来源就回默认色; 远端封面下载期间也不能把上一首的颜色
                 // 留在屏幕上。盘上命中则保持无缝。
-                let hasOtherSource = remoteURL != nil
+                let hasOtherSource = usesConnector || remoteURL != nil
                     || normalizedAppleMusicID?.isEmpty == false
                 await MainActor.run { [weak self] in
                     guard let self, self.updateGeneration == generation else { return }
@@ -161,15 +169,21 @@ final class ThemeService {
                 }
                 guard hasOtherSource else { return }
             }
-            var fetchedRemoteData = false
-            // A concrete HTTP(S) cover has a bounded request timeout and gives
-            // the most faithful palette, so process it before any MusicKit
-            // lookup. A cold MusicKit request can wait on authorization or the
-            // network indefinitely and must never block an already usable CDN
-            // URL from coloring the player.
-            if data == nil, let remoteURL {
-                data = await Self.downloadRemoteArtwork(from: remoteURL)
-                fetchedRemoteData = data != nil
+            if data == nil, usesConnector || remoteURL != nil, let capturedFileName {
+                let assets = MetadataAssetStore.shared
+                let ticket = await assets.beginArtworkLoad(songID: capturedSongID,
+                    sourceID: usesConnector ? ownedSourceID : nil, reference: capturedFileName)
+                if let artworkSourceManager, let ownedSourceID {
+                    data = await artworkSourceManager.artworkData(for: capturedFileName,
+                        sourceID: ownedSourceID, maximumBytes: Self.maximumRemoteArtworkBytes, purpose: .thumbnail)
+                } else if let remoteURL {
+                    data = await Self.downloadRemoteArtwork(from: remoteURL)
+                }
+                guard !Task.isCancelled, await assets.isCurrentArtworkLoad(ticket) else { return }
+                if let data {
+                    await assets.cacheSourceCover(data, songID: capturedSongID, sourceID: usesConnector ? ownedSourceID : nil,
+                        reference: capturedFileName, maximumPixels: 480, ticket: ticket)
+                }
             }
             guard !Task.isCancelled else { return }
 
@@ -178,11 +192,6 @@ final class ThemeService {
             var decodedArtwork = false
             if let data, let image = PlatformImage(data: data) {
                 decodedArtwork = true
-                // A valid image is useful to artwork views even when it is
-                // intentionally grayscale and therefore has no theme color.
-                if fetchedRemoteData, let capturedSongID, !capturedSongID.isEmpty {
-                    await MetadataAssetStore.shared.cacheCover(data, forSongID: capturedSongID)
-                }
                 guard !Task.isCancelled else { return }
                 pixelResult = Self.extractDominantColor(from: image)
                 liquidPalette = Self.extractLiquidPalette(from: image)
@@ -440,17 +449,7 @@ final class ThemeService {
         fileName: String?,
         songID: String?
     ) -> Data? {
-        if let songID, !songID.isEmpty {
-            let hashedName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
-            if let data = MetadataAssetStore.shared.readCoverData(named: hashedName) {
-                return data
-            }
-        }
-        guard let fileName,
-              !fileName.isEmpty,
-              !fileName.contains("/"),
-              !fileName.contains("://") else { return nil }
-        return MetadataAssetStore.shared.readCoverData(named: fileName)
+        MetadataAssetStore.shared.displayCoverData(songID: songID, reference: fileName)
     }
 
     /// Only public HTTP(S) artwork URLs are eligible. In particular, reject

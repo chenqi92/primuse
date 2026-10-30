@@ -565,16 +565,7 @@ extension AudioPlayerService {
 
         let store = MetadataAssetStore.shared
 
-        // Try songID-based cache first (透明处理 content-addressed redirect)
-        var coverData: Data?
-        let hashedName = store.expectedCoverFileName(for: song.id)
-        coverData = store.readCoverData(named: hashedName)
-
-        // Fallback: legacy local filename
-        if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
-           !ref.contains("/"), !ref.contains("://") {
-            coverData = store.readCoverData(named: ref)
-        }
+        var coverData = store.displayCoverData(songID: song.id, reference: song.coverArtFileName)
 
         #if os(iOS)
         if coverData == nil, let held = widgetAppleMusicArtwork, held.songID == song.id {

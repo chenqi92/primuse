@@ -348,6 +348,9 @@ actor TVArtworkPaletteLoader {
 /// 专辑可回退 iTunes Search，散曲可回退安全的 HTTP(S) 引用；取不到时回到程序化封面。
 actor TVArtworkLoader {
     static let shared = TVArtworkLoader()
+    private let assets: MetadataAssetStore
+
+    init(assets: MetadataAssetStore = .shared) { self.assets = assets }
 
     private struct StaticArtworkPreparation: Sendable {
         let displayData: Data
@@ -473,10 +476,6 @@ actor TVArtworkLoader {
         return result
     }
 
-    /// 歌曲级封面：歌曲缓存优先；飞牛音乐按带 revision 的来源引用独立缓存，
-    /// 其次兼容旧本地引用和飞牛音乐的鉴权读取，
-    /// 最后只对 HTTP(S) 封面引用发起有限大小的请求。其它源端路径不在这里猜测，
-    /// 避免把未经解析的 NAS 路径当成公网 URL 或绕过源凭据体系。
     func songCover(
         songID: String,
         coverRef: String?,
@@ -485,133 +484,52 @@ actor TVArtworkLoader {
         animationCacheKey: String? = nil,
         source: MusicSource? = nil,
         credential: SourceCredential? = nil,
-        credentialProvider: (@Sendable () async -> SourceCredential?)? = nil
+        credentialProvider: (@Sendable () async -> SourceCredential?)? = nil,
+        maximumPixels: Int = 480
     ) async -> Data? {
         guard !Task.isCancelled, !songID.isEmpty else { return nil }
+        let assets = self.assets
         let ref = coverRef?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let fnMusicRequestKey = FnMusicAPIProtocol.coverID(from: ref).map { _ in
-            "fnmusic-cover:\(fnMusicSourceID ?? songID)|\(ref)"
+        let sourceID = source?.id ?? fnMusicSourceID
+        guard let cacheID = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: ref, maximumPixels: maximumPixels) else {
+            guard let data = assets.displayCoverData(songID: songID, reference: coverRef) else { return nil }
+            return await preparedSongArtwork(data, songID: songID, animationCacheKey: animationCacheKey)
         }
-
-        if let fnMusicRequestKey {
-            let disk = diskURL(fnMusicRequestKey)
-            if let data = try? Data(contentsOf: disk) {
-                let displayData = await preparedSongArtwork(
-                    data,
-                    songID: songID,
-                    animationCacheKey: animationCacheKey
-                )
-                guard !Task.isCancelled else { return nil }
-                if let displayData {
-                    if displayData != data {
-                        try? displayData.write(to: disk, options: .atomic)
-                    }
-                    return displayData
-                }
-                try? FileManager.default.removeItem(at: disk)
+        if let data = assets.cachedSourceCover(sourceID: sourceID, reference: ref, maximumPixels: maximumPixels) {
+            return await preparedSongArtwork(data, songID: songID, animationCacheKey: animationCacheKey)
+        }
+        let key = cacheID + "#fresh" + assets.artworkFreshnessToken(sourceID: sourceID)
+        func fallback() async -> Data? {
+            guard let data = assets.cachedSourceCover(sourceID: sourceID, reference: ref, maximumPixels: 480, allowsStale: true)
+                ?? assets.displayCoverData(songID: songID, reference: ref) else { return nil }
+            return await preparedSongArtwork(data, songID: songID, animationCacheKey: animationCacheKey)
+        }
+        if isTemporarilyNegative(key) { return await fallback() }
+        let ticket = await assets.beginArtworkLoad(songID: songID, sourceID: sourceID, reference: ref)
+        let result = await deduplicatedFetch(key: key) {
+            if let fnMusicClient, FnMusicAPIProtocol.coverID(from: ref) != nil {
+                return try? await fnMusicClient.coverData(reference: ref, size: maximumPixels,
+                                                        maximumBytes: Self.maximumRemoteArtworkBytes)
             }
-        } else if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
-            return await preparedSongArtwork(
-                cached,
-                songID: songID,
-                animationCacheKey: animationCacheKey
-            )
-        }
-
-        guard !ref.isEmpty else { return nil }
-
-        if MetadataAssetStore.shared.isLegacyLocalRef(ref),
-           let data = MetadataAssetStore.shared.readCoverData(named: ref),
-           Self.isImageData(data) {
-            return await preparedSongArtwork(
-                data,
-                songID: songID,
-                animationCacheKey: animationCacheKey
-            )
-        }
-
-        if let fnMusicRequestKey {
-            guard let fnMusicClient else { return nil }
-            if isTemporarilyNegative(fnMusicRequestKey) { return nil }
-            let result = await deduplicatedFetch(
-                key: "static:\(fnMusicRequestKey)"
-            ) {
-                guard !Task.isCancelled,
-                      let data = try? await fnMusicClient.coverData(reference: ref),
-                      !Task.isCancelled,
-                      Self.isImageData(data) else {
-                    return nil
-                }
-                return data
+            if let source, TVSourceAssetReader.supports(source.type) {
+                let resolved = credential != nil ? credential : await credentialProvider?()
+                return await TVSourceAssetReader.shared.artworkData(reference: ref, source: source,
+                    credential: resolved, maximumBytes: Self.maximumRemoteArtworkBytes, maximumPixels: maximumPixels)
             }
-            guard !Task.isCancelled else { return nil }
-            guard let result else {
-                markTemporarilyNegative(fnMusicRequestKey)
-                return nil
-            }
-            negativeUntil.removeValue(forKey: fnMusicRequestKey)
-            guard let displayData = await preparedSongArtwork(
-                result,
-                songID: songID,
-                animationCacheKey: animationCacheKey
-            ) else { return nil }
-            try? displayData.write(to: diskURL(fnMusicRequestKey), options: .atomic)
-            return displayData
+            guard let url = URL(string: ref), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  url.user == nil, url.password == nil else { return nil }
+            return await Self.fetchRemoteArtwork(from: url, maximumBytes: Self.maximumRemoteArtworkBytes)
         }
-
-        if let source, TVSourceAssetReader.supports(source.type) {
-            // 缓存没命中才读凭据;读法由调用方给,在后台做。
-            let resolvedCredential: SourceCredential?
-            if let credential {
-                resolvedCredential = credential
-            } else {
-                resolvedCredential = await credentialProvider?()
-                guard !Task.isCancelled else { return nil }
-            }
-            let key = "server-cover:\(songID)|\(ref)|\(TVSourceAssetReader.cacheIdentity(source: source, credential: resolvedCredential))"
-            if isTemporarilyNegative(key) { return nil }
-            let result = await deduplicatedFetch(key: key) {
-                await TVSourceAssetReader.shared.artworkData(
-                    reference: ref, source: source, credential: resolvedCredential,
-                    maximumBytes: Self.maximumRemoteArtworkBytes
-                )
-            }
-            guard !Task.isCancelled else { return nil }
-            guard let result else { markTemporarilyNegative(key); return nil }
-            negativeUntil.removeValue(forKey: key)
-            guard let prepared = await preparedSongArtwork(result, songID: songID, animationCacheKey: animationCacheKey) else { return nil }
-            await MetadataAssetStore.shared.cacheCover(prepared, forSongID: songID)
-            return prepared
+        guard !Task.isCancelled, await assets.isCurrentArtworkLoad(ticket) else { return nil }
+        guard let result,
+              let prepared = await preparedSongArtwork(result, songID: songID, animationCacheKey: animationCacheKey) else {
+            markTemporarilyNegative(key)
+            return await fallback()
         }
-
-        guard let url = URL(string: ref),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              url.host?.isEmpty == false,
-              url.user == nil,
-              url.password == nil else {
-            return nil
-        }
-
-        let requestKey = "song:\(songID)|\(ref)"
-        if isTemporarilyNegative(requestKey) { return nil }
-        let result = await deduplicatedFetch(key: "static:\(requestKey)") {
-            await Self.fetchRemoteArtwork(
-                from: url,
-                maximumBytes: Self.maximumRemoteArtworkBytes
-            )
-        }
-        guard !Task.isCancelled else { return nil }
-        guard let result else {
-            markTemporarilyNegative(requestKey)
-            return nil
-        }
-        negativeUntil.removeValue(forKey: requestKey)
-        return await preparedSongArtwork(
-            result,
-            songID: songID,
-            animationCacheKey: animationCacheKey
-        )
+        negativeUntil.removeValue(forKey: key)
+        guard await assets.cacheSourceCover(prepared, songID: songID, sourceID: sourceID,
+                                             reference: ref, maximumPixels: maximumPixels, ticket: ticket) else { return nil }
+        return prepared
     }
 
     /// Reads the exact source used by an animated hero without consulting the
@@ -835,10 +753,6 @@ actor TVArtworkLoader {
             data,
             animationCacheKey: animationCacheKey
         ) else { return nil }
-        let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID)
-        if cached != displayData {
-            await MetadataAssetStore.shared.cacheCover(displayData, forSongID: songID)
-        }
         guard !Task.isCancelled else { return nil }
         return displayData
     }
@@ -984,7 +898,7 @@ actor TVArtworkLoader {
     }
 
     private nonisolated static func fetchSearchResponse(from url: URL) async throws -> Data {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = 12
         request.httpShouldHandleCookies = false
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -1018,7 +932,7 @@ actor TVArtworkLoader {
         maximumBytes: Int
     ) async -> Data? {
         guard maximumBytes > 0 else { return nil }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = 12
         request.httpShouldHandleCookies = false
         request.setValue("image/avif,image/webp,image/*,*/*;q=0.5", forHTTPHeaderField: "Accept")
@@ -1241,7 +1155,9 @@ struct TVArtworkView: View {
 
     private var artworkIdentity: String {
         let overrideSuffix = albumArtworkOverrideIdentity.map { "|override:\($0)" } ?? ""
-        let refreshSuffix = self.refreshSuffix
+        let refreshSuffix = self.refreshSuffix + "|fresh:" + MetadataAssetStore.shared.artworkFreshnessToken(
+            sourceID: songID.flatMap { store.library.song(id: $0)?.sourceID }
+        ) + "|pixels:\(Int(max(size, height ?? size) * 2))"
         if !coverKey.isEmpty {
             guard let songID, !songID.isEmpty else { return "album:\(coverKey)\(overrideSuffix)\(refreshSuffix)" }
             return "album:\(coverKey)|song:\(songID)|\(coverRef ?? "")\(overrideSuffix)\(refreshSuffix)"
@@ -1363,6 +1279,7 @@ struct TVArtworkView: View {
             songID,
             coverRef ?? "",
             sourceRevision ?? "",
+            MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID),
         ]
         return components.joined(separator: "\u{1F}")
     }
@@ -1507,7 +1424,8 @@ struct TVArtworkView: View {
                         if let data = await store.songArtworkData(
                             songID: selectedSong.id,
                             coverRef: selectedSong.coverArtFileName,
-                            animationCacheKey: songAnimationDiskKey(for: selectedSong)
+                            animationCacheKey: songAnimationDiskKey(for: selectedSong),
+                            maximumPixels: min(1536, Int(max(size, height ?? size) * 2))
                         ), await accept(
                             data,
                             identity: identity,
@@ -1550,7 +1468,8 @@ struct TVArtworkView: View {
                 if let data = await store.songArtworkData(
                     songID: songID,
                     coverRef: coverRef,
-                    animationCacheKey: songAnimationKey
+                    animationCacheKey: songAnimationKey,
+                    maximumPixels: min(1536, Int(max(size, height ?? size) * 2))
                 ), await accept(
                     data,
                     identity: identity,
@@ -1656,7 +1575,10 @@ struct TVArtworkView: View {
             forceArtworkReload()
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
-            guard notificationMatchesCurrentArtwork(note) else { return }
+            let sourceChanged = (note.userInfo?["sourceID"] as? String).map { id in
+                songID.flatMap { store.library.song(id: $0)?.sourceID } == id
+            } == true
+            guard sourceChanged || notificationMatchesCurrentArtwork(note) else { return }
             forceArtworkReload(removingAnimationEntry: true)
         }
         .onReceive(NotificationCenter.default.publisher(

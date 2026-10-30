@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -496,5 +497,104 @@ public extension ArtworkImageCompatibility {
             key = nil
         }
         return key.flatMap { metadata?[$0] as? NSNumber }?.intValue
+    }
+}
+
+
+/// Server artwork must not share the unversioned song mirror with scraped or
+/// embedded covers. A thumbnail is also not proof that the full cover was read.
+public enum SubsonicArtworkPolicy {
+    public static let thumbnailPixels = 480
+    public static let fullResolutionPixels = 1536
+
+    public static func coverArtID(reference: String?) -> String? {
+        guard let reference else { return nil }
+        let prefix = "subsonic-cover/"
+        if reference.hasPrefix(prefix) {
+            let id = String(reference.dropFirst(prefix.count))
+            return id.isEmpty ? nil : id
+        }
+        guard let components = URLComponents(string: reference),
+              ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
+              ["/rest/getcoverart", "/rest/getcoverart.view"].contains(where: {
+                  components.path.lowercased().hasSuffix($0)
+              }),
+              let id = components.queryItems?.first(where: {
+                  $0.name.caseInsensitiveCompare("id") == .orderedSame
+              })?.value, !id.isEmpty else { return nil }
+        return id
+    }
+
+    public static func cacheID(sourceID: String?, reference: String?, maximumPixels: Int) -> String? {
+        guard let sourceID, !sourceID.isEmpty, coverArtID(reference: reference) != nil else { return nil }
+        return SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: maximumPixels)
+    }
+}
+
+/// The reference carries provenance across scans, snapshots and device sync.
+/// A legacy bare filename remains an unknown local choice, never an inferred override.
+public enum StoredArtworkOrigin: String, CaseIterable, Sendable {
+    case embedded, sidecar, scraped, selected
+
+    public static func resolve(_ reference: String?) -> StoredArtworkOrigin? {
+        guard let reference else { return nil }
+        return allCases.first { reference.hasPrefix($0.rawValue + "-") && contentID(reference) != nil }
+    }
+
+    public static func contentID(_ reference: String) -> String? {
+        guard reference.hasSuffix(".jpg"), let separator = reference.firstIndex(of: "-") else { return nil }
+        let id = String(reference[reference.index(after: separator)...].dropLast(4))
+        guard id.count == 64, id.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return nil }
+        return id
+    }
+
+    public static func preservesLocalChoice(_ reference: String?) -> Bool {
+        guard let reference, !reference.isEmpty else { return false }
+        if let origin = resolve(reference) { return origin == .selected }
+        return !reference.contains("/") && !reference.contains("://")
+    }
+}
+
+public enum SourceArtworkPolicy {
+    public static let maximumAge: TimeInterval = 24 * 60 * 60
+
+    public static func cacheID(sourceID: String?, reference: String?, maximumPixels: Int) -> String? {
+        guard let reference, !reference.isEmpty, reference.contains("/") else { return nil }
+        let identity: String
+        if let coverID = SubsonicArtworkPolicy.coverArtID(reference: reference) {
+            guard sourceID?.isEmpty == false else { return nil }
+            identity = "subsonic-cover/" + coverID
+        } else if var url = URLComponents(string: reference), url.scheme != nil {
+            guard ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+            url.user = nil
+            url.password = nil
+            let credentials: Set<String> = ["token", "api_key", "apikey", "x-plex-token", "x-emby-token", "access_token", "authorization"]
+            url.queryItems = url.queryItems?.filter { !credentials.contains($0.name.lowercased()) }
+            identity = url.string ?? reference
+        } else {
+            guard sourceID?.isEmpty == false else { return nil }
+            identity = reference
+        }
+        let pixels = maximumPixels > SubsonicArtworkPolicy.thumbnailPixels
+            ? SubsonicArtworkPolicy.fullResolutionPixels : SubsonicArtworkPolicy.thumbnailPixels
+        let values = [sourceID ?? "public", identity, String(pixels)]
+        guard let data = try? JSONEncoder().encode(values) else { return nil }
+        return "source-artwork-v2:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    public static func shouldAdoptServerReference(existing: String?, incoming: String?) -> Bool {
+        guard incoming?.contains("/") == true else { return false }
+        return !StoredArtworkOrigin.preservesLocalChoice(existing)
+    }
+
+    public static func resizedMediaServerURL(_ url: URL, maximumPixels: Int) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.path.lowercased().contains("/items/"),
+              components.path.lowercased().contains("/images/") else { return url }
+        components.queryItems = (components.queryItems ?? []).filter {
+            !["maxwidth", "maxheight", "width", "height"].contains($0.name.lowercased())
+        } + [URLQueryItem(name: "maxWidth", value: String(maximumPixels)),
+             URLQueryItem(name: "maxHeight", value: String(maximumPixels))]
+        return components.url ?? url
     }
 }

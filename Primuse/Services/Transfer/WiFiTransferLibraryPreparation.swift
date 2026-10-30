@@ -183,10 +183,10 @@ enum WiFiTransferLibraryPreparation {
         do { cover = try await sourceCover(song: song, sourceType: sourceType, sourceManager: sourceManager) }
         catch { coverReadFailed = true }
         try Task.checkCancellation()
-        if cover == nil { cover = await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id) }
+        if cover == nil { cover = MetadataAssetStore.shared.displayCoverData(songID: song.id, reference: song.coverArtFileName) }
         if cover == nil { cover = await MetadataAssetStore.shared.coverData(named: song.coverArtFileName) }
         if cover == nil, let reference = song.coverArtFileName, !reference.isEmpty {
-            cover = await sourceManager.artworkData(for: reference, sourceID: song.sourceID, maximumBytes: 20 * 1024 * 1024)
+            cover = await sourceManager.artworkData(for: reference, sourceID: song.sourceID, maximumBytes: 20 * 1024 * 1024, purpose: .fullResolution)
         }
         try Task.checkCancellation()
         if let cover, !cover.isEmpty {

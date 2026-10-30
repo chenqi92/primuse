@@ -373,7 +373,7 @@ struct ServerSongCatalogMergePolicyTests {
         let keptEdit = ServerSongCatalogMergePolicy.merged(existing: edited, incoming: incoming)
         #expect(keptEdit.title == "My title")
         #expect(keptEdit.year == 1999)
-        #expect(keptEdit.coverArtFileName == "subsonic-cover/mf-a_1")
+        #expect(keptEdit.coverArtFileName == "subsonic-cover/mf-a_2")
 
         var scraped = song(revision: "r1")
         scraped.coverArtFileName = "0123456789abcdef0123456789abcdef.jpg"

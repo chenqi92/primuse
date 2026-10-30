@@ -29,6 +29,7 @@ actor MetadataService {
         /// FLAC 查出的实际位深,只有读到音频帧时才有。
         var effectiveBitDepth: Int? = nil
         var coverArtData: Data? = nil
+        var artworkOrigin: StoredArtworkOrigin? = nil
         var coverArtFileName: String? = nil
         var lyricsFileName: String? = nil
         var mvPath: String? = nil
@@ -161,6 +162,7 @@ actor MetadataService {
             result.coverArtFileName = coverURL.lastPathComponent
             if let data = try? Data(contentsOf: coverURL) {
                 result.coverArtData = data
+                result.artworkOrigin = .sidecar
                 result.hasVerifiedSidecarMetadata = true
             }
         }
@@ -216,7 +218,7 @@ actor MetadataService {
         if let cacheKey {
             if let coverArtData = result.coverArtData {
                 if trustedSource {
-                    result.coverArtFileName = await assetStore.storeCover(coverArtData, for: cacheKey)
+                    result.coverArtFileName = await assetStore.storeAttributedCover(coverArtData, songID: cacheKey, origin: result.artworkOrigin ?? .embedded)
                 } else {
                     // 仅占位 ref,不写 cache 文件 —— dry-run 预览和直接刮削都需要
                     // 先知道最终 ref,实际写入由 ScraperService 在应用结果时完成。
@@ -342,7 +344,7 @@ actor MetadataService {
     ) async -> SongMetadata {
         var result = metadata
         if result.coverArtFileName == nil, let coverArtData = result.coverArtData {
-            result.coverArtFileName = await assetStore.storeCover(coverArtData, for: cacheKey)
+            result.coverArtFileName = await assetStore.storeAttributedCover(coverArtData, songID: cacheKey, origin: .embedded)
         }
         if storesLyrics, result.lyricsFileName == nil, let lyrics = result.lyrics {
             result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
@@ -492,6 +494,7 @@ actor MetadataService {
         // Apply cover data
         if let coverData = scrapeResult.coverData {
             result.coverArtData = coverData
+            result.artworkOrigin = .scraped
         }
 
         // Apply lyrics

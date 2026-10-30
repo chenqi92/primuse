@@ -7,6 +7,32 @@ import ImageIO
 @testable import Primuse
 
 final class SubsonicRatingTests: XCTestCase {
+    func testArtworkSizesKeepCurrentCredentialsAndServerCoverID() async throws {
+        let fixture = RatingHTTPFixture()
+        let (source, session) = makeSource(fixture)
+        defer { session.invalidateAndCancel() }
+        let coverID = "mf-chengdu_6ae41200"
+        for reference in [
+            "subsonic-cover/" + coverID,
+            "https://old.invalid/rest/getCoverArt.view?id=\(coverID)&u=old&t=expired&s=old"
+        ] {
+            let thumbnail = try await source.imageURL(for: reference)
+            let full = try await source.fullResolutionArtworkURL(for: reference)
+            let original = try await source.originalArtworkURL(for: reference)
+            let thumbnailQuery = query(URLRequest(url: try XCTUnwrap(thumbnail)))
+            let fullQuery = query(URLRequest(url: try XCTUnwrap(full)))
+            let originalQuery = query(URLRequest(url: try XCTUnwrap(original)))
+            XCTAssertEqual(thumbnailQuery["size"], "480")
+            XCTAssertEqual(fullQuery["size"], "1536")
+            XCTAssertNil(originalQuery["size"])
+            XCTAssertEqual(fullQuery["id"], coverID)
+            XCTAssertEqual(fullQuery["u"], "qa")
+            XCTAssertEqual(full?.host, thumbnail?.host)
+            XCTAssertNotEqual(full?.host, "old.invalid")
+            XCTAssertNotEqual(fullQuery["t"], "expired")
+        }
+    }
+
     func testSetAndClearUseOpaqueIDAndReadBackCurrentUserRating() async throws {
         let fixture = RatingHTTPFixture()
         let (source, session) = makeSource(fixture)

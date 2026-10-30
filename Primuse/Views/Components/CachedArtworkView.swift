@@ -184,6 +184,7 @@ struct CachedArtworkView: View {
     /// Deduplicates in-flight source fetches: multiple views requesting the same cover
     /// share a single network request instead of each fetching independently.
     private static let inFlightTracker = InFlightFetchTracker()
+    private nonisolated static let memoryRevisions = ArtworkMemoryRevisions()
 
     private enum Bucket: String, Sendable, CaseIterable {
         case icon, thumb, smallCard, card, full
@@ -691,7 +692,7 @@ struct CachedArtworkView: View {
             fileFormat: fileFormat?.rawValue,
             revision: String(revisionToken)
         ) ?? ""
-        return songIdentity + suffix
+        return songIdentity + Self.memoryRevisions.key(songID: songID, reference: coverRef) + "#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID) + suffix
     }
 
     private var loadIdentity: String {
@@ -727,8 +728,9 @@ struct CachedArtworkView: View {
         guard !animationCacheKey.isEmpty else { return "" }
         let sourceRevision = songID.flatMap { library.song(id: $0)?.revision } ?? ""
         return [
-            "source-v1",
+            SubsonicArtworkPolicy.coverArtID(reference: coverRef) == nil ? "source-v1" : "subsonic-source-v2",
             animationCacheKey,
+            MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID),
             sourceRevision,
             String(revisionToken),
         ].joined(separator: "\u{1F}")
@@ -926,7 +928,9 @@ struct CachedArtworkView: View {
         if !sourceLookupSuppressed {
             // Lazily migrate an animation persisted by an older build in the
             // ordinary static mirror, then replace that mirror with frame 0.
-            let legacyData = await Self.loadFromDiskCache(songID: songID, ref: coverRef)
+            let legacyData = await Self.loadFromDiskCache(
+                songID: songID, ref: coverRef, sourceID: sourceID, maximumPixels: Self.fullMaxPixel
+            )
             if let legacyData,
                let inspection = await Self.animatedInspection(
                 for: legacyData,
@@ -1035,6 +1039,10 @@ struct CachedArtworkView: View {
 
         let capturedBucket = bucket
         let capturedCacheKey = cacheKey
+        let ticket: MetadataAssetStore.ArtworkLoadTicket?
+        if let coverRef, SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: coverRef, maximumPixels: Self.fullMaxPixel) != nil {
+            ticket = await MetadataAssetStore.shared.beginArtworkLoad(songID: songID, sourceID: sourceID, reference: coverRef)
+        } else { ticket = nil }
         let fallbackTask = Task.detached(priority: .utility) {
             guard let mirror = ArtworkImageCompatibility.staticFirstFrameJPEG(
                 from: data,
@@ -1052,6 +1060,11 @@ struct CachedArtworkView: View {
         guard !Task.isCancelled,
               animationLoadIdentity == identity,
               let (mirror, decoded) = fallback else { return false }
+        guard await Self.cacheStaticCover(
+            mirror, songID: songID, ref: coverRef, sourceID: sourceID,
+            maximumPixels: Self.fullMaxPixel, ticket: ticket
+        ) else { return false }
+        guard !Task.isCancelled, animationLoadIdentity == identity else { return false }
 
         Self.memoryCache.setObject(
             decoded,
@@ -1061,9 +1074,6 @@ struct CachedArtworkView: View {
         showArtwork(decoded, decodedAsynchronously: true)
         Self.failedLoadCache.removeObject(forKey: loadIdentity as NSString)
         onResolutionChange(true)
-        if let songID {
-            await MetadataAssetStore.shared.cacheCover(mirror, forSongID: songID)
-        }
         return !Task.isCancelled && animationLoadIdentity == identity
     }
 
@@ -1370,6 +1380,7 @@ struct CachedArtworkView: View {
 
     private func shouldReload(after note: Notification) -> Bool {
         if note.userInfo?["all"] as? Bool == true { return true }
+        if let invalidatedSource = note.userInfo?["sourceID"] as? String, invalidatedSource == sourceID { return true }
 
         let localTokens = Set([songID, coverRef, albumID, artistID].compactMap { $0 }.filter { !$0.isEmpty })
         guard !localTokens.isEmpty else { return false }
@@ -1619,7 +1630,7 @@ struct CachedArtworkView: View {
         ]
         guard identityComponents.contains(where: { !$0.isEmpty }) else { return nil }
         let identity = identityComponents.joined(separator: "\u{1F}")
-        let key = identity + "@playlist-\(bucket.rawValue)#\(cacheDiscriminator)"
+        let key = identity + memoryRevisions.key(songID: songID, reference: coverRef) + "@playlist-\(bucket.rawValue)#\(cacheDiscriminator)#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID)
         if let cached = memoryCache.object(forKey: key as NSString) {
             return cached
         }
@@ -1666,12 +1677,14 @@ struct CachedArtworkView: View {
                 revision: String(revisionToken)
               ),
               !identity.isEmpty else { return false }
-        let key = identity + "@\(bucket(for: size, displayScale: displayScale).rawValue)"
+        let key = identity + memoryRevisions.key(songID: songID, reference: coverRef) + "#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID) + "@\(bucket(for: size, displayScale: displayScale).rawValue)"
         guard memoryCache.object(forKey: key as NSString) == nil else { return true }
         let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: coverRef, filePath: filePath)
         guard let data = await loadFromDiskCache(
             songID: ignoredGenericFolderCover ? nil : songID,
-            ref: ignoredGenericFolderCover ? nil : coverRef
+            ref: ignoredGenericFolderCover ? nil : coverRef,
+            sourceID: sourceID,
+            maximumPixels: bucket(for: size, displayScale: displayScale).maximumPixels
         ) else { return false }
         return finalize(data: data, bucket: bucket(for: size, displayScale: displayScale), cacheKey: key) != nil
     }
@@ -1759,7 +1772,9 @@ struct CachedArtworkView: View {
         if !isAppleMusic,
            let data = await loadFromDiskCache(
             songID: ignoredGenericFolderCover ? nil : songID,
-            ref: effectiveRef
+            ref: effectiveRef,
+            sourceID: sourceID,
+            maximumPixels: bucket.maximumPixels
            ) {
             if let decoded = finalize(data: data, bucket: bucket, cacheKey: cacheKey) {
                 // Older builds could persist an entire GIF/APNG/WebP in the
@@ -1781,9 +1796,9 @@ struct CachedArtworkView: View {
                     }
                     if preserved,
                        let staticMirror = staticCoverCacheData(from: data) {
-                        await MetadataAssetStore.shared.cacheCover(
-                            staticMirror,
-                            forSongID: songID
+                        await cacheStaticCover(
+                            staticMirror, songID: songID, ref: effectiveRef,
+                            sourceID: sourceID, maximumPixels: bucket.maximumPixels
                         )
                     }
                 }
@@ -1798,7 +1813,11 @@ struct CachedArtworkView: View {
                 let label = await diagnosticSongLabel(songID)
                 plog("🖼️ cover cache undecodable song=\(label) \(ArtworkImageCompatibility.diagnosticSummary(data))")
             }
-            if let songID {
+            if let sourceCacheID = SourceArtworkPolicy.cacheID(
+                sourceID: sourceID, reference: effectiveRef, maximumPixels: bucket.maximumPixels
+            ) {
+                await MetadataAssetStore.shared.invalidateCoverCache(forSongID: sourceCacheID)
+            } else if let songID {
                 await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
             }
         }
@@ -1811,17 +1830,49 @@ struct CachedArtworkView: View {
             fileFormat: fileFormat?.rawValue,
             revision: fetchDiscriminator
         ) else { return nil }
-        let fetched = await inFlightTracker.deduplicated(key: fetchKey) {
+        let sourceCacheID = SourceArtworkPolicy.cacheID(
+            sourceID: sourceID, reference: effectiveRef, maximumPixels: bucket.maximumPixels
+        )
+        let purpose: ArtworkFetchPurpose = sourceCacheID != nil
+            && bucket.maximumPixels > SubsonicArtworkPolicy.thumbnailPixels ? .fullResolution : .thumbnail
+        let requestKey = (sourceCacheID.map { $0 + "#rev" + fetchDiscriminator } ?? fetchKey)
+            + "#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID)
+        let ticket: MetadataAssetStore.ArtworkLoadTicket?
+        if sourceCacheID != nil, let effectiveRef {
+            ticket = await MetadataAssetStore.shared.beginArtworkLoad(songID: songID, sourceID: sourceID, reference: effectiveRef)
+        } else { ticket = nil }
+        let fetched = await inFlightTracker.deduplicated(key: requestKey) {
             await loadFromSource(
                 ref: effectiveRef,
                 songID: songID,
                 sourceID: sourceID,
                 filePath: filePath,
                 fileFormat: fileFormat,
-                sourceManager: sourceManager
+                sourceManager: sourceManager,
+                purpose: purpose
             )
         }
         guard let fetched else {
+            if let ticket, !(await MetadataAssetStore.shared.isCurrentArtworkLoad(ticket)) { return nil }
+            // Offline fallback is provisional: never store it under the
+            // requested server version or mark a thumbnail as a full cover.
+            if sourceCacheID != nil, !Task.isCancelled {
+                var fallback = MetadataAssetStore.shared.cachedSourceCover(
+                    sourceID: sourceID, reference: effectiveRef, maximumPixels: 480, allowsStale: true
+                )
+                if fallback == nil, let songID {
+                    fallback = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID)
+                }
+                if fallback == nil, !Task.isCancelled {
+                    fallback = await loadFromSource(
+                        ref: nil, songID: songID, sourceID: sourceID, filePath: filePath,
+                        fileFormat: fileFormat, sourceManager: sourceManager, purpose: .thumbnail
+                    )
+                }
+                if !Task.isCancelled, let fallback, let decoded = decode(fallback, bucket: bucket) {
+                    return decoded
+                }
+            }
             if FileLogger.isDiagnosticModeActive {
                 let label = await diagnosticSongLabel(songID)
                 plog(
@@ -1832,7 +1883,8 @@ struct CachedArtworkView: View {
             }
             return nil
         }
-        guard let decoded = finalize(data: fetched, bucket: bucket, cacheKey: cacheKey) else {
+        if let ticket, !(await MetadataAssetStore.shared.isCurrentArtworkLoad(ticket)) { return nil }
+        guard let decoded = decode(fetched, bucket: bucket) else {
             if FileLogger.isDiagnosticModeActive {
                 let label = await diagnosticSongLabel(songID)
                 plog(
@@ -1850,9 +1902,13 @@ struct CachedArtworkView: View {
                 forKey: animationDiskKey
             )
         }
-        if let songID, let staticMirror = staticCoverCacheData(from: fetched) {
-            await MetadataAssetStore.shared.cacheCover(staticMirror, forSongID: songID)
+        if let staticMirror = staticCoverCacheData(from: fetched) {
+            guard await cacheStaticCover(
+                staticMirror, songID: songID, ref: effectiveRef,
+                sourceID: sourceID, maximumPixels: bucket.maximumPixels, ticket: ticket
+            ) else { return nil }
         }
+        memoryCache.setObject(decoded, forKey: cacheKey as NSString, cost: imageCost(decoded))
         return decoded
     }
 
@@ -1900,32 +1956,32 @@ struct CachedArtworkView: View {
 
     // MARK: - Disk Cache
 
-    private nonisolated static func loadFromDiskCache(songID: String?, ref: String?) async -> Data? {
-        // 始终先尝试 songID-hash disk cache。它由刮削写回路径 (cacheCover) 维护,
-        // 是 NAS sidecar 的可信 mirror。只要存在就用 —— 即使 ref 是 NAS path。
-        //
-        // 历史顾虑(已在写入侧解决):
-        // 1. 旧的 trustedSource:false 污染 cache → 现在刮削写回会主动覆写 mirror,
-        //    污染会被新数据顶掉。
-        // 2. 用户在 NAS 上手动改 cover → 显式调用 invalidateCoverCache 触发重拉
-        //    (e.g. 下次扫描检测到 sidecar mtime 变化)。
-        //
-        // 旧策略 "ref 含 / 就跳过 disk cache 强制走 NAS" 引发的问题:
-        // - 每次 view 重 mount / NSCache 被清都触发 NAS round-trip
-        // - NAS / CDN HTTP cache 命中旧封面就显示旧的, 用户切到后台再回来封面就
-        //   "退回去了"
-        // 信任本地 mirror 把这些都解决掉。
-        if let songID {
-            if let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) {
-                return data
-            }
+    private nonisolated static func loadFromDiskCache(
+        songID: String?, ref: String?, sourceID: String?, maximumPixels: Int
+    ) async -> Data? {
+        if SourceArtworkPolicy.cacheID(
+            sourceID: sourceID, reference: ref, maximumPixels: maximumPixels
+        ) != nil {
+            return MetadataAssetStore.shared.cachedSourceCover(
+                sourceID: sourceID, reference: ref, maximumPixels: maximumPixels
+            )
         }
-        // Legacy: old hashed filename in artworkDir。走 redirect-aware 读取。
-        if let ref, !ref.isEmpty,
-           !ref.contains("/"), !ref.contains("://") {
-            return MetadataAssetStore.shared.readCoverData(named: ref)
+        return MetadataAssetStore.shared.displayCoverData(songID: songID, reference: ref, allowsStale: false)
+    }
+
+    @discardableResult
+    private nonisolated static func cacheStaticCover(
+        _ data: Data, songID: String?, ref: String?, sourceID: String?, maximumPixels: Int,
+        ticket: MetadataAssetStore.ArtworkLoadTicket? = nil
+    ) async -> Bool {
+        if SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: ref, maximumPixels: maximumPixels) != nil {
+            return await MetadataAssetStore.shared.cacheSourceCover(
+                data, songID: songID, sourceID: sourceID, reference: ref,
+                maximumPixels: maximumPixels, ticket: ticket
+            )
         }
-        return nil
+        if let songID { return await MetadataAssetStore.shared.cacheCover(data, forSongID: songID) }
+        return true
     }
 
     /// 「音乐」这类泛用文件夹里的 cover.jpg 不当这首歌的封面(整个文件夹的歌会共用一张不相干的图)。
@@ -1971,6 +2027,9 @@ struct CachedArtworkView: View {
                     purpose: .originalAnimation
                 ) {
                     return data
+                }
+                if SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: ref, maximumPixels: 480) != nil {
+                    return nil
                 }
             } else if ref.contains("://"), let url = URL(string: ref) {
                 var request = URLRequest(url: url)
@@ -2021,7 +2080,8 @@ struct CachedArtworkView: View {
         ref: String?, songID: String?,
         sourceID: String?, filePath: String?,
         fileFormat: AudioFormat?,
-        sourceManager: SourceManager
+        sourceManager: SourceManager,
+        purpose: ArtworkFetchPurpose
     ) async -> Data? {
         let maximumArtworkBytes = 8 * 1024 * 1024
 
@@ -2040,9 +2100,13 @@ struct CachedArtworkView: View {
             if let data = await sourceManager.artworkData(
                 for: ref,
                 sourceID: sourceID,
-                maximumBytes: maximumArtworkBytes
+                maximumBytes: maximumArtworkBytes,
+                purpose: purpose
             ) {
                 return data
+            }
+            if SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: ref, maximumPixels: 480) != nil {
+                return nil
             }
         }
 
@@ -2052,7 +2116,7 @@ struct CachedArtworkView: View {
            let ref,
            ref.contains("://"),
            let url = URL(string: ref) {
-            var request = URLRequest(url: url)
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
             request.timeoutInterval = 10
             if let (data, response) = try? await TrustedHTTPTransport.data(
                 for: request,
@@ -2148,6 +2212,7 @@ struct CachedArtworkView: View {
     // MARK: - Static helpers
 
     static func invalidateCache(for fileName: String) {
+        memoryRevisions.invalidate(fileName)
         for bucket in Bucket.allCases {
             memoryCache.removeObject(forKey: "\(fileName)@\(bucket.rawValue)" as NSString)
             memoryCache.removeObject(forKey: "album_\(fileName)@\(bucket.rawValue)" as NSString)
@@ -2161,6 +2226,10 @@ struct CachedArtworkView: View {
     /// songIDs/tokens 自己比对后只丢掉自己那份；没点到的封面继续用解码好的图。
     static func invalidateCache(forSongs songs: [PrimuseKit.Song]) {
         guard !songs.isEmpty else { return }
+        for song in songs {
+            memoryRevisions.invalidate(song.id)
+            if let ref = song.coverArtFileName { memoryRevisions.invalidate(ref) }
+        }
         let songIDs = songs.map(\.id)
         let refs = songs.compactMap(\.coverArtFileName).filter { !$0.isEmpty }
         for token in songIDs + refs {
@@ -2319,5 +2388,20 @@ private actor InFlightFetchTracker {
         if cancelIfUnused {
             entry.task.cancel()
         }
+    }
+}
+
+private final class ArtworkMemoryRevisions: @unchecked Sendable {
+    private let lock = NSLock()
+    private var revisions: [String: UInt64] = [:]
+    func invalidate(_ token: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        revisions[token, default: 0] &+= 1
+    }
+    func key(songID: String?, reference: String?) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return "#memory\(revisions[songID ?? ""] ?? 0):\(revisions[reference ?? ""] ?? 0)"
     }
 }

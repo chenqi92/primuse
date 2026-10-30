@@ -554,6 +554,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
     }
 
+    func fetchArtworkData(for reference: String, maximumBytes: Int, purpose: ArtworkFetchPurpose) async throws -> Data? {
+        let url = try await imageURL(for: reference)
+        let preferred = url.map { SourceArtworkPolicy.resizedMediaServerURL(
+            $0, maximumPixels: purpose == .thumbnail ? 480 : 1536
+        ) }
+        return try await defaultArtworkData(for: reference, maximumBytes: maximumBytes,
+                                            purpose: purpose, preferredURL: preferred)
+    }
+
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         try await fetchRange(path: path, offset: offset, length: length, allowReauthentication: true)
     }

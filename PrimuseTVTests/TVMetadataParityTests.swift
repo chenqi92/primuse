@@ -7,6 +7,54 @@ import UIKit
 
 @MainActor
 final class TVMetadataParityTests: XCTestCase {
+    func testSongArtworkUsesSelectedAssetInsteadOfSongMirror() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
+        let selected = try XCTUnwrap(renderer.image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }.jpegData(compressionQuality: 1))
+        let stored = await assets.storeAttributedCover(selected, songID: "song", origin: .selected)
+        let reference = try XCTUnwrap(stored)
+        let mirror = try XCTUnwrap(renderer.image { context in
+            UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }.jpegData(compressionQuality: 1))
+        await assets.cacheCover(mirror, forSongID: "song")
+        await assets.clearAll()
+        let loaded = await TVArtworkLoader(assets: assets).songCover(songID: "song", coverRef: reference)
+        XCTAssertEqual(loaded, selected)
+    }
+
+    func testLargeTVArtworkUsesFullSourceVariant() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let source = MusicSource(id: "server", name: "Fixture", type: .navidrome, host: "artwork.invalid")
+        let reference = "subsonic-cover/album"
+        for size in [480, 1536] {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let data = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { context in
+                UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            }.pngData())
+            await assets.cacheSourceCover(data, songID: "song", sourceID: source.id, reference: reference, maximumPixels: size)
+        }
+        let result = await TVArtworkLoader(assets: assets).songCover(songID: "song", coverRef: reference, source: source, maximumPixels: 1536)
+        let data = try XCTUnwrap(result)
+        XCTAssertEqual(UIImage(data: data)?.cgImage?.width, 1536)
+    }
+
+    func testServerRescanUpdatesCoverAfterTitleEditAndPreservesSelection() {
+        var old = Song(id: "song", title: "My title", fileFormat: .mp3, filePath: "/song.mp3", sourceID: "server", coverArtFileName: "subsonic-cover/old")
+        old.userMetadataEditedAt = Date()
+        var fresh = old; fresh.title = "Server title"; fresh.coverArtFileName = "subsonic-cover/new"
+        let refreshed = TVSourceScanner.rereadServerSong(existing: old, incoming: fresh)
+        XCTAssertEqual(refreshed.title, "My title")
+        XCTAssertEqual(refreshed.coverArtFileName, fresh.coverArtFileName)
+        old.coverArtFileName = "selected-" + String(repeating: "a", count: 64) + ".jpg"
+        XCTAssertEqual(TVSourceScanner.rereadServerSong(existing: old, incoming: fresh).coverArtFileName, old.coverArtFileName)
+    }
+
     func testSynologySidecarArtworkUsesTrustedSourceAndBoundsDownload() async throws {
         let registry = StreamResolverRegistry(endpointProbe: { _ in })
         await registry.register(SynologyArtworkResolver(), for: [.synology])

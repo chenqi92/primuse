@@ -569,8 +569,8 @@ final class MusicScraperService {
             let sidecarLyricsLines = sidecarSettings.lyricsEnabled ? lyricsLines : nil
             if let coverData {
                 // 图存不下就别指过去: 引用一旦不空, 之后的刮削缺失都会跳过这首。
-                if await MetadataAssetStore.shared.cacheCover(coverData, forSongID: updatedSong.id) {
-                    updatedSong.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: updatedSong.id)
+                if let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: updatedSong.id, origin: .selected) {
+                    updatedSong.coverArtFileName = reference
                     CachedArtworkView.invalidateCache(for: updatedSong.id)
                 } else {
                     updatedSong.coverArtFileName = song.coverArtFileName
@@ -664,7 +664,7 @@ final class MusicScraperService {
 
                             if writeResult.coverWritten {
                                 if let coverPath = Self.sidecarReferencePath(for: songForSidecar, suffix: "-cover.jpg") {
-                                    refSong.coverArtFileName = coverPath
+                                    refSong.coverArtFileName = songForSidecar.coverArtFileName ?? coverPath
                                     needsUpdate = true
                                 }
                                 // sidecar 已落盘 —— 现在回写 hash cache 作为可信 mirror
@@ -1305,8 +1305,8 @@ final class MusicScraperService {
                         let sidecarLyricsLines = sidecarSettings.lyricsEnabled ? lyricsLines : nil
 
                         if let coverData {
-                            if await MetadataAssetStore.shared.cacheCover(coverData, forSongID: updatedSong.id) {
-                                updatedSong.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: updatedSong.id)
+                            if let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: updatedSong.id, origin: onlyFillMissing ? .scraped : .selected) {
+                                updatedSong.coverArtFileName = reference
                                 CachedArtworkView.invalidateCache(for: updatedSong.id)
                             } else {
                                 updatedSong.coverArtFileName = song.coverArtFileName
@@ -1406,7 +1406,7 @@ final class MusicScraperService {
 
                                         if writeResult.coverWritten {
                                             if let coverPath = Self.sidecarReferencePath(for: songForSidecar, suffix: "-cover.jpg") {
-                                                refSong.coverArtFileName = coverPath
+                                                refSong.coverArtFileName = songForSidecar.coverArtFileName ?? coverPath
                                                 needsUpdate = true
                                             }
                                             if let coverData {
@@ -2055,8 +2055,8 @@ final class MusicScraperService {
                     // 否则库里的 ref 会指向不存在的文件, 且数据被丢弃。
                     var enrichedSong = result.song
                     if let coverData = result.coverData,
-                       await MetadataAssetStore.shared.cacheCover(coverData, forSongID: enrichedSong.id) {
-                        enrichedSong.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: enrichedSong.id)
+                       let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: enrichedSong.id, origin: .scraped) {
+                        enrichedSong.coverArtFileName = reference
                         CachedArtworkView.invalidateCache(for: enrichedSong.id)
                     } else {
                         // 没拿到新封面、或者图存不下 —— 别把占位 ref 持久化, 退回原始 ref。

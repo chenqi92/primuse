@@ -102,7 +102,7 @@ enum BatchTagEditService {
             outcome.coverChanged = true
             for index in published.indices {
                 let songID = published[index].id
-                if let fileName = await MetadataAssetStore.shared.storeCover(coverData, for: songID) {
+                if let fileName = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: songID, origin: .selected) {
                     published[index].coverArtFileName = fileName
                 }
             }

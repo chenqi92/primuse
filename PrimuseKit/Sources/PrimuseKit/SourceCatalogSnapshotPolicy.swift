@@ -327,12 +327,11 @@ public enum ServerSongCatalogMergePolicy {
         if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
         if refreshed.coverArtFileName == nil {
             refreshed.coverArtFileName = incoming.coverArtFileName
-        } else if followsServerCatalog,
-                  let reference = incoming.coverArtFileName,
-                  isServerArtworkReference(reference),
-                  isServerArtworkReference(existing.coverArtFileName) {
-            // A server reference names the server's current artwork. A local
-            // scrape or pick is a bare cache file name and stays.
+        } else if SourceArtworkPolicy.shouldAdoptServerReference(
+            existing: existing.coverArtFileName, incoming: incoming.coverArtFileName
+        ), let reference = incoming.coverArtFileName {
+            // Text edits do not pin artwork. Only an explicit local choice
+            // (or an unclassified legacy asset) takes precedence over the server.
             refreshed.coverArtFileName = reference
         }
         return refreshed

@@ -230,11 +230,7 @@ final class SpokenWordWidgetPublisher {
         var written: Set<String> = []
         var missing: [CoverJob] = []
         for job in jobs {
-            var data = assets.readCoverData(named: assets.expectedCoverFileName(for: job.songID))
-            if data == nil, let legacy = job.legacyCoverName, !legacy.isEmpty,
-               !legacy.contains("/"), !legacy.contains("://") {
-                data = assets.readCoverData(named: legacy)
-            }
+            let data = assets.displayCoverData(songID: job.songID, reference: job.legacyCoverName)
             let destination = containerURL.appendingPathComponent(job.fileName)
             guard let data, let jpeg = WidgetBookCoverRenderer.squareJPEG(
                 from: data,
@@ -304,13 +300,7 @@ enum WidgetBookCoverRenderer {
     /// 这首歌眼下那张封面是哪一份，只读文件头、不解码。和写小组件封面时同一个找法：
     /// 先按歌曲 id，再按它的封面引用。
     nonisolated static func coverContent(for song: Song) -> String? {
-        let store = MetadataAssetStore.shared
-        if let identity = store.coverContentIdentifier(named: store.expectedCoverFileName(for: song.id)) {
-            return identity
-        }
-        guard let ref = song.coverArtFileName, !ref.isEmpty,
-              !ref.contains("/"), !ref.contains("://") else { return nil }
-        return store.coverContentIdentifier(named: ref)
+        MetadataAssetStore.shared.displayCoverIdentity(songID: song.id, reference: song.coverArtFileName)
     }
 
     /// 解码 `data` 并画成 `pixelSize` 见方的 JPEG。`keepsWholeCover` 为 false 时就是居中裁切铺满。

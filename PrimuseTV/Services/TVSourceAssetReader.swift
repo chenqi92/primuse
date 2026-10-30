@@ -292,7 +292,7 @@ actor TVSourceAssetReader {
         return client
     }
 
-    func artworkData(reference: String, source: MusicSource, credential: SourceCredential?, maximumBytes: Int) async -> Data? {
+    func artworkData(reference: String, source: MusicSource, credential: SourceCredential?, maximumBytes: Int, maximumPixels: Int = 480) async -> Data? {
         if source.type == .synology {
             // 文件源保存的是 NAS 上的图片路径,须和音频一样通过 File Station 鉴权读取。
             guard reference.hasPrefix("/"), !reference.hasPrefix("//"), maximumBytes > 0 else { return nil }
@@ -339,7 +339,7 @@ actor TVSourceAssetReader {
                         .coverData(reference: reference, maximumBytes: maximumBytes)
                 } else {
                     guard let connector = connector(for: routed, credential: credential) else { return nil }
-                    data = try await connector.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: .thumbnail)
+                    data = try await connector.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: maximumPixels > 480 ? .fullResolution : .thumbnail)
                 }
                 try Task.checkCancellation()
                 if data == nil {
@@ -497,7 +497,8 @@ extension TVStore {
         songID: String,
         coverRef: String?,
         animationCacheKey: String? = nil,
-        sourceID fallbackSourceID: String? = nil
+        sourceID fallbackSourceID: String? = nil,
+        maximumPixels: Int = 1536
     ) async -> Data? {
         let source = (library.song(id: songID)?.sourceID ?? fallbackSourceID).flatMap { self.source(id: $0) }
         guard source?.isEnabled != false, source?.isDeleted != true else { return nil }
@@ -513,7 +514,7 @@ extension TVStore {
         let data = await TVArtworkLoader.shared.songCover(
             songID: songID, coverRef: coverRef,
             fnMusicSourceID: source?.id, fnMusicClient: source.flatMap { fnMusicClient(for: $0.id) },
-            animationCacheKey: animationCacheKey, source: source, credentialProvider: credentialProvider
+            animationCacheKey: animationCacheKey, source: source, credentialProvider: credentialProvider, maximumPixels: maximumPixels
         )
         guard !Task.isCancelled, source.map({ self.source(id: $0.id) == $0 }) ?? true else { return nil }
         if data == nil, FileLogger.isDiagnosticModeActive {

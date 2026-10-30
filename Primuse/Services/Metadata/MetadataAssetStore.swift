@@ -31,6 +31,8 @@ actor MetadataAssetStore {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private var lyricsMutationReservations: [String: UUID] = [:]
+    private var artworkSelections: [String: String] = [:]
+    nonisolated private let artworkRefreshClock = ArtworkRefreshClock()
 
     /// Public directory URLs for external consumers (CachedArtworkView, ThemeService, etc.)
     nonisolated let artworkDirectoryURL: URL
@@ -231,7 +233,9 @@ actor MetadataAssetStore {
     /// `Data(contentsOf:)` —— 直读会拿到 41 字节 "REDIRECT:..." 字符串,
     /// `UIImage(data:)` 当然会返回 nil。
     nonisolated func readCoverData(named filename: String) -> Data? {
-        readContentAddressed(refURL: artworkDirectoryURL.appendingPathComponent(filename))
+        if StoredArtworkOrigin.resolve(filename) == .selected,
+           let id = StoredArtworkOrigin.contentID(filename) { return customArtworkData(contentID: id) }
+        return readContentAddressed(refURL: artworkDirectoryURL.appendingPathComponent(filename))
     }
 
     /// Returns a cheap, stable identity for a cover without decoding or loading
@@ -240,6 +244,10 @@ actor MetadataAssetStore {
     /// in-place artwork replacement still invalidates derived thumbnails.
     nonisolated func coverContentIdentifier(named filename: String) -> String? {
         guard !filename.isEmpty else { return nil }
+        if StoredArtworkOrigin.resolve(filename) == .selected,
+           let id = StoredArtworkOrigin.contentID(filename), hasCustomArtwork(contentID: id) {
+            return "sha256:" + id
+        }
         let refURL = artworkDirectoryURL.appendingPathComponent(filename)
         guard let handle = try? FileHandle(forReadingFrom: refURL) else { return nil }
         defer { try? handle.close() }
@@ -268,6 +276,7 @@ actor MetadataAssetStore {
     /// 封面库自己起的文件名(歌曲 ID 的哈希 + `.jpg`), 不是音乐源里的路径、网址或
     /// 服务端的封面 ID。
     nonisolated static func isLocalCoverFileName(_ reference: String) -> Bool {
+        if StoredArtworkOrigin.resolve(reference) != nil { return true }
         guard reference.hasSuffix(".jpg") else { return false }
         let stem = reference.utf8.dropLast(4)
         return stem.count == 32
@@ -277,6 +286,8 @@ actor MetadataAssetStore {
     /// 这个封面文件本机现在读得到: 文件在, 是 redirect 指针的话它指向的内容也在。
     /// 只读文件头和查目录, 不读整张图。
     nonisolated func hasReadableCoverFile(named filename: String) -> Bool {
+        if StoredArtworkOrigin.resolve(filename) == .selected,
+           let id = StoredArtworkOrigin.contentID(filename) { return hasCustomArtwork(contentID: id) }
         guard let identifier = coverContentIdentifier(named: filename) else { return false }
         guard identifier.hasPrefix("sha256:") else { return !identifier.hasPrefix("legacy:0:") }
         let sha = identifier.dropFirst("sha256:".count)
@@ -328,8 +339,7 @@ actor MetadataAssetStore {
 
     func coverData(named fileName: String?) -> Data? {
         guard let fileName, !fileName.isEmpty else { return nil }
-        let url = artworkDirectory.appendingPathComponent(fileName)
-        if let data = readContentAddressed(refURL: url) { return data }
+        if let data = readCoverData(named: fileName) { return data }
         plog("MetadataAssetStore: cover '\(fileName)' miss")
         return nil
     }
@@ -423,6 +433,167 @@ actor MetadataAssetStore {
     func cachedCoverData(forSongID songID: String) -> Data? {
         let fileName = hashedFileName(for: songID, pathExtension: "jpg")
         return readContentAddressed(refURL: artworkDirectory.appendingPathComponent(fileName))
+    }
+
+    struct ArtworkLoadTicket: Sendable {
+        let songID: String?
+        let sourceID: String?
+        let reference: String
+        let identity: String
+        let epoch: String
+    }
+
+    private struct ArtworkMirror: Codable {
+        var reference: String
+        var sourceID: String?
+        var cacheID: String
+    }
+
+    nonisolated private func mirrorURL(_ songID: String) -> URL {
+        artworkDirectoryURL.appendingPathComponent("receipts", isDirectory: true)
+            .appendingPathComponent(expectedCoverFileName(for: songID) + ".json")
+    }
+
+    nonisolated private func refreshURL(_ sourceID: String?) -> URL {
+        artworkDirectoryURL.deletingLastPathComponent().appendingPathComponent("artwork-refresh", isDirectory: true)
+            .appendingPathComponent(expectedCoverFileName(for: sourceID ?? "public"))
+    }
+
+    nonisolated func artworkFreshnessToken(sourceID: String?) -> String {
+        let date = artworkRefreshClock.date(at: refreshURL(sourceID))
+        return "\(date.timeIntervalSince1970):\(Int(Date().timeIntervalSince1970 / SourceArtworkPolicy.maximumAge))"
+    }
+
+    nonisolated func revalidateArtwork(sourceID: String) {
+        artworkRefreshClock.advance(at: refreshURL(sourceID))
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .primuseArtworkDidInvalidate, object: nil,
+                                            userInfo: ["sourceID": sourceID])
+        }
+    }
+
+    func beginArtworkLoad(songID: String?, sourceID: String?, reference: String) -> ArtworkLoadTicket {
+        let epoch = artworkFreshnessToken(sourceID: sourceID)
+        let identity = "\(sourceID ?? "")|\(reference)|\(epoch)"
+        if let songID { artworkSelections[songID] = identity }
+        return ArtworkLoadTicket(songID: songID, sourceID: sourceID, reference: reference,
+                                 identity: identity, epoch: epoch)
+    }
+
+    func isCurrentArtworkLoad(_ ticket: ArtworkLoadTicket) -> Bool {
+        ticket.epoch == artworkFreshnessToken(sourceID: ticket.sourceID)
+            && ticket.songID.map { artworkSelections[$0] == ticket.identity } != false
+    }
+
+    /// Source requests may populate their own namespace, but must not publish a
+    /// late result after a scan or an explicit local selection replaced them.
+    @discardableResult
+    func cacheSourceCover(_ data: Data, songID: String?, sourceID: String?, reference: String?,
+                          maximumPixels: Int, ticket: ArtworkLoadTicket? = nil) -> Bool {
+        if let ticket, !isCurrentArtworkLoad(ticket) { return false }
+        guard let reference, let key = SourceArtworkPolicy.cacheID(
+            sourceID: sourceID, reference: reference, maximumPixels: maximumPixels
+        ), cacheCover(data, forSongID: key) else { return false }
+        guard let songID else { return true }
+        if ticket == nil, artworkSelections[songID]?.hasPrefix("local:") == true { return true }
+        let fullKey = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 1536)
+        let bestKey = fullKey.flatMap { freshSourceData(cacheID: $0, sourceID: sourceID) != nil ? $0 : nil } ?? key
+        let best = cachedCoverData(forSongID: bestKey) ?? data
+        guard cacheCover(best, forSongID: songID) else { return false }
+        let url = mirrorURL(songID)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let encoded = try? JSONEncoder().encode(ArtworkMirror(reference: Self.sha256Hex(Data(reference.utf8)), sourceID: sourceID, cacheID: bestKey)) {
+            try? encoded.write(to: url, options: .atomic)
+        }
+        return true
+    }
+
+    nonisolated private func freshSourceData(cacheID: String, sourceID: String?) -> Data? {
+        guard let date = coverCacheDate(forSongID: cacheID),
+              date >= artworkRefreshClock.date(at: refreshURL(sourceID)),
+              Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { return nil }
+        return readCoverData(named: expectedCoverFileName(for: cacheID))
+    }
+
+    nonisolated func cachedSourceCover(sourceID: String?, reference: String?, maximumPixels: Int,
+                                      allowsStale: Bool = false) -> Data? {
+        let sizes = maximumPixels <= 480 ? [1536, 480] : [1536]
+        for size in sizes {
+            guard let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: size) else { return nil }
+            let data = allowsStale ? readCoverData(named: expectedCoverFileName(for: key))
+                : freshSourceData(cacheID: key, sourceID: sourceID)
+            if let data { return data }
+        }
+        return nil
+    }
+
+    nonisolated func freshSourceCoverFileName(sourceID: String?, reference: String?, maximumPixels: Int) -> String? {
+        for pixels in maximumPixels <= 480 ? [1536, 480] : [1536] {
+            guard let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: pixels),
+                  let date = coverCacheDate(forSongID: key),
+                  date >= artworkRefreshClock.date(at: refreshURL(sourceID)),
+                  Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { continue }
+            let name = expectedCoverFileName(for: key)
+            if hasReadableCoverFile(named: name) { return name }
+        }
+        return nil
+    }
+
+    nonisolated func hasFreshSourceCover(sourceID: String?, reference: String?, maximumPixels: Int) -> Bool {
+        freshSourceCoverFileName(sourceID: sourceID, reference: reference, maximumPixels: maximumPixels) != nil
+    }
+
+    nonisolated func displayCoverIdentity(songID: String?, reference: String?) -> String? {
+        if let reference, !reference.isEmpty, !reference.contains("/") { return coverContentIdentifier(named: reference) }
+        guard let songID else { return nil }
+        if let reference, !reference.isEmpty {
+            guard let data = try? Data(contentsOf: mirrorURL(songID)),
+                  let mirror = try? JSONDecoder().decode(ArtworkMirror.self, from: data),
+                  mirror.reference == Self.sha256Hex(Data(reference.utf8)) else { return nil }
+            return coverContentIdentifier(named: expectedCoverFileName(for: mirror.cacheID))
+        }
+        return coverContentIdentifier(named: expectedCoverFileName(for: songID))
+    }
+
+    /// Read-only consumers use the chosen reference, not whichever writer most
+    /// recently populated the historical song mirror.
+    nonisolated func displayCoverData(songID: String?, reference: String?, allowsStale: Bool = true) -> Data? {
+        if let reference, !reference.isEmpty, !reference.contains("/") {
+            return readCoverData(named: reference)
+        }
+        guard let songID else { return nil }
+        if let reference, !reference.isEmpty {
+            guard let data = try? Data(contentsOf: mirrorURL(songID)),
+                  let mirror = try? JSONDecoder().decode(ArtworkMirror.self, from: data),
+                  mirror.reference == Self.sha256Hex(Data(reference.utf8)) else { return nil }
+            return allowsStale ? readCoverData(named: expectedCoverFileName(for: mirror.cacheID))
+                : freshSourceData(cacheID: mirror.cacheID, sourceID: mirror.sourceID)
+        }
+        return readCoverData(named: expectedCoverFileName(for: songID))
+    }
+
+    func storeAttributedCover(_ data: Data, songID: String, origin: StoredArtworkOrigin) -> String? {
+        guard ArtworkImageCompatibility.isCompleteImage(data),
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else { return nil }
+        let contentID = Self.sha256Hex(data)
+        let reference = origin.rawValue + "-" + contentID + ".jpg"
+        if origin == .selected {
+            guard storeCustomArtwork(data) != nil else { return nil }
+        } else {
+            do { try writeContentAddressed(data, refURL: artworkDirectoryURL.appendingPathComponent(reference)) }
+            catch { return nil }
+        }
+        artworkSelections[songID] = "local:" + reference
+        cacheCover(data, forSongID: songID)
+        return reference
+    }
+
+    func cachedSubsonicCover(sourceID: String?, reference: String?, maximumPixels: Int) -> Data? {
+        cachedSourceCover(sourceID: sourceID, reference: reference, maximumPixels: maximumPixels)
+    }
+
+    func cacheSubsonicCover(_ data: Data, songID: String?, sourceID: String?, reference: String?, maximumPixels: Int) {
+        cacheSourceCover(data, songID: songID, sourceID: sourceID, reference: reference, maximumPixels: maximumPixels)
     }
 
     /// Cache lyrics using song ID as the cache key.
@@ -1021,11 +1192,11 @@ actor MetadataAssetStore {
 
     /// 本机已经存着这份封面内容(同一张内嵌封面别的歌读到过)时,让 `songID` 的封面
     /// 直接指过去,不必再读这首歌的文件。返回封面引用名;本机没有这份内容就返回 nil。
-    nonisolated func linkCoverContentIfPresent(_ contentKey: String, forSongID songID: String) -> String? {
-        guard PeerScanSeedPolicy.isContentKey(contentKey) else { return nil }
+    nonisolated func linkCoverContentIfPresent(_ contentKey: String, forSongID songID: String, origin: StoredArtworkOrigin? = nil) -> String? {
+        guard origin != .selected, PeerScanSeedPolicy.isContentKey(contentKey) else { return nil }
         let contentURL = artworkContentDirectoryURL.appendingPathComponent("\(contentKey).jpg")
         guard FileManager.default.fileExists(atPath: contentURL.path) else { return nil }
-        let fileName = expectedCoverFileName(for: songID)
+        let fileName = origin.map { $0.rawValue + "-" + contentKey + ".jpg" } ?? expectedCoverFileName(for: songID)
         let refURL = artworkDirectoryURL.appendingPathComponent(fileName)
         do {
             try (Self.redirectPrefixData + Data(contentKey.utf8)).write(to: refURL, options: .atomic)
@@ -1735,5 +1906,30 @@ enum LibraryArtworkImageProcessor {
         )
         guard CGImageDestinationFinalize(destination), output.length > 0 else { return nil }
         return output as Data
+    }
+}
+
+
+private final class ArtworkRefreshClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var dates: [URL: Date] = [:]
+
+    func date(at url: URL) -> Date {
+        lock.lock()
+        defer { lock.unlock() }
+        if let date = dates[url] { return date }
+        let value = (try? String(contentsOf: url, encoding: .utf8)).flatMap(TimeInterval.init)
+        let date = value.map(Date.init(timeIntervalSince1970:)) ?? .distantPast
+        dates[url] = date
+        return date
+    }
+
+    func advance(at url: URL) {
+        lock.lock()
+        defer { lock.unlock() }
+        let date = Date()
+        dates[url] = date
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? String(date.timeIntervalSince1970).write(to: url, atomically: true, encoding: .utf8)
     }
 }

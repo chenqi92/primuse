@@ -1866,7 +1866,11 @@ struct ScrapeOptionsView: View {
             var appliedFinal = final
             // Persist assets to disk (atomic, fast)
             if needsCover, let data = coverData {
-                MetadataAssetStore.shared.storeCoverSync(data, for: songID)
+                if let reference = await MetadataAssetStore.shared.storeAttributedCover(data, songID: songID, origin: .selected) {
+                    appliedFinal.coverArtFileName = reference
+                } else {
+                    appliedFinal.coverArtFileName = song.coverArtFileName
+                }
                 CachedArtworkView.invalidateCache(for: songID)
                 if let oldRef = song.coverArtFileName {
                     CachedArtworkView.invalidateCache(for: oldRef)

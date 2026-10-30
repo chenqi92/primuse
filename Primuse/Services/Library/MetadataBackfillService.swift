@@ -7026,7 +7026,7 @@ final class MetadataBackfillService {
                 case .sidecar:
                     cover = .resolved
                 case .content(let key):
-                    if let name = assetStore.linkCoverContentIfPresent(key, forSongID: song.id) {
+                    if let name = assetStore.linkCoverContentIfPresent(key, forSongID: song.id, origin: .embedded) {
                         adopted.coverArtFileName = name
                         cover = .resolved
                     } else {
@@ -7226,7 +7226,7 @@ final class MetadataBackfillService {
             peerCoverKeyBySongID[id] = nil
             artworkGivenUpIDs.remove(id)
             guard row.coverArtFileName?.isEmpty ?? true,
-                  let name = MetadataAssetStore.shared.linkCoverContentIfPresent(contentKey, forSongID: id) else {
+                  let name = MetadataAssetStore.shared.linkCoverContentIfPresent(contentKey, forSongID: id, origin: .embedded) else {
                 continue
             }
             row.coverArtFileName = name

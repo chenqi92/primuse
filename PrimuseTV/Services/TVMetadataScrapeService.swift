@@ -359,8 +359,8 @@ final class TVMetadataScrapeService {
             song.applyScrapeFields(chosen)
         }
         if cover, let data = preview.coverData,
-           await storeCover(data, forSongID: song.id) {
-            song.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: song.id)
+           let reference = await storeCover(data, forSongID: song.id, origin: .selected) {
+            song.coverArtFileName = reference
             appliedCover = data
         }
         if lyrics, let lines = preview.lyrics, !lines.isEmpty,
@@ -493,8 +493,8 @@ final class TVMetadataScrapeService {
         }
         var appliedCover: Data?
         if needsCover, let data = scraped.coverData,
-           await storeCover(data, forSongID: updated.id) {
-            updated.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: updated.id)
+           let reference = await storeCover(data, forSongID: updated.id, origin: overwrite ? .selected : .scraped) {
+            updated.coverArtFileName = reference
             appliedCover = data
         }
         var appliedLyrics: [LyricLine]?
@@ -806,13 +806,12 @@ final class TVMetadataScrapeService {
         let action = LocalMetadataOverridePolicy.assetAction(kind: entry.kind, current: state)
         switch action {
         case .keep, .restore:
-            if action == .restore {
-                guard await storeCover(local, forSongID: entry.songID) else { return }
-            }
+            guard let reference = await storeCover(local, forSongID: entry.songID,
+                                                   origin: entry.kind == .chosen ? .selected : .scraped) else { return }
             // 快照里这一行可能指着源端的封面引用(飞牛这类引用会先于本机缓存被读取):
             // 挑过的封面要把引用指回本机缓存,补空缺的只在这一行没有封面引用时补上。
             if entry.kind == .chosen || song.coverArtFileName?.isEmpty != false {
-                song.coverArtFileName = MetadataAssetStore.shared.expectedCoverFileName(for: entry.songID)
+                song.coverArtFileName = reference
             }
         case .yieldToIncoming:
             await overrides.dropCover(songID: entry.songID)
@@ -885,10 +884,8 @@ final class TVMetadataScrapeService {
         Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
     }
 
-    private func storeCover(_ data: Data, forSongID songID: String) async -> Bool {
-        await MetadataAssetStore.shared.cacheCover(data, forSongID: songID)
-        // 不完整或解不开的图片会被缓存拒收,拒收了就不能把引用指过去。
-        return await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) != nil
+    private func storeCover(_ data: Data, forSongID songID: String, origin: StoredArtworkOrigin) async -> String? {
+        await MetadataAssetStore.shared.storeAttributedCover(data, songID: songID, origin: origin)
     }
 
     private static func postArtworkChanged(songs: [Song]) {

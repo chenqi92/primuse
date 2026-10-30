@@ -641,6 +641,23 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
     // MARK: - Artwork / lyrics / playback history
 
+    func fetchArtworkData(for reference: String, maximumBytes: Int, purpose: ArtworkFetchPurpose) async throws -> Data? {
+        guard maximumBytes > 0 else { return nil }
+        guard let coverID = FnMusicAPIProtocol.coverID(from: reference) else {
+            return try await defaultArtworkData(for: reference, maximumBytes: maximumBytes, purpose: purpose)
+        }
+        try await connect()
+        let pixels = purpose == .thumbnail ? 480 : (purpose == .originalAnimation ? 2048 : 1536)
+        let revision = FnMusicAPIProtocol.coverRevision(from: reference)
+        let data: Data
+        do { data = try await api.coverData(coverID: coverID, size: pixels, revision: revision) }
+        catch SourceError.authenticationFailed {
+            try await connect()
+            data = try await api.coverData(coverID: coverID, size: pixels, revision: revision)
+        }
+        return data.count <= maximumBytes ? data : nil
+    }
+
     func imageURL(for path: String) async throws -> URL? {
         guard let coverID = FnMusicAPIProtocol.coverID(from: path) else {
             return path.contains("://") ? URL(string: path) : nil

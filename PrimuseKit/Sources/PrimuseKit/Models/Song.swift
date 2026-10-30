@@ -1159,9 +1159,11 @@ public enum MediaMetadataTextRepair {
 /// background metadata result is merged into the library.
 public enum SongUserMetadataPolicy {
     public static func preservingUserEdits(from existing: Song, in incoming: Song) -> Song {
-        guard existing.userMetadataEditedAt != nil else { return incoming }
-
         var result = incoming
+        if StoredArtworkOrigin.preservesLocalChoice(existing.coverArtFileName) {
+            result.coverArtFileName = existing.coverArtFileName
+        }
+        guard existing.userMetadataEditedAt != nil else { return result }
         result.title = existing.title
         result.albumID = existing.albumID
         result.artistID = existing.artistID
@@ -1173,7 +1175,6 @@ public enum SongUserMetadataPolicy {
         result.discNumber = existing.discNumber
         result.genre = existing.genre
         result.year = existing.year
-        result.coverArtFileName = existing.coverArtFileName
         result.titlePinyin = existing.titlePinyin
         result.artistPinyin = existing.artistPinyin
         result.albumPinyin = existing.albumPinyin

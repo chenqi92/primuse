@@ -9,6 +9,206 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testServerPlayerKeepsOfflineFallbackProvisionalUntilFullCoverArrives() async throws {
+        let songID = UUID().uuidString
+        let sourceID = UUID().uuidString
+        let reference = "subsonic-cover/mf-" + songID
+        let thumbnailKey = try XCTUnwrap(SubsonicArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 480))
+        let fullKey = try XCTUnwrap(SubsonicArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 1536))
+        defer {
+            for key in [songID, thumbnailKey, fullKey] {
+                MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: key)
+            }
+        }
+        let source = MusicSource(id: sourceID, name: "Artwork fixture", type: .navidrome, host: "artwork.invalid")
+        let connector = ServerCoverFixtureConnector(sourceID: sourceID)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        func resolve() async -> UIImage? {
+            await CachedArtworkView.resolveImage(
+                coverRef: reference, songID: songID, size: 512,
+                sourceID: sourceID, filePath: "/songs/song.m4a", fileFormat: .m4a,
+                sourceManager: manager, cacheDiscriminator: songID
+            )
+        }
+        await MetadataAssetStore.shared.cacheCover(try image(width: 480), forSongID: songID)
+        let song = Song(id: songID, title: "Artwork fixture", fileFormat: .m4a,
+                        filePath: "/songs/song.m4a", sourceID: sourceID, coverArtFileName: reference)
+        XCTAssertEqual(SourceManager.companionAssetPlan(for: [song]).coverGroups.count, 1)
+        let legacy = await resolve()
+        XCTAssertEqual(legacy?.cgImage?.width, 480)
+        await MetadataAssetStore.shared.cacheSubsonicCover(
+            try image(width: 480), songID: songID, sourceID: sourceID, reference: reference, maximumPixels: 480
+        )
+        let offlineThumbnail = await resolve()
+        XCTAssertEqual(offlineThumbnail?.cgImage?.width, 480)
+        await connector.setArtwork(try image(color: .blue, width: 1536))
+        let full = await resolve()
+        XCTAssertEqual(full?.cgImage?.width, 1536)
+        XCTAssertTrue(SourceManager.companionAssetPlan(for: [song]).coverGroups.isEmpty)
+        let purposes = await connector.purposes
+        XCTAssertEqual(purposes.count, 3)
+        XCTAssertTrue(purposes.allSatisfy { $0 == .fullResolution })
+    }
+
+    func testServerCoverCacheIgnoresUnverifiedSongMirrorAndTracksCoverRevision() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root)
+        let old = try image(color: .red)
+        let server = try image(color: .blue, width: 1024)
+        let reference = "subsonic-cover/mf-chengdu_old"
+        await store.cacheCover(old, forSongID: "song")
+        let unverified = await store.cachedSubsonicCover(sourceID: "server", reference: reference, maximumPixels: 1536)
+        XCTAssertNil(unverified)
+        await store.cacheSubsonicCover(server, songID: "song", sourceID: "server", reference: reference, maximumPixels: 1536)
+        let current = await store.cachedSubsonicCover(sourceID: "server", reference: reference, maximumPixels: 1536)
+        let replaced = await store.cachedSubsonicCover(sourceID: "server", reference: "subsonic-cover/mf-chengdu_new", maximumPixels: 1536)
+        let otherSource = await store.cachedSubsonicCover(sourceID: "other", reference: reference, maximumPixels: 1536)
+        XCTAssertEqual(current, server)
+        XCTAssertNil(replaced)
+        XCTAssertNil(otherSource)
+    }
+
+    func testThumbnailDoesNotSatisfyOrDowngradeFullServerCover() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root)
+        let thumbnail = try image(color: .red, width: 480)
+        let full = try image(color: .blue, width: 1536)
+        let reference = "subsonic-cover/mf-chengdu_version"
+        await store.cacheSubsonicCover(thumbnail, songID: "song", sourceID: "server", reference: reference, maximumPixels: 192)
+        let coldFull = await store.cachedSubsonicCover(sourceID: "server", reference: reference, maximumPixels: 1536)
+        XCTAssertNil(coldFull)
+        await store.cacheSubsonicCover(full, songID: "song", sourceID: "server", reference: reference, maximumPixels: 1536)
+        await store.cacheSubsonicCover(thumbnail, songID: "song", sourceID: "server", reference: reference, maximumPixels: 192)
+        let warmFull = await store.cachedSubsonicCover(sourceID: "server", reference: reference, maximumPixels: 1536)
+        let warmThumbnail = await store.cachedSubsonicCover(sourceID: "server", reference: reference, maximumPixels: 192)
+        let mirror = await store.cachedCoverData(forSongID: "song")
+        XCTAssertEqual(warmFull, full)
+        XCTAssertEqual(warmThumbnail, full)
+        XCTAssertEqual(mirror, full)
+    }
+
+    func testScanRevalidatesUnchangedCoverReferenceAndKeepsOfflineCopy() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let reference = "https://nas.invalid/Items/album/Images/Primary?tag=unchanged"
+        let old = try image(color: .red, width: 1536)
+        let new = try image(color: .blue, width: 480)
+        await assets.cacheSourceCover(old, songID: "song", sourceID: "server", reference: reference, maximumPixels: 1536)
+        let oldEpoch = assets.artworkFreshnessToken(sourceID: "server")
+        assets.revalidateArtwork(sourceID: "server")
+        XCTAssertNotEqual(oldEpoch, assets.artworkFreshnessToken(sourceID: "server"))
+        XCTAssertNil(assets.cachedSourceCover(sourceID: "server", reference: reference, maximumPixels: 1536))
+        XCTAssertEqual(assets.cachedSourceCover(sourceID: "server", reference: reference, maximumPixels: 480, allowsStale: true), old)
+        await assets.cacheSourceCover(new, songID: "song", sourceID: "server", reference: reference, maximumPixels: 480)
+        XCTAssertEqual(assets.cachedSourceCover(sourceID: "server", reference: reference, maximumPixels: 480), new)
+        XCTAssertEqual(assets.displayCoverData(songID: "song", reference: reference), new)
+        XCTAssertNil(assets.cachedSourceCover(sourceID: "server", reference: reference, maximumPixels: 1536))
+        let restored = MetadataAssetStore(storageDirectory: root)
+        XCTAssertNil(restored.cachedSourceCover(sourceID: "server", reference: reference, maximumPixels: 1536))
+    }
+
+    func testSelectedArtworkSurvivesCacheClearAndRejectsLateSourceResult() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let chosen = try image(color: .red)
+        let server = try image(color: .blue)
+        let ticket = await assets.beginArtworkLoad(songID: "song", sourceID: "server", reference: "subsonic-cover/old")
+        let stored = await assets.storeAttributedCover(chosen, songID: "song", origin: .selected)
+        let reference = try XCTUnwrap(stored)
+        let accepted = await assets.cacheSourceCover(server, songID: "song", sourceID: "server", reference: "subsonic-cover/old", maximumPixels: 1536, ticket: ticket)
+        XCTAssertFalse(accepted)
+        await assets.cacheCover(server, forSongID: "song")
+        XCTAssertEqual(assets.displayCoverData(songID: "song", reference: reference), chosen)
+        await assets.clearAll()
+        XCTAssertEqual(assets.displayCoverData(songID: "song", reference: reference), chosen)
+        XCTAssertTrue(assets.hasReadableCoverFile(named: reference))
+    }
+
+    func testSourceRevalidationRejectsInFlightOldBytesAndSurvivesRestart() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let ticket = await assets.beginArtworkLoad(songID: "song", sourceID: "server", reference: "/cover.jpg")
+        assets.revalidateArtwork(sourceID: "server")
+        let accepted = await assets.cacheSourceCover(try image(), songID: "song", sourceID: "server", reference: "/cover.jpg", maximumPixels: 480, ticket: ticket)
+        XCTAssertFalse(accepted)
+        XCTAssertFalse(assets.hasFreshSourceCover(sourceID: "server", reference: "/cover.jpg", maximumPixels: 480))
+        let restored = MetadataAssetStore(storageDirectory: root)
+        XCTAssertEqual(restored.artworkFreshnessToken(sourceID: "server"), assets.artworkFreshnessToken(sourceID: "server"))
+    }
+
+    func testSourceCacheExpiresAndDoesNotPromoteLegacyMirror() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let reference = "/cover.jpg"
+        await assets.cacheCover(try image(color: .red), forSongID: "song")
+        XCTAssertNil(assets.displayCoverData(songID: "song", reference: reference))
+        await assets.cacheSourceCover(try image(color: .blue), songID: "song", sourceID: "server", reference: reference, maximumPixels: 480)
+        let key = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: "server", reference: reference, maximumPixels: 480))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-SourceArtworkPolicy.maximumAge - 1)],
+            ofItemAtPath: assets.artworkDirectoryURL.appendingPathComponent(assets.expectedCoverFileName(for: key)).path)
+        XCTAssertFalse(assets.hasFreshSourceCover(sourceID: "server", reference: reference, maximumPixels: 480))
+        XCTAssertNotNil(assets.cachedSourceCover(sourceID: "server", reference: reference, maximumPixels: 480, allowsStale: true))
+        XCTAssertNil(assets.displayCoverData(songID: "song", reference: "/new-cover.jpg"))
+    }
+
+    func testMountedResolverRevalidatesSameURLAfterScan() async throws {
+        let songID = UUID().uuidString
+        let sourceID = UUID().uuidString
+        let reference = "subsonic-cover/mf-" + songID
+        let source = MusicSource(id: sourceID, name: "Artwork fixture", type: .navidrome, host: "artwork.invalid")
+        let connector = ServerCoverFixtureConnector(sourceID: sourceID)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        func resolve() async -> UIImage? {
+            await CachedArtworkView.resolveImage(coverRef: reference, songID: songID, size: 512,
+                sourceID: sourceID, filePath: "/songs/song.m4a", fileFormat: .m4a, sourceManager: manager)
+        }
+        await connector.setArtwork(try image(width: 1024))
+        let old = await resolve()
+        XCTAssertEqual(old?.cgImage?.width, 1024)
+        await connector.setArtwork(try image(color: .blue, width: 1536))
+        MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
+        let updated = await resolve()
+        XCTAssertEqual(updated?.cgImage?.width, 1536)
+        let purposes = await connector.purposes
+        XCTAssertEqual(purposes.count, 2)
+        for size in [480, 1536] {
+            if let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: size) {
+                await MetadataAssetStore.shared.invalidateCoverCache(forSongID: key)
+            }
+        }
+        await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
+    }
+
+    func testUnchangedServerFileRefreshesCoverAndKeepsExplicitSelection() async throws {
+        let sourceID = UUID().uuidString
+        let connector = ServerCoverFixtureConnector(sourceID: sourceID)
+        let incoming = Song(id: "song", title: "成都", fileFormat: .mp3, filePath: "/song.mp3",
+                            sourceID: sourceID, coverArtFileName: "subsonic-cover/new")
+        await connector.setCatalog([incoming])
+        for reference in ["subsonic-cover/old", "scraped-" + String(repeating: "a", count: 64) + ".jpg",
+                          "selected-" + String(repeating: "b", count: 64) + ".jpg"] {
+            for edited in [false, true] {
+                var existing = incoming
+                existing.coverArtFileName = reference
+                if edited { existing.title = "手动标题"; existing.userMetadataEditedAt = Date() }
+                let scanner = ConnectorScanner(connector: connector, sourceID: sourceID)
+                var result: [Song] = []
+                for try await update in await scanner.scan(directories: ["/"], existingSongs: [existing]) {
+                    if update.carriesFullSnapshot { result = update.songs }
+                }
+                let refreshed = try XCTUnwrap(result.first)
+                XCTAssertEqual(refreshed.coverArtFileName, reference.hasPrefix("selected-") ? reference : incoming.coverArtFileName)
+                XCTAssertEqual(refreshed.title, edited ? existing.title : incoming.title)
+            }
+        }
+    }
+
     private func directory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibraryPortableArtworkTests-\(UUID().uuidString)", isDirectory: true)
@@ -382,6 +582,34 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let result = await task.value
         XCTAssertNil(result)
     }
+}
+
+private actor ServerCoverFixtureConnector: RefreshingMetadataSongConnector {
+    let sourceID: String
+    var purposes: [ArtworkFetchPurpose] = []
+    private var artwork: Data?
+    private var catalog: [Song] = []
+    init(sourceID: String) { self.sourceID = sourceID }
+    func setArtwork(_ data: Data) { artwork = data }
+    func setCatalog(_ songs: [Song]) { catalog = songs }
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        .init { continuation in
+            for song in catalog {
+                continuation.yield(.init(song: song, displayName: song.title, titleMetadataInspected: true))
+            }
+            continuation.finish()
+        }
+    }
+    func fetchArtworkData(for reference: String, maximumBytes: Int, purpose: ArtworkFetchPurpose) async throws -> Data? {
+        purposes.append(purpose)
+        return artwork
+    }
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { URL(fileURLWithPath: path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
 }
 
 private actor UploadedArtworkReadGate {

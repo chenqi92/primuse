@@ -777,6 +777,7 @@ enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {
 
 enum ArtworkFetchPurpose: Sendable {
     case thumbnail
+    case fullResolution
     case originalAnimation
 }
 
@@ -1535,7 +1536,8 @@ extension MusicSourceConnector {
     func defaultArtworkData(
         for reference: String,
         maximumBytes: Int,
-        purpose: ArtworkFetchPurpose
+        purpose: ArtworkFetchPurpose,
+        preferredURL: URL? = nil
     ) async throws -> Data? {
         guard maximumBytes > 0 else { return nil }
 
@@ -1544,7 +1546,9 @@ extension MusicSourceConnector {
             ? try await originalArtworkURL(for: reference)
             : nil
         let resolvedURL: URL?
-        if let originalURL {
+        if let preferredURL {
+            resolvedURL = preferredURL
+        } else if let originalURL {
             resolvedURL = originalURL
         } else {
             resolvedURL = try await imageURL(for: reference)
@@ -1563,6 +1567,7 @@ extension MusicSourceConnector {
                 var request = URLRequest(url: url)
                 request.timeoutInterval = 10
                 request.setValue("image/*", forHTTPHeaderField: "Accept")
+                request.cachePolicy = .reloadIgnoringLocalCacheData
                 let result = try await TrustedHTTPTransport.data(
                     for: request,
                     session: SourceArtworkDataTransport.session,

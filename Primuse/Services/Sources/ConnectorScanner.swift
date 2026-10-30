@@ -1702,7 +1702,11 @@ actor ConnectorScanner {
         if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
         if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
         if refreshed.audioCodec == nil { refreshed.audioCodec = incoming.audioCodec }
-        if refreshed.coverArtFileName == nil { refreshed.coverArtFileName = incoming.coverArtFileName }
+        if refreshed.coverArtFileName == nil || SourceArtworkPolicy.shouldAdoptServerReference(
+            existing: existing.coverArtFileName, incoming: incoming.coverArtFileName
+        ) {
+            refreshed.coverArtFileName = incoming.coverArtFileName
+        }
 
         return ServerSongCatalogMergePolicy.mergingAddedDates(
             existing: existing, incoming: incoming, into: refreshed
@@ -1722,7 +1726,7 @@ actor ConnectorScanner {
             incoming: hints.coverPath,
             currentParentPath: parent,
             authoritative: hints.isAuthoritative,
-            preserveExisting: song.userMetadataEditedAt != nil
+            preserveExisting: StoredArtworkOrigin.preservesLocalChoice(song.coverArtFileName)
         )
         song.lyricsFileName = SourceSidecarReferencePolicy.reconciledReference(
             existing: song.lyricsFileName,

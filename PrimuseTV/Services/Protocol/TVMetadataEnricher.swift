@@ -728,8 +728,9 @@ enum TVMetadataEnricher {
             output.mvPath = video.path
         }
 
-        if song.userMetadataEditedAt == nil {
+        if !StoredArtworkOrigin.preservesLocalChoice(song.coverArtFileName) {
             var coverData = embeddedCover
+            var coverOrigin: StoredArtworkOrigin = .embedded
             let cachedCoverName = MetadataAssetStore.shared
                 .expectedCoverFileName(for: output.id)
             let hintedCover = output.coverArtFileName.flatMap { reference in
@@ -747,6 +748,7 @@ enum TVMetadataEnricher {
                     readerPool: readerPool
                 )
                 if size > 0 {
+                    coverOrigin = .sidecar
                     coverData = try? await readerPool.read(
                         path: cover.path,
                         size: cover.size,
@@ -767,9 +769,8 @@ enum TVMetadataEnricher {
                     }
                 }
                 try Task.checkCancellation()
-                await store.cacheCover(coverData, forSongID: output.id)
-                if await store.cachedCoverData(forSongID: output.id) != nil {
-                    output.coverArtFileName = store.expectedCoverFileName(for: output.id)
+                if let reference = await store.storeAttributedCover(coverData, songID: output.id, origin: coverOrigin) {
+                    output.coverArtFileName = reference
                 } else {
                     await readerPool.markIncomplete()
                 }

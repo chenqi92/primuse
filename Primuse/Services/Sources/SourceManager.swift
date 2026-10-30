@@ -6832,6 +6832,7 @@ final class SourceManager {
     ) {
         playbackSourceConfigurationChanged(sourceIDs)
         for sourceID in sourceIDs {
+            MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
             playbackSourceAvailability.invalidate(sourceID: sourceID)
             CloudPlaybackSource.cancelSessions(sourceID: sourceID)
             let generation = (connectorScopeValidationGenerationBySourceID[sourceID] ?? 0) &+ 1
@@ -9288,6 +9289,9 @@ final class SourceManager {
         reference: String,
         store: MetadataAssetStore
     ) -> Bool {
+        if SourceArtworkPolicy.cacheID(sourceID: song.sourceID, reference: reference, maximumPixels: 480) != nil {
+            return store.hasFreshSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 480)
+        }
         if MetadataAssetStore.isLocalCoverFileName(reference), store.hasReadableCoverFile(named: reference) {
             return true
         }
@@ -9426,16 +9430,32 @@ final class SourceManager {
             sourceManager: self
         )
         let store = MetadataAssetStore.shared
-        let mirror = store.expectedCoverFileName(for: first.id)
+        let scopedKeys = [SubsonicArtworkPolicy.fullResolutionPixels, SubsonicArtworkPolicy.thumbnailPixels]
+            .compactMap { SourceArtworkPolicy.cacheID(sourceID: first.sourceID, reference: reference, maximumPixels: $0) }
+        let mirror: String
+        if !scopedKeys.isEmpty {
+            guard store.hasFreshSourceCover(sourceID: first.sourceID, reference: reference, maximumPixels: 480) else { return false }
+            guard let cached = store.freshSourceCoverFileName(sourceID: first.sourceID, reference: reference, maximumPixels: 480) else { return false }
+            mirror = cached
+        } else {
+            mirror = store.expectedCoverFileName(for: first.id)
+        }
         guard store.hasReadableCoverFile(named: mirror) else {
             return Self.hasStoredCover(first, reference: reference, store: store)
         }
-        if songs.count > 1,
+        if songs.count > 1 || !scopedKeys.isEmpty,
            let identifier = store.coverContentIdentifier(named: mirror),
            identifier.hasPrefix("sha256:") {
             let contentKey = String(identifier.dropFirst("sha256:".count))
-            for song in songs.dropFirst() {
-                _ = store.linkCoverContentIfPresent(contentKey, forSongID: song.id)
+            for song in scopedKeys.isEmpty ? Array(songs.dropFirst()) : songs {
+                if !scopedKeys.isEmpty, let data = store.readCoverData(named: mirror) {
+                    let ticket = await store.beginArtworkLoad(songID: song.id, sourceID: song.sourceID, reference: reference)
+                    await store.cacheSourceCover(data, songID: song.id, sourceID: song.sourceID, reference: reference,
+                                                 maximumPixels: mirror == store.expectedCoverFileName(for: scopedKeys[0]) ? 1536 : 480,
+                                                 ticket: ticket)
+                } else {
+                    _ = store.linkCoverContentIfPresent(contentKey, forSongID: song.id)
+                }
             }
         }
         return true

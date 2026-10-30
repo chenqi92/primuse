@@ -2572,6 +2572,7 @@ final class TVStore {
         cancelScan(sourceID: sourceID)
         serverFeedback.cancel(sourceID: sourceID)
         scanner.invalidateFnMusicClient(sourceID: sourceID)
+        MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
         sourcesRevision += 1
         if let src = sourcesStore.source(id: sourceID) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: src) }
@@ -2586,6 +2587,7 @@ final class TVStore {
         cancelScan(sourceID: sourceID)
         serverFeedback.cancel(sourceID: sourceID)
         scanner.invalidateFnMusicClient(sourceID: sourceID)
+        MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
         sourcesRevision += 1
         if let src = sourcesStore.source(id: sourceID) {
             Task { await StreamResolverRegistry.shared.invalidateSession(for: src) }
@@ -4081,6 +4083,7 @@ final class TVStore {
         defaults.set(Array(incoming.entries.keys), forKey: provenanceKey)
         scanner.invalidateFnMusicClients()
         for sourceID in activeSourceIDs where previous.entries[sourceID] != merged.entries[sourceID] {
+            MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
             guard let source = sourcesStore.source(id: sourceID) else { continue }
             Task { await StreamResolverRegistry.shared.invalidateSession(for: source) }
         }
@@ -4822,6 +4825,7 @@ final class TVStore {
             return false
         }
         scanner.invalidateFnMusicClient(sourceID: source.id)
+        MetadataAssetStore.shared.revalidateArtwork(sourceID: source.id)
         afterSourceMutation()
         return true
     }
@@ -4856,6 +4860,7 @@ final class TVStore {
             return false
         }
         scanner.invalidateFnMusicClient(sourceID: source.id)
+        MetadataAssetStore.shared.revalidateArtwork(sourceID: source.id)
         serverFeedback.cancel(sourceID: source.id)
         if let originalSource,
            originalSource.authType != source.authType || originalSource.username != source.username {
@@ -5409,6 +5414,7 @@ final class TVStore {
                     $0.lastScannedAt = Date()
                 }
             }
+            MetadataAssetStore.shared.revalidateArtwork(sourceID: source.id)
             if let pruningRecovery { library.finishScanPruning(pruningRecovery) }
             pruningRecovery = nil
             if let held = scanCatalogDeletionHold, held.sourceID == source.id {

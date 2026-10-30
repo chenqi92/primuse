@@ -1420,6 +1420,7 @@ private struct LibraryReplacementObserver: View {
                               + (note.userInfo?["tokens"] as? [String] ?? [])
                               + (note.userInfo?["songIDs"] as? [String] ?? [])),
                           isBroadcastToAll: note.userInfo?["all"] as? Bool == true
+                              || note.userInfo?["sourceID"] as? String == currentSong.sourceID
                       ) else { return }
                 PrimuseApp.refreshNowPlayingArtwork(
                     for: currentSong,

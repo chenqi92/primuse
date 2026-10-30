@@ -439,7 +439,8 @@ actor FnMusicAPI {
         if let revision, revision > 0 {
             queryItems.append(URLQueryItem(name: "t", value: String(revision)))
         }
-        let (request, requestToken) = try await mediaRequest(path: "/static/cover", queryItems: queryItems)
+        var (request, requestToken) = try await mediaRequest(path: "/static/cover", queryItems: queryItems)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         let (data, response) = try await TrustedHTTPTransport.data(
             for: request,
             session: session,

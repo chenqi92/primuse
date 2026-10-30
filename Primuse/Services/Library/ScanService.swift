@@ -2689,7 +2689,7 @@ final class ScanService {
 
     /// 本机已存着同一份封面内容时让这首歌直接指过去(见 `ConnectorScanner.adoptingPeerSeed`)。
     private nonisolated static func linkPeerSeedCover(songID: String, contentKey: String) -> String? {
-        MetadataAssetStore.shared.linkCoverContentIfPresent(contentKey, forSongID: songID)
+        MetadataAssetStore.shared.linkCoverContentIfPresent(contentKey, forSongID: songID, origin: .embedded)
     }
 
     private func scanConnectorSource(
@@ -5479,6 +5479,7 @@ final class ScanService {
         guard SourceScanLifecyclePolicy.shouldNotifySuccessfulScan(
             for: completion
         ) else { return }
+        MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
         successfulSourceScanHandler?(sourceID, completion)
     }
 

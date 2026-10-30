@@ -476,11 +476,7 @@ actor MacWidgetPlaybackPublisher {
         ) else { return false }
 
         let store = MetadataAssetStore.shared
-        var coverData = store.readCoverData(named: store.expectedCoverFileName(for: song.id))
-        if coverData == nil, let ref = song.coverArtFileName, !ref.isEmpty,
-           !ref.contains("/"), !ref.contains("://") {
-            coverData = store.readCoverData(named: ref)
-        }
+        let coverData = store.displayCoverData(songID: song.id, reference: song.coverArtFileName)
         guard let coverData,
               let jpeg = squareJPEG(from: coverData, size: size, keepsWholeCover: keepsWholeCover) else {
             return false

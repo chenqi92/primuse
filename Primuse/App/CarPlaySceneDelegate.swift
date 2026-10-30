@@ -136,11 +136,12 @@ actor CarPlayArtworkDecoder {
     }()
 
     func thumbnail(forSongID songID: String, coverRef: String?, maximumPixelSize: Int = 88) async -> UIImage? {
-        let cacheKey = "\(songID):\(coverRef ?? ""): \(maximumPixelSize)" as NSString
+        let content = MetadataAssetStore.shared.displayCoverIdentity(songID: songID, reference: coverRef) ?? ""
+        let cacheKey = "\(songID):\(coverRef ?? ""):\(content):\(maximumPixelSize)" as NSString
         if let cached = thumbnails.object(forKey: cacheKey) {
             return cached
         }
-        guard var data = await MetadataAssetStore.shared.cachedCoverData(forSongID: songID) else {
+        guard var data = MetadataAssetStore.shared.displayCoverData(songID: songID, reference: coverRef) else {
             return nil
         }
 

@@ -2024,10 +2024,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     func fetchArtworkData(
         for reference: String, maximumBytes: Int, purpose: ArtworkFetchPurpose
     ) async throws -> Data? {
-        guard let request = SubsonicArtistArtworkRequest.resolve(reference) else {
-            return try await defaultArtworkData(for: reference, maximumBytes: maximumBytes, purpose: purpose)
-        }
         guard maximumBytes > 0 else { return nil }
+        guard let request = SubsonicArtistArtworkRequest.resolve(reference) else {
+            let preferredURL = purpose == .fullResolution
+                ? try await fullResolutionArtworkURL(for: reference) : nil
+            return try await defaultArtworkData(
+                for: reference, maximumBytes: maximumBytes, purpose: purpose, preferredURL: preferredURL
+            )
+        }
         try await connect()
         let context = try await resolveArtistArtworkContext(request)
         guard let artistID = context.id else { return nil }
@@ -2181,6 +2185,19 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         if path.contains("://") { return URL(string: path) }
         return nil
+    }
+
+    func fullResolutionArtworkURL(for reference: String) async throws -> URL? {
+        guard SubsonicArtworkPolicy.coverArtID(reference: reference) != nil,
+              let url = try await imageURL(for: reference),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        var query = components.queryItems ?? []
+        query.removeAll { $0.name.caseInsensitiveCompare("size") == .orderedSame }
+        query.append(URLQueryItem(name: "size", value: String(SubsonicArtworkPolicy.fullResolutionPixels)))
+        components.queryItems = query
+        return components.url
     }
 
     /// OpenSubsonic's optional `size` query may resize or transcode artwork.

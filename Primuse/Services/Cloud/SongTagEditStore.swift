@@ -115,7 +115,7 @@ final class SongTagEditStore {
         let now = Date()
         let assets = MetadataAssetStore.shared
         let work = Set(songIDs).map { id in
-            (songID: id, fileName: assets.expectedCoverFileName(for: id),
+            (songID: id, fileName: library?.storedSong(id: id)?.coverArtFileName ?? assets.expectedCoverFileName(for: id),
              clock: SongTagEditPolicy.editClock(existing: entries[id], at: now))
         }
         resolveCovers(work, uploading: true)
@@ -442,17 +442,20 @@ final class SongTagEditStore {
             var waiting: [(songID: String, portable: String)] = []
             for item in work {
                 guard case .image(let original, let portable) = item.cover else { continue }
-                // 本机这一行已经是这张图(比如本来就读到了同一份内嵌封面)。
                 if let reference = item.currentReference, !SongTagEditPolicy.isSourceFileReference(reference),
+                   StoredArtworkOrigin.preservesLocalChoice(reference),
                    let identity = assets.coverContentIdentifier(named: reference),
                    identity == "sha256:\(original)" || portable.map({ identity == "sha256:\($0)" }) == true {
                     continue
                 }
-                if let fileName = assets.linkCoverContentIfPresent(original, forSongID: item.songID) {
-                    installed.append((item.songID, fileName))
+                if let fileName = assets.linkCoverContentIfPresent(original, forSongID: item.songID),
+                   let data = assets.readCoverData(named: fileName),
+                   let reference = await assets.storeAttributedCover(data, songID: item.songID, origin: .selected) {
+                    installed.append((item.songID, reference))
                 } else if let portable, let data = assets.customArtworkData(contentID: portable) {
-                    assets.storeCoverSync(data, for: item.songID)
-                    installed.append((item.songID, assets.expectedCoverFileName(for: item.songID)))
+                    if let reference = await assets.storeAttributedCover(data, songID: item.songID, origin: .selected) {
+                        installed.append((item.songID, reference))
+                    }
                 } else if let portable {
                     waiting.append((item.songID, portable))
                 }

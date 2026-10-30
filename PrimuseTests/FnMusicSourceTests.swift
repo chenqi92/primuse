@@ -7,6 +7,20 @@ import XCTest
 
 @MainActor
 final class FnMusicSourceTests: XCTestCase {
+    func testArtworkFetchDoesNotReuseLegacyThumbnailForFullCover() async throws {
+        let source = makeSource()
+        let host = await source.sourceID
+        let reference = "fnmusic-cover/artwork-fixture"
+        let legacy = try await source.imageURL(for: reference)
+        defer { if let legacy, legacy.isFileURL { try? FileManager.default.removeItem(at: legacy) } }
+        for purpose in [ArtworkFetchPurpose.thumbnail, .fullResolution, .fullResolution] {
+            let data = try await source.fetchArtworkData(for: reference, maximumBytes: 1024, purpose: purpose)
+            XCTAssertNotNil(data)
+        }
+        XCTAssertEqual(FnMusicSourceURLProtocol.pageSizes(path: "/static/cover", host: host), [640, 480, 1536, 1536])
+        await source.disconnect()
+    }
+
     func testCatalogAndAlbumPagingReadAllRowsWithLargePagesAndLegacyFallback() async throws {
         for (count, serverPageSize) in [(2_001, 2_000), (121, 50)] {
             let source = makeSource()
@@ -1680,6 +1694,11 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
             func json(_ payload: Any) -> Data { try! JSONSerialization.data(withJSONObject: payload) }
             func page(_ items: [[String: Any]]) -> Data { json(["code": 0, "data": ["list": items, "total": items.count]]) }
             switch url.lastPathComponent {
+            case "cover" where url.path.contains("/static/cover"):
+                let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let size = Int(query.first { $0.name == "size" }?.value ?? "") ?? 0
+                state.catalogPageSizes["/static/cover", default: []].append(size)
+                return (200, ["Content-Type": "image/jpeg"], Data([0xFF, 0xD8, 0xFF, 0xD9]))
             case "access_code_verify":
                 return (204, [:], Data())
             case "config":
