@@ -230,7 +230,7 @@ private protocol ScanBackgroundContinuation: AnyObject {
     var identifier: UUID { get }
     var isGranted: Bool { get }
     func update(scannedCount: Int, totalCount: Int)
-    func finish(success: Bool)
+    func finish(scanCompleted: Bool)
 }
 
 #if !targetEnvironment(macCatalyst)
@@ -244,6 +244,8 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
     private var scannedCount: Int
     private var totalCount: Int
     private var lastProgressPublishedAt = Date.distantPast
+    private var progressWatchdog: Task<Void, Never>?
+    private let progressTimeout: Duration
     private let started: () -> Void
     private let expired: () -> Void
     private var taskIdentifier: String { "com.welape.yuanyin.source-scan.\(identifier.uuidString)" }
@@ -255,7 +257,8 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
         scannedCount: Int,
         totalCount: Int,
         started: @escaping () -> Void,
-        expired: @escaping () -> Void
+        expired: @escaping () -> Void,
+        progressTimeout: Duration = .seconds(20)
     ) {
         self.identifier = identifier
         self.sourceName = sourceName
@@ -263,6 +266,7 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
         self.totalCount = max(0, totalCount)
         self.started = started
         self.expired = expired
+        self.progressTimeout = progressTimeout
     }
 
     func submit() -> Bool {
@@ -272,25 +276,18 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
             MainActor.assumeIsolated {
                 guard let self, !self.finished,
                       let task = task as? BGContinuedProcessingTask else {
-                    task.setTaskCompleted(success: false)
+                    // 扫描可能先于授权结束；迟到的系统会话也需要正常收尾。
+                    task.setTaskCompleted(success: true)
                     return
                 }
                 self.task = task
                 plog("📂 Scan: continued task granted id=\(self.identifier)")
                 task.expirationHandler = { [weak self] in
                     Task { @MainActor in
-                        guard let self, !self.finished else { return }
-                        // 系统收回后台时间不等于扫描失败: app 还在前台时扫描
-                        // 照常继续 (见 ScanContinuedProcessingPolicy)。这时报
-                        // 失败, 系统任务卡片会显示「任务失败」, 而用户在应用
-                        // 里看到的进度还在往前走, 两边对不上。
-                        let continuesInForeground =
-                            UIApplication.shared.applicationState == .active
-                        plog("📂 Scan: continued task expired id=\(self.identifier) foreground=\(continuesInForeground)")
-                        self.finish(success: continuesInForeground, completesProgress: false)
-                        self.expired()
+                        self?.endInterruptedContinuation(reason: "expired")
                     }
                 }
+                self.restartProgressWatchdog()
                 self.publishProgress(force: true)
                 self.started()
             }
@@ -334,6 +331,9 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
             scannedCount: scannedCount,
             totalCount: totalCount
         )
+        if units.completed > task.progress.completedUnitCount {
+            restartProgressWatchdog()
+        }
         task.progress.totalUnitCount = units.total
         task.progress.completedUnitCount = units.completed
         task.updateTitle(
@@ -346,25 +346,47 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
         )
     }
 
-    func finish(success: Bool) {
-        finish(success: success, completesProgress: success)
+    private func restartProgressWatchdog() {
+        // 系统可能在约 30 秒无进展后直接挂失败卡片；提前交回执行权，
+        // 不用虚构进度续命。只以实际发布的完成数量推进来重置计时。
+        progressWatchdog?.cancel()
+        let timeout = progressTimeout
+        progressWatchdog = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.endInterruptedContinuation(reason: "stalled")
+        }
     }
 
-    /// - Parameter completesProgress: 是否把进度条补满。只有真正扫完才补;
-    ///   前台接手继续扫时活儿还没干完, 补满会让最后一眼的卡片说谎。
-    private func finish(success: Bool, completesProgress: Bool) {
+    private func endInterruptedContinuation(reason: String) {
+        guard !finished else { return }
+        plog("📂 Scan: continued task interrupted id=\(identifier) reason=\(reason)")
+        finish(scanCompleted: false)
+        // 前台扫描继续；后台扫描由现有回调保存断点并暂停。
+        expired()
+    }
+
+    func finish(scanCompleted: Bool) {
         guard !finished else { return }
         finished = true
-        plog("📂 Scan: continued task finished id=\(identifier) success=\(success) granted=\(task != nil)")
+        progressWatchdog?.cancel()
+        progressWatchdog = nil
+        plog("📂 Scan: continued task finished id=\(identifier) scanCompleted=\(scanCompleted) granted=\(task != nil)")
         if let task {
             task.expirationHandler = nil
-            if completesProgress {
+            if scanCompleted {
                 // 连接器扫描的总数要走完整棵树才知道, 收尾时用实际扫描量兜底。
                 let total = max(task.progress.totalUnitCount, Int64(max(1, scannedCount)))
                 task.progress.totalUnitCount = total
                 task.progress.completedUnitCount = total
             }
-            task.setTaskCompleted(success: success)
+            // false 会留下由系统管理、App 无法清除的失败卡片。这里仅结束后台
+            // 执行权；真实扫描结果仍由 scanStates、检查点和失败通知保存。
+            task.setTaskCompleted(success: true)
             self.task = nil
         } else {
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
@@ -1330,7 +1352,7 @@ final class ScanService {
                     let state = scanStates[source.id]
                     let completed = state?.canResume != true && state?.failureMessage == nil
                     if completed { forgetUserInitiatedScanIntent(for: source.id) }
-                    finishContinuedProcessing(for: source.id, success: completed)
+                    finishContinuedProcessing(for: source.id, scanCompleted: completed)
                     drainAutomaticScansIfIdle()
                 }
                 if localImportScanRevisions[source.id]?.generation == generation {
@@ -1546,10 +1568,10 @@ final class ScanService {
             || sourceType == .appleMusicLibrary
     }
 
-    private func finishContinuedProcessing(for sourceID: String, success: Bool) {
+    private func finishContinuedProcessing(for sourceID: String, scanCompleted: Bool) {
         #if os(iOS)
         guard let session = continuedScanSessions.removeValue(forKey: sourceID) else { return }
-        session.finish(success: success)
+        session.finish(scanCompleted: scanCompleted)
         #endif
     }
 
@@ -2043,7 +2065,7 @@ final class ScanService {
         coalescingSourceStore?.flushCoalescedPersist()
         endBackgroundTask(for: sourceID)
         // 扫描停了, 系统任务卡片不能继续留在那儿转。
-        finishContinuedProcessing(for: sourceID, success: false)
+        finishContinuedProcessing(for: sourceID, scanCompleted: false)
         // 这条记录已经从 activeTasks 摘掉了。任何正挂在它上面的等待现在等的
         // 都是一个不再属于本服务的任务, 放它们回去重新判断。
         releaseScanWaits()
