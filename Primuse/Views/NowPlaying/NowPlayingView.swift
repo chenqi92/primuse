@@ -15460,7 +15460,7 @@ struct LyricsScrollView: View {
         }
         .onChange(of: isSceneActive) { _, isActive in
             if !isActive {
-                lineAutoFollowResumeTask?.cancel()
+                resetLyricsInteraction()
                 updateCurrentLine(disableAnimations: true)
             }
         }
@@ -15474,13 +15474,8 @@ struct LyricsScrollView: View {
             activeInterlude = nil
             lastLyricRowTapAt = .distantPast
             lastSurfaceLongPressAt = .distantPast
-            lastUserScrollTime = .distantPast
-            browsedLineIndex = nil
+            resetLyricsInteraction()
             rowAnchorYs.values.removeAll()
-            lyricsPinchScale = 1
-            isPinchingLyrics = false
-            userScrollStartOffsetY = nil
-            lineAutoFollowResumeTask?.cancel()
             cascadeOffset = 0
             cascadeTracker.lastCascadeAt = .distantPast
         }
@@ -15707,9 +15702,7 @@ struct LyricsScrollView: View {
                     restoreInitialPosition(to: target, proxy: proxy)
                 }
                 .onDisappear {
-                    lineAutoFollowResumeTask?.cancel()
-                    isManuallyBrowsingLyrics = false
-                    userScrollStartOffsetY = nil
+                    resetLyricsInteraction()
                 }
             }
         }
@@ -15805,9 +15798,7 @@ struct LyricsScrollView: View {
                     restoreInitialPosition(to: target, proxy: proxy)
                 }
                 .onDisappear {
-                    lineAutoFollowResumeTask?.cancel()
-                    isManuallyBrowsingLyrics = false
-                    userScrollStartOffsetY = nil
+                    resetLyricsInteraction()
                 }
             }
         }
@@ -15919,6 +15910,19 @@ struct LyricsScrollView: View {
               offsetY - start >= Self.chromeCollapseScrollDistance else { return }
         userScrollStartOffsetY = nil
         onUserScroll?()
+    }
+
+    /// 恢复任务被生命周期切换取消后，不再有松手回调来清理浏览或捏合状态。
+    /// 一并清掉临时状态，避免自动跟随已恢复、歌词却仍被当作正在浏览而保持清晰。
+    private func resetLyricsInteraction() {
+        lineAutoFollowResumeTask?.cancel()
+        lineAutoFollowResumeTask = nil
+        isManuallyBrowsingLyrics = false
+        browsedLineIndex = nil
+        lastUserScrollTime = .distantPast
+        lyricsPinchScale = 1
+        isPinchingLyrics = false
+        userScrollStartOffsetY = nil
     }
 
     private func beginLineManualBrowsing() {
