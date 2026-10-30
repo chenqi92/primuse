@@ -1861,8 +1861,15 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     ]
 
     static func option(for id: String) -> MacAppIcon {
-        all.first { $0.id == id } ?? all[0]
+        available.first { $0.id == id } ?? all[0]
     }
+
+    static let hidden = MacAppIcon(
+        id: "AppIconGroove", previewAsset: "AppIconGroovePreview", nameKey: "Groove",
+        tint: Color(red: 0.72, green: 0.92, blue: 0.93)
+    )
+
+    static var available: [MacAppIcon] { all + [hidden] }
 
     /// 包里的 Mac 图标集 (`ASSETCATALOG_COMPILER_APPICON_NAME`)。未在 Finder 设置自定
     /// 图标时，App 没运行、刚启动还没轮到我们的代码时，Dock 显示它，只有浅色一张。
@@ -2157,7 +2164,7 @@ final class MacUIPreferences {
             ?? Self.defaultBrandHex
         colorScheme = PMColorSchemeOverride(rawValue: d.string(forKey: Self.keyColorScheme) ?? "") ?? .system
         let persistedAppIconID = d.string(forKey: Self.keyAppIcon) ?? ""
-        appIconID = MacAppIcon.all.contains(where: { $0.id == persistedAppIconID })
+        appIconID = MacAppIcon.available.contains(where: { $0.id == persistedAppIconID })
             ? persistedAppIconID
             : ""
         if appIconID != persistedAppIconID {

@@ -1,3 +1,21 @@
+import Foundation
+
+struct AppIconEasterEggTrigger {
+    private var tapCount = 0
+    private var lastTap: TimeInterval?
+
+    mutating func recordTap(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        if let lastTap, time - lastTap > 1.5 || time < lastTap {
+            tapCount = 0
+        }
+        lastTap = time
+        tapCount += 1
+        guard tapCount == 7 else { return false }
+        self = Self()
+        return true
+    }
+}
+
 #if os(iOS) || os(tvOS)
 import SwiftUI
 import UIKit
@@ -59,6 +77,16 @@ final class AppIconService {
         return list
     }()
 
+    let hiddenOptions = [IconOption(
+        id: "AppIconGroove",
+        alternateName: "AppIconGroove",
+        previewAsset: "AppIconGroovePreview",
+        displayName: "Groove",
+        supportsAppearance: false
+    )]
+
+    var availableOptions: [IconOption] { options + hiddenOptions }
+
     /// Persisted user choice — the option's `id`. Survives launches.
     @ObservationIgnored
     private let defaults: UserDefaults
@@ -89,7 +117,7 @@ final class AppIconService {
         self.changeIcon = changeIcon
         self.currentIconID = ""
         let persistedID = defaults.string(forKey: Self.storageKey) ?? ""
-        if options.contains(where: { $0.id == persistedID }) {
+        if availableOptions.contains(where: { $0.id == persistedID }) {
             self.currentIconID = persistedID
         } else {
             // Normalize a stored selection that no longer exists in the
@@ -108,7 +136,7 @@ final class AppIconService {
     func restorePrimaryIconIfNeeded() async {
         guard supportsAlternateIcons, !isChangingIcon else { return }
         let live = liveIconName()
-        if let option = options.first(where: { $0.alternateName == live }) {
+        if let option = availableOptions.first(where: { $0.alternateName == live }) {
             persist(option.id)
         } else {
             await setIcon(options[0])
@@ -117,7 +145,7 @@ final class AppIconService {
 
     @discardableResult
     func setIcon(_ option: IconOption) async -> Bool {
-        guard supportsAlternateIcons, !isChangingIcon, options.contains(option) else { return false }
+        guard supportsAlternateIcons, !isChangingIcon, availableOptions.contains(option) else { return false }
         lastError = nil
         guard option.alternateName != liveIconName() else {
             persist(option.id)
@@ -134,7 +162,7 @@ final class AppIconService {
             // Reconcile with whatever the system actually has, in case the
             // call partially applied.
             let live = liveIconName()
-            persist(options.first { $0.alternateName == live }?.id ?? "")
+            persist(availableOptions.first { $0.alternateName == live }?.id ?? "")
             lastError = error.localizedDescription
             return false
         }

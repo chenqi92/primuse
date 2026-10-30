@@ -10539,6 +10539,8 @@ private struct MacLogRow {
 
 private struct MacSTAboutView: View {
     @State private var showLicenses = false
+    @State private var iconEasterEgg = AppIconEasterEggTrigger()
+    @State private var showsHiddenAppIcons = false
 
     /// The issue form opens with this build's version, device and system already
     /// filled in. None of those fields are required by the form, so the user can
@@ -10573,6 +10575,15 @@ private struct MacSTAboutView: View {
                     Text(verbatim: "\(String(localized: "version")) \(version)  ·  \(String(localized: "build")) \(build)")
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(PMColor.textMuted)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if iconEasterEgg.recordTap() { showsHiddenAppIcons = true }
+                        }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction {
+                            if iconEasterEgg.recordTap() { showsHiddenAppIcons = true }
+                        }
+                        .accessibilityIdentifier("settings.about.version")
 
                     Text(verbatim: String(localized: "onboarding_mac_welcome_desc"))
                         .font(.system(size: 11.5))
@@ -10663,6 +10674,26 @@ private struct MacSTAboutView: View {
                 showLicenses = false
             }
         }
+        .sheet(isPresented: $showsHiddenAppIcons) {
+            VStack(spacing: 24) {
+                HStack {
+                    Text("app_icon").font(.title2.bold())
+                    Spacer()
+                    Button("done") { showsHiddenAppIcons = false }
+                        .keyboardShortcut(.cancelAction)
+                }
+                HStack(spacing: 24) {
+                    ForEach([MacAppIcon.hidden, MacAppIcon.all[0]]) { icon in
+                        MacAppIconCell(icon: icon, selected: MacUIPreferences.shared.appIconID == icon.id) {
+                            MacUIPreferences.shared.appIconID = icon.id
+                        }
+                    }
+                }
+            }
+            .padding(28)
+            .frame(width: 360)
+        }
+        .onDisappear { iconEasterEgg = AppIconEasterEggTrigger() }
     }
 
     private func aboutLinkCard(

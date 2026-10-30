@@ -1,0 +1,14 @@
+{
+  "layers": [
+    {
+      "filename": "Overlay.imagestacklayer"
+    },
+    {
+      "filename": "Artwork.imagestacklayer"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

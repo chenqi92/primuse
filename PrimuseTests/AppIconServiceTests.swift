@@ -9,6 +9,47 @@ import XCTest
 
 @MainActor
 final class AppIconServiceTests: XCTestCase {
+    func testEasterEggRequiresSevenConsecutiveTapsAndResetsAfterOpening() {
+        var trigger = AppIconEasterEggTrigger()
+        for tap in 0..<6 { XCTAssertFalse(trigger.recordTap(at: Double(tap) * 0.2)) }
+        XCTAssertTrue(trigger.recordTap(at: 1.2))
+        XCTAssertFalse(trigger.recordTap(at: 1.4))
+        for tap in 0..<5 { XCTAssertFalse(trigger.recordTap(at: 2 + Double(tap) * 0.2)) }
+        XCTAssertFalse(trigger.recordTap(at: 5))
+        for tap in 1..<6 { XCTAssertFalse(trigger.recordTap(at: 5 + Double(tap) * 0.2)) }
+        XCTAssertTrue(trigger.recordTap(at: 6.2))
+    }
+
+    func testHiddenIconCanBeSelectedRestoredAndReplacedWithoutEnteringRegularCatalog() async throws {
+        let system = IconSystem()
+        let (service, defaults) = try fixture(system)
+        let hidden = try XCTUnwrap(service.hiddenOptions.first)
+        XCTAssertFalse(service.options.contains(hidden))
+        XCTAssertFalse(hidden.supportsAppearance)
+        let selected = await service.setIcon(hidden)
+        XCTAssertTrue(selected)
+        XCTAssertEqual(system.current, hidden.alternateName)
+        let (restored, _) = try fixture(system, stored: try XCTUnwrap(defaults.string(forKey: AppIconService.storageKey)))
+        XCTAssertEqual(restored.currentIconID, hidden.id)
+        await restored.restorePrimaryIconIfNeeded()
+        XCTAssertEqual(system.requested.count, 1)
+        XCTAssertEqual(restored.currentIconID, hidden.id)
+        XCTAssertFalse(restored.options.contains(hidden))
+        let replaced = await restored.setIcon(restored.options[0])
+        XCTAssertTrue(replaced)
+        XCTAssertNil(system.current)
+    }
+
+    func testFailedHiddenIconChangeRetainsPreviousSelection() async throws {
+        let system = IconSystem()
+        system.current = "AppIcon19"
+        system.failure = NSError(domain: NSCocoaErrorDomain, code: 1)
+        let (service, defaults) = try fixture(system, stored: "AppIcon19")
+        let selected = await service.setIcon(try XCTUnwrap(service.hiddenOptions.first))
+        XCTAssertFalse(selected)
+        XCTAssertEqual(service.currentIconID, "AppIcon19")
+        XCTAssertEqual(defaults.string(forKey: AppIconService.storageKey), "AppIcon19")
+    }
     @MainActor
     private final class IconSystem {
         var current: String?
@@ -112,10 +153,10 @@ final class AppIconServiceTests: XCTestCase {
         #else
         let names = Array(try XCTUnwrap(bundleIcons["CFBundleAlternateIcons"] as? [String: Any]).keys)
         #endif
-        XCTAssertEqual(Set(names), Set(service.options.compactMap(\.alternateName)))
+        XCTAssertEqual(Set(names), Set(service.availableOptions.compactMap(\.alternateName)))
         XCTAssertFalse(names.contains("AppIcon21"))
         XCTAssertFalse(names.contains("AppIcon14"))
-        for option in service.options {
+        for option in service.availableOptions {
             XCTAssertNotNil(UIImage(named: option.previewAsset), option.id)
             #if os(tvOS)
             let name = option.id.isEmpty ? "AppIcon" : option.id

@@ -18,6 +18,8 @@ struct SettingsView: View {
     @State private var rootItemID: String?
     @State private var rootFocusRevision = UUID()
     #if os(iOS)
+    @State private var iconEasterEgg = AppIconEasterEggTrigger()
+    @State private var showsHiddenAppIcons = false
     /// 极简模式下设置不在分段里：左上角回到进设置之前那一页。
     @Environment(\.minimalSettingsReturn) private var minimalReturn
     #endif
@@ -56,6 +58,10 @@ struct SettingsView: View {
 
     var body: some View {
         searchableNavigation
+            #if os(iOS)
+            .sheet(isPresented: $showsHiddenAppIcons) { HiddenAppIconSettingsView() }
+            .onDisappear { iconEasterEgg = AppIconEasterEggTrigger() }
+            #endif
     }
 
     private var settingsContent: some View {
@@ -250,6 +256,18 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             .settingsAnchor("about.version")
+            #if os(iOS)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if iconEasterEgg.recordTap() { showsHiddenAppIcons = true }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                if iconEasterEgg.recordTap() { showsHiddenAppIcons = true }
+            }
+            .accessibilityIdentifier("settings.about.version")
+            #endif
 
             CheckForUpdateRow()
 

@@ -6,6 +6,11 @@ struct TVAppIconSettingsView: View {
     @FocusState private var focusedID: String?
     @State private var showsError = false
     private let service = AppIconService.shared
+    var hiddenOnly = false
+
+    private var options: [AppIconService.IconOption] {
+        hiddenOnly ? service.hiddenOptions + [service.options[0]] : service.options
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 36) {
@@ -16,18 +21,20 @@ struct TVAppIconSettingsView: View {
                 Button("done") { dismiss() }
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: 3), spacing: 36) {
-                ForEach(service.options) { option in
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: hiddenOnly ? 2 : 3), spacing: 36) {
+                ForEach(options) { option in
                     iconButton(option)
                 }
             }
         }
         .padding(64)
-        .frame(maxWidth: 1500)
+        .frame(maxWidth: hiddenOnly ? 1100 : 1500)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TVColor.bg.ignoresSafeArea())
         .foregroundStyle(TVColor.text)
-        .onAppear { focusedID = service.currentIconID }
+        .onAppear {
+            focusedID = options.first { $0.id == service.currentIconID }?.id ?? options.first?.id
+        }
         .onExitCommand { dismiss() }
         .alert(Text("app_icon"), isPresented: $showsError) {
             Button("ok", role: .cancel) { }
@@ -71,7 +78,8 @@ struct TVAppIconSettingsView: View {
         .buttonStyle(TVBareButtonStyle())
         .focused($focusedID, equals: option.id)
         .focusEffectDisabled()
-        .disabled(!service.supportsAlternateIcons)
+        .disabled(!service.supportsAlternateIcons || service.isChangingIcon)
+        .accessibilityIdentifier("appIcon.\(option.id.isEmpty ? "default" : option.id)")
         .accessibilityLabel(option.displayName)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }

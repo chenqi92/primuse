@@ -25,6 +25,7 @@
 			<string>AppIcon16</string>
 			<string>AppIcon19</string>
 			<string>AppIcon20</string>
+			<string>AppIconGroove</string>
 		</array>
 	</dict>
 	<key>CFBundleInfoDictionaryVersion</key>

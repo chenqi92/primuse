@@ -104,6 +104,8 @@ struct TVSettingsView: View {
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAppIconPicker = false
+    @State private var showsHiddenAppIcons = false
+    @State private var iconEasterEgg = AppIconEasterEggTrigger()
     @State private var showsAISettings = false
     @State private var showsDiagnostics = tvDebugShowsDiagnostics
     /// 诊断模式开着时「诊断报告」那一行写「已启用」,提醒还在多记日志。
@@ -185,7 +187,7 @@ struct TVSettingsView: View {
                             appearanceRow()
                             settingDivider
                             navRow("app", String(localized: "app_icon"),
-                                   AppIconService.shared.options.first {
+                                   AppIconService.shared.availableOptions.first {
                                        $0.id == AppIconService.shared.currentIconID
                                    }?.displayName ?? String(localized: "icon_default")) {
                                 showsAppIconPicker = true
@@ -392,7 +394,10 @@ struct TVSettingsView: View {
                                 showsDiagnostics = true
                             }
                             settingDivider
-                            infoRow("info.circle", PMString("ext.tv.settings.about"), "\(version) (\(build)) · tvOS \(osVersion)")
+                            navRow("info.circle", PMString("ext.tv.settings.about"), "\(version) (\(build)) · tvOS \(osVersion)", trailing: "") {
+                                if iconEasterEgg.recordTap() { showsHiddenAppIcons = true }
+                            }
+                            .accessibilityIdentifier("settings.about.version")
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -443,6 +448,8 @@ struct TVSettingsView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
         .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
         .fullScreenCover(isPresented: $showsAppIconPicker) { TVAppIconSettingsView() }
+        .fullScreenCover(isPresented: $showsHiddenAppIcons) { TVAppIconSettingsView(hiddenOnly: true) }
+        .onDisappear { iconEasterEgg = AppIconEasterEggTrigger() }
         .fullScreenCover(isPresented: $showsTabBarSettings) { TVTabBarSettingsView() }
         .fullScreenCover(isPresented: $showsHomeSectionsSettings) {
             TVHomeSectionsSettingsView().environment(intelligence)
@@ -479,7 +486,9 @@ struct TVSettingsView: View {
             }
         }
         .onExitCommand {
-            if showsAppIconPicker {
+            if showsHiddenAppIcons {
+                showsHiddenAppIcons = false
+            } else if showsAppIconPicker {
                 showsAppIconPicker = false
             } else if showsTabBarSettings {
                 showsTabBarSettings = false
@@ -958,8 +967,10 @@ struct TVSettingsView: View {
                 Spacer(minLength: 0)
                 Text(value).tvFont(.eyebrow, weight: .regular).foregroundStyle(TVColor.textMuted)
                     .multilineTextAlignment(.trailing).lineLimit(2)
-                Image(systemName: trailing).font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
+                if !trailing.isEmpty {
+                    Image(systemName: trailing).font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(focused ? TVColor.text : TVColor.textGhost)
+                }
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)

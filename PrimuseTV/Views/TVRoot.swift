@@ -1061,7 +1061,7 @@ struct TVTabBar: View {
     var body: some View {
         HStack(spacing: 40) {
             HStack(spacing: 14) {
-                Image((AppIconService.shared.options.first { $0.id == iconID }?.alternateName ?? "AppIcon") + "Mark")
+                Image((AppIconService.shared.availableOptions.first { $0.id == iconID }?.alternateName ?? "AppIcon") + "Mark")
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)

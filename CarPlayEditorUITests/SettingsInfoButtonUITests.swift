@@ -2,6 +2,39 @@ import XCTest
 
 @MainActor
 final class SettingsInfoButtonUITests: XCTestCase {
+    func testHiddenIconPickerOnlyOpensFromRepeatedVersionTaps() {
+        continueAfterFailure = false
+        let app = settingsApp("about.version")
+        addTeardownBlock { @MainActor () async throws -> Void in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            app.terminate()
+        }
+        app.launchArguments += ["-primuse.navigation.mode.v1", "standard"]
+        app.launch()
+        let version = app.descendants(matching: .any)["settings.about.version"].firstMatch
+        XCTAssertTrue(version.waitForExistence(timeout: 25))
+        let hidden = app.buttons["appIcon.AppIconGroove"]
+        XCTAssertFalse(hidden.exists)
+        version.tap(withNumberOfTaps: 6, numberOfTouches: 1)
+        XCTAssertFalse(hidden.exists)
+        version.tap()
+        XCTAssertTrue(hidden.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["appIcon.default"].exists)
+        attach(app, "hidden-app-icon-picker")
+        app.navigationBars.buttons["完成"].tap()
+        XCTAssertTrue(hidden.waitForNonExistence(timeout: 5))
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "appearance.appIcon"
+        app.launch()
+        XCTAssertTrue(app.buttons["appIcon.default"].waitForExistence(timeout: 25))
+        XCTAssertFalse(hidden.exists)
+    }
+
     func testOfflineDownloadEditingOwnsBottomBarInStandardNavigation() throws {
         try checkOfflineDownloadEditing(navigationMode: "standard")
     }

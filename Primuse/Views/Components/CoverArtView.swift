@@ -100,7 +100,7 @@ struct CurrentAppIconArtwork: View {
         #if os(macOS)
         MacAppIcon.option(for: iconID).previewAsset
         #else
-        AppIconService.shared.options.first { $0.id == iconID }?.previewAsset ?? "AppIconPreview"
+        AppIconService.shared.availableOptions.first { $0.id == iconID }?.previewAsset ?? "AppIconPreview"
         #endif
     }
 

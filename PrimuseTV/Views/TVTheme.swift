@@ -735,7 +735,7 @@ struct TVMusicPlaceholder: View {
     var body: some View {
         Group {
             if (kind == .music || kind == .playlist) && MissingArtworkStyle(storedValue: missingArtworkStyle) == .appIcon {
-                Image(AppIconService.shared.options.first { $0.id == iconID }?.previewAsset ?? "AppIconPreview")
+                Image(AppIconService.shared.availableOptions.first { $0.id == iconID }?.previewAsset ?? "AppIconPreview")
                     .resizable()
                     .scaledToFill()
                     .frame(width: width, height: height)

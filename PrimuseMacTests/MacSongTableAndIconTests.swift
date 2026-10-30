@@ -5,6 +5,14 @@ import XCTest
 
 @MainActor
 final class MacSongTableAndIconTests: XCTestCase {
+    func testHiddenIconSurvivesLaunchWithoutAppearingInRegularCatalog() throws {
+        let defaults = try fixtureDefaults()
+        defaults.set(MacAppIcon.hidden.id, forKey: "pm.mac.appIcon")
+        let preferences = MacUIPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.appIconID, MacAppIcon.hidden.id)
+        XCTAssertEqual(MacAppIcon.option(for: preferences.appIconID), MacAppIcon.hidden)
+        XCTAssertFalse(MacAppIcon.all.contains(MacAppIcon.hidden))
+    }
     func testRetiredIconsFallBackToPrimaryOnLaunch() throws {
         let defaults = try fixtureDefaults()
         for retired in ["AppIcon21", "AppIcon14"] {
@@ -77,15 +85,15 @@ final class MacSongTableAndIconTests: XCTestCase {
         let previous = NSApp.appearance
         NSApp.appearance = NSAppearance(named: .aqua)
         defer { NSApp.appearance = previous }
-        for icon in MacAppIcon.all {
+        for icon in MacAppIcon.available {
             let light = try XCTUnwrap(MacAppIcon.dockIconImage(
                 previewAsset: icon.previewAsset, appearance: NSAppearance(named: .aqua)
             )?.tiffRepresentation)
             let dark = try XCTUnwrap(MacAppIcon.dockIconImage(
                 previewAsset: icon.previewAsset, appearance: NSAppearance(named: .darkAqua)
             )?.tiffRepresentation)
-            if icon.id == "AppIcon20" {
-                XCTAssertEqual(light, dark, "Fresh Note keeps the same green artwork in both appearances")
+            if icon.id == "AppIcon20" || icon.id == MacAppIcon.hidden.id {
+                XCTAssertEqual(light, dark, "Single-variant icons keep the same artwork in both appearances")
             } else {
                 XCTAssertNotEqual(light, dark, "\(icon.id) must render its dark asset without restarting")
             }
@@ -124,7 +132,7 @@ final class MacSongTableAndIconTests: XCTestCase {
     func testExportedIconsIncludeStandardAndRetinaRepresentations() throws {
         let expected = Set(["16@72", "32@72", "128@72", "256@72", "512@72",
                             "32@144", "64@144", "256@144", "512@144", "1024@144"])
-        for icon in MacAppIcon.all {
+        for icon in MacAppIcon.available {
             let data = try MacAppIcon.icnsData(for: icon)
             let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
             XCTAssertEqual(CGImageSourceGetType(source) as String?, "com.apple.icns")
@@ -144,7 +152,7 @@ final class MacSongTableAndIconTests: XCTestCase {
     }
 
     func testExportedIconsMatchDockArtworkAndTransparentMargins() throws {
-        for icon in MacAppIcon.all {
+        for icon in MacAppIcon.available {
             let data = try MacAppIcon.icnsData(for: icon)
             let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
             let images = (0..<CGImageSourceGetCount(source)).compactMap {
@@ -179,7 +187,7 @@ final class MacSongTableAndIconTests: XCTestCase {
 
     /// 侧栏左上角放的是去掉底板的图形：每款可选图标都要有，四角透明。
     func testEverySelectableIconHasTransparentSidebarMark() throws {
-        for icon in MacAppIcon.all {
+        for icon in MacAppIcon.available {
             let image = try XCTUnwrap(NSImage(named: icon.markAsset), icon.id)
             var rect = CGRect(origin: .zero, size: image.size)
             let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(

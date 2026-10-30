@@ -4,19 +4,26 @@ import SwiftUI
 /// 图标选择网格。由「设置页」直接平铺，也可作为独立页面打开。
 struct AppIconPickerGrid: View {
     private let service = AppIconService.shared
+    @State private var showsError = false
 
-    private let columns = [
+    var options: [AppIconService.IconOption] = AppIconService.shared.options
+    var columns = [
         GridItem(.adaptive(minimum: 96), spacing: 16)
     ]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 20) {
-            ForEach(service.options) { option in
+            ForEach(options) { option in
                 iconCell(option)
             }
         }
         .settingsAnchor("appearance.appIcon")
         .padding(.vertical, 8)
+        .alert(Text("app_icon"), isPresented: $showsError) {
+            Button("ok", role: .cancel) { }
+        } message: {
+            Text(service.lastError ?? "")
+        }
     }
 
     private func iconCell(_ option: AppIconService.IconOption) -> some View {
@@ -24,7 +31,9 @@ struct AppIconPickerGrid: View {
 
         return Button {
             Task {
-                await service.setIcon(option)
+                if !(await service.setIcon(option)), service.lastError != nil {
+                    showsError = true
+                }
             }
         } label: {
             VStack(spacing: 8) {
@@ -61,8 +70,36 @@ struct AppIconPickerGrid: View {
         .buttonStyle(.plain)
         // 挂在单个格子上：选中描边与文字颜色只跟这一格的选中态走。
         .pmAnimation(.selection, value: isSelected)
-        .disabled(!service.supportsAlternateIcons)
+        .disabled(!service.supportsAlternateIcons || service.isChangingIcon)
+        .accessibilityIdentifier("appIcon.\(option.id.isEmpty ? "default" : option.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .iconAppearanceAccessibilityHint(option.supportsAppearance)
+    }
+}
+
+struct HiddenAppIconSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                AppIconPickerGrid(
+                    options: AppIconService.shared.hiddenOptions + [AppIconService.shared.options[0]],
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 24), count: 2)
+                )
+                .frame(maxWidth: 340)
+                .padding(24)
+                .frame(maxWidth: .infinity)
+            }
+            .navigationTitle("app_icon")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
