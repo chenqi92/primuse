@@ -927,6 +927,7 @@ struct ListeningStatsChartsView: View {
     fileprivate struct StatsRefreshTrigger: Equatable {
         let presentation: StatsPresentationKey
         let generation: Int
+        let history: PlayHistoryStore.SnapshotRevision
     }
 
     fileprivate struct StatsSnapshotRequest: Equatable, Sendable {
@@ -934,7 +935,7 @@ struct ListeningStatsChartsView: View {
         let historyRevision: Int
         /// A kind correction changes the music / spoken-word split without
         /// touching the history itself.
-        let spokenWordSongIDs: Set<String>
+        let classificationRevision: Int
     }
 
     private var macPresentationKey: StatsPresentationKey {
@@ -950,7 +951,8 @@ struct ListeningStatsChartsView: View {
     private var macRefreshTrigger: StatsRefreshTrigger {
         StatsRefreshTrigger(
             presentation: macPresentationKey,
-            generation: statsRefreshGeneration
+            generation: statsRefreshGeneration,
+            history: store.snapshotRevision
         )
     }
 
@@ -963,11 +965,11 @@ struct ListeningStatsChartsView: View {
         guard !Task.isCancelled, trigger == macRefreshTrigger else { return }
 
         let store = PlayHistoryStore.shared
-        let spokenWordSongIDs = store.spokenWordSongIDs
+        let classification = store.classification
         let request = StatsSnapshotRequest(
             presentation: trigger.presentation,
             historyRevision: store.revision,
-            spokenWordSongIDs: spokenWordSongIDs
+            classificationRevision: store.classificationRevision
         )
         guard model.request != request || model.snapshot == nil else { return }
 
@@ -977,7 +979,7 @@ struct ListeningStatsChartsView: View {
         let snapshot = await Task.detached(priority: .userInitiated) {
             Self.makeStatsSnapshot(
                 entries: entries,
-                spokenWordSongIDs: spokenWordSongIDs,
+                classification: classification,
                 range: trigger.presentation.range,
                 displayYear: trigger.presentation.displayYear,
                 now: now,
@@ -999,7 +1001,7 @@ struct ListeningStatsChartsView: View {
     private func makeStatsSnapshot(rankLimit: Int = 6) -> StatsSnapshot {
         Self.makeStatsSnapshot(
             entries: store.entries,
-            spokenWordSongIDs: store.spokenWordSongIDs,
+            classification: store.classification,
             range: range,
             displayYear: heatmapYear,
             now: Date(),
@@ -1011,6 +1013,7 @@ struct ListeningStatsChartsView: View {
     nonisolated static func makeStatsSnapshot(
         entries allEntries: [PlayHistoryStore.Entry],
         spokenWordSongIDs: Set<String> = [],
+        classification: PlayHistoryStore.Classification? = nil,
         range: PlayHistoryStore.Range,
         displayYear: Int?,
         now: Date,
@@ -1027,13 +1030,12 @@ struct ListeningStatsChartsView: View {
         // Rankings, totals and the activity charts are music; spoken word is
         // only totalled, on its own line.
         var spokenWordSec: TimeInterval = 0
-        if !spokenWordSongIDs.isEmpty {
-            for entry in allEntries where spokenWordSongIDs.contains(entry.songID)
-                && entry.playedAt >= currentStart && entry.playedAt <= now {
-                spokenWordSec += entry.listenedSec.isFinite ? max(0, entry.listenedSec) : 0
-            }
+        let context = classification ?? PlayHistoryStore.Classification(legacySpokenWordIDs: spokenWordSongIDs)
+        for entry in allEntries where context.space(for: entry) == .spokenWord
+            && entry.playedAt >= currentStart && entry.playedAt <= now {
+            spokenWordSec += entry.listenedSec.isFinite ? max(0, entry.listenedSec) : 0
         }
-        let entries = PlayHistoryStore.musicEntries(allEntries, excluding: spokenWordSongIDs)
+        let entries = PlayHistoryStore.musicEntries(allEntries, classification: context)
         var scopedEntries: [PlayHistoryStore.Entry] = []
         var previousPlayCount = 0
         for entry in entries {

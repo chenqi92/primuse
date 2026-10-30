@@ -1776,7 +1776,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             return try await fetchUserDataListeningStats(libraryIDs: libraryIDs)
         case .plex:
             if let history = try await fetchStablePlexHistory(libraryIDs: libraryIDs) {
-                return try plexHistoryPayload(history)
+                return try await plexHistoryPayload(history, libraryIDs: libraryIDs)
             }
             return try await fetchPlexAggregateListeningStats(libraryIDs: libraryIDs)
         }
@@ -1801,7 +1801,13 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     artist: item.artists?.first ?? item.albumArtist,
                     album: item.album,
                     playCount: item.userData?.playCount ?? 0,
-                    lastPlayedAt: item.userData?.lastPlayedDate
+                    lastPlayedAt: item.userData?.lastPlayedDate,
+                    content: ServerListeningContent(
+                        songID: hash("\(sourceID):/items/\(item.id).\(legacyAudioFileExtension(for: item))"),
+                        filePath: "/items/\(item.id).\(audioFileExtension(for: item))",
+                        genre: item.type?.lowercased() == "audiobook" ? "Audiobook" : item.genres.flatMap { GenreTagValues.joined($0) },
+                        serverLibraryID: item.statisticsLibraryID
+                    )
                 )
             }
         )
@@ -1831,7 +1837,13 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     playCount: item.viewCount ?? 0,
                     lastPlayedAt: item.lastViewedAt.map {
                         Date(timeIntervalSince1970: TimeInterval($0))
-                    }
+                    },
+                    content: ServerListeningContent(
+                        songID: hash("\(sourceID):/items/\(item.ratingKey).\(plexAudioFileExtension(for: item))"),
+                        filePath: "/items/\(item.ratingKey).\(plexAudioFileExtension(for: item))",
+                        genre: item.genres.flatMap { GenreTagValues.joined($0) },
+                        serverLibraryID: item.statisticsLibraryID
+                    )
                 )
             }
         )
@@ -1842,8 +1854,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     private func plexHistoryPayload(
-        _ history: [PlexHistoryItem]
-    ) throws -> ServerListeningStatsPayload {
+        _ history: [PlexHistoryItem], libraryIDs: [String]
+    ) async throws -> ServerListeningStatsPayload {
         let tracks = history.filter {
             $0.type.caseInsensitiveCompare("track") == .orderedSame
         }
@@ -1854,6 +1866,13 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 throw ServerListeningStatsConnectorError.accountAmbiguous
             }
         }
+        let catalog = try await collectPlexTracks(libraryIDs: libraryIDs)
+        let contentByID = Dictionary(catalog.map { item in
+            let path = "/items/\(item.ratingKey).\(plexAudioFileExtension(for: item))"
+            return (item.ratingKey, ServerListeningContent(songID: hash("\(sourceID):\(path)"), filePath: path,
+                                                          genre: item.genres.flatMap { GenreTagValues.joined($0) },
+                                                          serverLibraryID: item.statisticsLibraryID))
+        }, uniquingKeysWith: { first, _ in first })
         let accountScope = accountIDs.first.map { "account:\($0)" }
             ?? "empty:\(username.isEmpty ? sourceID : username)"
         let payload = ServerListeningStatsPayload(
@@ -1870,7 +1889,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     title: item.title,
                     artist: item.grandparentTitle,
                     album: item.parentTitle,
-                    playedAt: Date(timeIntervalSince1970: TimeInterval(item.viewedAt))
+                    playedAt: Date(timeIntervalSince1970: TimeInterval(item.viewedAt)),
+                    content: contentByID[item.ratingKey]
                 )
             }
         )
@@ -1982,7 +2002,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     seenPages: &seenPages
                 )
                 if page.items.isEmpty { break }
-                for item in page.items where seenTrackIDs.insert(item.id).inserted {
+                for var item in page.items where seenTrackIDs.insert(item.id).inserted {
+                    item.statisticsLibraryID = libraryID
                     catalog.append(item)
                 }
                 startIndex += page.items.count
@@ -2015,7 +2036,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     seenPages: &seenPages
                 )
                 if page.items.isEmpty { break }
-                for item in page.items where seenTrackIDs.insert(item.ratingKey).inserted {
+                for var item in page.items where seenTrackIDs.insert(item.ratingKey).inserted {
+                    item.statisticsLibraryID = libraryID
                     catalog.append(item)
                 }
                 startIndex += page.items.count
@@ -4826,6 +4848,7 @@ private struct MediaServerPlaylistEntry: MediaServerPagedItem {
 }
 
 private struct AudioItem: Decodable {
+    var statisticsLibraryID: String? = nil
     let id: String
     let name: String
     /// `Audio`,或书籍库里的 `AudioBook`。
@@ -5298,6 +5321,7 @@ private struct PlexHistoryItem: Decodable {
 }
 
 private struct PlexAudioItem: Decodable {
+    var statisticsLibraryID: String? = nil
     let ratingKey: String
     let title: String
     /// Epoch seconds the server recorded this track at. Only the catalogue

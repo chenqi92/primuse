@@ -5,6 +5,19 @@ import XCTest
 
 @MainActor
 final class ServerListeningStatsServiceTests: XCTestCase {
+    func testLegacyCacheWithoutContentMetadataRequiresRefresh() async throws {
+        try await withSnapshotStore { store, directoryURL in
+            let source = makeSource()
+            try await store.save(makeSnapshot(source: source, account: "account", fetchedAt: Date()))
+            let url = directoryURL.appendingPathComponent(ServerListeningStatsSnapshotStore.fileName)
+            var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            legacy["version"] = 1
+            try JSONSerialization.data(withJSONObject: legacy).write(to: url)
+            let loaded = await store.load(for: source)
+            XCTAssertNil(loaded, "Old all-media cache must not appear before a classified refresh")
+        }
+    }
+
     func testSnapshotStoreSeparatesSourcesAndConfigurations() async throws {
         try await withSnapshotStore { store, _ in
             let first = makeSource(id: "first", username: "alice")

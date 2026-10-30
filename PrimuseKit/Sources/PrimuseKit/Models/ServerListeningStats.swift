@@ -44,6 +44,20 @@ public enum ServerListeningStatsDurationAvailability: String, Codable, Equatable
     case actual
 }
 
+public struct ServerListeningContent: Codable, Equatable, Sendable {
+    public let songID: String
+    public let filePath: String
+    public let genre: String?
+    public let serverLibraryID: String?
+
+    public init(songID: String, filePath: String, genre: String? = nil, serverLibraryID: String? = nil) {
+        self.songID = songID
+        self.filePath = filePath
+        self.genre = genre
+        self.serverLibraryID = serverLibraryID
+    }
+}
+
 public struct ServerListeningTrackAggregate: Codable, Equatable, Sendable {
     public let remoteTrackID: String
     public let title: String
@@ -51,6 +65,7 @@ public struct ServerListeningTrackAggregate: Codable, Equatable, Sendable {
     public let album: String?
     public let playCount: Int
     public let lastPlayedAt: Date?
+    public let content: ServerListeningContent?
 
     public init(
         remoteTrackID: String,
@@ -58,7 +73,8 @@ public struct ServerListeningTrackAggregate: Codable, Equatable, Sendable {
         artist: String? = nil,
         album: String? = nil,
         playCount: Int,
-        lastPlayedAt: Date? = nil
+        lastPlayedAt: Date? = nil,
+        content: ServerListeningContent? = nil
     ) {
         self.remoteTrackID = remoteTrackID
         self.title = title
@@ -66,6 +82,7 @@ public struct ServerListeningTrackAggregate: Codable, Equatable, Sendable {
         self.album = album
         self.playCount = max(0, playCount)
         self.lastPlayedAt = lastPlayedAt
+        self.content = content
     }
 }
 
@@ -77,6 +94,7 @@ public struct ServerListeningEvent: Codable, Equatable, Sendable {
     public let album: String?
     public let playedAt: Date
     public let listenedSeconds: TimeInterval?
+    public let content: ServerListeningContent?
 
     public init(
         id: String,
@@ -85,7 +103,8 @@ public struct ServerListeningEvent: Codable, Equatable, Sendable {
         artist: String? = nil,
         album: String? = nil,
         playedAt: Date,
-        listenedSeconds: TimeInterval? = nil
+        listenedSeconds: TimeInterval? = nil,
+        content: ServerListeningContent? = nil
     ) {
         self.id = id
         self.remoteTrackID = remoteTrackID
@@ -94,6 +113,7 @@ public struct ServerListeningEvent: Codable, Equatable, Sendable {
         self.album = album
         self.playedAt = playedAt
         self.listenedSeconds = listenedSeconds.map { max(0, $0) }
+        self.content = content
     }
 }
 
@@ -107,6 +127,8 @@ public struct ServerListeningStatsPayload: Codable, Equatable, Sendable {
     /// Optional cumulative counter alongside a potentially shorter event history.
     /// This is never distributed across dates or used to synthesize missing plays.
     public let allTimePlayCount: Int?
+    /// Per-track counters allow content filtering without estimating totals from a shorter event window.
+    public let cumulativeTracks: [ServerListeningTrackAggregate]?
 
     public init(
         accountFingerprint: String,
@@ -114,7 +136,8 @@ public struct ServerListeningStatsPayload: Codable, Equatable, Sendable {
         durationAvailability: ServerListeningStatsDurationAvailability = .unavailable,
         tracks: [ServerListeningTrackAggregate] = [],
         events: [ServerListeningEvent] = [],
-        allTimePlayCount: Int? = nil
+        allTimePlayCount: Int? = nil,
+        cumulativeTracks: [ServerListeningTrackAggregate]? = nil
     ) {
         self.accountFingerprint = accountFingerprint
         self.temporalDetail = temporalDetail
@@ -122,6 +145,7 @@ public struct ServerListeningStatsPayload: Codable, Equatable, Sendable {
         self.tracks = tracks
         self.events = events
         self.allTimePlayCount = allTimePlayCount
+        self.cumulativeTracks = cumulativeTracks
     }
 
     public var isStructurallyValid: Bool {

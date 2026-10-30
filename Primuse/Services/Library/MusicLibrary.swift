@@ -4908,6 +4908,7 @@ final class MusicLibrary {
         if prepared.orderedIDsChanged {
             visibleSongCollectionRevision &+= 1
         }
+        PlayHistoryStore.shared.refreshClassification(library: self)
         LibraryArrayReclaimer.release(
             holder: displacedLookups,
             approximateElementCount: displacedLookupCount
@@ -7392,6 +7393,11 @@ final class MusicLibrary {
     /// nothing, and later library changes don't affect it.
     func visibleSongLookup() -> VisibleSongLookup {
         VisibleSongLookup(indexByID: visibleSongIndexByID, songs: visibleSongsLookupReference.value)
+    }
+
+    /// 历史分类也要能读取停用来源中的文件；取快照不复制整库。
+    func historySongLookup() -> VisibleSongLookup {
+        VisibleSongLookup(indexByID: songIndexByID, songs: songsReference.value)
     }
 
     /// O(1) membership check for UI observers that must distinguish the

@@ -51,11 +51,12 @@ struct HomeListeningRankingSection: View {
     }
 
     /// 歌曲、艺人、专辑榜不必等目录索引。内容分类变化独立刷新榜单，
-    /// 普通元数据回填不触发重算；只有目录榜跟着索引走。
+    /// 只有目录榜需要跟随目录索引版本。
     struct Request: Equatable {
         let history: Int
         let collection: Int
         let classification: Int
+        let historySnapshot: PlayHistoryStore.SnapshotRevision
         let folders: Int
         let period: HomeListeningPeriod
         let category: HomeListeningCategory
@@ -67,6 +68,7 @@ struct HomeListeningRankingSection: View {
             history = model.historyRevision
             collection = library.visibleSongCollectionRevision
             classification = library.spokenWordClassificationRevision
+            historySnapshot = PlayHistoryStore.shared.snapshotRevision
             folders = category == .folders ? model.revision : 0
             self.period = period
             self.category = category

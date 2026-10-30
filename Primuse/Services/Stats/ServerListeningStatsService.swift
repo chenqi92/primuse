@@ -19,7 +19,7 @@ actor ServerListeningStatsSnapshotStore {
         var snapshots: [ServerListeningStatsSnapshot]
     }
 
-    static let currentVersion = 1
+    static let currentVersion = 2
     static let fileName = "server-listening-stats.json"
     static let backupFileName = "server-listening-stats.backup.json"
 
@@ -147,7 +147,10 @@ final class ServerListeningStatsService {
     static let futureClockTolerance: TimeInterval = 5 * 60
 
     private(set) var sourceID: String?
-    private(set) var snapshot: ServerListeningStatsSnapshot?
+    private(set) var snapshot: ServerListeningStatsSnapshot? {
+        didSet { musicPayloadCache = nil }
+    }
+    @ObservationIgnored private var musicPayloadCache: (revision: PlayHistoryStore.SnapshotRevision, payload: ServerListeningStatsPayload)?
     private(set) var isRefreshing = false
     private(set) var staleReasons: Set<ServerListeningStatsStaleReason> = []
     private(set) var errorMessage: String?
@@ -182,11 +185,44 @@ final class ServerListeningStatsService {
         range: ServerListeningStatsRange
     ) -> ServerListeningStatsPresentation? {
         guard let snapshot else { return nil }
+        let history = PlayHistoryStore.shared
+        let revision = history.snapshotRevision
+        if musicPayloadCache?.revision != revision {
+            musicPayloadCache = (revision, Self.musicPayload(snapshot.payload, sourceID: snapshot.sourceID,
+                                                            classification: history.classification))
+        }
         return ServerListeningStatsPresentationBuilder.build(
-            payload: snapshot.payload,
+            payload: musicPayloadCache!.payload,
             range: range,
             now: now()
         )
+    }
+
+    static func musicPayload(_ payload: ServerListeningStatsPayload, sourceID: String,
+                             classification: PlayHistoryStore.Classification) -> ServerListeningStatsPayload {
+        var songsByRemoteID: [String: Song] = [:]
+        classification.library?.forEachSong { song in
+            guard song.sourceID == sourceID else { return }
+            let remoteID = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+            songsByRemoteID[remoteID] = song
+        }
+        func isMusic(_ remoteID: String, _ content: ServerListeningContent?) -> Bool {
+            if let song = songsByRemoteID[remoteID] {
+                return classification.inputs.kind(songID: song.id, sourceID: song.sourceID, filePath: song.filePath,
+                                                  genre: song.genre, serverLibraryID: song.serverLibraryID) == .music
+            }
+            return classification.inputs.kind(songID: content?.songID ?? remoteID, sourceID: sourceID,
+                                               filePath: content?.filePath ?? "", genre: content?.genre,
+                                               serverLibraryID: content?.serverLibraryID) == .music
+        }
+        let tracks = payload.tracks.filter { isMusic($0.remoteTrackID, $0.content) }
+        let events = payload.events.filter { isMusic($0.remoteTrackID, $0.content) }
+        // 旧缓存只有全媒体总数，不能从有限时间内的记录推算音乐累计数。
+        let cumulative = payload.cumulativeTracks?.filter { isMusic($0.remoteTrackID, $0.content) }
+        return ServerListeningStatsPayload(accountFingerprint: payload.accountFingerprint,
+            temporalDetail: payload.temporalDetail, durationAvailability: payload.durationAvailability,
+            tracks: tracks, events: events, allTimePlayCount: cumulative.map { $0.reduce(0) { $0 + $1.playCount } },
+            cumulativeTracks: cumulative)
     }
 
     func activate(source: MusicSource) async {

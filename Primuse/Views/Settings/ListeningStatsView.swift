@@ -92,13 +92,14 @@ struct ListeningStatsView: View {
     private let title: LocalizedStringKey
     /// 清空记录放在页尾；一月自动弹出的报告里不放。
     private let showsManagement: Bool
-    private var store: PlayHistoryStore { .shared }
+    private let store: PlayHistoryStore
 
     init(
         initialYear: Int? = nil,
         title: LocalizedStringKey = "stats_title",
         showsManagement: Bool = true,
-        model: Model = Model()
+        model: Model = Model(),
+        history: PlayHistoryStore = .shared
     ) {
         var initialYear = initialYear
         #if DEBUG
@@ -111,6 +112,7 @@ struct ListeningStatsView: View {
         _model = State(initialValue: model)
         self.title = title
         self.showsManagement = showsManagement
+        self.store = history
     }
 
     var body: some View {
@@ -322,7 +324,7 @@ extension ListeningStatsView {
         /// 按年归档的记录，清空前不会变，读一次留着。
         fileprivate var archived: ArchivedHistory?
         fileprivate var corpus: Corpus?
-        fileprivate var snapshot: Snapshot?
+        var snapshot: Snapshot?
         fileprivate var snapshotKey: SnapshotKey?
         /// 播放记录里的音乐源各记到哪里；记录或音乐源变了才重算（可能要扫一遍曲库）。
         fileprivate var attribution: [String: ListeningSourceAttribution.Resolution]?
@@ -347,7 +349,7 @@ extension ListeningStatsView {
     fileprivate struct CorpusKey: Equatable, Sendable {
         let historyRevision: Int
         let clearedAt: Date?
-        let spokenWordSongIDs: Set<String>
+        let classificationRevision: Int
     }
 
     /// 全部播放记录（本机 + 归档），音乐和有声内容分开。
@@ -375,6 +377,7 @@ extension ListeningStatsView {
     fileprivate struct RefreshTrigger: Equatable {
         let presentation: Presentation
         let generation: Int
+        let history: PlayHistoryStore.SnapshotRevision
     }
 
     struct Snapshot: Sendable {
@@ -402,7 +405,7 @@ extension ListeningStatsView {
     }
 
     private var refreshTrigger: RefreshTrigger {
-        RefreshTrigger(presentation: presentation, generation: refreshGeneration)
+        RefreshTrigger(presentation: presentation, generation: refreshGeneration, history: store.snapshotRevision)
     }
 
     private func refresh(trigger: RefreshTrigger) async {
@@ -413,13 +416,14 @@ extension ListeningStatsView {
         let corpusKey = CorpusKey(
             historyRevision: store.revision,
             clearedAt: clearedAt,
-            spokenWordSongIDs: store.spokenWordSongIDs
+            classificationRevision: store.classificationRevision
         )
         let corpus: Corpus
         if let cached = model.corpus, cached.key == corpusKey {
             corpus = cached
         } else {
             let live = store.entries
+            let classification = store.classification
             let cachedArchive = model.archived?.clearedAt == clearedAt ? model.archived : nil
             let loaded = await Task.detached(priority: .userInitiated) {
                 let archived = cachedArchive ?? ArchivedHistory(
@@ -427,16 +431,19 @@ extension ListeningStatsView {
                     entries: PlayHistoryArchiver.completeHistory(live: [], clearedAt: clearedAt)
                 )
                 let all = PlayHistoryArchiver.merged(live: live, archived: archived.entries, clearedAt: clearedAt)
+                let classification = classification.recoveringLegacyEntries(all)
                 var music: [PlayHistoryStore.Entry] = []
                 var spokenWord: [PlayHistoryStore.Entry] = []
                 for entry in all {
-                    switch entry.listeningSpace(spokenWordSongIDs: corpusKey.spokenWordSongIDs) {
+                    switch classification.space(for: entry) {
                     case .music: music.append(entry)
                     case .spokenWord: spokenWord.append(entry)
                     case .podcast, .radio: break
                     }
                 }
-                return (archived, Corpus(key: corpusKey, music: music, spokenWord: spokenWord))
+                let resolvedArchive = ArchivedHistory(clearedAt: clearedAt,
+                    entries: archived.entries.map(classification.enriching))
+                return (resolvedArchive, Corpus(key: corpusKey, music: music, spokenWord: spokenWord))
             }.value
             guard !Task.isCancelled, trigger == refreshTrigger else { return }
             model.archived = loaded.0

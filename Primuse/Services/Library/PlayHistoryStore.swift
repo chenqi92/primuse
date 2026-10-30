@@ -31,6 +31,7 @@ final class PlayHistoryStore {
         /// 在 `recordedThresholdSec` 附近。
         let listenedSec: TimeInterval
         let sourceID: String
+        var content: Content? = nil
 
         var listeningEvent: HomeListeningEvent { event(songDuration: nil) }
 
@@ -43,7 +44,95 @@ final class PlayHistoryStore {
         }
 
         func listeningSpace(spokenWordSongIDs: Set<String>) -> ListeningSpace {
-            ListeningHistorySpacePolicy.space(songID: songID, sourceID: sourceID, spokenWordSongIDs: spokenWordSongIDs)
+            Classification(legacySpokenWordIDs: spokenWordSongIDs).space(for: self)
+        }
+    }
+
+    /// 随历史记录保存，来源停用、文件移除和跨设备同步后仍能识别内容。
+    struct Content: Codable, Hashable, Sendable {
+        var kind: ListeningSpace
+        var filePath: String?
+        var genre: String?
+        var serverLibraryID: String?
+        var sourceID: String?
+    }
+
+    struct Classification: Sendable {
+        var library: VisibleSongLookup? = nil
+        var inputs: SpokenWordClassificationInputs = .empty
+        var legacySpokenWordIDs: Set<String> = []
+        var recoveredContent: [String: Content] = [:]
+
+        func space(for entry: Entry) -> ListeningSpace {
+            let identity = ListeningHistorySpacePolicy.space(
+                songID: entry.songID, sourceID: entry.sourceID, spokenWordSongIDs: []
+            )
+            if identity != .music { return identity }
+            if let song = library?.song(id: entry.songID) {
+                return space(inputs.kind(songID: song.id, sourceID: song.sourceID,
+                                         filePath: song.filePath, genre: song.genre, serverLibraryID: song.serverLibraryID))
+            }
+            if let kind = inputs.overrides[entry.songID] { return space(kind) }
+            let content = recoveredContent[entry.songID] ?? entry.content
+            if let kind = inputs.folderRules.kind(sourceID: content?.sourceID ?? entry.sourceID,
+                                                  filePath: content?.filePath ?? "",
+                                                  serverLibraryID: content?.serverLibraryID) {
+                return space(kind)
+            }
+            if let content { return content.kind }
+            return legacySpokenWordIDs.contains(entry.songID) ? .spokenWord : .music
+        }
+
+        func enriching(_ entry: Entry) -> Entry {
+            var entry = entry
+            let kind = space(for: entry)
+            if let song = library?.song(id: entry.songID) {
+                entry.content = Content(kind: kind, filePath: song.filePath,
+                                        genre: song.genre, serverLibraryID: song.serverLibraryID, sourceID: song.sourceID)
+            } else if entry.content != nil || recoveredContent[entry.songID] != nil || kind != .music || inputs.overrides[entry.songID] != nil {
+                var content = recoveredContent[entry.songID] ?? entry.content ?? Content(kind: kind)
+                content.kind = kind
+                entry.content = content
+            }
+            // 没有任何证据的旧记录保持未知，不能把暂未装载的曲库判定固化成音乐。
+            return entry
+        }
+
+        /// 源重建会换 ID。仅在标题、艺人、专辑完整且所有匹配项分类一致时恢复旧记录。
+        func recoveringLegacyEntries(_ entries: [Entry]) -> Self {
+            func key(title: String, artist: String?, album: String?) -> [String]? {
+                let fields = [title, artist ?? "", album ?? ""].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                guard fields.allSatisfy({ !$0.isEmpty }), !PlaceholderArtistPolicy.isPlaceholder(fields[1]) else { return nil }
+                return fields
+            }
+            let unresolved = entries.filter { $0.content == nil && library?.song(id: $0.songID) == nil }
+            let wanted = Set(unresolved.compactMap { key(title: $0.songTitle, artist: $0.artistName, album: $0.albumTitle) })
+            guard !wanted.isEmpty, let library else { return self }
+            var matches: [[String]: Content] = [:]
+            var ambiguous: Set<[String]> = []
+            library.forEachSong { song in
+                guard let key = key(title: song.title, artist: song.artistName, album: song.albumTitle), wanted.contains(key) else { return }
+                let kind = space(inputs.kind(songID: song.id, sourceID: song.sourceID, filePath: song.filePath,
+                                             genre: song.genre, serverLibraryID: song.serverLibraryID))
+                if let previous = matches[key], previous.kind != kind { ambiguous.insert(key) }
+                matches[key] = Content(kind: kind, filePath: song.filePath, genre: song.genre,
+                                       serverLibraryID: song.serverLibraryID, sourceID: song.sourceID)
+            }
+            var result = self
+            for entry in unresolved {
+                guard let key = key(title: entry.songTitle, artist: entry.artistName, album: entry.albumTitle),
+                      !ambiguous.contains(key), let content = matches[key] else { continue }
+                result.recoveredContent[entry.songID] = content
+            }
+            return result
+        }
+
+        private func space(_ kind: ListeningContentKind) -> ListeningSpace {
+            switch kind {
+            case .music: .music
+            case .spokenWord: .spokenWord
+            case .podcast: .podcast
+            }
         }
     }
 
@@ -88,24 +177,80 @@ final class PlayHistoryStore {
     /// recommendation seed, and are totalled on their own instead.
     /// Classified at read time, so a correction applies to past plays too.
     var spokenWordSongIDs: Set<String> = []
+    private(set) var classificationRevision = 0
+    @ObservationIgnored private weak var library: MusicLibrary?
+    @ObservationIgnored private var classificationInputs: SpokenWordClassificationInputs?
+    @ObservationIgnored private var classificationLegacyIDs: Set<String> = []
+    @ObservationIgnored private var classificationLibraryGeneration: UInt64?
+    @ObservationIgnored private var classificationLibraryID: ObjectIdentifier?
+    @ObservationIgnored private var classificationObserver: NSObjectProtocol?
+    @ObservationIgnored private var archiveClassificationTask: Task<Void, Never>?
+    private let spokenWordStore: SpokenWordStore
+    private let updatesArchives: Bool
+
+    var classification: Classification {
+        Classification(
+            library: library?.historySongLookup(), inputs: spokenWordStore.classificationSnapshot,
+            legacySpokenWordIDs: spokenWordSongIDs.union(spokenWordStore.positions.keys).union(spokenWordStore.finishedAt.keys)
+        )
+    }
+
+    struct SnapshotRevision: Equatable {
+        let history: Int
+        let classification: Int
+    }
+
+    var snapshotRevision: SnapshotRevision {
+        _ = entries
+        return SnapshotRevision(history: revision, classification: classificationRevision)
+    }
+
+    func refreshClassification(library: MusicLibrary? = nil) {
+        if let library { self.library = library }
+        let context = classification
+        let generation = self.library?.songMutationGenerationForMaintenance
+        let libraryID = self.library.map(ObjectIdentifier.init)
+        guard context.inputs != classificationInputs || context.legacySpokenWordIDs != classificationLegacyIDs
+                || generation != classificationLibraryGeneration || libraryID != classificationLibraryID else { return }
+        classificationInputs = context.inputs
+        classificationLegacyIDs = context.legacySpokenWordIDs
+        classificationLibraryGeneration = generation
+        classificationLibraryID = libraryID
+        classificationRevision &+= 1
+        if updatesArchives {
+            archiveClassificationTask?.cancel()
+            archiveClassificationTask = Task {
+                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                PlayHistoryArchiver.scheduleClassificationRefresh(context)
+            }
+        }
+        let resolved = context.recoveringLegacyEntries(entries)
+        let enriched = entries.map(resolved.enriching)
+        guard enriched != entries else { return }
+        entries = enriched
+        scheduleSave()
+        notifyChanged()
+    }
 
     /// The plays that were music.
     var musicEntries: [Entry] {
-        Self.musicEntries(entries, excluding: spokenWordSongIDs)
+        Self.musicEntries(entries, classification: classification)
     }
 
     /// 订阅播客的单集和电台不在曲库里，靠记录自己的 ID 认出来，同样不算音乐。
-    nonisolated static func musicEntries(_ entries: [Entry], excluding spokenWordSongIDs: Set<String>) -> [Entry] {
-        entries.filter { $0.listeningSpace(spokenWordSongIDs: spokenWordSongIDs) == .music }
+    nonisolated static func musicEntries(_ entries: [Entry], excluding spokenWordSongIDs: Set<String> = [],
+                                        classification: Classification? = nil) -> [Entry] {
+        let context = classification ?? Classification(legacySpokenWordIDs: spokenWordSongIDs)
+        return entries.filter { context.space(for: $0) == .music }
     }
 
     /// Seconds spent on spoken word in `range` (calendar windows, like the
     /// stats page).
     func spokenWordListeningSeconds(in range: Range, now: Date = Date(), calendar: Calendar = ListeningCalendar.current) -> TimeInterval {
-        guard !spokenWordSongIDs.isEmpty else { return 0 }
+        let context = classification
         let cutoff = range.statisticsStartDate(now: now, calendar: calendar)
         return Self.listenedSeconds(entries.filter {
-            $0.playedAt >= cutoff && $0.playedAt <= now && spokenWordSongIDs.contains($0.songID)
+            $0.playedAt >= cutoff && $0.playedAt <= now && context.space(for: $0) == .spokenWord
         })
     }
 
@@ -116,6 +261,7 @@ final class PlayHistoryStore {
     /// payload 还配不配得上当前这份历史。
     @ObservationIgnored private(set) var revision = 0
     private let storeURL: URL
+    private let defaults: UserDefaults
     private var saveTask: Task<Void, Never>?
 
     // 当前会话 — beginSession / tick / endSession 三段式跟 Scrobble 同步,
@@ -127,7 +273,10 @@ final class PlayHistoryStore {
     /// 实听时长还会被记成拖到的位置。
     private var currentListenedSec: TimeInterval = 0
 
-    private init() {
+    init(storeURL: URL? = nil, defaults: UserDefaults = .standard, spokenWordStore: SpokenWordStore = .shared) {
+        self.defaults = defaults
+        self.spokenWordStore = spokenWordStore
+        self.updatesArchives = storeURL == nil
         #if os(tvOS)
         let docs = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("Primuse", isDirectory: true)
@@ -136,9 +285,17 @@ final class PlayHistoryStore {
             .appendingPathComponent("Primuse", isDirectory: true)
         #endif
         try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
-        self.storeURL = docs.appendingPathComponent("play_history.json")
-        clearedAt = UserDefaults.standard.object(forKey: Self.clearedAtDefaultsKey) as? Date
+        self.storeURL = storeURL ?? docs.appendingPathComponent("play_history.json")
+        clearedAt = defaults.object(forKey: Self.clearedAtDefaultsKey) as? Date
         load()
+        refreshClassification()
+        if storeURL == nil {
+            classificationObserver = NotificationCenter.default.addObserver(
+                forName: .primuseSpokenWordDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.refreshClassification() }
+            }
+        }
     }
 
     // MARK: - Session lifecycle (AudioPlayerService 调用)
@@ -181,7 +338,7 @@ final class PlayHistoryStore {
     /// 直接写一条 entry —— 测试 / 数据导入用。普通播放走 session 三段式。
     func record(song: Song, startedAt: Date, listenedSec: TimeInterval) {
         guard listenedSec >= Self.recordedThresholdSec else { return }
-        let entry = Entry(
+        var entry = Entry(
             songID: song.id,
             songTitle: song.title,
             artistName: song.artistName ?? "",
@@ -190,6 +347,10 @@ final class PlayHistoryStore {
             listenedSec: listenedSec,
             sourceID: song.sourceID
         )
+        let kind = spokenWordStore.kind(for: song)
+        let identity = ListeningHistorySpacePolicy.space(songID: song.id, sourceID: song.sourceID, spokenWordSongIDs: [])
+        entry.content = Content(kind: identity != .music ? identity : (kind == .music ? .music : kind == .podcast ? .podcast : .spokenWord),
+                                filePath: song.filePath, genre: song.genre, serverLibraryID: song.serverLibraryID, sourceID: song.sourceID)
         entries.insert(entry, at: 0)
         if entries.count > Self.maxRetainedEntries {
             entries.removeLast(entries.count - Self.maxRetainedEntries)
@@ -202,7 +363,7 @@ final class PlayHistoryStore {
     /// 表清空, 云端那份、别的设备那份下一轮又会整份并回来。早于这一刻的记录在
     /// 哪台设备上都不再算数。
     private(set) var clearedAt: Date? {
-        didSet { UserDefaults.standard.set(clearedAt, forKey: Self.clearedAtDefaultsKey) }
+        didSet { defaults.set(clearedAt, forKey: Self.clearedAtDefaultsKey) }
     }
     private static let clearedAtDefaultsKey = "primuse.listeningStats.clearedAt"
 
@@ -226,26 +387,19 @@ final class PlayHistoryStore {
         let survivingLocal = entries.filter { $0.playedAt >= cutoff }
         guard !survivingRemote.isEmpty || survivingLocal.count != entries.count else { return }
         let previous = entries
-        let before = Set(entries.map(\.id))
         var mergedByID = Dictionary(
             survivingLocal.map { ($0.id, $0) },
             uniquingKeysWith: { lhs, rhs in lhs.playedAt >= rhs.playedAt ? lhs : rhs }
         )
-        for entry in survivingRemote {
+        let context = classification.recoveringLegacyEntries(survivingRemote)
+        for var entry in survivingRemote {
+            entry.content = entry.content ?? mergedByID[entry.id]?.content
+            entry = context.enriching(entry)
             mergedByID[entry.id] = entry
         }
         let merged = mergedByID.values.sorted { $0.playedAt > $1.playedAt }
         entries = Array(merged.prefix(Self.maxRetainedEntries))
         guard entries != previous else { return }
-        guard Set(entries.map(\.id)) != before else {
-            // 同一批 id, 但实听时长以远端为准被改写了。不广播 (否则跟远端
-            // 来回触发), 可 revision 必须动: 任何按 revision 缓存这份历史的
-            // 编码结果都已经过期。改写过的时长同样要落盘, 否则下次冷启动
-            // 又会读回旧值。
-            revision &+= 1
-            scheduleSave()
-            return
-        }
         scheduleSave()
         notifyChanged(origin: "remote")
     }
@@ -372,7 +526,7 @@ final class PlayHistoryStore {
     }
 
     func musicEntries(in range: Range, now: Date = Date()) -> [Entry] {
-        Self.musicEntries(entries(in: range, now: now), excluding: spokenWordSongIDs)
+        Self.musicEntries(entries(in: range, now: now), classification: classification)
     }
 
     /// - Parameters:
@@ -445,7 +599,7 @@ final class PlayHistoryStore {
     }
 
     func statisticsSummary(in range: Range) -> Summary {
-        Self.summary(for: Self.musicEntries(statisticsEntries(in: range), excluding: spokenWordSongIDs))
+        Self.summary(for: Self.musicEntries(statisticsEntries(in: range), classification: classification))
     }
 
     /// - Parameter songKeys: 同一首歌的分组（`songIdentityKeys`）。只有统计页显示「听过几首」，
@@ -484,7 +638,7 @@ final class PlayHistoryStore {
             Entry(songID: replacements[entry.songID] ?? entry.songID,
                   songTitle: entry.songTitle, artistName: entry.artistName,
                   albumTitle: entry.albumTitle, playedAt: entry.playedAt,
-                  listenedSec: entry.listenedSec, sourceID: entry.sourceID)
+                  listenedSec: entry.listenedSec, sourceID: entry.sourceID, content: entry.content)
         }
         flush()
         notifyChanged()
@@ -521,7 +675,7 @@ final class PlayHistoryStore {
         revision &+= 1
         NotificationCenter.default.post(
             name: .primuseListeningStatsDidChange,
-            object: nil,
+            object: self,
             userInfo: ["origin": origin]
         )
     }

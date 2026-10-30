@@ -3206,3 +3206,288 @@ private final class MainActorHeartbeat {
 
     func stop() { isStopped = true }
 }
+
+@MainActor
+final class ListeningHistoryClassificationTests: XCTestCase {
+    private var directory: URL!
+    private var defaults: UserDefaults!
+    private var spoken: SpokenWordStore!
+    private var history: PlayHistoryStore!
+    private let now = Date()
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defaults = UserDefaults(suiteName: directory.lastPathComponent)!
+        spoken = SpokenWordStore(storeURL: directory.appendingPathComponent("spoken.json"))
+        history = makeHistory()
+    }
+
+    override func tearDownWithError() throws {
+        history.flush()
+        defaults.removePersistentDomain(forName: directory.lastPathComponent)
+        try FileManager.default.removeItem(at: directory)
+    }
+
+    private func makeHistory() -> PlayHistoryStore {
+        PlayHistoryStore(storeURL: directory.appendingPathComponent("history.json"), defaults: defaults, spokenWordStore: spoken)
+    }
+
+    private func song(_ id: String, genre: String? = nil, path: String? = nil, source: String = "nas") -> Song {
+        Song(id: id, title: "Title \(id)", albumTitle: "Album \(id)", artistName: "Artist \(id)", duration: 4_800,
+             fileFormat: .mp3, filePath: path ?? "/media/\(id).mp3", sourceID: source, genre: genre)
+    }
+
+    private func entry(_ song: Song, offset: TimeInterval = 60) -> PlayHistoryStore.Entry {
+        .init(songID: song.id, songTitle: song.title, artistName: song.artistName ?? "", albumTitle: song.albumTitle ?? "",
+              playedAt: now.addingTimeInterval(-offset), listenedSec: 120, sourceID: song.sourceID)
+    }
+
+    private func library(_ songs: [Song]) async throws -> MusicLibrary {
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library-\(UUID().uuidString)"))
+        library.addSongs(songs)
+        for _ in 0..<300 where library.visibleSongs.count != songs.count {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.visibleSongs.count, songs.count)
+        return library
+    }
+
+    func testRecordedTypesSurviveRestartAndFilterEveryMusicSurface() throws {
+        let songs = [song("music"), song("book", path: "/Books/book.m4b"), song("local-podcast", genre: "Podcast"),
+                     song("podcast:episode"), song("legacy-podcast", source: PodcastPlaybackSong.sourceID),
+                     song("radio:station"), song("legacy-radio", source: RadioStation.playbackSourceID)]
+        for song in songs { history.record(song: song, startedAt: now.addingTimeInterval(-60), listenedSec: 120) }
+        history.flush()
+        let restored = makeHistory()
+        XCTAssertEqual(restored.entries.count, songs.count)
+        XCTAssertEqual(restored.musicEntries.map(\.songID), ["music"], "Long music must stay music")
+        let context = restored.classification
+        for range in PlayHistoryStore.Range.allCases {
+            let snapshot = ListeningStatsChartsView.makeStatsSnapshot(entries: restored.entries, classification: context,
+                range: range, displayYear: nil, now: now, calendar: ListeningCalendar.current)
+            XCTAssertEqual(snapshot.summary.totalPlays, 1)
+            XCTAssertEqual(snapshot.summary.totalSec, 120)
+            XCTAssertEqual(snapshot.spokenWordSec, 120, "Podcasts must not count as audiobook time")
+            XCTAssertEqual(snapshot.topSongs.map(\.title), ["Title music"])
+            XCTAssertEqual(snapshot.topArtists.map(\.title), ["Artist music"])
+            XCTAssertEqual(snapshot.topAlbums.map(\.title), ["Album music"])
+        }
+        let music = restored.musicEntries
+        for period in HomeListeningPeriod.allCases {
+            for category in [HomeListeningCategory.songs, .artists, .albums] {
+                let ranks = HomeListeningRanking.ranks(events: music.map(\.listeningEvent), songs: [:], folders: nil,
+                    period: period, category: category, now: now)
+                XCTAssertEqual(ranks.count, 1)
+                XCTAssertEqual(ranks.first?.songIDs, ["music"])
+            }
+        }
+        let year = ListeningCalendar.current.component(.year, from: now)
+        let report = try XCTUnwrap(YearlyReportAnalyzer.compute(year: year, music: music, traits: [:], now: now, calendar: ListeningCalendar.current))
+        XCTAssertEqual(report.songs.map(\.title), ["Title music"])
+        XCTAssertEqual(report.sources.reduce(0) { $0 + $1.plays }, 1)
+    }
+
+    func testLegacyEntriesStayExcludedWhenSourceIsDisabledRemovedAndRestarted() async throws {
+        let music = song("music", source: "music-source")
+        let book = song("book", genre: "Audiobook")
+        let podcast = song("podcast-file", genre: "Podcast")
+        let library = try await library([music, book, podcast])
+        history.mergeRemoteEntries([entry(music), entry(book), entry(podcast)])
+        history.refreshClassification(library: library)
+        XCTAssertEqual(history.musicEntries.map(\.songID), [music.id])
+        library.updateDisabledSourceIDs(["nas"])
+        history.refreshClassification(library: library)
+        XCTAssertTrue(library.spokenWordSongIDs.isEmpty)
+        XCTAssertEqual(history.musicEntries.map(\.songID), [music.id])
+        await library.removeSongsForSource("nas")
+        history.refreshClassification(library: library)
+        history.flush()
+        XCTAssertEqual(makeHistory().musicEntries.map(\.songID), [music.id])
+    }
+
+    func testLegacyIdentityRecoveryDoesNotGuessFromTitleAlone() async throws {
+        let book = song("new-book", genre: "Audiobook")
+        var old = entry(book)
+        old = .init(songID: "old-book", songTitle: old.songTitle, artistName: old.artistName, albumTitle: old.albumTitle,
+                    playedAt: old.playedAt, listenedSec: old.listenedSec, sourceID: "old-source")
+        let library = try await library([book])
+        history.mergeRemoteEntries([old])
+        history.refreshClassification(library: library)
+        XCTAssertTrue(history.musicEntries.isEmpty)
+        XCTAssertEqual(history.entries.first?.content?.kind, .spokenWord)
+        var music = book
+        music.id = "same-name-music"
+        music.genre = "Rock"
+        let ambiguousLibrary = try await self.library([book, music])
+        let context = PlayHistoryStore.Classification(library: ambiguousLibrary.historySongLookup()).recoveringLegacyEntries([old])
+        XCTAssertNil(context.recoveredContent[old.songID])
+        var incomplete = old
+        incomplete = .init(songID: "unrelated", songTitle: book.title, artistName: "", albumTitle: "",
+                            playedAt: old.playedAt, listenedSec: 120, sourceID: "nas")
+        XCTAssertNil(context.recoveringLegacyEntries([incomplete]).recoveredContent[incomplete.songID])
+    }
+
+    func testManualCorrectionsUpdateOldHistoryAndCanReturnItToMusic() {
+        let item = song("manual")
+        history.mergeRemoteEntries([entry(item)])
+        var previous = history.snapshotRevision
+        for kind: ListeningContentKind in [.spokenWord, .music, .podcast, .music] {
+            spoken.setKind(kind, forSongIDs: [item.id])
+            history.refreshClassification()
+            XCTAssertNotEqual(history.snapshotRevision, previous)
+            XCTAssertEqual(history.musicEntries.count, kind == .music ? 1 : 0)
+            previous = history.snapshotRevision
+        }
+    }
+
+    func testRemoteLegacyCopyCannotEraseClassificationAndTypedCorrectionNotifiesReaders() {
+        let book = song("book", genre: "Audiobook")
+        history.record(song: book, startedAt: now.addingTimeInterval(-60), listenedSec: 120)
+        history.mergeRemoteEntries([entry(book)])
+        XCTAssertEqual(history.entries.first?.content?.kind, .spokenWord)
+        XCTAssertTrue(history.musicEntries.isEmpty)
+        let changed = expectation(description: "Remote correction refreshes readers without a sync echo")
+        let token = NotificationCenter.default.addObserver(forName: .primuseListeningStatsDidChange, object: history, queue: nil) { note in
+            if note.userInfo?["origin"] as? String == "remote" { changed.fulfill() }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        var correction = entry(book)
+        correction.content = .init(kind: .music)
+        history.mergeRemoteEntries([correction])
+        XCTAssertEqual(history.musicEntries.count, 1)
+        wait(for: [changed], timeout: 1)
+    }
+
+    func testArchiveMergeAndIDRemapPreserveContentEvidence() throws {
+        let book = song("book", genre: "Audiobook")
+        var classified = entry(book)
+        classified.content = .init(kind: .spokenWord)
+        let legacy = entry(book)
+        for merged in [PlayHistoryArchiver.merged(live: [legacy], archived: [classified], clearedAt: nil),
+                       PlayHistoryArchiver.merged(live: [classified], archived: [legacy], clearedAt: nil)] {
+            XCTAssertEqual(merged.count, 1)
+            XCTAssertTrue(PlayHistoryStore.musicEntries(merged).isEmpty)
+        }
+        history.mergeRemoteEntries([classified])
+        history.remapSongIDs([book.id: "remapped"])
+        XCTAssertEqual(history.entries.first?.songID, "remapped")
+        XCTAssertTrue(makeHistory().musicEntries.isEmpty)
+        let oldPayload = try JSONEncoder().encode([legacy])
+        XCTAssertNil(try JSONDecoder().decode([PlayHistoryStore.Entry].self, from: oldPayload).first?.content)
+    }
+
+    func testLegacyProgressFolderAndServerLibraryEvidenceExcludeNonMusic() {
+        let item = song("legacy-progress")
+        var context = PlayHistoryStore.Classification(legacySpokenWordIDs: [item.id])
+        XCTAssertEqual(context.space(for: entry(item)), .spokenWord)
+        context.inputs.overrides[item.id] = .music
+        XCTAssertEqual(context.space(for: entry(item)), .music)
+
+        let sources = [MusicSource(id: "nas", name: "NAS", type: .webdav),
+                       MusicSource(id: "server", name: "Server", type: .jellyfin)]
+        let rules = SpokenWordFolderRules(folderTags: [
+            "nas": ["/Podcasts": .podcast], "server": ["/libraries/books": .spokenWord]
+        ], sources: sources.map { LibraryFolderSourceDescriptor(source: $0) })
+        context = .init(inputs: .init(folderRules: rules))
+        var local = entry(song("untagged", path: "/Podcasts/show/01.mp3"))
+        local.content = .init(kind: .music, filePath: "/Podcasts/show/01.mp3")
+        XCTAssertEqual(context.space(for: local), .podcast)
+        let payload = ServerListeningStatsPayload(accountFingerprint: "account", temporalDetail: .aggregate, tracks: [
+            .init(remoteTrackID: "1", title: "Chapter", playCount: 20,
+                  content: .init(songID: "hashed", filePath: "/items/1.mp3", serverLibraryID: "books"))
+        ])
+        XCTAssertTrue(ServerListeningStatsService.musicPayload(payload, sourceID: "server", classification: context).tracks.isEmpty)
+        context.inputs.overrides["hashed"] = .music
+        XCTAssertEqual(ServerListeningStatsService.musicPayload(payload, sourceID: "server", classification: context).tracks.count, 1)
+    }
+
+    func testArchiveOnlyLegacyRecordsAreEnrichedWithoutChangingDatesOrCounts() async throws {
+        let book = song("archived-book", genre: "Audiobook")
+        let library = try await library([book])
+        let archived = PlayHistoryArchiver.ArchivedYear(year: 2025, entries: [entry(book)], archivedAt: now)
+        let url = directory.appendingPathComponent("year-2025.json")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(archived).write(to: url)
+        let context = PlayHistoryStore.Classification(library: library.historySongLookup())
+        PlayHistoryArchiver.refreshClassification(in: directory, using: context)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let restored = try decoder.decode(PlayHistoryArchiver.ArchivedYear.self, from: Data(contentsOf: url))
+        XCTAssertEqual(restored.entries.count, 1)
+        XCTAssertEqual(restored.archivedAt.timeIntervalSince1970, now.timeIntervalSince1970, accuracy: 1)
+        XCTAssertEqual(restored.entries[0].listenedSec, 120)
+        XCTAssertTrue(PlayHistoryStore.musicEntries(restored.entries).isEmpty, "No library is needed after archive migration")
+        XCTAssertTrue(PlayHistoryArchiver.merged(live: [], archived: restored.entries, clearedAt: now).isEmpty)
+    }
+
+    func testServerAggregateEventsAndCumulativeCountersUseTheSameClassification() async throws {
+        let music = song("server-music", path: "/songs/music.mp3")
+        let book = song("server-book", path: "/songs/book.m4b")
+        let podcast = song("server-podcast", genre: "Podcast", path: "/songs/podcast.mp3")
+        let library = try await library([music, book, podcast])
+        var context = PlayHistoryStore.Classification(library: library.historySongLookup())
+        let items = [music, book, podcast]
+        let counters = zip(["music", "book", "podcast"], items).map { remote, song in
+            ServerListeningTrackAggregate(remoteTrackID: remote, title: song.title, playCount: 50,
+                content: .init(songID: song.id, filePath: song.filePath, genre: song.genre))
+        }
+        let events = counters.map { ServerListeningEvent(id: $0.remoteTrackID, remoteTrackID: $0.remoteTrackID,
+            title: $0.title, playedAt: now, content: $0.content) }
+        let aggregate = ServerListeningStatsPayload(accountFingerprint: "account", temporalDetail: .aggregate, tracks: counters)
+        let eventPayload = ServerListeningStatsPayload(accountFingerprint: "account", temporalDetail: .events,
+            events: events, allTimePlayCount: 150, cumulativeTracks: counters)
+        for includeLibrary in [true, false] {
+            context.library = includeLibrary ? library.historySongLookup() : nil
+            let filtered = ServerListeningStatsService.musicPayload(aggregate, sourceID: "nas", classification: context)
+            XCTAssertEqual(filtered.tracks.map(\.remoteTrackID), ["music"])
+            XCTAssertTrue(filtered.isStructurallyValid)
+            let history = ServerListeningStatsService.musicPayload(eventPayload, sourceID: "nas", classification: context)
+            XCTAssertEqual(history.events.map(\.remoteTrackID), ["music"])
+            XCTAssertEqual(history.allTimePlayCount, 50, "Do not subtract a short history from all-time totals")
+            XCTAssertTrue(history.isStructurallyValid)
+        }
+        context.inputs.overrides[music.id] = .podcast
+        XCTAssertTrue(ServerListeningStatsService.musicPayload(eventPayload, sourceID: "nas", classification: context).events.isEmpty)
+        context.inputs.overrides[music.id] = .music
+        XCTAssertEqual(ServerListeningStatsService.musicPayload(eventPayload, sourceID: "nas", classification: context).events.count, 1)
+        let legacy = ServerListeningStatsPayload(accountFingerprint: "account", temporalDetail: .events,
+                                                events: events, allTimePlayCount: 150)
+        XCTAssertNil(ServerListeningStatsService.musicPayload(legacy, sourceID: "nas", classification: context).allTimePlayCount)
+        let roundTrip = try JSONDecoder().decode(ServerListeningStatsPayload.self, from: JSONEncoder().encode(eventPayload))
+        XCTAssertEqual(roundTrip, eventPayload)
+    }
+
+    func testAnnualReportRefreshesAfterClassificationWithoutANewPlay() async throws {
+        let item = song("annual-\(UUID().uuidString)")
+        for index in 1...30 {
+            history.record(song: item, startedAt: now.addingTimeInterval(-Double(index) * 60), listenedSec: 120)
+        }
+        let model = ListeningStatsView.Model()
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let intelligence = MusicIntelligenceService(settingsStore: settings,
+            lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore(
+                defaults: defaults, legacySettingsStore: settings, syncsThroughICloud: false),
+            recommendationReuseDefaults: defaults)
+        let host = UIHostingController(rootView: ListeningStatsView(model: model, history: history)
+            .environment(sources).environment(intelligence))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        for _ in 0..<200 where model.snapshot == nil { try await Task.sleep(for: .milliseconds(25)) }
+        let before = try XCTUnwrap(model.snapshot?.playsThisYear)
+        XCTAssertGreaterThanOrEqual(before, 30)
+        spoken.setKind(.spokenWord, forSongIDs: [item.id])
+        history.refreshClassification()
+        for _ in 0..<200 where model.snapshot?.playsThisYear != before - 30 { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertEqual(model.snapshot?.playsThisYear, before - 30)
+        spoken.setKind(.music, forSongIDs: [item.id])
+        history.refreshClassification()
+        for _ in 0..<200 where model.snapshot?.playsThisYear != before { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertEqual(model.snapshot?.playsThisYear, before)
+    }
+}

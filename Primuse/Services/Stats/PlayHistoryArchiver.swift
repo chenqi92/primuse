@@ -21,6 +21,31 @@ enum PlayHistoryArchiver {
     nonisolated private static let directoryName = "yearly-archives"
     private static let lastArchivedYearKey = "primuse.playHistory.lastArchivedYear"
     private static let currentYearArchivedDayKey = "primuse.playHistory.currentYearArchivedDay"
+    nonisolated private static let archiveLock = NSLock()
+    nonisolated private static let classificationQueue = DispatchQueue(label: "primuse.history-classification", qos: .utility)
+
+    static func scheduleClassificationRefresh(_ classification: PlayHistoryStore.Classification) {
+        classificationQueue.async { refreshClassification(in: archiveDirectory(), using: classification) }
+    }
+
+    nonisolated static func refreshClassification(in directory: URL, using classification: PlayHistoryStore.Classification) {
+        archiveLock.withLock {
+            guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+            for file in files where file.lastPathComponent.hasPrefix("year-") && file.pathExtension == "json" {
+                guard let data = try? Data(contentsOf: file),
+                      let archive = try? makeDecoder().decode(ArchivedYear.self, from: data) else { continue }
+                let context = classification.recoveringLegacyEntries(archive.entries)
+                let entries = archive.entries.map(context.enriching)
+                guard entries != archive.entries else { continue }
+                do {
+                    let updated = ArchivedYear(year: archive.year, entries: entries, archivedAt: archive.archivedAt)
+                    try makeEncoder().encode(updated).write(to: file, options: .atomic)
+                } catch {
+                    plog("PlayHistoryArchiver: classification update failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
 
     struct ArchivedYear: Codable, Sendable {
         let year: Int
@@ -126,36 +151,37 @@ enum PlayHistoryArchiver {
         clearedAt: Date?
     ) -> [PlayHistoryStore.Entry] {
         let cutoff = clearedAt ?? .distantPast
-        var seen = Set<String>()
+        var indices: [String: Int] = [:]
         var result: [PlayHistoryStore.Entry] = []
         result.reserveCapacity(live.count + archived.count)
-        for entry in live + archived where entry.playedAt >= cutoff && seen.insert(entry.id).inserted {
-            result.append(entry)
+        for entry in live + archived where entry.playedAt >= cutoff {
+            if let index = indices[entry.id] {
+                if result[index].content == nil { result[index].content = entry.content }
+            } else {
+                indices[entry.id] = result.count
+                result.append(entry)
+            }
         }
         return result
     }
 
     /// 「清空听歌记录」时归档一起删掉, 否则年度回顾还会读出清空前的歌。
     static func removeAll() {
-        try? FileManager.default.removeItem(at: archiveDirectory())
+        archiveLock.withLock { try? FileManager.default.removeItem(at: archiveDirectory()) }
         UserDefaults.standard.removeObject(forKey: currentYearArchivedDayKey)
     }
 
     // MARK: - Internals
 
     nonisolated private static func archive(year: Int, entries: [PlayHistoryStore.Entry]) {
+        archiveLock.lock()
+        defer { archiveLock.unlock() }
         // 跟已有归档合并: live store 是 5000 条 FIFO, 跨年重度听歌会淘汰当年
         // 早期 entries, 直接覆盖会丢掉 12/28 预归档时存下的更完整数据。按
         // (songID, playedAt) == Entry.id 去重, 旧归档优先保留。
         let mergedEntries: [PlayHistoryStore.Entry]
         if let existing = loadArchive(year: year) {
-            var seen = Set<String>()
-            var merged: [PlayHistoryStore.Entry] = []
-            merged.reserveCapacity(existing.entries.count + entries.count)
-            for entry in existing.entries + entries where seen.insert(entry.id).inserted {
-                merged.append(entry)
-            }
-            mergedEntries = merged
+            mergedEntries = merged(live: existing.entries, archived: entries, clearedAt: nil)
         } else {
             mergedEntries = entries
         }

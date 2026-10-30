@@ -500,10 +500,26 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
     }
 
+    private func statsContent(for child: SubsonicChild) -> ServerListeningContent {
+        let song = buildSong(from: child)
+        return ServerListeningContent(songID: song.id, filePath: song.filePath, genre: song.genre)
+    }
+
     func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {
         try await connect()
         let history = try await fetchNavidromeListeningHistoryIfAvailable()
         let catalog = try await fetchCompleteStatsCatalog()
+        let tracks = catalog.map { child in
+            ServerListeningTrackAggregate(
+                remoteTrackID: child.id,
+                title: child.title ?? child.id,
+                artist: child.artist ?? child.displayArtist,
+                album: child.album,
+                playCount: child.playCount ?? 0,
+                lastPlayedAt: child.played.flatMap(Self.parseDate),
+                content: statsContent(for: child)
+            )
+        }
         if let history {
             let songsByID = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
             return ServerListeningStatsPayload(
@@ -521,20 +537,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         title: song?.title ?? entry.mediaFileId,
                         artist: song?.artist ?? song?.displayArtist,
                         album: song?.album,
-                        playedAt: Date(timeIntervalSince1970: TimeInterval(entry.submissionTime))
+                        playedAt: Date(timeIntervalSince1970: TimeInterval(entry.submissionTime)),
+                        content: song.map(statsContent)
                     )
                 },
-                allTimePlayCount: catalog.reduce(0) { $0 + max(0, $1.playCount ?? 0) }
-            )
-        }
-        let tracks = catalog.map { child in
-            ServerListeningTrackAggregate(
-                remoteTrackID: child.id,
-                title: child.title ?? child.id,
-                artist: child.artist ?? child.displayArtist,
-                album: child.album,
-                playCount: child.playCount ?? 0,
-                lastPlayedAt: child.played.flatMap(Self.parseDate)
+                allTimePlayCount: tracks.reduce(0) { $0 + $1.playCount },
+                cumulativeTracks: tracks
             )
         }
         let payload = ServerListeningStatsPayload(

@@ -33,10 +33,9 @@ enum YearlyReportAutoTrigger {
 
         // 优先读 archive (PlayHistoryArchiver 启动时归档过), 没有则从 live entries
         // 过滤当年 ── 跨年新装用户去年没数据自然不会弹。
-        let entries = PlayHistoryStore.musicEntries(
-            PlayHistoryArchiver.entries(forYear: lastYear),
-            excluding: PlayHistoryStore.shared.spokenWordSongIDs
-        )
+        let history = PlayHistoryArchiver.entries(forYear: lastYear)
+        let entries = PlayHistoryStore.musicEntries(history,
+            classification: PlayHistoryStore.shared.classification.recoveringLegacyEntries(history))
         let distinctMonths = Set(entries.map { calendar.component(.month, from: $0.playedAt) })
         // 数据不够: 不弹, 也不记录 lastShown ── 万一下次启动数据更全 (刚归档完或
         // CloudKit 同步过来), 仍有机会弹。

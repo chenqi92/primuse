@@ -483,6 +483,8 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
                     throw FixtureError.invalidRequest
                 }
                 return try Self.response(request, json: #"{"MediaContainer":{"size":2,"totalSize":2,"offset":0,"Metadata":[{"historyKey":"/status/sessions/history/11","ratingKey":"track-1","title":"One","parentTitle":"Album","grandparentTitle":"Artist","type":"track","viewedAt":1787688000,"accountID":42},{"historyKey":"/status/sessions/history/12","ratingKey":2,"title":"Two","parentTitle":"Album","grandparentTitle":"Artist","type":"track","viewedAt":"1787601600","accountID":"42"}]}}"#)
+            case "/library/sections/1/all":
+                return try Self.response(request, json: #"{"MediaContainer":{"totalSize":2,"Metadata":[{"ratingKey":"track-1","title":"One","Genre":[{"tag":"Podcast"}]},{"ratingKey":"2","title":"Two"}]}}"#)
             default:
                 throw FixtureError.invalidRequest
             }
@@ -494,6 +496,9 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         XCTAssertEqual(payload.events.map(\.remoteTrackID), ["track-1", "2"])
         XCTAssertTrue(payload.events.allSatisfy { $0.listenedSeconds == nil })
         XCTAssertTrue(payload.tracks.isEmpty)
+        XCTAssertEqual(payload.events.first?.content?.genre, "Podcast")
+        let music = ServerListeningStatsService.musicPayload(payload, sourceID: "test", classification: .init())
+        XCTAssertEqual(music.events.map(\.remoteTrackID), ["2"])
     }
 
     func testPlexFallsBackToAggregateOnlyWhenHistoryEndpointIsUnavailable() async throws {
