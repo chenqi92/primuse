@@ -223,10 +223,9 @@ struct SpokenWordContinueShelf: View {
     var titleKey: LocalizedStringKey = "spoken_word_now_listening_section"
     var moreAction: (() -> Void)? = nil
     var contextMenu: ((Entry) -> AnyView)? = nil
-    @State private var showsAll = false
 
     var body: some View {
-        let shown = Array(entries.prefix(showsAll ? entries.count : max(1, limit)))
+        let shown = Array(entries.prefix(max(1, limit)))
         if !shown.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -235,17 +234,19 @@ struct SpokenWordContinueShelf: View {
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
                     if moreAction != nil || shown.count < entries.count {
-                        Button {
-                            if let moreAction { moreAction() } else { showsAll = true }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("home_section_view_all")
-                                Image(systemName: "chevron.right").font(.caption)
+                        Group {
+                            if let moreAction {
+                                Button(action: moreAction) { viewAllLabel }
+                            } else {
+                                NavigationLink {
+                                    SpokenWordContinueList(entries: entries, titleKey: titleKey, contextMenu: contextMenu)
+                                } label: {
+                                    viewAllLabel
+                                }
                             }
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("spokenWord.continue.viewAll")
                     }
                 }
                 .padding(.horizontal, horizontalInset)
@@ -277,6 +278,15 @@ struct SpokenWordContinueShelf: View {
         }
     }
 
+    private var viewAllLabel: some View {
+        HStack(spacing: 4) {
+            Text("home_section_view_all")
+            Image(systemName: "chevron.right").font(.caption)
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+    }
+
     private func covers(_ entries: [Entry]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 12) {
@@ -288,6 +298,30 @@ struct SpokenWordContinueShelf: View {
             .padding(.horizontal, horizontalInset)
         }
         .pmStopsAtVerticalBar()
+    }
+}
+
+private struct SpokenWordContinueList: View {
+    let entries: [SpokenWordLibrarySnapshot.Entry]
+    let titleKey: LocalizedStringKey
+    var contextMenu: ((SpokenWordLibrarySnapshot.Entry) -> AnyView)?
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(entries) { entry in
+                    SpokenWordContinueRow(entry: entry)
+                        .contextMenu { contextMenu?(entry) }
+                    if entry.id != entries.last?.id { Divider() }
+                }
+            }
+            .padding(20)
+        }
+        .accessibilityIdentifier("spokenWord.continue.all")
+        .navigationTitle(titleKey)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 

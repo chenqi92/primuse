@@ -138,6 +138,75 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
     }
 
     @MainActor
+    func testInactiveLyricsBlurRendersAcrossScriptsAndTimingFormats() throws {
+        let samples: [(String, [String])] = [
+            ("simplified", Array("风吹过窗前的树叶").map(String.init)),
+            ("traditional", Array("風吹過窗前的樹葉").map(String.init)),
+            ("english", ["Wind ", "passes ", "my ", "window"]),
+        ]
+        let radius = LyricDepthEffectPolicy.blurRadius(
+            forRow: 3, activeRow: 1, isEnabled: true, isSynchronized: true
+        )
+        for locale in ["zh-Hans", "zh-Hant", "en"] {
+            for (script, words) in samples {
+                for wordTimed in [false, true] {
+                    let line = LyricLine(
+                        timestamp: 10,
+                        text: words.joined(),
+                        syllables: wordTimed ? words.enumerated().map { index, text in
+                            LyricSyllable(text: text, start: 10 + Double(index), end: 11 + Double(index))
+                        } : nil
+                    )
+                    func render(blur: Double) throws -> CGImage {
+                        let content = Group {
+                            if wordTimed {
+                                KaraokeLineView(
+                                    line: line,
+                                    fontSize: 26,
+                                    weight: .semibold,
+                                    activeColor: .white,
+                                    inactiveColor: .white,
+                                    timeAt: { _ in 0 },
+                                    fixedTime: 0,
+                                    isPlaybackActive: false,
+                                    isAnimationEnabled: false,
+                                    animatesSyllableBounce: false
+                                )
+                            } else {
+                                Text(line.text)
+                                    .font(.system(size: 26, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .frame(width: 280, alignment: .leading)
+                        .opacity(0.4)
+                        .blur(radius: blur)
+                        .padding(20)
+                        .frame(width: 340, height: 140)
+                        .environment(\.locale, Locale(identifier: locale))
+                        let renderer = ImageRenderer(content: content)
+                        renderer.scale = 1
+                        return try XCTUnwrap(renderer.uiImage?.cgImage)
+                    }
+                    let sharp = try rgbaPixels(from: render(blur: 0))
+                    let blurred = try rgbaPixels(from: render(blur: radius))
+                    let label = "\(locale) / \(script) / \(wordTimed ? "word" : "line")"
+                    let sharpInk = sharp.filter { $0.alpha > 5 }.count
+                    let blurredInk = blurred.filter { $0.alpha > 5 }.count
+                    XCTAssertGreaterThan(sharpInk, 100, label)
+                    XCTAssertGreaterThan(blurredInk, sharpInk, "Blur must spread glyph edges: " + label)
+                    XCTAssertLessThan(
+                        try XCTUnwrap(blurred.map(\.alpha).max()),
+                        try XCTUnwrap(sharp.map(\.alpha).max()),
+                        "Blur must soften glyph peaks: " + label
+                    )
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testWordLevelLyricsRenderOneContinuousGradient() throws {
         let line = LyricLine(
             timestamp: 0,

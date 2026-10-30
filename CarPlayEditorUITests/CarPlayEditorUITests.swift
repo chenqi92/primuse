@@ -211,6 +211,59 @@ final class SleepTimerUITests: XCTestCase {
 
 @MainActor
 final class CarPlayEditorUITests: XCTestCase {
+    func testContinueListeningViewAllOpensCompleteListAndReturns() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment = [
+            "PRIMUSE_VISUAL_EVIDENCE": "spokenWordShelf",
+            "PRIMUSE_SHELF_RESET": "1",
+            "PRIMUSE_SHELF_COUNT": "16",
+            "PRIMUSE_SHELF_LISTENING_COUNT": "15",
+            "PRIMUSE_DIAGNOSTIC_LOGGING": "off",
+            "PRIMUSE_NO_NOTIFICATION_PROMPT": "1"
+        ]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment = ["PRIMUSE_NO_NOTIFICATION_PROMPT": "1"]
+            app.launchArguments += [
+                "-primuse.hasSeenOnboarding", "YES", "-primuse.navigation.mode.v1", "standard",
+                "-primuse.navigation.selectedTab.v1", "0"
+            ]
+            app.launch()
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 20))
+            app.terminate()
+        }
+
+        for style in ["carousel", "featured", "list"] {
+            app.launchEnvironment["PRIMUSE_SHELF_CONTINUE_STYLE"] = style
+            app.launch()
+            let viewAll = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "全部")).firstMatch
+            XCTAssertTrue(viewAll.waitForExistence(timeout: 20), app.debugDescription)
+            viewAll.tap()
+            let list = app.scrollViews["spokenWord.continue.all"]
+            XCTAssertTrue(list.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.navigationBars["在听"].exists)
+            func book(_ title: String) -> XCUIElement {
+                list.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+            }
+            XCTAssertTrue(book("书籍 0000 · 故事").exists)
+            if style == "carousel" { attach(app, "continue-list-top") }
+            let last = book("书籍 0014 · 故事")
+            for _ in 0..<10 {
+                if last.exists && last.isHittable { break }
+                list.swipeUp()
+            }
+            XCTAssertTrue(last.isHittable, "All in-progress books must be reachable, including those beyond the preview limit")
+            XCTAssertFalse(book("书籍 0015 · 故事").exists)
+            attach(app, "continue-list-all-\(style)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(viewAll.waitForExistence(timeout: 5))
+            XCTAssertFalse(list.exists)
+            app.terminate()
+        }
+    }
+
     func testBookshelfLongPressDragPersistsAcrossLayoutsAndRelaunch() {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")

@@ -2985,12 +2985,22 @@ struct SpokenWordShelfEvidenceHost: View {
                 defaults.removePersistentDomain(forName: "primuse.bookshelf-evidence")
             }
             let count = Int(ProcessInfo.processInfo.environment["PRIMUSE_SHELF_COUNT"] ?? "2000") ?? 2000
+            let listeningCount = Int(ProcessInfo.processInfo.environment["PRIMUSE_SHELF_LISTENING_COUNT"] ?? "0") ?? 0
+            if let rawStyle = ProcessInfo.processInfo.environment["PRIMUSE_SHELF_CONTINUE_STYLE"],
+               let style = SpokenWordContinueStyle(rawValue: rawStyle) {
+                var configuration = HomeSectionLayoutConfiguration()
+                configuration.booksInProgressStyle = style
+                defaults.set(configuration.encoded(), forKey: HomeSectionLayoutConfiguration.storageKey)
+            }
             snapshot = await Task.detached {
                 let items = (0..<count).flatMap { book in
                     (0..<2).map { chapter in
                         SpokenWordBookItem(id: "shelf-\(book)-\(chapter)", title: "第\(chapter + 1)章",
                                           albumTitle: String(format: "书籍 %04d · 故事", book), trackNumber: chapter,
-                                          duration: 300)
+                                          duration: 300,
+                                          position: book < listeningCount && chapter == 0 ? 60 : nil,
+                                          positionUpdatedAt: book < listeningCount && chapter == 0
+                                              ? Date(timeIntervalSince1970: Double(count - book)) : nil)
                     }
                 }
                 return SpokenWordLibrarySnapshot(books: SpokenWordBookGrouping.books(from: items))
