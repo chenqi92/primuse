@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
+import Network
 import PrimuseKit
 import SwiftUI
 import XCTest
@@ -12,6 +13,146 @@ import XCTest
 /// these check the wiring into the player, the stores and the library.
 @MainActor
 final class ListeningFeaturesTests: XCTestCase {
+    func testLocalPodcastCanSwitchToVideoAtCurrentPosition() async throws {
+        let directory = makeDirectory()
+        let url = directory.appendingPathComponent("本地视频播客.mp4")
+        try await makeSilentVideo(at: url)
+        let source = MusicSource(name: "Local podcast", type: .local, basePath: directory.path)
+        let manager = SourceManager(sourcesProvider: { [source] })
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+        let episode = videoPodcast(path: "/本地视频播客.mp4", sourceID: source.id)
+        for playing in [true, false] {
+            try await assertPodcastSwitchesToVideo(episode, manager: manager, playing: playing)
+        }
+    }
+
+    func testPausedSystemAudioPodcastCanSwitchToVideo() async throws {
+        let directory = makeDirectory()
+        let url = directory.appendingPathComponent("episode.mp4")
+        try await makeSilentVideo(at: url)
+        let source = MusicSource(name: "Local podcast", type: .local, basePath: directory.path)
+        let manager = SourceManager(sourcesProvider: { [source] })
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+        let episode = videoPodcast(path: "/episode.mp4", sourceID: source.id)
+        try await assertPodcastSwitchesToVideo(episode,
+            manager: manager, playing: false, systemAudio: true)
+    }
+
+    func testNASPodcastCanSwitchToVideoAtCurrentPosition() async throws {
+        let url = makeDirectory().appendingPathComponent("episode.mp4")
+        try await makeSilentVideo(at: url)
+        let server = try PodcastVideoHTTPFixture(payload: Data(contentsOf: url))
+        let port = try await server.start()
+        defer { server.stop() }
+        let source = MusicSource(name: "Video NAS", type: .webdav, host: "127.0.0.1", port: Int(port), useSsl: false)
+        let manager = SourceManager(sourcesProvider: { [source] })
+        defer { manager.deleteSourceCaches(sourceID: source.id) }
+        let episode = videoPodcast(path: "/episode.mp4", sourceID: source.id)
+        for playing in [true, false] {
+            try await assertPodcastSwitchesToVideo(episode, manager: manager, playing: playing)
+        }
+    }
+
+    func testDownloadedPodcastCanSwitchToVideoAtCurrentPosition() async throws {
+        let url = makeDirectory().appendingPathComponent("episode.mp4")
+        try await makeSilentVideo(at: url)
+        let server = try PodcastVideoHTTPFixture(payload: Data(contentsOf: url))
+        let port = try await server.start()
+        defer { server.stop() }
+        let episode = PodcastEpisode(id: "podcast:" + UUID().uuidString, showID: UUID().uuidString,
+            guid: "video", title: "Downloaded video podcast", duration: 30,
+            enclosureURL: URL(string: "http://127.0.0.1:\(port)/episode.mp4")!,
+            enclosureType: "video/mp4", firstSeenAt: Date())
+        let downloads = PodcastDownloadStore.shared
+        defer { downloads.delete(episode.id) }
+        downloads.download(episode)
+        let deadline = Date().addingTimeInterval(10)
+        while downloads.localURL(for: episode.id) == nil, Date() < deadline {
+            if case .failed(let message) = downloads.states[episode.id] {
+                XCTFail("Podcast download failed: \(message)")
+                throw URLError(.cannotLoadFromNetwork)
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        _ = try XCTUnwrap(downloads.localURL(for: episode.id))
+        server.stop()
+        let song = PodcastPlaybackSong.song(for: episode, show: nil)
+        for playing in [true, false] {
+            try await assertPodcastSwitchesToVideo(song, manager: nil, playing: playing)
+        }
+    }
+
+    private func videoPodcast(path: String, sourceID: String) -> Song {
+        Song(id: UUID().uuidString, title: "Video podcast", duration: 30,
+            fileFormat: .mp4, filePath: path, sourceID: sourceID, genre: "Podcast", mvPath: path)
+    }
+
+    private func assertPodcastSwitchesToVideo(_ episode: Song, manager: SourceManager?,
+                                            playing: Bool, systemAudio: Bool = false) async throws {
+        let player = AudioPlayerService(
+            sourceManager: manager,
+            playbackSettings: PlaybackSettingsStore(defaults: try makeDefaults()),
+            playbackSessionStore: PlaybackSessionStore(url: makeDirectory().appendingPathComponent("session.json"))
+        )
+        let previousVideoPreference = UserDefaults.standard.object(forKey: SpokenWordVideoPolicy.preferenceKey)
+        defer {
+            player.stop()
+            SpokenWordStore.shared.clearPosition(forSongID: episode.id)
+            manager?.cancelMusicVideoDownloads(keeping: nil)
+            UserDefaults.standard.set(previousVideoPreference, forKey: SpokenWordVideoPolicy.preferenceKey)
+        }
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        player.setShowsSpokenWordVideo(false)
+        player.currentSong = episode
+        player.isSystemAudioPlaybackActive = systemAudio
+        player.currentTime = 5
+        player.isPlaying = playing
+        XCTAssertTrue(player.offersSpokenWordVideoToggle)
+        player.setShowsSpokenWordVideo(true)
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if player.musicVideoPlayer?.currentItem?.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .milliseconds(700))
+        XCTAssertTrue(player.isSpokenWordVideoShown, "source=\(episode.sourceID), playing=\(playing), systemAudio=\(systemAudio)")
+        XCTAssertEqual(player.musicVideoPlayer?.currentItem?.status, .readyToPlay)
+        XCTAssertNil(player.spokenWordVideoFailedSongID)
+        XCTAssertEqual(player.currentSong?.id, episode.id)
+        XCTAssertEqual(player.currentTime, 5, accuracy: 2)
+    }
+
+    private func makeSilentVideo(at url: URL) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 32, AVVideoHeightKey: 32
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
+            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB])
+        writer.add(input)
+        XCTAssertTrue(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        var pixelBuffer: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 32, 32,
+            kCVPixelFormatType_32ARGB, nil, &pixelBuffer), kCVReturnSuccess)
+        let buffer = try XCTUnwrap(pixelBuffer)
+        CVPixelBufferLockBaseAddress(buffer, [])
+        memset(CVPixelBufferGetBaseAddress(buffer), 0, CVPixelBufferGetDataSize(buffer))
+        CVPixelBufferUnlockBaseAddress(buffer, [])
+        for second in [0, 29] {
+            while !input.isReadyForMoreMediaData {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertTrue(adaptor.append(buffer, withPresentationTime: CMTime(seconds: Double(second), preferredTimescale: 600)))
+        }
+        writer.endSession(atSourceTime: CMTime(seconds: 30, preferredTimescale: 600))
+        input.markAsFinished()
+        await writer.finishWriting()
+        XCTAssertEqual(writer.status, .completed)
+    }
+
     func testContinueListeningOrdersBooksAndPromotesCurrentWithoutDuplicates() throws {
         let items = (0..<4).map { index in
             SpokenWordBookItem(
@@ -2233,5 +2374,98 @@ extension ListeningFeaturesTests {
         XCTAssertEqual(known.groups.flatMap(\.candidates).map(\.id), ["body"])
         let reused = try await service.prepare(lyrics: lyrics, targetLanguageCode: "fr", enabled: true)
         XCTAssertEqual(reused, unknown)
+    }
+}
+
+private final class PodcastVideoHTTPFixture: @unchecked Sendable {
+    private let listener: NWListener
+    private let payload: Data
+    private let queue = DispatchQueue(label: "podcast-video-fixture")
+    private let lock = NSLock()
+    private var started = false
+    private var connections: [NWConnection] = []
+
+    init(payload: Data) throws {
+        self.payload = payload
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+    }
+
+    func start() async throws -> UInt16 {
+        try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { [self] state in
+                let result: Result<UInt16, Error>
+                switch state {
+                case .ready: result = .success(listener.port!.rawValue)
+                case .failed(let error): result = .failure(error)
+                default: return
+                }
+                let first = lock.withLock {
+                    if started { return false }
+                    started = true
+                    return true
+                }
+                if first { continuation.resume(with: result) }
+            }
+            listener.newConnectionHandler = { [self] connection in
+                lock.withLock { connections.append(connection) }
+                connection.start(queue: queue)
+                receive(connection, accumulated: Data())
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    func stop() {
+        listener.stateUpdateHandler = nil
+        listener.newConnectionHandler = nil
+        listener.cancel()
+        lock.withLock { connections }.forEach { $0.cancel() }
+    }
+
+    private func receive(_ connection: NWConnection, accumulated: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [self] data, _, complete, error in
+            var bytes = accumulated
+            bytes.append(data ?? Data())
+            guard let end = bytes.range(of: Data("\r\n\r\n".utf8)),
+                  let header = String(data: bytes[..<end.lowerBound], encoding: .utf8) else {
+                if !complete, error == nil { receive(connection, accumulated: bytes) }
+                else { connection.cancel() }
+                return
+            }
+            let lines = header.components(separatedBy: "\r\n")
+            let method = lines[0].split(separator: " ").first ?? ""
+            var status = "200 OK"
+            var contentType = "video/mp4"
+            var extra = "Accept-Ranges: bytes\r\n"
+            var body = payload
+            if method == "PROPFIND" {
+                status = "207 Multi-Status"
+                contentType = "application/xml"
+                body = Data("""
+                <?xml version="1.0" encoding="utf-8"?>
+                <D:multistatus xmlns:D="DAV:">
+                <D:response><D:href>/</D:href><D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>
+                <D:response><D:href>/episode.mp4</D:href><D:propstat><D:prop><D:displayname>episode.mp4</D:displayname><D:resourcetype/><D:getcontentlength>\(payload.count)</D:getcontentlength></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>
+                </D:multistatus>
+                """.utf8)
+            } else if let range = lines.first(where: { $0.lowercased().hasPrefix("range: bytes=") }) {
+                let parts = range.dropFirst("Range: bytes=".count).split(separator: "-", omittingEmptySubsequences: false)
+                let start = Int(parts.first ?? "") ?? 0
+                let end = min(Int(parts.last ?? "") ?? (payload.count - 1), payload.count - 1)
+                if start >= 0, start <= end {
+                    status = "206 Partial Content"
+                    extra += "Content-Range: bytes \(start)-\(end)/\(payload.count)\r\n"
+                    body = payload.subdata(in: start..<(end + 1))
+                } else {
+                    status = "416 Range Not Satisfiable"
+                    body = Data()
+                }
+            }
+            var response = Data("HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\n\(extra)Connection: close\r\n\r\n".utf8)
+            if method != "HEAD" { response.append(body) }
+            connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+        }
     }
 }

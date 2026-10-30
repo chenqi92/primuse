@@ -7837,7 +7837,7 @@ final class AudioPlayerService {
         if currentItemIsSpokenWord,
            offersSpokenWordVideoToggle,
            usesVideoPipeline(for: song),
-           !isSystemMediaPlaybackActive {
+           !isMusicVideoPlaybackActive {
             var position = needsPlaybackRecovery ? pendingRecoveryTime : currentTime
             if !isPlaying,
                let rewind = spokenWordSmartRewindTarget(for: song, from: position, seeksInPlace: false) {
