@@ -1917,6 +1917,26 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertTrue(reloaded.hasExplicitListeningContextConsent)
     }
 
+    func testSpokenChaptersRelayHandlesJSONAndStreamAndValidatesBoundaries() async throws {
+        let answer: [String: Any] = ["summary": "Opening", "chapters": [["lineID": "0", "title": "Opening"]]]
+        let input = SpokenChapterGeneration.Request(title: "Book", language: "en", lines: [.init(id: "0", start: 12, text: "Opening")])
+        for stream in [false, true] {
+            let host = "chapters-relay-\(stream).invalid"
+            let envelope: [String: Any] = stream ? ["type": "complete", "data": answer] : ["data": answer]
+            let body = String(decoding: try JSONSerialization.data(withJSONObject: envelope), as: UTF8.self) + "\n"
+            PrimuseRelayURLProtocol.configure(host: host, featureBody: body,
+                                             featureContentType: stream ? "application/x-ndjson" : "application/json")
+            let (client, session, _, _) = makeClient(host: host)
+            defer { session.invalidateAndCancel() }
+            let result = try await client.spokenChapters(input)
+            XCTAssertEqual(result.chapters.map(\.lineID), ["0"])
+            let request = try XCTUnwrap(PrimuseRelayURLProtocol.requests(host: host).first { $0.url?.path == "/v1/spoken/chapters" })
+            let json = try jsonObject(request)
+            XCTAssertEqual((json["lines"] as? [[String: Any]])?.first?["start"] as? Double, 12)
+            XCTAssertNil(json["audio"])
+        }
+    }
+
     private func makeClient(
         host: String,
         attestor: TestPrimuseAppAttestor = TestPrimuseAppAttestor(),

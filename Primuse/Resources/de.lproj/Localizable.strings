@@ -7008,3 +7008,17 @@
 "locate_current_song" = "Aktuellen Titel finden";
 
 "clear_filters_and_locate" = "Filter löschen und finden";
+
+"chapter_generation_title" = "KI-Kapitel";
+"chapter_generation_whole_book" = "Ganzes Buch";
+"chapter_generation_start" = "Kapitel erstellen";
+"chapter_generation_failed" = "Kapitel konnten nicht erstellt werden. Bitte erneut versuchen.";
+"chapter_generation_needs_timed_text" = "Ein Transkript mit Zeitangaben ist erforderlich. Bitte zuerst laden oder erstellen.";
+"chapter_generation_changed" = "Kapitel wurden andernorts geändert. Bitte erneut erstellen.";
+"chapter_generation_apply" = "Kapitel übernehmen";
+"chapter_generation_use" = "Erstellte Kapitel verwenden";
+"chapter_generation_upload" = "Das Transkript wird zur Kapitelerstellung an den ausgewählten KI-Dienst gesendet. Audio wird nicht hochgeladen. Lange Inhalte benötigen mehrere Anfragen.";
+"chapter_generation_name" = "Kapitelname";
+"chapter_generation_rename" = "Kapitel umbenennen";
+"chapter_generation_daily_limit" = "Das heutige Kontingent zur Kapitelerstellung ist aufgebraucht. Versuche es morgen erneut.";
+"chapter_generation_monthly_limit" = "Das monatliche Kontingent zur Kapitelerstellung ist aufgebraucht. Versuche es nächsten Monat erneut.";

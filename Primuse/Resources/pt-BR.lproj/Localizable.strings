@@ -6914,3 +6914,17 @@
 "locate_current_song" = "Localizar música atual";
 
 "clear_filters_and_locate" = "Limpar filtros e localizar";
+
+"chapter_generation_title" = "Capítulos com IA";
+"chapter_generation_whole_book" = "Livro inteiro";
+"chapter_generation_start" = "Gerar capítulos";
+"chapter_generation_failed" = "Não foi possível gerar os capítulos. Tente novamente.";
+"chapter_generation_needs_timed_text" = "É necessária uma transcrição com marcações de tempo. Obtenha ou gere uma primeiro.";
+"chapter_generation_changed" = "Os capítulos foram alterados em outro lugar. Gere-os novamente.";
+"chapter_generation_apply" = "Aplicar capítulos";
+"chapter_generation_use" = "Usar capítulos gerados";
+"chapter_generation_upload" = "A transcrição será enviada ao serviço de IA selecionado para gerar capítulos. O áudio não será enviado. Conteúdos longos usam várias solicitações.";
+"chapter_generation_name" = "Nome do capítulo";
+"chapter_generation_rename" = "Renomear capítulo";
+"chapter_generation_daily_limit" = "A cota diária de geração de capítulos foi esgotada. Tente novamente amanhã.";
+"chapter_generation_monthly_limit" = "A cota mensal de geração de capítulos foi esgotada. Tente novamente no próximo mês.";

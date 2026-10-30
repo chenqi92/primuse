@@ -6914,3 +6914,17 @@
 "locate_current_song" = "تحديد موقع الأغنية الحالية";
 
 "clear_filters_and_locate" = "مسح عوامل التصفية وتحديد الموقع";
+
+"chapter_generation_title" = "فصول بالذكاء الاصطناعي";
+"chapter_generation_whole_book" = "الكتاب بالكامل";
+"chapter_generation_start" = "إنشاء الفصول";
+"chapter_generation_failed" = "تعذر إنشاء الفصول. يرجى المحاولة مجددًا.";
+"chapter_generation_needs_timed_text" = "يلزم نص مفرغ مع توقيت. احصل عليه أو أنشئه أولًا.";
+"chapter_generation_changed" = "تم تغيير الفصول في مكان آخر. يرجى إنشاؤها مجددًا.";
+"chapter_generation_apply" = "تطبيق الفصول";
+"chapter_generation_use" = "استخدام الفصول المنشأة";
+"chapter_generation_upload" = "سيُرسل النص المفرغ إلى خدمة الذكاء الاصطناعي المختارة لإنشاء الفصول. لن يُرفع الصوت. يُعالج المحتوى الطويل عبر عدة طلبات.";
+"chapter_generation_name" = "اسم الفصل";
+"chapter_generation_rename" = "إعادة تسمية الفصل";
+"chapter_generation_daily_limit" = "تم استنفاد حصة إنشاء الفصول اليوم. حاول مرة أخرى غدًا.";
+"chapter_generation_monthly_limit" = "تم استنفاد حصة إنشاء الفصول لهذا الشهر. حاول مرة أخرى الشهر المقبل.";

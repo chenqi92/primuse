@@ -2470,6 +2470,47 @@ final class TVPlaybackCoordinator {
                    requestID: requestID)
     }
 
+    func chapterTranscript(for song: Song) async -> [LyricLine] {
+        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty { return cached }
+        if PodcastPlaybackSong.isEpisode(song) { return await PodcastTranscriptLoader.lines(for: song) }
+        guard let store, let source = store.sourcesStore.source(id: song.sourceID) else { return [] }
+        let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+        var lines: [LyricLine] = []
+        switch TVLyricsLoadingPolicy.strategy(for: source.type) {
+        case .fnMusicService:
+            if let text = try? await store.fnMusicClient(for: source.id)?.preferredLyrics(trackPath: song.filePath) {
+                lines = LyricsContentParser.parse(text)
+            }
+        case .subsonicServer:
+            if case .content(let text) = await readSubsonicServerLyrics(for: song.filePath, source: source, credential: credential) {
+                lines = LyricsContentParser.parse(text)
+            }
+        case .daoLiYuService, .songloftService, .synologyAudioStationService, .mediaServer:
+            if case .content(let text) = await TVSourceAssetReader.shared.lyrics(path: song.filePath, source: source, credential: credential) {
+                lines = LyricsContentParser.parse(text)
+            }
+        case .sourceFile:
+            var paths = [Self.storedLyricsReference(of: song), Self.guessedLyricsPath(for: song, source: source, credential: credential)].compactMap { $0 }
+            if song.isCueTrack {
+                switch await locateCueTrackLyrics(for: song, source: source, store: store) {
+                case .found(let path): paths = [path]
+                case .notFound: paths = []
+                case .unavailable: break
+                }
+            }
+            for path in paths where lines.isEmpty {
+                var document = song; document.filePath = path
+                if let text = try? await fetchLyricText(song: document, source: source, credential: credential, requestID: nil) {
+                    lines = LyricsContentParser.parse(text)
+                }
+            }
+        }
+        guard !Task.isCancelled, store.sourcesStore.source(id: source.id) == source else { return [] }
+        if lines.isEmpty { lines = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id) ?? [] }
+        if !lines.isEmpty { _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: false) }
+        return lines
+    }
+
     private func loadLyrics(song: Song, source: MusicSource,
                             credential: SourceCredential?, requestID: UUID) {
         if let borrowed = karaokeLyricsSource, let store,
@@ -3134,18 +3175,22 @@ final class TVPlaybackCoordinator {
 
     /// 取歌词文本:协议直连源用 reader 直读小文件;HTTP/云盘走 StreamResolver 解 URL 下载。
     private func fetchLyricText(song: Song, source: MusicSource,
-                                credential: SourceCredential?, requestID: UUID) async throws -> String? {
+                                credential: SourceCredential?, requestID: UUID?) async throws -> String? {
         guard let store else { throw CancellationError() }
+        func checkRequest() throws {
+            try Task.checkCancellation()
+            if let requestID { try ensureCurrent(requestID, store: store) }
+        }
         if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
             do {
                 let size = try await reader.contentLength()
-                try ensureCurrent(requestID, store: store)
+                try checkRequest()
                 guard size > 0, size < Int64(Self.maximumLyricsDocumentBytes) else {
                     await reader.close()
                     return nil
                 }
                 let data = try await reader.read(offset: 0, length: size)
-                try ensureCurrent(requestID, store: store)
+                try checkRequest()
                 await reader.close()
                 return LyricsParser.decodeText(data, label: song.lyricsFileName ?? song.title)
             } catch {
@@ -3154,7 +3199,7 @@ final class TVPlaybackCoordinator {
             }
         }
         let resolved = try await StreamResolverRegistry.shared.resolve(for: song, source: source, credential: credential)
-        try ensureCurrent(requestID, store: store)
+        try checkRequest()
         var req = URLRequest(url: resolved.url)
         for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
         let (data, response) = try await StreamResolverHTTPTransport.data(
@@ -3163,7 +3208,7 @@ final class TVPlaybackCoordinator {
             maximumBytes: Self.maximumLyricsDocumentBytes,
             redirectMode: source.type == .fnMusic ? .fnMusic : .safe
         )
-        try ensureCurrent(requestID, store: store)
+        try checkRequest()
         // 文件已经不在(404 等)时服务器回的是错误页,不能当歌词解析。
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw StreamResolveError.badServerResponse(http.statusCode)

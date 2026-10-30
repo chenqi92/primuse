@@ -2171,6 +2171,17 @@
 		E528BE5C743446EBB1FCF4C5 /* WatchSeekDialDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796067959F6A4EB8A23553F0 /* WatchSeekDialDrag.swift */; };
 		1E24458FA3CC3E55D2369662 /* AlbumMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2229DD58B2F614033F1FEC35 /* AlbumMetadataView.swift */; };
 		E00F7DC35AECBD7F1E6E5007 /* AlbumMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2229DD58B2F614033F1FEC35 /* AlbumMetadataView.swift */; };
+		0A26D2ACF845B7AC011F437B /* SpokenChapterGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65AAEE9A80B52776F5A9AD9D /* SpokenChapterGeneratorTests.swift */; };
+		16ACA6278033A2EF6EDB4549 /* SpokenChapterGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */; };
+		26884377D015FA9A4E5B1416 /* SpokenChapterGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B0B327692412C84EC92D1 /* SpokenChapterGenerator.swift */; };
+		280E638AB9A82BBAE35BA259 /* SpokenChapterGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65AAEE9A80B52776F5A9AD9D /* SpokenChapterGeneratorTests.swift */; };
+		54F69915F13FE42EE60806BC /* SpokenChapterGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */; };
+		882A8056156F2E82C41F0763 /* SpokenChapterGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9608F6464D71EE7525029DE8 /* SpokenChapterGeneration.swift */; };
+		99B1A148CD74080051F820F1 /* SpokenChapterGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B0B327692412C84EC92D1 /* SpokenChapterGenerator.swift */; };
+		B69BA8BA107302E5A30905C0 /* SpokenChapterGenerationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */; };
+		F3D9454BEF294F623EF4F3BE /* SpokenChapterGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11B0B327692412C84EC92D1 /* SpokenChapterGenerator.swift */; };
+		F11E276974C0406D90DA6B11 /* SpokenChapterGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65AAEE9A80B52776F5A9AD9D /* SpokenChapterGeneratorTests.swift */; };
+		261844CC39ED43658592A34E /* PlayHistoryArchiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF2C1C93E3F66742DB829CA /* PlayHistoryArchiver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -4003,6 +4014,10 @@
 
 		796067959F6A4EB8A23553F0 /* WatchSeekDialDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSeekDialDrag.swift; sourceTree = "<group>"; };
 		2229DD58B2F614033F1FEC35 /* AlbumMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumMetadataView.swift; sourceTree = "<group>"; };
+		0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenChapterGenerationSheet.swift; sourceTree = "<group>"; };
+		65AAEE9A80B52776F5A9AD9D /* SpokenChapterGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenChapterGeneratorTests.swift; sourceTree = "<group>"; };
+		9608F6464D71EE7525029DE8 /* SpokenChapterGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenChapterGeneration.swift; sourceTree = "<group>"; };
+		B11B0B327692412C84EC92D1 /* SpokenChapterGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenChapterGenerator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4952,6 +4967,7 @@
 		55EE8F663A4A56310A3966B9 /* NowPlaying */ = {
 			isa = PBXGroup;
 			children = (
+				0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */,
 				FCADF5909EF82CB7F02FB896 /* AppleMusicNowPlayingView.swift */,
 				363F869C6171BAEF3E787B3A /* ArtworkView.swift */,
 				E106B1361F3375DA1DE4CDF9 /* AudiobookPlayerDesign.swift */,
@@ -5500,6 +5516,7 @@
 		B8201B4D10F3B60D364411E9 /* AI */ = {
 			isa = PBXGroup;
 			children = (
+				9608F6464D71EE7525029DE8 /* SpokenChapterGeneration.swift */,
 				34C6D54A0624AAFCF3E1D472 /* AIAvailabilityPolicy.swift */,
 				C36B2C63149B310EA0483291 /* LyricRomanizationAIExchange.swift */,
 				241D26D7818A2010D0D0BFD4 /* GoogleCloudRomanization.swift */,
@@ -5864,6 +5881,7 @@
 		DC60DB84A34EF015A2C6ABB2 /* AI */ = {
 			isa = PBXGroup;
 			children = (
+				B11B0B327692412C84EC92D1 /* SpokenChapterGenerator.swift */,
 				F266BC40DFEB0858D943B648 /* AICredentialStore.swift */,
 				9C25D3D08BB0FD71403FAFD2 /* AISettingsStore.swift */,
 				80F212FFF6B076BD1C2D834E /* LibraryInsightBatchFill.swift */,
@@ -5899,6 +5917,7 @@
 		E02A6280EA74816DDAAA95F9 /* PrimuseTests */ = {
 			isa = PBXGroup;
 			children = (
+				65AAEE9A80B52776F5A9AD9D /* SpokenChapterGeneratorTests.swift */,
 				060EF616E880D6634832ABCD /* LastFmSimilarQuotaTests.swift */,
 				0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */,
 				3553C2A13010BA1FDB58CDFB /* ExternalPlaylistQuotaTests.swift */,
@@ -6763,6 +6782,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0A26D2ACF845B7AC011F437B /* SpokenChapterGeneratorTests.swift in Sources */,
 				820CA56EFE474091BE5D90F4 /* AppIconServiceTests.swift in Sources */,
 				B255AF67302047A49201BC14 /* ScrobbleRequestTests.swift in Sources */,
 				B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */,
@@ -6795,6 +6815,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				280E638AB9A82BBAE35BA259 /* SpokenChapterGeneratorTests.swift in Sources */,
 				D6CEEE8D6A6D410AB507C6F8 /* AppIconServiceTests.swift in Sources */,
 				CDD26B6F53D9B0D79A4BBCA6 /* DirectoryScanCooldownTests.swift in Sources */,
 				C0A25935B3E1E30B310358B3 /* PlexSignInQuotaTests.swift in Sources */,
@@ -6925,6 +6946,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				882A8056156F2E82C41F0763 /* SpokenChapterGeneration.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				9C6E47DAB65E5BA9D3312DB7 /* ArtworkAccentPixelPolicy.swift in Sources */,
 				A61FF51262F3F4183125C2D1 /* CarriedSongMarks.swift in Sources */,
@@ -7478,6 +7500,7 @@
 				D2A78F3865EBA1FD516A73F6 /* BaiduWriteReplayTests.swift in Sources */,
 				EEF9A313CE3B945DAACA62F0 /* MacResourceRegressionTests.swift in Sources */,
 				124D12FF62714B9F877C64EB /* MissingArtworkRenderingTests.swift in Sources */,
+				F11E276974C0406D90DA6B11 /* SpokenChapterGeneratorTests.swift in Sources */,
 				0C15AFF7838FC33E24127184 /* MacSongTableAndIconTests.swift in Sources */,
 				4DC0539B60873695B56A4A2E /* MacVolumeSliderTests.swift in Sources */,
 			);
@@ -7487,6 +7510,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B69BA8BA107302E5A30905C0 /* SpokenChapterGenerationSheet.swift in Sources */,
+				99B1A148CD74080051F820F1 /* SpokenChapterGenerator.swift in Sources */,
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
 				D29712AB5F6AB7ECD686014B /* ImmersiveKineticLyricsText.swift in Sources */,
 				548224D4D9A8F40A8FCF1518 /* ImmersiveKineticMetalBackdrop.swift in Sources */,
@@ -8060,6 +8085,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				54F69915F13FE42EE60806BC /* SpokenChapterGenerationSheet.swift in Sources */,
+				26884377D015FA9A4E5B1416 /* SpokenChapterGenerator.swift in Sources */,
+				261844CC39ED43658592A34E /* PlayHistoryArchiver.swift in Sources */,
 				2CA5681B48114712B1625C2E /* TVAppIconSettingsView.swift in Sources */,
 				AB003F2996AB4F0189D38014 /* AppIconService.swift in Sources */,
 				C7B091C75A77489229BF31ED /* ImmersiveKineticLyricsText.swift in Sources */,
@@ -8291,6 +8319,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				16ACA6278033A2EF6EDB4549 /* SpokenChapterGenerationSheet.swift in Sources */,
+				F3D9454BEF294F623EF4F3BE /* SpokenChapterGenerator.swift in Sources */,
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
 				1963463F1A98FDCF1FE41F07 /* ImmersiveKineticLyricsText.swift in Sources */,
 				F398050B8B099D3BC51E4FB7 /* ImmersiveKineticMetalBackdrop.swift in Sources */,

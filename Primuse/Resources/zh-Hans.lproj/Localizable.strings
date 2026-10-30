@@ -7101,3 +7101,17 @@
 "locate_current_song" = "定位当前歌曲";
 
 "clear_filters_and_locate" = "清除筛选并定位";
+
+"chapter_generation_title" = "AI 章节";
+"chapter_generation_whole_book" = "整本书";
+"chapter_generation_start" = "生成章节";
+"chapter_generation_failed" = "章节生成失败，请重试。";
+"chapter_generation_needs_timed_text" = "需要带时间戳的文字稿。请先获取或生成文稿。";
+"chapter_generation_changed" = "章节已在其他地方更改，请重新生成。";
+"chapter_generation_apply" = "应用章节";
+"chapter_generation_use" = "使用生成的章节";
+"chapter_generation_upload" = "将把文字稿发送给所选 AI 服务来生成章节，不上传音频。长内容会分多次请求处理。";
+"chapter_generation_name" = "章节名称";
+"chapter_generation_rename" = "重命名章节";
+"chapter_generation_daily_limit" = "今天的章节生成额度已用完，请明天再试。";
+"chapter_generation_monthly_limit" = "本月的章节生成额度已用完，请下个月再试。";

@@ -6914,3 +6914,17 @@
 "locate_current_song" = "वर्तमान गाना ढूँढें";
 
 "clear_filters_and_locate" = "फ़िल्टर हटाकर ढूँढें";
+
+"chapter_generation_title" = "AI अध्याय";
+"chapter_generation_whole_book" = "पूरी किताब";
+"chapter_generation_start" = "अध्याय बनाएँ";
+"chapter_generation_failed" = "अध्याय नहीं बन सके। फिर से कोशिश करें।";
+"chapter_generation_needs_timed_text" = "टाइमस्टैम्प वाला ट्रांसक्रिप्ट चाहिए। पहले उसे प्राप्त करें या बनाएँ।";
+"chapter_generation_changed" = "अध्याय कहीं और बदले गए हैं। उन्हें फिर से बनाएँ।";
+"chapter_generation_apply" = "अध्याय लागू करें";
+"chapter_generation_use" = "बनाए गए अध्याय इस्तेमाल करें";
+"chapter_generation_upload" = "अध्याय बनाने के लिए ट्रांसक्रिप्ट चुनी गई AI सेवा को भेजा जाएगा। ऑडियो अपलोड नहीं होगा। लंबे कंटेंट के लिए कई अनुरोध होंगे।";
+"chapter_generation_name" = "अध्याय का नाम";
+"chapter_generation_rename" = "अध्याय का नाम बदलें";
+"chapter_generation_daily_limit" = "आज की अध्याय बनाने की सीमा पूरी हो गई है। कल फिर कोशिश करें।";
+"chapter_generation_monthly_limit" = "इस महीने की अध्याय बनाने की सीमा पूरी हो गई है। अगले महीने फिर कोशिश करें।";

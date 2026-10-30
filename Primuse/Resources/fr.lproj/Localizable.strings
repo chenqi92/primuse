@@ -7008,3 +7008,17 @@
 "locate_current_song" = "Localiser le morceau actuel";
 
 "clear_filters_and_locate" = "Effacer les filtres et localiser";
+
+"chapter_generation_title" = "Chapitres IA";
+"chapter_generation_whole_book" = "Livre entier";
+"chapter_generation_start" = "Générer les chapitres";
+"chapter_generation_failed" = "Échec de la génération. Veuillez réessayer.";
+"chapter_generation_needs_timed_text" = "Une transcription horodatée est nécessaire. Obtenez-la ou générez-la d’abord.";
+"chapter_generation_changed" = "Les chapitres ont été modifiés ailleurs. Générez-les à nouveau.";
+"chapter_generation_apply" = "Appliquer les chapitres";
+"chapter_generation_use" = "Utiliser les chapitres générés";
+"chapter_generation_upload" = "La transcription sera envoyée au service IA choisi pour générer les chapitres. Aucun audio ne sera envoyé. Les contenus longs nécessitent plusieurs requêtes.";
+"chapter_generation_name" = "Nom du chapitre";
+"chapter_generation_rename" = "Renommer le chapitre";
+"chapter_generation_daily_limit" = "Le quota quotidien de génération de chapitres est épuisé. Réessayez demain.";
+"chapter_generation_monthly_limit" = "Le quota mensuel de génération de chapitres est épuisé. Réessayez le mois prochain.";

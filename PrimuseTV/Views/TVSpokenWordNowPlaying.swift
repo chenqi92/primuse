@@ -167,6 +167,7 @@ struct TVSpokenWordContentsColumn: View {
     private enum Tab: Hashable { case contents, bookmarks }
     @State private var tab: Tab = .contents
     @State private var bookmarkFeedback = 0
+    @State private var chapterSong: Song?
 
     var body: some View {
         let spokenStore = SpokenWordStore.shared
@@ -201,6 +202,9 @@ struct TVSpokenWordContentsColumn: View {
             }
             .focusSection()
 
+            if let song = store.chapterGenerationSong {
+                Button { chapterSong = song } label: { Label("chapter_generation_title", systemImage: "list.bullet.rectangle") }
+            }
             switch tab {
             case .contents:
                 if let summary = TVSpokenWordText.bookSummary(store) {
@@ -215,6 +219,11 @@ struct TVSpokenWordContentsColumn: View {
             case .bookmarks:
                 bookmarksList(entries)
             }
+        }
+        .fullScreenCover(item: $chapterSong) { song in
+            SpokenChapterGenerationSheet(song: song,
+                bookSongs: store.currentSpokenWordBook?.items.compactMap { store.library.song(id: $0.id) } ?? [],
+                library: store.library, loadTranscript: { await store.chapterTranscript(for: $0) })
         }
     }
 

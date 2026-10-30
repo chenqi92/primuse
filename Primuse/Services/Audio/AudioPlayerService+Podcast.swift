@@ -187,7 +187,7 @@ extension AudioPlayerService {
             let episode = found.episode
             Task { @MainActor [weak self] in
                 let chapters = await PodcastChapterLoader.chapters(for: episode)
-                guard let self, self.currentSong?.id == songID, self.spokenWordChapters.isEmpty, !chapters.isEmpty else { return }
+                guard let self, self.currentSong?.id == songID, self.originalSpokenWordChapters.isEmpty, !chapters.isEmpty else { return }
                 self.spokenWordChapters = chapters
                 self.refreshCurrentChapter()
                 plog("🎙️ Chapters: \(chapters.count) marks for '\(song.title)'")

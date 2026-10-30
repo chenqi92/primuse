@@ -6914,3 +6914,17 @@
 "locate_current_song" = "Geçerli Şarkıyı Bul";
 
 "clear_filters_and_locate" = "Filtreleri Temizle ve Bul";
+
+"chapter_generation_title" = "Yapay Zekâ Bölümleri";
+"chapter_generation_whole_book" = "Kitabın Tamamı";
+"chapter_generation_start" = "Bölüm Oluştur";
+"chapter_generation_failed" = "Bölümler oluşturulamadı. Lütfen tekrar deneyin.";
+"chapter_generation_needs_timed_text" = "Zaman damgalı bir döküm gerekiyor. Önce dökümü alın veya oluşturun.";
+"chapter_generation_changed" = "Bölümler başka bir yerde değişti. Lütfen yeniden oluşturun.";
+"chapter_generation_apply" = "Bölümleri Uygula";
+"chapter_generation_use" = "Oluşturulan Bölümleri Kullan";
+"chapter_generation_upload" = "Bölüm oluşturmak için döküm seçilen yapay zekâ hizmetine gönderilir. Ses yüklenmez. Uzun içerik birden fazla istekle işlenir.";
+"chapter_generation_name" = "Bölüm Adı";
+"chapter_generation_rename" = "Bölümü Yeniden Adlandır";
+"chapter_generation_daily_limit" = "Bugünkü bölüm oluşturma kotası doldu. Yarın tekrar deneyin.";
+"chapter_generation_monthly_limit" = "Bu ayki bölüm oluşturma kotası doldu. Gelecek ay tekrar deneyin.";

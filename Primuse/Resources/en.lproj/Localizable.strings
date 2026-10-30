@@ -6769,3 +6769,17 @@
 "locate_current_song" = "Locate Current Song";
 
 "clear_filters_and_locate" = "Clear Filters and Locate";
+
+"chapter_generation_title" = "AI Chapters";
+"chapter_generation_whole_book" = "Entire Book";
+"chapter_generation_start" = "Generate Chapters";
+"chapter_generation_failed" = "Chapter generation failed. Please try again.";
+"chapter_generation_needs_timed_text" = "A timed transcript is required. Get or generate a transcript first.";
+"chapter_generation_changed" = "Chapters changed elsewhere. Please generate them again.";
+"chapter_generation_apply" = "Apply Chapters";
+"chapter_generation_use" = "Use Generated Chapters";
+"chapter_generation_upload" = "The transcript will be sent to the selected AI service to generate chapters. Audio is not uploaded. Long content uses multiple requests.";
+"chapter_generation_name" = "Chapter Name";
+"chapter_generation_rename" = "Rename Chapter";
+"chapter_generation_daily_limit" = "Today’s chapter generation allowance has been used up. Try again tomorrow.";
+"chapter_generation_monthly_limit" = "This month’s chapter generation allowance has been used up. Try again next month.";

@@ -1501,6 +1501,28 @@ final class MusicIntelligenceService {
         }
     }
 
+    var isSpokenChaptersAvailable: Bool { isLibraryContentAvailable(for: .spokenChapters) }
+
+    func spokenChapters(_ request: SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer {
+        try Task.checkCancellation()
+        let result = await runLibraryContentRequest(
+            feature: .spokenChapters, label: "Spoken chapters",
+            relay: { try await self.primuseRelayClient.spokenChapters(request) },
+            custom: { configuration, snapshot, consent in
+                try await self.engine.spokenChapters(
+                    request, configuration: configuration, regionContext: snapshot.context,
+                    hasExplicitRemoteConsent: consent,
+                    requestAuthorization: self.regionAuthorization(for: snapshot, configuration: configuration)
+                )
+            }
+        )
+        try Task.checkCancellation()
+        switch result {
+        case .success(let answer, _): return answer
+        case .failure(let failure, let retryAt): throw SpokenChapterServiceFailure(failure: failure, retryAt: retryAt)
+        }
+    }
+
     /// Album/artist intros take the same consent and services as the other
     /// library-content requests.
     var isLibraryInsightAvailable: Bool { isLibraryContentAvailable(for: .libraryInsight) }
@@ -3921,6 +3943,42 @@ private actor MusicIntelligenceEngine {
 
     /// Album/artist intros are short text generation over library names,
     /// routed like tag cleanup and new-song discovery.
+    func spokenChapters(
+        _ request: SpokenChapterGeneration.Request,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> SpokenChapterGeneration.Answer {
+        let configuration = configuration.forGeneration(atLeast: 90)
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: configuration.requestTimeout) {
+            try await provider.spokenChapters(request)
+        }
+    }
+
     func libraryInsight(
         _ request: LibraryInsightAIExchange.Request,
         configuration: AIRemoteProviderConfiguration,
@@ -4139,7 +4197,7 @@ enum BuiltInAIQuotaText {
     static let featureOrder = [
         "recommendations", "semantic_search", "lyrics_translation", "lyrics_romanization", "listening_intents",
         "listening_mood", "library_insight", "song_discovery", "tag_cleanup", "audio_transcription",
-        "transcript_generation",
+        "transcript_generation", "spoken_chapters",
     ]
 
     static func title(for feature: BuiltInAIQuotaOverview.Feature) -> String {
@@ -4152,6 +4210,7 @@ enum BuiltInAIQuotaText {
         case "tag_cleanup": String(localized: "ai_feature_tag_cleanup")
         case "song_discovery": String(localized: "ai_song_discovery_title")
         case "library_insight": String(localized: "ai_feature_library_insight")
+        case "spoken_chapters": String(localized: "chapter_generation_title")
         case "listening_mood": String(localized: "ai_feature_listening_mood")
         case "audio_transcription": String(localized: "ai_audio_transcription_title")
         case "transcript_generation": String(localized: "transcript_generation_title")

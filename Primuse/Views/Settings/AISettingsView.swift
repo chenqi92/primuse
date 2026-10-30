@@ -1592,6 +1592,7 @@ struct AISettingsView: View {
                 .settingsAnchor("intelligence.routes")
             routeRow(.songDiscovery, title: AIFeature.songDiscovery.localizedTitle)
             routeRow(.libraryInsight, title: AIFeature.libraryInsight.localizedTitle)
+            routeRow(.spokenChapters, title: AIFeature.spokenChapters.localizedTitle)
             routeRow(.listeningMood, title: AIFeature.listeningMood.localizedTitle)
         } header: {
             SettingsInfoHeader("ai_features_on_demand_section") {
@@ -2468,6 +2469,7 @@ extension AIFeature {
         case .tagCleanup: String(localized: "ai_feature_tag_cleanup")
         case .songDiscovery: String(localized: "ai_song_discovery_title")
         case .libraryInsight: String(localized: "ai_feature_library_insight")
+        case .spokenChapters: String(localized: "chapter_generation_title")
         case .listeningMood: String(localized: "ai_feature_listening_mood")
         case .lyricsRomanization: String(localized: "lyrics_romanization_feature_title")
         }

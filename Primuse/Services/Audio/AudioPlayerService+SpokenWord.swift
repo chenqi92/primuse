@@ -78,6 +78,14 @@ extension AudioPlayerService {
 
     /// Follows the store when the playing item's kind changes under it.
     func observeSpokenWordClassification() {
+        NotificationCenter.default.addObserver(forName: .primuseGeneratedChaptersDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.sleepStopAfterChapter = nil
+                self?.spokenWordSummaryCache = nil
+                self?.spokenWordPartPositionCache = nil
+                self?.refreshCurrentChapter()
+            }
+        }
         NotificationCenter.default.addObserver(
             forName: SpokenWordIntroOutroPreferences.didChange, object: nil, queue: .main
         ) { [weak self] _ in
@@ -203,7 +211,7 @@ extension AudioPlayerService {
             await self.refreshServerSpokenWordIntroOutro(for: song, allowsIntroSeek: followsServer)
             let chapters = await manager.fetchServerChapters(for: song)
             guard !Task.isCancelled, self.currentSong?.id == songID,
-                  !chapters.isEmpty, self.spokenWordChapters.isEmpty else { return }
+                  !chapters.isEmpty, self.originalSpokenWordChapters.isEmpty else { return }
             self.spokenWordChapters = chapters
             self.refreshCurrentChapter()
             plog("🎧 Chapters: \(chapters.count) marks from the server for '\(song.title)'")

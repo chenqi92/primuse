@@ -2510,6 +2510,47 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertNil(bodies[2]["reasoning_effort"])
     }
 
+    func testSpokenChaptersUseTextOnlyAcrossAllProviderProtocols() async throws {
+        let answer = #"{"summary":"Two topics","chapters":[{"lineID":"0","title":"Opening"},{"lineID":"1","title":"Next"}]}"#
+        let input = SpokenChapterGeneration.Request(title: "Book", language: "en", lines: [
+            .init(id: "0", start: 0, text: "Opening"), .init(id: "1", start: 60, text: "Next")
+        ])
+        for style in AICompatibleAPIStyle.allCases {
+            let host = "chapters-\(style.rawValue.lowercased()).invalid"
+            let object: [String: Any]
+            switch style {
+            case .responses: object = ["output_text": answer]
+            case .chatCompletions: object = ["choices": [["message": ["content": answer]]]]
+            case .anthropicMessages: object = ["content": [["type": "text", "text": answer]]]
+            case .geminiGenerateContent: object = ["candidates": [["content": ["parts": [["text": answer]]]]]]
+            }
+            let body = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+            IntelligenceURLProtocol.configure(host: host, statusCode: 200, body: body)
+            let (provider, session) = makeProvider(host: host, apiStyle: style)
+            defer { session.invalidateAndCancel() }
+            let result = try await provider.spokenChapters(input)
+            XCTAssertEqual(result.chapters.map(\.lineID), ["0", "1"])
+            let sent = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first?.httpBody)
+            let text = String(decoding: sent, as: UTF8.self)
+            XCTAssertTrue(text.contains("Opening"))
+            XCTAssertFalse(text.contains("input_audio"))
+            XCTAssertFalse(text.contains("file_data"))
+        }
+    }
+
+    func testSpokenChaptersRejectInventedTimelineIdentifiers() async throws {
+        let host = "chapters-invalid.invalid"
+        let answer = #"{"summary":"","chapters":[{"lineID":"invented","title":"Wrong"}]}"#
+        let body = String(decoding: try JSONSerialization.data(withJSONObject: ["output_text": answer]), as: UTF8.self)
+        IntelligenceURLProtocol.configure(host: host, statusCode: 200, body: body)
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await provider.spokenChapters(.init(title: "Book", language: "en", lines: [.init(id: "0", start: 0, text: "Opening")]))
+            XCTFail("Invented line ID must not become a playback seek position")
+        } catch { XCTAssertEqual(error as? SpokenChapterGeneration.Failure, .invalidResponse) }
+    }
+
     private func makeProvider(
         host: String,
         apiStyle: AICompatibleAPIStyle

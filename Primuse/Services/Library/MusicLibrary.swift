@@ -3581,6 +3581,8 @@ final class MusicLibrary {
     private var libraryReviewsBySubject: [String: LibraryReview] = [:]
     /// 专辑 / 艺人简介(含删除留下的墓碑),按记录 id 存。
     private var libraryInsightRecordsByID: [String: LibraryInsightRecord] = [:]
+    private var generatedChaptersByID: [String: SpokenChapterRecord] = [:]
+    private(set) var generatedChaptersRevision = 0
     @ObservationIgnored private var didMigrateLegacyArtistIdentities = false
     @ObservationIgnored
     private var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
@@ -7857,6 +7859,26 @@ final class MusicLibrary {
         libraryInsightRecordsByID[record.id] = record
         libraryInsightRevision &+= 1
         persistSnapshot(after: delay)
+    }
+
+    func generatedChapterRecord(id: String) -> SpokenChapterRecord? {
+        generatedChaptersByID[id]
+    }
+
+    func generatedChapters(for id: String) -> [MediaChapter]? {
+        guard let record = generatedChaptersByID[id], !record.isDeleted, record.isEnabled else { return nil }
+        return record.chapters
+    }
+
+    func saveGeneratedChapterRecord(_ record: SpokenChapterRecord) {
+        if deferringUntilReady({ [weak self] in self?.saveGeneratedChapterRecord(record) }) { return }
+        let merged = SpokenChapterRecord.merge(Array(generatedChaptersByID.values), [record])
+        let next = Dictionary(merged.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        guard next != generatedChaptersByID else { return }
+        generatedChaptersByID = next
+        generatedChaptersRevision &+= 1
+        persistSnapshot(after: 0.2)
+        NotificationCenter.default.post(name: .primuseGeneratedChaptersDidChange, object: record.id)
     }
 
     func songs(forAlbum albumID: String) -> [Song] {
@@ -13393,6 +13415,7 @@ final class MusicLibrary {
         var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
         var libraryReviewsBySubject: [String: LibraryReview] = [:]
         var libraryInsightRecordsByID: [String: LibraryInsightRecord] = [:]
+        var generatedChaptersByID: [String: SpokenChapterRecord] = [:]
         var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
         var deviceLocalExcludedSongIdentities: Set<String> = []
         var deviceLocalExcludedSongsByID: [String: Song] = [:]
@@ -13788,6 +13811,7 @@ final class MusicLibrary {
                 (snapshot.libraryInsights ?? []).map { ($0.id, $0) },
                 uniquingKeysWith: { LibraryInsightEditing.winner($0, $1) }
             )
+            generatedChaptersByID = Dictionary(SpokenChapterRecord.merge([], snapshot.generatedChapters ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             mirrorPlaylistSuppressions = Dictionary(
                 uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
             )
@@ -14044,6 +14068,7 @@ final class MusicLibrary {
         storage.artworkOverridesByOwner = artworkOverridesByOwner
         storage.libraryReviewsBySubject = libraryReviewsBySubject
         storage.libraryInsightRecordsByID = libraryInsightRecordsByID
+        storage.generatedChaptersByID = generatedChaptersByID
         storage.mirrorPlaylistSuppressions = mirrorPlaylistSuppressions
         storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
         storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
@@ -14159,6 +14184,12 @@ final class MusicLibrary {
                     deferredPersistRequested = true
                 }
             }
+            let liveChapters = generatedChaptersByID
+            let mergedChapters = SpokenChapterRecord.merge(Array(storage.generatedChaptersByID.values), isExternalSnapshotWriteOwned ? Array(liveChapters.values) : [])
+            generatedChaptersByID = Dictionary(mergedChapters.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            if generatedChaptersByID != storage.generatedChaptersByID { deferredPersistRequested = true }
+            generatedChaptersRevision &+= 1
+            NotificationCenter.default.post(name: .primuseGeneratedChaptersDidChange, object: nil)
             let liveInsights = libraryInsightRecordsByID
             libraryInsightRecordsByID = storage.libraryInsightRecordsByID
             if isExternalSnapshotWriteOwned {
@@ -14880,6 +14911,7 @@ final class MusicLibrary {
             artworkOverrides: allArtworkOverrides.isEmpty ? nil : allArtworkOverrides,
             libraryReviews: allLibraryReviews.isEmpty ? nil : allLibraryReviews,
             libraryInsights: libraryInsightRecordsByID.isEmpty ? nil : allLibraryInsightRecords,
+            generatedChapters: generatedChaptersByID.isEmpty ? nil : generatedChaptersByID.values.sorted { $0.id < $1.id },
             automaticArtistArtworkCatalogs: automaticArtistArtworkCatalogsBySource
                 .values
                 .sorted { $0.sourceID < $1.sourceID },
@@ -15483,6 +15515,8 @@ final class MusicLibrary {
             incoming.libraryInsights ?? []
         )
         incoming.libraryInsights = insights.isEmpty ? nil : insights
+        let chapters = SpokenChapterRecord.merge(local.generatedChapters ?? [], incoming.generatedChapters ?? [])
+        incoming.generatedChapters = chapters.isEmpty ? nil : chapters
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -16832,6 +16866,7 @@ final class MusicLibrary {
         var libraryReviews: [LibraryReview]? = nil
         /// 专辑 / 艺人简介。旧版本读不到这个键,合并时按 id 取新的那份。
         var libraryInsights: [LibraryInsightRecord]? = nil
+        var generatedChapters: [SpokenChapterRecord]? = nil
         var automaticArtistArtworkCatalogs: [SourceArtistArtworkCatalog]? = nil
         /// Transport-only copies used by the Apple TV/LAN library snapshot.
         /// Normal local persistence always writes nil; images remain canonical

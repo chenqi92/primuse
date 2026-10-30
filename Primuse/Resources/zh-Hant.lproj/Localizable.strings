@@ -6985,3 +6985,17 @@
 "locate_current_song" = "定位目前歌曲";
 
 "clear_filters_and_locate" = "清除篩選並定位";
+
+"chapter_generation_title" = "AI 章節";
+"chapter_generation_whole_book" = "整本書";
+"chapter_generation_start" = "產生章節";
+"chapter_generation_failed" = "章節產生失敗，請重試。";
+"chapter_generation_needs_timed_text" = "需要附時間戳記的逐字稿。請先取得或產生逐字稿。";
+"chapter_generation_changed" = "章節已在其他地方變更，請重新產生。";
+"chapter_generation_apply" = "套用章節";
+"chapter_generation_use" = "使用產生的章節";
+"chapter_generation_upload" = "將把逐字稿傳送給所選 AI 服務來產生章節，不上傳音訊。長內容會分多次請求處理。";
+"chapter_generation_name" = "章節名稱";
+"chapter_generation_rename" = "重新命名章節";
+"chapter_generation_daily_limit" = "今天的章節生成額度已用完，請明天再試。";
+"chapter_generation_monthly_limit" = "本月的章節生成額度已用完，請下個月再試。";

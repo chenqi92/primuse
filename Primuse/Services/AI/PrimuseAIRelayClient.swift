@@ -762,6 +762,18 @@ actor PrimuseAIRelayClient {
         )
     }
 
+    func spokenChapters(_ request: SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer {
+        var completed: SpokenChapterGeneration.Answer?
+        try await performStreamingFeature(
+            path: "/v1/spoken/chapters", purpose: "spoken_chapters", input: request,
+            output: SpokenChapterGeneration.Answer.self, progress: LibraryInsightProgress.self
+        ) { event in
+            if case .completed(let answer) = event { completed = answer }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        return try SpokenChapterGeneration.validate(completed, for: request)
+    }
+
     /// A short intro for one album or artist. Only names (album, artist,
     /// tracks, genres) are sent; the answer is validated again on the device.
     func libraryInsight(

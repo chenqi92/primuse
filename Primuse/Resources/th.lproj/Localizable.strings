@@ -6914,3 +6914,17 @@
 "locate_current_song" = "ค้นหาเพลงปัจจุบัน";
 
 "clear_filters_and_locate" = "ล้างตัวกรองและค้นหา";
+
+"chapter_generation_title" = "บทด้วย AI";
+"chapter_generation_whole_book" = "ทั้งเล่ม";
+"chapter_generation_start" = "สร้างบท";
+"chapter_generation_failed" = "สร้างบทไม่สำเร็จ โปรดลองอีกครั้ง";
+"chapter_generation_needs_timed_text" = "ต้องมีบทถอดเสียงพร้อมเวลา โปรดรับหรือสร้างบทถอดเสียงก่อน";
+"chapter_generation_changed" = "บทถูกเปลี่ยนแปลงจากที่อื่น โปรดสร้างใหม่";
+"chapter_generation_apply" = "ใช้บท";
+"chapter_generation_use" = "ใช้บทที่สร้าง";
+"chapter_generation_upload" = "จะส่งบทถอดเสียงไปยังบริการ AI ที่เลือกเพื่อสร้างบท โดยไม่อัปโหลดเสียง เนื้อหายาวจะใช้หลายคำขอ";
+"chapter_generation_name" = "ชื่อบท";
+"chapter_generation_rename" = "เปลี่ยนชื่อบท";
+"chapter_generation_daily_limit" = "ใช้โควตาสร้างบทของวันนี้หมดแล้ว โปรดลองใหม่พรุ่งนี้";
+"chapter_generation_monthly_limit" = "ใช้โควตาสร้างบทของเดือนนี้หมดแล้ว โปรดลองใหม่เดือนหน้า";

@@ -1233,7 +1233,14 @@ final class AudioPlayerService {
     /// Chapter marks for the current item, empty for everything without them.
     /// Populated off the main actor after playback starts; see
     /// `AudioPlayerService+SpokenWord`.
-    var spokenWordChapters: [MediaChapter] = []
+    var originalSpokenWordChapters: [MediaChapter] = []
+    var spokenWordChapters: [MediaChapter] {
+        get {
+            if let id = currentSong?.id, let chapters = library?.generatedChapters(for: id) { return chapters }
+            return originalSpokenWordChapters
+        }
+        set { originalSpokenWordChapters = newValue }
+    }
     /// Which of `spokenWordChapters` covers the play head, or nil before the
     /// first mark. Refreshed on the playback clock.
     var currentChapterIndex: Int?

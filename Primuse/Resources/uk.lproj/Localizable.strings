@@ -6914,3 +6914,17 @@
 "locate_current_song" = "Знайти поточну пісню";
 
 "clear_filters_and_locate" = "Скинути фільтри та знайти";
+
+"chapter_generation_title" = "Розділи з ШІ";
+"chapter_generation_whole_book" = "Уся книга";
+"chapter_generation_start" = "Створити розділи";
+"chapter_generation_failed" = "Не вдалося створити розділи. Спробуйте ще раз.";
+"chapter_generation_needs_timed_text" = "Потрібна розшифровка з часовими мітками. Спочатку отримайте або створіть її.";
+"chapter_generation_changed" = "Розділи змінено в іншому місці. Створіть їх знову.";
+"chapter_generation_apply" = "Застосувати розділи";
+"chapter_generation_use" = "Використовувати створені розділи";
+"chapter_generation_upload" = "Розшифровку буде надіслано вибраному сервісу ШІ для створення розділів. Аудіо не завантажується. Довгі матеріали обробляються кількома запитами.";
+"chapter_generation_name" = "Назва розділу";
+"chapter_generation_rename" = "Перейменувати розділ";
+"chapter_generation_daily_limit" = "Денний ліміт створення розділів вичерпано. Спробуйте завтра.";
+"chapter_generation_monthly_limit" = "Місячний ліміт створення розділів вичерпано. Спробуйте наступного місяця.";

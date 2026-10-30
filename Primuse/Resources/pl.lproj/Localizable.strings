@@ -6914,3 +6914,17 @@
 "locate_current_song" = "Znajdź bieżący utwór";
 
 "clear_filters_and_locate" = "Wyczyść filtry i znajdź";
+
+"chapter_generation_title" = "Rozdziały AI";
+"chapter_generation_whole_book" = "Cała książka";
+"chapter_generation_start" = "Generuj rozdziały";
+"chapter_generation_failed" = "Nie udało się wygenerować rozdziałów. Spróbuj ponownie.";
+"chapter_generation_needs_timed_text" = "Wymagana jest transkrypcja ze znacznikami czasu. Najpierw ją pobierz lub wygeneruj.";
+"chapter_generation_changed" = "Rozdziały zmieniono w innym miejscu. Wygeneruj je ponownie.";
+"chapter_generation_apply" = "Zastosuj rozdziały";
+"chapter_generation_use" = "Używaj wygenerowanych rozdziałów";
+"chapter_generation_upload" = "Transkrypcja zostanie wysłana do wybranej usługi AI w celu wygenerowania rozdziałów. Dźwięk nie zostanie przesłany. Długie treści wymagają wielu żądań.";
+"chapter_generation_name" = "Nazwa rozdziału";
+"chapter_generation_rename" = "Zmień nazwę rozdziału";
+"chapter_generation_daily_limit" = "Wykorzystano dzienny limit generowania rozdziałów. Spróbuj jutro.";
+"chapter_generation_monthly_limit" = "Wykorzystano miesięczny limit generowania rozdziałów. Spróbuj w przyszłym miesiącu.";

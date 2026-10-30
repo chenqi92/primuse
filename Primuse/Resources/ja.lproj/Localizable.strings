@@ -7009,3 +7009,17 @@
 "locate_current_song" = "現在の曲を表示";
 
 "clear_filters_and_locate" = "フィルタを解除して表示";
+
+"chapter_generation_title" = "AIチャプター";
+"chapter_generation_whole_book" = "本全体";
+"chapter_generation_start" = "チャプターを生成";
+"chapter_generation_failed" = "チャプターを生成できませんでした。もう一度お試しください。";
+"chapter_generation_needs_timed_text" = "タイムスタンプ付きの文字起こしが必要です。先に取得または生成してください。";
+"chapter_generation_changed" = "チャプターが別の場所で変更されました。再生成してください。";
+"chapter_generation_apply" = "チャプターを適用";
+"chapter_generation_use" = "生成したチャプターを使用";
+"chapter_generation_upload" = "文字起こしを選択したAIサービスに送信してチャプターを生成します。音声はアップロードしません。長いコンテンツは複数のリクエストに分けて処理します。";
+"chapter_generation_name" = "チャプター名";
+"chapter_generation_rename" = "チャプター名を変更";
+"chapter_generation_daily_limit" = "本日のチャプター生成の上限に達しました。明日もう一度お試しください。";
+"chapter_generation_monthly_limit" = "今月のチャプター生成の上限に達しました。来月もう一度お試しください。";

@@ -6458,10 +6458,22 @@ final class TVStore {
         )
     }
 
+    var chapterGenerationSong: Song? {
+        if let id = currentPodcastEpisodeID, let episode = PodcastStore.shared.episode(id: id) {
+            return PodcastPlaybackSong.song(for: episode.episode, show: episode.show)
+        }
+        return currentSongID.flatMap { library.song(id: $0) }
+    }
+
+    func chapterTranscript(for song: Song) async -> [LyricLine] {
+        await coordinator.chapterTranscript(for: song)
+    }
+
     /// 这一条文件里的章节标记(AVPlayer 从流里读,SFB 路径从下载的文件里读);
     /// 读不出来的播客单集用 feed 和 ID3 标签里的。
     var spokenWordChapters: [MediaChapter] {
         guard currentItemIsSpokenWord, !isLiveRadio else { return [] }
+        if let chapters = library.generatedChapters(for: nowPlaying.songID) { return chapters }
         return engine.chapters.isEmpty ? podcastChapters : engine.chapters
     }
 

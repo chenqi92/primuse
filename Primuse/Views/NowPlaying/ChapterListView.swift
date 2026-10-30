@@ -32,6 +32,7 @@ struct SpokenWordContentsView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
     @State private var tab: Tab = .contents
+    @State private var chapterSong: Song?
     @State private var renaming: SpokenWordBookmark?
     @State private var renameText = ""
     @State private var bookmarkFeedbackToken = 0
@@ -69,6 +70,16 @@ struct SpokenWordContentsView: View {
                 content
             }
         }
+        .sheet(item: $chapterSong) { song in
+            if let library = player.library, let manager = player.sourceManager {
+                SpokenChapterGenerationSheet(
+                    song: song,
+                    bookSongs: player.currentBookItemIDs.compactMap { library.song(id: $0) },
+                    library: library,
+                    loadTranscript: { await LyricsLoader.load(for: $0, sourceManager: manager, allowsAutomaticOnlineLyrics: false) }
+                )
+            }
+        }
         .alert(
             String(localized: "spoken_word_rename_bookmark"),
             isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
@@ -100,6 +111,17 @@ struct SpokenWordContentsView: View {
                 .frame(height: 0.5)
                 .padding(.leading, Self.tabLeadingInset)
 
+            if let song = player.currentSong {
+                HStack {
+                    Spacer()
+                    Button { chapterSong = song } label: {
+                        Label("chapter_generation_title", systemImage: "list.bullet.rectangle")
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+            }
             VStack(spacing: 0) {
                 switch tab {
                 case .contents:
@@ -572,21 +594,5 @@ struct SpokenWordBookmarkRowView: View {
         let time = ChapterTimeFormatter.string(from: entry.bookmark.position)
         guard let part = entry.partNumber else { return time }
         return String(format: String(localized: "spoken_word_bookmark_where_format"), part, time)
-    }
-}
-
-/// Chapter positions run to many hours, so the hour component appears only
-/// when it is non-zero rather than always padding the string.
-enum ChapterTimeFormatter {
-    static func string(from time: TimeInterval) -> String {
-        guard time.isFinite, time >= 0 else { return "0:00" }
-        let total = Int(time.rounded())
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%d:%02d", minutes, seconds)
     }
 }

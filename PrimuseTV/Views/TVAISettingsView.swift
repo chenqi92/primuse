@@ -337,6 +337,11 @@ struct TVAISettingsView: View {
                 routeRow(.lyricsRomanization)
             }
             TVAIDivider()
+            TVAIActionRow(icon: "list.bullet.rectangle", title: AIFeature.spokenChapters.localizedTitle,
+                          value: editor.routeTitle(for: .spokenChapters), trailing: "chevron.right") {
+                routeTarget = TVAIRouteTarget(feature: .spokenChapters)
+            }
+            TVAIDivider()
             // 遥控器上按一下换到下一档:混合 → 歌曲 → 专辑。
             TVAIActionRow(
                 icon: "square.stack",

@@ -538,6 +538,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
     }
 
+    func spokenChapters(_ request: SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer {
+        let input = String(decoding: try JSONEncoder().encode(request), as: UTF8.self)
+        let output = try await generateText(
+            instructions: SpokenChapterGeneration.instructions, input: input, maximumTokens: 4_000
+        )
+        return try SpokenChapterGeneration.decode(output, for: request)
+    }
+
     func listeningMood(
         _ request: ListeningMoodAIExchange.Request
     ) async throws -> ListeningMoodAIExchange.Answer {

@@ -6914,3 +6914,17 @@
 "locate_current_song" = "Найти текущую песню";
 
 "clear_filters_and_locate" = "Сбросить фильтры и найти";
+
+"chapter_generation_title" = "Главы с ИИ";
+"chapter_generation_whole_book" = "Вся книга";
+"chapter_generation_start" = "Создать главы";
+"chapter_generation_failed" = "Не удалось создать главы. Повторите попытку.";
+"chapter_generation_needs_timed_text" = "Нужна расшифровка с временными метками. Сначала получите или создайте её.";
+"chapter_generation_changed" = "Главы были изменены в другом месте. Создайте их заново.";
+"chapter_generation_apply" = "Применить главы";
+"chapter_generation_use" = "Использовать созданные главы";
+"chapter_generation_upload" = "Расшифровка будет отправлена выбранному сервису ИИ для создания глав. Аудио не загружается. Длинные материалы обрабатываются несколькими запросами.";
+"chapter_generation_name" = "Название главы";
+"chapter_generation_rename" = "Переименовать главу";
+"chapter_generation_daily_limit" = "Дневной лимит создания глав исчерпан. Попробуйте завтра.";
+"chapter_generation_monthly_limit" = "Месячный лимит создания глав исчерпан. Попробуйте в следующем месяце.";

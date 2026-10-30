@@ -488,3 +488,19 @@ public enum ISOBaseMediaChapterParser {
         return value
     }
 }
+
+/// Chapter positions run to many hours, so the hour component appears only
+/// when it is non-zero rather than always padding the string.
+public enum ChapterTimeFormatter {
+    public static func string(from time: TimeInterval) -> String {
+        guard time.isFinite, time >= 0 else { return "0:00" }
+        let total = Int(time.rounded())
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
