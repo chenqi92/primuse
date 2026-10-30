@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import SwiftUI
 import XCTest
 @testable import Primuse
 
@@ -242,5 +243,113 @@ final class MacSongTableAndIconTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         addTeardownBlock { defaults.removePersistentDomain(forName: name) }
         return defaults
+    }
+}
+
+@MainActor
+final class MacHomeScrollingTests: XCTestCase {
+    func testDashboardDefersOffscreenSectionsAndTheirUpdates() async throws {
+        let probe = MacHomeScrollProbe()
+        let window = makeWindow(probe: probe, width: 880)
+        defer { window.contentView = nil; window.close() }
+        try await settle(window)
+        XCTAssertTrue(probe.active.contains(0))
+        XCTAssertFalse(probe.evaluations.keys.contains(9), "The last section must not be built at the top")
+        XCTAssertLessThan(probe.active.count, 10)
+
+        let initial = probe.evaluations
+        probe.revision += 1
+        try await settle(window)
+        XCTAssertGreaterThan(probe.evaluations[0, default: 0], initial[0, default: 0])
+        XCTAssertNil(probe.evaluations[9], "Offscreen sections must not observe live updates yet")
+        print("HOME_SCROLL initialSections=\(initial.count) activeSections=\(probe.active.count)")
+    }
+
+    func testDashboardReachesLastSectionAndReturnsWithoutChangingLayout() async throws {
+        for width: CGFloat in [640, 1280] {
+            let probe = MacHomeScrollProbe()
+            probe.hiddenSections = [1, 4, 7]
+            let window = makeWindow(probe: probe, width: width)
+            defer { window.contentView = nil; window.close() }
+            try await settle(window)
+            let scroll = try XCTUnwrap(findScrollView(in: window.contentView!))
+            let document = try XCTUnwrap(scroll.documentView)
+            let initialHeight = document.frame.height
+            XCTAssertLessThanOrEqual(document.frame.width, width + 1)
+
+            for _ in 0..<3 {
+                scroll.contentView.scroll(to: CGPoint(x: 0, y: max(0, document.frame.height - scroll.contentSize.height)))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                try await settle(window)
+            }
+            XCTAssertTrue(probe.active.contains(9), "The last section must be reachable")
+            XCTAssertFalse(probe.active.contains(0), "The hero must leave the active view tree")
+
+            scroll.contentView.scroll(to: .zero)
+            scroll.reflectScrolledClipView(scroll.contentView)
+            try await settle(window)
+            XCTAssertTrue(probe.active.contains(0))
+            XCTAssertFalse(probe.active.contains(9))
+            XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 1)
+            XCTAssertEqual(document.frame.height, initialHeight, accuracy: 1)
+            XCTAssertEqual(document.frame.height, 7 * 300 + 6 * PMSpace.xxl + PMSpace.l24 + 104, accuracy: 1,
+                           "Hidden sections must not leave extra spacing")
+        }
+    }
+
+    private func makeWindow(probe: MacHomeScrollProbe, width: CGFloat) -> NSWindow {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 520),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: MacHomeDashboardScroll {
+            // Match the dashboard's conditional content and section loop.
+            if probe.hasContent {
+                ForEach(0..<10) { index in
+                    if !probe.hiddenSections.contains(index) {
+                        MacHomeScrollProbeSection(index: index, probe: probe)
+                    }
+                }
+            }
+        })
+        host.sizingOptions = []
+        host.frame = window.contentLayoutRect
+        window.contentView = host
+        window.orderFront(nil)
+        return window
+    }
+
+    private func settle(_ window: NSWindow) async throws {
+        try await Task.sleep(for: .milliseconds(150))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    private func findScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap { self.findScrollView(in: $0) }.first
+    }
+}
+
+@MainActor @Observable
+private final class MacHomeScrollProbe {
+    var hasContent = true
+    var revision = 0
+    var hiddenSections: Set<Int> = []
+    @ObservationIgnored var evaluations: [Int: Int] = [:]
+    @ObservationIgnored var active: Set<Int> = []
+}
+
+private struct MacHomeScrollProbeSection: View {
+    let index: Int
+    let probe: MacHomeScrollProbe
+
+    var body: some View {
+        let _ = { probe.evaluations[index, default: 0] += 1 }()
+        Text("Section \(index), revision \(probe.revision)")
+            .frame(maxWidth: .infinity)
+            .frame(height: 300)
+            .background(.blue.opacity(0.1))
+            .onAppear { probe.active.insert(index) }
+            .onDisappear { probe.active.remove(index) }
     }
 }

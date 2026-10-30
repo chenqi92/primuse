@@ -3,6 +3,23 @@ import SwiftUI
 import AppKit
 import PrimuseKit
 
+struct MacHomeDashboardScroll<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            // 间距随实际内容一起出现，避免含空分支的区块在滚动后多算一份栈间距。
+            LazyVStack(alignment: .leading, spacing: 0) {
+                content
+                    .padding(.bottom, PMSpace.xxl)
+            }
+            .padding(.horizontal, PMSpace.xxxl)
+            .padding(.top, PMSpace.l24)
+            .padding(.bottom, 104 - PMSpace.xxl)
+        }
+    }
+}
+
 @MainActor
 private final class MacHomeRefreshCoordinator {
     var debounceTask: Task<Void, Never>?
@@ -86,9 +103,6 @@ struct MacHomeView: View {
     /// `scenePhase` 是任务创建那一刻的值, 首页若在窗口进入前台之前出现, 首次加载会被跳过。
     @State private var isSceneActive = false
     @State private var activeSection: HomeSectionDestination?
-    /// 进首页那一帧只建一屏左右的区块(和骨架同一套估高, 见 `firstScreenSections`), 其余等入场
-    /// 淡入过去、或者一开始往下滚再建: 外层不是惰性栈, 十来块一次建完, 换页那一帧要多等几十毫秒。
-    @State private var revealsAllSections = false
     // 合并 searchRevision 风暴 —— MusicLibrary 在扫描的每个 upsert 批次都 bump
     // searchRevision, 不去抖会触发几十次全库重算。cancel + 重启计时, 只在最后
     // 一次 revision 落定后重算。
@@ -233,41 +247,21 @@ struct MacHomeView: View {
     }
 
     private var dashboard: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: PMSpace.xxl) {
-                if updateChecker.availableUpdate != nil {
-                    updateBanner
-                }
-
-                switch homePresentationState {
-                case .loading:
-                    homeLoadingSkeleton
-                        .pmAppearFade(.contentAppear)
-                case .content:
-                    resolvedDashboardContent(hasContent: true)
-                case .empty:
-                    resolvedDashboardContent(hasContent: false)
-                }
+        MacHomeDashboardScroll {
+            if updateChecker.availableUpdate != nil {
+                updateBanner
             }
-            .padding(.horizontal, PMSpace.xxxl)
-            .padding(.top, PMSpace.l24)
-            .padding(.bottom, 104)
-        }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y > 1
-        } action: { _, scrolled in
-            if scrolled { revealsAllSections = true }
-        }
-        .task {
-            // 和 `pmPageEnter` 的入场一样长: 补建的几块落在淡入之后, 不和它抢同一帧。
-            try? await Task.sleep(for: .milliseconds(300))
-            revealsAllSections = true
-        }
-    }
 
-    /// 首屏要画的区块。补齐之后为 nil, 全部都画。
-    private var firstScreenSections: Set<MacHomeSection>? {
-        revealsAllSections ? nil : Set(skeletonSections)
+            switch homePresentationState {
+            case .loading:
+                homeLoadingSkeleton
+                    .pmAppearFade(.contentAppear)
+            case .content:
+                resolvedDashboardContent(hasContent: true)
+            case .empty:
+                resolvedDashboardContent(hasContent: false)
+            }
+        }
     }
 
     /// Mac 首页宽:网格按宽度分列、张数凑满整行;横排只铺一行。
@@ -295,11 +289,8 @@ struct MacHomeView: View {
             emptyState
                 .pmAppearFade(.contentAppear)
         }
-        let firstScreen = firstScreenSections
         ForEach(MacHomeSectionLayout.decodeOrder(sectionOrderRawValue)) { section in
-            if firstScreen?.contains(section) ?? true {
-                dashboardSection(section, hasContent: hasContent)
-            }
+            dashboardSection(section, hasContent: hasContent)
         }
     }
 
