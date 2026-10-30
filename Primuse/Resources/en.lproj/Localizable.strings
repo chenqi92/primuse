@@ -6752,3 +6752,7 @@
 "home_hero_style_carousel" = "3D Carousel";
 "home_hero_style_featured" = "Featured Cards";
 "home_hero_featured_title" = "Featured Picks";
+
+"locate_current_song" = "Locate Current Song";
+
+"clear_filters_and_locate" = "Clear Filters and Locate";

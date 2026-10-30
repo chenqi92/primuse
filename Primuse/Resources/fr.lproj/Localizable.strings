@@ -6991,3 +6991,7 @@
 "home_hero_style_carousel" = "Carrousel 3D";
 "home_hero_style_featured" = "Cartes à la une";
 "home_hero_featured_title" = "À la une";
+
+"locate_current_song" = "Localiser le morceau actuel";
+
+"clear_filters_and_locate" = "Effacer les filtres et localiser";

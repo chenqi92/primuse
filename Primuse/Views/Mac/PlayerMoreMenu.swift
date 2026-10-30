@@ -438,6 +438,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
                 }
             } else if let song = player.currentSong {
+                let songID = NowPlayingLibraryActions.locationSongID(for: song, library: library)
+                if !player.isLiveRadio, library.visibleSong(id: songID) != nil {
+                    menuRow(title: "show_in_library", symbol: "music.note.list") {
+                        SongLibraryNavigation.shared.pending = SongLibraryLocationRequest(songID: songID)
+                        MainWindowOpener.openMainWindow()
+                    }
+                    .accessibilityIdentifier("nowPlaying.showInLibrary")
+                }
                 if let album = matchingAlbum(for: song) {
                     menuRow(titleText: "\(goToAlbumTitle) · \(album.title)",
                             symbol: "rectangle.stack.fill") {

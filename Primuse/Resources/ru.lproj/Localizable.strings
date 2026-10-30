@@ -6897,3 +6897,7 @@
 "home_hero_style_carousel" = "3D-карусель";
 "home_hero_style_featured" = "Карточки подборки";
 "home_hero_featured_title" = "Рекомендуем";
+
+"locate_current_song" = "Найти текущую песню";
+
+"clear_filters_and_locate" = "Сбросить фильтры и найти";

@@ -6991,3 +6991,7 @@
 "home_hero_style_carousel" = "3D-Karussell";
 "home_hero_style_featured" = "Empfehlungskarten";
 "home_hero_featured_title" = "Empfehlungen";
+
+"locate_current_song" = "Aktuellen Titel finden";
+
+"clear_filters_and_locate" = "Filter löschen und finden";

@@ -286,6 +286,12 @@ struct MacContentView: View {
                         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenSpokenWordBook)) { note in
                             openSpokenWordBook(note.object as? String)
                         }
+                        .onChange(of: SongLibraryNavigation.shared.pending, initial: true) { _, request in
+                            guard let request else { return }
+                            SongLibraryNavigation.shared.pending = nil
+                            songLocationRequest = request
+                            selectRoute(.section(.songs))
+                        }
                         .onReceive(NotificationCenter.default.publisher(for: .primuseRevealSearchResults)) { _ in
                             closeNowPlayingForSearch()
                         }

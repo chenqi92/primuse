@@ -6991,3 +6991,7 @@
 "home_hero_style_carousel" = "3D 캐러셀";
 "home_hero_style_featured" = "추천 카드";
 "home_hero_featured_title" = "추천 음악";
+
+"locate_current_song" = "현재 곡 찾기";
+
+"clear_filters_and_locate" = "필터 해제 후 찾기";

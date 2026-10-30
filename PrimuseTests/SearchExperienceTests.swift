@@ -244,3 +244,92 @@ final class SearchExperienceTests: XCTestCase {
         ))
     }
 }
+
+@MainActor
+final class SongListLocationTests: XCTestCase {
+    func testVisibleSongHighlightsWithoutScrollingAndCanBeLocatedAgain() throws {
+        let location = SongListLocation()
+        defer { location.cancel() }
+        location.visibilityChanged("current", visible: true)
+        location.locate("current")
+        let first = try XCTUnwrap(location.request)
+        XCTAssertFalse(location.needsScroll)
+        XCTAssertEqual(location.highlightedSongID, "current")
+        location.locate("current")
+        XCTAssertNotEqual(location.request?.id, first.id)
+        XCTAssertFalse(location.needsScroll)
+        XCTAssertEqual(location.highlightedSongID, "current")
+    }
+
+    func testHighlightLifetimeStartsAfterTargetBecomesVisible() async throws {
+        let location = SongListLocation(highlightDuration: .milliseconds(80))
+        defer { location.cancel() }
+        location.locate("far-away")
+        let request = try XCTUnwrap(location.request)
+        try await Task.sleep(for: .milliseconds(130))
+        XCTAssertEqual(location.request?.id, request.id)
+        XCTAssertTrue(location.needsScroll)
+        XCTAssertNil(location.highlightedSongID)
+        location.visibilityChanged("far-away", visible: true)
+        XCTAssertEqual(location.highlightedSongID, "far-away")
+        XCTAssertFalse(location.needsScroll)
+        try await Task.sleep(for: .milliseconds(130))
+        XCTAssertNil(location.request)
+        XCTAssertNil(location.highlightedSongID)
+    }
+
+    func testRepeatedTapRejectsStaleScrollCompletion() throws {
+        let location = SongListLocation()
+        defer { location.cancel() }
+        location.locate("same-song")
+        let first = try XCTUnwrap(location.request)
+        location.locate("same-song")
+        let second = try XCTUnwrap(location.request)
+        location.reveal("same-song", requestID: first.id)
+        XCTAssertNil(location.highlightedSongID)
+        XCTAssertTrue(location.needsScroll)
+        location.reveal("same-song", requestID: second.id)
+        XCTAssertEqual(location.highlightedSongID, "same-song")
+    }
+
+    func testNewTargetSurvivesOldHighlightTimeout() async throws {
+        let location = SongListLocation(highlightDuration: .milliseconds(70))
+        defer { location.cancel() }
+        location.locate("previous")
+        location.visibilityChanged("previous", visible: true)
+        location.locate("next")
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(location.request?.songID, "next")
+        XCTAssertTrue(location.needsScroll)
+        XCTAssertNil(location.highlightedSongID)
+        location.visibilityChanged("previous", visible: true)
+        XCTAssertNil(location.highlightedSongID)
+    }
+
+    func testLeavingViewportRequiresAnotherScrollAndCancellationStopsLateReveal() throws {
+        let location = SongListLocation()
+        location.visibilityChanged("current", visible: true)
+        location.locate("current")
+        location.visibilityChanged("current", visible: false)
+        location.locate("current")
+        let pending = try XCTUnwrap(location.request)
+        XCTAssertTrue(location.needsScroll)
+        location.cancel()
+        location.reveal("current", requestID: pending.id)
+        XCTAssertNil(location.request)
+        XCTAssertNil(location.highlightedSongID)
+        XCTAssertFalse(location.needsScroll)
+    }
+
+    func testLocationKeepsSourceIdentityForSameNamedSongs() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let first = Song(id: "source-a-song", title: "Same Song", fileFormat: .flac,
+                         filePath: "/music/song.flac", sourceID: "source-a")
+        let second = Song(id: "source-b-song", title: "Same Song", fileFormat: .flac,
+                          filePath: "/music/song.flac", sourceID: "source-b")
+        XCTAssertEqual(NowPlayingLibraryActions.locationSongID(for: first, library: library), first.id)
+        XCTAssertEqual(NowPlayingLibraryActions.locationSongID(for: second, library: library), second.id)
+    }
+}

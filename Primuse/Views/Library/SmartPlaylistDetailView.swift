@@ -31,6 +31,7 @@ struct SmartPlaylistDetailView: View {
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     @State private var showEditor = false
+    @State private var songLocation = SongListLocation()
     @State private var matchedCache = SmartPlaylistMatchedCache()
     @State private var showNoScraperSourceAlert = false
     /// 「在歌单里找歌」的输入。只筛眼前的行：播放照旧按整张歌单。
@@ -115,10 +116,15 @@ struct SmartPlaylistDetailView: View {
         // 这里取一次快照向下传递, 把每帧的全库扫描收敛成 1 次。
         let matched = self.matched
         #if os(macOS)
-        return AnyView(macBody(matched).scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
+        return AnyView(macBody(matched)
+            .songLocationReader(songLocation, revision: shownRows(matched).map(\.id))
+            .onDisappear { songLocation.cancel() }
+            .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert))
         #else
         return AnyView(
             legacyBody(matched)
+                .songLocationReader(songLocation, revision: shownRows(matched).map(\.id))
+                .onDisappear { songLocation.cancel() }
                 // 平时不占地方, 点右上角的放大镜才在导航栏下面钉出输入框。
                 .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
                 .minimalNavigationDetail()
@@ -132,6 +138,22 @@ struct SmartPlaylistDetailView: View {
                 .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         )
         #endif
+    }
+
+    private func locateCurrentButton(_ songs: [Song]) -> some View {
+        LocateCurrentSongButton(
+            titled: verticalBarEdge != nil,
+            contains: { id in songs.contains { $0.id == id } },
+            isVisible: { id in shownRows(songs).contains { $0.id == id } }
+        ) { songID, clearsFilters in
+            if clearsFilters {
+                findText = ""
+                #if os(iOS)
+                isFindPresented = false
+                #endif
+            }
+            songLocation.locate(songID)
+        }
     }
 
     private func legacyBody(_ matched: [Song]) -> some View {
@@ -169,6 +191,7 @@ struct SmartPlaylistDetailView: View {
                 }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) { locateCurrentButton(matched) }
                     #if os(iOS)
                     // 找歌的输入框平时不出现, 这颗按钮把它钉到导航栏下面并聚焦。
                     ToolbarItem(placement: .topBarTrailing) {
@@ -264,6 +287,7 @@ struct SmartPlaylistDetailView: View {
                         showsActions: false,
                         context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                     )
+                    .songLocationRow(song.id)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                     .onTapGesture { playSong(song) }
@@ -676,6 +700,7 @@ struct SmartPlaylistDetailView: View {
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
+            locateCurrentButton(matched)
             if !matched.isEmpty {
                 MacLibraryFindField(text: $findText, prompt: "playlist_find_prompt")
             }
@@ -708,6 +733,7 @@ struct SmartPlaylistDetailView: View {
             LazyVStack(spacing: 1) {
                 ForEach(shownRows(matched)) { row in
                     macSongRow(row.song, index: row.offset, ordinalWidth: ordinalWidth)
+                        .songLocationRow(row.song.id)
                 }
             }
             .padding(.vertical, 4)

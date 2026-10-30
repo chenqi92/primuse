@@ -6897,3 +6897,7 @@
 "home_hero_style_carousel" = "3B Karusel";
 "home_hero_style_featured" = "Öne çıkan kartlar";
 "home_hero_featured_title" = "Öne çıkanlar";
+
+"locate_current_song" = "Geçerli Şarkıyı Bul";
+
+"clear_filters_and_locate" = "Filtreleri Temizle ve Bul";

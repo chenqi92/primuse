@@ -419,3 +419,96 @@ extension EnvironmentValues {
     }
 }
 #endif
+
+#if DEBUG && os(iOS)
+@MainActor
+private final class SongLocationEvidenceFixture {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("song-location-fixture")
+    let library: MusicLibrary
+    let player: AudioPlayerService
+    var playlist: Playlist?
+    let targetID = "location-3990"
+
+    init() {
+        library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let defaults = UserDefaults(suiteName: "primuse.song-location.fixture")!
+        player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in }
+        )
+    }
+
+    func prepare() async {
+        let songs = (0..<4_000).map { index in
+            Song(id: "location-\(index)", title: String(format: "Track %04d", index),
+                 albumTitle: "Location Album", artistName: "Location Artist", duration: 180,
+                 fileFormat: .flac, filePath: "/location-fixture/\(index).flac", sourceID: "location-fixture")
+        }
+        library.addSongs(songs, affectedSourceIDs: ["location-fixture"])
+        await library.waitForPendingIndex()
+        playlist = library.playlists.first(where: { $0.name == "Location Playlist" })
+            ?? library.createPlaylist(name: "Location Playlist")
+        if let playlist { library.add(songIDs: songs.map(\.id), toPlaylist: playlist.id) }
+        library.saveSmartPlaylist(SmartPlaylist(id: "location-smart", name: "Location Smart",
+                                               sortField: .title, sortDirection: .ascending))
+        player.currentSong = library.song(id: targetID)
+    }
+}
+
+struct SongLocationEvidenceHost: View {
+    @State private var fixture = SongLocationEvidenceFixture()
+    @State private var isReady = false
+    @State private var page = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_PAGE"] ?? "songs"
+    @State private var request: SongLibraryLocationRequest?
+    @State private var playerPresented = false
+
+    var body: some View {
+        Group {
+            if isReady {
+                NavigationStack {
+                    pageContent
+                        .safeAreaInset(edge: .bottom) {
+                            MiniPlayerView(onTap: { playerPresented = true })
+                                .background(.regularMaterial)
+                                .accessibilityIdentifier("locationFixture.miniPlayer")
+                        }
+                }
+                .sheet(isPresented: $playerPresented) { NowPlayingView() }
+                .environment(fixture.library)
+                .environment(fixture.player)
+                .environment(\.openLibraryDestination, { link in
+                    guard case .song(let songID) = link else { return }
+                    playerPresented = false
+                    page = "songs"
+                    request = SongLibraryLocationRequest(songID: songID)
+                })
+            } else {
+                ProgressView()
+            }
+        }
+        .task {
+            guard !isReady else { return }
+            await fixture.prepare()
+            isReady = true
+        }
+    }
+
+    @ViewBuilder
+    private var pageContent: some View {
+        switch page {
+        case "playlist":
+            if let playlist = fixture.playlist { PlaylistDetailView(playlist: playlist) }
+        case "smart":
+            SmartPlaylistDetailView(smartPlaylistID: "location-smart")
+        case "album":
+            if let album = fixture.library.visibleAlbums.first { AlbumDetailView(album: album) }
+        case "artist":
+            if let artist = fixture.library.visibleArtists.first { ArtistDetailView(artist: artist) }
+        default:
+            SongListView(locationRequest: $request)
+        }
+    }
+}
+#endif

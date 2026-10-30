@@ -6968,3 +6968,7 @@
 "home_hero_style_carousel" = "立體輪播";
 "home_hero_style_featured" = "精選卡片";
 "home_hero_featured_title" = "精選推薦";
+
+"locate_current_song" = "定位目前歌曲";
+
+"clear_filters_and_locate" = "清除篩選並定位";

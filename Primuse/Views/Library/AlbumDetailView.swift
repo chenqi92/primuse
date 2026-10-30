@@ -29,6 +29,7 @@ struct AlbumDetailView: View {
     @State private var showsRestoreFileTagsConfirmation = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var selection = SongSelectionModel()
+    @State private var songLocation = SongListLocation()
     /// 资料库里只收了几首的 Apple Music 专辑,按目录补全后的整张(见 `completeAlbum`)。
     @State private var appleMusicCompletion: AppleMusicAlbumCompletion?
     /// 目录现拼的专辑取曲目这一趟走完了(没取到时显示说明,而不是一直转圈)。
@@ -37,6 +38,13 @@ struct AlbumDetailView: View {
     init(album: Album, onMacInlineBack: (() -> Void)? = nil) {
         self.album = album
         self.onMacInlineBack = onMacInlineBack
+    }
+
+    private var locateCurrentButton: some View {
+        LocateCurrentSongButton(
+            isEditing: selection.isActive,
+            contains: { id in albumSongs.contains { $0.id == id } }
+        ) { songID, _ in songLocation.locate(songID) }
     }
 
     private var songs: [Song] {
@@ -186,6 +194,8 @@ struct AlbumDetailView: View {
             )
         }
         #endif
+        .songLocationReader(songLocation, revision: albumSongs.map(\.id))
+        .onDisappear { songLocation.cancel() }
         .songBatchActions(
             selection: selection,
             orderedIDs: { orderedSongIDs },
@@ -330,6 +340,7 @@ struct AlbumDetailView: View {
             .padding(.bottom, 16)
         }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { locateCurrentButton }
             if verticalBarEdge != nil {
                 // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
                 if #available(iOS 27.0, *) {
@@ -663,30 +674,33 @@ struct AlbumDetailView: View {
 
                 ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
                     let trackNumber = AlbumTrackOrder.displayNumber(for: song, indexInDisc: index)
-                    if isCatalogOnly(song) {
-                        catalogTrackRow(song, trackNumber: trackNumber, largestTrackNumber: largestTrackNumber)
-                    } else {
-                        SongRowView(
-                            song: song,
-                            isPlaying: player.currentSong?.id == song.id,
-                            showAlbum: false,
-                            trackNumber: trackNumber,
-                            largestTrackNumber: largestTrackNumber,
-                            selection: selection,
-                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            playSong(song)
+                    Group {
+                        if isCatalogOnly(song) {
+                            catalogTrackRow(song, trackNumber: trackNumber, largestTrackNumber: largestTrackNumber)
+                        } else {
+                            SongRowView(
+                                song: song,
+                                isPlaying: player.currentSong?.id == song.id,
+                                showAlbum: false,
+                                trackNumber: trackNumber,
+                                largestTrackNumber: largestTrackNumber,
+                                selection: selection,
+                                context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                            )
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                playSong(song)
+                            }
+                            .songSelectable(
+                                songID: song.id,
+                                selection: selection,
+                                orderedIDs: { orderedSongIDs }
+                            )
                         }
-                        .songSelectable(
-                            songID: song.id,
-                            selection: selection,
-                            orderedIDs: { orderedSongIDs }
-                        )
                     }
+                    .songLocationRow(song.id)
 
                     if index < disc.songs.count - 1 {
                         Divider()
@@ -964,6 +978,7 @@ struct AlbumDetailView: View {
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
+            locateCurrentButton
             if !downloads.isEmpty {
                 let isDownloading = isOfflineBatchRunning
                 PMRoundBtn(icon: isDownloading ? "stop.circle" : "arrow.down.circle", size: 26, iconSize: 12,
@@ -1012,8 +1027,10 @@ struct AlbumDetailView: View {
                         let nextSongID = index < disc.songs.count - 1 ? disc.songs[index + 1].id : nil
                         if isCatalogOnly(song) {
                             macTrackRow(song, index: index, nextSongID: nextSongID, ordinalWidth: ordinalWidth)
+                                .songLocationRow(song.id)
                         } else {
                             macTrackRow(song, index: index, nextSongID: nextSongID, ordinalWidth: ordinalWidth)
+                                .songLocationRow(song.id)
                                 .songSelectable(
                                     songID: song.id,
                                     selection: selection,

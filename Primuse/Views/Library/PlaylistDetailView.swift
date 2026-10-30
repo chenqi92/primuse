@@ -50,6 +50,7 @@ struct PlaylistDetailView: View {
     @State private var trackedScrapeRunID: UUID?
     @State private var isViewVisible = false
     @State private var selection = SongSelectionModel()
+    @State private var songLocation = SongListLocation()
     @State private var sortedSongsCache = PlaylistSortedSongsCache()
     /// 空串 = 歌单顺序。存 raw value 是为了让"歌单顺序"也能占一个合法取值。
     @AppStorage("playlistDetailSortOrder") private var displaySortRawValue = ""
@@ -356,6 +357,12 @@ struct PlaylistDetailView: View {
             legacyPlaylistDetail
         #endif
         }
+        #if os(macOS)
+        .environment(\.songListLocation, songLocation)
+        #else
+        .songLocationReader(songLocation, revision: displayEntries.map(\.id))
+        #endif
+        .onDisappear { songLocation.cancel() }
         #if os(iOS)
         // 平时不占地方, 点右上角的放大镜才在导航栏下面钉出输入框。
         .libraryDetailFind(isPresented: $isFindPresented, text: $findText, prompt: "playlist_find_prompt")
@@ -492,6 +499,7 @@ struct PlaylistDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { locateCurrentButton }
             #if os(iOS)
             // 找歌的输入框平时不出现, 这颗按钮把它钉到导航栏下面并聚焦。
             ToolbarItem(placement: .topBarTrailing) {
@@ -820,6 +828,7 @@ struct PlaylistDetailView: View {
                 switch entry {
                 case .song(let song):
                     songRow(song, canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil))
+                        .songLocationRow(song.id)
                 case .pending(let pending):
                     PlaylistPendingEntryRow(
                         entry: pending,
@@ -1404,6 +1413,14 @@ struct PlaylistDetailView: View {
                 .coordinateSpace(.named(Self.macScrollContentSpace))
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            .songLocationScrollPosition(
+                songLocation,
+                revision: [AnyHashable(table.rows.map(\.id)), AnyHashable(macTableRowsTop)]
+            ) { songID, viewportHeight in
+                guard let index = table.rows.firstIndex(where: { $0.id == songID }) else { return nil }
+                return macTableRowsTop + CGFloat(table.offsets.top(of: index))
+                    + Self.macSongRowHeight / 2 - viewportHeight / 2
+            }
             .onScrollGeometryChange(for: Int.self) { scroll in
                 let row = table.offsets.row(at: Double(scroll.visibleRect.minY - macTableRowsTop))
                 return row / SongListScrollWindow.rowStride * SongListScrollWindow.rowStride
@@ -1483,6 +1500,7 @@ struct PlaylistDetailView: View {
     /// 曲目表, 不再单独放重排/导出工具条 —— 那些动作都收进了 header 的更多菜单。
     private var macPlaylistToolbar: some View {
         HStack(spacing: 8) {
+            locateCurrentButton
             Text("tab_songs")
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(0.6)
@@ -1789,6 +1807,7 @@ struct PlaylistDetailView: View {
                                     playCount: playCounts[song.id, default: 0],
                                     canMoveToTop: topSongID != nil && (song.id != topSongID || displaySortOrder != nil)
                                 )
+                                    .songLocationRow(song.id)
                                     .songSelectable(
                                         songID: song.id,
                                         selection: selection,
@@ -2120,6 +2139,28 @@ struct PlaylistDetailView: View {
             #endif
         } catch {
             exportError = error.localizedDescription
+        }
+    }
+
+    private var locateCurrentButton: some View {
+        LocateCurrentSongButton(
+            isEditing: selection.isActive || showReorderSheet,
+            titled: verticalBarEdge != nil,
+            contains: { id in songs.contains { $0.id == id } },
+            isVisible: { id in
+                displayEntries.contains { entry in
+                    if case .song(let song) = entry { return song.id == id }
+                    return false
+                }
+            }
+        ) { songID, clearsFilters in
+            if clearsFilters {
+                findText = ""
+                #if os(iOS)
+                isFindPresented = false
+                #endif
+            }
+            songLocation.locate(songID)
         }
     }
 

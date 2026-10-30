@@ -399,6 +399,7 @@ private struct MiniPlayerMenuItems: View {
 
             if !player.currentItemIsSpokenWord, !player.isLiveRadio, let openLibraryDestination {
                 Section {
+                    ShowCurrentSongInLibraryButton()
                     if let album = library.linkedAlbum(for: song)
                         ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: song) {
                         Button { openLibraryDestination(.album(album)) } label: {

@@ -30,7 +30,242 @@ struct SongLibraryLocationRequest: Identifiable, Equatable, Sendable {
     }
 }
 
+@MainActor
+@Observable
+final class SongListLocation {
+    private(set) var request: SongLibraryLocationRequest?
+    private(set) var needsScroll = false
+    private(set) var highlightedSongID: String?
+    private(set) var viewportBounds: CGRect?
+    @ObservationIgnored private var visibleIDs: Set<String> = []
+    @ObservationIgnored private var highlightTask: Task<Void, Never>?
+    private let highlightDuration: Duration
+
+    init(highlightDuration: Duration = .seconds(2.4)) {
+        self.highlightDuration = highlightDuration
+    }
+
+    func locate(_ songID: String) {
+        highlightTask?.cancel()
+        highlightedSongID = nil
+        request = SongLibraryLocationRequest(songID: songID)
+        needsScroll = !visibleIDs.contains(songID)
+        if !needsScroll { reveal(songID, requestID: request?.id) }
+    }
+
+    func visibilityChanged(_ songID: String, visible: Bool) {
+        if visible {
+            visibleIDs.insert(songID)
+            reveal(songID, requestID: request?.id)
+        } else {
+            visibleIDs.remove(songID)
+        }
+    }
+
+    func setViewport(_ bounds: CGRect) {
+        if viewportBounds == nil { visibleIDs.removeAll() }
+        viewportBounds = bounds
+    }
+
+    func reveal(_ songID: String, requestID: UUID?) {
+        guard let request, request.id == requestID, request.songID == songID,
+              highlightedSongID != songID else { return }
+        needsScroll = false
+        highlightedSongID = songID
+        highlightTask?.cancel()
+        highlightTask = Task { @MainActor [weak self, highlightDuration] in
+            do { try await Task.sleep(for: highlightDuration) } catch { return }
+            guard let self, self.request?.id == request.id else { return }
+            self.highlightedSongID = nil
+            self.request = nil
+        }
+    }
+
+    func cancel() {
+        highlightTask?.cancel()
+        highlightTask = nil
+        request = nil
+        highlightedSongID = nil
+        needsScroll = false
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var songListLocation: SongListLocation? = nil
+}
+
+private struct SongLocationRowModifier: ViewModifier {
+    let songID: String
+    @Environment(\.songListLocation) private var location
+
+    func body(content: Content) -> some View {
+        let viewport = location?.viewportBounds
+        content
+        .background {
+            if location?.highlightedSongID == songID {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.accentColor.opacity(0.16))
+            }
+        }
+        .onScrollVisibilityChange(threshold: 0.9) { visible in
+            if viewport == nil { location?.visibilityChanged(songID, visible: visible) }
+        }
+        .onGeometryChange(for: Bool.self) { proxy in
+            guard let viewport else { return false }
+            let frame = proxy.frame(in: .global)
+            let visible = frame.intersection(viewport)
+            return frame.height > 0 && visible.width > 0 && visible.height >= frame.height * 0.9
+        } action: { visible in
+            if viewport != nil { location?.visibilityChanged(songID, visible: visible) }
+        }
+        .onDisappear { location?.visibilityChanged(songID, visible: false) }
+    }
+}
+
+private struct SongLocationReader: ViewModifier {
+    let location: SongListLocation
+    let revision: AnyHashable
+    var prepare: (String) -> Void
+
+    private struct Trigger: Equatable {
+        let request: SongLibraryLocationRequest?
+        let revision: AnyHashable
+    }
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content
+                .environment(\.songListLocation, location)
+                .onScrollPhaseChange { _, phase in
+                    if phase == .tracking || phase == .interacting { location.cancel() }
+                }
+                .task(id: Trigger(request: location.request, revision: revision)) {
+                    guard let request = location.request, location.needsScroll else { return }
+                    prepare(request.songID)
+                    await Task.yield()
+                    guard !Task.isCancelled, location.request?.id == request.id,
+                          location.needsScroll else { return }
+                    proxy.scrollTo(request.songID, anchor: .center)
+                }
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func songLocationRow(_ songID: String, assignsScrollID: Bool = true) -> some View {
+        if assignsScrollID {
+            modifier(SongLocationRowModifier(songID: songID)).id(songID)
+        } else {
+            modifier(SongLocationRowModifier(songID: songID))
+        }
+    }
+
+    func songLocationReader(
+        _ location: SongListLocation,
+        revision: some Hashable,
+        prepare: @escaping (String) -> Void = { _ in }
+    ) -> some View {
+        modifier(SongLocationReader(location: location, revision: AnyHashable(revision), prepare: prepare))
+    }
+}
+
+#if os(macOS)
+private struct SongLocationPositionReader: ViewModifier {
+    let location: SongListLocation
+    let revision: AnyHashable
+    let offset: (String, CGFloat) -> CGFloat?
+    @State private var position = ScrollPosition()
+    @State private var viewportHeight: CGFloat = 0
+
+    private struct Trigger: Equatable {
+        let request: SongLibraryLocationRequest?
+        let revision: AnyHashable
+        let viewportHeight: CGFloat
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.songListLocation, location)
+            .scrollPosition($position)
+            .songLocationViewport(location)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+            .onScrollPhaseChange { _, phase in
+                if phase == .tracking || phase == .interacting { location.cancel() }
+            }
+            .task(id: Trigger(request: location.request, revision: revision, viewportHeight: viewportHeight)) {
+                guard let request = location.request, location.needsScroll, viewportHeight > 0,
+                      let target = offset(request.songID, viewportHeight) else { return }
+                await Task.yield()
+                guard !Task.isCancelled, location.request?.id == request.id, location.needsScroll else { return }
+                position.scrollTo(y: max(0, target))
+            }
+    }
+}
+
+extension View {
+    func songLocationViewport(_ location: SongListLocation?, topInset: CGFloat = 0) -> some View {
+        onGeometryChange(for: CGRect.self) { proxy in
+            let bounds = proxy.frame(in: .global)
+            return CGRect(x: bounds.minX, y: bounds.minY + topInset,
+                          width: bounds.width, height: max(0, bounds.height - topInset))
+        } action: { location?.setViewport($0) }
+    }
+
+    func songLocationScrollPosition(
+        _ location: SongListLocation,
+        revision: some Hashable,
+        offset: @escaping (String, CGFloat) -> CGFloat?
+    ) -> some View {
+        modifier(SongLocationPositionReader(location: location, revision: AnyHashable(revision), offset: offset))
+    }
+}
+#endif
+
+struct LocateCurrentSongButton: View {
+    var isEditing = false
+    var titled = false
+    let contains: (String) -> Bool
+    var isVisible: (String) -> Bool = { _ in true }
+    let locate: (String, Bool) -> Void
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    @State private var filteredTarget: String?
+
+    var body: some View {
+        Group {
+            if !isEditing, !player.isLiveRadio, !player.currentItemIsSpokenWord,
+               let song = player.currentSong {
+                let canonicalID = NowPlayingLibraryActions.locationSongID(for: song, library: library)
+                let songID = contains(canonicalID) ? canonicalID : song.id
+                if contains(songID) {
+                    Button {
+                        if isVisible(songID) { locate(songID, false) }
+                        else { filteredTarget = songID }
+                    } label: {
+                        PMToolbarItemLabel("locate_current_song", systemImage: "scope", titled: titled)
+                    }
+                    .accessibilityLabel(Text("locate_current_song"))
+                    .accessibilityIdentifier("songList.locateCurrent")
+                    .help(Text("locate_current_song"))
+                }
+            }
+        }
+        .alert("locate_current_song", isPresented: Binding(
+            get: { filteredTarget != nil },
+            set: { if !$0 { filteredTarget = nil } }
+        )) {
+            Button("clear_filters_and_locate") {
+                if let target = filteredTarget, contains(target) { locate(target, true) }
+                filteredTarget = nil
+            }
+            Button("cancel", role: .cancel) { filteredTarget = nil }
+        }
+    }
+}
+
 private struct SongLocationScrollTrigger: Equatable {
+    let requestID: UUID?
     let songID: String?
     let rowOrderRevision: Int
 }
@@ -42,6 +277,7 @@ private enum MacSongLocationScrollTarget: Equatable {
 }
 
 private struct MacSongLocationScrollRequest: Equatable {
+    let requestID: UUID?
     let songID: String?
     let rowOrderRevision: Int
     let target: MacSongLocationScrollTarget?
@@ -164,6 +400,7 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
     /// 刚进页面时只建看得见的那几行, 上下的缓冲行等入场动画走完或一开始滚动再补:
     /// 一次建五十来行在 Debug 构建里要两百毫秒, 正压在换页那一帧上, 进页面就慢半拍。
     @State private var buildsFullWindow = false
+    @Environment(\.songListLocation) private var songLocation
 
     var body: some View {
         GeometryReader { geometry in
@@ -241,6 +478,7 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
             .frame(minWidth: viewportWidth, alignment: .leading)
         }
         .defaultScrollAnchor(.topLeading, for: .alignment)
+        .songLocationViewport(songLocation, topInset: chromeHeight)
         .scrollIndicators(.hidden, axes: .vertical)
         .scrollIndicators(
             allowsHorizontalScrolling ? .visible : .hidden,
@@ -819,8 +1057,8 @@ struct SongListView: View {
     /// lyricsText) whenever an ancestor refreshed.
     private let scope: Scope
     @Binding private var locationRequest: SongLibraryLocationRequest?
-    @State private var locatedSongID: String?
-    @State private var locationHighlightTask: Task<Void, Never>?
+    @State private var songLocation = SongListLocation()
+    private var locatedSongID: String? { songLocation.request?.songID }
     @State private var sortOrder: SongSortOrder
     @State private var songFilter: SongFilter
     @State private var downloadedSongIDs: Set<String> = []
@@ -1122,6 +1360,7 @@ struct SongListView: View {
 
     var body: some View {
         observedContent
+            .environment(\.songListLocation, songLocation)
             .onChange(of: folderFollowsListSort, initial: true) { _, follows in
                 folderCache.followsListSort = follows
             }
@@ -1356,9 +1595,7 @@ struct SongListView: View {
 
     private func handleViewDisappear() {
         cancelExplicitSortForNavigation()
-        locationHighlightTask?.cancel()
-        locationHighlightTask = nil
-        locatedSongID = nil
+        songLocation.cancel()
         downloadedFilterGeneration &+= 1
         downloadedFilterTask?.cancel()
         downloadedFilterTask = nil
@@ -1595,12 +1832,14 @@ struct SongListView: View {
                             onPlay: playSong
                         )
                         .equatable()
+                        .songLocationReader(songLocation, revision: listCache.rowOrderRevision)
                     } else {
                         IOSSongListContainer(
                             cache: listCache,
                             rowOrderRevision: listCache.rowOrderRevision,
                             sectionIndexEntries: listCache.sectionIndexEntries,
                             locatedSongID: locatedSongID,
+                            locationRequestID: songLocation.request?.id,
                             selection: selection,
                             showsListeningIntents: showsListeningIntentShelf,
                             onPlay: playSong
@@ -1766,7 +2005,7 @@ struct SongListView: View {
         let locatedRowOffset = locatedSongID.flatMap { songID in
             rows.firstIndex(where: { $0.id == songID })
         }
-        let scrollTarget = locatedRowOffset.map { offset in
+        let scrollTarget = (songLocation.needsScroll ? locatedRowOffset : nil).map { offset in
             switch macViewMode {
             case .list, .compact:
                 MacSongLocationScrollTarget.windowedRow(
@@ -1786,6 +2025,7 @@ struct SongListView: View {
             macRowDensity.rawValue,
         ].joined(separator: "\u{1F}")
         let request = MacSongLocationScrollRequest(
+            requestID: songLocation.request?.id,
             songID: locatedSongID,
             rowOrderRevision: listCache.rowOrderRevision,
             target: scrollTarget,
@@ -2121,6 +2361,7 @@ struct SongListView: View {
 
     private var macToolbarRow: some View {
         HStack(spacing: 8) {
+            locateCurrentButton
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
@@ -2376,6 +2617,7 @@ struct SongListView: View {
             menu: { macSongContextMenu(for: song) }
         )
         .equatable()
+        .songLocationRow(song.id, assignsScrollID: false)
     }
 
     private func compactSongRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
@@ -2396,6 +2638,7 @@ struct SongListView: View {
             menu: { macSongContextMenu(for: song) }
         )
         .equatable()
+        .songLocationRow(song.id, assignsScrollID: false)
     }
 
     private func songGrid(rows: [SongListRowIdentity]) -> some View {
@@ -2413,6 +2656,7 @@ struct SongListView: View {
                             isCurrent: player.currentSong?.id == song.id,
                             isLocated: locatedSongID == song.id
                         )
+                        .songLocationRow(song.id, assignsScrollID: false)
                         .songSelectable(
                             songID: row.id,
                             selection: selection,
@@ -2812,8 +3056,30 @@ struct SongListView: View {
     }
     #endif
 
+    private var locateCurrentButton: some View {
+        LocateCurrentSongButton(
+            isEditing: selection.isActive || showsFolderBrowser,
+            titled: verticalBarEdge != nil,
+            contains: { listCache.contains(songID: $0) },
+            isVisible: { id in filteredProjection.rows.contains { $0.id == id } }
+        ) { songID, clearsFilters in
+            if clearsFilters {
+                searchText = ""
+                #if os(iOS)
+                appliedSearchText = ""
+                #endif
+                songFilter = .all
+                #if os(macOS)
+                selectedSourceID = nil
+                #endif
+            }
+            songLocation.locate(songID)
+        }
+    }
+
     @ToolbarContentBuilder
     private var iosToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) { locateCurrentButton }
         ToolbarItem(placement: .principal) {
             SongListToolbarPrincipal(
                 selection: selection,
@@ -3428,6 +3694,7 @@ struct SongListView: View {
     }
 
     private func updateListInteraction(for phase: ScrollPhase) {
+        if phase == .tracking || phase == .interacting { songLocation.cancel() }
         switch phase {
         case .tracking, .interacting, .decelerating:
             guard !isListInteracting else { return }
@@ -3670,7 +3937,6 @@ struct SongListView: View {
             return
         }
 
-        locationHighlightTask?.cancel()
         selection.deactivate()
         searchText = ""
         songFilter = .all
@@ -3686,14 +3952,8 @@ struct SongListView: View {
         macFolderPath.removeAll()
         #endif
 
-        locatedSongID = request.songID
+        songLocation.locate(request.songID)
         locationRequest = nil
-        locationHighlightTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
-            guard !Task.isCancelled, locatedSongID == request.songID else { return }
-            locatedSongID = nil
-            locationHighlightTask = nil
-        }
     }
 
     private func playSong(_ song: Song) {
@@ -3740,6 +4000,8 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     let rowOrderRevision: Int
     let sectionIndexEntries: [SongListSectionIndexEntry]
     let locatedSongID: String?
+    let locationRequestID: UUID?
+    @Environment(\.songListLocation) private var location
     let selection: SongSelectionModel
     let showsListeningIntents: Bool
     let onPlay: (Song) -> Void
@@ -3760,6 +4022,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
             && lhs.rowOrderRevision == rhs.rowOrderRevision
             && lhs.sectionIndexEntries == rhs.sectionIndexEntries
             && lhs.locatedSongID == rhs.locatedSongID
+            && lhs.locationRequestID == rhs.locationRequestID
             && lhs.selection === rhs.selection
             && lhs.showsListeningIntents == rhs.showsListeningIntents
     }
@@ -3827,10 +4090,11 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
             scrollPosition.scrollTo(id: request.rowOffset, anchor: .top)
         }
         .task(id: SongLocationScrollTrigger(
+            requestID: locationRequestID,
             songID: locatedSongID,
             rowOrderRevision: rowOrderRevision
         )) {
-            guard let locatedSongID,
+            guard location?.needsScroll != false, let locatedSongID,
                   let rowOffset = cache.position(of: locatedSongID) else { return }
             await Task.yield()
             guard !Task.isCancelled,
@@ -4105,6 +4369,7 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
                     )
                     .padding(.horizontal)
                     .padding(.vertical, 4)
+                    .id(row.id)
 
                     if row.offset < projection.rows.count - 1 {
                         Divider()
@@ -5913,13 +6178,7 @@ private struct IOSSongListRow: View {
                 )
             }
         }
-        .background {
-            if isLocated {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.16))
-            }
-        }
-        .animation(.easeOut(duration: 0.18), value: isLocated)
+        .songLocationRow(song.id, assignsScrollID: false)
         .contentShape(Rectangle())
         .onTapGesture {
             if selection.isActive {

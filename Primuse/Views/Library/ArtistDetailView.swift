@@ -86,6 +86,8 @@ struct ArtistDetailView: View {
     private let onMacInlineBack: (() -> Void)?
 
     @State private var selection = SongSelectionModel()
+    @State private var songLocation = SongListLocation()
+    @State private var allSongsLocationID: String?
     @State private var showArtworkEditor = false
     /// 「全部歌曲」从页面根上推进去:链接在染色正文里(深色外观),从那里推的页面会带着深色外观。
     @State private var showsAllSongs = false
@@ -240,6 +242,20 @@ struct ArtistDetailView: View {
         )
     }
 
+    private var locateCurrentButton: some View {
+        LocateCurrentSongButton(
+            isEditing: selection.isActive,
+            contains: { id in songs.contains { $0.id == id } }
+        ) { songID, _ in
+            if topSongs.contains(where: { $0.id == songID }) {
+                songLocation.locate(songID)
+            } else {
+                allSongsLocationID = songID
+                showsAllSongs = true
+            }
+        }
+    }
+
     var body: some View {
         Group {
             #if os(macOS)
@@ -255,6 +271,8 @@ struct ArtistDetailView: View {
             LibrarySearchScope(title: displayArtistName, songIDs: Set(songs.map(\.id)), kind: .artist)
         }
         #endif
+        .songLocationReader(songLocation, revision: topSongs.map(\.id))
+        .onDisappear { songLocation.cancel() }
         .songBatchActions(
             selection: selection,
             orderedIDs: { selectableSongIDs },
@@ -268,7 +286,7 @@ struct ArtistDetailView: View {
             refreshListeningSnapshot()
         }
         .navigationDestination(isPresented: $showsAllSongs) {
-            ArtistAllSongsView(artist: artist)
+            ArtistAllSongsView(artist: artist, initialLocationID: allSongsLocationID)
         }
         #if os(iOS) || os(macOS)
         .sheet(isPresented: $showArtworkEditor) {
@@ -284,6 +302,7 @@ struct ArtistDetailView: View {
         #endif
         #if os(iOS)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { locateCurrentButton }
             if verticalBarEdge != nil {
                 // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
                 if #available(iOS 27.0, *) {
@@ -595,7 +614,7 @@ struct ArtistDetailView: View {
     private var iosTopSongs: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader("artist_popular") {
-                Button("see_all") { showsAllSongs = true }
+                Button("see_all") { allSongsLocationID = nil; showsAllSongs = true }
                     .font(.subheadline.weight(.semibold))
             }
 
@@ -616,6 +635,7 @@ struct ArtistDetailView: View {
                     .padding(.vertical, 7)
                     .contentShape(Rectangle())
                     .onTapGesture { playSong(song) }
+                    .songLocationRow(song.id)
                     .songSelectable(
                         songID: song.id,
                         selection: selection,
@@ -798,7 +818,11 @@ struct ArtistDetailView: View {
 
     private var macTopSongs: some View {
         VStack(alignment: .leading, spacing: 10) {
-            macSectionTitle(String(localized: "artist_popular"))
+            HStack {
+                macSectionTitle(String(localized: "artist_popular"))
+                Spacer()
+                locateCurrentButton
+            }
 
             VStack(spacing: 1) {
                 ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, song in
@@ -807,6 +831,7 @@ struct ArtistDetailView: View {
                         index: index,
                         playCount: listeningSnapshot.playCountsBySongID[song.id, default: 0]
                     )
+                    .songLocationRow(song.id)
                     .songSelectable(
                         songID: song.id,
                         selection: selection,
@@ -1059,6 +1084,8 @@ private struct ArtistAllSongsView: View {
     #endif
 
     let artist: Artist
+    var initialLocationID: String? = nil
+    @State private var songLocation = SongListLocation()
     @State private var selection = SongSelectionModel()
     @State private var songsCache = ArtistSongsCache()
 
@@ -1095,6 +1122,7 @@ private struct ArtistAllSongsView: View {
                             .padding(.vertical, 8)
                             .contentShape(Rectangle())
                             .onTapGesture { playSong(song) }
+                            .songLocationRow(song.id)
                             .songSelectable(
                                 songID: song.id,
                                 selection: selection,
@@ -1111,6 +1139,19 @@ private struct ArtistAllSongsView: View {
                     .padding(24)
                     #endif
                 }
+            }
+        }
+        .songLocationReader(songLocation, revision: songs.map(\.id))
+        .onAppear {
+            if let initialLocationID { songLocation.locate(initialLocationID) }
+        }
+        .onDisappear { songLocation.cancel() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                LocateCurrentSongButton(
+                    isEditing: selection.isActive,
+                    contains: { id in songs.contains { $0.id == id } }
+                ) { songID, _ in songLocation.locate(songID) }
             }
         }
         .navigationTitle("all_songs_section")

@@ -6897,3 +6897,7 @@
 "home_hero_style_carousel" = "แกลเลอรี 3 มิติ";
 "home_hero_style_featured" = "การ์ดแนะนำ";
 "home_hero_featured_title" = "เพลงคัดสรร";
+
+"locate_current_song" = "ค้นหาเพลงปัจจุบัน";
+
+"clear_filters_and_locate" = "ล้างตัวกรองและค้นหา";

@@ -1588,7 +1588,10 @@ struct ContentView: View {
                 LaunchSafeModeView()
             } else {
                 mainContent
-                    .environment(\.openLibraryDestination, { link in openLibraryDeepLink(link) })
+                    .environment(\.openLibraryDestination, { link in
+                        showNowPlaying = false
+                        openLibraryDeepLink(link)
+                    })
                     .environment(\.presentSleepTimer, { showSleepTimerSheet = true })
                     .sheet(isPresented: $showSleepTimerSheet) {
                         SleepTimerSheet()

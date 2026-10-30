@@ -8529,6 +8529,7 @@ struct NowPlayingView: View {
                 offersImmersiveArtworkToggle: offersImmersiveArtworkToggle
             )
         }
+        .accessibilityIdentifier("nowPlaying.more")
     }
 
     private func buildMoreMenu(
@@ -13993,6 +13994,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
+                ShowCurrentSongInLibraryButton()
                 if snapshot.isPodcastEpisode {
                     if snapshot.canOpenPodcastEpisode {
                         Button(action: onOpenBook) {

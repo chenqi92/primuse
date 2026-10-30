@@ -6897,3 +6897,7 @@
 "home_hero_style_carousel" = "3D कैरोसेल";
 "home_hero_style_featured" = "चुनिंदा कार्ड";
 "home_hero_featured_title" = "चुनिंदा संगीत";
+
+"locate_current_song" = "वर्तमान गाना ढूँढें";
+
+"clear_filters_and_locate" = "फ़िल्टर हटाकर ढूँढें";

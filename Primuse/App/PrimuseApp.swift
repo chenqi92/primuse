@@ -1703,6 +1703,8 @@ struct PrimuseApp: App {
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
             ImmersiveStageEvidenceHost()
                 .modifier(DebugEvidenceOrientation())
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "songLocation" {
+            SongLocationEvidenceHost()
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "libraryDetail" {
             LibraryDetailEvidenceHost()
                 .modifier(DebugEvidenceOrientation())

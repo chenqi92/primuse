@@ -76,6 +76,34 @@ final class NowPlayingLibraryActions {
         let canonical = AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: song)
         return library.song(id: canonical.id) == nil ? nil : canonical.id
     }
+
+    static func locationSongID(for song: Song, library: MusicLibrary) -> String {
+        if library.song(id: song.id) != nil { return song.id }
+        guard song.sourceID == AppleMusicLibraryService.systemSourceID else { return song.id }
+        return AppServices.shared.appleMusicLibrary.canonicalLibrarySong(for: song).id
+    }
+}
+
+struct ShowCurrentSongInLibraryButton: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.openLibraryDestination) private var openLibraryDestination
+
+    var body: some View {
+        if !player.isLiveRadio, !player.currentItemIsSpokenWord,
+           let song = player.currentSong,
+           let openLibraryDestination {
+            let songID = NowPlayingLibraryActions.locationSongID(for: song, library: library)
+            if library.visibleSong(id: songID) != nil {
+                Button {
+                    openLibraryDestination(.song(songID))
+                } label: {
+                    Label("show_in_library", systemImage: "music.note.list")
+                }
+                .accessibilityIdentifier("nowPlaying.showInLibrary")
+            }
+        }
+    }
 }
 
 extension View {
@@ -91,3 +119,12 @@ extension View {
         }
     }
 }
+
+#if os(macOS)
+@MainActor
+@Observable
+final class SongLibraryNavigation {
+    static let shared = SongLibraryNavigation()
+    var pending: SongLibraryLocationRequest?
+}
+#endif

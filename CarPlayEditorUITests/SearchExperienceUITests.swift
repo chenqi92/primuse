@@ -117,3 +117,145 @@ final class SearchExperienceUITests: XCTestCase {
         add(attachment)
     }
 }
+
+@MainActor
+final class SongLocationUITests: XCTestCase {
+    override func setUp() {
+        continueAfterFailure = false
+    }
+
+    func testLargeSongListLocatesPausedSongAndRepeatsAfterScrollingAway() {
+        let app = launch("songs")
+        defer { app.terminate() }
+        locateAndVerify(app)
+        app.scrollViews.firstMatch.swipeDown(velocity: .fast)
+        app.scrollViews.firstMatch.swipeDown(velocity: .fast)
+        locateAndVerify(app)
+        attach(app, "song-location-large-library")
+    }
+
+    func testPlaylistFilterRequiresConfirmationAndPreservesItOnCancel() {
+        let app = launch("playlist")
+        defer { app.terminate() }
+        let find = app.buttons["playlistDetail.find"]
+        XCTAssertTrue(find.waitForExistence(timeout: 30))
+        find.tap()
+        let field = app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("Track 0001\n")
+        let locate = app.buttons["songList.locateCurrent"]
+        locate.tap()
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
+        app.alerts.buttons["取消"].tap()
+        XCTAssertEqual(field.value as? String, "Track 0001")
+        locate.tap()
+        app.alerts.buttons["清除筛选并定位"].tap()
+        XCTAssertTrue(targetRow(app).waitForExistence(timeout: 12))
+        assertTargetVisible(app)
+        XCTAssertFalse(field.exists)
+        attach(app, "song-location-playlist-filter-cleared")
+    }
+
+    func testAlbumLocatesDistantTrack() {
+        let app = launch("album")
+        defer { app.terminate() }
+        locateAndVerify(app)
+        attach(app, "song-location-album")
+    }
+
+    func testSmartPlaylistLocatesDistantTrack() {
+        let app = launch("smart")
+        defer { app.terminate() }
+        locateAndVerify(app)
+        attach(app, "song-location-smart-playlist")
+    }
+
+    func testArtistLocatesSongOutsidePopularPreview() {
+        let app = launch("artist")
+        defer { app.terminate() }
+        locateAndVerify(app)
+        attach(app, "song-location-artist-all-songs")
+    }
+
+    func testMiniPlayerMenuRevealsSongInLibrary() {
+        let app = launch("playlist")
+        defer { app.terminate() }
+        let mini = app.buttons.matching(identifier: "locationFixture.miniPlayer")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "正在播放:")).firstMatch
+        XCTAssertTrue(mini.waitForExistence(timeout: 30))
+        mini.press(forDuration: 1)
+        let reveal = app.buttons["在资料库中显示"]
+        XCTAssertTrue(reveal.waitForExistence(timeout: 5))
+        reveal.tap()
+        XCTAssertTrue(targetRow(app).waitForExistence(timeout: 12))
+        assertTargetVisible(app)
+        attach(app, "song-location-mini-player-menu")
+    }
+
+    func testFullPlayerMenuRevealsSongInLibrary() {
+        let app = launch("playlist")
+        defer { app.terminate() }
+        let mini = app.buttons.matching(identifier: "locationFixture.miniPlayer")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "正在播放:")).firstMatch
+        XCTAssertTrue(mini.waitForExistence(timeout: 30))
+        mini.tap()
+        let more = app.buttons["nowPlaying.more"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let reveal = app.buttons["在资料库中显示"]
+        XCTAssertTrue(reveal.waitForExistence(timeout: 5))
+        reveal.tap()
+        XCTAssertTrue(targetRow(app).waitForExistence(timeout: 12))
+        assertTargetVisible(app)
+        attach(app, "song-location-full-player-menu")
+    }
+
+    private func launch(_ page: String) -> XCUIApplication {
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "songLocation"
+        app.launchEnvironment["PRIMUSE_LOCATION_PAGE"] = page
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchArguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+            "-library.songBrowseMode", "flat",
+            "-library.songFilter.v1", "all",
+            "-primuse.navigation.mode.v1", "standard",
+            "-primuse.hasSeenOnboarding", "YES",
+            "-primuse.launch.consecutiveAborts", "0",
+            "-primuse.launch.safeModeLatched", "NO"
+        ]
+        app.launch()
+        return app
+    }
+
+    private func targetRow(_ app: XCUIApplication) -> XCUIElement {
+        app.scrollViews.staticTexts["Track 3990"].firstMatch
+    }
+
+    private func locateAndVerify(_ app: XCUIApplication) {
+        let locate = app.buttons["songList.locateCurrent"].firstMatch
+        XCTAssertTrue(locate.waitForExistence(timeout: 30))
+        locate.tap()
+        XCTAssertTrue(targetRow(app).waitForExistence(timeout: 15))
+        assertTargetVisible(app)
+    }
+
+    private func assertTargetVisible(_ app: XCUIApplication) {
+        let target = targetRow(app)
+        let visibleExpectation = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: target)
+        wait(for: [visibleExpectation], timeout: 15)
+        let labels = app.scrollViews.staticTexts.matching(identifier: "Track 3990")
+        let visible = labels.allElementsBoundByIndex.contains { label in
+            label.isHittable && label.frame.midY > app.frame.minY + 100
+                && label.frame.midY < app.frame.maxY - 130
+        }
+        XCTAssertTrue(visible, "The playing track must be visible in the song list, above the mini player")
+    }
+
+    private func attach(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}

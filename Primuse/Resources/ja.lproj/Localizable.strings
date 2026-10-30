@@ -6992,3 +6992,7 @@
 "home_hero_style_carousel" = "3Dカルーセル";
 "home_hero_style_featured" = "おすすめカード";
 "home_hero_featured_title" = "おすすめ";
+
+"locate_current_song" = "現在の曲を表示";
+
+"clear_filters_and_locate" = "フィルタを解除して表示";
