@@ -2217,69 +2217,118 @@ extension CarPlaySceneDelegate {
         refreshNowPlayingButtons()
     }
 
-    /// Re-renders the shuffle/repeat/like buttons so their icons reflect the
-    /// player's current state. Called on first setup and whenever
-    /// shuffleEnabled / repeatMode / currentSong / 喜欢状态 changes.
     private func refreshNowPlayingButtons() {
         let player = AppServices.shared.playerService
         let template = CPNowPlayingTemplate.shared
         template.isUpNextButtonEnabled = !player.isLiveRadio
         template.isAlbumArtistButtonEnabled = !player.isLiveRadio && !layout.minimalNowPlaying
-        guard !player.isLiveRadio else {
-            template.updateNowPlayingButtons([])
-            return
-        }
-        let shuffleIcon = player.shuffleEnabled ? "shuffle.circle.fill" : "shuffle"
-        let repeatIcon: String
-        switch player.repeatMode {
-        case .off: repeatIcon = "repeat"
-        case .all: repeatIcon = "repeat.circle.fill"
-        case .one: repeatIcon = "repeat.1.circle.fill"
-        }
-        let shuffleButton = CPNowPlayingImageButton(
-            image: Self.symbolImage(shuffleIcon)
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.toggleShuffle()
-            }
-        }
-        let repeatButton = CPNowPlayingImageButton(
-            image: Self.symbolImage(repeatIcon)
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.cycleRepeat()
-            }
-        }
+        let actions = layout.visibleNowPlayingButtons(
+            isSpokenWord: player.currentItemIsSpokenWord, isLiveRadio: player.isLiveRadio,
+            supportsPlaybackRate: player.playbackSettings.outputMode == .effects && !player.isSystemAudioPlaybackActive
+        )
+        template.updateNowPlayingButtons(actions.map { makeNowPlayingButton($0) })
+    }
 
-        // 直播流不入库,没有"喜欢"可言 —— 上面的 guard 已经挡掉了。
-        // 听书不随机也不循环, 换成语速 (只有效果模式能变速)。
-        var buttons: [CPNowPlayingButton]
-        if layout.minimalNowPlaying {
-            buttons = []
-        } else if player.currentItemIsSpokenWord {
-            buttons = player.playbackSettings.outputMode == .effects
-                ? [CPNowPlayingPlaybackRateButton { [weak self] _ in
-                    Task { @MainActor in self?.cycleSpokenWordRate() }
-                }]
-                : []
-        } else {
-            buttons = [shuffleButton, repeatButton]
-        }
-        // 播客单集不在曲库里, 喜欢的记在播客自己那份。
-        if let song = player.currentSong, !layout.minimalNowPlaying {
-            let liked = PodcastPlaybackSong.isEpisode(song)
-                ? PodcastStore.shared.isLiked(episodeID: song.id)
-                : NowPlayingLibraryActions.isLiked(song, library: AppServices.shared.musicLibrary)
-            let likeButton = CPNowPlayingImageButton(
-                image: Self.symbolImage(liked ? "heart.fill" : "heart")
-            ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.toggleLiked()
-                }
+    func makeNowPlayingButton(_ action: CarPlayNowPlayingAction) -> CPNowPlayingButton {
+        let player = AppServices.shared.playerService
+        if action == .playbackRate {
+            let button = CPNowPlayingPlaybackRateButton { [weak self] _ in
+                Task { @MainActor in self?.cycleSpokenWordRate() }
             }
-            buttons.append(likeButton)
+            button.isEnabled = player.currentSong != nil
+            return button
         }
-        template.updateNowPlayingButtons(buttons)
+        var symbol = action.symbol
+        switch action {
+        case .shuffle: symbol = player.shuffleEnabled ? "shuffle.circle.fill" : "shuffle"
+        case .repeatMode:
+            switch player.repeatMode {
+            case .off: symbol = "repeat"
+            case .all: symbol = "repeat.circle.fill"
+            case .one: symbol = "repeat.1.circle.fill"
+            }
+        case .like:
+            if let song = player.currentSong {
+                let liked = PodcastPlaybackSong.isEpisode(song)
+                    ? PodcastStore.shared.isLiked(episodeID: song.id)
+                    : NowPlayingLibraryActions.isLiked(song, library: AppServices.shared.musicLibrary)
+                symbol = liked ? "heart.fill" : "heart"
+            }
+        case .skipBackward: symbol = player.spokenWordSkipBackwardSymbol
+        case .skipForward: symbol = player.spokenWordSkipForwardSymbol
+        default: break
+        }
+        let image: UIImage
+        if action == .audioQuality, let song = player.currentSong {
+            let quality = CarPlayAudioQualityText(song: song, transcodePlan: player.activeTranscodePlan)
+            image = quality.badgeSymbol.map(Self.symbolImage)
+                ?? Self.audioQualityButtonImage(quality.badgeLines, scale: artworkScale)
+        } else {
+            image = Self.symbolImage(symbol)
+        }
+        let button = CPNowPlayingImageButton(image: image) { [weak self] _ in
+            Task { @MainActor in self?.performNowPlayingAction(action) }
+        }
+        button.isEnabled = player.currentSong != nil
+        if action == .album {
+            let library = AppServices.shared.musicLibrary
+            button.isEnabled = player.currentSong.map { song in
+                library.visibleAlbums.contains { $0.id == song.albumID }
+                    || library.visibleArtists.contains { $0.id == song.artistID }
+            } ?? false
+        }
+        return button
+    }
+
+    static func audioQualityButtonImage(_ lines: [String], scale: CGFloat) -> UIImage {
+        let size = CPNowPlayingButtonMaximumImageSize
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        let lines = Array(lines.prefix(2))
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            let lineHeight = min(15, (size.height - 2) / CGFloat(max(1, lines.count)))
+            let top = (size.height - lineHeight * CGFloat(lines.count)) / 2
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            for (index, line) in lines.enumerated() {
+                let text = line as NSString
+                var font = UIFont.systemFont(ofSize: lineHeight * 0.8, weight: .semibold)
+                let width = text.size(withAttributes: [.font: font]).width
+                if width > size.width - 2 {
+                    font = font.withSize(font.pointSize * (size.width - 2) / width)
+                }
+                text.draw(in: CGRect(x: 1, y: top + CGFloat(index) * lineHeight, width: size.width - 2, height: lineHeight),
+                          withAttributes: [.font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph])
+            }
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    private func performNowPlayingAction(_ action: CarPlayNowPlayingAction) {
+        let player = AppServices.shared.playerService
+        guard !player.isLiveRadio, player.currentSong != nil else { return }
+        switch action {
+        case .shuffle: toggleShuffle()
+        case .repeatMode: cycleRepeat()
+        case .like: toggleLiked()
+        case .audioQuality: showAudioQuality()
+        case .queue: pushQueueTemplate()
+        case .album: nowPlayingTemplateAlbumArtistButtonTapped(.shared)
+        case .playbackRate: cycleSpokenWordRate()
+        case .skipBackward: player.skipSpokenWordBackward()
+        case .skipForward: player.skipSpokenWordForward()
+        }
+    }
+
+    private func showAudioQuality() {
+        let player = AppServices.shared.playerService
+        guard let song = player.currentSong, let controller = interfaceController,
+              controller.presentedTemplate == nil else { return }
+        let quality = CarPlayAudioQualityText(song: song, transcodePlan: player.activeTranscodePlan)
+        let sheet = CPActionSheetTemplate(title: String(localized: "audio_quality_label"), message: quality.details,
+            actions: [CPAlertAction(title: String(localized: "done"), style: .cancel) { [weak self] _ in
+                Task { @MainActor in self?.interfaceController?.dismissTemplate(animated: true, completion: nil) }
+            }])
+        controller.presentTemplate(sheet, animated: true, completion: nil)
     }
 
     /// Resolves an SF Symbol name to a `UIImage`, returning a 1x1 blank
@@ -2560,7 +2609,13 @@ extension CarPlaySceneDelegate {
         withObservationTracking {
             _ = player.shuffleEnabled
             _ = player.repeatMode
-            _ = player.currentSong?.id
+            _ = player.currentSong
+            _ = player.activeTranscodePlan
+            _ = player.currentItemIsSpokenWord
+            _ = player.playbackSettings.outputMode
+            _ = player.isSystemAudioPlaybackActive
+            _ = player.spokenWordSkipForwardSeconds
+            _ = player.spokenWordSkipBackwardSeconds
             _ = player.currentIndex
             _ = player.isLiveRadio
             _ = player.currentRadioStation?.id

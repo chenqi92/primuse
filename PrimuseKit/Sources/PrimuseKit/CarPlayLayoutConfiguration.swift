@@ -103,11 +103,54 @@ public enum CarPlaySiriPresentation: String, Codable, Sendable {
     case button, row
 }
 
+public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable, Sendable {
+    case shuffle, repeatMode, like, audioQuality, queue, album, playbackRate, skipBackward, skipForward
+
+    public var id: String { rawValue }
+    public var titleKey: String {
+        switch self {
+        case .shuffle: "shuffle"
+        case .repeatMode: "repeat"
+        case .like: "player_controls_action_like"
+        case .audioQuality: "audio_quality_label"
+        case .queue: "carplay_up_next"
+        case .album: "carplay_albums_title"
+        case .playbackRate: "playback_rate"
+        case .skipBackward: "spoken_word_skip_backward"
+        case .skipForward: "spoken_word_skip_forward"
+        }
+    }
+    public var symbol: String {
+        switch self {
+        case .shuffle: "shuffle"
+        case .repeatMode: "repeat"
+        case .like: "heart"
+        case .audioQuality: "waveform"
+        case .queue: "list.bullet"
+        case .album: "square.stack"
+        case .playbackRate: "speedometer"
+        case .skipBackward: "gobackward"
+        case .skipForward: "goforward"
+        }
+    }
+
+    public static func available(isSpokenWord: Bool) -> [Self] {
+        isSpokenWord
+            ? [.skipBackward, .playbackRate, .skipForward, .like, .audioQuality, .queue]
+            : [.shuffle, .repeatMode, .like, .audioQuality, .queue, .album]
+    }
+
+    public static func defaults(isSpokenWord: Bool) -> [Self] {
+        Array(available(isSpokenWord: isSpokenWord).prefix(CarPlayLayoutConfiguration.maximumNowPlayingButtonCount))
+    }
+}
+
 public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
     public static let storageKey = "primuse.carplay.layout.v1"
     public static let maximumShortcutCount = 12
     public static let maximumBlockCount = 12
     public static let maximumSavedTabCount = 12
+    public static let maximumNowPlayingButtonCount = 5
 
     public var browseStyle: CarPlayBrowseStyle = .list
     public var sectionOrder: [CarPlayHomeSection] = CarPlayHomeSection.allCases
@@ -116,6 +159,8 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
     public var opensNowPlayingOnConnect = false
     public var opensNowPlayingAfterSelection = true
     public var minimalNowPlaying = false
+    public var customNowPlayingButtons: [CarPlayNowPlayingAction]?
+    public var customSpokenWordButtons: [CarPlayNowPlayingAction]?
     public var pinnedPlaylistIDs: [String] = []
     public var pinnedFolders = "[]"
     public var customBlocks: [CarPlayLayoutBlock]?
@@ -124,6 +169,23 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
     public var siriPresentation: CarPlaySiriPresentation = .button
 
     public init() {}
+
+    public func nowPlayingButtons(isSpokenWord: Bool) -> [CarPlayNowPlayingAction] {
+        let saved = isSpokenWord ? customSpokenWordButtons : customNowPlayingButtons
+        let available = CarPlayNowPlayingAction.available(isSpokenWord: isSpokenWord)
+        return Array(Self.unique(saved ?? CarPlayNowPlayingAction.defaults(isSpokenWord: isSpokenWord))
+            .filter { available.contains($0) }.prefix(Self.maximumNowPlayingButtonCount))
+    }
+
+    public mutating func setNowPlayingButtons(_ buttons: [CarPlayNowPlayingAction], isSpokenWord: Bool) {
+        if isSpokenWord { customSpokenWordButtons = buttons }
+        else { customNowPlayingButtons = buttons }
+    }
+
+    public func visibleNowPlayingButtons(isSpokenWord: Bool, isLiveRadio: Bool, supportsPlaybackRate: Bool) -> [CarPlayNowPlayingAction] {
+        guard !minimalNowPlaying, !isLiveRadio else { return [] }
+        return nowPlayingButtons(isSpokenWord: isSpokenWord).filter { $0 != .playbackRate || supportsPlaybackRate }
+    }
 
     public var folderIDs: [LibraryFolderNodeID] {
         get { HomeFolderPinStorage.decode(pinnedFolders) }
@@ -234,9 +296,13 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
         let collections = blocks.filter { $0.kind == .custom || $0.usesCustomContent }
         let tabs = customTabs
         let siri = siriPresentation
+        let musicButtons = customNowPlayingButtons
+        let spokenButtons = customSpokenWordButtons
         self = Self()
         customTabs = tabs
         siriPresentation = siri
+        customNowPlayingButtons = musicButtons
+        customSpokenWordButtons = spokenButtons
         pinnedPlaylistIDs = playlists
         pinnedFolders = folders
         switch preset {
@@ -279,6 +345,8 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
         presentation.pinnedFolders = "[]"
         presentation.customTabs = nil
         presentation.siriPresentation = .button
+        presentation.customNowPlayingButtons = nil
+        presentation.customSpokenWordButtons = nil
         return CarPlayLayoutPreset.allCases.first { preset in
             var candidate = Self()
             candidate.apply(preset)
@@ -300,6 +368,7 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case browseStyle, sectionOrder, hiddenSections, playsCollectionsDirectly
         case opensNowPlayingOnConnect, opensNowPlayingAfterSelection, minimalNowPlaying
+        case customNowPlayingButtons, customSpokenWordButtons
         case pinnedPlaylistIDs, pinnedFolders, customBlocks, visualStyle, customTabs, siriPresentation
     }
 
@@ -326,6 +395,12 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
         opensNowPlayingOnConnect = (try? values.decode(Bool.self, forKey: .opensNowPlayingOnConnect)) ?? opensNowPlayingOnConnect
         opensNowPlayingAfterSelection = (try? values.decode(Bool.self, forKey: .opensNowPlayingAfterSelection)) ?? opensNowPlayingAfterSelection
         minimalNowPlaying = (try? values.decode(Bool.self, forKey: .minimalNowPlaying)) ?? minimalNowPlaying
+        if let actions = try? values.decode([String].self, forKey: .customNowPlayingButtons) {
+            customNowPlayingButtons = actions.compactMap(CarPlayNowPlayingAction.init(rawValue:))
+        }
+        if let actions = try? values.decode([String].self, forKey: .customSpokenWordButtons) {
+            customSpokenWordButtons = actions.compactMap(CarPlayNowPlayingAction.init(rawValue:))
+        }
         pinnedPlaylistIDs = Self.unique((try? values.decode([String].self, forKey: .pinnedPlaylistIDs)) ?? [])
         pinnedFolders = (try? values.decode(String.self, forKey: .pinnedFolders)) ?? pinnedFolders
         if let records = try? values.decode([BlockRecord].self, forKey: .customBlocks) {

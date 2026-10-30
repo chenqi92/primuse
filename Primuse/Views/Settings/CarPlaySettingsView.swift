@@ -13,6 +13,7 @@ struct CarPlaySettingsView: View {
     @State private var addingTabContent = false
     @State private var fullScreen = false
     @State private var playbackOptions = false
+    @State private var editingSpokenWordButtons = false
     @State private var savingPreset = false
     @State private var presetName = ""
     @State private var owner = UUID()
@@ -274,7 +275,8 @@ struct CarPlaySettingsView: View {
             VStack(spacing: 0) {
                 CarPlayEditorCanvas(blocks: [], configuration: model.configuration, selectedID: nil,
                     editing: false, playerPage: true, wide: false, previewItem: previewItem ?? nowPlaying,
-                    select: { _ in }, activate: { _ in }, drop: { _, _, _ in false }, addContent: { _ in })
+                    select: { _ in }, activate: { _ in }, drop: { _, _, _ in false }, addContent: { _ in },
+                    spokenWordPlaybackPreview: editingSpokenWordButtons)
                     .frame(maxWidth: 600)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
@@ -296,7 +298,9 @@ struct CarPlaySettingsView: View {
                         }
                         .settingsAnchor("carplay.afterPlay")
                     }
+                    CarPlayNowPlayingButtonsEditor(model: model, isSpokenWord: $editingSpokenWordButtons)
                 }
+                .environment(\.editMode, .constant(.active))
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
                 .contentMargins(.top, 8)
@@ -349,6 +353,56 @@ struct CarPlaySettingsView: View {
     private func updateFolderAccess() {
         let needed = model.configuration.tabs.contains { $0.kind == .folders || $0.content?.kind == .folder } || !model.configuration.folderIDs.isEmpty || model.configuration.blocks.contains { $0.kind == .folders || $0.items.contains { $0.kind == .folder } }
         if needed { folders.acquire(owner) } else { folders.release(owner) }
+    }
+}
+
+struct CarPlayNowPlayingButtonsEditor: View {
+    let model: CarPlayEditorModel
+    @Binding var isSpokenWord: Bool
+
+    private var actions: [CarPlayNowPlayingAction] {
+        model.configuration.nowPlayingButtons(isSpokenWord: isSpokenWord)
+    }
+
+    var body: some View {
+        Section("player_controls_bar_title") {
+            Picker("player_controls_title", selection: $isSpokenWord) {
+                Text("listening_space_music").tag(false)
+                Text("listening_space_spoken_word").tag(true)
+            }
+            .pickerStyle(.segmented)
+            ForEach(actions) { action in
+                Label(LocalizedStringKey(action.titleKey), systemImage: action.symbol)
+                    .accessibilityIdentifier("carplay.button.\(action.rawValue)")
+            }
+            .onDelete { offsets in
+                var updated = actions
+                updated.remove(atOffsets: offsets)
+                update(updated)
+            }
+            .onMove { offsets, destination in
+                var updated = actions
+                updated.move(fromOffsets: offsets, toOffset: destination)
+                update(updated)
+            }
+            if actions.count < CarPlayLayoutConfiguration.maximumNowPlayingButtonCount {
+                Menu {
+                    ForEach(CarPlayNowPlayingAction.available(isSpokenWord: isSpokenWord).filter { !actions.contains($0) }) { action in
+                        Button { update(actions + [action]) } label: {
+                            Label(LocalizedStringKey(action.titleKey), systemImage: action.symbol)
+                        }
+                    }
+                } label: {
+                    Label("add", systemImage: "plus")
+                }
+                .accessibilityIdentifier("carplay.addButton")
+            }
+        }
+        .disabled(model.configuration.minimalNowPlaying)
+    }
+
+    private func update(_ actions: [CarPlayNowPlayingAction]) {
+        model.change { $0.setNowPlayingButtons(actions, isSpokenWord: isSpokenWord) }
     }
 }
 #endif

@@ -3,6 +3,42 @@ import Testing
 @testable import PrimuseKit
 
 struct CarPlayLayoutConfigurationTests {
+    @Test func olderLayoutsGainFiveButtonsWithoutChangingTheirPresentation() throws {
+        let config = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: Data(#"{"browseStyle":"covers","minimalNowPlaying":true}"#.utf8))
+        #expect(config.nowPlayingButtons(isSpokenWord: false) == [.shuffle, .repeatMode, .like, .audioQuality, .queue])
+        #expect(config.nowPlayingButtons(isSpokenWord: true) == [.skipBackward, .playbackRate, .skipForward, .like, .audioQuality])
+        #expect(config.browseStyle == .covers)
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: false, supportsPlaybackRate: true).isEmpty)
+    }
+
+    @Test func buttonDecodingKeepsKnownActionsAndHonorsEmptySelection() throws {
+        let data = Data(#"{"customNowPlayingButtons":["queue","future","audioQuality","queue","like","album","shuffle","repeatMode"],"customSpokenWordButtons":[]}"#.utf8)
+        let config = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: data)
+        #expect(config.nowPlayingButtons(isSpokenWord: false) == [.queue, .audioQuality, .like, .album, .shuffle])
+        #expect(config.nowPlayingButtons(isSpokenWord: true).isEmpty)
+        let restored = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: JSONEncoder().encode(config))
+        #expect(restored == config)
+    }
+
+    @Test func playbackContextFiltersUnavailableActionsWithoutChangingSavedButtons() {
+        var config = CarPlayLayoutConfiguration()
+        config.customSpokenWordButtons = [.queue, .playbackRate, .shuffle, .repeatMode, .audioQuality, .like]
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: false) == [.queue, .audioQuality, .like])
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: true) == [.queue, .playbackRate, .audioQuality, .like])
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: true, supportsPlaybackRate: true).isEmpty)
+    }
+
+    @Test func changingPresetsPreservesSeparateButtonChoices() {
+        var config = CarPlayLayoutConfiguration()
+        config.setNowPlayingButtons([.audioQuality, .like], isSpokenWord: false)
+        config.setNowPlayingButtons([.queue, .skipBackward], isSpokenWord: true)
+        config.apply(.focus)
+        config.apply(.quickPlay)
+        #expect(config.nowPlayingButtons(isSpokenWord: false) == [.audioQuality, .like])
+        #expect(config.nowPlayingButtons(isSpokenWord: true) == [.queue, .skipBackward])
+        #expect(config.matchingPreset == .quickPlay)
+    }
+
     @Test func switchingPresetsPreservesPinnedCollectionsAndRestoresPresentation() {
         var config = CarPlayLayoutConfiguration()
         let folder = LibraryFolderNodeID(sourceID: "nas", kind: .folder, normalizedRelativePath: "/Music/Live")

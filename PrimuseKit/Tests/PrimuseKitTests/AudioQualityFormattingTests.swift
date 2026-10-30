@@ -4,6 +4,38 @@ import Testing
 
 @Suite("Audio quality formatting")
 struct AudioQualityFormattingTests {
+    @Test func carPlayQualityUsesTranscodedStreamInsteadOfOriginalHiResFile() {
+        let song = makeSong(bitRate: 4608, sampleRate: 96_000, bitDepth: 24)
+        let original = CarPlayAudioQualityText(song: song, transcodePlan: .original)
+        #expect(original.badgeLines == ["Hi", "Res"])
+        let transcoded = CarPlayAudioQualityText(song: song, transcodePlan: .transcode(bitRateKbps: 192))
+        #expect(transcoded.badgeLines == ["MP3"])
+        #expect(transcoded.details == "MP3 · 192kbps")
+    }
+
+    @Test func carPlayQualityDoesNotClaimAnAppleMusicPlaybackFormat() {
+        var song = makeSong(sampleRate: 192_000, bitDepth: 24)
+        song.sourceID = AppleMusicLibraryIdentity.sourceID
+        let quality = CarPlayAudioQualityText(song: song, transcodePlan: .original)
+        #expect(quality.badgeLines.isEmpty)
+        #expect(quality.badgeSymbol == "music.note")
+        #expect(quality.details == "Apple Music")
+    }
+
+    @Test func carPlayQualityHandlesDSDMissingMetadataAndEffectiveBitDepth() {
+        var song = makeSong(sampleRate: 44_100, bitDepth: 24)
+        song.effectiveBitDepth = 16
+        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).badgeSymbol == "waveform")
+        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).details == "FLAC · 16bit/44.1kHz")
+        song.fileFormat = .dsf
+        song.sampleRate = 2_822_400
+        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).badgeLines == ["DSD"])
+        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).details.contains("DSD64"))
+        let missing = CarPlayAudioQualityText(song: makeSong(), transcodePlan: .original)
+        #expect(missing.badgeSymbol == "waveform")
+        #expect(missing.details == "FLAC")
+    }
+
     @Test("Formats sample rate and bit depth")
     func qualitySpec() {
         let song = makeSong(sampleRate: 44_100, bitDepth: 24)

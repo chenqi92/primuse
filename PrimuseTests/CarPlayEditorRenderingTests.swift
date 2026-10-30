@@ -7,6 +7,58 @@ import XCTest
 
 @MainActor
 final class CarPlayEditorRenderingTests: XCTestCase {
+    func testNowPlayingButtonsPersistUndoAndRenderWithinNativeImageBudget() async throws {
+        let suite = "CarPlayButtonsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = CarPlaySettingsStore(defaults: defaults)
+        let model = CarPlayEditorModel(settings: settings)
+        model.change { $0.setNowPlayingButtons([.audioQuality, .like, .album], isSpokenWord: false) }
+        model.undo()
+        XCTAssertEqual(model.configuration.nowPlayingButtons(isSpokenWord: false).count, 5)
+        model.redo()
+        model.flush()
+        XCTAssertEqual(CarPlaySettingsStore(defaults: defaults).configuration.nowPlayingButtons(isSpokenWord: false), [.audioQuality, .like, .album])
+
+        for lines in [["Hi", "Res"], ["MP3"], ["DSD"], ["ALAC"]] {
+            let image = CarPlaySceneDelegate.audioQualityButtonImage(lines, scale: 2)
+            XCTAssertEqual(image.size, CPNowPlayingButtonMaximumImageSize)
+            XCTAssertEqual(image.renderingMode, .alwaysTemplate)
+            let bitmap = try XCTUnwrap(image.cgImage)
+            let width = bitmap.width, height = bitmap.height
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            let context = try XCTUnwrap(CGContext(data: &bytes, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(bitmap, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let border = (0..<width).map { bytes[$0 * 4 + 3] }
+                + (0..<width).map { bytes[((height - 1) * width + $0) * 4 + 3] }
+                + (0..<height).map { bytes[$0 * width * 4 + 3] }
+                + (0..<height).map { bytes[($0 * width + width - 1) * 4 + 3] }
+            XCTAssertTrue(border.allSatisfy { $0 == 0 }, "Quality badge must not clip at the system image boundary")
+            XCTAssertTrue(stride(from: 3, to: bytes.count, by: 4).contains { bytes[$0] > 0 }, "Badge must contain visible text")
+            let attachment = XCTAttachment(image: image.withRenderingMode(.alwaysOriginal))
+            attachment.name = "CarPlay-quality-" + lines.joined(separator: "-").replacingOccurrences(of: "/", with: "-")
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        let delegate = CarPlaySceneDelegate()
+        XCTAssertTrue(delegate.makeNowPlayingButton(.audioQuality) is CPNowPlayingImageButton)
+        XCTAssertTrue(delegate.makeNowPlayingButton(.playbackRate) is CPNowPlayingPlaybackRateButton)
+        try await render(List {
+            CarPlayNowPlayingButtonsEditor(model: model, isSpokenWord: .constant(false))
+        }.environment(\.editMode, .constant(.active)), size: CGSize(width: 390, height: 520), name: "CarPlay-buttons-editor")
+
+        for spoken in [false, true] {
+            let canvas = CarPlayEditorCanvas(blocks: [], configuration: CarPlayLayoutConfiguration(), selectedID: nil,
+                editing: false, playerPage: true, wide: false,
+                previewItem: CarPlayHomeItem(id: "song", title: "公路音乐", subtitle: "歌手 · 专辑", symbol: "music.note", target: .nowPlaying),
+                select: { _ in }, activate: { _ in }, drop: { _, _, _ in false }, addContent: { _ in },
+                spokenWordPlaybackPreview: spoken)
+            try await render(canvas, size: CGSize(width: 800, height: 450), name: "CarPlay-five-buttons-\(spoken)")
+        }
+    }
+
     func testCanvasRendersMixedLayoutsAndFocusedPlayback() async throws {
         var cards = CarPlayLayoutBlock(id: "cards", kind: .custom, style: .cards)
         cards.title = "出发就听"

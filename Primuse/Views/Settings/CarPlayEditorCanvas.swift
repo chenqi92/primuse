@@ -20,6 +20,7 @@ struct CarPlayEditorCanvas: View {
     var selectTab: (String) -> Void = { _ in }
     var moveTab: ([String], String?) -> Bool = { _, _ in false }
     var editingMenu = false
+    var spokenWordPlaybackPreview = false
     @State private var localTabID: String?
     @State private var browseKind: CarPlayMainTab.Kind?
     @State private var artist: Artist?
@@ -537,8 +538,21 @@ struct CarPlayEditorCanvas: View {
                 }
             }.padding(.horizontal, 24)
             if !configuration.minimalNowPlaying {
-                HStack(spacing: 65) { Image(systemName: "shuffle"); Image(systemName: "repeat"); Image(systemName: "heart") }
-                    .font(.system(size: 18)).foregroundStyle(CarPlayEditorTheme.secondary).padding(.top, 6)
+                HStack(spacing: 0) {
+                    ForEach(configuration.nowPlayingButtons(isSpokenWord: spokenWordPlaybackPreview)) { action in
+                        Group {
+                            if action == .audioQuality {
+                                Image(uiImage: CarPlaySceneDelegate.audioQualityButtonImage(["Hi", "Res"], scale: 2))
+                                    .renderingMode(.template)
+                            } else {
+                                Image(systemName: action.symbol).font(.system(size: 18))
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel(Text(LocalizedStringKey(action.titleKey)))
+                    }
+                }
+                .foregroundStyle(CarPlayEditorTheme.secondary).padding(.horizontal, 48).padding(.top, 6)
             }
             Spacer(minLength: 0)
         }

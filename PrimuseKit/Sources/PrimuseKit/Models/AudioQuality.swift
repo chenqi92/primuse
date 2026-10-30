@@ -175,6 +175,45 @@ public enum NowPlayingAudioInfoMode: String, CaseIterable, Sendable {
     }
 }
 
+public struct CarPlayAudioQualityText: Equatable, Sendable {
+    public let badgeLines: [String]
+    public let badgeSymbol: String?
+    public let details: String
+
+    public init(song: Song, transcodePlan: SourceTranscodePlan) {
+        if let stream = NowPlayingAudioInfoTextPolicy.transcodedStream(plan: transcodePlan, sourceSampleRate: song.sampleRate) {
+            badgeLines = [stream.formatName]
+            badgeSymbol = nil
+            details = stream.specParts.joined(separator: " · ")
+        } else if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+            // MusicKit exposes available catalog variants, not the active stream's format.
+            badgeLines = []
+            badgeSymbol = "music.note"
+            details = "Apple Music"
+        } else {
+            switch song.audioQuality {
+            case .hiRes:
+                badgeLines = ["Hi", "Res"]
+                badgeSymbol = nil
+            case .lossless:
+                badgeLines = []
+                badgeSymbol = "waveform"
+            case .dsd:
+                badgeLines = ["DSD"]
+                badgeSymbol = nil
+            case .standard:
+                let format = song.codecFormat.displayName
+                badgeLines = format.count <= 4 ? [format] : []
+                badgeSymbol = badgeLines.isEmpty ? "waveform.path" : nil
+            }
+            details = NowPlayingAudioInfoTextPolicy.specParts(
+                formatName: song.codecFormat.displayName, sampleRate: song.sampleRate,
+                bitDepth: song.qualityBitDepth, bitRate: song.bitRate, isDSD: song.audioQuality == .dsd
+            ).joined(separator: " · ")
+        }
+    }
+}
+
 /// 播放页音频信息的文字:「FLAC · 24bit/96kHz · 2304kbps」,点开后是实际输出的采样率。
 public enum NowPlayingAudioInfoTextPolicy {
     /// 规格段,按「格式 · 位深/采样率 · 码率」排。缺的段直接省掉;DSD 的采样率写成
