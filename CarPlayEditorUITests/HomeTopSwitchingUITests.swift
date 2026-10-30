@@ -2,10 +2,78 @@ import XCTest
 
 @MainActor
 final class HomeTopSwitchingUITests: XCTestCase {
+    func testRecommendationDetailPresentation() {
+        continueAfterFailure = false
+        let app = configuredApp()
+        let baseArguments = app.launchArguments
+        addTeardownBlock { @MainActor () async throws -> Void in
+            self.continueAfterFailure = true
+            app.terminate()
+            app.launchArguments = baseArguments
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 10) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            app.terminate()
+        }
+        var regularTitleHeight: CGFloat = 0
+        for appearance in ["light", "dark", "large-text"] {
+            app.launchArguments = baseArguments + [
+                "-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0",
+                "-primuse.home.showHero", "YES", "-primuse.home.filter", "music",
+                "-primuse.home.heroStyle.v1", "featured", "-primuse.home.heroContent.v1", "songs",
+                "-primuse.appearance", appearance == "dark" ? "dark" : "light"
+            ]
+            if appearance == "large-text" {
+                app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityM"]
+            }
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            XCTAssertTrue(home.waitForExistence(timeout: 15))
+            home.tap()
+            let theme = app.buttons["home.hero.recommendation.songs.catalogRewind"]
+            XCTAssertTrue(theme.waitForExistence(timeout: 20))
+            app.scrollViews["home.hero.featured.cards"].swipeLeft()
+            theme.tap()
+            let refresh = app.buttons["home.hero.recommendation.refresh"]
+            let play = app.buttons["home.hero.recommendation.playAll"]
+            let title = app.staticTexts["home.hero.recommendation.title"]
+            XCTAssertTrue(refresh.waitForExistence(timeout: 10))
+            XCTAssertEqual(title.label, "年代回顾")
+            XCTAssertFalse(app.buttons["home.edit.heroStyle"].exists)
+            if appearance == "large-text" {
+                XCTAssertGreaterThan(title.frame.height, regularTitleHeight)
+                XCTAssertGreaterThan(refresh.frame.minY, play.frame.maxY)
+            } else {
+                XCTAssertEqual(refresh.frame.minY, play.frame.minY, accuracy: 2)
+                XCTAssertGreaterThan(play.frame.width, app.frame.width * 0.35)
+                if appearance == "light" { regularTitleHeight = title.frame.height }
+                let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.recommendation.song."))
+                XCTAssertGreaterThan(rows.count, 0)
+                XCTAssertLessThan(rows.firstMatch.frame.minY, app.frame.height * 0.45)
+                if appearance == "light" {
+                    let firstID = rows.firstMatch.identifier
+                    refresh.tap()
+                    let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                        rows.count > 0 && rows.firstMatch.identifier != firstID && refresh.isEnabled
+                    }, object: nil)
+                    XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 15), .completed)
+                }
+            }
+            attach(app, "recommendation-detail-\(appearance)")
+            let detail = app.scrollViews["home.hero.recommendation.detail"]
+            for _ in 0..<7 { detail.swipeUp() }
+            attach(app, "recommendation-detail-\(appearance)-bottom")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(app.scrollViews["home.hero.featured.cards"].waitForExistence(timeout: 5))
+            app.terminate()
+        }
+    }
+
     func testFeaturedHeroSwitchPersistsAndScrolls() {
         continueAfterFailure = false
         let app = configuredApp()
-        defer { app.terminate() }
+        addTeardownBlock { @MainActor () async throws -> Void in app.terminate() }
         app.launchArguments += [
             "-primuse.navigation.mode.v1", "standard",
             "-primuse.home.showHero", "YES", "-primuse.home.filter", "music",
@@ -13,43 +81,133 @@ final class HomeTopSwitchingUITests: XCTestCase {
         ]
         app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
         app.launch()
-        let featured = app.buttons["精选卡片"]
-        let found = featured.waitForExistence(timeout: 15)
-        if !found {
-            attach(app, "featured-editor-missing-control")
-            print(app.debugDescription)
-        }
-        XCTAssertTrue(found)
-        let original = app.buttons["立体轮播"].isSelected ? "立体轮播" : "精选卡片"
-        defer {
+        let settings = app.buttons["home.edit.heroStyle"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+        let large = app.buttons["home.hero.style.featured"]
+        XCTAssertTrue(large.waitForExistence(timeout: 5))
+        let originalStyle = ["featured", "carousel", "medium"].first { app.buttons["home.hero.style.\($0)"].isSelected } ?? "carousel"
+        large.tap()
+        let originalContent = ["albums", "songs"].first { app.buttons["home.hero.content.\($0)"].isSelected } ?? "albums"
+        addTeardownBlock { @MainActor () async throws -> Void in
+            self.continueAfterFailure = true
             app.terminate()
             app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
             app.launch()
-            if featured.waitForExistence(timeout: 15) { app.buttons[original].tap() }
+            if settings.waitForExistence(timeout: 20) {
+                settings.tap()
+                if large.waitForExistence(timeout: 5) {
+                    large.tap()
+                    app.buttons["home.hero.content.\(originalContent)"].tap()
+                    app.buttons["home.hero.style.\(originalStyle)"].tap()
+                    app.buttons["home.hero.settings.done"].tap()
+                }
+            }
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 15) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            XCTAssertFalse(app.buttons["home.edit.heroStyle"].exists)
             app.terminate()
         }
-        featured.tap()
-        XCTAssertTrue(featured.isSelected)
-        attach(app, "featured-editor")
+        app.buttons["home.hero.content.songs"].tap()
+        attach(app, "hero-settings-large-songs")
+        app.buttons["home.hero.settings.done"].tap()
         app.terminate()
-
         app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
         app.launch()
         let home = app.tabBars.buttons["首页"]
-        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        XCTAssertTrue(home.waitForExistence(timeout: 15))
         home.tap()
-        attach(app, "featured-home")
+        let collection = app.buttons["home.hero.recommendation.songs.daily"]
+        XCTAssertTrue(collection.waitForExistence(timeout: 20))
+        XCTAssertFalse(settings.exists, "Home must not expose layout settings")
         let cards = app.scrollViews["home.hero.featured.cards"]
-        let hasCards = cards.waitForExistence(timeout: 10)
-        if !hasCards { print(app.debugDescription) }
-        XCTAssertTrue(hasCards, "The saved style must render on the home page")
-        let playButtons = cards.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.featured.play."))
-        XCTAssertGreaterThan(playButtons.count, 1)
-        let first = cards.buttons[playButtons.element(boundBy: 0).identifier]
-        let initialX = first.frame.minX
+        let rewind = app.buttons["home.hero.recommendation.songs.catalogRewind"]
+        XCTAssertTrue(rewind.waitForExistence(timeout: 10))
+        XCTAssertLessThan(rewind.frame.minX, app.frame.maxX - 20, "The next themed card must be visible on the right")
+        attach(app, "hero-daily-large")
         cards.swipeLeft()
-        XCTAssertTrue(!first.exists || first.frame.minX < initialX - 40, "Swiping must move to the next card")
-        attach(app, "featured-home-scrolled")
+        XCTAssertTrue(rewind.isHittable)
+        attach(app, "hero-rewind-large")
+        rewind.tap()
+        XCTAssertTrue(app.buttons["home.hero.recommendation.refresh"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["home.hero.recommendation.title"].label, "年代回顾")
+        XCTAssertFalse(settings.exists, "Recommendation details must not expose layout settings")
+        let themeSongs = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.recommendation.song."))
+        XCTAssertGreaterThan(themeSongs.count, 0)
+        attach(app, "hero-rewind-detail")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(cards.waitForExistence(timeout: 5))
+        cards.swipeLeft()
+        let recent = app.buttons["home.hero.recommendation.songs.recentCatalog"]
+        XCTAssertTrue(recent.waitForExistence(timeout: 5))
+        XCTAssertTrue(recent.isHittable)
+        attach(app, "hero-recent-large")
+        recent.tap()
+        XCTAssertTrue(app.buttons["home.hero.recommendation.refresh"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["home.hero.recommendation.title"].label, "近年作品")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        cards.swipeRight()
+        cards.swipeRight()
+        XCTAssertTrue(collection.isHittable)
+        collection.tap()
+        let refresh = app.buttons["home.hero.recommendation.refresh"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5))
+        XCTAssertTrue(refresh.isEnabled)
+        let songs = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.recommendation.song."))
+        XCTAssertGreaterThan(songs.count, 0)
+        let firstSongID = songs.element(boundBy: 0).identifier
+        refresh.tap()
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            songs.count > 0 && songs.element(boundBy: 0).identifier != firstSongID && refresh.isEnabled
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 15), .completed, "Refreshing the visible detail must replace the songs")
+        attach(app, "hero-daily-detail")
+        XCTAssertFalse(settings.exists)
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
+        app.launch()
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+        app.buttons["home.hero.style.medium"].tap()
+        app.buttons["home.hero.content.albums"].tap()
+        attach(app, "hero-settings-medium-albums")
+        app.buttons["home.hero.settings.done"].tap()
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launch()
+        XCTAssertTrue(home.waitForExistence(timeout: 15))
+        home.tap()
+        XCTAssertTrue(cards.waitForExistence(timeout: 20))
+        XCTAssertFalse(settings.exists)
+        attach(app, "hero-daily-medium-albums")
+        let albumCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.recommendation.album.")).firstMatch
+        albumCard.tap()
+        let album = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.hero.recommendation.albumDetail.")).firstMatch
+        XCTAssertTrue(album.waitForExistence(timeout: 10))
+        XCTAssertFalse(settings.exists)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        cards.swipeLeft()
+        attach(app, "hero-daily-medium-scrolled")
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
+        app.launch()
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+        app.buttons["home.hero.style.carousel"].tap()
+        app.buttons["home.hero.settings.done"].tap()
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launch()
+        XCTAssertTrue(home.waitForExistence(timeout: 15))
+        home.tap()
+        XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+        XCTAssertFalse(settings.exists, "The carousel must not expose layout settings either")
+        XCTAssertFalse(cards.exists)
+        attach(app, "hero-carousel")
     }
 
     func testUnderline() { verifyStyle("underline") }

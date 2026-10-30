@@ -10,6 +10,198 @@ import Vision
 
 #if os(iOS)
 @MainActor
+final class HomeHeroRecommendationTests: XCTestCase {
+    func testDailyCollectionPersistsAndManualRefreshAvoidsPreviousBatch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HeroRecommendations-\(UUID())")
+        let suite = "HeroRecommendations-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        library.addSongs((0..<150).map { index in
+            Song(id: "daily-\(index)", title: "Track \(index)", albumTitle: "Album \(index / 3)",
+                 artistName: "Artist \(index / 3)", duration: 180, fileFormat: .mp3,
+                 filePath: "Music/\(index).mp3", sourceID: "daily-fixture")
+        }, indexMaintenance: .deferredIncremental)
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.musicSongs.count, 150)
+        let intelligence = MusicIntelligenceService(settingsStore: AISettingsStore(defaults: defaults), recommendationReuseDefaults: defaults)
+        XCTAssertFalse(intelligence.isPersonalizedRecommendationsConfigured)
+        let config = HomeHeroRecommendationModel.Configuration(content: .songs, songCount: 50, albumCount: 6)
+        let first = HomeHeroRecommendationModel(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 1_798_041_600)
+        await first.refresh(configuration: config, library: library, intelligence: intelligence, now: now)
+        let firstIDs = first.songs.map(\.id)
+        XCTAssertEqual(firstIDs.count, 50)
+        XCTAssertNil(first.providerName)
+        let restored = HomeHeroRecommendationModel(defaults: defaults)
+        await restored.refresh(configuration: config, library: library, intelligence: intelligence, now: now)
+        XCTAssertEqual(restored.songs.map(\.id), firstIDs)
+        await restored.refresh(configuration: config, library: library, intelligence: intelligence, force: true, now: now)
+        XCTAssertEqual(restored.songs.count, 50)
+        XCTAssertTrue(Set(restored.songs.map(\.id)).isDisjoint(with: firstIDs))
+        let secondIDs = restored.songs.map(\.id)
+        await restored.refresh(configuration: config, library: library, intelligence: intelligence, now: now.addingTimeInterval(86_400))
+        XCTAssertTrue(Set(restored.songs.map(\.id)).isDisjoint(with: secondIDs))
+        let albums = HomeHeroRecommendationModel.Configuration(content: .albums, songCount: 500, albumCount: 12)
+        await restored.refresh(configuration: albums, library: library, intelligence: intelligence, now: now)
+        XCTAssertEqual(restored.albums.count, 12)
+        XCTAssertEqual(Set(restored.albums.map(\.id)).count, 12)
+        XCTAssertEqual(restored.songs.count, 50)
+        XCTAssertFalse(restored.isLoading)
+    }
+
+    func testAIUsesDisjointBoundedPagesAndFallsBackOnFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HeroRecommendations-\(UUID())")
+        let suite = "HeroRecommendations-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        library.addSongs((0..<150).map { index in
+            Song(id: "ai-daily-\(index)", title: "Track \(index)", albumTitle: "Album \(index / 3)",
+                 artistName: "Artist \(index / 3)", duration: 180, fileFormat: .mp3,
+                 filePath: "Music/\(index).mp3", sourceID: "ai-daily-fixture")
+        }, indexMaintenance: .deferredIncremental)
+        await library.waitForPendingIndex()
+        let intelligence = MusicIntelligenceService(settingsStore: AISettingsStore(defaults: defaults), recommendationReuseDefaults: defaults)
+        var requests: [AIRecommendationRequest] = []
+        let model = HomeHeroRecommendationModel(defaults: defaults) { request in
+            requests.append(request)
+            let selections: [AIRecommendationSelection] = request.unit == .albums
+                ? request.albumCandidates.prefix(request.maximumAlbumResults).map { .init(albumKey: $0.albumKey, reason: "Album recommendation") }
+                : request.candidates.prefix(request.maximumResults).map { .init(songID: $0.songID, reason: "Song recommendation") }
+            return .success(.init(plan: .init(selections: selections), providerName: "Fixture", fallbackDepth: 0,
+                                  resolvedScene: .automatic, isCached: false))
+        }
+        await model.refresh(configuration: .init(content: .songs, songCount: 50, albumCount: 12), library: library, intelligence: intelligence)
+        XCTAssertEqual(requests.map(\.maximumResults), [30, 20])
+        XCTAssertEqual(model.songs.count, 50)
+        XCTAssertEqual(model.providerName, "Fixture")
+        XCTAssertEqual(Set(model.songs.map(\.id)).count, 50)
+        if requests.count == 2 {
+            XCTAssertTrue(Set(requests[0].candidates.prefix(30).map(\.songID)).isDisjoint(with: requests[1].candidates.map(\.songID)))
+        }
+        requests = []
+        await model.refresh(configuration: .init(content: .albums, songCount: 50, albumCount: 12), library: library, intelligence: intelligence)
+        XCTAssertEqual(requests.map(\.maximumAlbumResults), [6, 6])
+        XCTAssertEqual(model.albums.count, 12)
+        var failedRequests = 0
+        let fallback = HomeHeroRecommendationModel(defaults: defaults) { _ in
+            failedRequests += 1
+            return .failed(.upstream)
+        }
+        await fallback.refresh(configuration: .init(content: .songs, songCount: 50, albumCount: 6), library: library,
+                               intelligence: intelligence, force: true)
+        XCTAssertEqual(failedRequests, 1)
+        XCTAssertEqual(fallback.songs.count, 50)
+        XCTAssertNil(fallback.providerName)
+    }
+
+    func testThemesUseIndependentDailyCachesAndPassTheirIntentToAI() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HeroThemes-\(UUID())")
+        let suite = "HeroThemes-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        library.addSongs((0..<200).map { index in
+            var song = Song(id: "theme-\(index)", title: "Track \(index)", albumTitle: "Album \(index / 3)",
+                            artistName: "Artist \(index / 3)", duration: 180, fileFormat: .mp3,
+                            filePath: "Music/\(index).mp3", sourceID: "theme-fixture")
+            song.year = 1950 + index / 3
+            return song
+        }, indexMaintenance: .deferredIncremental)
+        await library.waitForPendingIndex()
+        let intelligence = MusicIntelligenceService(settingsStore: AISettingsStore(defaults: defaults), recommendationReuseDefaults: defaults)
+        let config = HomeHeroRecommendationModel.Configuration(content: .songs, songCount: 24, albumCount: 6)
+        let now = Date(timeIntervalSince1970: 1_798_041_600)
+        let older = HomeHeroRecommendationModel(theme: .catalogRewind, defaults: defaults)
+        let newer = HomeHeroRecommendationModel(theme: .recentCatalog, defaults: defaults)
+        await older.refresh(configuration: config, library: library, intelligence: intelligence, now: now)
+        await newer.refresh(configuration: config, library: library, intelligence: intelligence, now: now)
+        let originalOlder = older.songs.map(\.id)
+        let originalNewer = newer.songs.map(\.id)
+        XCTAssertEqual(originalOlder.count, 24)
+        XCTAssertEqual(originalNewer.count, 24)
+        XCTAssertTrue(Set(originalOlder).isDisjoint(with: originalNewer))
+        XCTAssertLessThanOrEqual(try XCTUnwrap(older.songs.compactMap(\.year).max()), try XCTUnwrap(newer.songs.compactMap(\.year).min()))
+        await older.refresh(configuration: config, library: library, intelligence: intelligence, force: true, now: now)
+        XCTAssertTrue(Set(older.songs.map(\.id)).isDisjoint(with: originalOlder))
+        let restored = HomeHeroRecommendationModel(theme: .recentCatalog, defaults: defaults)
+        await restored.refresh(configuration: config, library: library, intelligence: intelligence, now: now)
+        XCTAssertEqual(restored.songs.map(\.id), originalNewer, "Refreshing one theme must not replace another theme's cache")
+        let following = now.addingTimeInterval(86_400)
+        await restored.refresh(configuration: config, library: library, intelligence: intelligence, now: following)
+        XCTAssertTrue(Set(restored.songs.map(\.id)).isDisjoint(with: originalNewer))
+        var receivedIntent: String?
+        let ai = HomeHeroRecommendationModel(theme: .catalogRewind, defaults: defaults) { request in
+            receivedIntent = request.intent
+            return .failed(.upstream)
+        }
+        await ai.refresh(configuration: config, library: library, intelligence: intelligence, force: true, now: now)
+        XCTAssertEqual(receivedIntent, AIRecommendationIntentPreset.catalogRewind.semanticIntent)
+        XCTAssertEqual(ai.songs.count, 24, "The themed local collection remains usable when AI fails")
+    }
+
+    func testUndatedThemesStayWithinTheSystemRecommendationPool() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HeroUndated-\(UUID())")
+        let suite = "HeroUndated-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        library.addSongs((0..<800).map { index in
+            Song(id: "undated-\(index)", title: "Track \(index)", albumTitle: "Album \(index / 3)",
+                 artistName: "Artist \(index / 3)", duration: 180, fileFormat: .mp3,
+                 filePath: "Music/\(index).mp3", sourceID: "undated-fixture")
+        }, indexMaintenance: .deferredIncremental)
+        await library.waitForPendingIndex()
+        let now = Date(timeIntervalSince1970: 1_798_041_600)
+        let input = MusicDiscoveryEngine.recommendationSnapshot(in: library, now: now).makeInput()
+        let ranked = Set(MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 200).map { $0.song.id })
+        let intelligence = MusicIntelligenceService(settingsStore: AISettingsStore(defaults: defaults), recommendationReuseDefaults: defaults)
+        for theme in [HomeHeroRecommendationTheme.catalogRewind, .recentCatalog] {
+            let model = HomeHeroRecommendationModel(theme: theme, defaults: defaults)
+            await model.refresh(configuration: .init(content: .songs, songCount: 50, albumCount: 6),
+                                library: library, intelligence: intelligence, now: now)
+            XCTAssertEqual(model.songs.count, 50)
+            XCTAssertTrue(Set(model.songs.map(\.id)).isSubset(of: ranked), "Unknown years must retain the system's ranking instead of sampling unranked library entries")
+        }
+    }
+
+    func testEmptyLibraryAndCancelledRefreshLeaveNoLoadingState() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HeroRecommendations-\(UUID())")
+        let suite = "HeroRecommendations-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        let intelligence = MusicIntelligenceService(settingsStore: AISettingsStore(defaults: defaults), recommendationReuseDefaults: defaults)
+        let model = HomeHeroRecommendationModel(defaults: defaults)
+        let config = HomeHeroRecommendationModel.Configuration(content: .songs, songCount: 50, albumCount: 6)
+        await model.refresh(configuration: config, library: library, intelligence: intelligence)
+        XCTAssertTrue(model.songs.isEmpty)
+        XCTAssertFalse(model.isLoading)
+        let task = Task { await model.refresh(configuration: config, library: library, intelligence: intelligence, force: true) }
+        task.cancel()
+        await task.value
+        XCTAssertFalse(model.isLoading)
+        XCTAssertTrue(model.songs.isEmpty)
+    }
+}
+
+@MainActor
 final class HomeHeroCarouselLayoutTests: XCTestCase {
     func testFeaturedCardsResizeAndKeepTheNextCardVisible() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -24,12 +216,21 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
         let tintProvider = CoverTintProvider()
         func root(_ size: CGSize, largeText: Bool = false) -> some View {
             ScrollView {
-                HomeHeroFeaturedCarousel(
-                    songs: songs,
-                    metrics: .init(viewportWidth: size.width, compactCanvasHeight: size.width > size.height ? size.height : nil),
-                    isInteractive: false, playFromSong: { _ in XCTFail("Preview started playback") },
-                    shuffleAll: { XCTFail("Preview started playback") }, playAll: { XCTFail("Preview started playback") }
-                )
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Daily Picks").font(.title3.bold())
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 12) {
+                            ForEach(songs) { song in
+                                HomeHeroRecommendationCard(
+                                    metrics: .init(viewportWidth: size.width, compactCanvasHeight: size.width > size.height ? size.height : nil),
+                                    songs: [song], title: song.albumTitle ?? song.title,
+                                    subtitle: song.artistName ?? ""
+                                )
+                            }
+                        }
+                        .padding(.bottom, 16)
+                    }
+                }
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("featured-test")) } action: { heroFrame = $0 }
             }
             .coordinateSpace(name: "featured-test")
@@ -53,6 +254,9 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
             host.view.layoutIfNeeded()
             try await Task.sleep(for: .milliseconds(500))
             let metrics = HomeHeroFeaturedMetrics(viewportWidth: size.width, compactCanvasHeight: size.width > size.height ? size.height : nil)
+            let medium = HomeHeroFeaturedMetrics(viewportWidth: size.width, compactCanvasHeight: size.width > size.height ? size.height : nil, medium: true)
+            XCTAssertLessThan(medium.cardWidth, metrics.cardWidth)
+            XCTAssertLessThan(medium.artworkSide, metrics.artworkSide)
             XCTAssertLessThan(metrics.cardWidth + 52, size.width, "The next card must peek into view")
             XCTAssertLessThan(heroFrame.height, size.height * 0.7, "The following section must remain visible")
             XCTAssertGreaterThan(heroFrame.height, metrics.cardHeight(captionHeight: 84))

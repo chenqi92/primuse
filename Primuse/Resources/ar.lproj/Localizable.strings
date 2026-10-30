@@ -6898,6 +6898,17 @@
 "home_hero_style_featured" = "بطاقات مختارة";
 "home_hero_featured_title" = "اختيارات مميزة";
 
+"home_hero_style_large" = "بطاقات كبيرة";
+"home_hero_style_medium" = "بطاقات متوسطة";
+"home_hero_content_title" = "المحتوى المقترح";
+"home_hero_content_albums" = "ألبومات";
+"home_hero_content_songs" = "مجموعة أغانٍ";
+"home_hero_song_count_format" = "%d أغنية";
+"home_hero_album_count_format" = "%d ألبوم";
+"home_hero_daily_title" = "اختيارات يومية";
+"home_hero_daily_mix" = "مزيجك اليومي";
+"home_hero_refresh" = "اختيارات جديدة";
+
 "locate_current_song" = "تحديد موقع الأغنية الحالية";
 
 "clear_filters_and_locate" = "مسح عوامل التصفية وتحديد الموقع";

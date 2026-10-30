@@ -6898,6 +6898,17 @@
 "home_hero_style_featured" = "Öne çıkan kartlar";
 "home_hero_featured_title" = "Öne çıkanlar";
 
+"home_hero_style_large" = "Büyük kartlar";
+"home_hero_style_medium" = "Orta boy kartlar";
+"home_hero_content_title" = "Önerilen içerik";
+"home_hero_content_albums" = "Albümler";
+"home_hero_content_songs" = "Şarkı koleksiyonu";
+"home_hero_song_count_format" = "%d şarkı";
+"home_hero_album_count_format" = "%d albüm";
+"home_hero_daily_title" = "Günlük öneriler";
+"home_hero_daily_mix" = "Günlük karışımın";
+"home_hero_refresh" = "Yeni öneriler";
+
 "locate_current_song" = "Geçerli Şarkıyı Bul";
 
 "clear_filters_and_locate" = "Filtreleri Temizle ve Bul";

@@ -6898,6 +6898,17 @@
 "home_hero_style_featured" = "Картки добірки";
 "home_hero_featured_title" = "Рекомендуємо";
 
+"home_hero_style_large" = "Великі картки";
+"home_hero_style_medium" = "Середні картки";
+"home_hero_content_title" = "Рекомендований вміст";
+"home_hero_content_albums" = "Альбоми";
+"home_hero_content_songs" = "Добірка пісень";
+"home_hero_song_count_format" = "Пісень: %d";
+"home_hero_album_count_format" = "Альбомів: %d";
+"home_hero_daily_title" = "Вибір дня";
+"home_hero_daily_mix" = "Ваш щоденний мікс";
+"home_hero_refresh" = "Оновити добірку";
+
 "locate_current_song" = "Знайти поточну пісню";
 
 "clear_filters_and_locate" = "Скинути фільтри та знайти";

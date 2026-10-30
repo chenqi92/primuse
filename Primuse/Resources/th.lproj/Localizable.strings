@@ -6898,6 +6898,17 @@
 "home_hero_style_featured" = "การ์ดแนะนำ";
 "home_hero_featured_title" = "เพลงคัดสรร";
 
+"home_hero_style_large" = "การ์ดขนาดใหญ่";
+"home_hero_style_medium" = "การ์ดขนาดกลาง";
+"home_hero_content_title" = "เนื้อหาที่แนะนำ";
+"home_hero_content_albums" = "อัลบั้ม";
+"home_hero_content_songs" = "คอลเลกชันเพลง";
+"home_hero_song_count_format" = "%d เพลง";
+"home_hero_album_count_format" = "%d อัลบั้ม";
+"home_hero_daily_title" = "เพลงแนะนำประจำวัน";
+"home_hero_daily_mix" = "มิกซ์ประจำวันของคุณ";
+"home_hero_refresh" = "เปลี่ยนชุดแนะนำ";
+
 "locate_current_song" = "ค้นหาเพลงปัจจุบัน";
 
 "clear_filters_and_locate" = "ล้างตัวกรองและค้นหา";

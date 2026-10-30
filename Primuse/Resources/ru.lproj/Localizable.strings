@@ -6898,6 +6898,17 @@
 "home_hero_style_featured" = "Карточки подборки";
 "home_hero_featured_title" = "Рекомендуем";
 
+"home_hero_style_large" = "Крупные карточки";
+"home_hero_style_medium" = "Средние карточки";
+"home_hero_content_title" = "Рекомендации";
+"home_hero_content_albums" = "Альбомы";
+"home_hero_content_songs" = "Подборка песен";
+"home_hero_song_count_format" = "Песен: %d";
+"home_hero_album_count_format" = "Альбомов: %d";
+"home_hero_daily_title" = "Выбор дня";
+"home_hero_daily_mix" = "Ваш ежедневный микс";
+"home_hero_refresh" = "Обновить подборку";
+
 "locate_current_song" = "Найти текущую песню";
 
 "clear_filters_and_locate" = "Сбросить фильтры и найти";

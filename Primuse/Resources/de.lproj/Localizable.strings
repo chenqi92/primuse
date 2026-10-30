@@ -6992,6 +6992,17 @@
 "home_hero_style_featured" = "Empfehlungskarten";
 "home_hero_featured_title" = "Empfehlungen";
 
+"home_hero_style_large" = "Große Karten";
+"home_hero_style_medium" = "Mittlere Karten";
+"home_hero_content_title" = "Empfohlene Inhalte";
+"home_hero_content_albums" = "Alben";
+"home_hero_content_songs" = "Songsammlung";
+"home_hero_song_count_format" = "%d Titel";
+"home_hero_album_count_format" = "%d Alben";
+"home_hero_daily_title" = "Tägliche Empfehlungen";
+"home_hero_daily_mix" = "Dein täglicher Mix";
+"home_hero_refresh" = "Neue Auswahl";
+
 "locate_current_song" = "Aktuellen Titel finden";
 
 "clear_filters_and_locate" = "Filter löschen und finden";

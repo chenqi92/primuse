@@ -6992,6 +6992,17 @@
 "home_hero_style_featured" = "Cartes à la une";
 "home_hero_featured_title" = "À la une";
 
+"home_hero_style_large" = "Grandes cartes";
+"home_hero_style_medium" = "Cartes moyennes";
+"home_hero_content_title" = "Contenu recommandé";
+"home_hero_content_albums" = "Albums recommandés";
+"home_hero_content_songs" = "Sélection de titres";
+"home_hero_song_count_format" = "%d titres";
+"home_hero_album_count_format" = "Albums : %d";
+"home_hero_daily_title" = "Sélection du jour";
+"home_hero_daily_mix" = "Votre mix du jour";
+"home_hero_refresh" = "Renouveler";
+
 "locate_current_song" = "Localiser le morceau actuel";
 
 "clear_filters_and_locate" = "Effacer les filtres et localiser";

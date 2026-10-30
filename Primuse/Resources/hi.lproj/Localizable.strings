@@ -6898,6 +6898,17 @@
 "home_hero_style_featured" = "चुनिंदा कार्ड";
 "home_hero_featured_title" = "चुनिंदा संगीत";
 
+"home_hero_style_large" = "बड़े कार्ड";
+"home_hero_style_medium" = "मध्यम कार्ड";
+"home_hero_content_title" = "सुझाई गई सामग्री";
+"home_hero_content_albums" = "एल्बम";
+"home_hero_content_songs" = "गानों का संग्रह";
+"home_hero_song_count_format" = "%d गाने";
+"home_hero_album_count_format" = "%d एल्बम";
+"home_hero_daily_title" = "रोज़ की पसंद";
+"home_hero_daily_mix" = "आपका दैनिक मिक्स";
+"home_hero_refresh" = "नई पसंद चुनें";
+
 "locate_current_song" = "वर्तमान गाना ढूँढें";
 
 "clear_filters_and_locate" = "फ़िल्टर हटाकर ढूँढें";

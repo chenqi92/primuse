@@ -1772,6 +1772,16 @@ struct HomeView: View {
             .pmVerticalBarTitleEdge()
             #if os(iOS)
             .minimalNavigationRoot()
+            .navigationDestination(for: HomeHeroRecommendationDestination.self) { destination in
+                switch destination {
+                case .albums:
+                    HomeHeroRecommendationDetail(model: heroRecommendations.albums, content: .albums)
+                        .minimalNavigationDetail()
+                case .songs(let theme):
+                    HomeHeroRecommendationDetail(model: heroRecommendations.collection(theme), content: .songs)
+                        .minimalNavigationDetail()
+                }
+            }
             #endif
             .sheet(isPresented: $showRadioBatchAdd) {
                 RadioBatchAddView()
@@ -1880,6 +1890,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showHero") private var showHero = true
     #if os(iOS)
     @AppStorage(HomeHeroStyle.storageKey) private var heroStyle: HomeHeroStyle = .carousel
+    @State private var heroRecommendations = HomeHeroRecommendationCatalog()
     #endif
     /// 老版本全首页一个封面大小;没单独调过的块跟着它,见 `HomeCoverSize.legacyStorageKey`。
     @AppStorage(HomeCoverSize.legacyStorageKey) private var legacyCoverSize: HomeCoverSize = .large
@@ -2446,6 +2457,9 @@ struct HomeView: View {
 
                 Spacer(minLength: 8)
 
+                #if os(iOS)
+                HomeHeroSettingsButton()
+                #endif
                 Button {
                     pmWithAnimation(.list) { showHero.toggle() }
                 } label: {
@@ -2459,17 +2473,6 @@ struct HomeView: View {
                 .accessibilityIdentifier("home.edit.visibility.hero")
             }
             .padding(.horizontal, 20)
-
-            #if os(iOS)
-            Picker("home_hero_style_title", selection: $heroStyle) {
-                ForEach(HomeHeroStyle.allCases, id: \.self) { style in
-                    Text(style.title).tag(style)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 20)
-            .accessibilityIdentifier("home.edit.heroStyle")
-            #endif
 
             if showHero, model.snapshot.hasContent {
                 libraryHeroSection
@@ -3406,8 +3409,8 @@ struct HomeView: View {
     /// 顶部封面占位有多高,用来估下面还剩多少屏幕。
     private var heroLoadingPlaceholderHeight: CGFloat {
         #if os(iOS)
-        if heroStyle == .featured {
-            return heroFeaturedMetrics.cardHeight(captionHeight: 84) + 84
+        if heroStyle != .carousel {
+            return heroFeaturedMetrics.cardHeight(captionHeight: 84) + 52
         }
         let metrics = heroCarouselMetrics
         return metrics.isCompactHeight ? metrics.carouselHeight : metrics.carouselHeight + 114
@@ -3422,8 +3425,14 @@ struct HomeView: View {
     @ViewBuilder
     private var heroLoadingPlaceholder: some View {
         #if os(iOS)
-        if heroStyle == .featured {
-            HomeHeroFeaturedSkeleton(metrics: heroFeaturedMetrics)
+        if heroStyle != .carousel {
+            VStack(alignment: .leading, spacing: 12) {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(HomeHeroCarouselSkeletonCards.fill)
+                    .frame(width: 120, height: 28)
+                    .padding(.horizontal, 20)
+                HomeHeroFeaturedSkeleton(metrics: heroFeaturedMetrics)
+            }
         } else {
             HomeHeroCarouselSkeleton(metrics: heroCarouselMetrics)
         }
@@ -3443,7 +3452,7 @@ struct HomeView: View {
     }
 
     private var heroFeaturedMetrics: HomeHeroFeaturedMetrics {
-        HomeHeroFeaturedMetrics(viewportWidth: homeCanvas.width, compactCanvasHeight: heroCompactCanvasHeight)
+        HomeHeroFeaturedMetrics(viewportWidth: homeCanvas.width, compactCanvasHeight: heroCompactCanvasHeight, medium: heroStyle == .medium)
     }
     #endif
 
@@ -3923,22 +3932,16 @@ struct HomeView: View {
         return pool[idx]
     }
 
-    /// Hero 顶部 ── 封面轮播(`HomeHeroCarousel`)。手机横屏、Duo 外屏横握(紧凑高度)整块要压在
-    /// 视口四成以内,轮播换成歌名和按钮在左、小一号封面在右的摆法;今天挑出来的封面不到三张时
-    /// 仍是 libraryMixHeroFallback (标题 + 4 张封面拼贴 + 随机播放 / 全部播放两个按钮)。
-    /// 之前的 todaysPickHero (今日精选大封面 + Play / Shuffle) 视觉上不够干净,
-    /// 用户反馈不好看, 暂时不用; 代码保留方便将来需要时切回去。
+    /// 立体轮播保留全库播放，大、中卡片进入每日推荐集合。
     @ViewBuilder
     private var libraryHeroSection: some View {
         #if os(iOS)
-        if heroStyle == .featured, !model.snapshot.heroCoverSongs.isEmpty {
-            HomeHeroFeaturedCarousel(
-                songs: model.snapshot.heroCoverSongs,
+        if heroStyle != .carousel {
+            HomeHeroRecommendationSection(
                 metrics: heroFeaturedMetrics,
+                previewSongs: model.snapshot.heroCoverSongs,
                 isInteractive: !editorMode,
-                playFromSong: playLibraryShuffled(startingWith:),
-                shuffleAll: { playLibrary(shuffled: true) },
-                playAll: { playLibrary(shuffled: false) }
+                catalog: heroRecommendations
             )
         } else if model.snapshot.heroCoverSongs.count >= HomeHeroCarouselSelection.minimumCardCount {
             HomeHeroCarousel(

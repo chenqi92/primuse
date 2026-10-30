@@ -6898,6 +6898,17 @@
 "home_hero_style_featured" = "Polecane karty";
 "home_hero_featured_title" = "Polecane";
 
+"home_hero_style_large" = "Duże karty";
+"home_hero_style_medium" = "Średnie karty";
+"home_hero_content_title" = "Polecane treści";
+"home_hero_content_albums" = "Albumy";
+"home_hero_content_songs" = "Zbiór utworów";
+"home_hero_song_count_format" = "Utwory: %d";
+"home_hero_album_count_format" = "Albumy: %d";
+"home_hero_daily_title" = "Codzienne propozycje";
+"home_hero_daily_mix" = "Twój codzienny miks";
+"home_hero_refresh" = "Nowe propozycje";
+
 "locate_current_song" = "Znajdź bieżący utwór";
 
 "clear_filters_and_locate" = "Wyczyść filtry i znajdź";

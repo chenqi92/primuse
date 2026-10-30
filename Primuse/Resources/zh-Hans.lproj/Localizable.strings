@@ -7085,6 +7085,17 @@
 "home_hero_style_featured" = "精选卡片";
 "home_hero_featured_title" = "精选推荐";
 
+"home_hero_style_large" = "大号卡片";
+"home_hero_style_medium" = "中号卡片";
+"home_hero_content_title" = "推荐内容";
+"home_hero_content_albums" = "推荐专辑";
+"home_hero_content_songs" = "歌曲集合";
+"home_hero_song_count_format" = "%d 首歌曲";
+"home_hero_album_count_format" = "%d 张专辑";
+"home_hero_daily_title" = "每日推荐";
+"home_hero_daily_mix" = "每日精选";
+"home_hero_refresh" = "换一轮";
+
 "locate_current_song" = "定位当前歌曲";
 
 "clear_filters_and_locate" = "清除筛选并定位";

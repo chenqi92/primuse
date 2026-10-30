@@ -6753,6 +6753,17 @@
 "home_hero_style_featured" = "Featured Cards";
 "home_hero_featured_title" = "Featured Picks";
 
+"home_hero_style_large" = "Large Cards";
+"home_hero_style_medium" = "Medium Cards";
+"home_hero_content_title" = "Recommended Content";
+"home_hero_content_albums" = "Albums";
+"home_hero_content_songs" = "Song Collection";
+"home_hero_song_count_format" = "%d songs";
+"home_hero_album_count_format" = "%d albums";
+"home_hero_daily_title" = "Daily Picks";
+"home_hero_daily_mix" = "Your Daily Mix";
+"home_hero_refresh" = "Refresh Picks";
+
 "locate_current_song" = "Locate Current Song";
 
 "clear_filters_and_locate" = "Clear Filters and Locate";

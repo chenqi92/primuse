@@ -6993,6 +6993,17 @@
 "home_hero_style_featured" = "おすすめカード";
 "home_hero_featured_title" = "おすすめ";
 
+"home_hero_style_large" = "大きいカード";
+"home_hero_style_medium" = "中サイズのカード";
+"home_hero_content_title" = "おすすめの内容";
+"home_hero_content_albums" = "アルバム";
+"home_hero_content_songs" = "曲のコレクション";
+"home_hero_song_count_format" = "%d 曲";
+"home_hero_album_count_format" = "%d 枚のアルバム";
+"home_hero_daily_title" = "毎日のおすすめ";
+"home_hero_daily_mix" = "デイリーミックス";
+"home_hero_refresh" = "別のおすすめ";
+
 "locate_current_song" = "現在の曲を表示";
 
 "clear_filters_and_locate" = "フィルタを解除して表示";
