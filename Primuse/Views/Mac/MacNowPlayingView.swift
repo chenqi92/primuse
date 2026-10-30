@@ -931,13 +931,18 @@ struct MacNowPlayingView: View {
                     .tracking(1.2)
                     .foregroundStyle(playerFaintColor)
                     .textCase(.uppercase)
-                Text(player.currentSong?.title ?? "")
-                    .font(.system(size: isWindowFullScreen ? 56 : 36, weight: .bold))
-                    .tracking(-0.6)
-                    .foregroundStyle(playerPrimaryColor)
-                    .lineLimit(2)
-                    .multilineTextAlignment(textAlignment)
-                    .padding(.top, 10)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(player.currentSong?.title ?? "")
+                        .font(.system(size: isWindowFullScreen ? 56 : 36, weight: .bold))
+                        .tracking(-0.6)
+                        .foregroundStyle(playerPrimaryColor)
+                        .lineLimit(2)
+                        .multilineTextAlignment(textAlignment)
+                        .padding(.top, 10)
+                    if let song = player.currentSong {
+                        SongContentRatingBadge(song: library.song(id: song.id) ?? song)
+                    }
+                }
                 if let song = player.currentSong {
                     MacNowPlayingMetadata(
                         song: song,

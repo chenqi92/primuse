@@ -24,6 +24,8 @@ struct AlbumDetailView: View {
     let album: Album
     private let onMacInlineBack: (() -> Void)?
 
+    @AppStorage("album.showsTrackArtwork") private var showsTrackArtwork = true
+
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
     @State private var showsRestoreFileTagsConfirmation = false
@@ -45,6 +47,19 @@ struct AlbumDetailView: View {
             isEditing: selection.isActive,
             contains: { id in albumSongs.contains { $0.id == id } }
         ) { songID, _ in songLocation.locate(songID) }
+    }
+
+    private var copyrightFooter: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(SongContentMetadata.copyrightNotices(for: albumSongs), id: \.self) { notice in
+                Text(verbatim: notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 12)
     }
 
     private var songs: [Song] {
@@ -333,6 +348,7 @@ struct AlbumDetailView: View {
                         .padding(.vertical, 40)
                 } else {
                     trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
+                    copyrightFooter
                 }
             }
             .padding(.horizontal, 16)
@@ -432,6 +448,8 @@ struct AlbumDetailView: View {
                 }
             }
         }
+
+        Toggle("album_show_track_artwork", isOn: $showsTrackArtwork)
 
         if !isCatalogAlbum {
             Section {
@@ -682,6 +700,7 @@ struct AlbumDetailView: View {
                                 song: song,
                                 isPlaying: player.currentSong?.id == song.id,
                                 showAlbum: false,
+                                showsArtwork: showsTrackArtwork,
                                 trackNumber: trackNumber,
                                 largestTrackNumber: largestTrackNumber,
                                 selection: selection,
@@ -704,12 +723,12 @@ struct AlbumDetailView: View {
 
                     if index < disc.songs.count - 1 {
                         Divider()
-                            .padding(.leading, 12 + songRowStyle.artworkSize + songRowStyle.artworkSpacing)
+                            .padding(.leading, showsTrackArtwork ? 12 + songRowStyle.artworkSize + songRowStyle.artworkSpacing : 12)
                             .overlay(alignment: .leading) {
                                 // 随机时这两首连着放(#335):两张封面之间画个链环。
                                 AlbumShuffleLinkGlyph(songID: song.id, nextSongID: disc.songs[index + 1].id)
                                     .frame(width: 16, height: 16)
-                                    .offset(x: 12 + songRowStyle.artworkSize / 2 - 8)
+                                    .offset(x: showsTrackArtwork ? 12 + songRowStyle.artworkSize / 2 - 8 : 12)
                             }
                     }
                 }
@@ -727,27 +746,32 @@ struct AlbumDetailView: View {
         let style = songRowStyle
         let isCurrent = player.currentSong?.id == song.id
         return HStack(spacing: style.artworkSpacing) {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: style.artworkSize,
-                cornerRadius: style.artworkCornerRadius,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-            .frame(width: style.artworkSize, height: style.artworkSize)
-            .opacity(0.7)
+            if showsTrackArtwork {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: style.artworkSize,
+                    cornerRadius: style.artworkCornerRadius,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+                .frame(width: style.artworkSize, height: style.artworkSize)
+                .opacity(0.7)
+            }
 
             SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
                 .font(style.titleFont)
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
 
             VStack(alignment: .leading, spacing: style.textSpacing) {
-                Text(song.title)
-                    .font(style.titleFont)
-                    .lineLimit(1)
-                    .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(song.title)
+                        .font(style.titleFont)
+                        .lineLimit(1)
+                        .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                    SongContentRatingBadge(song: song)
+                }
 
                 HStack(spacing: 4) {
                     Image(systemName: "applelogo")
@@ -831,6 +855,7 @@ struct AlbumDetailView: View {
                         .padding(.top, 48)
                     } else {
                         macTrackTable
+                        copyrightFooter
                     }
                 }
                 .padding(.horizontal, PMSpace.xxxl)
@@ -853,6 +878,10 @@ struct AlbumDetailView: View {
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 离线 / 前往艺术家。
     private var albumMoreMenu: AnyView {
         let playable = albumSongs.filteredPlayable()
+        let artworkItem = MacHeaderMoreMenu.Item(
+            icon: showsTrackArtwork ? "checkmark.square" : "square",
+            title: String(localized: "album_show_track_artwork")
+        ) { showsTrackArtwork.toggle() }
         let playItems: [MacHeaderMoreMenu.Item] = [
             .init(icon: "play.fill", title: String(localized: "play_all"), enabled: !playable.isEmpty) { playAll() },
             .init(icon: "shuffle", title: String(localized: "shuffle"), enabled: !playable.isEmpty, action: shuffleAll),
@@ -863,7 +892,7 @@ struct AlbumDetailView: View {
         ]
         if isCatalogAlbum {
             // 目录现拼的专辑没有可整理的曲库曲目:只留播放这一组,和能找到的艺人页。
-            var sections = [playItems]
+            var sections = [playItems, [artworkItem]]
             if let artist = albumArtist {
                 sections.append([MacHeaderMoreMenu.Item(icon: "music.mic", title: String(localized: "go_to_artist")) {
                     NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
@@ -873,6 +902,7 @@ struct AlbumDetailView: View {
         }
 
         var second: [MacHeaderMoreMenu.Item] = [
+            artworkItem,
             .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
                 showArtworkEditor = true
             },
@@ -1003,7 +1033,7 @@ struct AlbumDetailView: View {
         return VStack(spacing: 0) {
             HStack(spacing: PMSpace.s10) {
                 Text("#").frame(width: ordinalWidth, alignment: .center)
-                Color.clear.frame(width: 36)
+                if showsTrackArtwork { Color.clear.frame(width: 36) }
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
                 Text("sort_artist").frame(width: 180, alignment: .leading)
                 Text("sort_format").frame(width: 70, alignment: .leading)
@@ -1086,19 +1116,22 @@ struct AlbumDetailView: View {
                 }
                 .frame(width: ordinalWidth, alignment: .center)
 
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName, songID: song.id,
-                    size: 32, cornerRadius: PMRadius.xs,
-                    sourceID: song.sourceID, filePath: song.filePath,
-                    fileFormat: song.fileFormat
-                )
-                .opacity(catalogOnly ? 0.7 : 1)
+                if showsTrackArtwork {
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName, songID: song.id,
+                        size: 32, cornerRadius: PMRadius.xs,
+                        sourceID: song.sourceID, filePath: song.filePath,
+                        fileFormat: song.fileFormat
+                    )
+                    .opacity(catalogOnly ? 0.7 : 1)
+                }
 
                 HStack(spacing: 6) {
                     Text(song.title)
                         .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
                         .foregroundStyle(isCurrent ? PMColor.brand : (catalogOnly ? PMColor.textMuted : PMColor.text))
                         .lineLimit(1)
+                    SongContentRatingBadge(song: song)
                     // 随机时和下一首连着放(#335)。
                     AlbumShuffleLinkGlyph(songID: song.id, nextSongID: nextSongID)
                 }

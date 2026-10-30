@@ -1054,3 +1054,5 @@
 
 /* 电视:云盘本月下载流量用完时,倒数后跳过这个来源 */
 "ext.tv.playback.quotaSkipCountdown" = "%1$@ : le quota de téléchargement de ce mois est épuisé. Dans %2$d s, les morceaux de cette source seront ignorés au profit d’autres sources. Appuyez sur Lecture/Pause pour rester sur ce morceau, ou sur Suivant pour passer maintenant.";
+
+"content_explicit" = "Contenu explicite";

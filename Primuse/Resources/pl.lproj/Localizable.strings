@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "Zmień nazwę rozdziału";
 "chapter_generation_daily_limit" = "Wykorzystano dzienny limit generowania rozdziałów. Spróbuj jutro.";
 "chapter_generation_monthly_limit" = "Wykorzystano miesięczny limit generowania rozdziałów. Spróbuj w przyszłym miesiącu.";
+
+"album_show_track_artwork" = "Pokazuj okładki utworów";
+"content_explicit" = "Treści niecenzuralne";
+"content_rating" = "Klasyfikacja treści";
+"copyright_label" = "Prawa autorskie";

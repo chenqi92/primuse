@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "अध्याय का नाम बदलें";
 "chapter_generation_daily_limit" = "आज की अध्याय बनाने की सीमा पूरी हो गई है। कल फिर कोशिश करें।";
 "chapter_generation_monthly_limit" = "इस महीने की अध्याय बनाने की सीमा पूरी हो गई है। अगले महीने फिर कोशिश करें।";
+
+"album_show_track_artwork" = "गानों के कवर दिखाएँ";
+"content_explicit" = "अश्लील सामग्री";
+"content_rating" = "सामग्री रेटिंग";
+"copyright_label" = "कॉपीराइट";

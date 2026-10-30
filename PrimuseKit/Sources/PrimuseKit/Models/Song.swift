@@ -140,6 +140,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { SongOptionalDouble.value(replayGainAlbumPeakBits) }
         set { replayGainAlbumPeakBits = SongOptionalDouble.bits(newValue) }
     }
+    public var contentMetadata: SongContentMetadata? {
+        get { rare.values.contentMetadata }
+        set { updateRare { $0.contentMetadata = newValue } }
+    }
     public var mvPath: String? {
         get { rare.values.mvPath }
         set { updateRare { $0.mvPath = newValue } }
@@ -242,7 +246,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         audioCodec: AudioFormat? = nil,
         effectiveBitDepth: Int? = nil,
         serverDateAdded: Date? = nil,
-        serverAlbumDateAdded: Date? = nil
+        serverAlbumDateAdded: Date? = nil,
+        contentMetadata: SongContentMetadata? = nil
     ) {
         self.id = id
         self.title = title
@@ -283,8 +288,9 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainAlbumPeak = replayGainAlbumPeak
         if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil
             || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
-            || serverDateAdded != nil || serverAlbumDateAdded != nil {
+            || serverDateAdded != nil || serverAlbumDateAdded != nil || contentMetadata != nil {
             var values = SongRareFields.Values()
+            values.contentMetadata = contentMetadata
             values.mvPath = mvPath
             values.cueSheetPath = cueSheetPath
             values.cueStartTime = cueStartTime
@@ -310,7 +316,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         case cueSheetPath, cueStartTime, cueEndTime, revision, titlePinyin, artistPinyin, albumPinyin
         case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID, audioCodec
         case effectiveBitDepth
-        case serverDateAdded, serverAlbumDateAdded
+        case serverDateAdded, serverAlbumDateAdded, contentMetadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -362,7 +368,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             audioCodec: try? container.decodeIfPresent(AudioFormat.self, forKey: .audioCodec),
             effectiveBitDepth: try container.decodeIfPresent(Int.self, forKey: .effectiveBitDepth),
             serverDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverDateAdded),
-            serverAlbumDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverAlbumDateAdded)
+            serverAlbumDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverAlbumDateAdded),
+            contentMetadata: try container.decodeIfPresent(SongContentMetadata.self, forKey: .contentMetadata)
         )
     }
 
@@ -396,6 +403,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(coverArtFileName, forKey: .coverArtFileName)
         try container.encodeIfPresent(artistArtworkFileName, forKey: .artistArtworkFileName)
         try container.encodeIfPresent(lyricsFileName, forKey: .lyricsFileName)
+        try container.encodeIfPresent(contentMetadata, forKey: .contentMetadata)
         try container.encodeIfPresent(mvPath, forKey: .mvPath)
         try container.encodeIfPresent(replayGainTrackGain, forKey: .replayGainTrackGain)
         try container.encodeIfPresent(replayGainTrackPeak, forKey: .replayGainTrackPeak)
@@ -491,6 +499,7 @@ private final class SongRareFields: Hashable, Sendable {
     struct Values: Hashable, Sendable {
         var serverDateAdded: Date?
         var serverAlbumDateAdded: Date?
+        var contentMetadata: SongContentMetadata?
         var mvPath: String?
         var cueSheetPath: String?
         var cueStartTime: TimeInterval?
@@ -1274,4 +1283,46 @@ public extension Sequence where Element == Song {
     /// Cloud Phase-A songs without a backfilled duration are kept — the player
     /// resolves their duration on play — so the queue no longer skips them.
     func filteredPlayable() -> [Song] { filter(\.isPlayable) }
+}
+
+/// A completed file inspection can carry no tags; partial reads remain eligible for backfill.
+public struct SongContentMetadata: Codable, Hashable, Sendable {
+    public var iTunesAdvisory: Int?
+    public var copyright: String?
+    public var isFileInspectionComplete: Bool
+
+    public init(iTunesAdvisory: Int? = nil, copyright: String? = nil, isFileInspectionComplete: Bool = false) {
+        self.isFileInspectionComplete = isFileInspectionComplete
+        self.iTunesAdvisory = iTunesAdvisory
+        let text = copyright?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.copyright = text?.isEmpty == false ? text : nil
+    }
+
+    public var isExplicit: Bool { iTunesAdvisory == 1 || iTunesAdvisory == 4 }
+    public var hasValues: Bool { iTunesAdvisory != nil || copyright != nil }
+
+    public func fillingMissing(from fallback: Self?) -> Self {
+        Self(iTunesAdvisory: iTunesAdvisory ?? fallback?.iTunesAdvisory,
+             copyright: copyright ?? fallback?.copyright,
+             isFileInspectionComplete: isFileInspectionComplete || fallback?.isFileInspectionComplete == true)
+    }
+
+    public static func merging(previous: Self?, incoming: Self?) -> Self? {
+        guard let incoming else { return previous }
+        return incoming.isFileInspectionComplete ? incoming : incoming.fillingMissing(from: previous)
+    }
+
+    public static func needsInspection(_ song: Song) -> Bool {
+        song.contentMetadata?.isFileInspectionComplete != true && [.m4a, .alac].contains(song.fileFormat)
+            && !song.isStreamDescriptor && !song.isStandaloneMusicVideo
+    }
+
+    public static func copyrightNotices<S: Sequence>(for songs: S) -> [String] where S.Element == Song {
+        var seen = Set<String>()
+        return songs.compactMap { song in
+            guard let text = song.contentMetadata?.copyright,
+                  seen.insert(text).inserted else { return nil }
+            return text
+        }
+    }
 }

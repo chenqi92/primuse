@@ -6783,3 +6783,8 @@
 "chapter_generation_rename" = "Rename Chapter";
 "chapter_generation_daily_limit" = "Today’s chapter generation allowance has been used up. Try again tomorrow.";
 "chapter_generation_monthly_limit" = "This month’s chapter generation allowance has been used up. Try again next month.";
+
+"album_show_track_artwork" = "Show Track Artwork";
+"content_explicit" = "Explicit Content";
+"content_rating" = "Content Rating";
+"copyright_label" = "Copyright";

@@ -7023,3 +7023,8 @@
 "chapter_generation_rename" = "チャプター名を変更";
 "chapter_generation_daily_limit" = "本日のチャプター生成の上限に達しました。明日もう一度お試しください。";
 "chapter_generation_monthly_limit" = "今月のチャプター生成の上限に達しました。来月もう一度お試しください。";
+
+"album_show_track_artwork" = "曲のアートワークを表示";
+"content_explicit" = "露骨な表現を含む";
+"content_rating" = "コンテンツレーティング";
+"copyright_label" = "著作権";

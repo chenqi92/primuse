@@ -306,6 +306,7 @@ public enum ServerSongCatalogMergePolicy {
         if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
         if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
         if refreshed.audioCodec == nil { refreshed.audioCodec = incoming.audioCodec }
+        refreshed.contentMetadata = SongContentMetadata.merging(previous: existing.contentMetadata, incoming: incoming.contentMetadata)
         if refreshed.revision == nil { refreshed.revision = incoming.revision }
         if refreshed.lastModified == nil { refreshed.lastModified = incoming.lastModified }
         // Account-scoped server statistics can change while the media object

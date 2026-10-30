@@ -1052,3 +1052,5 @@
 
 /* 电视:云盘本月下载流量用完时,倒数后跳过这个来源 */
 "ext.tv.playback.quotaSkipCountdown" = "%1$@ has used up this month’s download allowance. In %2$d s, its songs will be skipped to play songs from other sources. Press Play/Pause to stay on this song, or Next to skip now.";
+
+"content_explicit" = "Explicit Content";

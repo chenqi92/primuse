@@ -1001,3 +1001,5 @@
 
 /* 电视:云盘本月下载流量用完时,倒数后跳过这个来源 */
 "ext.tv.playback.quotaSkipCountdown" = "%1$@ bu ayki indirme kotasını doldurdu. %2$d sn sonra bu kaynağın şarkıları atlanıp diğer kaynaklardan şarkılar çalınacak. Bu şarkıda kalmak için Oynat/Duraklat’a, hemen atlamak için Sonraki’ye basın.";
+
+"content_explicit" = "Uygunsuz İçerik";

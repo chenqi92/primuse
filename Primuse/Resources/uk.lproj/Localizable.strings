@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "Перейменувати розділ";
 "chapter_generation_daily_limit" = "Денний ліміт створення розділів вичерпано. Спробуйте завтра.";
 "chapter_generation_monthly_limit" = "Місячний ліміт створення розділів вичерпано. Спробуйте наступного місяця.";
+
+"album_show_track_artwork" = "Показувати обкладинки композицій";
+"content_explicit" = "Ненормативна лексика";
+"content_rating" = "Маркування вмісту";
+"copyright_label" = "Авторські права";

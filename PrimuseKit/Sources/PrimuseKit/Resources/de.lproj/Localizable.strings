@@ -1054,3 +1054,5 @@
 
 /* 电视:云盘本月下载流量用完时,倒数后跳过这个来源 */
 "ext.tv.playback.quotaSkipCountdown" = "%1$@: Das Download-Kontingent für diesen Monat ist aufgebraucht. In %2$d s werden Titel dieser Quelle übersprungen und Titel aus anderen Quellen abgespielt. Drücke Wiedergabe/Pause, um bei diesem Titel zu bleiben, oder Weiter, um sofort zu springen.";
+
+"content_explicit" = "Explizite Inhalte";

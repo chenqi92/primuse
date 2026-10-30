@@ -191,6 +191,21 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("Content tags survive incremental persistence and tag removal")
+    func contentMetadataRoundTrip() throws {
+        try withStore { store in
+            var song = makeSong(id: "tagged", path: "/track.m4a", title: "Track")
+            song.contentMetadata = SongContentMetadata(iTunesAdvisory: 4, copyright: "℗ Label", isFileInspectionComplete: true)
+            try store.replaceAll(with: [song])
+            #expect(try store.loadSongs().first?.contentMetadata == song.contentMetadata)
+            song.contentMetadata = SongContentMetadata(isFileInspectionComplete: true)
+            try store.apply(upserts: [song], deletingIDs: [])
+            let restored = try #require(store.loadSongs().first)
+            #expect(restored.contentMetadata == song.contentMetadata)
+            #expect(restored.contentMetadata?.isExplicit == false)
+        }
+    }
+
     private func withStore(_ body: (IncrementalSongStore) throws -> Void) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse-song-store-\(UUID().uuidString).sqlite")

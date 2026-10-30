@@ -251,6 +251,37 @@ struct ISOBaseMediaLyricsParserTests {
         #expect(ISOBaseMediaLyricsParser.lyrics(in: truncated) == nil)
     }
 
+    @Test("Reads iTunes advisory and original copyright from complete movie metadata", arguments: [1, 2, 4])
+    func contentTags(_ rating: UInt8) throws {
+        let notice = "℗ 2026 Label\n© 2026 Artist"
+        let items = atom("rtng", payload: dataAtom(Data([rating]), declaredType: 21))
+            + atom("cprt", payload: dataAtom(Data(notice.utf8)))
+        let result = try #require(ISOBaseMediaLyricsParser.contentMetadata(in: mediaFile(items: items)))
+        #expect(result.iTunesAdvisory == Int(rating))
+        #expect(result.copyright == notice)
+        #expect(result.isFileInspectionComplete)
+        #expect(result.isExplicit == (rating != 2))
+    }
+
+    @Test("A truncated moov must remain uninspected, while a complete tagless moov is complete")
+    func contentInspectionCompletion() throws {
+        let file = mediaFile(items: Data())
+        #expect(ISOBaseMediaLyricsParser.contentMetadata(in: file.dropLast()) == nil)
+        let complete = try #require(ISOBaseMediaLyricsParser.contentMetadata(in: file))
+        #expect(complete.isFileInspectionComplete)
+        #expect(!complete.hasValues)
+        #expect(ISOBaseMediaLyricsParser.contentMetadata(in: Data()) == nil)
+    }
+
+    @Test("Malformed advisory is ignored without dropping valid copyright")
+    func malformedContentTag() throws {
+        let items = atom("rtng", payload: dataAtom(Data([4]), declaredType: 1))
+            + atom("cprt", payload: dataAtom(Data("© Artist".utf8)))
+        let result = try #require(ISOBaseMediaLyricsParser.contentMetadata(in: mediaFile(items: items)))
+        #expect(result.iTunesAdvisory == nil)
+        #expect(result.copyright == "© Artist")
+    }
+
     private func mediaFile(items: Data) -> Data {
         mediaFile(metadata: metadataAtom(keys: [], items: items))
     }

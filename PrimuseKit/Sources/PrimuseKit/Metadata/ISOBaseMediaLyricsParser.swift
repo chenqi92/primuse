@@ -64,6 +64,36 @@ public enum ISOBaseMediaLyricsParser {
         payload(in: data)?.lyrics
     }
 
+    /// Requires a complete moov so a truncated range is never recorded as tagless.
+    public static func contentMetadata(in data: Data) -> SongContentMetadata? {
+        let movies = atoms(in: data, range: data.startIndex..<data.endIndex)
+            .filter { $0.type == AtomType.moov }
+        guard !movies.isEmpty else { return nil }
+        var result = SongContentMetadata(isFileInspectionComplete: true)
+        for moov in movies {
+            for metadata in metadataAtoms(in: data, moov: moov) {
+                guard metadata.payload.count >= 4 else { continue }
+                let children = atoms(in: data, range: (metadata.payload.lowerBound + 4)..<metadata.payload.upperBound)
+                for list in children where list.type == AtomType.ilst {
+                    for item in atoms(in: data, range: list.payload) {
+                        if item.type == 0x63707274 {
+                            result.copyright = result.copyright ?? decodedItem(in: data, item: item)
+                        } else if item.type == 0x72746E67 {
+                            for value in atoms(in: data, range: item.payload) where value.type == AtomType.data {
+                                guard value.payload.count >= 9, value.payload.count <= 12,
+                                      let type = readUInt32BE(data, at: value.payload.lowerBound),
+                                      [0, 21, 22].contains(type & 0x00FF_FFFF) else { continue }
+                                let bytes = data[(value.payload.lowerBound + 8)..<value.payload.upperBound]
+                                result.iTunesAdvisory = result.iTunesAdvisory ?? bytes.reduce(0) { ($0 << 8) | Int($1) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return result
+    }
+
     public static func payload(in data: Data) -> LyricsPayload? {
         guard !data.isEmpty else { return nil }
         var result = LyricsPayload()

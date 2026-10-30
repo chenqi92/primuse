@@ -30,6 +30,7 @@ actor TVMetadataInspectionStore {
     }
 
     func isCurrent(_ song: Song, sidecars: SidecarDirectoryIndex<TVDirEntry>? = nil) async -> Bool {
+        guard !SongContentMetadata.needsInspection(song) else { return false }
         guard let entry = entries[key(song)], entry.metadata == signature(song) else { return false }
         let assets = MetadataAssetStore.shared
         if song.coverArtFileName == assets.expectedCoverFileName(for: song.id),

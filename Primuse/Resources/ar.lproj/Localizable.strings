@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "إعادة تسمية الفصل";
 "chapter_generation_daily_limit" = "تم استنفاد حصة إنشاء الفصول اليوم. حاول مرة أخرى غدًا.";
 "chapter_generation_monthly_limit" = "تم استنفاد حصة إنشاء الفصول لهذا الشهر. حاول مرة أخرى الشهر المقبل.";
+
+"album_show_track_artwork" = "إظهار صور الأغاني";
+"content_explicit" = "محتوى صريح";
+"content_rating" = "تصنيف المحتوى";
+"copyright_label" = "حقوق النشر";

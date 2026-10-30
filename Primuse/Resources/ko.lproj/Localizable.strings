@@ -7022,3 +7022,8 @@
 "chapter_generation_rename" = "챕터 이름 변경";
 "chapter_generation_daily_limit" = "오늘의 챕터 생성 한도를 모두 사용했습니다. 내일 다시 시도하세요.";
 "chapter_generation_monthly_limit" = "이번 달의 챕터 생성 한도를 모두 사용했습니다. 다음 달에 다시 시도하세요.";
+
+"album_show_track_artwork" = "곡 아트워크 표시";
+"content_explicit" = "유해 콘텐츠";
+"content_rating" = "콘텐츠 등급";
+"copyright_label" = "저작권";

@@ -621,10 +621,13 @@ struct TVNowPlayingView: View {
                     color: .white.opacity(0.62)
                 )
                 .padding(.bottom, 18)
-                Text(np.title)
-                    .tvFont(size: 58, weight: .bold, relativeTo: .largeTitle)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(np.title)
+                        .tvFont(size: 58, weight: .bold, relativeTo: .largeTitle)
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    TVContentRatingBadge(songID: store.currentSongID)
+                }
                 Text(np.artist)
                     .tvFont(.cardTitle, weight: .regular)
                     .foregroundStyle(.white.opacity(0.74))
@@ -692,8 +695,12 @@ struct TVNowPlayingView: View {
             .accessibilityLabel(Text(PMString("ext.tv.player.browse")))
             .accessibilityHint(Text(PMString("ext.tv.nowPlaying.artworkHint")))
             .accessibilityIdentifier("tv.nowPlaying.artworkControls")
-            Text(np.title).tvFont(.pageTitle).tracking(-0.8)
-                .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(np.title).tvFont(.pageTitle).tracking(-0.8)
+                    .foregroundStyle(TVColor.text).lineLimit(2)
+                TVContentRatingBadge(songID: store.currentSongID)
+            }
+            .padding(.top, 26)
             artistLine(np).padding(.top, 8)
             if store.isMedleyActive {
                 TVPillButton(title: store.medleyBadgeTitle,

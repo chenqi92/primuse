@@ -5425,16 +5425,21 @@ struct NowPlayingView: View {
     }
 
     private func compactLandscapeTitle(lineLimit: Int) -> some View {
-        Text(player.currentSong?.title ?? "")
-            .font(.largeTitle.weight(.bold))
-            .foregroundStyle(appearance.primary)
-            .lineLimit(lineLimit)
-            .minimumScaleFactor(0.7)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .contentTransition(.opacity)
-            .pmAnimation(.trackChange, value: player.currentSong?.id)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(player.currentSong?.title ?? "")
+                .font(.largeTitle.weight(.bold))
+                .foregroundStyle(appearance.primary)
+                .lineLimit(lineLimit)
+                .minimumScaleFactor(0.7)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .pmAnimation(.trackChange, value: player.currentSong?.id)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let song = player.currentSong {
+                SongContentRatingBadge(song: library.song(id: song.id) ?? song)
+            }
+        }
     }
 
     /// 艺人 / 专辑沿用竖屏那套可点跳转的 Menu，横屏只是压成一行。音质与来源在进度条下的标签里。
@@ -9418,6 +9423,10 @@ struct NowPlayingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
+                if let song = player.currentSong {
+                    SongContentRatingBadge(song: library.song(id: song.id) ?? song)
+                }
+
                 HStack(spacing: 4) {
                     musicVideoToggleButton(font: .title3, trailing: 0)
                     // 竖栏那一列里已经有的就不在这里重复。歌名旁那一格默认是心形。
@@ -12388,6 +12397,9 @@ extension View {
 
 struct SongInfoSheet: View {
     let song: Song
+    private var contentMetadata: SongContentMetadata? {
+        (library.song(id: song.id) ?? song).contentMetadata
+    }
     @Environment(\.dismiss) private var dismiss
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
@@ -12423,6 +12435,13 @@ struct SongInfoSheet: View {
         NavigationStack {
             List {
                 infoRow(String(localized: "title_label"), song.title)
+                if contentMetadata?.isExplicit == true {
+                    infoRow(String(localized: "content_rating"), String(localized: "content_explicit"))
+                }
+                if let copyright = contentMetadata?.copyright {
+                    infoRow(String(localized: "copyright_label"), copyright, multiline: true)
+                        .textSelection(.enabled)
+                }
                 if let artist = library.artistDisplayName(for: song) {
                     infoRow(String(localized: "artist_label"), artist)
                 }
@@ -12587,7 +12606,7 @@ struct SongInfoSheet: View {
                                       ? .system(size: 12.5, design: .monospaced)
                                       : .system(size: 12.5))
                                 .foregroundStyle(PMColor.text)
-                                .lineLimit(row.monospace ? 3 : 1)
+                                .lineLimit(row.label == String(localized: "copyright_label") ? nil : (row.monospace ? 3 : 1))
                                 .textSelection(.enabled)
                                 .accessibilityLabel(Text(row.label))
                                 .accessibilityValue(Text(row.value))
@@ -12635,6 +12654,12 @@ struct SongInfoSheet: View {
         var rows: [(String, String, Bool)] = [
             (String(localized: "title_label"), song.title, false),
         ]
+        if contentMetadata?.isExplicit == true {
+            rows.append((String(localized: "content_rating"), String(localized: "content_explicit"), false))
+        }
+        if let copyright = contentMetadata?.copyright {
+            rows.append((String(localized: "copyright_label"), copyright, false))
+        }
         if let artist = library.artistDisplayName(for: song) {
             rows.append((String(localized: "artist_label"), artist, false))
         }
@@ -12690,7 +12715,8 @@ struct SongInfoSheet: View {
     private func infoRow(
         _ label: String,
         _ value: String,
-        monospaced: Bool = false
+        monospaced: Bool = false,
+        multiline: Bool = false
     ) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label).foregroundStyle(.secondary)
@@ -12698,7 +12724,8 @@ struct SongInfoSheet: View {
             Text(value)
                 .font(monospaced ? .callout.monospaced() : .body)
                 .fontWeight(.medium)
-                .lineLimit(monospaced ? 3 : 1)
+                .lineLimit(multiline ? nil : (monospaced ? 3 : 1))
+                .fixedSize(horizontal: false, vertical: multiline)
                 .truncationMode(.middle)
                 .multilineTextAlignment(.trailing)
         }

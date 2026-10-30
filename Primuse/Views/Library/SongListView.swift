@@ -6515,6 +6515,7 @@ private struct MacSongTableRowContent: View, Equatable, Sendable {
                         .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    SongContentRatingBadge(song: song)
                     if liked {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 10))

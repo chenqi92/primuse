@@ -423,11 +423,17 @@ extension EnvironmentValues {
 #if DEBUG && os(iOS)
 @MainActor
 private final class SongLocationEvidenceFixture {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("song-location-fixture")
+    static var showsContentTags: Bool {
+        ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_CONTENT_TAGS"] == "1"
+    }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_CONTENT_TAGS"] == "1"
+            ? "song-content-fixture" : "song-location-fixture"
+    )
     let library: MusicLibrary
     let player: AudioPlayerService
     var playlist: Playlist?
-    let targetID = "location-3990"
+    var targetID: String { Self.showsContentTags ? "location-0" : "location-3990" }
 
     init() {
         library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
@@ -441,10 +447,15 @@ private final class SongLocationEvidenceFixture {
     }
 
     func prepare() async {
-        let songs = (0..<4_000).map { index in
+        let songs = (0..<(Self.showsContentTags ? 3 : 4_000)).map { index in
             Song(id: "location-\(index)", title: String(format: "Track %04d", index),
-                 albumTitle: "Location Album", artistName: "Location Artist", duration: 180,
-                 fileFormat: .flac, filePath: "/location-fixture/\(index).flac", sourceID: "location-fixture")
+                 albumTitle: "Location Album", artistName: "Location Artist", trackNumber: index + 1, duration: 180,
+                 fileFormat: .flac, filePath: "/location-fixture/\(index).flac", sourceID: "location-fixture",
+                 contentMetadata: Self.showsContentTags ? SongContentMetadata(
+                    iTunesAdvisory: index.isMultiple(of: 2) ? 4 : 2,
+                    copyright: index < 2 ? "℗ 2026 Example Records" : "© 2026 Guest Artist",
+                    isFileInspectionComplete: true
+                 ) : nil)
         }
         library.addSongs(songs, affectedSourceIDs: ["location-fixture"])
         await library.waitForPendingIndex()

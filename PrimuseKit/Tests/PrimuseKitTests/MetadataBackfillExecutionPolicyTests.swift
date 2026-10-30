@@ -19,7 +19,7 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(!AudioCachePrewarmSeedPolicy.canReplaceSparseFile(isActiveSessionPath: false, activePlaybackUses: 0, hasPlaybackLease: true))
     }
 
-    @Test("Bare-only sources stop after their initial detail read")
+    @Test("Bare-only sources stop rereading text but still inspect missing artwork")
     func bareOnlyEligibility() {
         let pending = MetadataBackfillEligibilityPolicy.reasons(
             duration: 0,
@@ -49,8 +49,12 @@ struct MetadataBackfillExecutionPolicyTests {
 
         #expect(pending.contains(.duration))
         #expect(pending.contains(.title))
-        #expect(completed.isEmpty)
+        #expect(completed == [.artwork])
         #expect(terminalIncomplete.isEmpty)
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180, format: .flac, hasCoverArt: false, artworkGivenUp: true,
+            titleChecked: false, restrictToBareRows: true
+        ).isEmpty)
     }
 
     @Test("Background work drains bounded snapshots until its execution time expires")

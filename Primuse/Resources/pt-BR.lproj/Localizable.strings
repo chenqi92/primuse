@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "Renomear capítulo";
 "chapter_generation_daily_limit" = "A cota diária de geração de capítulos foi esgotada. Tente novamente amanhã.";
 "chapter_generation_monthly_limit" = "A cota mensal de geração de capítulos foi esgotada. Tente novamente no próximo mês.";
+
+"album_show_track_artwork" = "Mostrar capas das músicas";
+"content_explicit" = "Conteúdo explícito";
+"content_rating" = "Classificação de conteúdo";
+"copyright_label" = "Direitos autorais";

@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "Bölümü Yeniden Adlandır";
 "chapter_generation_daily_limit" = "Bugünkü bölüm oluşturma kotası doldu. Yarın tekrar deneyin.";
 "chapter_generation_monthly_limit" = "Bu ayki bölüm oluşturma kotası doldu. Gelecek ay tekrar deneyin.";
+
+"album_show_track_artwork" = "Şarkı kapaklarını göster";
+"content_explicit" = "Uygunsuz İçerik";
+"content_rating" = "İçerik Derecelendirmesi";
+"copyright_label" = "Telif Hakkı";

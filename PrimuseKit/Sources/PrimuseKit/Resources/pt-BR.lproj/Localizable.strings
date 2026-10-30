@@ -1001,3 +1001,5 @@
 
 /* 电视:云盘本月下载流量用完时,倒数后跳过这个来源 */
 "ext.tv.playback.quotaSkipCountdown" = "%1$@: a cota de download deste mês acabou. Em %2$d s, as músicas desta fonte serão puladas para tocar as de outras fontes. Pressione Reproduzir/Pausar para ficar nesta música ou Próxima para pular agora.";
+
+"content_explicit" = "Conteúdo explícito";

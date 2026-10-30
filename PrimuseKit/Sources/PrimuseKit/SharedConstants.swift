@@ -3991,6 +3991,7 @@ public struct MetadataBackfillWorkReasons: OptionSet, Sendable, Equatable {
     public static let audioCodec = Self(rawValue: 1 << 5)
     /// 24 bit 的 FLAC 还没查是不是 16 bit 补零。
     public static let effectiveBitDepth = Self(rawValue: 1 << 6)
+    public static let contentMetadata = Self(rawValue: 1 << 7)
 }
 
 /// Shared predicate for the background metadata pipeline. Each inspection leg
@@ -4034,6 +4035,7 @@ public enum MetadataBackfillEligibilityPolicy {
         artistChecked: Bool = true,
         audioCodecUnread: Bool = false,
         effectiveBitDepthUnread: Bool = false,
+        contentMetadataUnread: Bool = false,
         containerCodecOnly: Bool = false
     ) -> MetadataBackfillWorkReasons {
         // 服务端曲库源: 目录信息以服务端为准, 只为认编码读一次文件头。
@@ -4050,9 +4052,10 @@ public enum MetadataBackfillEligibilityPolicy {
             }
             if audioCodecUnread { reasons.insert(.audioCodec) }
             if effectiveBitDepthUnread { reasons.insert(.effectiveBitDepth) }
+            if contentMetadataUnread { reasons.insert(.contentMetadata) }
             return reasons
         }
-        var reasons: MetadataBackfillWorkReasons = []
+        var reasons: MetadataBackfillWorkReasons = contentMetadataUnread ? [.contentMetadata] : []
         if audioCodecUnread {
             reasons.insert(.audioCodec)
         }
@@ -4099,6 +4102,7 @@ public enum MetadataBackfillEligibilityPolicy {
         artistChecked: Bool = true,
         audioCodecUnread: Bool = false,
         effectiveBitDepthUnread: Bool = false,
+        contentMetadataUnread: Bool = false,
         containerCodecOnly: Bool = false
     ) -> Bool {
         !reasons(
@@ -4117,6 +4121,7 @@ public enum MetadataBackfillEligibilityPolicy {
             artistChecked: artistChecked,
             audioCodecUnread: audioCodecUnread,
             effectiveBitDepthUnread: effectiveBitDepthUnread,
+            contentMetadataUnread: contentMetadataUnread,
             containerCodecOnly: containerCodecOnly
         ).isEmpty
     }

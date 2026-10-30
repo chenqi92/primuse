@@ -420,7 +420,16 @@ enum TVMetadataEnricher {
             declaredFileExtension: song.fileFormat.rawValue,
             signature: AudioFileSignaturePolicy.inspect(head)
         )
-        var metadata = await readMetadata(head, ext: ext)
+        var metadataInput = head
+        if RemoteMetadataInspectionPolicy.tailStrategy(fileExtension: ext, isExplicitReread: false) == .isoBaseMedia,
+           let complete = try? await ISOBaseMediaRangeReader.read(
+            head: head, fileSize: song.fileSize,
+            fetch: { try await reader.read(offset: $0, length: $1) }
+           ) {
+            metadataInput = complete
+        }
+        try Task.checkCancellation()
+        var metadata = await readMetadata(metadataInput, ext: ext)
         try Task.checkCancellation()
 
         if let declared = FileMetadataReader.id3TagByteCount(in: head),
@@ -624,6 +633,7 @@ enum TVMetadataEnricher {
             output.year = metadata.year ?? output.year
             output.genre = metadata.genre ?? output.genre
         }
+        output.contentMetadata = SongContentMetadata.merging(previous: output.contentMetadata, incoming: metadata.contentMetadata)
         output.bitRate = metadata.bitRate ?? output.bitRate
         output.sampleRate = metadata.sampleRate ?? output.sampleRate
         output.bitDepth = metadata.bitDepth ?? output.bitDepth

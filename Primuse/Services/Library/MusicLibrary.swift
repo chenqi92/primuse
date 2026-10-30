@@ -6555,6 +6555,7 @@ final class MusicLibrary {
             || old.replayGainTrackPeak != new.replayGainTrackPeak
             || old.replayGainAlbumGain != new.replayGainAlbumGain
             || old.replayGainAlbumPeak != new.replayGainAlbumPeak
+            || old.contentMetadata != new.contentMetadata
             || old.cueSheetPath != new.cueSheetPath
             || old.cueStartTime != new.cueStartTime
             || old.cueEndTime != new.cueEndTime

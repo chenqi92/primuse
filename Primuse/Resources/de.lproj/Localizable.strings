@@ -7022,3 +7022,8 @@
 "chapter_generation_rename" = "Kapitel umbenennen";
 "chapter_generation_daily_limit" = "Das heutige Kontingent zur Kapitelerstellung ist aufgebraucht. Versuche es morgen erneut.";
 "chapter_generation_monthly_limit" = "Das monatliche Kontingent zur Kapitelerstellung ist aufgebraucht. Versuche es nächsten Monat erneut.";
+
+"album_show_track_artwork" = "Titelcover anzeigen";
+"content_explicit" = "Explizite Inhalte";
+"content_rating" = "Inhaltsbewertung";
+"copyright_label" = "Copyright";

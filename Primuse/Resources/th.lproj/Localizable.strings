@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "เปลี่ยนชื่อบท";
 "chapter_generation_daily_limit" = "ใช้โควตาสร้างบทของวันนี้หมดแล้ว โปรดลองใหม่พรุ่งนี้";
 "chapter_generation_monthly_limit" = "ใช้โควตาสร้างบทของเดือนนี้หมดแล้ว โปรดลองใหม่เดือนหน้า";
+
+"album_show_track_artwork" = "แสดงภาพปกเพลง";
+"content_explicit" = "เนื้อหาโจ่งแจ้ง";
+"content_rating" = "การจัดประเภทเนื้อหา";
+"copyright_label" = "ลิขสิทธิ์";

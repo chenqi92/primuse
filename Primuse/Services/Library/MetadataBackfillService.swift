@@ -3061,6 +3061,7 @@ final class MetadataBackfillService {
                     containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
                 ),
                 effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
+                contentMetadataUnread: SongContentMetadata.needsInspection(song),
                 containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
             )
             let stillNeedsDetails = !workReasons.isEmpty
@@ -6114,7 +6115,8 @@ final class MetadataBackfillService {
                     ? FLACEffectiveBitDepthParser.inspectedBitDepth(nil, declared: metadata.bitDepth ?? bare.bitDepth)
                     : nil),
             serverDateAdded: bare.serverDateAdded,
-            serverAlbumDateAdded: bare.serverAlbumDateAdded
+            serverAlbumDateAdded: bare.serverAlbumDateAdded,
+            contentMetadata: SongContentMetadata.merging(previous: bare.contentMetadata, incoming: metadata.contentMetadata)
         )
         let preserved = SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
         if bare.userMetadataEditedAt != nil,
@@ -6246,7 +6248,7 @@ final class MetadataBackfillService {
                 containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
             )
             guard !reasons.isEmpty else { continue }
-            guard !reasons.isSubset(of: [.albumArtist, .audioCodec, .effectiveBitDepth]) else {
+            guard !reasons.isSubset(of: [.albumArtist, .audioCodec, .effectiveBitDepth, .contentMetadata]) else {
                 // 攒够一整批就不用再记了: 上层一次最多取 `limit` 行。
                 if recheckOnly.count < limit { recheckOnly.append(song) }
                 continue
@@ -6434,6 +6436,7 @@ final class MetadataBackfillService {
                 containerCodecOnly: containerCodecOnlySourceIDs().contains(song.sourceID)
             ),
             effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
+            contentMetadataUnread: SongContentMetadata.needsInspection(song),
             containerCodecOnly: containerCodecOnlySourceIDs().contains(song.sourceID)
         )
     }
@@ -6489,6 +6492,7 @@ final class MetadataBackfillService {
             artistChecked: artistCheckedIDs.contains(song.id),
             audioCodecUnread: Self.audioCodecUnread(song, containerCodecOnly: containerCodecOnly),
             effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
+            contentMetadataUnread: SongContentMetadata.needsInspection(song),
             containerCodecOnly: containerCodecOnly
         )
     }
@@ -6509,6 +6513,7 @@ final class MetadataBackfillService {
         artistChecked: Bool,
         audioCodecUnread: Bool,
         effectiveBitDepthUnread: Bool,
+        contentMetadataUnread: Bool,
         containerCodecOnly: Bool
     ) -> MetadataBackfillWorkReasons {
         return MetadataBackfillEligibilityPolicy.reasons(
@@ -6527,6 +6532,7 @@ final class MetadataBackfillService {
             artistChecked: artistChecked,
             audioCodecUnread: audioCodecUnread,
             effectiveBitDepthUnread: effectiveBitDepthUnread,
+            contentMetadataUnread: contentMetadataUnread,
             containerCodecOnly: containerCodecOnly
         )
     }

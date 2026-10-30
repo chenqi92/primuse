@@ -6,6 +6,7 @@ actor MetadataService {
     private let assetStore = MetadataAssetStore.shared
 
     struct SongMetadata {
+        var contentMetadata: SongContentMetadata? = nil
         var title: String
         var artist: String? = nil
         /// Trustworthy identity values that came from the media bytes. `title`
@@ -121,6 +122,7 @@ actor MetadataService {
             title: trustedEmbeddedTitle, artist: embeddedArtist, fileStem: titleFallback
         )
         var result = SongMetadata(
+            contentMetadata: embedded.contentMetadata,
             title: correctedTitle ?? trustedEmbeddedTitle ?? titleFallback,
             artist: correctedArtist ?? embeddedArtist,
             embeddedTitle: MediaMetadataTextRepair.repaired(trustedEmbeddedTitle),
@@ -285,6 +287,7 @@ actor MetadataService {
         ) ?? repairedFallback
 
         var result = SongMetadata(
+            contentMetadata: embedded.contentMetadata,
             title: preferredTitle,
             artist: correctedArtist ?? MediaMetadataTextRepair.repaired(embedded.artist),
             embeddedTitle: MediaMetadataTextRepair.repaired(embedded.title),

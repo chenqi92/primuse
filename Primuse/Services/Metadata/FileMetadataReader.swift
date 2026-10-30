@@ -5,6 +5,7 @@ import SFBAudioEngine
 
 enum FileMetadataReader {
     struct Metadata {
+        var contentMetadata: SongContentMetadata?
         var title: String?
         var artist: String?
         var sourceArtistNames: [String]?
@@ -53,7 +54,8 @@ enum FileMetadataReader {
             func hasText(_ value: String?) -> Bool {
                 value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             }
-            return hasText(title)
+            return contentMetadata?.hasValues == true
+                || hasText(title)
                 || hasText(artist)
                 || hasText(albumTitle)
                 || hasText(albumArtist)
@@ -80,6 +82,7 @@ enum FileMetadataReader {
         }
 
         mutating func fillMissing(from fallback: Metadata) {
+            contentMetadata = contentMetadata?.fillingMissing(from: fallback.contentMetadata) ?? fallback.contentMetadata
             title = title ?? fallback.title
             artist = artist ?? fallback.artist
             sourceArtistNames = sourceArtistNames ?? fallback.sourceArtistNames
@@ -644,6 +647,27 @@ enum FileMetadataReader {
                 let value = try? await item.load(.value)
 
                 switch identifier {
+                case .iTunesMetadataContentRating:
+                    let advisory: Int?
+                    if let number = value as? NSNumber {
+                        advisory = number.intValue
+                    } else if let bytes = value as? Data, (1...4).contains(bytes.count) {
+                        advisory = bytes.reduce(0) { ($0 << 8) | Int($1) }
+                    } else {
+                        advisory = decodedText(value).flatMap(Int.init)
+                    }
+                    if let advisory {
+                        var content = metadata.contentMetadata ?? SongContentMetadata()
+                        content.iTunesAdvisory = advisory
+                        metadata.contentMetadata = content
+                    }
+                case .iTunesMetadataCopyright, .commonIdentifierCopyrights,
+                     .quickTimeMetadataCopyright, .quickTimeUserDataCopyright, .id3MetadataCopyright:
+                    if let text = decodedText(value), !text.isEmpty {
+                        var content = metadata.contentMetadata ?? SongContentMetadata()
+                        content.copyright = content.copyright ?? text
+                        metadata.contentMetadata = content
+                    }
                 case .iTunesMetadataSongName:
                     if let title = decodedText(value) {
                         titleCandidates.append(.init(value: title, source: .iTunesSongName))
@@ -919,8 +943,11 @@ enum FileMetadataReader {
         data: Data,
         fileExtension: String
     ) {
-        guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),
-              let tags = ISOBaseMediaLyricsParser.replayGainTags(in: data) else {
+        guard isoBaseMediaExtensions.contains(fileExtension.lowercased()) else { return }
+        if let content = ISOBaseMediaLyricsParser.contentMetadata(in: data) {
+            metadata.contentMetadata = content.fillingMissing(from: metadata.contentMetadata)
+        }
+        guard let tags = ISOBaseMediaLyricsParser.replayGainTags(in: data) else {
             return
         }
         metadata.replayGainTrackGain = metadata.replayGainTrackGain ?? tags.trackGain

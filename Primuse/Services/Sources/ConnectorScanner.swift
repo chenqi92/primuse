@@ -2037,7 +2037,8 @@ actor ConnectorScanner {
             replayGainAlbumGain: metadata.replayGainAlbumGain,
             replayGainAlbumPeak: metadata.replayGainAlbumPeak,
             revision: item.revision,
-            audioCodec: ContainerAudioCodecPolicy.storedCodec(metadata.audioCodec, container: format)
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(metadata.audioCodec, container: format),
+            contentMetadata: metadata.contentMetadata
         )
     }
 

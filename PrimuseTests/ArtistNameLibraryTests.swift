@@ -5,6 +5,40 @@ import XCTest
 
 @MainActor
 final class FileAlbumArtistLibraryTests: XCTestCase {
+    func testITunesContentTagsSurviveLocalAndRemoteMetadataMapping() async throws {
+        func atom(_ type: String, _ payload: Data) -> Data {
+            var size = UInt32(payload.count + 8).bigEndian
+            return withUnsafeBytes(of: &size) { Data($0) } + Data(type.utf8) + payload
+        }
+        func value(_ bytes: Data, type: UInt8) -> Data {
+            atom("data", Data([0, 0, 0, type, 0, 0, 0, 0]) + bytes)
+        }
+        let notice = "℗ 2026 Label\n© 2026 Artist"
+        let tags = atom("rtng", value(Data([4]), type: 21))
+            + atom("cprt", value(Data(notice.utf8), type: 1))
+        let metadata = atom("meta", Data(repeating: 0, count: 4) + atom("ilst", tags))
+        let file = atom("ftyp", Data("M4A ".utf8) + Data(repeating: 0, count: 4) + Data("M4A isom".utf8))
+            + atom("moov", atom("mvhd", Data(repeating: 0, count: 100)) + atom("udta", metadata))
+        XCTAssertNotNil(ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(head: file, tail: Data()))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("tags.m4a")
+        try file.write(to: url)
+        let service = MetadataService()
+        let local = await service.loadMetadata(
+            for: url, allowOnlineFetch: false, trustedSource: false, discoverSidecars: false
+        )
+        let remote = await service.loadEmbeddedMetadata(
+            from: file, fileExtension: "m4a", fallbackTitle: "Track"
+        )
+        for (source, result) in [("local", local), ("remote", remote)] {
+            XCTAssertEqual(result.contentMetadata?.iTunesAdvisory, 4, source)
+            XCTAssertEqual(result.contentMetadata?.copyright, notice, source)
+            XCTAssertEqual(result.contentMetadata?.isFileInspectionComplete, true, source)
+        }
+    }
+
     func testTruncatedUTF8AlbumSurvivesLocalAndRemoteMetadataMapping() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TruncatedAlbumTags-\(UUID().uuidString)", isDirectory: true)

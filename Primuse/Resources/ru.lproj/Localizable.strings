@@ -6928,3 +6928,8 @@
 "chapter_generation_rename" = "Переименовать главу";
 "chapter_generation_daily_limit" = "Дневной лимит создания глав исчерпан. Попробуйте завтра.";
 "chapter_generation_monthly_limit" = "Месячный лимит создания глав исчерпан. Попробуйте в следующем месяце.";
+
+"album_show_track_artwork" = "Показывать обложки треков";
+"content_explicit" = "Ненормативная лексика";
+"content_rating" = "Возрастная маркировка";
+"copyright_label" = "Авторские права";

@@ -36,6 +36,7 @@ struct SongRowView: View {
     var actionRequest: SongRowActionRequest? = nil
     var isPlaying: Bool = false
     var showAlbum: Bool = true
+    var showsArtwork: Bool = true
     var trackNumber: Int? = nil
     var largestTrackNumber: Int = 1
     var showsActions: Bool = true
@@ -382,56 +383,73 @@ struct SongRowView: View {
         let showsDurationColumn = columns.showsDuration
         let style = rowStyle
         HStack(spacing: style.artworkSpacing) {
-            // Cover art with playing overlay
-            ZStack {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: style.artworkSize, cornerRadius: style.artworkCornerRadius,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat
-                )
+            if showsArtwork {
+                // Cover art with playing overlay
+                ZStack {
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: style.artworkSize, cornerRadius: style.artworkCornerRadius,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat
+                    )
 
-                if isPlaying {
-                    Color.black.opacity(0.35)
-                        .clipShape(RoundedRectangle(cornerRadius: style.artworkCornerRadius))
-                        .frame(width: style.artworkSize, height: style.artworkSize)
-                        .pmFadeTransition()
-                    // While the player is still loading the active track,
-                    // show a spinner instead of the playing-waveform so the
-                    // user can tell "tap registered, audio is on the way"
-                    // from "audio is actually playing" — once that wait is
-                    // long enough to notice.
-                    if player.showsLoadingIndicator {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
+                    if isPlaying {
+                        Color.black.opacity(0.35)
+                            .clipShape(RoundedRectangle(cornerRadius: style.artworkCornerRadius))
+                            .frame(width: style.artworkSize, height: style.artworkSize)
                             .pmFadeTransition()
-                    } else {
-                        Image(systemName: "waveform")
-                            .font(.caption)
-                            .symbolEffect(.variableColor.iterative)
-                            .foregroundStyle(.white)
-                            .pmFadeTransition()
+                        // While the player is still loading the active track,
+                        // show a spinner instead of the playing-waveform so the
+                        // user can tell "tap registered, audio is on the way"
+                        // from "audio is actually playing" — once that wait is
+                        // long enough to notice.
+                        if player.showsLoadingIndicator {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                                .pmFadeTransition()
+                        } else {
+                            Image(systemName: "waveform")
+                                .font(.caption)
+                                .symbolEffect(.variableColor.iterative)
+                                .foregroundStyle(.white)
+                                .pmFadeTransition()
+                        }
                     }
                 }
+                .frame(width: style.artworkSize, height: style.artworkSize)
+                .opacity(isReadingDetails ? 0.65 : unreachableDimming)
             }
-            .frame(width: style.artworkSize, height: style.artworkSize)
-            .opacity(isReadingDetails ? 0.65 : unreachableDimming)
 
             if let trackNumber {
                 SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
                     .font(style.titleFont)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.secondary)
                     .opacity(isReadingDetails ? 0.75 : unreachableDimming)
+                    .opacity(!showsArtwork && isPlaying ? 0 : 1)
+                    .overlay {
+                        if !showsArtwork && isPlaying {
+                            if player.showsLoadingIndicator {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "waveform")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
             }
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: style.textSpacing) {
-                Text(library.displayTitle(for: song))
-                    .font(style.titleFont)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(library.displayTitle(for: song))
+                        .font(style.titleFont)
+                        .lineLimit(1)
+                    SongContentRatingBadge(song: song)
+                }
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
                     .opacity(isReadingDetails ? 0.75 : unreachableDimming)
 
@@ -578,6 +596,8 @@ struct SongRowView: View {
             [
                 trackNumber.map { $0.formatted(.number.grouping(.never).locale(locale)) },
                 song.title,
+                (library.song(id: song.id) ?? song).contentMetadata?.isExplicit == true
+                    ? String(localized: "content_explicit") : nil,
                 library.artistDisplayName(for: song),
                 unreachable ? String(localized: "song_row_source_unreachable") : nil
             ]
@@ -2102,6 +2122,7 @@ extension SongRowView {
         song: Song,
         isPlaying: Bool = false,
         showAlbum: Bool = true,
+        showsArtwork: Bool = true,
         trackNumber: Int? = nil,
         largestTrackNumber: Int = 1,
         showsActions: Bool = true,
@@ -2115,6 +2136,7 @@ extension SongRowView {
         self.song = song
         self.isPlaying = isPlaying
         self.showAlbum = showAlbum
+        self.showsArtwork = showsArtwork
         self.trackNumber = trackNumber
         self.largestTrackNumber = largestTrackNumber
         self.showsActions = showsActions
@@ -2379,6 +2401,21 @@ struct ShuffleLinkMenu: View {
             }
         } label: {
             Label(String(localized: "shuffle_link_menu"), systemImage: "link")
+        }
+    }
+}
+
+struct SongContentRatingBadge: View {
+    @Environment(MusicLibrary.self) private var library
+    let song: Song
+
+    var body: some View {
+        if (library.song(id: song.id) ?? song).contentMetadata?.isExplicit == true {
+            Image(systemName: "e.square.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+                .accessibilityLabel(Text("content_explicit"))
         }
     }
 }

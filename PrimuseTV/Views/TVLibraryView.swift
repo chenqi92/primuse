@@ -1622,6 +1622,15 @@ struct TVAlbumDetailView: View {
                             if let remainder = appleMusicRemainder {
                                 appleMusicRemainderSection(remainder, albumArtist: album.artist)
                             }
+                            ForEach(SongContentMetadata.copyrightNotices(
+                                for: songs.compactMap { store.library.song(id: $0.id) }
+                            ), id: \.self) { notice in
+                                Text(verbatim: notice)
+                                    .tvFont(.caption)
+                                    .foregroundStyle(TVColor.textMuted)
+                                    .padding(.horizontal, 22)
+                                    .padding(.top, 10)
+                            }
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 20)
@@ -2079,9 +2088,12 @@ struct TVAlbumDetailView: View {
                 }
                 .frame(width: 56, alignment: .trailing)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(song.title).tvFont(.rowTitle)
-                        .foregroundStyle(isCurrent ? TVColor.brand : TVColor.text)
-                        .lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(song.title).tvFont(.rowTitle)
+                            .foregroundStyle(isCurrent ? TVColor.brand : TVColor.text)
+                            .lineLimit(1)
+                        TVContentRatingBadge(songID: song.id)
+                    }
                     if showsArtist {
                         Text(song.artist).tvFont(.caption)
                             .foregroundStyle(TVColor.textFaint)
@@ -2212,8 +2224,11 @@ struct TVSongRow: View {
                             .foregroundStyle(TVColor.brand)
                             .lineLimit(1)
                     }
-                    Text(song.title).tvFont(.cardTitle)
-                        .foregroundStyle(isCurrent ? TVColor.brand : TVColor.text).lineLimit(2)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(song.title).tvFont(.cardTitle)
+                            .foregroundStyle(isCurrent ? TVColor.brand : TVColor.text).lineLimit(2)
+                        TVContentRatingBadge(songID: song.id)
+                    }
                     Text(song.artist).tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
@@ -2581,6 +2596,20 @@ private struct TVAlbumFolderPictureThumbnail: View {
             guard let loaded, !Task.isCancelled else { return }
             PlayerBackdropMemoryCache.shared.insert(loaded, forKey: key)
             image = loaded
+        }
+    }
+}
+struct TVContentRatingBadge: View {
+    @Environment(TVStore.self) private var store
+    let songID: String?
+
+    var body: some View {
+        if let songID, store.library.song(id: songID)?.contentMetadata?.isExplicit == true {
+            Image(systemName: "e.square.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(TVColor.textMuted)
+                .fixedSize()
+                .accessibilityLabel(Text(PMString("content_explicit")))
         }
     }
 }

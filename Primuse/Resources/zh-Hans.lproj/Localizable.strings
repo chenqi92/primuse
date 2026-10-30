@@ -7115,3 +7115,8 @@
 "chapter_generation_rename" = "重命名章节";
 "chapter_generation_daily_limit" = "今天的章节生成额度已用完，请明天再试。";
 "chapter_generation_monthly_limit" = "本月的章节生成额度已用完，请下个月再试。";
+
+"album_show_track_artwork" = "显示歌曲封面";
+"content_explicit" = "含露骨内容";
+"content_rating" = "内容分级";
+"copyright_label" = "版权";
