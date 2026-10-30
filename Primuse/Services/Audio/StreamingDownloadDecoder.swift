@@ -126,11 +126,7 @@ final class StreamingDownloadDecoder: Sendable {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 600
-        let session = URLSession(
-            configuration: config,
-            delegate: SmartSSLDelegate(),
-            delegateQueue: nil
-        )
+        let session = TrustedHTTPTransport.makeMediaSession(configuration: config)
         control?.installCancellationHandler {
             session.invalidateAndCancel()
         }
@@ -143,7 +139,7 @@ final class StreamingDownloadDecoder: Sendable {
                 forHTTPHeaderField: "User-Agent"
             )
             let startTime = CFAbsoluteTimeGetCurrent()
-            let (downloadedURL, response) = try await TrustedHTTPTransport.download(
+            let (downloadedURL, response) = try await TrustedHTTPTransport.mediaDownload(
                 for: request,
                 session: session,
                 maximumRangedBodyBytes: maximumDownloadBytes,
@@ -260,11 +256,7 @@ final class StreamingDownloadDecoder: Sendable {
                     let config = URLSessionConfiguration.default
                     config.timeoutIntervalForRequest = 30
                     config.timeoutIntervalForResource = 600
-                    let session = URLSession(
-                        configuration: config,
-                        delegate: SmartSSLDelegate(),
-                        delegateQueue: nil
-                    )
+                    let session = TrustedHTTPTransport.makeMediaSession(configuration: config)
                     control.installCancellationHandler {
                         session.invalidateAndCancel()
                     }
@@ -281,7 +273,7 @@ final class StreamingDownloadDecoder: Sendable {
                         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
                         forHTTPHeaderField: "User-Agent"
                     )
-                    let (downloadedURL, response) = try await TrustedHTTPTransport.download(
+                    let (downloadedURL, response) = try await TrustedHTTPTransport.mediaDownload(
                         for: request,
                         session: session,
                         maximumRangedBodyBytes: maximumDownloadBytes,

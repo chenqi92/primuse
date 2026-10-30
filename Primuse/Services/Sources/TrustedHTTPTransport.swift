@@ -19,6 +19,56 @@ enum TrustedHTTPTransportError: LocalizedError, Equatable {
 /// for public hosts the user explicitly approved. Local HTTP and all HTTPS
 /// requests remain on URLSession.
 enum TrustedHTTPTransport {
+    static func makeMediaSession(
+        configuration: URLSessionConfiguration = .ephemeral,
+        trust: SmartSSLDelegate = SmartSSLDelegate()
+    ) -> URLSession {
+        let configuration = (configuration.copy() as? URLSessionConfiguration) ?? .ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        let credentialHeaders: Set<String> = ["authorization", "proxy-authorization", "cookie", "cookie2", "referer"]
+        configuration.httpAdditionalHeaders = configuration.httpAdditionalHeaders?.filter {
+            !credentialHeaders.contains(String(describing: $0.key).lowercased())
+        }
+        return URLSession(
+            configuration: configuration,
+            delegate: MediaHTTPRedirectSessionDelegate(trust: trust),
+            delegateQueue: nil
+        )
+    }
+
+    static func mediaData(
+        for request: URLRequest, session: URLSession,
+        maxBytes: Int = PlainHTTPClient.defaultMaxBytes
+    ) async throws -> (Data, URLResponse) {
+        try await mediaResponseFollowingRedirects(
+            for: request, session: session,
+            load: { request, session in
+                try await dataWithoutRedirects(for: request, session: session, maxBytes: maxBytes)
+            },
+            discard: { _ in }
+        )
+    }
+
+    static func mediaDownload(
+        for request: URLRequest, session: URLSession,
+        maximumRangedBodyBytes: Int? = nil,
+        wholeResponsePrefixLimit: Int? = nil
+    ) async throws -> (URL, URLResponse) {
+        try await mediaResponseFollowingRedirects(
+            for: request, session: session,
+            load: { request, session in
+                try await downloadWithoutRedirects(
+                    for: request, session: session,
+                    maximumRangedBodyBytes: maximumRangedBodyBytes,
+                    wholeResponsePrefixLimit: wholeResponsePrefixLimit
+                )
+            },
+            discard: { try? FileManager.default.removeItem(at: $0) }
+        )
+    }
+
     /// Login protocols must capture every Set-Cookie before following a
     /// redirect. The supplied session must also reject automatic redirects.
     static func dataWithoutRedirects(
@@ -39,6 +89,9 @@ enum TrustedHTTPTransport {
         for request: URLRequest,
         session: URLSession,
         validate: @Sendable () async throws -> Void = { try Task.checkCancellation() },
+        redirectRequest: @Sendable (URLRequest, HTTPURLResponse) async -> URLRequest? = {
+            HTTPMediaRedirectRequestPolicy.redirectedRequest(from: $0, response: $1)
+        },
         load: @Sendable (URLRequest, URLSession) async throws -> (Payload, URLResponse),
         discard: @Sendable (Payload) -> Void
     ) async throws -> (Payload, URLResponse) {
@@ -66,9 +119,7 @@ enum TrustedHTTPTransport {
                     throw error
                 }
                 guard let http = result.1 as? HTTPURLResponse else { return result }
-                if let redirected = HTTPMediaRedirectRequestPolicy.redirectedRequest(
-                    from: currentRequest, response: http
-                ) {
+                if let redirected = await redirectRequest(currentRequest, http) {
                     discard(result.0)
                     guard redirectCount < HTTPMediaRedirectRequestPolicy.maximumRedirects else {
                         throw URLError(.httpTooManyRedirects)
@@ -96,13 +147,26 @@ enum TrustedHTTPTransport {
     /// The caller owns the complete media redirect chain, including public
     /// HTTP hops. The supplied session must reject automatic redirects.
     static func downloadWithoutRedirects(
-        for request: URLRequest, session: URLSession
+        for request: URLRequest, session: URLSession,
+        maximumRangedBodyBytes: Int? = nil,
+        wholeResponsePrefixLimit: Int? = nil
     ) async throws -> (URL, URLResponse) {
         try Task.checkCancellation()
         guard let url = request.url else { throw URLError(.badURL) }
         if requiresPlainSocket(for: url) {
             _ = try await trustedPublicHTTPHost(for: url)
-            return try await PlainHTTPClient.download(for: request)
+            return try await PlainHTTPClient.download(
+                for: request,
+                maximumRangedBodyBytes: maximumRangedBodyBytes,
+                wholeResponsePrefixLimit: wholeResponsePrefixLimit
+            )
+        }
+        if maximumRangedBodyBytes != nil || wholeResponsePrefixLimit != nil {
+            return try await boundedSessionDownload(
+                for: request, session: session,
+                maximumRangedBodyBytes: maximumRangedBodyBytes,
+                wholeResponsePrefixLimit: wholeResponsePrefixLimit
+            )
         }
         return try await session.download(for: request)
     }

@@ -149,16 +149,21 @@ final class OfflineRangeDownloadRetryTests: XCTestCase {
 
     @MainActor
     func testFileSourceSTRMStillReadsAndResolvesDescriptor() async throws {
-        let source = MusicSource(id: UUID().uuidString, name: "Fixture", type: .webdav)
-        let manager = SourceManager(sourcesProvider: { [source] })
-        let connector = DescriptorConnector(sourceID: source.id)
-        let song = Song(id: "descriptor", title: "Descriptor", fileFormat: .mp3,
-                        filePath: "/music/track.strm", sourceID: source.id, fileSize: 64)
-        let target = try await manager.resolveSTRMTarget(for: song, connector: connector)
-        guard case .remote(let url) = target else { return XCTFail("Expected the descriptor URL") }
-        XCTAssertEqual(url.absoluteString, "https://cdn.example/audio.flac")
-        let reads = await connector.reads
-        XCTAssertEqual(reads, 1)
+        for type: MusicSourceType in [.local, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
+                                     .synology, .qnap, .ugreen, .fnos, .oneDrive, .aliyunDrive,
+                                     .googleDrive, .dropbox, .drime, .baiduPan, .pan115, .pan123,
+                                     .infiniCloud, .pcloud] {
+            let source = MusicSource(id: UUID().uuidString, name: "Fixture", type: type)
+            let manager = SourceManager(sourcesProvider: { [source] })
+            let connector = DescriptorConnector(sourceID: source.id)
+            let song = Song(id: "descriptor", title: "Descriptor", fileFormat: .mp3,
+                            filePath: "/music/track.strm", sourceID: source.id, fileSize: 64)
+            let target = try await manager.resolveSTRMTarget(for: song, connector: connector)
+            guard case .remote(let url) = target else { return XCTFail("Expected the descriptor URL") }
+            XCTAssertEqual(url.absoluteString, "https://cdn.example/audio.flac")
+            let reads = await connector.reads
+            XCTAssertEqual(reads, 1)
+        }
     }
 
     private actor DescriptorConnector: MusicSourceConnector {

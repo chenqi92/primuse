@@ -34,7 +34,8 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
         password: String,
         alternateTLSValidationHostname: String? = nil,
         excludedLibraryIDs: Set<String> = [],
-        transport: TingReaderRequestTransport? = nil
+        transport: TingReaderRequestTransport? = nil,
+        sessionConfiguration: URLSessionConfiguration = .ephemeral
     ) {
         self.sourceID = sourceID
         self.excludedLibraryIDs = excludedLibraryIDs
@@ -44,6 +45,7 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
             port: port
         )
         let apiSession = Self.makeSession(
+            configuration: sessionConfiguration,
             delegate: SmartSSLDelegate(
                 redirectPolicy: .sameEndpoint,
                 alternateServerTrustHostname: alternateTLSValidationHostname,
@@ -51,17 +53,18 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
             )
         )
         // `.strm` 章节的音频接口会 302 到外部地址;跟过去时去掉本源的 token。
-        let mediaSession = Self.makeSession(
-            delegate: SmartSSLDelegate(
-                redirectPolicy: .media,
+        let mediaSession = TrustedHTTPTransport.makeMediaSession(
+            configuration: apiSession.configuration,
+            trust: SmartSSLDelegate(
+                redirectPolicy: .sameEndpoint,
                 alternateServerTrustHostname: alternateTLSValidationHostname,
                 alternateServerTrustEndpoint: endpoint
             )
         )
         self.apiSession = apiSession
         self.mediaSession = mediaSession
-        let pick: @Sendable (URLRequest) -> URLSession = { request in
-            (request.url?.path.contains("/api/stream/") ?? false) ? mediaSession : apiSession
+        let isMedia: @Sendable (URLRequest) -> Bool = { request in
+            request.url?.path.contains("/api/stream/") ?? false
         }
         self.client = TingReaderServiceClient(
             sourceID: sourceID,
@@ -72,8 +75,18 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
             username: username,
             password: password,
             transport: transport ?? TingReaderRequestTransport(
-                data: { try await TrustedHTTPTransport.data(for: $0, session: pick($0)) },
-                download: { try await TrustedHTTPTransport.download(for: $0, session: pick($0)) }
+                data: { request in
+                    if isMedia(request) {
+                        return try await TrustedHTTPTransport.mediaData(for: request, session: mediaSession)
+                    }
+                    return try await TrustedHTTPTransport.data(for: request, session: apiSession)
+                },
+                download: { request in
+                    if isMedia(request) {
+                        return try await TrustedHTTPTransport.mediaDownload(for: request, session: mediaSession)
+                    }
+                    return try await TrustedHTTPTransport.download(for: request, session: apiSession)
+                }
             )
         )
         let root = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -91,8 +104,8 @@ actor TingReaderSource: RefreshingMetadataSongConnector, ServerLibraryListingCon
         mediaSession.invalidateAndCancel()
     }
 
-    private static func makeSession(delegate: SmartSSLDelegate) -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
+    private static func makeSession(configuration: URLSessionConfiguration, delegate: SmartSSLDelegate) -> URLSession {
+        let configuration = (configuration.copy() as? URLSessionConfiguration) ?? .ephemeral
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.httpMaximumConnectionsPerHost = 4

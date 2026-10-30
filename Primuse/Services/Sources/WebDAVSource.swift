@@ -125,7 +125,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             alternateTLSValidationHostname: alternateTLSValidationHostname,
             configuration: sessionConfiguration()
         )
-        self.redirectedMediaSession = Self.makeRedirectedMediaSession(configuration: sessionConfiguration())
+        self.redirectedMediaSession = Self.makeRangeSession(
+            host: host, port: port, useSsl: useSsl,
+            username: username, password: password,
+            alternateTLSValidationHostname: alternateTLSValidationHostname,
+            configuration: sessionConfiguration(), manualMediaRedirects: true
+        )
     }
 
     private static func makeRangeSession(
@@ -135,42 +140,32 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         username: String,
         password: String,
         alternateTLSValidationHostname: String?,
-        configuration config: URLSessionConfiguration
+        configuration config: URLSessionConfiguration,
+        manualMediaRedirects: Bool = false
     ) -> URLSession {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
-        return URLSession(
-            configuration: config,
-            delegate: SmartSSLDelegate(
-                httpUsername: username,
-                httpPassword: password,
-                httpCredentialEndpoint: NetworkEndpointIdentity(
-                    scheme: useSsl ? "https" : "http",
-                    host: host,
-                    port: port
-                ),
-                redirectPolicy: .sameEndpoint,
-                alternateServerTrustHostname: alternateTLSValidationHostname,
-                alternateServerTrustEndpoint: NetworkEndpointIdentity(
-                    scheme: useSsl ? "https" : "http",
-                    host: host,
-                    port: port
-                )
+        let trust = SmartSSLDelegate(
+            httpUsername: username,
+            httpPassword: password,
+            httpCredentialEndpoint: NetworkEndpointIdentity(
+                scheme: useSsl ? "https" : "http",
+                host: host,
+                port: port
             ),
-            delegateQueue: nil
+            redirectPolicy: .sameEndpoint,
+            alternateServerTrustHostname: alternateTLSValidationHostname,
+            alternateServerTrustEndpoint: NetworkEndpointIdentity(
+                scheme: useSsl ? "https" : "http",
+                host: host,
+                port: port
+            )
         )
-    }
-
-    private static func makeRedirectedMediaSession(configuration config: URLSessionConfiguration) -> URLSession {
-        config.timeoutIntervalForRequest = 60
-        config.timeoutIntervalForResource = 600
-        config.httpMaximumConnectionsPerHost = 8
-        return URLSession(
-            configuration: config,
-            delegate: SmartSSLDelegate(redirectPolicy: .media),
-            delegateQueue: nil
-        )
+        if manualMediaRedirects {
+            return TrustedHTTPTransport.makeMediaSession(configuration: config, trust: trust)
+        }
+        return URLSession(configuration: config, delegate: trust, delegateQueue: nil)
     }
 
     func connect() async throws {
@@ -349,7 +344,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             )
         }
         if redirectedMediaSession == nil {
-            redirectedMediaSession = Self.makeRedirectedMediaSession(configuration: sessionConfiguration())
+            redirectedMediaSession = Self.makeRangeSession(
+                host: host, port: port, useSsl: useSsl,
+                username: username, password: password,
+                alternateTLSValidationHostname: alternateTLSValidationHostname,
+                configuration: sessionConfiguration(), manualMediaRedirects: true
+            )
         }
     }
 
@@ -1206,42 +1206,39 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         }
     }
 
+    private func mediaResponseFollowingRedirects<Payload: Sendable>(
+        for request: URLRequest,
+        load: @Sendable (URLRequest, URLSession) async throws -> (Payload, URLResponse),
+        discard: @Sendable (Payload) -> Void
+    ) async throws -> (Payload, URLResponse) {
+        let generation = connectionGeneration
+        return try await TrustedHTTPTransport.mediaResponseFollowingRedirects(
+            for: request,
+            session: try requireTransportSession(redirectedMediaSession),
+            validate: { try await self.checkMediaGeneration(generation) },
+            redirectRequest: { await self.redirectedMediaRequest(from: $0, response: $1) },
+            load: load, discard: discard
+        )
+    }
+
+    private func checkMediaGeneration(_ generation: UUID) throws {
+        try Task.checkCancellation()
+        guard connectionGeneration == generation else { throw CancellationError() }
+    }
+
     private func dataFollowingMediaRedirects(
         for request: URLRequest,
         maxBytes: Int
     ) async throws -> (Data, URLResponse) {
-        for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
-            let initial = try await TrustedHTTPTransport.data(
-                for: request,
-                session: try requireTransportSession(rangeSession),
-                maxBytes: maxBytes
-            )
-            guard let redirected = redirectedMediaRequest(
-                from: request,
-                response: initial.1
-            ) else {
-                return initial
-            }
-            do {
-                let result = try await TrustedHTTPTransport.data(
-                    for: redirected,
-                    session: try requireTransportSession(redirectedMediaSession),
-                    maxBytes: maxBytes
+        try await mediaResponseFollowingRedirects(
+            for: request,
+            load: { request, session in
+                try await TrustedHTTPTransport.dataWithoutRedirects(
+                    for: request, session: session, maxBytes: maxBytes
                 )
-                if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
-                   let http = result.1 as? HTTPURLResponse,
-                   HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: http.statusCode) {
-                    continue
-                }
-                return result
-            } catch {
-                guard attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
-                      HTTPMediaRedirectRetryPolicy.isRetryable(error: error) else {
-                    throw error
-                }
-            }
-        }
-        throw URLError(.unknown)
+            },
+            discard: { _ in }
+        )
     }
 
     private func downloadFollowingMediaRedirects(
@@ -1249,71 +1246,27 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         maximumBytes: Int? = nil,
         wholeResponsePrefixLimit: Int? = nil
     ) async throws -> (URL, URLResponse) {
-        for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
-            let initial = try await TrustedHTTPTransport.download(
-                for: request,
-                session: try requireTransportSession(rangeSession),
-                maximumRangedBodyBytes: maximumBytes,
-                wholeResponsePrefixLimit: wholeResponsePrefixLimit
-            )
-            guard let redirected = redirectedMediaRequest(
-                from: request,
-                response: initial.1
-            ) else {
-                return initial
-            }
-            try? FileManager.default.removeItem(at: initial.0)
-            do {
-                let result = try await TrustedHTTPTransport.download(
-                    for: redirected,
-                    session: try requireTransportSession(redirectedMediaSession),
+        try await mediaResponseFollowingRedirects(
+            for: request,
+            load: { request, session in
+                try await TrustedHTTPTransport.downloadWithoutRedirects(
+                    for: request, session: session,
                     maximumRangedBodyBytes: maximumBytes,
                     wholeResponsePrefixLimit: wholeResponsePrefixLimit
                 )
-                if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
-                   let http = result.1 as? HTTPURLResponse,
-                   HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: http.statusCode) {
-                    try? FileManager.default.removeItem(at: result.0)
-                    continue
-                }
-                return result
-            } catch {
-                guard attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
-                      HTTPMediaRedirectRetryPolicy.isRetryable(error: error) else {
-                    throw error
-                }
-            }
-        }
-        throw URLError(.unknown)
+            },
+            discard: { try? FileManager.default.removeItem(at: $0) }
+        )
     }
 
     private func bytesFollowingMediaRedirects(
         for request: URLRequest
     ) async throws -> (URLSession.AsyncBytes, URLResponse) {
-        for attempt in 0..<HTTPMediaRedirectRetryPolicy.maximumAttempts {
-            let initial = try await requireTransportSession(rangeSession).bytes(for: request)
-            guard let redirected = redirectedMediaRequest(
-                from: request,
-                response: initial.1
-            ) else {
-                return initial
-            }
-            do {
-                let result = try await requireTransportSession(redirectedMediaSession).bytes(for: redirected)
-                if attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
-                   let http = result.1 as? HTTPURLResponse,
-                   HTTPMediaRedirectRetryPolicy.isRetryable(statusCode: http.statusCode) {
-                    continue
-                }
-                return result
-            } catch {
-                guard attempt + 1 < HTTPMediaRedirectRetryPolicy.maximumAttempts,
-                      HTTPMediaRedirectRetryPolicy.isRetryable(error: error) else {
-                    throw error
-                }
-            }
-        }
-        throw URLError(.unknown)
+        try await mediaResponseFollowingRedirects(
+            for: request,
+            load: { request, session in try await session.bytes(for: request) },
+            discard: { _ in }
+        )
     }
 
     private func redirectedMediaRequest(

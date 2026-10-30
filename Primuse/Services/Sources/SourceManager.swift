@@ -10224,13 +10224,13 @@ final class SourceManager {
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
-        let session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+        let session = TrustedHTTPTransport.makeMediaSession(configuration: config)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url)
         request.timeoutInterval = 300
         request.setValue(Self.directDownloadUserAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (tempURL, response) = try await TrustedHTTPTransport.download(
+        let (tempURL, response) = try await TrustedHTTPTransport.mediaDownload(
             for: request,
             session: session,
             maximumRangedBodyBytes: Int(clamping: maximumBytes),
@@ -14336,7 +14336,8 @@ final class SourceManager {
         url: URL,
         offset: Int64,
         length: Int64,
-        intent: MetadataRangeReadIntent
+        intent: MetadataRangeReadIntent,
+        sessionConfiguration: URLSessionConfiguration = .ephemeral
     ) async throws -> Data {
         guard let range = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return Data()
@@ -14346,14 +14347,10 @@ final class SourceManager {
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 30
 
-        let config = URLSessionConfiguration.ephemeral
+        let config = sessionConfiguration
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 120
-        let session = URLSession(
-            configuration: config,
-            delegate: SmartSSLDelegate(),
-            delegateQueue: nil
-        )
+        let session = TrustedHTTPTransport.makeMediaSession(configuration: config)
         defer { session.finishTasksAndInvalidate() }
         let requestedBodyBytes = Int(clamping: max(length, 0))
         let maximumRangedBodyBytes = requestedBodyBytes > Int.max - 64 * 1024
@@ -14364,7 +14361,7 @@ final class SourceManager {
                 requestedOffset: offset,
                 requestedLength: length
             )
-        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+        let (temporaryURL, response) = try await TrustedHTTPTransport.mediaDownload(
             for: request,
             session: session,
             maximumRangedBodyBytes: maximumRangedBodyBytes,
@@ -14407,7 +14404,7 @@ final class SourceManager {
             case .useCompleteFileFallback:
                 var wholeRequest = request
                 wholeRequest.setValue(nil, forHTTPHeaderField: "Range")
-                let (completeURL, completeResponse) = try await TrustedHTTPTransport.download(
+                let (completeURL, completeResponse) = try await TrustedHTTPTransport.mediaDownload(
                     for: wholeRequest,
                     session: session
                 )

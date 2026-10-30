@@ -574,6 +574,206 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         await source.disconnect()
     }
 
+    func testExternalSTRMMetadataFollowsMultipleRedirectsAndKeepsRange() async throws {
+        let host = uniqueHost("external-metadata")
+        let relay = uniqueHost("relay")
+        let cdn = uniqueHost("cdn")
+        let content = Data("0123456789abcdef".utf8)
+        configureMediaChain(host: host, relay: relay, cdn: cdn)
+        MediaServerRedirectURLProtocol.configure(host: cdn) { request in
+            Self.rangedReply(request, content: content)
+        }
+        let result = try await SourceManager.fetchRemoteMetadataRange(
+            url: XCTUnwrap(URL(string: "https://\(host)/song.flac?signature=origin")),
+            offset: 8, length: 4, intent: .bulkBounded,
+            sessionConfiguration: mediaFixtureConfiguration()
+        )
+        XCTAssertEqual(result, Data("89ab".utf8))
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: cdn).last?.value(forHTTPHeaderField: "Range"), "bytes=8-11")
+    }
+
+    func testMediaDownloadPreservesLimitsAfterMultipleRedirects() async throws {
+        let host = uniqueHost("bounded-download")
+        let relay = uniqueHost("relay")
+        let cdn = uniqueHost("cdn")
+        let content = Data("fLaC-0123456789abcdef".utf8)
+        configureMediaChain(host: host, relay: relay, cdn: cdn)
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in .init(body: content) }
+        let configuration = mediaFixtureConfiguration()
+        configuration.httpAdditionalHeaders = ["Authorization": "source-secret", "Cookie": "source-cookie"]
+        let session = TrustedHTTPTransport.makeMediaSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "https://\(host)/audio.flac")))
+        let (file, response) = try await TrustedHTTPTransport.mediaDownload(
+            for: request, session: session, maximumRangedBodyBytes: content.count
+        )
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertEqual(response.url?.host, cdn)
+        XCTAssertNil(MediaServerRedirectURLProtocol.requests(host: cdn).last?.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(MediaServerRedirectURLProtocol.requests(host: cdn).last?.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertEqual(try Data(contentsOf: file), content)
+        do {
+            _ = try await TrustedHTTPTransport.mediaDownload(
+                for: request, session: session, maximumRangedBodyBytes: content.count - 1
+            )
+            XCTFail("A redirect must not remove the complete-file download limit")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+        }
+    }
+
+    func testExternalSTRMMetadataKeepsBoundedPrefixAndRejectsUnsupportedSuffix() async throws {
+        let host = uniqueHost("metadata-prefix")
+        let relay = uniqueHost("relay")
+        let cdn = uniqueHost("cdn")
+        let content = Data(repeating: 0x61, count: 512 * 1024)
+        configureMediaChain(host: host, relay: relay, cdn: cdn)
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in .init(body: content) }
+        let url = try XCTUnwrap(URL(string: "https://\(host)/audio.flac"))
+        let prefix = try await SourceManager.fetchRemoteMetadataRange(
+            url: url, offset: 0, length: 16, intent: .bulkBounded,
+            sessionConfiguration: mediaFixtureConfiguration()
+        )
+        XCTAssertEqual(prefix, content.prefix(16))
+        do {
+            _ = try await SourceManager.fetchRemoteMetadataRange(
+                url: url, offset: -16, length: 16, intent: .bulkBounded,
+                sessionConfiguration: mediaFixtureConfiguration()
+            )
+            XCTFail("Redirects must not make bulk metadata download a whole file for a suffix")
+        } catch MetadataRangeReadError.suffixRangeUnsupported {}
+    }
+
+    func testTingReaderSTRMMediaRedirectsKeepTokenAtOrigin() async throws {
+        let host = uniqueHost("tingreader")
+        let relay = uniqueHost("relay")
+        let cdn = uniqueHost("cdn")
+        let content = Data("fLaC-0123456789abcdef".utf8)
+        MediaServerRedirectURLProtocol.configure(host: host) { request in
+            switch request.url?.path {
+            case "/api/auth/login": return .json(#"{"token":"reader-token"}"#)
+            case "/api/libraries": return .json("[]")
+            default: return .init(status: 302, headers: ["Location": "https://\(relay)/audio"])
+            }
+        }
+        MediaServerRedirectURLProtocol.configure(host: relay) { _ in
+            .init(status: 307, headers: ["Location": "https://\(cdn)/audio?signature=cdn-only"])
+        }
+        MediaServerRedirectURLProtocol.configure(host: cdn) { request in
+            request.value(forHTTPHeaderField: "Range") == nil
+                ? .init(body: content) : Self.rangedReply(request, content: content)
+        }
+        let source = TingReaderSource(
+            sourceID: host, host: host, port: nil, useSSL: true, basePath: nil,
+            username: "reader", password: "secret", sessionConfiguration: mediaFixtureConfiguration()
+        )
+        let path = "/tingreader/books/book/chapters/chapter.bin"
+        let bytes = try await source.fetchRange(path: path, offset: 8, length: 4)
+        XCTAssertEqual(bytes, content.subdata(in: 8..<12))
+        let file = try await source.localURL(for: path)
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertEqual(try Data(contentsOf: file), content)
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).last?.value(forHTTPHeaderField: "Authorization"), "Bearer reader-token")
+        for destination in [relay, cdn] {
+            for request in MediaServerRedirectURLProtocol.requests(host: destination) {
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+            }
+        }
+        let mediaRequests = MediaServerRedirectURLProtocol.requests(host: cdn).count
+        MediaServerRedirectURLProtocol.configure(host: host) { _ in
+            .init(status: 302, headers: ["Location": "https://\(relay)/catalogue"])
+        }
+        do {
+            _ = try await source.listFiles(at: "/")
+            XCTFail("The catalogue API must not follow a media redirect")
+        } catch TingReaderServiceError.badServerResponse(302) {}
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: cdn).count, mediaRequests)
+        await source.disconnect()
+    }
+
+    func testOpenListSTRMDownloadAndMetadataFollowMultipleRedirects() async throws {
+        let host = uniqueHost("openlist")
+        let relay = uniqueHost("relay")
+        let cdn = uniqueHost("cdn")
+        let content = Data("fLaC-0123456789abcdef".utf8)
+        configureMediaChain(host: host, relay: relay, cdn: cdn)
+        MediaServerRedirectURLProtocol.configure(host: cdn) { request in
+            request.value(forHTTPHeaderField: "Range") == nil
+                ? .init(body: content) : Self.rangedReply(request, content: content)
+        }
+        let source = WebDAVSource(
+            sourceID: host, host: host, port: nil, useSsl: true, basePath: "/dav",
+            username: "reader", password: "secret", sessionConfiguration: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [MediaServerRedirectURLProtocol.self]
+                return configuration
+            }
+        )
+        let bytes = try await source.fetchOpenListSTRMMetadataRange(for: "/d/song.flac", offset: 8, length: 4)
+        XCTAssertEqual(bytes, content.subdata(in: 8..<12))
+        let file = try await source.downloadBoundedOpenListSTRM(for: "/d/song.flac", maximumBytes: Int64(content.count))
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertEqual(try Data(contentsOf: file), content)
+        do {
+            _ = try await source.downloadBoundedOpenListSTRM(for: "/d/song.flac", maximumBytes: 8)
+            XCTFail("The OpenList redirect must retain the offline storage cap")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+        }
+        XCTAssertNotNil(MediaServerRedirectURLProtocol.requests(host: host).last?.value(forHTTPHeaderField: "Authorization"))
+        for destination in [relay, cdn] {
+            XCTAssertTrue(MediaServerRedirectURLProtocol.requests(host: destination).allSatisfy {
+                $0.value(forHTTPHeaderField: "Authorization") == nil && $0.value(forHTTPHeaderField: "Cookie") == nil
+            })
+        }
+        await source.disconnect()
+    }
+
+    func testOpenListDisconnectDiscardsPendingRedirectedDownload() async throws {
+        let host = uniqueHost("openlist-disconnect")
+        let relay = uniqueHost("relay")
+        let cdn = uniqueHost("cdn")
+        let gate = MediaServerResponseGate()
+        let requested = expectation(description: "OpenList CDN requested")
+        configureMediaChain(host: host, relay: relay, cdn: cdn)
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+            requested.fulfill()
+            return .init(body: Data("fLaC-media-fixture".utf8), responseGate: gate)
+        }
+        let source = WebDAVSource(
+            sourceID: host, host: host, port: nil, useSsl: true, basePath: "/dav",
+            username: "reader", password: "secret", sessionConfiguration: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [MediaServerRedirectURLProtocol.self]
+                return configuration
+            }
+        )
+        let transfer = Task { try await source.localOpenListSTRMURL(for: "/d/song.flac") }
+        await fulfillment(of: [requested], timeout: 3)
+        await source.disconnect()
+        gate.release()
+        do {
+            _ = try await transfer.value
+            XCTFail("Disconnect must prevent installing or returning a late media file")
+        } catch is CancellationError {}
+    }
+
+    private func configureMediaChain(host: String, relay: String, cdn: String) {
+        MediaServerRedirectURLProtocol.configure(host: host) { _ in
+            .init(status: 302, headers: ["Location": "https://\(relay)/audio"])
+        }
+        MediaServerRedirectURLProtocol.configure(host: relay) { _ in
+            .init(status: 307, headers: ["Location": "https://\(cdn)/audio?signature=cdn-only"])
+        }
+    }
+
+    private func mediaFixtureConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MediaServerRedirectURLProtocol.self]
+        return configuration
+    }
+
     private func makeDirectMediaSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MediaServerRedirectURLProtocol.self]
