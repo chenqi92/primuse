@@ -7,6 +7,62 @@ import UIKit
 import AppKit
 #endif
 
+struct ScrapeContentPreferences: DynamicProperty {
+    @AppStorage private var storedParts: ScrapeParts
+
+    init(defaults: UserDefaults? = nil) {
+        _storedParts = AppStorage(wrappedValue: .all, "singleSongScrapeParts", store: defaults)
+    }
+
+    var parts: ScrapeParts { storedParts }
+
+    func binding(for part: ScrapeParts) -> Binding<Bool> {
+        Binding(
+            get: { storedParts.contains(part) },
+            set: { enabled in
+                if enabled {
+                    storedParts.insert(part)
+                } else {
+                    storedParts.remove(part)
+                }
+            }
+        )
+    }
+}
+
+struct ScrapePreviewSelection {
+    var title = false
+    var artist = false
+    var album = false
+    var year = false
+    var track = false
+    var disc = false
+    var genre = false
+    var cover = false
+    var lyrics = false
+
+    init() {}
+
+    init(original: Song, updated: Song, preferredParts: ScrapeParts, hasCover: Bool, hasLyrics: Bool) {
+        let editable = original.sourceID != AppleMusicLibraryIdentity.sourceID
+        let metadata = editable && preferredParts.contains(.metadata)
+        let keepsAlbumIdentity = original.isCueTrack
+        title = metadata && updated.title != original.title
+        artist = metadata && !keepsAlbumIdentity && updated.artistName != original.artistName
+        album = metadata && !keepsAlbumIdentity && updated.albumTitle != original.albumTitle
+        year = metadata && updated.year != original.year && updated.year != nil
+        track = metadata && !keepsAlbumIdentity
+            && updated.trackNumber != original.trackNumber && updated.trackNumber != nil
+        disc = metadata && !keepsAlbumIdentity
+            && updated.discNumber != original.discNumber && updated.discNumber != nil
+        genre = metadata && updated.genre != original.genre && updated.genre != nil
+        cover = editable && !keepsAlbumIdentity && preferredParts.contains(.cover) && hasCover
+        lyrics = preferredParts.contains(.lyrics) && hasLyrics
+    }
+
+    var hasMetadata: Bool { title || artist || album || year || track || disc || genre }
+}
+
 @MainActor
 @Observable
 final class ScrapeOptionsTask {
@@ -89,9 +145,7 @@ struct ScrapeOptionsView: View {
 
     @State private var mode: ScrapeMode = .options
     @State private var previewSource: ScrapeMode = .options
-    @State private var scrapeMetadata = true
-    @State private var scrapeCover = true
-    @State private var scrapeLyrics = true
+    private var contentPreferences = ScrapeContentPreferences()
     @State private var isLocalScraping = false
     @State private var previewResult: ScrapePreview?
     @State private var searchResults: [SearchResultItem] = []
@@ -113,27 +167,15 @@ struct ScrapeOptionsView: View {
     /// only flips `mode = .preview` once everything is downloaded.
     @State private var loadingItemID: String?
 
-    // Per-field apply toggles (for preview)
-    // 默认值：跟本地相同(unchanged)的字段不勾,跟本地不同(changed)的字段勾上,
-    // 实际值在 autoScrape / selectManualResult 拉到结果后基于 changed 重新设。
-    // 字段命中默认 true 是为了保留"跨设备/重刮覆盖旧值"的常见用法,避免每次
-    // 都要手动勾 4-5 项。
-    @State private var applyTitle = false
-    @State private var applyArtist = false
-    @State private var applyAlbum = false
-    @State private var applyYear = false
-    @State private var applyTrack = false
-    @State private var applyDisc = false
-    @State private var applyGenre = false
-    @State private var applyCover = false
-    @State private var applyLyrics = false
+    // 结果页的临时选择与外层偏好分开，额外勾选不会改变下首歌的默认值。
+    @State private var selection = ScrapePreviewSelection()
 
     private var isAppleMusicSong: Bool {
         song.sourceID == AppleMusicLibraryIdentity.sourceID
     }
 
     private var hasEnabledScrapeOption: Bool {
-        isAppleMusicSong ? scrapeLyrics : (scrapeMetadata || scrapeCover || scrapeLyrics)
+        isAppleMusicSong ? contentPreferences.parts.contains(.lyrics) : !contentPreferences.parts.isEmpty
     }
 
     private var isScraping: Bool {
@@ -199,12 +241,38 @@ struct ScrapeOptionsView: View {
         var scrapedGenre: String?
         var hasCover: Bool
         var hasLyrics: Bool
-        /// 选项页勾了「标签」:时长、码率这些技术信息也只在这时跟着写。
+        /// 候选是否包含可供选择的标签。
         var includesMetadata = true
         // 候选封面像素尺寸 / 字节数, 用于中栏封面对比下方的 "2400×2400 · 612 KB"。
         var coverPixelWidth: Int? = nil
         var coverPixelHeight: Int? = nil
         var lyricsIsWordLevel: Bool { lyricsLines?.contains(where: { $0.isWordLevel }) ?? false }
+
+        init(
+            updatedSong: Song,
+            coverData: Data?,
+            lyricsLines: [LyricLine]?,
+            includesMetadata: Bool,
+            coverPixelWidth: Int? = nil,
+            coverPixelHeight: Int? = nil
+        ) {
+            self.updatedSong = updatedSong
+            self.coverData = coverData
+            self.lyricsLines = lyricsLines
+            lyricsCount = lyricsLines?.count ?? 0
+            hasCover = coverData != nil
+            hasLyrics = lyricsLines?.isEmpty == false
+            self.includesMetadata = includesMetadata
+            scrapedTitle = includesMetadata ? updatedSong.title : nil
+            scrapedArtist = includesMetadata ? updatedSong.artistName : nil
+            scrapedAlbum = includesMetadata ? updatedSong.albumTitle : nil
+            scrapedYear = includesMetadata ? updatedSong.year : nil
+            scrapedTrackNumber = includesMetadata ? updatedSong.trackNumber : nil
+            scrapedDiscNumber = includesMetadata ? updatedSong.discNumber : nil
+            scrapedGenre = includesMetadata ? updatedSong.genre : nil
+            self.coverPixelWidth = coverPixelWidth
+            self.coverPixelHeight = coverPixelHeight
+        }
     }
 
     struct SearchResultItem: Identifiable {
@@ -627,34 +695,34 @@ struct ScrapeOptionsView: View {
         return String(localized: "scrape_candidates")
     }
 
-    /// 候选封面 + 写入开关: 点击封面切换是否写入 (默认开)。设计稿没有单独的
+    /// 候选封面 + 写入开关: 点击封面切换是否写入。设计稿没有单独的
     /// "封面"勾选行, 用封面本身做开关, 右上角的勾表示会写入。
     @ViewBuilder
     private var macCandidateCover: some View {
         if let preview = previewResult, preview.hasCover,
            let data = preview.coverData, let image = PlatformImage(data: data) {
-            Button { applyCover.toggle() } label: {
+            Button { selection.cover.toggle() } label: {
                 Image(platformImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: 120, height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay(alignment: .topTrailing) {
-                        Image(systemName: applyCover ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: selection.cover ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(applyCover ? PMColor.ok : Color.white.opacity(0.85))
+                            .foregroundStyle(selection.cover ? PMColor.ok : Color.white.opacity(0.85))
                             .padding(2)
                             .background(Circle().fill(Color.black.opacity(0.35)))
                             .padding(5)
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(applyCover ? PMColor.brand : Color.clear, lineWidth: 2)
+                            .strokeBorder(selection.cover ? PMColor.brand : Color.clear, lineWidth: 2)
                     }
-                    .opacity(applyCover ? 1 : 0.5)
+                    .opacity(selection.cover ? 1 : 0.5)
             }
             .buttonStyle(.plain)
-            .help(applyCover
+            .help(selection.cover
                 ? String(localized: "scrape_cover_disable_help")
                 : String(localized: "scrape_cover_enable_help"))
         } else {
@@ -680,23 +748,23 @@ struct ScrapeOptionsView: View {
     @ViewBuilder
     private func macFieldRows(_ preview: ScrapePreview) -> some View {
         if !isAppleMusicSong {
-            macTextFieldRow(title: String(localized: "title_label"), isOn: $applyTitle,
+            macTextFieldRow(title: String(localized: "title_label"), isOn: $selection.title,
                             local: song.title, scraped: preview.scrapedTitle)
-            macTextFieldRow(title: String(localized: "artist_label"), isOn: $applyArtist,
+            macTextFieldRow(title: String(localized: "artist_label"), isOn: $selection.artist,
                             local: song.artistName, scraped: preview.scrapedArtist)
-            macTextFieldRow(title: String(localized: "album_label"), isOn: $applyAlbum,
+            macTextFieldRow(title: String(localized: "album_label"), isOn: $selection.album,
                             local: song.albumTitle, scraped: preview.scrapedAlbum)
-            macTextFieldRow(title: String(localized: "year_label"), isOn: $applyYear,
+            macTextFieldRow(title: String(localized: "year_label"), isOn: $selection.year,
                             local: song.year.map(String.init), scraped: preview.scrapedYear.map(String.init))
-            macTextFieldRow(title: String(localized: "track_label"), isOn: $applyTrack,
+            macTextFieldRow(title: String(localized: "track_label"), isOn: $selection.track,
                             local: song.trackNumber.map(String.init), scraped: preview.scrapedTrackNumber.map(String.init))
-            macTextFieldRow(title: String(localized: "disc_label"), isOn: $applyDisc,
+            macTextFieldRow(title: String(localized: "disc_label"), isOn: $selection.disc,
                             local: song.discNumber.map(String.init), scraped: preview.scrapedDiscNumber.map(String.init))
-            macTextFieldRow(title: String(localized: "genre_label"), isOn: $applyGenre,
+            macTextFieldRow(title: String(localized: "genre_label"), isOn: $selection.genre,
                             local: song.genre, scraped: preview.scrapedGenre)
         }
         if preview.hasLyrics {
-            macCheckRow(title: String(localized: "scrape_lyrics_lrc"), isOn: $applyLyrics, diff: macLyricsDiff(preview))
+            macCheckRow(title: String(localized: "scrape_lyrics_lrc"), isOn: $selection.lyrics, diff: macLyricsDiff(preview))
         }
         if !hasAnyScrapeResult(preview) {
             Label(String(localized: "scrape_no_changes"), systemImage: "info.circle")
@@ -783,16 +851,16 @@ struct ScrapeOptionsView: View {
                     macSectionTitle(String(localized: "scrape_writeback_media_server"))
                     macServerWritebackRow(
                         title: String(localized: "scrape_writeback_metadata"),
-                        enabled: applyTitle || applyArtist || applyAlbum
-                            || applyYear || applyTrack || applyDisc || applyGenre
+                        enabled: selection.title || selection.artist || selection.album
+                            || selection.year || selection.track || selection.disc || selection.genre
                     )
                     macServerWritebackRow(
                         title: String(localized: "scrape_writeback_cover"),
-                        enabled: applyCover && (previewResult?.hasCover ?? false)
+                        enabled: selection.cover && (previewResult?.hasCover ?? false)
                     )
                     macServerWritebackRow(
                         title: String(localized: "scrape_writeback_lyrics"),
-                        enabled: applyLyrics && (previewResult?.hasLyrics ?? false)
+                        enabled: selection.lyrics && (previewResult?.hasLyrics ?? false)
                     )
                     Text("scrape_writeback_media_server_hint")
                         .font(.system(size: 11))
@@ -802,16 +870,16 @@ struct ScrapeOptionsView: View {
                     macSectionTitle(String(localized: "scrape_writeback_sidecar"))
                     if macCoverEmbeddingMode != .embedOnly {
                         macSidecarRow(suffix: "-cover.jpg",
-                                      enabled: applyCover && (previewResult?.hasCover ?? false))
+                                      enabled: selection.cover && (previewResult?.hasCover ?? false))
                     }
                     if macCoverEmbeddingMode != .off {
                         macServerWritebackRow(
                             title: String(localized: "scrape_writeback_cover_embedded"),
-                            enabled: applyCover && (previewResult?.hasCover ?? false)
+                            enabled: selection.cover && (previewResult?.hasCover ?? false)
                         )
                     }
                     macSidecarRow(suffix: ".lrc",
-                                  enabled: applyLyrics && (previewResult?.hasLyrics ?? false))
+                                  enabled: selection.lyrics && (previewResult?.hasLyrics ?? false))
                     Text("scrape_writeback_sidecar_hint")
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
@@ -820,16 +888,16 @@ struct ScrapeOptionsView: View {
                     macSectionTitle(String(localized: "scrape_writeback_local"))
                     macServerWritebackRow(
                         title: String(localized: "scrape_writeback_metadata"),
-                        enabled: applyTitle || applyArtist || applyAlbum
-                            || applyYear || applyTrack || applyDisc || applyGenre
+                        enabled: selection.title || selection.artist || selection.album
+                            || selection.year || selection.track || selection.disc || selection.genre
                     )
                     macServerWritebackRow(
                         title: String(localized: "scrape_writeback_cover"),
-                        enabled: applyCover && (previewResult?.hasCover ?? false)
+                        enabled: selection.cover && (previewResult?.hasCover ?? false)
                     )
                     macServerWritebackRow(
                         title: String(localized: "scrape_writeback_lyrics"),
-                        enabled: applyLyrics && (previewResult?.hasLyrics ?? false)
+                        enabled: selection.lyrics && (previewResult?.hasLyrics ?? false)
                     )
                     Text("scrape_writeback_local_hint")
                         .font(.system(size: 11))
@@ -1023,10 +1091,10 @@ struct ScrapeOptionsView: View {
 
             Section("scrape_options") {
                 if !isAppleMusicSong {
-                    Toggle("scrape_metadata_toggle", isOn: $scrapeMetadata)
-                    Toggle("scrape_cover_toggle", isOn: $scrapeCover)
+                    Toggle("scrape_metadata_toggle", isOn: contentPreferences.binding(for: .metadata))
+                    Toggle("scrape_cover_toggle", isOn: contentPreferences.binding(for: .cover))
                 }
-                Toggle("scrape_lyrics_toggle", isOn: $scrapeLyrics)
+                Toggle("scrape_lyrics_toggle", isOn: contentPreferences.binding(for: .lyrics))
                 if isAppleMusicSong {
                     Text("apple_music_scrape_lyrics_only")
                         .font(.caption)
@@ -1089,49 +1157,49 @@ struct ScrapeOptionsView: View {
                         // metadata and artwork. Manual candidates only supply
                         // external lyrics for these tracks.
                         fieldToggle(
-                            isOn: $applyTitle,
+                            isOn: $selection.title,
                             label: "title",
                             localValue: song.title,
                             scrapedValue: preview.scrapedTitle,
                             isChanged: preview.scrapedTitle != nil && preview.scrapedTitle != song.title
                         )
                         fieldToggle(
-                            isOn: $applyArtist,
+                            isOn: $selection.artist,
                             label: "artist",
                             localValue: song.artistName ?? "-",
                             scrapedValue: preview.scrapedArtist,
                             isChanged: preview.scrapedArtist != nil && preview.scrapedArtist != song.artistName
                         )
                         fieldToggle(
-                            isOn: $applyAlbum,
+                            isOn: $selection.album,
                             label: "album",
                             localValue: song.albumTitle ?? "-",
                             scrapedValue: preview.scrapedAlbum,
                             isChanged: preview.scrapedAlbum != nil && preview.scrapedAlbum != song.albumTitle
                         )
                         fieldToggle(
-                            isOn: $applyYear,
+                            isOn: $selection.year,
                             label: "year",
                             localValue: song.year.map { "\($0)" } ?? "-",
                             scrapedValue: preview.scrapedYear.map { "\($0)" },
                             isChanged: preview.scrapedYear != nil && preview.scrapedYear != song.year
                         )
                         fieldToggle(
-                            isOn: $applyTrack,
+                            isOn: $selection.track,
                             label: "track_label",
                             localValue: song.trackNumber.map { "\($0)" } ?? "-",
                             scrapedValue: preview.scrapedTrackNumber.map { "\($0)" },
                             isChanged: preview.scrapedTrackNumber != nil && preview.scrapedTrackNumber != song.trackNumber
                         )
                         fieldToggle(
-                            isOn: $applyDisc,
+                            isOn: $selection.disc,
                             label: "disc_label",
                             localValue: song.discNumber.map { "\($0)" } ?? "-",
                             scrapedValue: preview.scrapedDiscNumber.map { "\($0)" },
                             isChanged: preview.scrapedDiscNumber != nil && preview.scrapedDiscNumber != song.discNumber
                         )
                         fieldToggle(
-                            isOn: $applyGenre,
+                            isOn: $selection.genre,
                             label: "genre",
                             localValue: song.genre ?? "-",
                             scrapedValue: preview.scrapedGenre,
@@ -1141,7 +1209,7 @@ struct ScrapeOptionsView: View {
 
                     // Cover — show thumbnails for comparison
                     if preview.hasCover && !isAppleMusicSong {
-                        Toggle(isOn: $applyCover) {
+                        Toggle(isOn: $selection.cover) {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("cover").font(.caption).foregroundStyle(Color.primuseScrapeGray)
                                 HStack(spacing: 8) {
@@ -1170,7 +1238,7 @@ struct ScrapeOptionsView: View {
 
                     // Lyrics
                     if preview.hasLyrics {
-                        Toggle(isOn: $applyLyrics) {
+                        Toggle(isOn: $selection.lyrics) {
                             HStack(spacing: 6) {
                                 Text("lyrics_word").font(.caption).foregroundStyle(Color.primuseScrapeGray).frame(width: 45, alignment: .leading)
                                 statusBadge(hasLocal: song.lyricsFileName != nil, hasScraped: true,
@@ -1279,15 +1347,15 @@ struct ScrapeOptionsView: View {
 
         // Swift 编译器对长 || 链 type-check 超时, 拆成数组 reduce。
         let conditions: [Bool] = [
-            !isAppleMusicSong && titleChanged && applyTitle,
-            !isAppleMusicSong && artistChanged && applyArtist,
-            !isAppleMusicSong && albumChanged && applyAlbum,
-            !isAppleMusicSong && yearChanged && applyYear,
-            !isAppleMusicSong && trackChanged && applyTrack,
-            !isAppleMusicSong && discChanged && applyDisc,
-            !isAppleMusicSong && genreChanged && applyGenre,
-            !isAppleMusicSong && p.hasCover && applyCover,
-            p.hasLyrics && applyLyrics
+            !isAppleMusicSong && titleChanged && selection.title,
+            !isAppleMusicSong && artistChanged && selection.artist,
+            !isAppleMusicSong && albumChanged && selection.album,
+            !isAppleMusicSong && yearChanged && selection.year,
+            !isAppleMusicSong && trackChanged && selection.track,
+            !isAppleMusicSong && discChanged && selection.disc,
+            !isAppleMusicSong && genreChanged && selection.genre,
+            !isAppleMusicSong && p.hasCover && selection.cover,
+            p.hasLyrics && selection.lyrics
         ]
         return conditions.contains(true)
     }
@@ -1439,27 +1507,15 @@ struct ScrapeOptionsView: View {
     }
 
     private func applyAutomaticPreview(_ result: MusicScraperService.SingleScrapeResult) {
-        // 选项页的三个勾选对自动匹配同样算数:没勾「标签」时候选的标题、年份等不进
-        // 待选字段,没勾封面 / 歌词时刮到的也不拿来应用。
-        let includesMetadata = scrapeMetadata && !isAppleMusicSong
+        let includesMetadata = !isAppleMusicSong
         let updated = result.song
-        let coverData = scrapeCover && !isAppleMusicSong ? result.coverData : nil
-        let lyricsLines = scrapeLyrics ? result.lyrics : nil
-        let lyricsCount = lyricsLines?.count ?? 0
+        let coverData = !isAppleMusicSong ? result.coverData : nil
+        let lyricsLines = result.lyrics
         let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
 
         previewResult = ScrapePreview(
-            updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
+            updatedSong: updated, coverData: coverData,
             lyricsLines: lyricsLines,
-            scrapedTitle: includesMetadata ? updated.title : nil,
-            scrapedArtist: includesMetadata ? updated.artistName : nil,
-            scrapedAlbum: includesMetadata ? updated.albumTitle : nil,
-            scrapedYear: includesMetadata ? updated.year : nil,
-            scrapedTrackNumber: includesMetadata ? updated.trackNumber : nil,
-            scrapedDiscNumber: includesMetadata ? updated.discNumber : nil,
-            scrapedGenre: includesMetadata ? updated.genre : nil,
-            hasCover: coverData != nil,
-            hasLyrics: lyricsLines?.isEmpty == false,
             includesMetadata: includesMetadata,
             coverPixelWidth: coverPx?.0,
             coverPixelHeight: coverPx?.1
@@ -1475,23 +1531,11 @@ struct ScrapeOptionsView: View {
         mode = .preview
     }
 
-    /// 跟本地相同的字段(unchanged)默认不勾,跟本地不同的(changed)默认勾。
-    /// CUE 分轨的专辑、艺术家、音轨号、碟号以 CUE 为准,封面是整张专辑共用
-    /// 的; 候选常来自别的版本或合辑, 默认勾上会把这一首拆出专辑, 所以默认不勾。
     private func resetDefaultSelections(for updated: Song, hasCover: Bool, hasLyrics: Bool) {
-        let editable = !isAppleMusicSong
-        let keepsAlbumIdentity = song.isCueTrack
-        applyTitle = editable && updated.title != song.title
-        applyArtist = editable && !keepsAlbumIdentity && updated.artistName != song.artistName
-        applyAlbum = editable && !keepsAlbumIdentity && updated.albumTitle != song.albumTitle
-        applyYear = editable && updated.year != song.year && updated.year != nil
-        applyTrack = editable && !keepsAlbumIdentity
-            && updated.trackNumber != song.trackNumber && updated.trackNumber != nil
-        applyDisc = editable && !keepsAlbumIdentity
-            && updated.discNumber != song.discNumber && updated.discNumber != nil
-        applyGenre = editable && updated.genre != song.genre && updated.genre != nil
-        applyCover = editable && !keepsAlbumIdentity && hasCover
-        applyLyrics = hasLyrics
+        selection = ScrapePreviewSelection(
+            original: song, updated: updated, preferredParts: contentPreferences.parts,
+            hasCover: hasCover, hasLyrics: hasLyrics
+        )
     }
 
     private func manualSearch() async {
@@ -1537,8 +1581,7 @@ struct ScrapeOptionsView: View {
         )
         let lyricsLookupIsSong = lyricsLookup.title == manualMatchTitle && lyricsLookup.artist == manualMatchArtist
         let lyricsDuration: TimeInterval? = song.duration.sanitizedDuration > 0 ? song.duration.sanitizedDuration : nil
-        let lyricsCandidateTask: Task<[ScraperManager.ManualLyricsCandidate], Never>? = scrapeLyrics
-            && settings.enabledSources.contains(where: { $0.type.supportsManualLyricsCandidates })
+        let lyricsCandidateTask: Task<[ScraperManager.ManualLyricsCandidate], Never>? = settings.enabledSources.contains(where: { $0.type.supportsManualLyricsCandidates })
             ? Task { [scraperService, album = lyricsLookupIsSong ? song.albumTitle : nil] in
                 await scraperService.manualLyricsCandidates(
                     title: lyricsLookup.title,
@@ -1667,20 +1710,11 @@ struct ScrapeOptionsView: View {
         if let lyricsLines = item.lyricsLines {
             // 只带歌词的候选: 不取详情和封面, 标签照旧。
             previewResult = ScrapePreview(
-                updatedSong: song, coverData: nil, lyricsCount: lyricsLines.count,
+                updatedSong: song, coverData: nil,
                 lyricsLines: lyricsLines,
-                scrapedTitle: nil,
-                scrapedArtist: nil,
-                scrapedAlbum: nil,
-                scrapedYear: nil,
-                scrapedTrackNumber: nil,
-                scrapedDiscNumber: nil,
-                scrapedGenre: nil,
-                hasCover: false,
-                hasLyrics: true,
                 includesMetadata: false
             )
-            resetDefaultSelections(for: song, hasCover: false, hasLyrics: true)
+            resetDefaultSelections(for: song, hasCover: false, hasLyrics: !lyricsLines.isEmpty)
             previewSource = .manual
             mode = .preview
             return
@@ -1702,9 +1736,8 @@ struct ScrapeOptionsView: View {
             let candidateDiscNumber = firstPositiveInt(detail?.discNumber, song.discNumber)
             let candidateDurationMs = firstPositiveInt(detail?.durationMs, item.durationMs)
 
-            // 选项页没勾「标签」时候选只用来找歌词和封面, 不出现在待选字段里。
             var updated = song
-            if scrapeMetadata {
+            if !isAppleMusicSong {
                 updated.title = candidateTitle
                 updated.albumTitle = candidateAlbum
                 updated.artistName = candidateArtist
@@ -1722,7 +1755,7 @@ struct ScrapeOptionsView: View {
             var coverData: Data?
             // Prefer search result's coverUrl if detail doesn't have one
             // 下载了半截的图资料库里显示不出来, 不给它「封面」这一项。
-            if !isAppleMusicSong, scrapeCover, let candidateCoverUrl,
+            if !isAppleMusicSong, let candidateCoverUrl,
                let data = try? await ConfigurableScraper.downloadResource(
                 from: candidateCoverUrl,
                 sourceConfig: item.sourceConfig,
@@ -1741,15 +1774,12 @@ struct ScrapeOptionsView: View {
             // normalized metadata instead.
             let lyricsDuration = candidateDurationMs.map { TimeInterval($0) / 1000.0 }
                 ?? song.duration
-            var fetchedLyrics: [LyricLine]?
-            if scrapeLyrics {
-                fetchedLyrics = await scraperService.fetchOnlineLyrics(
-                    title: candidateTitle,
-                    artist: candidateArtist,
-                    album: candidateAlbum,
-                    duration: lyricsDuration
-                )
-            }
+            let fetchedLyrics = await scraperService.fetchOnlineLyrics(
+                title: candidateTitle,
+                artist: candidateArtist,
+                album: candidateAlbum,
+                duration: lyricsDuration
+            )
             try Task.checkCancellation()
             let lyricsLines = fetchedLyrics.flatMap { $0.isEmpty ? nil : $0 }
             let hasLyrics = lyricsLines != nil
@@ -1759,18 +1789,9 @@ struct ScrapeOptionsView: View {
             let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
 
             previewResult = ScrapePreview(
-                updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
+                updatedSong: updated, coverData: coverData,
                 lyricsLines: lyricsLines,
-                scrapedTitle: scrapeMetadata ? updated.title : nil,
-                scrapedArtist: scrapeMetadata ? updated.artistName : nil,
-                scrapedAlbum: scrapeMetadata ? updated.albumTitle : nil,
-                scrapedYear: scrapeMetadata ? updated.year : nil,
-                scrapedTrackNumber: scrapeMetadata ? updated.trackNumber : nil,
-                scrapedDiscNumber: scrapeMetadata ? updated.discNumber : nil,
-                scrapedGenre: scrapeMetadata ? updated.genre : nil,
-                hasCover: hasCover,
-                hasLyrics: hasLyrics,
-                includesMetadata: scrapeMetadata && !isAppleMusicSong,
+                includesMetadata: !isAppleMusicSong,
                 coverPixelWidth: coverPx?.0,
                 coverPixelHeight: coverPx?.1
             )
@@ -1799,8 +1820,8 @@ struct ScrapeOptionsView: View {
         let discChanged = allowsMetadataAndCover && preview.scrapedDiscNumber != nil && preview.scrapedDiscNumber != song.discNumber
         let genreChanged = allowsMetadataAndCover && preview.scrapedGenre != nil && preview.scrapedGenre != song.genre
 
-        let needsCover = allowsMetadataAndCover && preview.hasCover && applyCover
-        let needsLyrics = preview.hasLyrics && applyLyrics
+        let needsCover = allowsMetadataAndCover && preview.hasCover && selection.cover
+        let needsLyrics = preview.hasLyrics && selection.lyrics
         let coverData = preview.coverData
         let lyricsLines = preview.lyricsLines
 
@@ -1811,16 +1832,16 @@ struct ScrapeOptionsView: View {
         // Preserve source-specific fields (especially CUE boundaries) while
         // applying only the options the user selected.
         var final = song
-        final.title = (titleChanged && applyTitle) ? u.title : song.title
-        final.albumTitle = (albumChanged && applyAlbum) ? u.albumTitle : song.albumTitle
-        final.artistName = (artistChanged && applyArtist) ? u.artistName : song.artistName
-        if artistChanged && applyArtist {
+        final.title = (titleChanged && selection.title) ? u.title : song.title
+        final.albumTitle = (albumChanged && selection.album) ? u.albumTitle : song.albumTitle
+        final.artistName = (artistChanged && selection.artist) ? u.artistName : song.artistName
+        if artistChanged && selection.artist {
             final.sourceArtistNames = nil
         }
-        final.trackNumber = (trackChanged && applyTrack) ? u.trackNumber : song.trackNumber
-        final.discNumber = (discChanged && applyDisc) ? u.discNumber : song.discNumber
-        // 时长、码率归「标签」管:只勾了歌词或封面时一项也不动。
-        if preview.includesMetadata, allowsMetadataAndCover {
+        final.trackNumber = (trackChanged && selection.track) ? u.trackNumber : song.trackNumber
+        final.discNumber = (discChanged && selection.disc) ? u.discNumber : song.discNumber
+        // 只应用封面或歌词时，保留本地时长、码率等技术信息。
+        if preview.includesMetadata, allowsMetadataAndCover, selection.hasMetadata {
             if !song.isCueTrack, u.duration > 0 {
                 final.duration = u.duration
             }
@@ -1828,8 +1849,8 @@ struct ScrapeOptionsView: View {
             final.sampleRate = u.sampleRate ?? song.sampleRate
             final.bitDepth = u.bitDepth ?? song.bitDepth
         }
-        final.genre = (genreChanged && applyGenre) ? u.genre : song.genre
-        final.year = (yearChanged && applyYear) ? u.year : song.year
+        final.genre = (genreChanged && selection.genre) ? u.genre : song.genre
+        final.year = (yearChanged && selection.year) ? u.year : song.year
         final.coverArtFileName = coverFileName
         // Lyrics are committed below through LyricsWriteback so cache and the
         // authoritative source share the editor's compare/write transaction.
