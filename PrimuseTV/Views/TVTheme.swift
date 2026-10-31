@@ -595,8 +595,12 @@ struct TVAmbientBackdrop: View {
     /// 图的身份，变了才算换图（同一张图重新解码不重播淡入）。
     var imageID: String? = nil
     var meshPalette: [LiquidBackdropColor]? = nil
+    var liquidPalette: [LiquidBackdropColor]? = nil
+    var isPlaying = false
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
@@ -610,7 +614,16 @@ struct TVAmbientBackdrop: View {
         let s = AppThemePreferences.normalizedAmbientStrength(strength * ambientStrength)
         ZStack {
             TVColor.bgDeep
-            if #available(tvOS 18.0, *), let meshPalette {
+            if let liquidPalette {
+                LiquidArtworkBackdrop(
+                    palette: resolvedLiquidPalette(liquidPalette, primary: primary, secondary: secondary),
+                    isLight: colorScheme == .light,
+                    strength: s,
+                    isVisible: isVisible,
+                    isSceneActive: scenePhase == .active,
+                    isPlaying: isPlaying
+                )
+            } else if #available(tvOS 18.0, *), let meshPalette {
                 MeshGradient(
                     width: 3, height: 3,
                     points: MeshBackdropPalettePolicy.points(phase: 0, amplitude: 0),
@@ -657,8 +670,24 @@ struct TVAmbientBackdrop: View {
             }
         }
         .animation(.easeInOut(duration: 0.6), value: imageID)
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    private func resolvedLiquidPalette(
+        _ palette: [LiquidBackdropColor], primary: Color, secondary: Color
+    ) -> [LiquidBackdropColor] {
+        if coverDrivenAmbient, !palette.isEmpty { return palette }
+        let traits = UITraitCollection(userInterfaceStyle: colorScheme == .light ? .light : .dark)
+        return [primary, secondary].compactMap { color in
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            guard UIColor(color).resolvedColor(with: traits).getRed(
+                &red, green: &green, blue: &blue, alpha: &alpha
+            ) else { return nil }
+            return LiquidBackdropColor(red: Double(red), green: Double(green), blue: Double(blue))
+        }
     }
 
     private func meshColors(_ palette: [LiquidBackdropColor], primary: Color, secondary: Color) -> [Color] {

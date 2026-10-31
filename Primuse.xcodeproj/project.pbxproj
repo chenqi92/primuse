@@ -901,6 +901,7 @@
 		657FFFBF45F93466E0411268 /* AudioFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175FF745488766535BAC0153 /* AudioFormat.swift */; };
 		6588C36F72CBD2A00E4D4EBA /* DesktopLyricsIslandSystemMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F344CB62C1DD5EF1A3A657C2 /* DesktopLyricsIslandSystemMonitor.swift */; };
 		6594956AA15A4D62DFBA5B25 /* ScraperRequestPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 033454AE682A97431BEADFEE /* ScraperRequestPool.swift */; };
+		65A9D0F81E7FAA57B1E33107 /* LiquidArtworkBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63998BE5816B7B92C6EAE1D7 /* LiquidArtworkBackdrop.swift */; };
 		65B29FD42C91CE3247364384 /* MedleySegmentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72FC38D4C94F99F6E4004E77 /* MedleySegmentPolicy.swift */; };
 		65C546B7D65CB03ED72BC9A3 /* AudioCacheSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79455C5F0C8A112D600E4423 /* AudioCacheSyncService.swift */; };
 		65CBC692D65CF6D3D1336FEF /* LyricPosterMotionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38C54FE3137CA28918AF216B /* LyricPosterMotionPolicy.swift */; };
@@ -8201,6 +8202,7 @@
 				A6EADEB6B4EB2509DE5A8EC9 /* LibrarySnapshotSync.swift in Sources */,
 				125ED1B145809F1A00F98827 /* ListenBrainzProvider.swift in Sources */,
 				5EB1A89C3FBE49B2BCD553D9 /* ListeningIntentService.swift in Sources */,
+				65A9D0F81E7FAA57B1E33107 /* LiquidArtworkBackdrop.swift in Sources */,
 				717213CEEB4D87180547F48C /* LocalLyricsTranslationEngine.swift in Sources */,
 				D48784CE3569728FA79A4ADD /* LocalLyricsTranslationService.swift in Sources */,
 				9716B846437F9D1D09FB4AF5 /* LocalPodcastShowSettingsStore.swift in Sources */,

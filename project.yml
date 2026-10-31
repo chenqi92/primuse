@@ -865,6 +865,7 @@ targets:
       # 播放页背景:设置与图片处理与 iOS / macOS 同一份实现
       - path: Primuse/Services/PlayerBackdropSettingsStore.swift
       - path: Primuse/Services/PlayerBackdropImaging.swift
+      - path: Primuse/Views/NowPlaying/LiquidArtworkBackdrop.swift
       - path: Primuse/Views/Components/AnimatedArtworkDataView.swift
       - path: Primuse/Views/NowPlaying/KaraokeLineView.swift
       # 歌词前奏与间奏的提示点,与 iPhone / Mac 播放页同一份

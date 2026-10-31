@@ -36,7 +36,11 @@ struct TVPlayerBackdrop: View {
             tint: tint, tint2: tint2, strength: 1, image: frame?.image, imageID: frame?.id,
             meshPalette: source == .coverAmbient && settings.ambientStyle == .mesh
                 ? songID.map { store.artworkAmbientPalette(forSongID: $0) } ?? []
-                : nil
+                : nil,
+            liquidPalette: source == .liquid
+                ? songID.map { store.artworkAmbientPalette(forSongID: $0) } ?? []
+                : nil,
+            isPlaying: store.isPlaying
         )
             .onChange(of: request, initial: true) { _, request in
                 resolver.update(request, store: store)
@@ -67,9 +71,10 @@ struct TVPlayerBackdropSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var store = PlayerBackdropSettingsStore.shared
 
-    private static let sourceRows: [[PlayerBackdropSource]] = [
-        [.coverAmbient, .coverBlur],
-        [.albumBack, .customImages],
+    static let sourceRows: [[PlayerBackdropSource]] = [
+        [.coverAmbient, .liquid],
+        [.coverBlur, .albumBack],
+        [.customImages],
     ]
 
     var body: some View {
@@ -79,7 +84,7 @@ struct TVPlayerBackdropSettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     Text("player_backdrop_title").tvFont(.pageTitle)
-                    // 两行两列，列宽跟着本列最长的一项走，长文案的语言也不会挤成省略号。
+                    // 列宽跟着本列最长的一项走，长文案的语言也不会挤成省略号。
                     Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 22) {
                         ForEach(Self.sourceRows, id: \.self) { row in
                             GridRow {
@@ -182,8 +187,8 @@ struct TVPlayerBackdropSettingsView: View {
     private func hint(for source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: String(localized: "player_backdrop_cover_ambient_hint")
-        // 两种都只是换色场的画法,电视上都按封面取色显示,说法一样。
-        case .liquid, .visualizer: String(localized: "player_backdrop_liquid_tv_hint")
+        case .liquid: String(localized: "player_backdrop_liquid_hint")
+        case .visualizer: String(localized: "player_backdrop_liquid_tv_hint")
         case .coverBlur: String(localized: "player_backdrop_cover_blur_hint")
         case .albumBack: String(localized: "player_backdrop_album_back_hint")
         case .customImages:

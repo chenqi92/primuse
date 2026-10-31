@@ -2,13 +2,13 @@ import SwiftUI
 import PrimuseKit
 
 /// 播放页背景「流动色彩」(#189):封面里挑出来的几个颜色化成七团又大又软的光,沿互不相同的慢速轨迹
-/// 漂动,看上去像慢慢流动的液体。iPhone、iPad 与 Mac 的播放页共用。
+/// 漂动,看上去像慢慢流动的液体。iPhone、iPad、Mac 与 Apple TV 的播放页共用。
 ///
 /// - 只在播放、页面看得见、App 在前台时动;暂停时原地停住,接着播放从停住的地方继续。
 /// - 换歌时颜色用 1.8 秒从屏幕上此刻的颜色渐变过去,色块位置不重置。
 /// - 不做整屏高斯模糊:每团是从中心往外淡到透明的径向渐变,软边本身就够,重叠处自然融成一片。
 ///   每团半径约为长边的一半(Linx 是 55%),七团都盖满整屏时颜色会被平均成一片浑色。
-/// - 减弱动态效果、低电量模式、机身过热时停住不动;最多每秒 24 帧(偏热时 12 帧),Mac 上 60 帧(偏热时 30 帧)。
+/// - 减弱动态效果、低电量模式、机身过热时停住不动;最多每秒 24 帧(偏热时 12 帧),Mac 与 Apple TV 上 60 帧(偏热时 30 帧)。
 /// - 上面照旧压着播放页那两层浅色 / 深色遮罩,字的可读性不靠这一层。
 struct LiquidArtworkBackdrop: View {
     let palette: [LiquidBackdropColor]
@@ -90,8 +90,8 @@ struct LiquidArtworkBackdrop: View {
     }
 
     private var frameInterval: TimeInterval {
-        #if os(macOS)
-        // Mac 的屏幕多是 120Hz:每秒 24 帧时整屏色团每帧挪好几个点,看着一顿一顿的。
+        #if os(macOS) || os(tvOS)
+        // 大屏幕上每秒 24 帧时整屏色团每帧挪好几个点，看着一顿一顿的。
         ProcessInfo.processInfo.thermalState == .fair ? 1.0 / 30 : 1.0 / 60
         #else
         ProcessInfo.processInfo.thermalState == .fair ? 1.0 / 12 : 1.0 / 24
