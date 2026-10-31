@@ -4,6 +4,14 @@ import PrimuseKit
 import UIKit
 #endif
 
+nonisolated enum DiagnosticDataRetention {
+    static let maximumAge: TimeInterval = 7 * 24 * 60 * 60
+
+    static func isExpired(lastWritten: Date, now: Date) -> Bool {
+        now.timeIntervalSince(lastWritten) > maximumAge
+    }
+}
+
 /// Thread-safe file logger that writes to the app's Caches directory.
 /// The log file URL is exposed via `logFileURL` for sharing/diagnostics
 /// (e.g. share sheet on iOS, "reveal in Finder" on macOS).
@@ -65,8 +73,10 @@ final class FileLogger: @unchecked Sendable {
     /// 常驻写句柄, 首次写入时惰性打开; 轮转或写失败后置空重开。
     /// 与 `currentBytes` 一样只在 `queue` 上读写(`init` 早于任何队列作业)。
     private var handle: FileHandle?
+    private var lastRetentionCheck: Date?
+    private var nextRetentionCheck: Date?
 
-    init(directory: URL? = nil) {
+    init(directory: URL? = nil, now: Date = Date()) {
         let docs = directory ?? FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         fileURL = docs.appendingPathComponent("primuse_debug.log")
         directoryURL = docs
@@ -82,6 +92,9 @@ final class FileLogger: @unchecked Sendable {
            let size = attrs[.size] as? Int {
             currentBytes = size
         }
+
+        // 写会话头之前清理，避免新时间戳把长期未使用的旧日志续期。
+        removeExpiredLogsIfNeeded(now: now, force: true)
 
         // Write session header
         let header = "\n\n========== SESSION START: \(Date()) ==========\n"
@@ -164,6 +177,7 @@ final class FileLogger: @unchecked Sendable {
         } ?? "🩺 Diagnostic logging turned OFF (settings)"
         queue.async { [weak self] in
             guard let self else { return }
+            self.removeExpiredLogsIfNeeded()
             self.flushPendingSummaries()
             self.appendToFile(self.formatEntry(note, source: Self.internalSource))
         }
@@ -225,6 +239,33 @@ final class FileLogger: @unchecked Sendable {
         }
     }
 
+    /// 只在初始化或写入队列上调用；最晚每小时检查，临近七天期限时提前检查。
+    private func removeExpiredLogsIfNeeded(now: Date = Date(), force: Bool = false) {
+        if !force, let lastRetentionCheck, let nextRetentionCheck,
+           now >= lastRetentionCheck, now < nextRetentionCheck { return }
+        lastRetentionCheck = now
+        var nextCheck = now.addingTimeInterval(3600)
+        defer { nextRetentionCheck = nextCheck }
+        let fm = FileManager.default
+        for url in storedFileURLs {
+            guard let attributes = try? fm.attributesOfItem(atPath: url.path),
+                  attributes[.type] as? FileAttributeType == .typeRegular,
+                  let modified = attributes[.modificationDate] as? Date else { continue }
+            guard DiagnosticDataRetention.isExpired(lastWritten: modified, now: now) else {
+                nextCheck = min(nextCheck, modified.addingTimeInterval(DiagnosticDataRetention.maximumAge))
+                continue
+            }
+            if url == fileURL {
+                closeHandle()
+                guard (try? Data().write(to: url, options: .atomic)) != nil else { continue }
+                currentBytes = 0
+                coalescer = LogDuplicateCoalescer()
+            } else {
+                try? fm.removeItem(at: url)
+            }
+        }
+    }
+
     /// 保留给既有调用方的入口; 规则与正则实例都在 PrimuseKit 里常驻复用。
     static func redactSensitiveData(_ message: String) -> String {
         LogRedactionPolicy.redact(message)
@@ -248,6 +289,7 @@ final class FileLogger: @unchecked Sendable {
 
         queue.async { [weak self] in
             guard let self else { return }
+            self.removeExpiredLogsIfNeeded()
             // Redaction (five regular-expression passes), timestamp formatting,
             // console output, and disk I/O all live on the utility queue. Bulk
             // metadata backfill can emit several messages per song; doing this
@@ -402,9 +444,10 @@ final class FileLogger: @unchecked Sendable {
         }
     }
 
-    func storedLogSize() async -> Int {
+    func storedLogSize(now: Date = Date()) async -> Int {
         await withCheckedContinuation { continuation in
             queue.async {
+                self.removeExpiredLogsIfNeeded(now: now, force: true)
                 let urls = [self.fileURL] + (1...DiagnosticLoggingPolicy.diagnosticLimits.rotatedGenerations)
                     .map { self.generationURL($0) }
                 let size = urls.reduce(0) { total, url in
@@ -419,8 +462,79 @@ final class FileLogger: @unchecked Sendable {
     func exportData() async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
+                self.removeExpiredLogsIfNeeded(force: true)
                 self.flushPendingSummaries()
                 continuation.resume(with: Result { try Data(contentsOf: self.fileURL) })
+            }
+        }
+    }
+
+    struct UploadSnapshot: Sendable {
+        let data: Data
+        fileprivate let files: [StoredFile]
+    }
+
+    fileprivate struct StoredFile: Sendable {
+        let number: UInt64
+        let created: Date
+        let size: UInt64
+
+        init?(at url: URL) {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  attributes[.type] as? FileAttributeType == .typeRegular,
+                  let number = attributes[.systemFileNumber] as? NSNumber,
+                  let created = attributes[.creationDate] as? Date,
+                  let size = attributes[.size] as? NSNumber else { return nil }
+            self.number = number.uint64Value
+            self.created = created
+            self.size = size.uint64Value
+        }
+    }
+
+    private var storedFileURLs: [URL] {
+        [fileURL] + (1...DiagnosticLoggingPolicy.diagnosticLimits.rotatedGenerations).map { generationURL($0) }
+    }
+
+    /// 在写入队列上同时截取上传内容与清理边界，上传期间继续记录的日志不属于这次清理。
+    func uploadSnapshot(maxBytes: Int) async -> UploadSnapshot {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.removeExpiredLogsIfNeeded(force: true)
+                self.flushPendingSummaries()
+                continuation.resume(returning: UploadSnapshot(
+                    data: self.readTailData(maxBytes: maxBytes),
+                    files: self.storedFileURLs.compactMap { StoredFile(at: $0) }
+                ))
+            }
+        }
+    }
+
+    func clearUploadedLogs(_ snapshot: UploadSnapshot) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                continuation.resume(with: Result {
+                    self.flushPendingSummaries()
+                    for url in self.storedFileURLs {
+                        guard let current = StoredFile(at: url),
+                              let uploaded = snapshot.files.first(where: {
+                                  $0.number == current.number && $0.created == current.created
+                              }), current.size >= uploaded.size else { continue }
+                        // 文件可能已经轮转到另一代；用文件身份找回边界，不能按原路径直接删除。
+                        let reader = try FileHandle(forReadingFrom: url)
+                        defer { try? reader.close() }
+                        try reader.seek(toOffset: uploaded.size)
+                        let remaining = try reader.readToEnd() ?? Data()
+                        if url == self.fileURL {
+                            self.closeHandle()
+                            try remaining.write(to: url, options: .atomic)
+                            self.currentBytes = remaining.count
+                        } else if remaining.isEmpty {
+                            try FileManager.default.removeItem(at: url)
+                        } else {
+                            try remaining.write(to: url, options: .atomic)
+                        }
+                    }
+                })
             }
         }
     }
@@ -430,23 +544,26 @@ final class FileLogger: @unchecked Sendable {
     func tailData(maxBytes: Int) async -> Data {
         await withCheckedContinuation { continuation in
             queue.async {
+                self.removeExpiredLogsIfNeeded(force: true)
                 self.flushPendingSummaries()
-                let budget = max(0, maxBytes)
-                let current = Self.readTail(of: self.fileURL, maxBytes: budget)
-                var combined = current.data
-                var truncated = current.truncated
-                if !truncated, combined.count < budget {
-                    let previous = Self.readTail(of: self.generationURL(1), maxBytes: budget - combined.count)
-                    if !previous.data.isEmpty {
-                        combined = previous.data + combined
-                        truncated = previous.truncated
-                    }
-                }
-                continuation.resume(returning: truncated
-                    ? DiagnosticUpload.alignedToLineStart(combined)
-                    : combined)
+                continuation.resume(returning: self.readTailData(maxBytes: maxBytes))
             }
         }
+    }
+
+    private func readTailData(maxBytes: Int) -> Data {
+        let budget = max(0, maxBytes)
+        let current = Self.readTail(of: fileURL, maxBytes: budget)
+        var combined = current.data
+        var truncated = current.truncated
+        if !truncated, combined.count < budget {
+            let previous = Self.readTail(of: generationURL(1), maxBytes: budget - combined.count)
+            if !previous.data.isEmpty {
+                combined = previous.data + combined
+                truncated = previous.truncated
+            }
+        }
+        return truncated ? DiagnosticUpload.alignedToLineStart(combined) : combined
     }
 
     /// 文件最后 `maxBytes` 字节;`truncated` 表示开头切在了一行中间(前面还有没读的半行)。
@@ -467,6 +584,11 @@ final class FileLogger: @unchecked Sendable {
     /// Returns recent log content (last N bytes). 用 FileHandle.seek 只读尾部,
     /// 避免把可能数 MB 的整个文件全量读进内存。
     func recentContent(maxBytes: Int = 50_000) -> String {
+        if let modified = (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date,
+           DiagnosticDataRetention.isExpired(lastWritten: modified, now: Date()) {
+            queue.async { self.removeExpiredLogsIfNeeded(force: true) }
+            return "(no log file)"
+        }
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return "(no log file)" }
         defer { try? handle.close() }
 

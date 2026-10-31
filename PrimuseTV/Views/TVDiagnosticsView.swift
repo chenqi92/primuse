@@ -269,6 +269,8 @@ struct TVDiagnosticsView: View {
                 let code = try await uploader.upload(selection)
                 plog("🩺 TV diagnostics uploaded code=\(code) log=\(includesLog)")
                 uploadedCode = code
+                cleanupError = uploader.cleanupError
+                refreshState()
             } catch is CancellationError {
                 // 页面关掉了,什么也不传出去。
             } catch let failure as DiagnosticUpload.Failure {

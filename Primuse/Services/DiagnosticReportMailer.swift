@@ -264,6 +264,7 @@ nonisolated enum DiagnosticReportPackager {
         let byteCount: Int
         let contents: [DiagnosticUpload.Content]
         let reportCount: Int
+        let reportURLs: [URL]
 
         nonisolated func remove() {
             try? FileManager.default.removeItem(at: directory)
@@ -363,6 +364,7 @@ nonisolated enum DiagnosticReportPackager {
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
 
         var reportCount = 0
+        var reportURLs: [URL] = []
         var reportBytes = 0
         for (index, url) in input.reportURLs.enumerated() {
             let destination = staging.appendingPathComponent(
@@ -371,6 +373,7 @@ nonisolated enum DiagnosticReportPackager {
             // 报告可能刚被清掉;少一份不影响其余内容。
             guard (try? fm.copyItem(at: url, to: destination)) != nil else { continue }
             reportCount += 1
+            reportURLs.append(url)
             reportBytes += (try? destination.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         }
 
@@ -425,7 +428,8 @@ nonisolated enum DiagnosticReportPackager {
                 screenshotCount: input.screenshots.count,
                 message: message
             ),
-            reportCount: reportCount
+            reportCount: reportCount,
+            reportURLs: reportURLs
         )
     }
 
@@ -477,6 +481,7 @@ final class DiagnosticReportUploader {
     private(set) var phase: Phase?
     /// 中转收不收上传;nil 表示还在问。
     private(set) var availability: Bool?
+    private(set) var cleanupError: String?
 
     /// 十分钟内问过就沿用,反馈页再打开时按钮不再跳一下。
     private static var cachedAvailability: (value: Bool, checkedAt: Date)?
@@ -546,8 +551,9 @@ final class DiagnosticReportUploader {
     /// 取消抛 `CancellationError`。临时文件在任何结局下都删掉。
     func upload(_ selection: Selection) async throws -> String {
         phase = .packaging
+        cleanupError = nil
         defer { phase = nil }
-        let input = await Self.packagerInput(selection)
+        let (input, logSnapshot) = await Self.packagerInput(selection, preparingUpload: true)
         DiagnosticReportPackager.removeStaleWorkDirectories()
         let archive = try await Task.detached(priority: .userInitiated) {
             try DiagnosticReportPackager.buildWithinLimit(input)
@@ -574,7 +580,40 @@ final class DiagnosticReportUploader {
             slot = try await client.requestDiagnosticsUpload(request)
         }
         try await transfer(archive.zipURL, slot: slot)
-        return try await complete(slot, archiveURL: archive.zipURL)
+        let result = try await Self.finishUpload(archive, logSnapshot: logSnapshot) {
+            try await self.complete(slot, archiveURL: archive.zipURL)
+        }
+        cleanupError = result.cleanupError
+        return result.code
+    }
+
+    /// 确认失败或取消时保留原件；本地清理失败也不能把已确认的上传改报成失败。
+    static func finishUpload(
+        _ archive: DiagnosticReportPackager.Archive,
+        logSnapshot: FileLogger.UploadSnapshot?,
+        logger: FileLogger = .shared,
+        confirm: () async throws -> String
+    ) async throws -> (code: String, cleanupError: String?) {
+        try Task.checkCancellation()
+        let code = try await confirm()
+        var cleanupError: String?
+        for url in archive.reportURLs {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch CocoaError.fileNoSuchFile {
+                continue
+            } catch {
+                cleanupError = error.localizedDescription
+            }
+        }
+        if let logSnapshot, archive.contents.contains(.log) {
+            do {
+                try await logger.clearUploadedLogs(logSnapshot)
+            } catch {
+                cleanupError = error.localizedDescription
+            }
+        }
+        return (code, cleanupError)
     }
 
     /// PUT 到上传位;断网、超时、存储端 5xx 时在上传位过期前用同一个地址再试。
@@ -629,7 +668,7 @@ final class DiagnosticReportUploader {
 
     /// 没配邮件账户时交给系统分享面板的同一个包。不设上限:AirDrop、存到「文件」不在乎大小。
     static func shareableArchive(_ selection: Selection) async throws -> DiagnosticReportPackager.Archive {
-        let input = await packagerInput(selection)
+        let (input, _) = await packagerInput(selection)
         DiagnosticReportPackager.removeStaleWorkDirectories()
         return try await Task.detached(priority: .userInitiated) {
             try DiagnosticReportPackager.build(input)
@@ -680,8 +719,12 @@ final class DiagnosticReportUploader {
     }
 
     /// 日志按渠道截好末尾一段(正式版 4 MiB,测试渠道 8 MiB),其余照用户选的收齐。
-    private static func packagerInput(_ selection: Selection) async -> DiagnosticReportPackager.Input {
+    private static func packagerInput(
+        _ selection: Selection,
+        preparingUpload: Bool = false
+    ) async -> (DiagnosticReportPackager.Input, FileLogger.UploadSnapshot?) {
         var log: Data?
+        var logSnapshot: FileLogger.UploadSnapshot?
         if selection.includesLog {
             #if os(iOS) || os(macOS)
             await AppServices.shared.spotlightIndex.prepareDiagnosticsForExport(library: AppServices.shared.musicLibrary)
@@ -690,21 +733,28 @@ final class DiagnosticReportUploader {
                 channel: Bundle.main.distributionChannel,
                 diagnosticMode: FileLogger.isDiagnosticModeActive
             )
-            let data = await FileLogger.shared.tailData(maxBytes: tail)
+            let data: Data
+            if preparingUpload {
+                let snapshot = await FileLogger.shared.uploadSnapshot(maxBytes: tail)
+                logSnapshot = snapshot
+                data = snapshot.data
+            } else {
+                data = await FileLogger.shared.tailData(maxBytes: tail)
+            }
             log = data.isEmpty ? nil : data
         }
         let mailSelection = DiagnosticReportMail.Selection(
             includesReports: !selection.reportURLs.isEmpty,
             includesLogs: log != nil
         )
-        return DiagnosticReportPackager.Input(
+        return (DiagnosticReportPackager.Input(
             environment: DiagnosticReportEnvironment.current(),
             intro: intro(for: mailSelection),
             reportURLs: selection.reportURLs,
             log: log,
             message: selection.message,
             screenshots: selection.screenshots
-        )
+        ), logSnapshot)
     }
 }
 

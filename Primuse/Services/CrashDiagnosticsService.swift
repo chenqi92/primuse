@@ -15,7 +15,7 @@ private let crashLog = Logger(subsystem: "com.welape.yuanyin", category: "Crash"
 ///
 /// 系统通过 subscriber 交付诊断，每份报告保存为 JSON，文件名
 ///   形如 `crash-<unix-ts>-<uuid8>.json`(uuid8 保证同一秒内多份 payload 不互相覆盖)
-/// 文件容量上限 50 份, 超过按时间最老的删 (LRU)
+/// 最后写入超过七天的报告自动清理，另外最多保留 50 份。
 ///
 /// 另外收系统每天投递一次的**指标载荷** (`metrics-<unix-ts>-<uuid8>.json`)。
 /// 它不是崩溃报告, 但被系统按内存上限回收、watchdog 终止、非正常退出这几种
@@ -33,7 +33,7 @@ final class CrashDiagnosticsService: NSObject {
     /// 启动哨兵在主执行器之外也要拼出这个目录, 所以它不跟着类型留在 MainActor 上。
     nonisolated static let directoryName = "DiagnosticReports"
     static let maxReports = 50
-    /// 指标载荷每天一份, 留两周足够回溯一次测试反馈。
+    /// 限制系统集中投递时的文件数量；时间保留规则与诊断报告一致。
     static let maxMetricReports = 14
     static let metricFilePrefix = "metrics-"
     private static let crashFilePrefix = "crash-"
@@ -52,6 +52,7 @@ final class CrashDiagnosticsService: NSObject {
     init(directory: URL? = nil) {
         directoryOverride = directory
         super.init()
+        pruneExpiredReports()
     }
 
     deinit {
@@ -125,7 +126,11 @@ final class CrashDiagnosticsService: NSObject {
         collectReports { $0.hasPrefix(Self.metricFilePrefix) }
     }
 
-    private func collectReports(_ includesFilename: (String) -> Bool) -> [DiagnosticReport] {
+    func pruneExpiredReports(now: Date = Date()) {
+        _ = collectReports(now: now) { _ in true }
+    }
+
+    private func collectReports(now: Date = Date(), _ includesFilename: (String) -> Bool) -> [DiagnosticReport] {
         guard let dir = reportsDirectory() else { return [] }
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey], options: [.skipsHiddenFiles])) ?? []
@@ -133,7 +138,11 @@ final class CrashDiagnosticsService: NSObject {
             .filter { $0.pathExtension == "json" && includesFilename($0.lastPathComponent) }
             .compactMap { url -> DiagnosticReport? in
                 let attrs = try? fm.attributesOfItem(atPath: url.path)
-                let date = attrs?[.creationDate] as? Date ?? Date()
+                guard attrs?[.type] as? FileAttributeType == .typeRegular else { return nil }
+                let date = attrs?[.creationDate] as? Date ?? now
+                let modified = attrs?[.modificationDate] as? Date ?? date
+                if DiagnosticDataRetention.isExpired(lastWritten: modified, now: now),
+                   (try? fm.removeItem(at: url)) != nil { return nil }
                 let size = (attrs?[.size] as? Int) ?? 0
                 return DiagnosticReport(url: url, date: date, sizeBytes: size)
             }

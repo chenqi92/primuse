@@ -26,7 +26,7 @@ struct DiagnosticReportsView: View {
     @State private var pendingMailDraft: DiagnosticReportMailer.Draft?
     #endif
     @State private var showSentPrompt = false
-    /// 反馈页里已经上传或分享出去的报告份数;反馈页收起后据此提议清空本机报告。
+    /// 反馈页里已经分享出去的报告份数;反馈页收起后据此提议清空本机报告。
     @State private var deliveredReportCount = 0
     @State private var failureMessage: String?
     /// 诊断模式开到什么时候;nil 表示没开。开关在这一页,到期由日志模块自己收。
@@ -297,7 +297,7 @@ struct DiagnosticReportsView: View {
     private func presentPreparedDraft() {
         mailDraft = pendingMailDraft
         pendingMailDraft = nil
-        // 上传或分享成功后同邮件「已发送」一样,提议清空本机报告。
+        // 分享成功后同邮件「已发送」一样,提议清空本机报告。
         if deliveredReportCount > 0 {
             showSentPrompt = true
         }
@@ -415,7 +415,8 @@ private struct DiagnosticFeedbackView: View {
                 .toolbar { toolbarContent }
                 .interactiveDismissDisabled(isBusy)
                 .alert(
-                    String(localized: "diagnostics_send_failed_title"),
+                    uploadedCode != nil ? String(localized: "diagnostics_cleanup_failed")
+                        : String(localized: "diagnostics_send_failed_title"),
                     isPresented: Binding(
                         get: { failureMessage != nil },
                         set: { if !$0 { failureMessage = nil } }
@@ -617,14 +618,13 @@ private struct DiagnosticFeedbackView: View {
 
     private func startUpload() {
         let selection = uploadSelection
-        let reportCount = selection.reportURLs.count
         uploadTask = Task {
             defer { uploadTask = nil }
             do {
                 let code = try await uploader.upload(selection)
                 codeCopied = false
                 uploadedCode = code
-                onDelivered(reportCount)
+                failureMessage = uploader.cleanupError
             } catch is CancellationError {
                 // 用户自己停的,不提示。
             } catch let failure as DiagnosticUpload.Failure {

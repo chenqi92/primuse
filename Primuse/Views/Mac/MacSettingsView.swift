@@ -10191,7 +10191,8 @@ private struct MacDiagnosticsWindowView: View {
             .frame(minWidth: 520, minHeight: 560)
         }
         .alert(
-            String(localized: "diagnostics_send_failed_title"),
+            uploadedCode != nil ? String(localized: "diagnostics_cleanup_failed")
+                : String(localized: "diagnostics_send_failed_title"),
             isPresented: Binding(
                 get: { uploadError != nil },
                 set: { if !$0 { uploadError = nil } }
@@ -10482,6 +10483,8 @@ private struct MacDiagnosticsWindowView: View {
                 let code = try await uploader.upload(selection)
                 uploadCodeCopied = false
                 uploadedCode = code
+                uploadError = uploader.cleanupError
+                refreshDiagnosticReportURLs()
             } catch is CancellationError {
                 // 用户自己停的,不提示。
             } catch let failure as DiagnosticUpload.Failure {
