@@ -6517,6 +6517,8 @@
 "source_mutation_permission_denied" = "ソースファイルを変更する権限がありません。";
 "source_mutation_read_only" = "このソースではファイルを変更できません。";
 "metadata_writeback_local_only_notice" = "ソースへの書き込みが拒否されました。変更は Primuse 内にのみ保存され、ソースファイルは更新されていません。";
+"library_artist_color_style" = "アーティストの配色";
+"library_artist_softens_edges" = "アーティストページの縁をぼかす";
 "library_playlist_cover_wall_title" = "プレイリストとジャンルのヘッダーをジャケットウォールにする";
 "library_playlist_cover_wall_description" = "プレイリスト、スマートプレイリスト、ジャンルに異なるアルバムジャケットが4枚以上あると、ヘッダーが傾いたジャケットの壁になり、数秒ごとに並びが変わります。iPhoneの横向き表示では1枚のカバーのままです。";
 "player_backdrop_strength_footer" = "右にするほど背景がジャケットの色に近づきます。ライトモードでジャケットの色がとても濃い場合は、文字が読みやすい程度で止まります。「ぼかしジャケット」などの背景画像では、画像に重ねる暗さの度合いを調整します。";

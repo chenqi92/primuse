@@ -27,6 +27,23 @@ private func sweepTints(
 
 @Suite("详情页底色")
 struct LibraryDetailTintPolicyTests {
+    @Test("艺人照片底色只压暗到白字可读，不增艳或提亮暗图")
+    func backgroundPreservesSourceColorAndContrast() {
+        for entry in sweepTints(appearance: .light) {
+            let input = entry.input
+            let tint = LibraryDetailTintPolicy.backgroundTint(
+                hue: input.hue, saturation: input.saturation, brightness: input.brightness
+            )
+            #expect(tint.top.saturation == input.saturation)
+            #expect(tint.top.brightness <= input.brightness)
+            #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(tint.top) >= 4.5)
+            #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(tint.bottom) >= 4.5)
+        }
+        let black = LibraryDetailTintPolicy.backgroundTint(hue: 0, saturation: 0, brightness: 0)
+        #expect(black.top.brightness == 0)
+        #expect(black.bottom.brightness == 0)
+    }
+
     @Test("任何封面色算出的底色都够白字读", arguments: [
         LibraryDetailTintPolicy.Appearance.light,
         LibraryDetailTintPolicy.Appearance.dark,

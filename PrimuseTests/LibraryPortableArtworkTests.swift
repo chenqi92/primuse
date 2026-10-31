@@ -9,6 +9,235 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testArtistPageKeepsGrayscalePortraitNeutralAndTracksOverrides() async throws {
+        try await verifyArtistPageTint(portrait: .gray)
+    }
+
+    func testArtistPageUsesPortraitColorInsteadOfSongCover() async throws {
+        try await verifyArtistPageTint(portrait: .blue)
+    }
+
+    func testArtistPageUsesSuccessfulFallbackCoverAfterPreferredCoverFails() async throws {
+        try await verifyArtistPageTint(portrait: nil)
+    }
+
+    func testArtistPageDarkPortraitWithSkinToneKeepsDarkBackground() async throws {
+        try await verifyArtistPageTint(portrait: .black, includesSkinTone: true)
+    }
+
+    func testArtistPageDefaultsToMeshWithIndependentAppearanceSettingsAndTracksOverrides() async throws {
+        try await verifyArtistPageTint(portrait: .green, checksMeshSwitch: true)
+    }
+
+    private func verifyArtistPageTint(
+        portrait: UIColor?,
+        includesSkinTone: Bool = false,
+        checksMeshSwitch: Bool = false
+    ) async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let name = "Tint Artist \(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let backdrop = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)
+        backdrop.update { $0.ambientStyle = .classic }
+        if !checksMeshSwitch {
+            defaults.set(PlayerAmbientStyle.classic.rawValue, forKey: ArtistAppearancePreferences.colorStyleKey)
+        }
+        let songs = (0..<2).map { index in
+            let id = UUID().uuidString
+            return Song(id: id, title: "Track \(index)", albumTitle: "Tint Album", artistName: name,
+                        fileFormat: .mp3, filePath: "/tint-\(index).mp3", sourceID: name,
+                        coverArtFileName: MetadataAssetStore.shared.expectedCoverFileName(for: id))
+        }
+        for song in songs {
+            await MetadataAssetStore.shared.cacheCover(try image(color: .red), forSongID: song.id)
+        }
+        defer {
+            for song in songs { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id) }
+        }
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let artist = try XCTUnwrap(library.visibleArtists.first { $0.name == name })
+        let owner = LibraryArtworkOwner(kind: .artist, id: artist.id)
+        let preferred = try XCTUnwrap(library.preferredArtworkSong(forArtistID: artist.id))
+        let alternate = try XCTUnwrap(songs.first { $0.id != preferred.id })
+        var portraitURL: URL?
+        if let portrait {
+            let data: Data
+            if checksMeshSwitch {
+                data = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).image { context in
+                    UIColor.blue.setFill()
+                    context.fill(CGRect(x: 0, y: 0, width: 80, height: 40))
+                    UIColor.green.setFill()
+                    context.fill(CGRect(x: 0, y: 40, width: 80, height: 40))
+                }.pngData())
+            } else if includesSkinTone {
+                data = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).image { context in
+                    portrait.setFill()
+                    context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+                    UIColor(red: 0.8, green: 0.5, blue: 0.3, alpha: 1).setFill()
+                    context.fill(CGRect(x: 28, y: 8, width: 24, height: 64))
+                }.pngData())
+            } else {
+                data = try image(color: portrait)
+            }
+            let fileName = await MetadataAssetStore.shared.storeArtistImage(data, forArtistID: artist.id)
+            portraitURL = MetadataAssetStore.shared.artworkDirectoryURL
+                .appendingPathComponent("artist").appendingPathComponent(try XCTUnwrap(fileName))
+        } else {
+            MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: preferred.id)
+        }
+        defer { if let portraitURL { try? FileManager.default.removeItem(at: portraitURL) } }
+
+        let services = AppServices.shared
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(rootView:
+            NavigationStack { ArtistDetailView(artist: artist, appearanceDefaults: defaults) }
+                .frame(width: 390, height: 844)
+                .environment(library)
+                .environment(SourceManager(sourcesProvider: { [] }))
+                .environment(SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources")))
+                .environment(services.playerService).environment(services.metadataBackfill)
+                .environment(services.musicIntelligence)
+                .environment(services.scraperService).environment(services.scraperSettingsStore)
+                .environment(services.playbackSettingsStore)
+                .environment(services.themeService).environment(CoverTintProvider())
+                .environment(services.batchRemoval)
+                .environment(\.scenePhase, .inactive)
+                .environment(\.horizontalSizeClass, .compact)
+                .environment(\.verticalSizeClass, .regular)
+                .environment(\.colorScheme, .light))
+        host.safeAreaRegions = []
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+
+        func assertBackground(_ expected: UIColor, file: StaticString = #filePath, line: UInt = #line) async throws {
+            var components = [UInt8](repeating: 0, count: 4)
+            var matches = false
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(100))
+                host.view.layoutIfNeeded()
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                let rendered = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+                    host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                }
+                let pixel = try XCTUnwrap(rendered.cgImage?.cropping(to: CGRect(x: 2, y: 700, width: 1, height: 1)))
+                components.withUnsafeMutableBytes { buffer in
+                    let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                                            bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                    context.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                }
+                let r = Int(components[0]), g = Int(components[1]), b = Int(components[2])
+                if expected == .black {
+                    matches = max(r, g, b) < 25 && abs(r - b) < 5
+                } else if expected == .gray {
+                    matches = abs(r - g) < 5 && abs(g - b) < 5 && r < 140
+                } else if expected == .red {
+                    matches = r > g + 20 && r > b + 20
+                } else if expected == .green {
+                    matches = g > r + 20 && g > b + 20
+                } else {
+                    matches = b > r + 20 && b > g + 20
+                }
+                if matches { break }
+            }
+            XCTAssertTrue(matches, "Expected \(expected), background RGBA: \(components)", file: file, line: line)
+        }
+
+        func assertBackgroundVariation(_ expected: Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+            var difference = 0
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(100))
+                host.view.layoutIfNeeded()
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                let rendered = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+                    host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                }
+                let strip = try XCTUnwrap(rendered.cgImage?.cropping(to: CGRect(x: 0, y: 700, width: 390, height: 1)))
+                var pixels = [UInt8](repeating: 0, count: 390 * 4)
+                pixels.withUnsafeMutableBytes { buffer in
+                    let context = CGContext(data: buffer.baseAddress, width: 390, height: 1, bitsPerComponent: 8,
+                                            bytesPerRow: 390 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                    context.draw(strip, in: CGRect(x: 0, y: 0, width: 390, height: 1))
+                }
+                difference = (0..<3).map { abs(Int(pixels[2 * 4 + $0]) - Int(pixels[387 * 4 + $0])) }.max() ?? 0
+                if expected ? difference > 20 : difference < 5 { return }
+            }
+            XCTFail("Expected horizontal color variation: \(expected), difference: \(difference)", file: file, line: line)
+        }
+
+        func assertSoftensEdges(_ expected: Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+            guard #available(iOS 26.0, *) else { return }
+            func scrollViews(in view: UIView) -> [UIScrollView] {
+                (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+            }
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(100))
+                host.view.layoutIfNeeded()
+                if let scroll = scrollViews(in: host.view).first(where: { $0.bounds.height > 600 }),
+                   scroll.topEdgeEffect.isHidden == !expected,
+                   scroll.bottomEdgeEffect.isHidden == !expected {
+                    return
+                }
+            }
+            XCTFail("Expected artist scroll edge softening: \(expected)", file: file, line: line)
+        }
+
+        // Wait for the initial song/portrait race to settle before accepting a neutral loading state.
+        try await Task.sleep(for: .milliseconds(700))
+        if checksMeshSwitch {
+            try await assertBackgroundVariation(true)
+            try await assertSoftensEdges(false)
+            defaults.set(PlayerAmbientStyle.classic.rawValue, forKey: ArtistAppearancePreferences.colorStyleKey)
+            backdrop.update { $0.ambientStyle = .mesh }
+            try await assertBackgroundVariation(false)
+            try await assertBackground(.green)
+            defaults.set(true, forKey: ArtistAppearancePreferences.softensEdgesKey)
+            try await assertSoftensEdges(true)
+            defaults.set(PlayerAmbientStyle.mesh.rawValue, forKey: ArtistAppearancePreferences.colorStyleKey)
+            backdrop.update { $0.ambientStyle = .classic }
+            try await assertBackgroundVariation(true)
+            try await assertSoftensEdges(true)
+            defaults.set(false, forKey: ArtistAppearancePreferences.softensEdgesKey)
+            try await assertSoftensEdges(false)
+            let restoredDefaults = try XCTUnwrap(UserDefaults(suiteName: name))
+            XCTAssertEqual(restoredDefaults.string(forKey: ArtistAppearancePreferences.colorStyleKey), "mesh")
+            XCTAssertEqual(restoredDefaults.object(forKey: ArtistAppearancePreferences.softensEdgesKey) as? Bool, false)
+        } else {
+            try await assertBackground(portrait ?? .red)
+        }
+        let existingUploads = Set(try FileManager.default.contentsOfDirectory(
+            at: MetadataAssetStore.shared.customArtworkDirectoryURL, includingPropertiesForKeys: nil))
+        let contentID = try XCTUnwrap(MetadataAssetStore.shared.storeCustomArtworkSync(try image(color: .green, width: 113)))
+        let uploadedURL = MetadataAssetStore.shared.customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg")
+        defer { if !existingUploads.contains(uploadedURL) { try? FileManager.default.removeItem(at: uploadedURL) } }
+        XCTAssertTrue(library.setUploadedArtwork(contentID: contentID, for: owner))
+        try await assertBackground(.green)
+        XCTAssertTrue(library.setArtwork(for: owner, to: alternate))
+        try await assertBackground(.red)
+        XCTAssertTrue(library.setAutomaticArtwork(for: owner))
+        if checksMeshSwitch {
+            try await assertBackgroundVariation(true)
+        } else {
+            try await assertBackground(portrait ?? .red)
+        }
+    }
+
     func testPlaylistCustomCoverKeepsDynamicHeaderAndUpdatesHomeArtwork() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

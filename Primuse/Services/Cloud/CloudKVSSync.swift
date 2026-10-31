@@ -699,6 +699,8 @@ final class InterfaceLayoutSync {
         "primuse.library.playlistCoverWall.v1",
         // 资料库分类图标彩色 / 简洁(`LibraryIconStyle`,同样只有 iPhone / iPad 画)。
         "primuse.library.iconStyle.v1",
+        ArtistAppearancePreferences.colorStyleKey,
+        ArtistAppearancePreferences.softensEdgesKey,
         ListeningStatsStyle.storageKey,
         // 「颜色和图标 › 屏幕小组件」的配色(取自封面 / 单色); 小组件读的是 App 抄进 App Group 的那一份。
         WidgetColorStyle.storageKey,

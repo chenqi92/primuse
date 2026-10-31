@@ -900,6 +900,7 @@ struct ArtistArtworkView: View {
     var size: CGFloat? = nil
     var cornerRadius: CGFloat = 12
     var showsPlaceholder = true
+    var onImageChange: ((PlatformImage?) -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
     @State private var uploadedImage: PlatformImage?
@@ -961,6 +962,13 @@ struct ArtistArtworkView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .if(onImageChange != nil) { view in
+            view
+                .environment(\.reportsArtworkImage, true)
+                .onPreferenceChange(ArtworkImagePreferenceKey.self) { artwork in
+                    onImageChange?(artwork?.image)
+                }
+        }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
             await UploadedArtworkLoader.load(contentID: uploadedContentID) {
                 uploadedImage = $0
@@ -1039,6 +1047,7 @@ struct ArtistArtworkView: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: side, height: side)
                     .clipped()
+                    .preference(key: ArtworkImagePreferenceKey.self, value: ArtworkImagePreference(image: uploadedImage))
             } else if let song = presentation.selectedSong {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,

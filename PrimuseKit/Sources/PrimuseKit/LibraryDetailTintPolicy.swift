@@ -1,5 +1,12 @@
 import Foundation
 
+public enum ArtistAppearancePreferences {
+    public static let colorStyleKey = "primuse.library.artistColorStyle.v1"
+    public static let softensEdgesKey = "primuse.library.artistSoftensEdges.v1"
+    public static let defaultColorStyle = PlayerAmbientStyle.mesh
+    public static let defaultSoftensEdges = false
+}
+
 /// 详情页底色的一段颜色，HSB 三个分量都在 0...1。
 ///
 /// 刻意不用平台颜色类型：压深与对比度这套规则要能在没有图形栈的地方直接跑测试。
@@ -86,6 +93,17 @@ public enum LibraryDetailTintPolicy {
             tintSaturation: neutralSaturation,
             sourceBrightness: 0.5,
             appearance: appearance
+        )
+    }
+
+    /// 艺人照片的底色保留原来的灰度与明暗，只在白字对比度不足时压暗。
+    public static func backgroundTint(hue: Double, saturation: Double, brightness: Double) -> LibraryDetailTint {
+        let hue = normalizedHue(hue)
+        let saturation = clamp01(saturation)
+        let brightness = readableBrightness(hue: hue, saturation: saturation, preferred: clamp01(brightness))
+        return LibraryDetailTint(
+            top: LibraryDetailTintStop(hue: hue, saturation: saturation, brightness: brightness),
+            bottom: LibraryDetailTintStop(hue: hue, saturation: saturation, brightness: brightness * bottomBrightnessFactor)
         )
     }
 

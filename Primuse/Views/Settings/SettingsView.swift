@@ -915,6 +915,10 @@ private struct LibraryDisplaySettingsView: View {
     #if os(iOS)
     @AppStorage(CollectionCoverWall.preferenceKey) private var usesPlaylistCoverWall = CollectionCoverWall.defaultEnabled
     @AppStorage(LibraryIconStyle.storageKey) private var libraryIconStyle = LibraryIconStyle.colorful
+    @AppStorage(ArtistAppearancePreferences.colorStyleKey)
+    private var artistColorStyle = ArtistAppearancePreferences.defaultColorStyle
+    @AppStorage(ArtistAppearancePreferences.softensEdgesKey)
+    private var artistSoftensEdges = ArtistAppearancePreferences.defaultSoftensEdges
     #endif
     @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
@@ -992,6 +996,23 @@ private struct LibraryDisplaySettingsView: View {
             }
 
             #if os(iOS)
+            Section {
+                Picker("library_artist_color_style", selection: $artistColorStyle) {
+                    ForEach(PlayerAmbientStyle.allCases, id: \.self) { style in
+                        Text(PlayerBackdropSettingsText.title(style)).tag(style)
+                    }
+                }
+                .pickerStyle(.menu)
+                .settingsAnchor("library.artistColorStyle")
+                .accessibilityIdentifier("library.artistColorStyle")
+
+                if #available(iOS 26.0, *) {
+                    Toggle("library_artist_softens_edges", isOn: $artistSoftensEdges)
+                        .settingsAnchor("library.artistSoftensEdges")
+                        .accessibilityIdentifier("library.artistSoftensEdges")
+                }
+            }
+
             // 封面墙头图只有 iPhone / iPad 的歌单页有。
             Section {
                 Toggle(isOn: $usesPlaylistCoverWall) {

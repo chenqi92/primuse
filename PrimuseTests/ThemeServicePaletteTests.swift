@@ -1,10 +1,41 @@
 import SwiftUI
 import UIKit
+import PrimuseKit
 import XCTest
 @testable import Primuse
 
 @MainActor
 final class ThemeServicePaletteTests: XCTestCase {
+    func testArtistMeshPreservesMultipleColorsAndWhiteTextContrast() {
+        let palette = [LiquidBackdropColor(red: 0.98, green: 0.9, blue: 0.4),
+                       LiquidBackdropColor(red: 0.1, green: 0.2, blue: 0.9),
+                       LiquidBackdropColor(red: 0.9, green: 0.1, blue: 0.4)]
+        let result = LibraryDetailTintStyle.artworkBackground(
+            .gray, palette: palette, ambientStyle: .mesh, colorScheme: .light
+        )
+        XCTAssertEqual(result.meshColors.count, 9)
+        XCTAssertGreaterThanOrEqual(Set(result.meshColors).count, 3)
+        for color in result.meshColors {
+            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            XCTAssertTrue(UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a))
+            let stop = LibraryDetailTintStop(hue: h, saturation: s, brightness: b)
+            XCTAssertGreaterThanOrEqual(LibraryDetailTintPolicy.contrastRatioAgainstWhite(stop), 4.5 - 0.001)
+        }
+    }
+
+    func testArtistClassicAndSingleColorKeepContinuousBackground() {
+        let palette = [LiquidBackdropColor(red: 1, green: 0, blue: 0),
+                       LiquidBackdropColor(red: 0, green: 1, blue: 0)]
+        let classic = LibraryDetailTintStyle.artworkBackground(
+            .blue, palette: palette, ambientStyle: .classic, colorScheme: .dark
+        )
+        let singleColor = LibraryDetailTintStyle.artworkBackground(
+            .blue, palette: [], ambientStyle: .mesh, colorScheme: .dark
+        )
+        XCTAssertTrue(classic.meshColors.isEmpty)
+        XCTAssertEqual(classic, singleColor)
+    }
+
     func testPaletteKeepsARepresentativeIndependentSecondaryColor() throws {
         let image = splitImage(
             primary: UIColor(hue: 0.01, saturation: 0.86, brightness: 0.78, alpha: 1),
@@ -103,6 +134,54 @@ final class ThemeServicePaletteTests: XCTestCase {
         let image = splitImage(primary: .white, secondary: .darkGray, primaryFraction: 0.5)
 
         XCTAssertNil(ThemeService.extractDominantColor(from: image))
+    }
+
+    func testPortraitBackgroundKeepsDarkSurroundingsInsteadOfSkinTone() throws {
+        let image = splitImage(primary: UIColor(white: 0.07, alpha: 1),
+                               secondary: UIColor(red: 0.8, green: 0.5, blue: 0.3, alpha: 1),
+                               primaryFraction: 0.75)
+        let color = try XCTUnwrap(ThemeService.extractBackgroundColor(from: image))
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        XCTAssertTrue(UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a))
+        XCTAssertLessThan(max(r, g, b), 0.1)
+        XCTAssertEqual(r, g, accuracy: 0.01)
+        XCTAssertEqual(g, b, accuracy: 0.01)
+    }
+
+    func testPortraitBackgroundKeepsMutedBlueInsteadOfWarmForeground() throws {
+        let image = splitImage(primary: UIColor(red: 0.24, green: 0.27, blue: 0.30, alpha: 1),
+                               secondary: UIColor(red: 0.8, green: 0.5, blue: 0.3, alpha: 1),
+                               primaryFraction: 0.75)
+        let color = try XCTUnwrap(ThemeService.extractBackgroundColor(from: image))
+        XCTAssertLessThan(circularHueDistance(hue(of: color), 0.583), 0.04)
+        XCTAssertEqual(brightness(of: color), 0.30, accuracy: 0.02)
+    }
+
+    func testWarmGrayBackgroundIsNotMadeMoreSaturated() throws {
+        let image = solidImage(UIColor(red: 0.40, green: 0.38, blue: 0.36, alpha: 1))
+        let extracted = try XCTUnwrap(ThemeService.extractBackgroundColor(from: image))
+        let style = LibraryDetailTintStyle.artworkBackground(extracted, colorScheme: .light)
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        XCTAssertTrue(UIColor(style.top).getHue(&h, saturation: &s, brightness: &b, alpha: &a))
+        XCTAssertEqual(s, 0.10, accuracy: 0.02)
+        XCTAssertEqual(b, 0.40, accuracy: 0.02)
+    }
+
+    func testPortraitBackgroundExtendsTexturedGrayLowerEdgeInsteadOfSkinTone() throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).image { context in
+            UIColor(red: 0.8, green: 0.5, blue: 0.3, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+            for x in 0..<80 {
+                UIColor(white: 0.25 + CGFloat(x) / 160, alpha: 1).setFill()
+                context.fill(CGRect(x: x, y: 40, width: 1, height: 40))
+            }
+        }
+        let color = try XCTUnwrap(ThemeService.extractBackgroundColor(from: image))
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        XCTAssertTrue(UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a))
+        XCTAssertEqual(r, g, accuracy: 0.01)
+        XCTAssertEqual(g, b, accuracy: 0.01)
+        XCTAssertEqual(r, 0.50, accuracy: 0.03)
     }
 
     private func solidImage(_ color: UIColor) -> UIImage {

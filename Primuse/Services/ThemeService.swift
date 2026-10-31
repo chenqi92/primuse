@@ -631,9 +631,37 @@ final class ThemeService {
     /// 多色调色板:把封面画到 48×48 上,交给 `LiquidBackdropPalettePolicy` 挑 2…7 个代表色。
     /// 换歌时算一次,动画只用算好的颜色。
     nonisolated static func extractLiquidPalette(from image: PlatformImage) -> [LiquidBackdropColor] {
+        LiquidBackdropPalettePolicy.palette(fromRGB: artworkPalettePixels(from: image))
+    }
+
+    nonisolated static func extractBackgroundColor(from image: PlatformImage) -> Color? {
+        let pixels = artworkPalettePixels(from: image, lowerEdgeOnly: true)
+        guard !pixels.isEmpty else { return nil }
+        // 页面接在照片下方；用下沿的中位色延伸，避免肤色或单一阴影压过有纹理的大色块。
+        let middle = pixels.count / 2
+        return Color(.sRGB,
+                     red: Double(pixels.map(\.0).sorted()[middle]) / 255,
+                     green: Double(pixels.map(\.1).sorted()[middle]) / 255,
+                     blue: Double(pixels.map(\.2).sorted()[middle]) / 255)
+    }
+
+    private nonisolated static func artworkPalettePixels(
+        from image: PlatformImage,
+        lowerEdgeOnly: Bool = false
+    ) -> [(UInt8, UInt8, UInt8)] {
         let side = 48
-        guard let cgImage = image.platformCGImage,
-              let context = CGContext(
+        guard let original = image.platformCGImage else { return [] }
+        let cgImage: CGImage
+        if lowerEdgeOnly {
+            let start = original.height * 2 / 3
+            guard let cropped = original.cropping(to: CGRect(
+                x: 0, y: start, width: original.width, height: original.height - start
+            )) else { return [] }
+            cgImage = cropped
+        } else {
+            cgImage = original
+        }
+        guard let context = CGContext(
                   data: nil,
                   width: side,
                   height: side,
@@ -654,7 +682,7 @@ final class ThemeService {
             guard bytes[offset + 3] > 200 else { continue }
             pixels.append((bytes[offset], bytes[offset + 1], bytes[offset + 2]))
         }
-        return LiquidBackdropPalettePolicy.palette(fromRGB: pixels)
+        return pixels
     }
 
     nonisolated static func liquidColor(from color: Color) -> LiquidBackdropColor? {

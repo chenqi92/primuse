@@ -6493,6 +6493,8 @@
 "source_mutation_permission_denied" = "沒有修改來源檔案的權限。";
 "source_mutation_read_only" = "這個音樂來源不允許修改檔案。";
 "metadata_writeback_local_only_notice" = "音樂來源拒絕寫入，修改只儲存在了 Primuse 裡，來源檔案沒有更新。";
+"library_artist_color_style" = "藝人取色方案";
+"library_artist_softens_edges" = "藝人頁邊緣柔化";
 "library_playlist_cover_wall_title" = "歌單和風格頭圖用封面牆";
 "library_playlist_cover_wall_description" = "歌單、智慧歌單和風格裡有 4 張以上不同的專輯封面時，頭圖鋪成一面傾斜的封面牆，每隔幾秒換一次排法。手機橫向仍顯示單張封面。";
 "player_backdrop_strength_footer" = "越往右，背景越貼近封面的顏色。淺色外觀下封面顏色很深時，會停在文字還看得清的程度；選了模糊封面等背景圖時，調的是圖上那層遮罩的深淺。";

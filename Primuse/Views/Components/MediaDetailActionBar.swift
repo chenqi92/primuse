@@ -19,12 +19,28 @@ struct ImmersiveLibraryDetailInsets: Equatable {
 /// 详情页那层随封面变化的整页底色。
 ///
 /// 封面主色不能直接铺满一页：饱和度高的封面会刺眼，亮封面上白字会糊。怎么压深由
-/// `LibraryDetailTintPolicy` 定(规则在 PrimuseKit 里，有测试)，这里只把算好的两段
-/// 颜色接成渐变。头图、列表、页尾共用同一条渐变，页面才是一整块，而不是彩色头顶
+/// `LibraryDetailTintPolicy` 定(规则在 PrimuseKit 里，有测试)，这里绘制经典渐变或
+/// 封面调色板组成的 Mesh。头图、列表、页尾共用一层背景，页面才是一整块，而不是彩色头顶
 /// 着一块灰底。
 struct LibraryDetailTintStyle: Equatable {
     var top: Color
     var bottom: Color
+    var meshColors: [Color] = []
+
+    @ViewBuilder
+    var background: some View {
+        if meshColors.count == 9 {
+            MeshGradient(
+                width: 3,
+                height: 3,
+                points: MeshBackdropPalettePolicy.points(phase: 0, amplitude: 0),
+                colors: meshColors,
+                smoothsColors: false
+            )
+        } else {
+            gradient
+        }
+    }
 
     /// 上半屏保持头图收尾的那个颜色, 过了头图才慢慢变深 —— 否则头图末端与页面底色
     /// 在接缝处差着一截, 反而多出一条边。
@@ -56,6 +72,30 @@ struct LibraryDetailTintStyle: Equatable {
             brightness: components.brightness,
             appearance: appearance(for: colorScheme)
         ))
+    }
+
+    static func artworkBackground(
+        _ artworkColor: Color?,
+        palette: [LiquidBackdropColor] = [],
+        ambientStyle: PlayerAmbientStyle = .classic,
+        colorScheme: ColorScheme
+    ) -> LibraryDetailTintStyle {
+        guard let components = artworkColor?.hsbComponents else { return neutral(colorScheme: colorScheme) }
+        var result = style(LibraryDetailTintPolicy.backgroundTint(
+            hue: components.hue, saturation: components.saturation, brightness: components.brightness
+        ))
+        if ambientStyle == .mesh, !palette.isEmpty {
+            result.meshColors = MeshBackdropPalettePolicy.colors(for: palette).enumerated().map { index, color in
+                let source = Color(.sRGB, red: color.red, green: color.green, blue: color.blue)
+                guard let hsb = source.hsbComponents else { return result.top }
+                let tint = LibraryDetailTintPolicy.backgroundTint(
+                    hue: hsb.hue, saturation: hsb.saturation, brightness: hsb.brightness
+                )
+                // 与经典背景一样保留底部压暗；每个顶点都先满足白字对比度。
+                return Self.color(index >= 6 ? tint.bottom : tint.top)
+            }
+        }
+        return result
     }
 
     private static func appearance(
@@ -104,7 +144,7 @@ extension EnvironmentValues {
 
 /// 把某首歌的封面主色接成整页底色。
 ///
-/// 代表封面这首歌由页面自己挑(专辑用专辑封面那首、艺术家用头像那首、风格用第一首
+/// 代表封面这首歌由页面自己挑(专辑用专辑封面那首、风格用第一首
 /// 代表曲)。取色是后台异步做的，所以先给中性底，色到了再淡入 —— 页面结构不跳动。
 private struct LibraryDetailTintModifier: ViewModifier {
     let song: Song?
@@ -246,7 +286,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
         }
         .background {
             if let tint {
-                tint.gradient.ignoresSafeArea()
+                tint.background.ignoresSafeArea()
             } else {
                 Color(.systemGroupedBackground).ignoresSafeArea()
             }

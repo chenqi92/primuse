@@ -6422,6 +6422,8 @@
 "source_mutation_permission_denied" = "A permissão para modificar os arquivos de origem foi negada.";
 "source_mutation_read_only" = "Esta fonte não permite alterações nos arquivos.";
 "metadata_writeback_local_only_notice" = "A fonte recusou a gravação. Suas alterações foram salvas apenas no Primuse; o arquivo de origem não foi atualizado.";
+"library_artist_color_style" = "Estilo de cor dos artistas";
+"library_artist_softens_edges" = "Suavizar bordas das páginas de artistas";
 "library_playlist_cover_wall_title" = "Mural de capas no cabeçalho de playlists e gêneros";
 "library_playlist_cover_wall_description" = "Quando uma playlist, playlist inteligente ou gênero tem pelo menos 4 capas de álbum diferentes, o cabeçalho vira um mural inclinado de capas que se reorganiza a cada poucos segundos. No celular na horizontal, continua aparecendo uma só capa.";
 "player_backdrop_strength_footer" = "Quanto mais para a direita, mais o fundo se aproxima das cores da capa. No modo claro, cores muito escuras param onde o texto continua legível. Com uma imagem de fundo como Capa desfocada, isto ajusta a intensidade da camada que a escurece.";

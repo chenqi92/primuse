@@ -78,8 +78,14 @@ struct ArtistDetailView: View {
     @Environment(\.pmHeightClass) private var heightClass
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
-    @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
+    @State private var displayedArtwork: PlatformImage?
+    @State private var artworkTint: Color?
+    @State private var artworkPalette: [LiquidBackdropColor] = []
+    @AppStorage(ArtistAppearancePreferences.colorStyleKey)
+    private var colorStyle = ArtistAppearancePreferences.defaultColorStyle
+    @AppStorage(ArtistAppearancePreferences.softensEdgesKey)
+    private var softensEdges = ArtistAppearancePreferences.defaultSoftensEdges
     #endif
 
     let artist: Artist
@@ -97,9 +103,23 @@ struct ArtistDetailView: View {
     @State private var albumShelvesCache = ArtistAlbumShelvesCache()
     @State private var songsCache = ArtistSongsCache()
 
-    init(artist: Artist, onMacInlineBack: (() -> Void)? = nil) {
+    init(
+        artist: Artist,
+        onMacInlineBack: (() -> Void)? = nil,
+        appearanceDefaults: UserDefaults = .standard
+    ) {
         self.artist = artist
         self.onMacInlineBack = onMacInlineBack
+        #if os(iOS)
+        _colorStyle = AppStorage(
+            wrappedValue: ArtistAppearancePreferences.defaultColorStyle,
+            ArtistAppearancePreferences.colorStyleKey, store: appearanceDefaults
+        )
+        _softensEdges = AppStorage(
+            wrappedValue: ArtistAppearancePreferences.defaultSoftensEdges,
+            ArtistAppearancePreferences.softensEdgesKey, store: appearanceDefaults
+        )
+        #endif
     }
 
     private var songsKey: ArtistSongsCache.Key {
@@ -112,14 +132,11 @@ struct ArtistDetailView: View {
     private var playableSongs: [Song] { songs.filteredPlayable() }
 
     #if os(iOS)
-    /// 整页底色取自艺术家头像 —— 跟头像视图回退到的是同一首歌。
-    private var artworkTintSong: Song? {
-        library.preferredArtworkSong(forArtistID: artist.id) ?? songs.first
-    }
-
     private var tint: LibraryDetailTintStyle {
-        .artwork(
-            artworkTintSong.flatMap { coverTints.tint(forSongID: $0.id) },
+        .artworkBackground(
+            artworkTint,
+            palette: artworkPalette,
+            ambientStyle: colorStyle,
             colorScheme: colorScheme
         )
     }
@@ -266,8 +283,24 @@ struct ArtistDetailView: View {
             #endif
         }
         #if os(iOS)
-        .libraryDetailTint(from: artworkTintSong)
+        .environment(\.libraryDetailTint, tint)
+        .pmAnimation(.ambient, value: tint)
+        .task(id: displayedArtwork.map(ObjectIdentifier.init)) {
+            guard let displayedArtwork else {
+                artworkTint = nil
+                artworkPalette = []
+                return
+            }
+            let (color, palette) = await Task.detached(priority: .utility) {
+                (ThemeService.extractBackgroundColor(from: displayedArtwork),
+                 ThemeService.extractLiquidPalette(from: displayedArtwork))
+            }.value
+            guard !Task.isCancelled else { return }
+            artworkTint = color
+            artworkPalette = palette
+        }
         .minimalNavigationDetail()
+        .modifier(ArtistScrollEdgeEffectModifier(softensEdges: softensEdges))
         .librarySearchContext {
             LibrarySearchScope(title: displayArtistName, songIDs: Set(songs.map(\.id)), kind: .artist)
         }
@@ -504,7 +537,8 @@ struct ArtistDetailView: View {
                         ArtistArtworkView(
                             artist: artist,
                             size: max(geometry.size.width, geometry.size.height),
-                            cornerRadius: 0
+                            cornerRadius: 0,
+                            onImageChange: { displayedArtwork = $0 }
                         )
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
@@ -594,7 +628,8 @@ struct ArtistDetailView: View {
             ArtistArtworkView(
                 artist: artist,
                 size: max(geometry.size.width, geometry.size.height),
-                cornerRadius: 0
+                cornerRadius: 0,
+                onImageChange: { displayedArtwork = $0 }
             )
             .blur(radius: 24)
             .scaleEffect(1.16)
@@ -1089,6 +1124,23 @@ struct ArtistDetailView: View {
         Task { await player.play(queue: queue, startingAt: index) }
     }
 }
+
+#if os(iOS)
+private struct ArtistScrollEdgeEffectModifier: ViewModifier {
+    let softensEdges: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                .scrollEdgeEffectHidden(!softensEdges, for: [.top, .bottom])
+        } else {
+            content
+        }
+    }
+}
+#endif
 
 private enum ArtistAlbumCollection: String, Hashable {
     case releases, appearsOn

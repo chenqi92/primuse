@@ -6422,6 +6422,8 @@
 "source_mutation_permission_denied" = "Odmówiono uprawnień do modyfikowania plików źródłowych.";
 "source_mutation_read_only" = "To źródło nie zezwala na zmiany plików.";
 "metadata_writeback_local_only_notice" = "Źródło odmówiło zapisu. Zmiany zapisano tylko w Primuse; plik źródłowy nie został zaktualizowany.";
+"library_artist_color_style" = "Styl kolorów wykonawców";
+"library_artist_softens_edges" = "Zmiękcz krawędzie stron wykonawców";
 "library_playlist_cover_wall_title" = "Ściana okładek w nagłówku playlist i gatunków";
 "library_playlist_cover_wall_description" = "Gdy playlista, playlista inteligentna lub gatunek ma co najmniej 4 różne okładki albumów, nagłówek zmienia się w pochyloną ścianę okładek, która co kilka sekund układa się na nowo. Telefon w poziomie nadal pokazuje jedną okładkę.";
 "player_backdrop_strength_footer" = "Im dalej w prawo, tym bardziej tło zbliża się do kolorów okładki. W trybie jasnym bardzo ciemne kolory zatrzymują się tam, gdzie tekst pozostaje czytelny. Przy obrazie tła, takim jak Rozmyta okładka, reguluje to siłę przyciemniającej warstwy.";

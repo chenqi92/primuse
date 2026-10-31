@@ -8,6 +8,32 @@ import UIKit
 import AppKit
 #endif
 
+struct ArtworkImagePreference: Equatable {
+    let image: PlatformImage?
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.image === rhs.image }
+}
+
+struct ArtworkImagePreferenceKey: PreferenceKey {
+    static var defaultValue: ArtworkImagePreference? { nil }
+
+    static func reduce(value: inout ArtworkImagePreference?, nextValue: () -> ArtworkImagePreference?) {
+        // ZStack 后面的图片盖在前面之上；透明的未加载层不遮住已有图片。
+        if let image = nextValue() { value = image }
+    }
+}
+
+private struct ReportsArtworkImageKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var reportsArtworkImage: Bool {
+        get { self[ReportsArtworkImageKey.self] }
+        set { self[ReportsArtworkImageKey.self] = newValue }
+    }
+}
+
 /// Loads cover art with a unified three-tier strategy:
 /// 1. Memory cache (NSCache, keyed by songID + size bucket)
 /// 2. Disk cache (MetadataAssetStore, keyed by songID)
@@ -75,6 +101,7 @@ struct CachedArtworkView: View {
     @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.reportsArtworkImage) private var reportsArtworkImage
     // 不用 @AppStorage: 每张封面四个偏好观察者, 一屏几十张, 任何一处写偏好都要全部醒来一遍。
     // 见 `AnimatedArtworkPreferences`。
     private var animatedArtworkEnabled: Bool { AnimatedArtworkPreferences.shared.animatedArtworkEnabled }
@@ -346,6 +373,9 @@ struct CachedArtworkView: View {
             view.aspectRatio(1, contentMode: .fit)
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .if(reportsArtworkImage) { view in
+            view.preference(key: ArtworkImagePreferenceKey.self, value: reportedArtworkImage)
+        }
         .task(id: loadTaskIdentity) {
             await loadImage(
                 for: loadIdentity,
@@ -577,6 +607,12 @@ struct CachedArtworkView: View {
 
     private var hasResolvedArtwork: Bool {
         appleMusicArtwork != nil || displayedImage != nil
+    }
+
+    private var reportedArtworkImage: ArtworkImagePreference? {
+        guard hasResolvedArtwork else { return nil }
+        // MusicKit 自己绘制的图没有可读像素时保持中性，不能借用被它遮住的下层图片。
+        return ArtworkImagePreference(image: appleMusicArtwork == nil ? displayedImage : nil)
     }
 
     /// 与 `ArtworkSourceRequestIdentity.key` 为 nil、且不走专辑/艺人路径同义：
