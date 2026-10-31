@@ -33,6 +33,9 @@ actor MetadataAssetStore {
     private var lyricsMutationReservations: [String: UUID] = [:]
     private var artworkSelections: [String: String] = [:]
     nonisolated private let artworkRefreshClock = ArtworkRefreshClock()
+    nonisolated private let contentMutationLock = NSLock()
+    nonisolated private let artworkDisplayRevisions = ArtworkDisplayRevisions()
+    private var focusedArtworkChecks: [String: Date] = [:]
 
     /// Public directory URLs for external consumers (CachedArtworkView, ThemeService, etc.)
     nonisolated let artworkDirectoryURL: URL
@@ -135,13 +138,18 @@ actor MetadataAssetStore {
     /// 多首歌(或同一专辑下的多首)拿到同一张封面时,content 文件只写一次,
     /// 各自的 ref 文件都指向它。
     nonisolated private func writeContentAddressed(_ data: Data, refURL: URL) throws {
-        let sha = Self.sha256Hex(data)
-        let contentURL = artworkContentDirectoryURL.appendingPathComponent("\(sha).jpg")
-        if !FileManager.default.fileExists(atPath: contentURL.path) {
-            try data.write(to: contentURL, options: .atomic)
+        try contentMutationLock.withLock {
+            let sha = Self.sha256Hex(data)
+            let contentURL = artworkContentDirectoryURL.appendingPathComponent("\(sha).jpg")
+            if !FileManager.default.fileExists(atPath: contentURL.path) {
+                try data.write(to: contentURL, options: .atomic)
+            } else {
+                try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: contentURL.path)
+            }
+            try? FileManager.default.removeItem(at: artworkContentDirectoryURL.appendingPathComponent("\(sha).evicted"))
+            let redirect = Self.redirectPrefixData + Data(sha.utf8)
+            try redirect.write(to: refURL, options: .atomic)
         }
-        let redirect = Self.redirectPrefixData + Data(sha.utf8)
-        try redirect.write(to: refURL, options: .atomic)
     }
 
     /// 读 ref 文件:redirect 就转向 content/<sha>.jpg, 老格式直接返回原 JPEG。
@@ -294,6 +302,19 @@ actor MetadataAssetStore {
         return FileManager.default.fileExists(
             atPath: artworkContentDirectoryURL.appendingPathComponent("\(sha).jpg").path
         )
+    }
+
+    /// Capacity eviction keeps the reference and inspection result. A missing
+    /// cache object is recovered on demand, not by rereading the entire library.
+    nonisolated func isCoverContentEvicted(named filename: String) -> Bool {
+        guard Self.isLocalCoverFileName(filename),
+              let identifier = coverContentIdentifier(named: filename),
+              identifier.hasPrefix("sha256:") else { return false }
+        let hash = String(identifier.dropFirst("sha256:".count))
+        let content = artworkContentDirectoryURL.appendingPathComponent("\(hash).jpg")
+        let marker = artworkContentDirectoryURL.appendingPathComponent("\(hash).evicted")
+        return !FileManager.default.fileExists(atPath: content.path)
+            && FileManager.default.fileExists(atPath: marker.path)
     }
 
     struct PortableCover: Sendable {
@@ -459,9 +480,54 @@ actor MetadataAssetStore {
             .appendingPathComponent(expectedCoverFileName(for: sourceID ?? "public"))
     }
 
-    nonisolated func artworkFreshnessToken(sourceID: String?) -> String {
+    nonisolated func artworkFreshnessToken(sourceID: String?, reference: String? = nil) -> String {
         let date = artworkRefreshClock.date(at: refreshURL(sourceID))
-        return "\(date.timeIntervalSince1970):\(Int(Date().timeIntervalSince1970 / SourceArtworkPolicy.maximumAge))"
+        return "\(date.timeIntervalSince1970):\(artworkDisplayRevisions.value(sourceID: sourceID, reference: reference))"
+    }
+
+    nonisolated func artworkRequestIdentity(sourceID: String?, reference: String, maximumBytes: Int, original: Bool = false) -> String {
+        let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 480)
+            ?? Self.sha256Hex(Data("\(sourceID ?? "")|\(reference)".utf8))
+        return "\(key)|\(artworkFreshnessToken(sourceID: sourceID))|\(maximumBytes)|\(original)"
+    }
+
+    /// Playback and single-song inspection opt in. Browsing and scans never
+    /// expire a library's artwork merely because time has passed.
+    @discardableResult
+    func refreshFocusedArtwork(songID: String, sourceID: String?, reference: String?,
+                               fetch: @Sendable () async -> Data?) async -> Bool {
+        guard !Task.isCancelled, let reference,
+              let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 1536) else { return false }
+        let started = Date()
+        if let previous = focusedArtworkChecks[key], started.timeIntervalSince(previous) < 60 { return false }
+        if let fetchedAt = coverCacheDate(forSongID: key), started.timeIntervalSince(fetchedAt) < 60,
+           cachedSourceCover(sourceID: sourceID, reference: reference, maximumPixels: 1536, checksAge: false) != nil {
+            return false
+        }
+        let ticket = beginArtworkLoad(songID: songID, sourceID: sourceID, reference: reference)
+        let fetched = await fetch()
+        guard !Task.isCancelled, isCurrentArtworkLoad(ticket) else { return false }
+        focusedArtworkChecks[key] = Date()
+        if focusedArtworkChecks.count > 512 {
+            focusedArtworkChecks = focusedArtworkChecks.filter { started.timeIntervalSince($0.value) < 60 }
+        }
+        guard let fetched, ArtworkImageCompatibility.isCompleteImage(fetched) else { return false }
+        let data: Data
+        if let image = CGImageSourceCreateWithData(fetched as CFData, nil), CGImageSourceGetCount(image) > 1 {
+            guard let still = ArtworkImageCompatibility.staticFirstFrameJPEG(from: fetched) else { return false }
+            data = still
+        } else { data = fetched }
+        let old = cachedSourceCover(sourceID: sourceID, reference: reference, maximumPixels: 1536, allowsStale: true)
+        let usable = cachedSourceCover(sourceID: sourceID, reference: reference, maximumPixels: 1536, checksAge: false)
+        if old == data, usable != nil { return false }
+        guard cacheSourceCover(data, songID: songID, sourceID: sourceID, reference: reference,
+                               maximumPixels: 1536, ticket: ticket) else { return false }
+        artworkDisplayRevisions.advance(sourceID: sourceID, reference: reference)
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .primuseArtworkDidInvalidate, object: nil,
+                                            userInfo: ["songIDs": [songID], "tokens": [reference]])
+        }
+        return true
     }
 
     nonisolated func revalidateArtwork(sourceID: String) {
@@ -486,7 +552,7 @@ actor MetadataAssetStore {
     }
 
     /// Source requests may populate their own namespace, but must not publish a
-    /// late result after a scan or an explicit local selection replaced them.
+    /// late result after source configuration or an explicit local selection changed.
     @discardableResult
     func cacheSourceCover(_ data: Data, songID: String?, sourceID: String?, reference: String?,
                           maximumPixels: Int, ticket: ArtworkLoadTicket? = nil) -> Bool {
@@ -497,7 +563,7 @@ actor MetadataAssetStore {
         guard let songID else { return true }
         if ticket == nil, artworkSelections[songID]?.hasPrefix("local:") == true { return true }
         let fullKey = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 1536)
-        let bestKey = fullKey.flatMap { freshSourceData(cacheID: $0, sourceID: sourceID) != nil ? $0 : nil } ?? key
+        let bestKey = fullKey.flatMap { freshSourceData(cacheID: $0, sourceID: sourceID, checksAge: false) != nil ? $0 : nil } ?? key
         let best = cachedCoverData(forSongID: bestKey) ?? data
         guard cacheCover(best, forSongID: songID) else { return false }
         let url = mirrorURL(songID)
@@ -508,39 +574,39 @@ actor MetadataAssetStore {
         return true
     }
 
-    nonisolated private func freshSourceData(cacheID: String, sourceID: String?) -> Data? {
+    nonisolated private func freshSourceData(cacheID: String, sourceID: String?, checksAge: Bool = true) -> Data? {
         guard let date = coverCacheDate(forSongID: cacheID),
               date >= artworkRefreshClock.date(at: refreshURL(sourceID)),
-              Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { return nil }
+              !checksAge || Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { return nil }
         return readCoverData(named: expectedCoverFileName(for: cacheID))
     }
 
     nonisolated func cachedSourceCover(sourceID: String?, reference: String?, maximumPixels: Int,
-                                      allowsStale: Bool = false) -> Data? {
+                                      allowsStale: Bool = false, checksAge: Bool = true) -> Data? {
         let sizes = maximumPixels <= 480 ? [1536, 480] : [1536]
         for size in sizes {
             guard let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: size) else { return nil }
             let data = allowsStale ? readCoverData(named: expectedCoverFileName(for: key))
-                : freshSourceData(cacheID: key, sourceID: sourceID)
+                : freshSourceData(cacheID: key, sourceID: sourceID, checksAge: checksAge)
             if let data { return data }
         }
         return nil
     }
 
-    nonisolated func freshSourceCoverFileName(sourceID: String?, reference: String?, maximumPixels: Int) -> String? {
+    nonisolated func freshSourceCoverFileName(sourceID: String?, reference: String?, maximumPixels: Int, checksAge: Bool = true) -> String? {
         for pixels in maximumPixels <= 480 ? [1536, 480] : [1536] {
             guard let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: pixels),
                   let date = coverCacheDate(forSongID: key),
                   date >= artworkRefreshClock.date(at: refreshURL(sourceID)),
-                  Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { continue }
+                  !checksAge || Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { continue }
             let name = expectedCoverFileName(for: key)
             if hasReadableCoverFile(named: name) { return name }
         }
         return nil
     }
 
-    nonisolated func hasFreshSourceCover(sourceID: String?, reference: String?, maximumPixels: Int) -> Bool {
-        freshSourceCoverFileName(sourceID: sourceID, reference: reference, maximumPixels: maximumPixels) != nil
+    nonisolated func hasFreshSourceCover(sourceID: String?, reference: String?, maximumPixels: Int, checksAge: Bool = true) -> Bool {
+        freshSourceCoverFileName(sourceID: sourceID, reference: reference, maximumPixels: maximumPixels, checksAge: checksAge) != nil
     }
 
     nonisolated func displayCoverIdentity(songID: String?, reference: String?) -> String? {
@@ -1377,9 +1443,15 @@ actor MetadataAssetStore {
             includingPropertiesForKeys: [.contentModificationDateKey]
         ) else { return true }
         var removed = 0
-        for file in contents where file.pathExtension == "jpg" {
+        for file in contents where file.pathExtension == "jpg" || file.pathExtension == "evicted" {
             guard !currentTaskIsCancelled() else { return false }
             let sha = file.deletingPathExtension().lastPathComponent
+            if file.pathExtension == "evicted" {
+                if references[sha] == nil || fm.fileExists(atPath: contentDir.appendingPathComponent("\(sha).jpg").path) {
+                    try? fm.removeItem(at: file)
+                }
+                continue
+            }
             guard references[sha] == nil else { continue }
             let mtime = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             guard mtime < cutoff else { continue }  // 新近写入的, 可能 ref 还在途, 留着
@@ -1396,12 +1468,9 @@ actor MetadataAssetStore {
     /// content/ 总大小超 `maxBytes` 时, 按 mtime 倒序(最老优先)删掉 content
     /// 文件直到回到上限以下。
     ///
-    /// 删 content 的同时必须把指向它的 ref 一并删掉并播出去。只删 content
-    /// 会留下「有封面引用、字节却没了」的悬空状态: 读出来是 nil, 而
-    /// `needsEmbeddedArtworkBackfill` 看到非空的 coverArtFileName 就认定这首
-    /// 歌已经有封面, 永远不会重读 —— 内嵌封面又没有任何远端可以回源, 于是
-    /// 用户只剩手动「重新读取文件标签」一条路。旧注释说的"下次读会落到
-    /// nil → CachedArtworkView 网络重新拉"只对刮削来的网络封面成立。
+    /// Retain redirects and a durable eviction marker. Removing song references
+    /// would reopen every inspected track sharing the image and refill the cache
+    /// immediately. Explicit cache clearing still announces removed references.
     ///
     /// `protectedRefs` 引用到的 content 直接跳过: 本地源的内嵌封面要重新解析
     /// 音频文件才能重建, 代价远高于它占的那点空间。
@@ -1450,7 +1519,7 @@ actor MetadataAssetStore {
         var freed: Int64 = 0
         var evictedContent = 0
         var skippedProtected = 0
-        var evictedRefs: Set<String> = []
+        var deferredRefs = 0
         for e in entries {
             guard !Self.currentTaskIsCancelled() else { return false }
             if total - freed <= maxBytes { break }
@@ -1458,18 +1527,22 @@ actor MetadataAssetStore {
                 skippedProtected += 1
                 continue
             }
-            guard (try? fm.removeItem(at: e.url)) != nil else { continue }
+            let evicted = contentMutationLock.withLock {
+                let modified = try? e.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                guard let modified, modified < cutoff else { return false }
+                let marker = artworkContentDirectory.appendingPathComponent("\(e.sha).evicted")
+                guard (try? Data().write(to: marker, options: .atomic)) != nil else { return false }
+                return (try? FileManager.default.removeItem(at: e.url)) != nil
+            }
+            guard evicted else { continue }
             freed += e.size
             evictedContent += 1
-            for refURL in references[e.sha] ?? [] {
-                guard (try? fm.removeItem(at: refURL)) != nil else { continue }
-                evictedRefs.insert(refURL.lastPathComponent)
-            }
+            deferredRefs += references[e.sha]?.count ?? 0
         }
         plog(
             "🧹 artwork content evict: freed=\(freed / 1024 / 1024)MB "
                 + "total=\(total / 1024 / 1024)MB cap=\(maxBytes / 1024 / 1024)MB "
-                + "content=\(evictedContent) refs=\(evictedRefs.count) "
+                + "content=\(evictedContent) deferredRefs=\(deferredRefs) "
                 + "protectedSkipped=\(skippedProtected) protected=\(protectedBytes / 1024 / 1024)MB"
         )
         if total - freed > maxBytes {
@@ -1477,9 +1550,6 @@ actor MetadataAssetStore {
                 "⚠️ artwork content evict: still \((total - freed) / 1024 / 1024)MB over cap "
                     + "after skipping \(skippedProtected) protected item(s)"
             )
-        }
-        if !evictedRefs.isEmpty {
-            Self.postArtworkContentEvicted(refs: evictedRefs)
         }
         return true
     }
@@ -1535,7 +1605,8 @@ actor MetadataAssetStore {
     /// `protectedCoverRefs` 是调用方交来的「不要为了腾空间删掉」的封面引用,
     /// 目前是本地源的内嵌封面 —— 它们没有远端可以回源。
     func performScheduledContentMaintenance(
-        protectedCoverRefs: Set<String> = []
+        protectedCoverRefs: Set<String> = [],
+        maximumArtworkBytes: Int64 = ArtworkStoreLimitSetting.currentBytes
     ) -> Bool {
         let targetDirs = [artworkDirectory, albumArtworkDirectory, artistArtworkDirectory]
         guard Self.runDedupMigrationIfNeeded(
@@ -1551,7 +1622,7 @@ actor MetadataAssetStore {
             contentDir: artworkContentDirectory
         ) else { return false }
         return evictArtworkContentIfNeeded(
-            maxBytes: ArtworkStoreLimitSetting.currentBytes,
+            maxBytes: maximumArtworkBytes,
             references: references,
             protectedRefs: protectedCoverRefs
         ) && evictArtworkDirectoryIfNeeded(portableArtworkDirectoryURL, maxBytes: 48 * 1024 * 1024)
@@ -1909,6 +1980,121 @@ enum LibraryArtworkImageProcessor {
     }
 }
 
+
+/// Bounds network work across artwork views, palette extraction and playback.
+/// A reserved foreground slot prevents a wall of thumbnails from delaying the
+/// current song. A queued thumbnail can be upgraded before its request starts.
+actor ArtworkRequestCoordinator {
+    static let shared = ArtworkRequestCoordinator()
+    enum Priority: Int, Sendable { case background, foreground }
+    private struct Job {
+        let id: UUID
+        let identity: String
+        var pixels: Int
+        var priority: Priority
+        var operation: @Sendable (Int) async -> Data?
+        var waiters: [UUID: CheckedContinuation<Data?, Never>]
+        var task: Task<Void, Never>?
+        var cancelling = false
+    }
+    private var jobs: [UUID: Job] = [:]
+    private var order: [UUID] = []
+    var waitingConsumerCount: Int { jobs.values.reduce(0) { $0 + $1.waiters.count } }
+
+    func request(identity: String, maximumPixels: Int, priority: Priority = .background,
+                 operation: @escaping @Sendable (Int) async -> Data?) async -> Data? {
+        guard !Task.isCancelled else { return nil }
+        let waiter = UUID()
+        return await withTaskCancellationHandler {
+            let result: Data? = await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: nil); return }
+                register(waiter, identity: identity, pixels: maximumPixels, priority: priority,
+                         operation: operation, continuation: continuation)
+            }
+            return Task.isCancelled ? nil : result
+        } onCancel: {
+            Task { await self.cancel(waiter) }
+        }
+    }
+
+    private func register(_ waiter: UUID, identity: String, pixels: Int, priority: Priority,
+                          operation: @escaping @Sendable (Int) async -> Data?,
+                          continuation: CheckedContinuation<Data?, Never>) {
+        if let id = order.first(where: {
+            guard let job = jobs[$0], job.identity == identity, !job.cancelling else { return false }
+            return job.task == nil || job.pixels >= pixels
+        }), var job = jobs[id] {
+            if job.task == nil, pixels > job.pixels { job.pixels = pixels; job.operation = operation }
+            if priority.rawValue > job.priority.rawValue { job.priority = priority }
+            job.waiters[waiter] = continuation
+            jobs[id] = job
+        } else {
+            let id = UUID()
+            jobs[id] = Job(id: id, identity: identity, pixels: pixels, priority: priority,
+                           operation: operation, waiters: [waiter: continuation])
+            order.append(id)
+        }
+        startAvailable()
+    }
+
+    private func startAvailable() {
+        while true {
+            let running = jobs.values.filter { $0.task != nil }
+            guard running.count < 3 else { return }
+            let backgroundCount = running.filter { $0.priority == .background }.count
+            let identities = Set(running.map(\.identity))
+            let eligible = order.filter {
+                guard let job = jobs[$0], job.task == nil, !identities.contains(job.identity) else { return false }
+                return job.priority == .foreground || backgroundCount < 2
+            }
+            guard let id = eligible.first(where: { jobs[$0]?.priority == .foreground }) ?? eligible.first,
+                  var job = jobs[id] else { return }
+            let operation = job.operation
+            let pixels = job.pixels
+            job.task = Task {
+                let result = Task.isCancelled ? nil : await operation(pixels)
+                self.complete(id, result: result)
+            }
+            jobs[id] = job
+        }
+    }
+
+    private func cancel(_ waiter: UUID) {
+        guard let id = order.first(where: { jobs[$0]?.waiters[waiter] != nil }),
+              var job = jobs[id], let continuation = job.waiters.removeValue(forKey: waiter) else { return }
+        continuation.resume(returning: nil)
+        if job.waiters.isEmpty {
+            if let task = job.task {
+                job.cancelling = true
+                jobs[id] = job
+                task.cancel()
+            } else {
+                jobs[id] = nil
+                order.removeAll { $0 == id }
+            }
+        } else { jobs[id] = job }
+        startAvailable()
+    }
+
+    private func complete(_ id: UUID, result: Data?) {
+        guard let job = jobs.removeValue(forKey: id) else { return }
+        order.removeAll { $0 == id }
+        for continuation in job.waiters.values { continuation.resume(returning: result) }
+        startAvailable()
+    }
+}
+
+private final class ArtworkDisplayRevisions: @unchecked Sendable {
+    private let lock = NSLock()
+    private var revisions: [String: UInt64] = [:]
+    func value(sourceID: String?, reference: String?) -> UInt64 {
+        guard let reference else { return 0 }
+        return lock.withLock { revisions["\(sourceID ?? "")|\(reference)"] ?? 0 }
+    }
+    func advance(sourceID: String?, reference: String) {
+        lock.withLock { revisions["\(sourceID ?? "")|\(reference)", default: 0] &+= 1 }
+    }
+}
 
 private final class ArtworkRefreshClock: @unchecked Sendable {
     private let lock = NSLock()

@@ -12402,6 +12402,8 @@ struct SongInfoSheet: View {
     }
     @Environment(\.dismiss) private var dismiss
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(MetadataBackfillService.self) private var metadataBackfill
     @Environment(SourcesStore.self) private var sourcesStore
     @State private var showSimilarSongs = false
     private let history = PlayHistoryStore.shared
@@ -12423,11 +12425,19 @@ struct SongInfoSheet: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        legacyBody
-        #endif
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            legacyBody
+            #endif
+        }
+        .task(id: song.id) {
+            _ = await metadataBackfill.rereadTagsForPlayback(songID: song.id, expectedSourceID: song.sourceID)
+        }
+        .task(id: song.id) {
+            await sourceManager.refreshArtworkForFocusedSong(library.song(id: song.id) ?? song)
+        }
     }
 
     #if !os(macOS)

@@ -1663,7 +1663,9 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
             sourceID: "source-1",
             index: Dictionary(uniqueKeysWithValues: items.map { ($0.stableKey, $0) })
         )
-        library.updateAutomaticArtistArtworkCatalog(catalog)
+        await library.updateAutomaticArtistArtworkCatalogOffMain(catalog, applyFence: { false })
+        XCTAssertNil(library.song(id: "a1")?.artistArtworkFileName)
+        await library.updateAutomaticArtistArtworkCatalogOffMain(catalog)
 
         for song in songs where song.id != "server" {
             let expected = catalog.automaticReference(

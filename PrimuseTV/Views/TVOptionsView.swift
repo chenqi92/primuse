@@ -247,6 +247,11 @@ struct TVOptionsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs))
+        .task(id: store.nowPlaying.songID) {
+            if let song = store.library.song(id: store.nowPlaying.songID) {
+                await store.refreshArtworkForFocusedSong(song)
+            }
+        }
         .onExitCommand { dismiss() }
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()

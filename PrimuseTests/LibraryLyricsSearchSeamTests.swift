@@ -157,3 +157,24 @@ final class LibraryLyricsSearchSeamTests: XCTestCase {
         withExtendedLifetime(library) {}
     }
 }
+
+@MainActor
+final class LibrarySearchProjectionSnapshotTests: XCTestCase {
+    func testReorderedOrFilteredSnapshotNeverReusesStaleSongOffsets() async throws {
+        let first = Song(id: "projection-a", title: "歌曲甲", fileFormat: .mp3, filePath: "/a.mp3", sourceID: "projection")
+        let second = Song(id: "projection-b", title: "歌曲乙", fileFormat: .mp3, filePath: "/b.mp3", sourceID: "projection")
+        let initial = [first, second]
+        let result = await LibrarySearchIndex.shared.search(query: "歌", songs: initial, albums: [],
+            metadataRevisionKey: "same", matchKinds: [.metadata])
+        XCTAssertEqual(Set(try XCTUnwrap(result).output.songResults.map(\.song.id)), [first.id, second.id])
+        var hiddenMatch = first
+        hiddenMatch.title = "无匹配"
+        let reordered = [second, hiddenMatch]
+        let changed = await LibrarySearchIndex.shared.search(query: "歌", songs: reordered, albums: [],
+            metadataRevisionKey: "same", matchKinds: [.metadata])
+        XCTAssertEqual(try XCTUnwrap(changed).output.songResults.map(\.song.id), [second.id])
+        let filtered = await LibrarySearchIndex.shared.search(query: "歌", songs: [hiddenMatch], albums: [],
+            metadataRevisionKey: "same", matchKinds: [.metadata])
+        XCTAssertTrue(try XCTUnwrap(filtered).output.songResults.isEmpty)
+    }
+}

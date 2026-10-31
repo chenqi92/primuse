@@ -203,6 +203,7 @@ private final class MetadataBackfillWorkerWaitLatch {
 @MainActor
 @Observable
 final class MetadataBackfillService {
+    @ObservationIgnored private let artworkStore: MetadataAssetStore
     // 首段读多少字节由 `RemoteMetadataReadPolicy.backfillInitialHeadByteCount`
     // 按格式和「要不要顺带取封面」决定: 取封面的仍然整段读 256 KB(封面多半就
     // 在里面), 不取的只读 32 KB, 不够再按标签自己声明的长度补。
@@ -284,6 +285,7 @@ final class MetadataBackfillService {
     @ObservationIgnored private var peerCoverKeyBySongID: [String: String] = [:]
     /// 那台设备有内嵌歌词、本机没有缓存的歌。不为它们单独排队,播放时读一次文件。
     @ObservationIgnored private var peerLyricsPendingIDs: Set<String> = []
+    @ObservationIgnored private var deferredArtworkIDs: Set<String> = []
     /// 读完一轮标签(至少读了一首)时告诉 AppServices,好让别的设备早点拿到结果。
     @ObservationIgnored var readingProgressHandler: ((Int) -> Void)?
     /// 每批读好的行写进曲库之后报出 id。别的设备手改的标签在等这些行读完(见 `SongTagEditStore`)。
@@ -303,6 +305,7 @@ final class MetadataBackfillService {
     private struct PeerSeedState: Codable, Sendable {
         var coverGroups: [String: PeerCoverGroup]
         var lyricsPending: [String]
+        var deferredArtwork: [String]?
     }
 
     /// Consecutive transient failure count per song ID. Counts are persisted so
@@ -685,9 +688,8 @@ final class MetadataBackfillService {
     /// 容量驱逐跳过这些, 先去删刮削来的、随时能重新下载的封面。
     func evictionProtectedCoverRefs() -> Set<String> {
         let directIDs = directFileSourceIDs()
-        guard !directIDs.isEmpty else { return [] }
         var refs: Set<String> = []
-        for song in library.songs where directIDs.contains(song.sourceID) {
+        for song in library.songs where directIDs.contains(song.sourceID) || song.isCueTrack || song.isStreamDescriptor {
             guard let ref = song.coverArtFileName, !ref.isEmpty,
                   !ref.contains("/"), !ref.contains("://") else { continue }
             refs.insert(ref)
@@ -695,9 +697,8 @@ final class MetadataBackfillService {
         return refs
     }
 
-    /// 封面 content 被容量驱逐后, 把对应的 `coverArtFileName` 摘掉。留着它
-    /// 等于告诉回填队列「这首歌已经有封面」, 于是谁也不会再去读一次 ——
-    /// 界面上就是封面凭空消失且再也回不来。
+    /// Explicit clearing or unexpected file loss reopens inspection. Intentional
+    /// capacity eviction retains its reference and bypasses this repair path.
     private func clearEvictedArtworkReferences(_ refs: Set<String>) {
         guard !refs.isEmpty else { return }
         let affected = library.songs.filter { song in
@@ -731,8 +732,12 @@ final class MetadataBackfillService {
             return reference
         })
         guard !references.isEmpty else { return }
+        let store = artworkStore
         let missing = await Task.detached(priority: .utility) {
-            references.filter { !MetadataAssetStore.shared.hasReadableCoverFile(named: $0) }
+            references.filter {
+                !store.hasReadableCoverFile(named: $0)
+                    && !store.isCoverContentEvicted(named: $0)
+            }
         }.value
         guard !missing.isEmpty, !Task.isCancelled else { return }
         plog("📥 Backfill: \(missing.count) cover references have no readable file on this device")
@@ -964,8 +969,10 @@ final class MetadataBackfillService {
         pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
         sourceFileName: @escaping (Song) -> String? = { _ in nil },
         playbackIsActive: @escaping () -> Bool = { false },
-        storageDirectory: URL? = nil
+        storageDirectory: URL? = nil,
+        artworkStore: MetadataAssetStore = .shared
     ) {
+        self.artworkStore = artworkStore
         self.playbackIsActive = playbackIsActive
         self.library = library
         self.sourceManager = sourceManager
@@ -1758,6 +1765,30 @@ final class MetadataBackfillService {
             markQueueDirty()
             defaults.set(true, forKey: bareSourceArtworkKey)
         }
+
+        // Older capacity cleanup erased the cover reference as well as its
+        // bytes. Only already-inspected, artwork-only rows move to on-play
+        // recovery; unfinished titles, durations and other tags keep their queue.
+        deferInspectedArtworkOnlyRows()
+    }
+
+    func deferInspectedArtworkOnlyRows() {
+        let readable = backfillableSourceIDs()
+        let manuallyReadable = manuallyReadableSourceIDs()
+        let ids = Set(library.songs.lazy.filter { [self] in
+            readable.contains($0.sourceID)
+                && manuallyReadable.contains($0.sourceID)
+                && !$0.isCueTrack && !$0.isStreamDescriptor
+                && titleCheckedIDs.contains($0.id)
+                && workReasons(for: $0) == .artwork
+                && peerCoverKeyBySongID[$0.id] == nil
+        }.map(\.id))
+        guard !ids.isEmpty else { return }
+        deferredArtworkIDs.formUnion(ids)
+        artworkGivenUpIDs.formUnion(ids)
+        saveArtworkGivenUp()
+        markQueueDirty()
+        plog("Backfill: deferred \(ids.count) inspected artwork-only rows until playback or explicit reread")
     }
 
     static func observeReadingConfigurationChanges(
@@ -2205,15 +2236,41 @@ final class MetadataBackfillService {
     /// fresh bounded retry budget. Every successful scan with eligible rows
     /// refreshes the queue; an active iOS scene keeps running gentle serial
     /// snapshots until the eligible queue drains or the scene changes.
+    @ObservationIgnored var automaticWorkIsAllowed: () -> Bool = { true }
+    @ObservationIgnored private let sourceRecoveryQueue = SourceMaintenanceQueue()
+
     func sourceScanSucceeded(forSourceID sourceID: String) {
+        batchSelectionCursor = BatchSelectionCursor()
+        guard backfillableSourceIDs().contains(sourceID) else { return }
+        sourceRecoveryQueue.enqueue(sourceID: sourceID) { [weak self] in
+            guard let self else { return }
+            while !self.automaticWorkIsAllowed() {
+                try await Task.sleep(for: .milliseconds(250))
+            }
+            await self.recoverBackfillAfterScan(sourceID: sourceID)
+        }
+    }
+
+    private func recoverBackfillAfterScan(sourceID: String) async {
         let needsBackfill = makeNeedsBackfillPredicate()
-        let retryableSongIDs = Set(library.songs.lazy.filter { [self] song in
-            song.sourceID == sourceID
-                && !failedSongIDs.contains(song.id)
-                && !sourceIssueSongIDs.contains(song.id)
-                && !sessionStallParkedIDs.contains(song.id)
-                && needsBackfill(song)
-        }.map(\.id))
+        let snapshot = library.songs
+        let excluded = failedSongIDs.union(sourceIssueSongIDs).union(sessionStallParkedIDs)
+        let worker = Task.detached(priority: .utility) {
+            var ids: Set<String> = []
+            for (offset, song) in snapshot.enumerated() {
+                if offset % 512 == 0, Task.isCancelled { return Set<String>() }
+                if song.sourceID == sourceID, !excluded.contains(song.id), needsBackfill(song) {
+                    ids.insert(song.id)
+                }
+            }
+            return ids
+        }
+        var retryableSongIDs = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, backfillableSourceIDs().contains(sourceID),
+              !library.disabledSourceIDs.contains(sourceID) else { return }
+        retryableSongIDs.subtract(failedSongIDs)
+        retryableSongIDs.subtract(sourceIssueSongIDs)
+        retryableSongIDs.subtract(sessionStallParkedIDs)
         guard !retryableSongIDs.isEmpty else { return }
 
         let sourceAttemptCount = sourceTransientFailureCounts[sourceID] ?? 0
@@ -2271,6 +2328,7 @@ final class MetadataBackfillService {
 
     func discardWork(forSourceIDs sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
+        for sourceID in sourceIDs { sourceRecoveryQueue.discard(sourceID: sourceID) }
         pendingDiscardSourceIDs.formUnion(sourceIDs)
         // Network work must stop immediately; only the potentially expensive
         // library/state sweep is debounced.
@@ -3482,6 +3540,10 @@ final class MetadataBackfillService {
             return false
         }
         return needsBackfill(song) || peerLyricsPendingIDs.contains(songID)
+            || deferredArtworkIDs.contains(songID)
+            || song.coverArtFileName.map {
+                artworkStore.isCoverContentEvicted(named: $0)
+            } == true
     }
 
     /// Playback uses the same bounded single-file reader as the explicit menu
@@ -3882,11 +3944,7 @@ final class MetadataBackfillService {
         saveDeferredRetries()
         saveInspectionState()
         saveRetryCounts()
-        if batchRereadingSourceIDs.contains(song.sourceID) {
-            await refreshRemainingCountsOffMain()
-        } else {
-            refreshRemainingCounts(force: true)
-        }
+        await refreshRemainingCountsOffMain(force: true)
         if applied || verifiedWithoutMutation
             || outcome.markFailed || outcome.detailsIncomplete || outcome.sourceIssue {
             tagReadsConcludedHandler?([songID])
@@ -3915,6 +3973,7 @@ final class MetadataBackfillService {
     private func runWorker() async {
         defer { library.flushDeferredLibraryMaintenance() }
         resetPendingFlushState()
+        batchSelectionCursor = BatchSelectionCursor()
         // Outer loop: take a snapshot of bare songs, process the snapshot
         // sequentially, flush in batches. We deliberately do NOT call
         // `pickNextBatch` per-song — until we flush the batch the
@@ -3928,6 +3987,10 @@ final class MetadataBackfillService {
         var processedSongCount = 0
         var previousSnapshotWasAllMusic = false
         while !Task.isCancelled {
+            if userInitiatedSourceID == nil, !automaticWorkIsAllowed() {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { break }
+                continue
+            }
             let (limits, allowedSourceIDs) = await MainActor.run { [self] in
                 let limits = executionLimits
                 let allowedSourceIDs = MetadataBackfillNetworkPolicy.allowedSourceIDs(
@@ -5040,8 +5103,13 @@ final class MetadataBackfillService {
         } else {
             gatewayRecovered = nil
         }
+        var inputSong = song
+        if let reference = song.coverArtFileName,
+           artworkStore.isCoverContentEvicted(named: reference) {
+            inputSong.coverArtFileName = nil
+        }
         return TagReadRequest(
-            song: song,
+            song: inputSong,
             isExplicitReread: isExplicitReread,
             started: started,
             metadataService: metadataService,
@@ -6198,76 +6266,94 @@ final class MetadataBackfillService {
         )
     }
 
-    /// 显式循环只会对每行求值一次谓词 —— `lazy.filter{}.prefix(n)` 先走一遍
-    /// 找结束下标, `Array(...)` 再走一遍。仍然从 index 0 开始扫, 所以 runWorker
-    /// 里「同一批 ID 反复出现就停摆」的保护 (MetadataBackfillStallPolicy) 行为
-    /// 不变。
-    ///
-    /// 只差专辑艺术家复查的行排在最后。那是一次性的历史分组修复, 不影响歌能
-    /// 不能用; 而刚扫进来的新行既没时长也没标题, 用户就等着它。资料库按发现
-    /// 顺序追加, 新行天然在数组末尾, 所以没有这个分层的话, 一个上万首的源做
-    /// 一轮复查就会把刚加的几首歌饿死在队尾。
+    private nonisolated static func selectionPriority(_ song: Song, input: BatchSelectionInput) -> Int? {
+        if let scopedSourceID = input.scopedSourceID, song.sourceID != scopedSourceID { return nil }
+        if let allowedSourceIDs = input.allowedSourceIDs,
+           !allowedSourceIDs.contains(song.sourceID) {
+            return nil
+        }
+        guard !input.manuallyReadingSongIDs.contains(song.id) else { return nil }
+        // 已读完但还没发布的歌在库里仍然是裸行; 再选一次就是重复下载。
+        guard !input.pendingFlushSongIDs.contains(song.id) else { return nil }
+        guard !input.failedSongIDs.contains(song.id) else { return nil }
+        guard !input.sourceIssueSongIDs.contains(song.id) else { return nil }
+        guard !input.sessionGivenUpIDs.contains(song.id) else { return nil }
+        guard !Self.automaticRetriesExhausted(
+            songID: song.id,
+            sourceID: song.sourceID,
+            retryCounts: input.transientFailureCounts,
+            sourceRetryCounts: input.sourceTransientFailureCounts
+        ) else { return nil }
+        guard !input.disabledSourceIDs.contains(song.sourceID) else { return nil }
+        guard input.sourceIDs.contains(song.sourceID) else { return nil }
+        let reasons = Self.workReasons(
+            song,
+            restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
+                sourceUsesBareInventory: input.bareOnlySourceIDs.contains(song.sourceID),
+                isStreamDescriptor: song.isStreamDescriptor
+            ),
+            artworkGivenUpIDs: input.artworkGivenUpIDs,
+            titleCheckedIDs: input.titleCheckedIDs,
+            incompleteSongIDs: input.incompleteSongIDs,
+            albumArtistCheckedIDs: input.albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: input.albumArtistUnconfirmedIDs,
+            artistCheckedIDs: input.artistCheckedIDs,
+            containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
+        )
+        guard !reasons.isEmpty else { return nil }
+        if reasons.isSubset(of: [.albumArtist, .audioCodec, .effectiveBitDepth, .contentMetadata]) { return 2 }
+        return input.spokenWordSongIDs.contains(song.id) ? 1 : 0
+    }
+
+    struct BatchSelectionCursor: Sendable {
+        var priority = 0
+        var offset = 0
+        var previousSongID: String?
+        var scopedSourceID: String?
+        var allowedSourceIDs: Set<String>?
+        var sourceIDs: Set<String> = []
+        var disabledSourceIDs: Set<String> = []
+        var songCount = 0
+    }
+    @ObservationIgnored private var batchSelectionCursor = BatchSelectionCursor()
+
     nonisolated static func selectBatch(_ input: BatchSelectionInput) -> [Song] {
-        let limit = max(1, input.limit)
+        var cursor = BatchSelectionCursor()
+        return selectBatch(input, cursor: &cursor)
+    }
+
+    /// Three bounded passes preserve music / spoken-word / recheck ordering.
+    /// Successive batches resume at an offset instead of rescanning the completed prefix.
+    nonisolated static func selectBatch(
+        _ input: BatchSelectionInput, cursor: inout BatchSelectionCursor
+    ) -> [Song] {
+        if cursor.scopedSourceID != input.scopedSourceID || cursor.allowedSourceIDs != input.allowedSourceIDs
+            || cursor.sourceIDs != input.sourceIDs || cursor.disabledSourceIDs != input.disabledSourceIDs
+            || cursor.songCount != input.songs.count || cursor.offset > input.songs.count
+            || (cursor.offset > 0 && input.songs[cursor.offset - 1].id != cursor.previousSongID) {
+            cursor = BatchSelectionCursor()
+        }
+        cursor.scopedSourceID = input.scopedSourceID
+        cursor.allowedSourceIDs = input.allowedSourceIDs
+        cursor.sourceIDs = input.sourceIDs
+        cursor.disabledSourceIDs = input.disabledSourceIDs
+        cursor.songCount = input.songs.count
         var selection: [Song] = []
-        var spokenWord: [Song] = []
-        var recheckOnly: [Song] = []
+        let limit = max(1, input.limit)
         selection.reserveCapacity(min(limit, input.songs.count))
-        for song in input.songs {
-            if let scopedSourceID = input.scopedSourceID, song.sourceID != scopedSourceID { continue }
-            if let allowedSourceIDs = input.allowedSourceIDs,
-               !allowedSourceIDs.contains(song.sourceID) {
-                continue
+        while cursor.priority < 3 {
+            while cursor.offset < input.songs.count {
+                if cursor.offset % 512 == 0, Task.isCancelled { return selection }
+                let song = input.songs[cursor.offset]
+                cursor.offset += 1
+                cursor.previousSongID = song.id
+                guard selectionPriority(song, input: input) == cursor.priority else { continue }
+                selection.append(song)
+                if selection.count == limit { return selection }
             }
-            guard !input.manuallyReadingSongIDs.contains(song.id) else { continue }
-            // 已读完但还没发布的歌在库里仍然是裸行; 再选一次就是重复下载。
-            guard !input.pendingFlushSongIDs.contains(song.id) else { continue }
-            guard !input.failedSongIDs.contains(song.id) else { continue }
-            guard !input.sourceIssueSongIDs.contains(song.id) else { continue }
-            guard !input.sessionGivenUpIDs.contains(song.id) else { continue }
-            guard !Self.automaticRetriesExhausted(
-                songID: song.id,
-                sourceID: song.sourceID,
-                retryCounts: input.transientFailureCounts,
-                sourceRetryCounts: input.sourceTransientFailureCounts
-            ) else { continue }
-            guard !input.disabledSourceIDs.contains(song.sourceID) else { continue }
-            guard input.sourceIDs.contains(song.sourceID) else { continue }
-            let reasons = Self.workReasons(
-                song,
-                restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
-                    sourceUsesBareInventory: input.bareOnlySourceIDs.contains(song.sourceID),
-                    isStreamDescriptor: song.isStreamDescriptor
-                ),
-                artworkGivenUpIDs: input.artworkGivenUpIDs,
-                titleCheckedIDs: input.titleCheckedIDs,
-                incompleteSongIDs: input.incompleteSongIDs,
-                albumArtistCheckedIDs: input.albumArtistCheckedIDs,
-                albumArtistUnconfirmedIDs: input.albumArtistUnconfirmedIDs,
-                artistCheckedIDs: input.artistCheckedIDs,
-                containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
-            )
-            guard !reasons.isEmpty else { continue }
-            guard !reasons.isSubset(of: [.albumArtist, .audioCodec, .effectiveBitDepth, .contentMetadata]) else {
-                // 攒够一整批就不用再记了: 上层一次最多取 `limit` 行。
-                if recheckOnly.count < limit { recheckOnly.append(song) }
-                continue
-            }
-            // 已经归到有声的条目排在音乐后面。书不靠标签也能按目录和文件名成书、照常播放,
-            // 播放时还会单独补读这一集;音乐的标题、封面、专辑却全靠这一遍。一次扫进几千集
-            // 有声书时,不让它们把音乐压在后面(按请求数限流的网盘上尤其明显)。
-            if input.spokenWordSongIDs.contains(song.id) {
-                if spokenWord.count < limit { spokenWord.append(song) }
-                continue
-            }
-            selection.append(song)
-            if selection.count == limit { return selection }
-        }
-        if selection.count < limit {
-            selection.append(contentsOf: spokenWord.prefix(limit - selection.count))
-        }
-        if selection.count < limit {
-            selection.append(contentsOf: recheckOnly.prefix(limit - selection.count))
+            cursor.priority += 1
+            cursor.offset = 0
+            cursor.previousSongID = nil
         }
         return selection
     }
@@ -6285,29 +6371,29 @@ final class MetadataBackfillService {
         )
     }
 
-    /// 与 `refreshRemainingCountsOffMain` 同一套路: 输入是 Sendable 快照,
-    /// 整库筛选放到 detached task, 回到主 actor 再校验代次与源集合。期间资料库
-    /// 或队列变过就退回同步选取, 结果与今天逐字一致。worker 每取一个快照
-    /// (后台播放时只有 8 行) 就要扫一遍全库, 之前这一遍完全压在主 actor 上。
+    /// Selection and its cursor are prepared away from the UI actor. Each read rechecks the live row.
     private func pickNextBatchOffMain(
-        limit: Int,
-        allowedSourceIDs: Set<String>?
+        limit: Int, allowedSourceIDs: Set<String>?
     ) async -> [Song] {
         let input = makeBatchSelectionInput(limit: limit, allowedSourceIDs: allowedSourceIDs)
-        let songMutationGeneration = library.songMutationGenerationForMaintenance
-        let queueGeneration = queueMutationGeneration
-        let selection = await Task.detached(priority: .utility) {
-            Self.selectBatch(input)
+        let cursor = batchSelectionCursor
+        let result = await Task.detached(priority: .utility) {
+            var next = cursor
+            let selection = Self.selectBatch(input, cursor: &next)
+            return (selection, next)
         }.value
-        guard library.songMutationGenerationForMaintenance == songMutationGeneration,
-              queueMutationGeneration == queueGeneration,
-              backfillableSourceIDs() == input.sourceIDs,
-              bareOnlySourceIDs() == input.bareOnlySourceIDs,
-              containerCodecOnlySourceIDs() == input.containerCodecOnlySourceIDs,
-              library.disabledSourceIDs == input.disabledSourceIDs else {
-            return pickNextBatch(limit: limit, allowedSourceIDs: allowedSourceIDs)
-        }
-        return selection
+        guard !Task.isCancelled else { return [] }
+        batchSelectionCursor = result.1
+        if !result.0.isEmpty { return result.0 }
+        // One fresh pass catches rows changed behind the cursor and retryable reads.
+        // It also keeps the existing repeated-snapshot stall guard effective.
+        let fresh = makeBatchSelectionInput(limit: limit, allowedSourceIDs: allowedSourceIDs)
+        let retry = await Task.detached(priority: .utility) {
+            var next = BatchSelectionCursor()
+            return (Self.selectBatch(fresh, cursor: &next), next)
+        }.value
+        batchSelectionCursor = retry.1
+        return retry.0
     }
 
     private func isStillEligible(_ song: Song) -> Bool {
@@ -6389,7 +6475,7 @@ final class MetadataBackfillService {
 
     /// 整库逐首判断用: 源集合和各份记账集合只取一次。`needsBackfill(_:)` 每问一首
     /// 都要把源列表筛两遍, 扫完一个上万首的源时这一下在主线程上要走好几秒(Debug)。
-    private func makeNeedsBackfillPredicate() -> (Song) -> Bool {
+    private func makeNeedsBackfillPredicate() -> @Sendable (Song) -> Bool {
         let bareOnlySourceIDs = self.bareOnlySourceIDs()
         let containerCodecOnlySourceIDs = self.containerCodecOnlySourceIDs()
         let artworkGivenUpIDs = self.artworkGivenUpIDs
@@ -6874,7 +6960,8 @@ final class MetadataBackfillService {
                 let sourceRetryCounts = self.sourceTransientFailureCounts
                 let peerSeedState = PeerSeedState(
                     coverGroups: self.peerCoverGroups,
-                    lyricsPending: Array(self.peerLyricsPendingIDs)
+                    lyricsPending: Array(self.peerLyricsPendingIDs),
+                    deferredArtwork: Array(self.deferredArtworkIDs)
                 )
                 let peerSeedStateURL = self.peerSeedStateURL
                 let failedURL = self.failedURL
@@ -7148,6 +7235,9 @@ final class MetadataBackfillService {
     /// 一首歌读完了(不论是补读、播放时读还是手动重读)。
     private func notePeerSeedRead(_ song: Song, outcome: BackfillOutcome) {
         guard !outcome.cancelled, !outcome.transientFailure else { return }
+        if deferredArtworkIDs.remove(song.id) != nil {
+            scheduleStatePersistence()
+        }
         if peerLyricsPendingIDs.remove(song.id) != nil {
             scheduleStatePersistence()
         }
@@ -7291,6 +7381,7 @@ final class MetadataBackfillService {
     }
 
     private func forgetPeerSeedState(for ids: Set<String>) {
+        deferredArtworkIDs.subtract(ids)
         peerLyricsPendingIDs.subtract(ids)
         for id in ids where peerCoverKeyBySongID[id] != nil {
             removePeerCoverMember(id)
@@ -7302,6 +7393,8 @@ final class MetadataBackfillService {
               let state = try? JSONDecoder().decode(PeerSeedState.self, from: data) else { return }
         peerCoverGroups = state.coverGroups
         peerLyricsPendingIDs = Set(state.lyricsPending)
+        deferredArtworkIDs = Set(state.deferredArtwork ?? [])
+        artworkGivenUpIDs.formUnion(deferredArtworkIDs)
         for (key, group) in state.coverGroups {
             if let representative = group.representative {
                 peerCoverKeyBySongID[representative] = key

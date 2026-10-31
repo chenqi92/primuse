@@ -98,6 +98,123 @@ public enum LibraryIndexMaintenancePolicy {
     }
 }
 
+/// Serial, restartable work which must not extend a catalogue scan's lifetime.
+/// Only source IDs are persisted; callers reconstruct work from committed data.
+@MainActor
+public final class SourceMaintenanceQueue {
+    public typealias Operation = @MainActor () async throws -> Void
+    public struct Continuation: Error {
+        public let delay: TimeInterval
+        public init(delay: TimeInterval = 0.25) { self.delay = delay }
+    }
+    private struct Job {
+        let revision: UUID
+        let operation: Operation
+        var retryAfter: Date = .distantPast
+    }
+
+    private let defaults: UserDefaults?
+    private let persistenceKey: String
+    private var jobs: [String: Job] = [:]
+    private var order: [String] = []
+    private var driver: Task<Void, Never>?
+    private var active: (sourceID: String, task: Task<Void, Error>)?
+    private var activeToken: UUID?
+    public private(set) var pendingSourceIDs: Set<String>
+    public var isPaused = false {
+        didSet {
+            if isPaused { activeToken = nil; active?.task.cancel() }
+            else { startIfNeeded() }
+        }
+    }
+
+    public init(defaults: UserDefaults? = nil, persistenceKey: String = "sourceMaintenance.pending") {
+        self.defaults = defaults
+        self.persistenceKey = persistenceKey
+        pendingSourceIDs = Set(defaults?.stringArray(forKey: persistenceKey) ?? [])
+    }
+
+    public func markPending(_ sourceID: String) {
+        if pendingSourceIDs.insert(sourceID).inserted { persist() }
+    }
+
+    public func enqueue(sourceID: String, operation: @escaping Operation) {
+        markPending(sourceID)
+        if jobs[sourceID] == nil { order.append(sourceID) }
+        jobs[sourceID] = Job(revision: UUID(), operation: operation)
+        if active?.sourceID == sourceID { activeToken = nil; active?.task.cancel() }
+        startIfNeeded()
+    }
+
+    /// A new scan/configuration invalidates captured work but retains its intent.
+    public func invalidate(sourceID: String) {
+        jobs[sourceID] = nil
+        order.removeAll { $0 == sourceID }
+        if active?.sourceID == sourceID { activeToken = nil; active?.task.cancel() }
+    }
+
+    public func discard(sourceID: String) {
+        invalidate(sourceID: sourceID)
+        pendingSourceIDs.remove(sourceID)
+        persist()
+    }
+
+    public func stop() {
+        activeToken = nil
+        driver?.cancel()
+        active?.task.cancel()
+    }
+
+    /// Independent of Task-local cancellation, including callbacks on a different task.
+    public func operationToken(for sourceID: String) -> UUID? {
+        active?.sourceID == sourceID ? activeToken : nil
+    }
+
+    private func persist() {
+        defaults?.set(pendingSourceIDs.sorted(), forKey: persistenceKey)
+    }
+
+    private func startIfNeeded() {
+        guard driver == nil, !jobs.isEmpty else { return }
+        driver = Task(priority: .utility) { [weak self] in
+            await self?.drain()
+        }
+    }
+
+    private func drain() async {
+        defer { driver = nil }
+        while !Task.isCancelled, !jobs.isEmpty {
+            guard !isPaused,
+                  let sourceID = order.first(where: { jobs[$0].map { $0.retryAfter <= Date() } == true }),
+                  let job = jobs[sourceID] else {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                continue
+            }
+            activeToken = UUID()
+            let task = Task(priority: .utility) { try await job.operation() }
+            active = (sourceID, task)
+            let result = await task.result
+            active = nil
+            activeToken = nil
+            guard jobs[sourceID]?.revision == job.revision else { continue }
+            if case .success = result, !task.isCancelled {
+                jobs[sourceID] = nil
+                order.removeAll { $0 == sourceID }
+                pendingSourceIDs.remove(sourceID)
+                persist()
+            } else if !isPaused {
+                // Network/storage failures keep their durable intent without a hot retry loop.
+                let delay: TimeInterval
+                if case .failure(let continuation as Continuation) = result { delay = continuation.delay }
+                else { delay = 30 }
+                jobs[sourceID]?.retryAfter = Date().addingTimeInterval(delay)
+                order.removeAll { $0 == sourceID }
+                order.append(sourceID)
+            }
+        }
+    }
+}
+
 /// Compact latest-value set used by the persistent search index. Its size is
 /// proportional to rows changed since the active transaction began, never to
 /// the total library or the number of repeated publications.
@@ -156,4 +273,33 @@ public struct LatestOnlyLibraryIndexWorkState: Equatable, Sendable {
         pendingGeneration = nil
         return next
     }
+}
+
+/// Read-only catalogue storage with a small overlay for rows changed during a walk.
+/// The initial index stores offsets instead of duplicating every Song value.
+public struct IndexedSongSnapshot: Sendable {
+    private let songs: [Song]
+    private let offsets: [String: Int]
+    private var updates: [String: Song] = [:]
+
+    public init(_ songs: [Song], sourceID: String? = nil) {
+        self.songs = songs
+        var offsets: [String: Int] = [:]
+        offsets.reserveCapacity(sourceID == nil ? songs.count : min(songs.count, 4096))
+        for (index, song) in songs.enumerated()
+            where (sourceID == nil || song.sourceID == sourceID) && offsets[song.id] == nil {
+            offsets[song.id] = index
+        }
+        self.offsets = offsets
+    }
+
+    public subscript(_ id: String) -> Song? {
+        if let updated = updates[id] { return updated }
+        guard let offset = offsets[id] else { return nil }
+        return songs[offset]
+    }
+
+    public var keys: Set<String> { Set(offsets.keys).union(updates.keys) }
+    public var count: Int { offsets.count + updates.keys.lazy.filter { offsets[$0] == nil }.count }
+    public mutating func update(_ song: Song) { updates[song.id] = song }
 }

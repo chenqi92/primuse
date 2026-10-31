@@ -9300,7 +9300,7 @@ final class SourceManager {
         store: MetadataAssetStore
     ) -> Bool {
         if SourceArtworkPolicy.cacheID(sourceID: song.sourceID, reference: reference, maximumPixels: 480) != nil {
-            return store.hasFreshSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 480)
+            return store.hasFreshSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 480, checksAge: false)
         }
         if MetadataAssetStore.isLocalCoverFileName(reference), store.hasReadableCoverFile(named: reference) {
             return true
@@ -9444,8 +9444,8 @@ final class SourceManager {
             .compactMap { SourceArtworkPolicy.cacheID(sourceID: first.sourceID, reference: reference, maximumPixels: $0) }
         let mirror: String
         if !scopedKeys.isEmpty {
-            guard store.hasFreshSourceCover(sourceID: first.sourceID, reference: reference, maximumPixels: 480) else { return false }
-            guard let cached = store.freshSourceCoverFileName(sourceID: first.sourceID, reference: reference, maximumPixels: 480) else { return false }
+            guard store.hasFreshSourceCover(sourceID: first.sourceID, reference: reference, maximumPixels: 480, checksAge: false) else { return false }
+            guard let cached = store.freshSourceCoverFileName(sourceID: first.sourceID, reference: reference, maximumPixels: 480, checksAge: false) else { return false }
             mirror = cached
         } else {
             mirror = store.expectedCoverFileName(for: first.id)
@@ -15563,6 +15563,26 @@ final class SourceManager {
     }
 
 
+    @ObservationIgnored private var playingArtworkRefreshTask: Task<Void, Never>?
+
+    func refreshArtworkForPlayingSong(_ song: Song?) {
+        playingArtworkRefreshTask?.cancel()
+        playingArtworkRefreshTask = nil
+        guard let song else { return }
+        playingArtworkRefreshTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            await self?.refreshArtworkForFocusedSong(song)
+        }
+    }
+
+    func refreshArtworkForFocusedSong(_ song: Song) async {
+        guard let reference = song.coverArtFileName else { return }
+        await MetadataAssetStore.shared.refreshFocusedArtwork(songID: song.id, sourceID: song.sourceID, reference: reference) {
+            await CachedArtworkView.loadFromSource(ref: reference, songID: song.id, sourceID: song.sourceID,
+                filePath: nil, fileFormat: nil, sourceManager: self, purpose: .fullResolution, priority: .foreground)
+        }
+    }
+
     /// Downloads artwork inside the connector's routed read operation. A local
     /// URL that becomes stale during a Wi-Fi handoff can therefore retire that
     /// route and retry through the configured public endpoint in the same view
@@ -15571,7 +15591,8 @@ final class SourceManager {
         for reference: String,
         sourceID: String,
         maximumBytes: Int,
-        purpose: ArtworkFetchPurpose = .thumbnail
+        purpose: ArtworkFetchPurpose = .thumbnail,
+        priority: ArtworkRequestCoordinator.Priority = .background
     ) async -> Data? {
         guard maximumBytes > 0,
               let sources = try? await sourcesProvider(),
@@ -15579,22 +15600,26 @@ final class SourceManager {
             return nil
         }
         let conn = connector(for: source)
-        do {
-            let data = try await conn.fetchArtworkData(
-                for: reference,
-                maximumBytes: maximumBytes,
-                purpose: purpose
-            )
-            if data == nil {
-                pdiag("🖼️ artwork fetch empty source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose)")
+        let identity = MetadataAssetStore.shared.artworkRequestIdentity(
+            sourceID: sourceID, reference: reference, maximumBytes: maximumBytes, original: purpose == .originalAnimation
+        )
+        return await ArtworkRequestCoordinator.shared.request(identity: identity,
+            maximumPixels: purpose == .thumbnail ? 480 : 1536, priority: priority) { pixels in
+            do {
+                let actualPurpose: ArtworkFetchPurpose = purpose == .originalAnimation ? .originalAnimation
+                    : (pixels > 480 ? .fullResolution : .thumbnail)
+                let data = try await conn.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: actualPurpose)
+                if data == nil {
+                    pdiag("🖼️ artwork fetch empty source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose)")
+                }
+                return data
+            } catch {
+                pdiag(
+                    "🖼️ artwork fetch failed source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose) "
+                        + "error=\(error.localizedDescription)"
+                )
+                return nil
             }
-            return data
-        } catch {
-            pdiag(
-                "🖼️ artwork fetch failed source=\(source.type.rawValue) ref=\(reference) purpose=\(purpose) "
-                    + "error=\(error.localizedDescription)"
-            )
-            return nil
         }
     }
 

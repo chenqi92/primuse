@@ -286,6 +286,9 @@ extension AudioPlayerService {
     ) {
         let songID = currentSong?.id
         guard forceReload || songID != lastArtworkSongID else { return }
+        if songID != lastArtworkSongID {
+            sourceManager?.refreshArtworkForPlayingSong(currentSong)
+        }
         // A token prevents stale publication, but it does not stop the old
         // ImageIO work. Cancel both the former current-song load and its
         // speculative prefetch before starting the new track so rapid skips
@@ -433,7 +436,7 @@ extension AudioPlayerService {
     }
 
     nonisolated private static func systemArtworkCacheKey(for song: Song?) -> String {
-        "\(song?.id ?? "")|\(song?.coverArtFileName ?? "")|\(MetadataAssetStore.shared.artworkFreshnessToken(sourceID: song?.sourceID))"
+        "\(song?.id ?? "")|\(song?.coverArtFileName ?? "")|\(MetadataAssetStore.shared.artworkFreshnessToken(sourceID: song?.sourceID, reference: song?.coverArtFileName))"
     }
 
     /// Tier 1-4 逐级解析系统封面。命中网络/内嵌数据时把原图写入磁盘缓存,

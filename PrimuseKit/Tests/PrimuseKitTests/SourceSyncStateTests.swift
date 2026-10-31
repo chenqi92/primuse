@@ -1,5 +1,26 @@
 import Foundation
 import Testing
+
+@Suite struct RecoveredBaiduFolderScopeTests {
+    @Test func folderRequestsStayWithinSelectedRoots() {
+        let roots = ["/Music/Chinese", "/Music/English"]
+        #expect(SourceSyncSubtreePolicy.scopedPathRoots("/Music/Chinese/New", selectedRoots: roots) == ["/Music/Chinese/New"])
+        #expect(SourceSyncSubtreePolicy.scopedPathRoots("/Music", selectedRoots: roots) == Set(roots))
+        #expect(SourceSyncSubtreePolicy.scopedPathRoots("/Music/ChineseElsewhere", selectedRoots: roots).isEmpty)
+        #expect(SourceSyncSubtreePolicy.scopedPathRoots("/Music/Chinese/../Other", selectedRoots: roots).isEmpty)
+        #expect(SourceSyncSubtreePolicy.scopedPathRoots("opaque-folder", selectedRoots: roots).isEmpty)
+    }
+
+    @Test func legacyFilesRecoverAncestorFoldersWithoutChangingSongIdentity() {
+        let file = SourceSyncIndexedItem(stableKey: "legacy", path: "/Music/Artist/Album/song.mp3",
+            parentPath: "/Music/Artist/Album", isDirectory: false, songIDs: ["song"], size: 123, modifiedDate: nil, revision: nil)
+        let index = SourceSyncSubtreePolicy.restoringPathAncestors(in: ["legacy": file], selectedRoots: ["/Music"])
+        #expect(index["legacy"] == file)
+        #expect(Set(index.values.filter(\.isDirectory).map(\.path)) == ["/Music/Artist", "/Music/Artist/Album"])
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "song", levelsAbove: 2, in: index) == "/Music")
+        #expect(SourceSyncSubtreePolicy.restoringPathAncestors(in: index, selectedRoots: ["/Music"]) == index)
+    }
+}
 @testable import PrimuseKit
 
 struct SourceSyncStateTests {
@@ -41,6 +62,38 @@ struct SourceSyncStateTests {
             scanCompleted: true,
             hadPartialFailure: true
         ))
+    }
+
+    @Test func legacyPathMigrationRetainsEveryIdentityInLargeCatalog() throws {
+        let count = 3_000
+        var legacy: [String: SourceSyncIndexedItem] = [:]
+        var current: [SourceSyncIndexedItem] = []
+        for offset in 0..<count {
+            let path = "/Music/Album-\(offset / 20)/Track-\(offset).mp3"
+            let key = BaiduSnapshotIdentity.legacyPathKey(path)
+            let item = SourceSyncIndexedItem(
+                stableKey: key, path: path, parentPath: "/Music/Album-\(offset / 20)",
+                isDirectory: false, songIDs: ["song-\(offset)"], size: 1_000,
+                modifiedDate: nil, revision: "same-content"
+            )
+            legacy[key] = item
+            var observed = item
+            observed.stableKey = BaiduSnapshotIdentity.stableKey(fsID: Int64(offset + 1))
+            observed.songIDs = []
+            current.append(observed)
+        }
+        var claimed: Set<String> = []
+        for (offset, observed) in current.enumerated() {
+            let matched = try #require(BaiduSnapshotDiffPolicy.migrationMatch(
+                for: observed, previousIndex: legacy, claimedPreviousKeys: claimed
+            ))
+            #expect(matched.item.songIDs == ["song-\(offset)"])
+            claimed.insert(matched.key)
+        }
+        #expect(claimed.count == count)
+        #expect(BaiduSnapshotDiffPolicy.migrationMatch(
+            for: current[0], previousIndex: legacy, claimedPreviousKeys: claimed
+        ) == nil)
     }
 
     @Test func successfulNoChangeScanNotifiesLifecycleExactlyOnce() {

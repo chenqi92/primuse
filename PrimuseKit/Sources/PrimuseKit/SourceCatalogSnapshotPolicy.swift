@@ -130,7 +130,7 @@ public enum MusicSourceScopeFingerprint {
 /// 是否仍描述同一份内容。
 ///
 /// 只把确知不碰内容的字段排除在比较之外：名称、访问线路（主机 / 端口 / TLS、
-/// 多线路配置、群晖与飞牛的连接方式）以及扫描自己回写的计数与时间。其余字段
+/// 多线路配置、群晖与飞牛的连接方式）、显示与启用偏好，以及扫描回写的计数与时间。其余字段
 /// 任何一个不同都按内容可能变了处理；账号与内容根另由 `credentialScope` 把关，
 /// 因为多线路配置里的路径前缀就是内容根。
 public enum SourceScanContentScopePolicy {
@@ -162,6 +162,16 @@ public enum SourceScanContentScopePolicy {
         fields.lastScannedAt = nil
         fields.songCount = 0
         fields.modifiedAt = .distantPast
+        fields.scannedDirectoryDisplayNames = [:]
+        fields.autoConnect = false
+        fields.rememberDevice = false
+        fields.isEnabled = true
+        if let config = source.extraConfig, let data = config.data(using: .utf8),
+           let directories = try? JSONDecoder().decode([String].self, from: data) {
+            fields.extraConfig = MusicSource.encodeScannedDirectories(
+                Array(Set(directories)).sorted(), into: nil, type: source.type
+            )
+        }
         return fields
     }
 }

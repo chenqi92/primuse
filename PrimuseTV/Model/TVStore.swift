@@ -826,7 +826,19 @@ final class TVStore {
     }
 
     /// 当前选中的歌曲或电台；未选中时“正在播放”tab 展示空态。
-    var nowPlaying: TVNowPlaying = .none
+    @ObservationIgnored private var playingArtworkRefreshTask: Task<Void, Never>?
+    var nowPlaying: TVNowPlaying = .none {
+        didSet {
+            guard nowPlaying.songID != oldValue.songID else { return }
+            playingArtworkRefreshTask?.cancel()
+            playingArtworkRefreshTask = nil
+            guard let song = library.song(id: nowPlaying.songID) else { return }
+            playingArtworkRefreshTask = Task { [weak self] in
+                do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                await self?.refreshArtworkForFocusedSong(song)
+            }
+        }
+    }
     var hasNowPlaying: Bool = false {
         didSet { syncTrackNavigationCommands() }
     }
@@ -950,6 +962,11 @@ final class TVStore {
     @ObservationIgnored private var transferLyricsStems: Set<String> = []
     @ObservationIgnored private var scanTask: Task<Bool, Never>?
     @ObservationIgnored private var scanGeneration = UUID()
+    @ObservationIgnored private lazy var postScanMaintenance = SourceMaintenanceQueue(
+        defaults: defaults, persistenceKey: "tv.scan.postMaintenance.pending"
+    )
+    @ObservationIgnored private var maintenanceGenerations: [String: UUID] = [:]
+
     @ObservationIgnored private var pendingScanSongs: [Song] = []
     @ObservationIgnored private var scanExistingIDsByFile: [String: String] = [:]
     @ObservationIgnored private var lastScanFlush = Date.distantPast
@@ -3683,6 +3700,7 @@ final class TVStore {
         // 为边界裁剪。CloudKit 下载失败不会被当成空包，也不会清掉活跃源凭据。
         pruneCredentialBundlesToActiveSources()
         restorePlaybackSessionIfNeeded()
+        resumePostScanMaintenance()
         resolvePendingAppleMusicLikes()
         if hasPendingSnapshotImport { Task { _ = await self.retryPendingSnapshotImport() } }
     }
@@ -5000,8 +5018,11 @@ final class TVStore {
         ) else {
             return false
         }
+        postScanMaintenance.isPaused = true
+        postScanMaintenance.invalidate(sourceID: source.id)
         activeScanSourceID = source.id
         let generation = UUID()
+        maintenanceGenerations[source.id] = generation
         scanGeneration = generation
         let task = Task {
             await self.performScan(source: source, lister: lister, dirs: dirs,
@@ -5013,6 +5034,7 @@ final class TVStore {
         if scanGeneration == generation {
             scanTask = nil
             activeScanSourceID = nil
+            postScanMaintenance.isPaused = false
             if !committed, scanner.phase == .scanning { scanner.phase = .idle }
         }
         if committed, source.type.readsContainerCodecFromFileHeader {
@@ -5348,6 +5370,7 @@ final class TVStore {
             credential: cred,
             existingSongs: library.songs.filter { $0.sourceID == source.id },
             rereadMetadata: rereadMetadata,
+            defersMetadata: !rereadMetadata,
             resumeState: rereadMetadata ? nil : resumeState,
             onCheckpoint: rereadMetadata || folder != nil ? nil : saveCheckpoint,
             onSkeletonBatch: { songs in
@@ -5394,7 +5417,6 @@ final class TVStore {
             let persistence = await scanPersistence(library)
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
             guard case .success = persistence else { throw CocoaError(.fileWriteUnknown) }
-            await library.waitForPendingIndex()
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
             let count = library.songs.lazy.filter { $0.sourceID == source.id }.count
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
@@ -5414,42 +5436,22 @@ final class TVStore {
                     $0.lastScannedAt = Date()
                 }
             }
-            MetadataAssetStore.shared.revalidateArtwork(sourceID: source.id)
             if let pruningRecovery { library.finishScanPruning(pruningRecovery) }
             pruningRecovery = nil
             if let held = scanCatalogDeletionHold, held.sourceID == source.id {
                 setCatalogDeletionHold(held.hold, for: source.id)
             }
             scanCatalogDeletionHold = nil
-            if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
-                && source.type != .audiobookshelf && source.type != .synologyAudioStation
-                && source.type != .tingReader {
-                library.updateAutomaticArtistArtworkCatalog(
-                    SourceArtistArtworkCatalog(sourceID: source.id, index: result.resumeState.index),
-                    isCompleteListing: isCompleteListing
-                )
-            }
-            if source.type.usesOpaqueDirectoryIdentifiers {
-                recordAlbumArtistFolders(
-                    sourceID: source.id,
-                    index: result.resumeState.index,
-                    isCompleteListing: isCompleteListing
-                )
-            }
             refreshVisibility()
             library.sourceSyncDidComplete()
             sourcesRevision += 1
-            if folder == nil, FileManager.default.fileExists(atPath: checkpointURL.path) {
-                try? FileManager.default.removeItem(at: checkpointURL)
-            }
+            postScanMaintenance.markPending(source.id)
             scanner.markPersistedScanComplete()
-            if source.type == .fnMusic {
-                await syncFnMusicLibrary(source: source, credential: cred, generation: generation)
-                guard isCurrentScan(source: source, generation: generation) else { return false }
-            } else if TVSourceScanner.serverPlaylistTypes.contains(source.type) {
-                await syncServerLibrary(source: source, credential: cred, generation: generation)
-                guard isCurrentScan(source: source, generation: generation) else { return false }
-            }
+            enqueuePostScanMaintenance(
+                source: source, generation: generation, index: result.resumeState.index,
+                isCompleteListing: isCompleteListing, checkpointURL: folder == nil ? checkpointURL : nil,
+                includesMetadata: !rereadMetadata && !TVSourceScanner.serverCatalogTypes.contains(source.type)
+            )
             enqueueSnapshotUpload()
             return true
         } catch {
@@ -5568,24 +5570,146 @@ final class TVStore {
         defaults.set(try? JSONEncoder().encode(catalogDeletionHolds), forKey: Self.catalogDeletionHoldsKey)
     }
 
+    private func enqueuePostScanMaintenance(
+        source: MusicSource, generation: UUID, index: [String: SourceSyncIndexedItem],
+        isCompleteListing: Bool, checkpointURL: URL?, includesMetadata: Bool
+    ) {
+        let source = sourcesStore.source(id: source.id) ?? source
+        var prepared = false
+        var songIDs: [String] = []
+        var cursor = 0
+        var retryPass = 0
+        var retryIDs: Set<String> = []
+        maintenanceGenerations[source.id] = generation
+        postScanMaintenance.enqueue(sourceID: source.id) { [weak self] in
+            guard let self, let ticket = self.postScanMaintenance.operationToken(for: source.id) else { throw CancellationError() }
+            let fence: @MainActor () -> Bool = {
+                guard !Task.isCancelled, self.postScanMaintenance.operationToken(for: source.id) == ticket,
+                      self.maintenanceGenerations[source.id] == generation,
+                      !self.locallyRemovedSourceIDs.contains(source.id),
+                      let current = self.sourcesStore.source(id: source.id), current.isEnabled, !current.isDeleted else { return false }
+                return Self.connectionIdentity(current) == Self.connectionIdentity(source)
+                    && current.authType == source.authType && current.username == source.username
+                    && current.scannedDirectories == source.scannedDirectories
+            }
+            guard fence() else { throw CancellationError() }
+            let credential = TVCredentialStore.credential(for: source, bundle: self.credentialBundle)
+            if !prepared {
+                if !TVSourceScanner.serverCatalogTypes.contains(source.type) {
+                    await self.library.updateAutomaticArtistArtworkCatalogOffMain(
+                        SourceArtistArtworkCatalog(sourceID: source.id, index: index),
+                        isCompleteListing: isCompleteListing, applyFence: fence
+                    )
+                }
+                guard fence() else { throw CancellationError() }
+                if source.type.usesOpaqueDirectoryIdentifiers {
+                    self.recordAlbumArtistFolders(sourceID: source.id, index: index, isCompleteListing: isCompleteListing)
+                }
+                if source.type == .fnMusic {
+                    await self.syncFnMusicLibrary(source: source, credential: credential, applyFence: fence)
+                } else if TVSourceScanner.serverPlaylistTypes.contains(source.type) {
+                    await self.syncServerLibrary(source: source, credential: credential, applyFence: fence)
+                }
+                guard fence() else { throw CancellationError() }
+                if includesMetadata {
+                    await self.scanner.prepareDeferredMetadata(sourceID: source.id, index: index)
+                    let snapshot = self.library.songs
+                    songIDs = await Task.detached(priority: .utility) {
+                        snapshot.lazy.filter { $0.sourceID == source.id }.map(\.id)
+                    }.value
+                }
+                prepared = true
+            }
+            if cursor < songIDs.count {
+                let mode = MetadataReadingMode.resolve(
+                    storedValue: self.defaults.string(forKey: MetadataBackfillExecutionPolicy.readingModeDefaultsKey),
+                    legacyFastEnabled: self.defaults.bool(forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey)
+                )
+                guard mode.readsAutomatically, self.serverCatalogSceneIsActive,
+                      ProcessInfo.processInfo.thermalState != .serious,
+                      ProcessInfo.processInfo.thermalState != .critical else {
+                    throw SourceMaintenanceQueue.Continuation(delay: 5)
+                }
+                let end = min(cursor + 32, songIDs.count)
+                let batch = songIDs[cursor..<end].compactMap { self.library.storedSong(id: $0) }
+                let failures = try await self.scanner.enrichDeferredMetadata(songs: batch, source: source, credential: credential) { updates in
+                    guard fence() else { throw CancellationError() }
+                    let current = updates.compactMap { updated -> Song? in
+                        guard let live = self.library.storedSong(id: updated.id),
+                              live.sourceID == source.id, live.filePath == updated.filePath,
+                              live.revision == updated.revision else { return nil }
+                        return SongUserMetadataPolicy.preservingUserEdits(from: live, in: updated)
+                    }
+                    await self.library.replaceSongsPreparedOffMain(current, maintenance: .deferred)
+                    guard case .success = await self.library.persistIncrementalNowAndWait() else {
+                        throw CocoaError(.fileWriteUnknown)
+                    }
+                }
+                guard fence() else { throw CancellationError() }
+                retryIDs.formUnion(failures)
+                cursor = end
+                if cursor == songIDs.count, !retryIDs.isEmpty, retryPass < 2 {
+                    songIDs = retryIDs.sorted()
+                    retryIDs.removeAll()
+                    retryPass += 1
+                    cursor = 0
+                    throw SourceMaintenanceQueue.Continuation(delay: 30)
+                }
+                if cursor < songIDs.count { throw SourceMaintenanceQueue.Continuation() }
+            }
+            guard fence() else { throw CancellationError() }
+            if let checkpointURL { try? FileManager.default.removeItem(at: checkpointURL) }
+            self.library.flushDeferredLibraryMaintenance()
+            self.enqueueSnapshotUpload()
+        }
+    }
+
+    private func resumePostScanMaintenance() {
+        for sourceID in postScanMaintenance.pendingSourceIDs {
+            guard let source = sourcesStore.source(id: sourceID), !source.isDeleted,
+                  !locallyRemovedSourceIDs.contains(sourceID) else {
+                postScanMaintenance.discard(sourceID: sourceID)
+                continue
+            }
+            guard source.isEnabled, activeScanSourceID != sourceID,
+                  maintenanceGenerations[sourceID] == nil else { continue }
+            let base = sessionStore.url.deletingLastPathComponent().appendingPathComponent("scan-checkpoints", isDirectory: true)
+            let urls = [".json", "-incremental.json"].map { base.appendingPathComponent(TVScanPipelinePolicy.hash32(sourceID) + $0) }
+            let saved = urls.sorted {
+                let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return lhs > rhs
+            }.compactMap { url -> (URL, ScanCheckpoint)? in
+                guard let data = try? Data(contentsOf: url),
+                      let checkpoint = try? JSONDecoder().decode(ScanCheckpoint.self, from: data),
+                      checkpoint.connectionIdentity == Self.connectionIdentity(source),
+                      checkpoint.state.pendingDirectories.isEmpty else { return nil }
+                return (url, checkpoint)
+            }.first
+            enqueuePostScanMaintenance(source: source, generation: UUID(), index: saved?.1.state.index ?? [:],
+                isCompleteListing: false, checkpointURL: saved?.0,
+                includesMetadata: !TVSourceScanner.serverCatalogTypes.contains(source.type))
+        }
+    }
+
     /// 把 Navidrome、Jellyfin 这类服务器上的自建歌单与「喜欢」标记同步下来。
     /// 与 iPhone、Mac 用同一份 `ServerPlaylistMirror`:歌单 ID 由 sourceID 派生,
     /// 扫描以服务端内容为准；简介写入确认后再刷新本地镜像。
     private func syncServerLibrary(
         source: MusicSource,
         credential: SourceCredential?,
-        generation: UUID
+        applyFence: @escaping @MainActor () -> Bool
     ) async {
         do {
             let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
             guard let snapshot = try await scanner.fetchServerPlaylists(
                 source: source, credential: credential,
                 progress: { @MainActor [weak self] playlist in
-                    guard let self, self.isCurrentScan(source: source, generation: generation) else { return }
+                    guard let self, applyFence() else { return }
                     applier.apply(playlist)
                 }
             ) else { return }
-            guard isCurrentScan(source: source, generation: generation) else { return }
+            guard applyFence() else { return }
             _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library,
                                            descriptionReadRevision: applier.descriptionReadRevision)
         } catch {
@@ -5594,13 +5718,13 @@ final class TVStore {
             plog("Server playlists source=\(LogRedactionPolicy.digest(source.id)) stage=fetch result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
 
-        guard isCurrentScan(source: source, generation: generation),
+        guard applyFence(),
               let revision = serverFeedback.favoriteRefreshRevision(sourceID: source.id) else { return }
         do {
             guard let snapshot = try await scanner.fetchServerFavorites(
                 source: source, credential: credential
             ) else { return }
-            guard isCurrentScan(source: source, generation: generation),
+            guard applyFence(),
                   serverFeedback.favoriteRefreshRevision(sourceID: source.id) == revision else { return }
             applyServerFavorites(snapshot, source: source)
         } catch {
@@ -5629,7 +5753,7 @@ final class TVStore {
         library.releaseUnreferencedCollectionOnlySongs(sourceID: source.id)
     }
 
-    private func syncFnMusicLibrary(source: MusicSource, credential: SourceCredential?, generation: UUID) async {
+    private func syncFnMusicLibrary(source: MusicSource, credential: SourceCredential?, applyFence: @escaping @MainActor () -> Bool) async {
         let context = "Server playlists source=\(LogRedactionPolicy.digest(source.id)) type=fnMusic"
         plog("\(context) stage=fetch result=started enabled=\(source.isEnabled)")
         do {
@@ -5638,10 +5762,10 @@ final class TVStore {
             let snapshot = try await scanner.fetchFnMusicPlaylists(
                 source: source, credential: credential
             ) { @MainActor [weak self] playlist in
-                guard let self, self.isCurrentScan(source: source, generation: generation) else { return }
+                guard let self, applyFence() else { return }
                 applier.apply(Self.serverPlaylist(playlist, sourceID: source.id))
             }
-            guard isCurrentScan(source: source, generation: generation) else {
+            guard applyFence() else {
                 plog("\(context) stage=apply result=skipped reason=stale-scan")
                 return
             }
@@ -5659,11 +5783,11 @@ final class TVStore {
             }
             plog("\(context) stage=fetch result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
-        guard isCurrentScan(source: source, generation: generation),
+        guard applyFence(),
               let revision = serverFeedback.favoriteRefreshRevision(sourceID: source.id) else { return }
         do {
             let snapshot = try await scanner.fetchFnMusicFavorites(source: source, credential: credential)
-            guard isCurrentScan(source: source, generation: generation),
+            guard applyFence(),
                   serverFeedback.favoriteRefreshRevision(sourceID: source.id) == revision else { return }
             applyServerFavorites(snapshot, source: source)
         } catch {

@@ -1489,6 +1489,13 @@ final class AppServices {
             guard let scraper, let library else { return }
             scraper.tagReadsConcluded(songIDs: songIDs, in: library)
         }
+        let automaticEnrichmentAllowed: () -> Bool = { [weak scanService] in
+            guard scanService?.hasActiveScans != true else { return false }
+            let activity = UserScrollActivityMonitor.shared.activity()
+            return !activity.isScrolling && (activity.lastActivityAt.map { Date().timeIntervalSince($0) >= 0.5 } ?? true)
+        }
+        metadataBackfill.automaticWorkIsAllowed = automaticEnrichmentAllowed
+        scraper.automaticWorkIsAllowed = automaticEnrichmentAllowed
         scanService.successfulSourceScanHandler = {
             [weak metadataBackfill, weak library, weak serverCatalogAutoRefresh, weak alwaysDownload, weak peerScanSeeds]
             sourceID,
@@ -2021,6 +2028,14 @@ final class AppServices {
         }
         #endif
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.musicLibrary.whenReady()
+            self.scanService.resumePostScanMaintenance(
+                sourceManager: self.sourceManager, library: self.musicLibrary,
+                sourceStore: self.sourcesStore, scraperService: self.scraperService
+            )
+        }
         didFinishDeferredStartup = true
         #if os(macOS)
         resumePendingLocalImportScanIfNeeded()

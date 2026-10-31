@@ -495,6 +495,21 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
         existingByID: [String: Song],
         batchSize: Int = 500
     ) throws -> PagedSongCatalogStageDelta {
+        try delta(sourceID: sourceID, existingCount: existingByID.count,
+                  existingSong: { existingByID[$0] }, batchSize: batchSize)
+    }
+
+    public func delta(
+        sourceID: String, existingByID: IndexedSongSnapshot, batchSize: Int = 500
+    ) throws -> PagedSongCatalogStageDelta {
+        try delta(sourceID: sourceID, existingCount: existingByID.count,
+                  existingSong: { existingByID[$0] }, batchSize: batchSize)
+    }
+
+    private func delta(
+        sourceID: String, existingCount: Int,
+        existingSong: (String) -> Song?, batchSize: Int
+    ) throws -> PagedSongCatalogStageDelta {
         let safeBatchSize = max(1, min(batchSize, 1_000))
         let decoder = JSONDecoder()
         return try database.read { db in
@@ -502,7 +517,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 throw PagedSongCatalogStagingError.missingStage
             }
             var authoritativeSongIDs = Set<String>()
-            authoritativeSongIDs.reserveCapacity(existingByID.count)
+            authoritativeSongIDs.reserveCapacity(existingCount)
             var metadataInspectedSongIDs = Set<String>()
             var upserts: [Song] = []
             var lastOrderKey = -1
@@ -523,7 +538,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                     let orderKey: Int = row["orderKey"]
                     let payload: Data = row["payload"]
                     var song = try decoder.decode(Song.self, from: payload)
-                    if let existing = existingByID[song.id] {
+                    if let existing = existingSong(song.id) {
                         song = ServerSongCatalogMergePolicy.merged(
                             existing: existing,
                             incoming: song
@@ -534,7 +549,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                     if metadataInspected {
                         metadataInspectedSongIDs.insert(song.id)
                     }
-                    if existingByID[song.id] != song {
+                    if existingSong(song.id) != song {
                         upserts.append(song)
                     }
                     lastOrderKey = orderKey

@@ -309,6 +309,30 @@ final class ServerCatalogDeletionScanTests: XCTestCase {
         XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
     }
 
+    func testCatalogCompletionDoesNotWaitForServerExtras() async throws {
+        let fixture = try makeFixture(songCount: 3)
+        var lifecyclePublished = false
+        var extraStarted = false
+        var extraFinished = false
+        var release: CheckedContinuation<Void, Never>?
+        fixture.scan.successfulSourceScanHandler = { _, _ in lifecyclePublished = true }
+        fixture.scan.serverFavoriteSyncHandler = { _, fence in
+            extraStarted = true
+            await withCheckedContinuation { release = $0 }
+            if fence() { extraFinished = true }
+        }
+        try await fixture.scanOnce()
+        XCTAssertTrue(lifecyclePublished)
+        XCTAssertFalse(fixture.scan.hasActiveScans)
+        XCTAssertEqual(fixture.songIDs().count, 3)
+        for _ in 0..<400 where !extraStarted { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(extraStarted)
+        XCTAssertFalse(extraFinished)
+        release?.resume()
+        for _ in 0..<400 where !extraFinished { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(extraFinished)
+    }
+
     private static func songID(_ index: Int) -> String {
         String(format: "song-%03d", index)
     }
@@ -413,4 +437,45 @@ private final class ScanFixtureFileManager: FileManager, @unchecked Sendable {
     init(root: URL) { self.root = root; super.init() }
     override func urls(for directory: FileManager.SearchPathDirectory,
                        in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
+}
+
+@MainActor
+final class LargeLibraryBackfillCursorTests: XCTestCase {
+    private func input(_ songs: [Song], limit: Int, spoken: Set<String> = []) -> MetadataBackfillService.BatchSelectionInput {
+        .init(songs: songs, limit: limit, scopedSourceID: nil, allowedSourceIDs: nil,
+            sourceIDs: ["files"], bareOnlySourceIDs: ["files"], disabledSourceIDs: [],
+            manuallyReadingSongIDs: [], pendingFlushSongIDs: [], failedSongIDs: [],
+            sourceIssueSongIDs: [], sessionGivenUpIDs: [], transientFailureCounts: [:],
+            sourceTransientFailureCounts: [:], artworkGivenUpIDs: [], titleCheckedIDs: [],
+            albumArtistCheckedIDs: [], albumArtistUnconfirmedIDs: [], artistCheckedIDs: [],
+            incompleteSongIDs: [], spokenWordSongIDs: spoken)
+    }
+
+    func testHundredThousandRowsAdvanceWithoutReselectingTheCompletedPrefix() {
+        let songs = (0..<100_000).map {
+            Song(id: String($0), title: "Track", fileFormat: .flac, filePath: "/Music/\($0).flac", sourceID: "files")
+        }
+        var cursor = MetadataBackfillService.BatchSelectionCursor()
+        var visited: Set<String> = []
+        let snapshot = input(songs, limit: 128)
+        while cursor.priority < 3 {
+            let batch = MetadataBackfillService.selectBatch(snapshot, cursor: &cursor)
+            for song in batch { XCTAssertTrue(visited.insert(song.id).inserted) }
+        }
+        XCTAssertEqual(visited.count, songs.count)
+    }
+
+    func testCursorPreservesMusicBeforeBooksAndRestartsAfterReorder() {
+        let songs = (0..<6).map {
+            Song(id: String($0), title: "Track", fileFormat: .flac, filePath: "/\($0).flac", sourceID: "files")
+        }
+        var cursor = MetadataBackfillService.BatchSelectionCursor()
+        let snapshot = input(songs, limit: 2, spoken: ["0", "1"])
+        XCTAssertEqual(MetadataBackfillService.selectBatch(snapshot, cursor: &cursor).map(\.id), ["2", "3"])
+        XCTAssertEqual(MetadataBackfillService.selectBatch(snapshot, cursor: &cursor).map(\.id), ["4", "5"])
+        XCTAssertEqual(MetadataBackfillService.selectBatch(snapshot, cursor: &cursor).map(\.id), ["0", "1"])
+        cursor = MetadataBackfillService.BatchSelectionCursor()
+        _ = MetadataBackfillService.selectBatch(input(songs, limit: 2), cursor: &cursor)
+        XCTAssertEqual(MetadataBackfillService.selectBatch(input(Array(songs.reversed()), limit: 2), cursor: &cursor).map(\.id), ["5", "4"])
+    }
 }

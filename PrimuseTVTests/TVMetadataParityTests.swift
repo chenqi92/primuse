@@ -7,6 +7,74 @@ import UIKit
 
 @MainActor
 final class TVMetadataParityTests: XCTestCase {
+    func testDirectoryInventoryDefersEveryMetadataReadAcrossSourceFamilies() async throws {
+        for type in [MusicSourceType.local, .smb, .nfs, .ftp, .webdav, .oneDrive, .dropbox, .pcloud] {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+            defer { try? FileManager.default.removeItem(at: url) }
+            let probe = MetadataQueueProbe()
+            let scanner = TVSourceScanner(metadataInspections: TVMetadataInspectionStore(url: url),
+                readMetadata: { song, _, _ in await probe.read(song) })
+            let source = MusicSource(id: UUID().uuidString, name: "Inventory", type: type)
+            var delivered: [Song] = []
+            let result = await scanner.scan(source: source,
+                lister: ListedFiles(entries: [.init(name: "Track.mp3", isDir: false, size: 4096, path: "/Track.mp3")]),
+                dirs: ["/"], credential: nil, existingSongs: [], defersMetadata: true,
+                onSkeletonBatch: { delivered += $0 }, onMetadataBatch: { _ in XCTFail("metadata during inventory") })
+            let reads = await probe.started
+            XCTAssertTrue(result.canCommit, "\(type)")
+            XCTAssertTrue(result.canPrune, "\(type)")
+            XCTAssertFalse(result.metadataCompleted)
+            XCTAssertEqual(delivered.count, 1)
+            XCTAssertTrue(reads.isEmpty)
+        }
+    }
+
+    func testDeferredInspectionReopensOnlyWhenInventorySidecarsChange() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let inspections = TVMetadataInspectionStore(url: url)
+        let original = song()
+        func sidecars(_ size: Int64) -> SidecarDirectoryIndex<TVDirEntry> {
+            .init([.init(name: "Track.lrc", isDir: false, size: size, path: "/Music/Track.lrc")])
+        }
+        func index(_ size: Int64) -> [String: SourceSyncIndexedItem] {
+            ["audio": .init(stableKey: "audio", path: original.filePath, parentPath: "/Music", isDirectory: false,
+                songIDs: [original.id], size: original.fileSize, modifiedDate: nil, revision: nil,
+                sidecarFingerprint: sidecars(size).snapshotFingerprint(selectedPaths: [nil, "/Music/Track.lrc", nil], includingCueTrackLyrics: false))]
+        }
+        await inspections.observeCommittedIndex(sourceID: original.sourceID, index: index(100))
+        await inspections.record(original, complete: true)
+        await inspections.observeCommittedIndex(sourceID: original.sourceID, index: index(100))
+        let unchanged = await inspections.isCurrent(original)
+        XCTAssertTrue(unchanged)
+        await inspections.observeCommittedIndex(sourceID: original.sourceID, index: index(200))
+        let changed = await inspections.isCurrent(original)
+        XCTAssertFalse(changed)
+        await inspections.record(original, complete: true)
+        await inspections.flush()
+        let restored = TVMetadataInspectionStore(url: url)
+        let current = await restored.isCurrent(original, sidecars: sidecars(200))
+        XCTAssertTrue(current)
+    }
+
+    func testDeferredMetadataUsesCommittedRowsAndInspectionCheckpoint() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let probe = MetadataQueueProbe()
+        await probe.releaseAll()
+        let scanner = TVSourceScanner(metadataInspections: TVMetadataInspectionStore(url: url),
+            readMetadata: { song, _, _ in await probe.read(song) })
+        let source = MusicSource(id: "source", name: "Files", type: .webdav)
+        let bare = Song(id: "song", title: "Track", fileFormat: .mp3, filePath: "/Track.mp3", sourceID: source.id)
+        var committed: [Song] = []
+        try await scanner.enrichDeferredMetadata(songs: [bare], source: source, credential: nil) { committed += $0 }
+        XCTAssertEqual(committed.count, 1)
+        let readsBefore = await probe.started.count
+        try await scanner.enrichDeferredMetadata(songs: committed, source: source, credential: nil) { _ in XCTFail("already inspected") }
+        let readsAfter = await probe.started.count
+        XCTAssertEqual(readsBefore, readsAfter)
+    }
+
     func testSongArtworkUsesSelectedAssetInsteadOfSongMirror() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -772,4 +840,331 @@ private actor RouteHealthByteReader: ByteRangeReader {
     }
 }
 
+
+@MainActor
+final class FocusedArtworkRefreshTests: XCTestCase {
+    private func image(_ color: UIColor) throws -> Data {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        return try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64), format: format).image { context in
+            color.setFill(); context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }.pngData())
+    }
+
+    func testOldArtworkRemainsUsableForBrowsingButConfigurationChangeInvalidatesIt() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let bytes = try image(.red)
+        let reference = "subsonic-cover/album"
+        let source = MusicSource(id: "source", name: "Fixture", type: .navidrome, host: "artwork.invalid")
+        await assets.cacheSourceCover(bytes, songID: "song", sourceID: source.id, reference: reference, maximumPixels: 1536)
+        let key = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: source.id, reference: reference, maximumPixels: 1536))
+        let url = assets.artworkDirectoryURL.appendingPathComponent(assets.expectedCoverFileName(for: key))
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -172_800)], ofItemAtPath: url.path)
+        let loaded = await TVArtworkLoader(assets: assets).songCover(songID: "song", coverRef: reference, source: source, maximumPixels: 1536)
+        XCTAssertEqual(loaded, bytes)
+        assets.revalidateArtwork(sourceID: source.id)
+        XCTAssertNil(assets.cachedSourceCover(sourceID: source.id, reference: reference, maximumPixels: 1536, checksAge: false))
+        let updated = await assets.refreshFocusedArtwork(songID: "song", sourceID: source.id, reference: reference) { bytes }
+        XCTAssertTrue(updated)
+        XCTAssertEqual(assets.cachedSourceCover(sourceID: source.id, reference: reference, maximumPixels: 1536, checksAge: false), bytes)
+    }
+
+    func testRefreshKeepsOldImageUntilReadyAndOnlyChangesFocusedReference() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let old = try image(.red), new = try image(.blue)
+        for ref in ["subsonic-cover/a", "subsonic-cover/b"] {
+            await assets.cacheSourceCover(old, songID: ref, sourceID: "source", reference: ref, maximumPixels: 1536)
+            let key = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: "source", reference: ref, maximumPixels: 1536))
+            let url = assets.artworkDirectoryURL.appendingPathComponent(assets.expectedCoverFileName(for: key))
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -120)], ofItemAtPath: url.path)
+        }
+        let aToken = assets.artworkFreshnessToken(sourceID: "source", reference: "subsonic-cover/a")
+        let bToken = assets.artworkFreshnessToken(sourceID: "source", reference: "subsonic-cover/b")
+        let sourceToken = assets.artworkFreshnessToken(sourceID: "source")
+        let gate = ArtworkNetworkProbe()
+        let task = Task {
+            await assets.refreshFocusedArtwork(songID: "subsonic-cover/a", sourceID: "source", reference: "subsonic-cover/a") {
+                await gate.fetch("refresh", pixels: 1536)
+                return new
+            }
+        }
+        await eventually { await gate.started.count == 1 }
+        XCTAssertEqual(assets.cachedSourceCover(sourceID: "source", reference: "subsonic-cover/a", maximumPixels: 1536), old)
+        await gate.release("refresh")
+        let changed = await task.value
+        XCTAssertTrue(changed)
+        XCTAssertEqual(assets.cachedSourceCover(sourceID: "source", reference: "subsonic-cover/a", maximumPixels: 480), new)
+        XCTAssertEqual(assets.cachedSourceCover(sourceID: "source", reference: "subsonic-cover/b", maximumPixels: 1536), old)
+        XCTAssertNotEqual(assets.artworkFreshnessToken(sourceID: "source", reference: "subsonic-cover/a"), aToken)
+        XCTAssertEqual(assets.artworkFreshnessToken(sourceID: "source", reference: "subsonic-cover/b"), bToken)
+        XCTAssertEqual(assets.artworkFreshnessToken(sourceID: "source"), sourceToken)
+        let repeated = await assets.refreshFocusedArtwork(songID: "subsonic-cover/a", sourceID: "source", reference: "subsonic-cover/a") {
+            XCTFail("Repeated entry must reuse the recent focused check")
+            return old
+        }
+        XCTAssertFalse(repeated)
+    }
+
+    func testRecentFullFetchAvoidsImmediateDuplicateOnPlayback() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let bytes = try image(.blue)
+        await assets.cacheSourceCover(bytes, songID: "song", sourceID: "source", reference: "subsonic-cover/a", maximumPixels: 1536)
+        let refreshed = await assets.refreshFocusedArtwork(songID: "song", sourceID: "source", reference: "subsonic-cover/a") {
+            XCTFail("The player must reuse a full cover that just finished downloading")
+            return bytes
+        }
+        XCTAssertFalse(refreshed)
+    }
+
+    func testCancellationRejectsLateResultAndAllowsNextVisitToRetry() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let bytes = try image(.blue)
+        let gate = ArtworkNetworkProbe()
+        let task = Task {
+            await assets.refreshFocusedArtwork(songID: "song", sourceID: "source", reference: "subsonic-cover/a") {
+                await gate.fetch("cancelled", pixels: 1536)
+                return bytes
+            }
+        }
+        await eventually { await gate.started.count == 1 }
+        task.cancel()
+        await gate.release("cancelled")
+        let changed = await task.value
+        XCTAssertFalse(changed)
+        XCTAssertNil(assets.cachedSourceCover(sourceID: "source", reference: "subsonic-cover/a", maximumPixels: 1536))
+        let retried = await assets.refreshFocusedArtwork(songID: "song", sourceID: "source", reference: "subsonic-cover/a") { bytes }
+        XCTAssertTrue(retried)
+        let selection = await assets.storeAttributedCover(bytes, songID: "selected", origin: .selected)
+        let selectedRefresh = await assets.refreshFocusedArtwork(songID: "selected", sourceID: "source", reference: selection) {
+            XCTFail("Explicitly selected artwork must not request the server")
+            return bytes
+        }
+        XCTAssertFalse(selectedRefresh)
+    }
+
+    private func eventually(_ predicate: @escaping () async -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if await predicate() { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Timed out waiting for artwork operation", file: file, line: line)
+    }
+}
+
+final class ArtworkRequestCoordinatorTests: XCTestCase {
+    private func request(_ coordinator: ArtworkRequestCoordinator, _ probe: ArtworkNetworkProbe, _ key: String,
+                         pixels: Int = 480, priority: ArtworkRequestCoordinator.Priority = .background) -> Task<Data?, Never> {
+        Task { await coordinator.request(identity: key, maximumPixels: pixels, priority: priority) { pixels in
+            await probe.fetch(key, pixels: pixels)
+        } }
+    }
+
+    func testBackgroundLimitReservesForegroundSlotAndQueuedCancellationDoesNotStartNetwork() async {
+        let coordinator = ArtworkRequestCoordinator(), probe = ArtworkNetworkProbe()
+        let a = request(coordinator, probe, "a"), b = request(coordinator, probe, "b")
+        await eventually { await probe.started.count == 2 }
+        let queued = request(coordinator, probe, "queued")
+        let foreground = request(coordinator, probe, "playing", pixels: 1536, priority: .foreground)
+        await eventually { await coordinator.waitingConsumerCount == 4 }
+        await eventually { await probe.started.count == 3 }
+        let started = await probe.started
+        XCTAssertEqual(Set(started.map(\.0)), Set(["a", "b", "playing"]))
+        queued.cancel()
+        let cancelled = await queued.value
+        XCTAssertNil(cancelled)
+        await probe.release("a"); await probe.release("b"); await probe.release("playing")
+        _ = await (a.value, b.value, foreground.value)
+        let final = await probe.started
+        let peak = await probe.peak
+        XCTAssertEqual(final.count, 3)
+        XCTAssertEqual(peak, 3)
+    }
+
+    func testQueuedThumbnailUpgradesToFullAndOneCancelledConsumerDoesNotCancelSharedWork() async {
+        let coordinator = ArtworkRequestCoordinator(), probe = ArtworkNetworkProbe()
+        let a = request(coordinator, probe, "a"), b = request(coordinator, probe, "b")
+        await eventually { await probe.started.count == 2 }
+        let thumbnail = request(coordinator, probe, "shared")
+        await eventually { await coordinator.waitingConsumerCount == 3 }
+        let full = request(coordinator, probe, "shared", pixels: 1536)
+        await eventually { await coordinator.waitingConsumerCount == 4 }
+        thumbnail.cancel()
+        _ = await thumbnail.value
+        await probe.release("a")
+        await eventually { await probe.started.count == 3 }
+        let shared = await probe.started.filter { $0.0 == "shared" }
+        XCTAssertEqual(shared.map(\.1), [1536])
+        await probe.release("shared"); await probe.release("b")
+        let fullData = await full.value
+        XCTAssertEqual(fullData, Data("shared:1536".utf8))
+        _ = await (a.value, b.value)
+    }
+
+    func testRunningThumbnailAndFullDoNotOverlapAndFullSatisfiesLaterThumbnail() async {
+        let coordinator = ArtworkRequestCoordinator(), probe = ArtworkNetworkProbe()
+        let low = request(coordinator, probe, "shared")
+        await eventually { await probe.started.count == 1 }
+        let full = request(coordinator, probe, "shared", pixels: 1536, priority: .foreground)
+        await eventually { await coordinator.waitingConsumerCount == 2 }
+        let initial = await probe.started
+        XCTAssertEqual(initial.count, 1)
+        await probe.release("shared")
+        _ = await low.value
+        await eventually { await probe.started.count == 2 }
+        let anotherLow = request(coordinator, probe, "shared")
+        await eventually { await coordinator.waitingConsumerCount == 2 }
+        await probe.release("shared")
+        let fullData = await full.value, lowData = await anotherLow.value
+        XCTAssertEqual(fullData, lowData)
+        XCTAssertEqual(lowData, Data("shared:1536".utf8))
+        let peak = await probe.peak
+        XCTAssertEqual(peak, 1)
+    }
+
+    func testCancelledTransportHoldsSlotUntilItActuallyFinishes() async {
+        let coordinator = ArtworkRequestCoordinator(), probe = ArtworkNetworkProbe()
+        let a = request(coordinator, probe, "a"), b = request(coordinator, probe, "b")
+        await eventually { await probe.started.count == 2 }
+        a.cancel()
+        _ = await a.value
+        let queued = request(coordinator, probe, "queued")
+        await eventually { await coordinator.waitingConsumerCount == 2 }
+        let initial = await probe.started
+        XCTAssertEqual(initial.count, 2)
+        await probe.release("a")
+        await eventually { await probe.started.count == 3 }
+        await probe.release("b"); await probe.release("queued")
+        _ = await (b.value, queued.value)
+        let peak = await probe.peak
+        XCTAssertEqual(peak, 2)
+    }
+
+    private func eventually(_ predicate: @escaping () async -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if await predicate() { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Timed out waiting for artwork operation", file: file, line: line)
+    }
+}
+
+private actor ArtworkNetworkProbe {
+    var started: [(String, Int)] = []
+    var peak = 0
+    private var active = 0
+    private var continuations: [String: CheckedContinuation<Void, Never>] = [:]
+    @discardableResult
+    func fetch(_ key: String, pixels: Int) async -> Data {
+        started.append((key, pixels)); active += 1; peak = max(peak, active)
+        await withCheckedContinuation { continuations[key] = $0 }
+        active -= 1
+        return Data("\(key):\(pixels)".utf8)
+    }
+    func release(_ key: String) { continuations.removeValue(forKey: key)?.resume() }
+}
+
+
+@MainActor
+final class SourceMaintenanceQueueTests: XCTestCase {
+    private func waitUntil(_ predicate: () -> Bool) async throws {
+        for _ in 0..<400 {
+            if predicate() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("maintenance queue did not settle")
+    }
+
+    func testPausedQueueRunsSeriallyAndRotatesContinuation() async throws {
+        let queue = SourceMaintenanceQueue()
+        defer { queue.stop() }
+        queue.isPaused = true
+        var events: [String] = []
+        var attempt = 0
+        queue.enqueue(sourceID: "files") {
+            attempt += 1
+            events.append("files")
+            if attempt == 1 { throw SourceMaintenanceQueue.Continuation(delay: 0) }
+        }
+        queue.enqueue(sourceID: "server") { events.append("server") }
+        await Task.yield()
+        XCTAssertTrue(events.isEmpty)
+        queue.isPaused = false
+        try await waitUntil { queue.pendingSourceIDs.isEmpty }
+        XCTAssertEqual(events, ["files", "server", "files"])
+    }
+
+    func testReplacementWaitsForCancelledTransportToFinish() async throws {
+        let queue = SourceMaintenanceQueue()
+        defer { queue.stop() }
+        var release: CheckedContinuation<Void, Never>?
+        var started = false
+        var replacementStarted = false
+        var firstTicket: UUID?
+        queue.enqueue(sourceID: "source") {
+            started = true
+            firstTicket = queue.operationToken(for: "source")
+            await withCheckedContinuation { release = $0 }
+        }
+        try await waitUntil { started }
+        queue.enqueue(sourceID: "source") { replacementStarted = true }
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertFalse(replacementStarted)
+        XCTAssertNotNil(firstTicket)
+        XCTAssertNil(queue.operationToken(for: "source"))
+        release?.resume()
+        try await waitUntil { queue.pendingSourceIDs.isEmpty }
+        XCTAssertTrue(replacementStarted)
+    }
+
+    func testPendingIntentSurvivesRestartAndClearsOnlyAfterCompletion() async throws {
+        let name = "Maintenance-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let original = SourceMaintenanceQueue(defaults: defaults)
+        original.isPaused = true
+        original.enqueue(sourceID: "source") { XCTFail("paused job ran") }
+        original.stop()
+        let resumed = SourceMaintenanceQueue(defaults: defaults)
+        defer { resumed.stop() }
+        XCTAssertEqual(resumed.pendingSourceIDs, ["source"])
+        resumed.enqueue(sourceID: "source") { }
+        try await waitUntil { resumed.pendingSourceIDs.isEmpty }
+        XCTAssertTrue(SourceMaintenanceQueue(defaults: defaults).pendingSourceIDs.isEmpty)
+    }
+
+    func testInvalidationKeepsIntentButRemovalDiscardsIt() async throws {
+        let queue = SourceMaintenanceQueue()
+        defer { queue.stop() }
+        queue.isPaused = true
+        queue.enqueue(sourceID: "source") { XCTFail("invalidated job ran") }
+        queue.invalidate(sourceID: "source")
+        XCTAssertEqual(queue.pendingSourceIDs, ["source"])
+        queue.isPaused = false
+        await Task.yield()
+        queue.discard(sourceID: "source")
+        XCTAssertTrue(queue.pendingSourceIDs.isEmpty)
+    }
+
+    func testIndexedSnapshotKeepsFirstIdentityAndSmallChangedOverlay() {
+        let original = Song(id: "song", title: "Original", fileFormat: .mp3, filePath: "/song.mp3", sourceID: "files")
+        var updated = original
+        updated.title = "Changed"
+        var snapshot = IndexedSongSnapshot([original, updated], sourceID: "files")
+        XCTAssertEqual(snapshot["song"]?.title, "Original")
+        snapshot.update(updated)
+        XCTAssertEqual(snapshot["song"]?.title, "Changed")
+        XCTAssertEqual(snapshot.count, 1)
+        XCTAssertEqual(snapshot.keys, ["song"])
+        XCTAssertNil(IndexedSongSnapshot([original], sourceID: "server")["song"])
+    }
+}
 #endif

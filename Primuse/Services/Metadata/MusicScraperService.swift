@@ -148,6 +148,8 @@ final class MusicScraperService {
     private var scrapingTask: Task<Void, Never>?
     private var scrapingGeneration = 0
     private var backgroundEnrichmentTask: Task<Void, Never>?
+    @ObservationIgnored var automaticWorkIsAllowed: () -> Bool = { true }
+    private var enrichmentEnqueueTask: Task<Void, Never>?
     private var sidecarWriteTasks: [UUID: Task<Void, Never>] = [:]
     private let sidecarCircuitBreaker = SidecarWriteCircuitBreaker()
     private var singleScrapeTask: Task<SingleScrapeResult, Error>?
@@ -883,15 +885,34 @@ final class MusicScraperService {
     }
 
     func enqueueBackgroundEnrichment(for songs: [Song], in library: MusicLibrary) {
-        let settings = ScraperSettings.load()
-        let candidates = songs.filter { shouldBackgroundEnrich($0, settings: settings) }
-        guard !candidates.isEmpty else { return }
-
-        for song in candidates where pendingEnrichmentSongIDSet.insert(song.id).inserted {
-            pendingEnrichmentSongIDs.append(song.id)
+        guard !songs.isEmpty else { return }
+        let previous = enrichmentEnqueueTask
+        enrichmentEnqueueTask = Task(priority: .utility) { [weak self, weak library] in
+            await previous?.value
+            guard let self, let library, !Task.isCancelled else { return }
+            let settings = ScraperSettings.load()
+            let worker = Task.detached(priority: .utility) {
+                var ids: [String] = []
+                for (offset, song) in songs.enumerated() {
+                    if offset % 512 == 0, Task.isCancelled { break }
+                    if Self.shouldBackgroundEnrich(song, settings: settings) { ids.append(song.id) }
+                }
+                return ids
+            }
+            let ids = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            for start in stride(from: 0, to: ids.count, by: 256) {
+                guard !Task.isCancelled else { return }
+                while !self.automaticWorkIsAllowed() {
+                    do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                }
+                for id in ids[start..<min(start + 256, ids.count)]
+                    where self.pendingEnrichmentSongIDSet.insert(id).inserted {
+                    self.pendingEnrichmentSongIDs.append(id)
+                }
+                self.startBackgroundEnrichmentIfNeeded(in: library)
+                await Task.yield()
+            }
         }
-
-        startBackgroundEnrichmentIfNeeded(in: library)
     }
 
     /// 读标签那边不会再去读这些歌了(读好了、读不出、文件不在):在等它们的那几首放回补全队列。
@@ -2009,6 +2030,10 @@ final class MusicScraperService {
         await NetworkMonitor.shared.waitForInitialPath()
         var deferredSinceYield = 0
         while !Task.isCancelled {
+            if !automaticWorkIsAllowed() {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { break }
+                continue
+            }
             if isScraping {
                 // Don't leave completed enrichment results task-local while a
                 // user-initiated scrape waits for this worker to yield.
@@ -2141,7 +2166,7 @@ final class MusicScraperService {
         return nil
     }
 
-    private func shouldBackgroundEnrich(_ song: Song, settings: ScraperSettings) -> Bool {
+    private nonisolated static func shouldBackgroundEnrich(_ song: Song, settings: ScraperSettings) -> Bool {
         if settings.onlyFillMissingFields == false {
             return true
         }

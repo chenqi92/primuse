@@ -204,10 +204,11 @@ actor ConnectorScanner {
     ) async throws -> IncrementalResult {
         defer { finishCoverRevisions() }
         try await connector.connect()
-        var songsByID = Dictionary(
+        let existingByID = Dictionary(
             existingSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        var songsByID = existingByID
         let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
         let existingPathsByID = Dictionary(existingSongs.map { ($0.id, $0.filePath) }, uniquingKeysWith: { first, _ in first })
         var index = existingIndex
@@ -216,6 +217,11 @@ actor ConnectorScanner {
         // the provider snapshot and the authoritative parent re-list, it must
         // recover its existing Song ID instead of being recreated.
         let reconciliationBaseline = existingIndex
+        var entriesByParent: [String: [String: SourceSyncIndexedItem]] = [:]
+        for (key, entry) in reconciliationBaseline {
+            guard let parent = entry.parentPath, directories.contains(parent) else { continue }
+            entriesByParent[parent, default: [:]][key] = entry
+        }
         let confirmedDeletedDirectoryPaths = SourceSyncDirectoryPruningPolicy.confirmedDeletedDirectoryPaths(
             index: reconciliationBaseline,
             deletedKeys: deletedStableKeys
@@ -239,7 +245,7 @@ actor ConnectorScanner {
                let budgeted = connector as? any SnapshotReconciliationBudgetConnector {
                 try await budgeted.reserveSnapshotReconciliationDirectory()
             }
-            let oldEntries = reconciliationBaseline.filter { $0.value.parentPath == directory }
+            let oldEntries = entriesByParent[directory] ?? [:]
             let siblings: [RemoteFileItem]
             do {
                 siblings = try await connector.listFiles(at: directory)
@@ -338,7 +344,7 @@ actor ConnectorScanner {
                         : nil
                     let songID = preferredID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
                     if let oldEntry,
-                       let old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }),
+                       let old = preferredID.flatMap({ existingByID[$0] }),
                        Self.wrapperFingerprintMatches(oldEntry, item),
                        STRMRevision.wrapperMatches(
                            songRevision: old.revision,
@@ -357,7 +363,7 @@ actor ConnectorScanner {
                     }
                     if let song = await buildSTRMSong(from: item, songID: songID) {
                         var replacement = song
-                        if let old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }) {
+                        if let old = preferredID.flatMap({ existingByID[$0] }) {
                             replacement.dateAdded = old.dateAdded
                         }
                         songsByID[replacement.id] = replacement
@@ -368,7 +374,7 @@ actor ConnectorScanner {
                         // read failures; the uncommitted cursor will replay it.
                         index[stableKey] = oldEntry
                         for id in oldEntry.songIDs {
-                            if let old = existingSongs.first(where: { $0.id == id }) {
+                            if let old = existingByID[id] {
                                 songsByID[id] = old
                             }
                         }
@@ -388,14 +394,11 @@ actor ConnectorScanner {
                         reuseCueSongIdentities(
                             in: &cueSongs,
                             priorSongIDs: oldEntry.songIDs,
-                            existingByID: Dictionary(
-                                existingSongs.map { ($0.id, $0) },
-                                uniquingKeysWith: { first, _ in first }
-                            )
+                            existingByID: existingByID
                         )
                     }
                     for song in cueSongs {
-                        if let existing = existingSongs.first(where: { $0.id == song.id }) {
+                        if let existing = existingByID[song.id] {
                             songsByID[song.id] = carriedOverCueTrack(existing: existing, rebuilt: song, cueImage: cueImage)
                         } else {
                             songsByID[song.id] = song
@@ -415,7 +418,7 @@ actor ConnectorScanner {
                     ?? existingIDsByPath[item.path]
                 let songID = preferredID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
                 let incoming = buildBareSong(from: item, songID: songID)
-                if var old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }) {
+                if var old = preferredID.flatMap({ existingByID[$0] }) {
                     // `incoming` is a bare row named after the file; the stored
                     // row's title, album and track came from its tags. Only the
                     // file itself decides whether those tags still stand.
@@ -550,9 +553,7 @@ actor ConnectorScanner {
                     var allSongs = existingSongs
                     let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
                     let existingPathsByID = Dictionary(existingSongs.map { ($0.id, $0.filePath) }, uniquingKeysWith: { first, _ in first })
-                    var existingByID: [String: Song] = [:]
-                    existingByID.reserveCapacity(existingSongs.count)
-                    for song in existingSongs { existingByID[song.id] = song }
+                    var existingByID = IndexedSongSnapshot(existingSongs)
                     var allSongIndexByID: [String: Int] = [:]
                     allSongIndexByID.reserveCapacity(existingSongs.count)
                     for (i, song) in allSongs.enumerated() { allSongIndexByID[song.id] = i }
@@ -566,7 +567,7 @@ actor ConnectorScanner {
                     // 行内容没变就什么都不算 —— 重扫时绝大多数行都走这一支。
                     func recordRow(_ song: Song, for songID: String) {
                         guard existingByID[songID] != song else { return }
-                        existingByID[songID] = song
+                        existingByID.update(song)
                         pendingChangedSongs.append(song)
                         mutationCount += 1
                     }
@@ -826,14 +827,14 @@ actor ConnectorScanner {
                         )
 
                         do {
-                            let previouslyObservedPaths = Self.previouslyObservedChildPaths(
-                                in: directory,
-                                identityIndex: identityBaseline,
-                                existingSongs: existingSongs
-                            )
                             let siblings: [RemoteFileItem]
                             if let confirming = connector as?
                                 any DestructiveDirectoryListingConfirmingConnector {
+                                let previouslyObservedPaths = Self.previouslyObservedChildPaths(
+                                    in: directory,
+                                    identityIndex: identityBaseline,
+                                    existingSongs: existingSongs
+                                )
                                 siblings = try await confirming.listFiles(
                                     at: directory,
                                     confirmingPreviouslyObservedPaths: previouslyObservedPaths
@@ -1003,7 +1004,7 @@ actor ConnectorScanner {
                                         reuseCueSongIdentities(
                                             in: &cueSongs,
                                             priorSongIDs: priorEntry.songIDs,
-                                            existingByID: existingByID
+                                            existingSong: { existingByID[$0] }
                                         )
                                     }
                                     recordSyncItem(
@@ -1542,7 +1543,19 @@ actor ConnectorScanner {
         priorSongIDs: [String],
         existingByID: [String: Song]
     ) {
-        let priorSongs = priorSongIDs.compactMap { existingByID[$0] }
+        reuseCueSongIdentities(
+            in: &incoming,
+            priorSongIDs: priorSongIDs,
+            existingSong: { existingByID[$0] }
+        )
+    }
+
+    private func reuseCueSongIdentities(
+        in incoming: inout [Song],
+        priorSongIDs: [String],
+        existingSong: (String) -> Song?
+    ) {
+        let priorSongs = priorSongIDs.compactMap(existingSong)
         let grouped = Dictionary(grouping: priorSongs) { $0.trackNumber }
         for index in incoming.indices {
             guard let trackNumber = incoming[index].trackNumber,

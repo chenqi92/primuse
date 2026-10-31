@@ -3,6 +3,34 @@ import Testing
 @testable import PrimuseKit
 
 struct MusicSourceSecurityScopeFingerprintTests {
+    @Test func reorderedDirectorySelectionsKeepTheSameContentScope() {
+        let source = MusicSource(id: "baidu-order", name: "Baidu", type: .baiduPan,
+                                 extraConfig: "[\"/Music/A\",\"/Music/B\"]")
+        var remote = source
+        remote.extraConfig = "[ \"/Music/B\", \"/Music/A\", \"/Music/A\" ]"
+        remote.modifiedAt = source.modifiedAt.addingTimeInterval(60)
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: source, current: remote))
+        remote.extraConfig = "[\"/Music/A\"]"
+        #expect(!SourceScanContentScopePolicy.contentUnchanged(previous: source, current: remote))
+    }
+
+    @Test func displayAndDevicePreferencesKeepBaiduContentScope() {
+        let source = MusicSource(id: "baidu", name: "Baidu", type: .baiduPan,
+                                 extraConfig: "[\"/Music\"]", cloudAccountID: "account")
+        var edited = source
+        edited.scannedDirectoryDisplayNames = ["/Music": "Music on another device"]
+        edited.isEnabled = false
+        edited.autoConnect.toggle()
+        edited.rememberDevice.toggle()
+        edited.modifiedAt = source.modifiedAt.addingTimeInterval(60)
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: source, current: edited))
+        edited.cloudAccountID = "different-account"
+        #expect(!SourceScanContentScopePolicy.contentUnchanged(previous: source, current: edited))
+        edited = source
+        edited.extraConfig = "[\"/Other\"]"
+        #expect(!SourceScanContentScopePolicy.contentUnchanged(previous: source, current: edited))
+    }
+
     @Test func credentialRevisionChangesSecurityScopeWithoutCredentialMaterial() {
         let source = makeSource()
 
@@ -298,7 +326,8 @@ struct MusicSourceSecurityScopeFingerprintTests {
         var otherSource = source
         otherSource.id = "another-source"
 
-        for edited in [otherAccount, otherDirectories, disabled, newDevice, deleted, otherSource] {
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: source, current: disabled))
+        for edited in [otherAccount, otherDirectories, newDevice, deleted, otherSource] {
             #expect(!SourceScanContentScopePolicy.contentUnchanged(previous: source, current: edited))
         }
         #expect(!SourceScanContentScopePolicy.contentUnchanged(

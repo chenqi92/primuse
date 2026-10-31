@@ -519,6 +519,7 @@ final class ScanService {
     }
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
+    private let postScanMaintenance = SourceMaintenanceQueue(defaults: .standard, persistenceKey: "scan.postMaintenance.pending")
     private struct QueuedAutomaticScan {
         let isRefresh: Bool
         let start: () -> Void
@@ -1346,6 +1347,8 @@ final class ScanService {
 
         beginBackgroundTask(for: source.id)
 
+        postScanMaintenance.isPaused = true
+        postScanMaintenance.invalidate(sourceID: source.id)
         scanGenerations[source.id, default: 0] += 1
         let generation = scanGenerations[source.id] ?? 0
         // Only the latest scan of a source decides whether its failure is
@@ -1377,6 +1380,7 @@ final class ScanService {
                     if completed { forgetUserInitiatedScanIntent(for: source.id) }
                     finishContinuedProcessing(for: source.id, scanCompleted: completed)
                     drainAutomaticScansIfIdle()
+                    postScanMaintenance.isPaused = !activeTasks.isEmpty
                 }
                 if localImportScanRevisions[source.id]?.generation == generation {
                     localImportScanRevisions[source.id] = nil
@@ -2075,6 +2079,8 @@ final class ScanService {
         discardQueuedAutomaticScan(for: sourceID)
         activeTasks[sourceID]?.cancel()
         activeTasks[sourceID] = nil
+        postScanMaintenance.invalidate(sourceID: sourceID)
+        postScanMaintenance.isPaused = !activeTasks.isEmpty
         // Invalidate the cancelled task's generation so its still-suspended
         // body can't run terminal cleanup/state writes once it resumes.
         scanGenerations[sourceID, default: 0] += 1
@@ -2910,7 +2916,8 @@ final class ScanService {
                     sourceID: source.id,
                     scopeFingerprint: scopeFingerprint,
                     identityScopeFingerprint: identityScopeFingerprint,
-                    songs: existingForScan
+                    songs: existingForScan,
+                    directories: directories
                 )
             }
         }
@@ -3806,10 +3813,7 @@ final class ScanService {
             )
             guard fenceIsValid() else { return true }
 
-            let existingByID = Dictionary(
-                knownSongs.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
+            let existingByID = IndexedSongSnapshot(knownSongs)
             // Same merge the complete walk applies to a staged page: a stable
             // remote row keeps the lyrics, replay gain and pinyin this device
             // backfilled, and only a real content replacement overwrites them.
@@ -3957,10 +3961,7 @@ final class ScanService {
     ) async -> Bool {
         let catalogPath = directories.first ?? "/"
         let existingByID = await Task.detached(priority: .utility) {
-            Dictionary(
-                existingSongs.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
+            IndexedSongSnapshot(existingSongs)
         }.value
         // Navidrome 0.64 re-encoded nearly every song id. Rows are carried by
         // the server id in their path so they are not re-added as new songs.
@@ -4440,12 +4441,7 @@ final class ScanService {
 
                 let liveSongsSnapshot = library.songs
                 let finalExistingByID = await Task.detached(priority: .utility) {
-                    Dictionary(
-                        liveSongsSnapshot.lazy
-                            .filter { $0.sourceID == source.id }
-                            .map { ($0.id, $0) },
-                        uniquingKeysWith: { first, _ in first }
-                    )
+                    IndexedSongSnapshot(liveSongsSnapshot, sourceID: source.id)
                 }.value
                 let stagedCommit = try await Task.detached(priority: .utility) {
                     let delta = try stagingStore.delta(
@@ -4867,7 +4863,15 @@ final class ScanService {
         case .directory(let candidates):
             resolvedRoot = SourceSyncSubtreePolicy.directory(firstKnownOf: candidates, in: state.index)
         }
-        guard let root = resolvedRoot else {
+        let roots: Set<String>
+        if source.type == .baiduPan,
+           case .directory(let candidates) = request.target,
+           let requested = candidates.first {
+            roots = SourceSyncSubtreePolicy.scopedPathRoots(requested, selectedRoots: directories)
+        } else {
+            roots = Set(resolvedRoot.map { [$0] } ?? [])
+        }
+        guard let root = roots.sorted().first else {
             plog("📂 \(source.name): folder rescan could not place the folder in the scan index; walking the whole source")
             return false
         }
@@ -4879,7 +4883,7 @@ final class ScanService {
         var songs = existingSongs
         var index = state.index
         var listed: Set<String> = []
-        var frontier: Set<String> = [root]
+        var frontier = roots
         var changedCount = 0
         while !frontier.isEmpty {
             try Task.checkCancellation()
@@ -5019,12 +5023,7 @@ final class ScanService {
             // did not change. Persisting the whole JSON library here turns a
             // no-op sync of a large catalog into an avoidable full rewrite.
             try await persistSyncState(candidateState)
-            try await refreshFolderPlaylistsForCommittedScan(
-                source: source, generation: generation,
-                scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories),
-                directories: directories, syncState: candidateState,
-                library: library, sourceStore: sourceStore
-            )
+            postScanMaintenance.markPending(source.id)
             // 最终提交: 用精确计数, 不吃缓存聚合的"总数相等就复用"启发式 ──
             // 并发扫描下另一个源的中间 flush 可能刚好补平总数, 源卡片就会一直
             // 停在提交前的数字。
@@ -5038,6 +5037,12 @@ final class ScanService {
                 throw CancellationError()
             }
             scanStates[source.id] = Self.completedScanState(syncState: candidateState)
+            enqueuePostScanMaintenance(
+                source: source, generation: generation,
+                scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories),
+                directories: directories, syncState: candidateState, library: library,
+                sourceStore: sourceStore, sourceManager: sourceManager, scraperService: scraperService
+            )
             publishSuccessfulScanLifecycle(
                 sourceID: source.id,
                 completion: .committedNoChanges
@@ -5167,7 +5172,7 @@ final class ScanService {
         authoritativeSongIDs: Set<String>?,
         pruneMissingSongs: Bool
     ) -> FnMusicCatalogCommitPlan {
-        let existingByID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let existingByID = IndexedSongSnapshot(existing)
         let authoritativeIDs = authoritativeSongIDs ?? Set(candidate.map(\.id))
         // 已分批入库的变化仍要补全; 未变化的旧行不能覆盖扫描期间刚读好的标签。
         let changed = candidate.filter {
@@ -5309,18 +5314,6 @@ final class ScanService {
             )
         }
 
-        // #64's artwork topology has its own deterministic equality guard.
-        // Keep feeding it every complete scan: an identical catalogue is a
-        // true no-op, while an artwork-only change still persists without
-        // forcing the complete song snapshot through addSongs.
-        if let syncState {
-            library.updateAutomaticArtistArtworkCatalog(
-                SourceArtistArtworkCatalog(
-                    sourceID: sourceID,
-                    index: syncState.index
-                )
-            )
-        }
         // 整源提交的逐首派生字段先在后台算好(要和服务端已有行合并的照原路), 扫完
         // 一个上万首的源时主线程上只剩合并与剪枝。
         var preparedCatalog: MusicLibrary.PreparedIncomingSongs?
@@ -5395,14 +5388,6 @@ final class ScanService {
             expectedScopeDirectories: expectedScopeDirectories,
             sourceStore: sourceStore
         )
-        if pruneMissingSongs, let source {
-            try await refreshFolderPlaylistsForCommittedScan(
-                source: source, generation: generation,
-                scopeFingerprint: expectedScopeFingerprint, directories: expectedScopeDirectories,
-                syncState: syncState, library: library, sourceStore: sourceStore,
-                previousMemberships: previousFolderMemberships
-            )
-        }
         // Use the post-tombstone count from the library, not the raw scan
         // count — otherwise a deleted-then-rescanned song shows as still
         // present in the source card while the library actually filters it.
@@ -5414,9 +5399,7 @@ final class ScanService {
             $0.songCount = acceptedCount
             $0.lastScannedAt = Date()
         }
-        if commitsCatalogSnapshot {
-            scraperService?.enqueueBackgroundEnrichment(for: enrichmentSongs ?? catalogSongs, in: library)
-        }
+        postScanMaintenance.markPending(sourceID)
         // 注意: 这里不做整库 prewarm。之前会一首歌拉 1MB head + 256KB tail,
         // 818 首 ~ 1GB 后台流量, 大部分歌用户根本不会听。删掉, 让 prewarm
         // 走「按需」路径: AudioPlayerService.play 时调 cacheInBackground
@@ -5439,52 +5422,15 @@ final class ScanService {
             LocalImportService.clearPendingScan(ifRevisionMatches: pending.revision)
         }
 
-        // 歌单镜像放在扫描收尾之后: 曲库已经落库(上面 addSongs +
-        // persistIncrementalNowAndWait), serverItemID → Song.id 的索引才是完整的;
-        // 而且这一步的网络往返不会推迟"扫描完成"在 UI 上的呈现。
-        if let source, let sourceManager, source.type.isServerLibrary {
-            let applyFence: ServerMirrorApplyFence = {
-                do {
-                    try self.checkScanCommitFence(
-                        sourceID: sourceID,
-                        generation: generation,
-                        expectedScopeFingerprint: expectedScopeFingerprint,
-                        expectedScopeDirectories: expectedScopeDirectories,
-                        sourceStore: sourceStore
-                    )
-                    return true
-                } catch {
-                    return false
-                }
-            }
-            await ServerPlaylistSyncService.sync(
-                source: source,
-                sourceManager: sourceManager,
-                library: library,
-                applyFence: applyFence
-            )
-            try checkScanCommitFence(
-                sourceID: sourceID,
-                generation: generation,
-                expectedScopeFingerprint: expectedScopeFingerprint,
-                expectedScopeDirectories: expectedScopeDirectories,
-                sourceStore: sourceStore
-            )
-            await serverFavoriteSyncHandler?(source, applyFence)
-            try checkScanCommitFence(
-                sourceID: sourceID,
-                generation: generation,
-                expectedScopeFingerprint: expectedScopeFingerprint,
-                expectedScopeDirectories: expectedScopeDirectories,
-                sourceStore: sourceStore
-            )
-            await serverRadioSyncHandler?(source, applyFence)
-            try checkScanCommitFence(
-                sourceID: sourceID,
-                generation: generation,
-                expectedScopeFingerprint: expectedScopeFingerprint,
-                expectedScopeDirectories: expectedScopeDirectories,
-                sourceStore: sourceStore
+        if let source {
+            enqueuePostScanMaintenance(
+                source: source, generation: generation,
+                scopeFingerprint: expectedScopeFingerprint, directories: expectedScopeDirectories,
+                syncState: syncState, library: library, sourceStore: sourceStore,
+                sourceManager: sourceManager, scraperService: scraperService,
+                refreshFolderPlaylists: pruneMissingSongs,
+                previousMemberships: previousFolderMemberships,
+                enrichmentSongs: commitsCatalogSnapshot ? (enrichmentSongs ?? catalogSongs) : []
             )
         }
         publishSuccessfulScanLifecycle(
@@ -5502,7 +5448,6 @@ final class ScanService {
         guard SourceScanLifecyclePolicy.shouldNotifySuccessfulScan(
             for: completion
         ) else { return }
-        MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
         successfulSourceScanHandler?(sourceID, completion)
     }
 
@@ -5623,6 +5568,86 @@ final class ScanService {
                 totalCount: snapshotProgress?.totalCount ?? checkpoint.totalCount,
                 hasPendingWork: true
             )
+        }
+    }
+
+    func resumePostScanMaintenance(
+        sourceManager: SourceManager, library: MusicLibrary,
+        sourceStore: SourcesStore, scraperService: MusicScraperService
+    ) {
+        for sourceID in postScanMaintenance.pendingSourceIDs {
+            guard let source = sourceStore.source(id: sourceID), !source.isDeleted else {
+                postScanMaintenance.discard(sourceID: sourceID)
+                continue
+            }
+            guard source.isEnabled, activeTasks[sourceID] == nil,
+                  checkpoints[sourceID] == nil else { continue }
+            let directories = normalizedDirectories(source.scannedDirectories)
+            enqueuePostScanMaintenance(
+                source: source, generation: scanGenerations[sourceID] ?? 0,
+                scopeFingerprint: Self.scopeFingerprint(for: source, directories: directories),
+                directories: directories, syncState: syncStates[sourceID], library: library,
+                sourceStore: sourceStore, sourceManager: sourceManager, scraperService: scraperService
+            )
+        }
+    }
+
+    private func enqueuePostScanMaintenance(
+        source: MusicSource, generation: Int, scopeFingerprint: String?, directories: [String],
+        syncState: SourceSyncState?, library: MusicLibrary, sourceStore: SourcesStore,
+        sourceManager: SourceManager?, scraperService: MusicScraperService?,
+        refreshFolderPlaylists: Bool = true,
+        previousMemberships: [String: [String]] = [:], enrichmentSongs: [Song]? = nil
+    ) {
+        // Restored jobs have no active scan, but still use the same generation fence.
+        if scanGenerations[source.id] == nil { scanGenerations[source.id] = generation }
+        var pendingEnrichmentSongs = enrichmentSongs
+        postScanMaintenance.enqueue(sourceID: source.id) { [weak self] in
+            guard let self, let ticket = self.postScanMaintenance.operationToken(for: source.id) else { throw CancellationError() }
+            let fence: ServerMirrorApplyFence = {
+                guard self.postScanMaintenance.operationToken(for: source.id) == ticket,
+                      let current = sourceStore.source(id: source.id), current.isEnabled, !current.isDeleted else { return false }
+                return (try? self.checkScanCommitFence(
+                    sourceID: source.id, generation: generation,
+                    expectedScopeFingerprint: scopeFingerprint, expectedScopeDirectories: directories,
+                    sourceStore: sourceStore
+                )) != nil
+            }
+            guard fence() else { throw CancellationError() }
+            if let syncState {
+                await library.updateAutomaticArtistArtworkCatalogOffMain(
+                    SourceArtistArtworkCatalog(sourceID: source.id, index: syncState.index), applyFence: fence
+                )
+            }
+            guard fence() else { throw CancellationError() }
+            if refreshFolderPlaylists {
+                try await self.refreshFolderPlaylistsForCommittedScan(
+                    source: source, generation: generation, scopeFingerprint: scopeFingerprint,
+                    directories: directories, syncState: syncState, library: library,
+                    sourceStore: sourceStore, previousMemberships: previousMemberships
+                )
+            }
+            if let scraperService {
+                let snapshot = library.songs
+                let candidates: [Song]
+                if let pendingEnrichmentSongs { candidates = pendingEnrichmentSongs }
+                else {
+                    candidates = await Task.detached(priority: .utility) {
+                        snapshot.filter { $0.sourceID == source.id }
+                    }.value
+                }
+                guard fence() else { throw CancellationError() }
+                scraperService.enqueueBackgroundEnrichment(for: candidates, in: library)
+                pendingEnrichmentSongs = []
+            }
+            if source.type.isServerLibrary, let sourceManager {
+                await ServerPlaylistSyncService.sync(source: source, sourceManager: sourceManager, library: library, applyFence: fence)
+                guard fence() else { throw CancellationError() }
+                await self.serverFavoriteSyncHandler?(source, fence)
+                guard fence() else { throw CancellationError() }
+                await self.serverRadioSyncHandler?(source, fence)
+            }
+            guard fence() else { throw CancellationError() }
         }
     }
 
@@ -6065,7 +6090,8 @@ final class ScanService {
         sourceID: String,
         scopeFingerprint: String,
         identityScopeFingerprint: String,
-        songs: [Song]
+        songs: [Song],
+        directories: [String]
     ) -> SourceSyncState? {
         guard base != nil || !songs.isEmpty else { return nil }
         var state = base ?? SourceSyncState(
@@ -6108,6 +6134,7 @@ final class ScanService {
                 seenEpoch: state.scanEpoch
             )
         }
+        state.index = SourceSyncSubtreePolicy.restoringPathAncestors(in: state.index, selectedRoots: directories)
         return state
     }
 

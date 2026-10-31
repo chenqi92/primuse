@@ -692,7 +692,7 @@ struct CachedArtworkView: View {
             fileFormat: fileFormat?.rawValue,
             revision: String(revisionToken)
         ) ?? ""
-        return songIdentity + Self.memoryRevisions.key(songID: songID, reference: coverRef) + "#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID) + suffix
+        return songIdentity + Self.memoryRevisions.key(songID: songID, reference: coverRef) + "#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID, reference: coverRef) + suffix
     }
 
     private var loadIdentity: String {
@@ -730,7 +730,7 @@ struct CachedArtworkView: View {
         return [
             SubsonicArtworkPolicy.coverArtID(reference: coverRef) == nil ? "source-v1" : "subsonic-source-v2",
             animationCacheKey,
-            MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID),
+            MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID, reference: coverRef),
             sourceRevision,
             String(revisionToken),
         ].joined(separator: "\u{1F}")
@@ -1630,7 +1630,7 @@ struct CachedArtworkView: View {
         ]
         guard identityComponents.contains(where: { !$0.isEmpty }) else { return nil }
         let identity = identityComponents.joined(separator: "\u{1F}")
-        let key = identity + memoryRevisions.key(songID: songID, reference: coverRef) + "@playlist-\(bucket.rawValue)#\(cacheDiscriminator)#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID)
+        let key = identity + memoryRevisions.key(songID: songID, reference: coverRef) + "@playlist-\(bucket.rawValue)#\(cacheDiscriminator)#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID, reference: coverRef)
         if let cached = memoryCache.object(forKey: key as NSString) {
             return cached
         }
@@ -1677,7 +1677,7 @@ struct CachedArtworkView: View {
                 revision: String(revisionToken)
               ),
               !identity.isEmpty else { return false }
-        let key = identity + memoryRevisions.key(songID: songID, reference: coverRef) + "#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID) + "@\(bucket(for: size, displayScale: displayScale).rawValue)"
+        let key = identity + memoryRevisions.key(songID: songID, reference: coverRef) + "#fresh" + MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID, reference: coverRef) + "@\(bucket(for: size, displayScale: displayScale).rawValue)"
         guard memoryCache.object(forKey: key as NSString) == nil else { return true }
         let ignoredGenericFolderCover = shouldIgnoreGenericFolderCover(ref: coverRef, filePath: filePath)
         guard let data = await loadFromDiskCache(
@@ -1963,7 +1963,7 @@ struct CachedArtworkView: View {
             sourceID: sourceID, reference: ref, maximumPixels: maximumPixels
         ) != nil {
             return MetadataAssetStore.shared.cachedSourceCover(
-                sourceID: sourceID, reference: ref, maximumPixels: maximumPixels
+                sourceID: sourceID, reference: ref, maximumPixels: maximumPixels, checksAge: false
             )
         }
         return MetadataAssetStore.shared.displayCoverData(songID: songID, reference: ref, allowsStale: false)
@@ -2032,17 +2032,20 @@ struct CachedArtworkView: View {
                     return nil
                 }
             } else if ref.contains("://"), let url = URL(string: ref) {
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 15
-                request.setValue("image/*", forHTTPHeaderField: "Accept")
-                if let (data, response) = try? await TrustedHTTPTransport.data(
-                    for: request,
-                    session: sharedArtworkSession,
-                    maxBytes: maximumBytes
-                ), let http = response as? HTTPURLResponse,
-                   (200...299).contains(http.statusCode),
-                   !data.isEmpty {
-                    return data
+                let identity = MetadataAssetStore.shared.artworkRequestIdentity(
+                    sourceID: nil, reference: ref, maximumBytes: maximumBytes, original: true
+                )
+                return await ArtworkRequestCoordinator.shared.request(identity: identity, maximumPixels: 1536) { _ in
+                    var request = URLRequest(url: url)
+                    request.timeoutInterval = 15
+                    request.setValue("image/*", forHTTPHeaderField: "Accept")
+                    if let (data, response) = try? await TrustedHTTPTransport.data(
+                        for: request, session: sharedArtworkSession, maxBytes: maximumBytes
+                    ), let http = response as? HTTPURLResponse,
+                       (200...299).contains(http.statusCode), !data.isEmpty {
+                        return data
+                    }
+                    return nil
                 }
             }
         }
@@ -2076,12 +2079,13 @@ struct CachedArtworkView: View {
         return nil
     }
 
-    private nonisolated static func loadFromSource(
+    nonisolated static func loadFromSource(
         ref: String?, songID: String?,
         sourceID: String?, filePath: String?,
         fileFormat: AudioFormat?,
         sourceManager: SourceManager,
-        purpose: ArtworkFetchPurpose
+        purpose: ArtworkFetchPurpose,
+        priority: ArtworkRequestCoordinator.Priority = .background
     ) async -> Data? {
         let maximumArtworkBytes = 8 * 1024 * 1024
 
@@ -2101,7 +2105,7 @@ struct CachedArtworkView: View {
                 for: ref,
                 sourceID: sourceID,
                 maximumBytes: maximumArtworkBytes,
-                purpose: purpose
+                purpose: purpose, priority: priority
             ) {
                 return data
             }
@@ -2116,17 +2120,24 @@ struct CachedArtworkView: View {
            let ref,
            ref.contains("://"),
            let url = URL(string: ref) {
-            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-            request.timeoutInterval = 10
-            if let (data, response) = try? await TrustedHTTPTransport.data(
-                for: request,
-                session: sharedArtworkSession,
-                maxBytes: maximumArtworkBytes
-            ),
-               let http = response as? HTTPURLResponse,
-               (200...299).contains(http.statusCode),
-               data.isEmpty == false {
-                return data
+            let identity = MetadataAssetStore.shared.artworkRequestIdentity(
+                sourceID: nil, reference: ref, maximumBytes: maximumArtworkBytes
+            )
+            return await ArtworkRequestCoordinator.shared.request(identity: identity,
+                maximumPixels: purpose == .thumbnail ? 480 : 1536, priority: priority) { _ in
+                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+                request.timeoutInterval = 10
+                if let (data, response) = try? await TrustedHTTPTransport.data(
+                    for: request,
+                    session: sharedArtworkSession,
+                    maxBytes: maximumArtworkBytes
+                ),
+                   let http = response as? HTTPURLResponse,
+                   (200...299).contains(http.statusCode),
+                   data.isEmpty == false {
+                    return data
+                }
+                return nil
             }
         }
 

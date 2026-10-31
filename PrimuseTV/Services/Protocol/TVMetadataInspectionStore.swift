@@ -52,12 +52,26 @@ actor TVMetadataInspectionStore {
 
     func record(_ song: Song, sidecars: SidecarDirectoryIndex<TVDirEntry>? = nil, complete: Bool) {
         guard complete else { return }
-        entries[key(song)] = Entry(metadata: signature(song), sidecars: sidecars.map { Self.sidecarSignature(song, sidecars: $0) })
+        entries[key(song)] = Entry(metadata: signature(song),
+            sidecars: sidecars.map { Self.sidecarSignature(song, sidecars: $0) } ?? entries[key(song)]?.sidecars)
         isDirty = true
         guard flushTask == nil else { return }
         flushTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(10)) } catch { return }
             await self?.flush()
+        }
+    }
+
+    /// The committed scan index survives relaunch; replaying it needs no file reads.
+    func observeCommittedIndex(sourceID: String, index: [String: SourceSyncIndexedItem]) {
+        for item in index.values where !item.isDirectory {
+            let observed = item.sidecarFingerprint ?? ""
+            for songID in item.songIDs {
+                let id = TVScanPipelinePolicy.hash32(sourceID + "\u{0}" + songID)
+                guard entries[id]?.sidecars != observed else { continue }
+                entries[id] = Entry(metadata: "", sidecars: observed)
+                isDirty = true
+            }
         }
     }
 

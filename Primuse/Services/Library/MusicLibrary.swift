@@ -654,6 +654,8 @@ actor LibrarySearchIndex {
 
     private let dbPool: DatabasePool?
     private var lastMetadataRevisionKey: String?
+    private var projectionSongs: [Song] = []
+    private var projectionIndexByID: [String: Int] = [:]
     private var isPreparing = false
 
     private struct PendingFullPreparation {
@@ -942,6 +944,8 @@ actor LibrarySearchIndex {
     /// for first launch, schema migration, or crash recovery. Routine library
     /// mutations enter through `applyChanges` and touch only changed rows.
     func prepare(songs: [Song], generation: Int) async {
+        projectionSongs = []
+        projectionIndexByID = [:]
         guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending() else { return }
         pendingFullPreparation = PendingFullPreparation(
             songs: songs,
@@ -959,6 +963,8 @@ actor LibrarySearchIndex {
         deletingIDs: Set<String>,
         generation: Int
     ) async {
+        projectionSongs = []
+        projectionIndexByID = [:]
         guard dbPool != nil, !upserts.isEmpty || !deletingIDs.isEmpty else { return }
         pendingSearchDelta.merge(
             upserts: upserts,
@@ -1120,16 +1126,18 @@ actor LibrarySearchIndex {
         lastMetadataRevisionKey = metadataRevisionKey
 
         do {
-            // 只存下标: 每次查询都把整库歌曲拷进字典, 二十多万首时就是几百 MB。
-            let songIndexByID: [String: Int] = {
-                var indexByID: [String: Int] = [:]
-                indexByID.reserveCapacity(songs.count)
-                for (offset, song) in songs.enumerated() where indexByID[song.id] == nil {
-                    indexByID[song.id] = offset
+            if !sharesStorage(projectionSongs, songs) {
+                var index: [String: Int] = [:]
+                index.reserveCapacity(songs.count)
+                for (offset, song) in songs.enumerated() where index[song.id] == nil {
+                    if offset % 512 == 0 { try Task.checkCancellation() }
+                    index[song.id] = offset
                 }
-                return indexByID
-            }()
-            // crash-pattern: allow index-map-subscript 索引是上面按同一个局部 songs 刚建的
+                projectionSongs = songs
+                projectionIndexByID = index
+            }
+            let songIndexByID = projectionIndexByID
+            // crash-pattern: allow index-map-subscript index and retained snapshot share storage
             func indexedSong(withID id: String) -> Song? { songIndexByID[id].map { songs[$0] } }
             var metadataIDs: [String] = []
             var seenMetadata = Set<String>()
@@ -8254,7 +8262,6 @@ final class MusicLibrary {
         }
         automaticArtistArtworkCatalogsBySource[catalog.sourceID] = catalog
         automaticArtistArtworkCatalogRevision &+= 1
-        let playlistCleanupWasVerified = playlistCleanupIsVerified
 
         // 先只读不写: 原来对每一首做 inout 访问, 第一首就把整库数组复制一份, 哪怕
         // 最后一首都没变。同一目录、同样歌手名的歌解析出的引用必然相同, 按这两样
@@ -8277,6 +8284,57 @@ final class MusicLibrary {
                 changes.append((index, song))
             }
         }
+        applyAutomaticArtistArtworkChanges(changes, currentSongs: currentSongs)
+    }
+
+    func updateAutomaticArtistArtworkCatalogOffMain(
+        _ incoming: SourceArtistArtworkCatalog, isCompleteListing: Bool = true,
+        applyFence: @MainActor () -> Bool = { true }
+    ) async {
+        await whenReady()
+        guard !Task.isCancelled, applyFence() else { return }
+        let catalog = isCompleteListing ? incoming
+            : automaticArtistArtworkCatalogsBySource[incoming.sourceID]?.merging(incoming) ?? incoming
+        guard !catalog.sourceID.isEmpty,
+              automaticArtistArtworkCatalogsBySource[catalog.sourceID] != catalog else { return }
+        while !Task.isCancelled {
+            let generation = songMutationGeneration
+            let currentSongs = songs
+            let previousCatalogs = automaticArtistArtworkCatalogsBySource
+            var catalogs = previousCatalogs
+            catalogs[catalog.sourceID] = catalog
+            let configuration = artistNameConfiguration
+            let worker = Task.detached(priority: .utility) {
+                var memo = AutomaticArtistArtworkMemo()
+                var changes: [(index: Int, song: Song)] = []
+                for index in currentSongs.indices where currentSongs[index].sourceID == catalog.sourceID {
+                    if index % 512 == 0, Task.isCancelled { return changes }
+                    var song = currentSongs[index]
+                    Self.applyAutomaticArtistArtwork(to: &song, catalogsBySource: catalogs,
+                        artistNameConfiguration: configuration, memo: &memo)
+                    if song.artistArtworkFileName != currentSongs[index].artistArtworkFileName {
+                        changes.append((index, song))
+                    }
+                }
+                return changes
+            }
+            let changes = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard !Task.isCancelled, applyFence() else { return }
+            guard generation == songMutationGeneration,
+                  previousCatalogs == automaticArtistArtworkCatalogsBySource,
+                  configuration == artistNameConfiguration else { continue }
+            automaticArtistArtworkCatalogsBySource[catalog.sourceID] = catalog
+            automaticArtistArtworkCatalogRevision &+= 1
+            applyAutomaticArtistArtworkChanges(changes, currentSongs: currentSongs, maintenance: .deferred)
+            return
+        }
+    }
+
+    private func applyAutomaticArtistArtworkChanges(
+        _ changes: [(index: Int, song: Song)], currentSongs: [Song],
+        maintenance: LibraryMaintenanceDisposition = .immediate
+    ) {
+        let playlistCleanupWasVerified = playlistCleanupIsVerified
         guard !changes.isEmpty else {
             persistSnapshot()
             return
@@ -8315,7 +8373,7 @@ final class MusicLibrary {
         lastReplacedSong = changedSongs.count == 1 ? changedSongs.first : nil
         lastReplacedSongIDs = Set(changedSongIDs)
         songReplacementToken = UUID()
-        requestLibraryIndexMaintenance(.immediate)
+        requestLibraryIndexMaintenance(maintenance)
         persistSongChanges(upserts: changedSongs)
     }
 

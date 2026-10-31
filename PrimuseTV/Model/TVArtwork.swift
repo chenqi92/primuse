@@ -495,7 +495,7 @@ actor TVArtworkLoader {
             guard let data = assets.displayCoverData(songID: songID, reference: coverRef) else { return nil }
             return await preparedSongArtwork(data, songID: songID, animationCacheKey: animationCacheKey)
         }
-        if let data = assets.cachedSourceCover(sourceID: sourceID, reference: ref, maximumPixels: maximumPixels) {
+        if let data = assets.cachedSourceCover(sourceID: sourceID, reference: ref, maximumPixels: maximumPixels, checksAge: false) {
             return await preparedSongArtwork(data, songID: songID, animationCacheKey: animationCacheKey)
         }
         let key = cacheID + "#fresh" + assets.artworkFreshnessToken(sourceID: sourceID)
@@ -506,20 +506,9 @@ actor TVArtworkLoader {
         }
         if isTemporarilyNegative(key) { return await fallback() }
         let ticket = await assets.beginArtworkLoad(songID: songID, sourceID: sourceID, reference: ref)
-        let result = await deduplicatedFetch(key: key) {
-            if let fnMusicClient, FnMusicAPIProtocol.coverID(from: ref) != nil {
-                return try? await fnMusicClient.coverData(reference: ref, size: maximumPixels,
-                                                        maximumBytes: Self.maximumRemoteArtworkBytes)
-            }
-            if let source, TVSourceAssetReader.supports(source.type) {
-                let resolved = credential != nil ? credential : await credentialProvider?()
-                return await TVSourceAssetReader.shared.artworkData(reference: ref, source: source,
-                    credential: resolved, maximumBytes: Self.maximumRemoteArtworkBytes, maximumPixels: maximumPixels)
-            }
-            guard let url = URL(string: ref), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-                  url.user == nil, url.password == nil else { return nil }
-            return await Self.fetchRemoteArtwork(from: url, maximumBytes: Self.maximumRemoteArtworkBytes)
-        }
+        let result = await fetchSongArtwork(reference: ref, sourceID: sourceID, source: source,
+            fnMusicClient: fnMusicClient, credential: credential, credentialProvider: credentialProvider,
+            maximumPixels: maximumPixels)
         guard !Task.isCancelled, await assets.isCurrentArtworkLoad(ticket) else { return nil }
         guard let result,
               let prepared = await preparedSongArtwork(result, songID: songID, animationCacheKey: animationCacheKey) else {
@@ -530,6 +519,42 @@ actor TVArtworkLoader {
         guard await assets.cacheSourceCover(prepared, songID: songID, sourceID: sourceID,
                                              reference: ref, maximumPixels: maximumPixels, ticket: ticket) else { return nil }
         return prepared
+    }
+
+    func refreshFocusedCover(songID: String, reference: String?, source: MusicSource?,
+                             fnMusicClient: FnMusicServiceClient?,
+                             credentialProvider: (@Sendable () async -> SourceCredential?)?) async {
+        guard let reference else { return }
+        await assets.refreshFocusedArtwork(songID: songID, sourceID: source?.id, reference: reference) {
+            await self.fetchSongArtwork(reference: reference, sourceID: source?.id, source: source,
+                fnMusicClient: fnMusicClient, credentialProvider: credentialProvider,
+                maximumPixels: 1536, priority: .foreground)
+        }
+    }
+
+    private func fetchSongArtwork(reference: String, sourceID: String?, source: MusicSource?,
+                                  fnMusicClient: FnMusicServiceClient?, credential: SourceCredential? = nil,
+                                  credentialProvider: (@Sendable () async -> SourceCredential?)?,
+                                  maximumPixels: Int,
+                                  priority: ArtworkRequestCoordinator.Priority = .background) async -> Data? {
+        let identity = assets.artworkRequestIdentity(sourceID: sourceID, reference: reference,
+                                                     maximumBytes: Self.maximumRemoteArtworkBytes)
+        let requestPixels = maximumPixels > 480 ? 1536 : 480
+        return await ArtworkRequestCoordinator.shared.request(identity: identity, maximumPixels: requestPixels,
+                                                               priority: priority) { pixels in
+            if let fnMusicClient, FnMusicAPIProtocol.coverID(from: reference) != nil {
+                return try? await fnMusicClient.coverData(reference: reference, size: pixels,
+                                                        maximumBytes: Self.maximumRemoteArtworkBytes)
+            }
+            if let source, TVSourceAssetReader.supports(source.type) {
+                let resolved = credential != nil ? credential : await credentialProvider?()
+                return await TVSourceAssetReader.shared.artworkData(reference: reference, source: source,
+                    credential: resolved, maximumBytes: Self.maximumRemoteArtworkBytes, maximumPixels: pixels)
+            }
+            guard let url = URL(string: reference), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  url.user == nil, url.password == nil else { return nil }
+            return await Self.fetchRemoteArtwork(from: url, maximumBytes: Self.maximumRemoteArtworkBytes)
+        }
     }
 
     /// Reads the exact source used by an animated hero without consulting the
@@ -807,7 +832,9 @@ actor TVArtworkLoader {
 
         let operationID = UUID()
         let task = Task<Void, Never> {
-            let result = await operation()
+            let result = await ArtworkRequestCoordinator.shared.request(identity: "tv:" + key, maximumPixels: 1536) { _ in
+                await operation()
+            }
             self.completeFetch(result, for: key, operationID: operationID)
         }
         inFlight[key] = InFlightEntry(
@@ -1156,7 +1183,7 @@ struct TVArtworkView: View {
     private var artworkIdentity: String {
         let overrideSuffix = albumArtworkOverrideIdentity.map { "|override:\($0)" } ?? ""
         let refreshSuffix = self.refreshSuffix + "|fresh:" + MetadataAssetStore.shared.artworkFreshnessToken(
-            sourceID: songID.flatMap { store.library.song(id: $0)?.sourceID }
+            sourceID: songID.flatMap { store.library.song(id: $0)?.sourceID }, reference: coverRef
         ) + "|pixels:\(Int(max(size, height ?? size) * 2))"
         if !coverKey.isEmpty {
             guard let songID, !songID.isEmpty else { return "album:\(coverKey)\(overrideSuffix)\(refreshSuffix)" }
@@ -1235,6 +1262,13 @@ struct TVArtworkView: View {
         ].joined(separator: "\u{1F}")
     }
 
+    private var hasServerCoverReference: Bool {
+        SourceArtworkPolicy.cacheID(
+            sourceID: songID.flatMap { store.library.song(id: $0)?.sourceID },
+            reference: coverRef, maximumPixels: 480
+        ) != nil
+    }
+
     private var preferredAnimationDiskKey: String {
         if let albumArtworkOverride,
            case .uploaded(let contentID) = albumArtworkOverride {
@@ -1245,10 +1279,9 @@ struct TVArtworkView: View {
            let selectedSong = store.library.song(id: selectedSongID) {
             return songAnimationDiskKey(for: selectedSong)
         }
-        let hasFnMusicCoverReference = FnMusicAPIProtocol.coverID(from: coverRef ?? "") != nil
         if presentationRole != .animatedHero,
            !albumSourceAnimationDiskKey.isEmpty,
-           !hasFnMusicCoverReference {
+           !hasServerCoverReference {
             return albumSourceAnimationDiskKey
         }
         return !songSourceAnimationDiskKey.isEmpty
@@ -1279,7 +1312,7 @@ struct TVArtworkView: View {
             songID,
             coverRef ?? "",
             sourceRevision ?? "",
-            MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID),
+            MetadataAssetStore.shared.artworkFreshnessToken(sourceID: sourceID, reference: coverRef),
         ]
         return components.joined(separator: "\u{1F}")
     }
@@ -1441,9 +1474,8 @@ struct TVArtworkView: View {
                 }
             }
 
-            let hasFnMusicCoverReference = FnMusicAPIProtocol.coverID(from: coverRef ?? "") != nil
             if presentationRole != .animatedHero,
-               !coverKey.isEmpty, !hasFnMusicCoverReference {
+               !coverKey.isEmpty, !hasServerCoverReference {
                 // ① 优先使用已同步到本地的准确专辑封面。
                 if let cached = await MetadataAssetStore.shared.cachedAlbumCover(
                     forAlbumID: coverKey
@@ -1519,7 +1551,7 @@ struct TVArtworkView: View {
                 }
             }
             if presentationRole == .animatedHero,
-               !coverKey.isEmpty, !hasFnMusicCoverReference,
+               !coverKey.isEmpty, !hasServerCoverReference,
                let cached = await MetadataAssetStore.shared.cachedAlbumCover(
                 forAlbumID: coverKey
                ), let data = await TVArtworkLoader.shared.preparedAlbumArtwork(
@@ -1536,7 +1568,7 @@ struct TVArtworkView: View {
                ) {
                 return
             }
-            if !coverKey.isEmpty, !hasFnMusicCoverReference {
+            if !coverKey.isEmpty, !hasServerCoverReference {
                 // ③ 本地准确来源都没有时，最后按 (艺术家, 专辑) 在线搜索封面。
                 // 飞牛引用失败时保留占位并重试，不能让模糊搜索永久盖住准确源封面。
                 if let data = await TVArtworkLoader.shared.cover(

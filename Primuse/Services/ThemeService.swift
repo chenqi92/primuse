@@ -100,7 +100,7 @@ final class ThemeService {
         return URLSession(configuration: configuration)
     }()
 
-    private nonisolated static let maximumRemoteArtworkBytes = 12 * 1024 * 1024
+    private nonisolated static let maximumRemoteArtworkBytes = 8 * 1024 * 1024
 
 
     // MARK: - Public API
@@ -149,10 +149,10 @@ final class ThemeService {
         let capturedSongID = songID
         let capturedFileName = normalizedFileName
         artworkUpdateTask = Task.detached(priority: .userInitiated) {
-            var data = Self.cachedCoverData(
-                fileName: capturedFileName,
-                songID: capturedSongID
-            )
+            var data = MetadataAssetStore.shared.cachedSourceCover(
+                sourceID: usesConnector ? ownedSourceID : nil, reference: capturedFileName,
+                maximumPixels: 480, checksAge: false
+            ) ?? Self.cachedCoverData(fileName: capturedFileName, songID: capturedSongID)
             guard !Task.isCancelled else { return }
             if data == nil {
                 // 没有可用来源就回默认色; 远端封面下载期间也不能把上一首的颜色
@@ -467,7 +467,16 @@ final class ThemeService {
     }
 
     private nonisolated static func downloadRemoteArtwork(from url: URL) async -> Data? {
-        var request = URLRequest(url: url)
+        let identity = MetadataAssetStore.shared.artworkRequestIdentity(
+            sourceID: nil, reference: url.absoluteString, maximumBytes: maximumRemoteArtworkBytes
+        )
+        return await ArtworkRequestCoordinator.shared.request(identity: identity, maximumPixels: 480) { _ in
+            await fetchRemoteArtwork(from: url)
+        }
+    }
+
+    private nonisolated static func fetchRemoteArtwork(from url: URL) async -> Data? {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = 12
         request.httpShouldHandleCookies = false
         request.setValue("image/*", forHTTPHeaderField: "Accept")

@@ -1384,6 +1384,7 @@ final class TVSourceScanner {
         credential: SourceCredential?,
         existingSongs: [Song],
         rereadMetadata: Bool = false,
+        defersMetadata: Bool = false,
         resumeState: SourceScanResumeState? = nil,
         onCheckpoint: TVScanCheckpointHandler? = nil,
         onSkeletonBatch: @escaping TVScanBatchHandler,
@@ -1410,11 +1411,52 @@ final class TVSourceScanner {
             credential: credential,
             existingSongs: existingSongs,
             rereadMetadata: rereadMetadata,
+            defersMetadata: defersMetadata && !rereadMetadata,
             resumeState: rereadMetadata ? nil : resumeState,
             onCheckpoint: onCheckpoint,
             onSkeletonBatch: onSkeletonBatch,
             onMetadataBatch: onMetadataBatch
         )
+    }
+
+    func prepareDeferredMetadata(sourceID: String, index: [String: SourceSyncIndexedItem]) async {
+        await metadataInspections.observeCommittedIndex(sourceID: sourceID, index: index)
+    }
+
+    /// Inventory already contains sidecar references; no directory walk is needed here.
+    @discardableResult
+    func enrichDeferredMetadata(
+        songs: [Song], source: MusicSource, credential: SourceCredential?,
+        apply: @escaping TVScanBatchHandler
+    ) async throws -> Set<String> {
+        let pool = TVMetadataReaderPool(source: source, credential: credential)
+        var batch: [Song] = []
+        var failedIDs: Set<String> = []
+        do {
+            for song in songs {
+                try Task.checkCancellation()
+                if await metadataInspections.isCurrent(song) { continue }
+                let result = await readMetadata(song, SidecarDirectoryIndex<TVDirEntry>([]), pool)
+                try Task.checkCancellation()
+                if result.status != .enriched || !result.inspectionComplete { failedIDs.insert(song.id) }
+                if result.status == .enriched {
+                    batch.append(result.song)
+                    await metadataInspections.record(result.song, complete: result.inspectionComplete)
+                }
+                if batch.count >= 16 {
+                    try await apply(batch)
+                    batch.removeAll(keepingCapacity: true)
+                }
+            }
+            if !batch.isEmpty { try await apply(batch) }
+            await metadataInspections.flush()
+            await pool.closeAll()
+            return failedIDs
+        } catch {
+            await metadataInspections.flush()
+            await pool.closeAll()
+            throw error
+        }
     }
 
     /// Temporary source-compatibility wrapper for callers migrating to the
@@ -1677,6 +1719,7 @@ final class TVSourceScanner {
         credential: SourceCredential?,
         existingSongs: [Song],
         rereadMetadata: Bool,
+        defersMetadata: Bool,
         resumeState suppliedResumeState: SourceScanResumeState?,
         onCheckpoint: TVScanCheckpointHandler?,
         onSkeletonBatch: @escaping TVScanBatchHandler,
@@ -1735,12 +1778,14 @@ final class TVSourceScanner {
                 song.id = TVScanPipelinePolicy.canonicalSongID(song.id)
                 songsByID[song.id] = song
                 songOrder.append(song.id)
-                items.append(ScanItem(
+                if !defersMetadata {
+                    items.append(ScanItem(
                     song: song,
                     candidate: song,
                     existing: song,
                     sidecars: SidecarDirectoryIndex<TVDirEntry>([])
-                ))
+                    ))
+                }
             }
         }
 
@@ -1918,12 +1963,14 @@ final class TVSourceScanner {
                             existing: existing,
                             candidate: candidate
                         )
-                        items.append(ScanItem(
+                        if !defersMetadata {
+                            items.append(ScanItem(
                             song: song,
                             candidate: candidate,
                             existing: existing,
                             sidecars: sidecars
-                        ))
+                            ))
+                        }
                         songsByID[song.id] = song
                         songOrder.append(song.id)
                         state.encounteredSongIDs.insert(song.id)
@@ -2070,6 +2117,17 @@ final class TVSourceScanner {
                 metadataFailureCount: 0,
                 completion: .enumerationFailed(message),
                 resumeState: state
+            )
+        }
+
+        if defersMetadata {
+            await readerPool.closeAll()
+            currentFile = ""
+            return TVScanResult(
+                songs: songOrder.compactMap { songsByID[$0] },
+                discoveredSongIDs: discoveredIDs, enumerationCompleted: true,
+                metadataCompleted: false, metadataFailureCount: 0, completion: .completed,
+                resumeState: state, listingGapObserved: skippedMissingDirectory
             )
         }
 

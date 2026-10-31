@@ -1201,7 +1201,7 @@ public enum BaiduSnapshotDiffPolicy {
     private static func migrationMatch(
         for current: SourceSyncIndexedItem,
         previousIndex: [String: SourceSyncIndexedItem],
-        legacyEntries: [String: SourceSyncIndexedItem],
+        legacyEntries: @autoclosure () -> [String: SourceSyncIndexedItem],
         aliases: [String: String],
         claimedPreviousKeys: Set<String>
     ) -> (key: String, item: SourceSyncIndexedItem)? {
@@ -1227,7 +1227,7 @@ public enum BaiduSnapshotDiffPolicy {
               let revision = normalizedRevision(current.revision) else {
             return nil
         }
-        let candidates = legacyEntries.filter { key, item in
+        let candidates = legacyEntries().filter { key, item in
             !claimedPreviousKeys.contains(key)
                 && !item.isDirectory
                 && normalizedRevision(item.revision) == revision
@@ -1760,6 +1760,53 @@ public enum SourceStableCacheFileMigration {
 /// 列目录用的原始写法（路径型源是路径，ID 寻址网盘是条目 id），资料库「文件夹」页的节点
 /// 用的是归一化后的身份路径，两者对不上，所以从文件夹里的一首歌出发沿父目录往上走。
 public enum SourceSyncSubtreePolicy {
+    /// Intersect a path-based folder request with the configured scan roots.
+    /// An ancestor request must never expand the source's selected scope.
+    public static func scopedPathRoots(_ requested: String, selectedRoots: [String]) -> Set<String> {
+        func valid(_ path: String) -> String? {
+            guard path.hasPrefix("/"), !path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else { return nil }
+            return comparisonKey(path)
+        }
+        guard let requested = valid(requested) else { return [] }
+        func contains(_ root: String, _ path: String) -> Bool {
+            root == "/" || path == root || path.hasPrefix(root + "/")
+        }
+        return Set(selectedRoots.compactMap { root in
+            guard let root = valid(root) else { return nil }
+            if contains(root, requested) { return requested }
+            if contains(requested, root) { return root }
+            return nil
+        })
+    }
+
+    /// Legacy Baidu rows retain full file paths even when their directory index
+    /// is absent. Reconstruct only ancestry, without claiming a fresh listing.
+    public static func restoringPathAncestors(
+        in index: [String: SourceSyncIndexedItem], selectedRoots: [String]
+    ) -> [String: SourceSyncIndexedItem] {
+        var result = index
+        var known = Set(index.values.filter(\.isDirectory).map(\.path))
+        let roots = Set(selectedRoots.map(comparisonKey))
+        for entry in index.values {
+            guard entry.path.hasPrefix("/") else { continue }
+            var path = entry.parentPath ?? (entry.path as NSString).deletingLastPathComponent
+            while path != "/", !path.isEmpty,
+                  !roots.contains(path),
+                  scopedPathRoots(path, selectedRoots: selectedRoots) == [path],
+                  known.insert(path).inserted {
+                let parent = (path as NSString).deletingLastPathComponent
+                var key = BaiduSnapshotIdentity.legacyPathKey(path)
+                if result[key] != nil { key += "#directory:\(path)" }
+                result[key] = SourceSyncIndexedItem(
+                    stableKey: key, path: path, parentPath: parent, isDirectory: true,
+                    songIDs: [], size: 0, modifiedDate: nil, revision: nil, seenEpoch: entry.seenEpoch
+                )
+                path = parent
+            }
+        }
+        return result
+    }
+
     /// 这首歌所在目录再往上 `levelsAbove` 层的原始目录。走到索引里没有的目录就答 nil
     /// （扫描根本身不在索引里，只能作为最后一层的结果出现）。
     public static func directory(

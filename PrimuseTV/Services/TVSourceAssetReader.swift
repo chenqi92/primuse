@@ -491,6 +491,18 @@ actor TVSourceAssetReader {
 
 @MainActor
 extension TVStore {
+    func refreshArtworkForFocusedSong(_ song: Song) async {
+        let source = self.source(id: song.sourceID)
+        guard source?.isEnabled != false, source?.isDeleted != true else { return }
+        let bundle = credentialBundle
+        let credentialProvider: (@Sendable () async -> SourceCredential?)? = source.map { source in
+            { @Sendable in TVCredentialStore.credential(for: source, bundle: bundle) }
+        }
+        await TVArtworkLoader.shared.refreshFocusedCover(songID: song.id, reference: song.coverArtFileName,
+            source: source, fnMusicClient: source.flatMap { fnMusicClient(for: $0.id) },
+            credentialProvider: credentialProvider)
+    }
+
     /// `sourceID` 给不在曲库里的封面用(歌单自带的服务端封面,`songID` 是 `playlist:<id>`):
     /// 查不到歌曲时按它找音乐源,否则服务端封面引用没有凭据可用,只能落空。
     func songArtworkData(
