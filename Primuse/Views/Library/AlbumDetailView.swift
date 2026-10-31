@@ -760,12 +760,9 @@ struct AlbumDetailView: View {
                 .opacity(0.7)
             }
 
-            SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
-                .font(style.titleFont)
-                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
-
             VStack(alignment: .leading, spacing: style.textSpacing) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
                     Text(song.title)
                         .font(style.titleFont)
                         .lineLimit(1)

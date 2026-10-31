@@ -130,10 +130,11 @@ struct AppleMusicCatalogArtistView: View {
                         }
                         .frame(width: 44, height: 44)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
-                        SongRowTrackNumber(number: index + 1, largestNumber: topSongs.count)
-                            .font(.subheadline).foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(verbatim: song.title).font(.subheadline).lineLimit(1)
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                SongRowTrackNumber(number: index + 1, largestNumber: topSongs.count)
+                                Text(verbatim: song.title).font(.subheadline).lineLimit(1)
+                            }
                             Text(verbatim: song.albumTitle ?? song.artistName)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

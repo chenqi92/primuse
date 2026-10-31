@@ -69,11 +69,12 @@ private struct DislikedSongRow: View {
                 sourceID: song.sourceID,
                 filePath: song.filePath
             )
-            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                .font(.subheadline).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: song.title)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    Text(verbatim: song.title)
+                        .lineLimit(1)
+                }
                 if let artistName, !artistName.isEmpty {
                     Text(verbatim: artistName)
                         .font(.caption)

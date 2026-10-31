@@ -6966,7 +6966,6 @@
 "song_file_rename_shared" = "تتشارك عدة ملفات صوتية هذا الاسم والملفات المصاحبة. نظّمها خارج Primuse.";
 "song_file_rename_partial" = "تعذرت استعادة بعض الملفات. تحتفظ المكتبة بالمواقع المؤكدة. حدّث المجلد قبل المحاولة مجدداً.";
 "song_file_rename_readback" = "أعيدت تسمية الملف، لكن تعذرت قراءة معلوماته المحدثة. حدّث المجلد.";
-"song_file_rename_busy" = "انتظر انتهاء البث أو الانتقال بين المقاطع قبل إعادة تسمية هذا الملف.";
 
 "library_insight_lastfm_fetch" = "جلب من Last.fm";
 "library_insight_lastfm_fetching" = "جارٍ الجلب من Last.fm…";
@@ -6974,3 +6973,9 @@
 "library_insight_lastfm_failed" = "تعذر الجلب من Last.fm. حاول لاحقًا.";
 "library_insight_lastfm_replace_title" = "استبدال النبذة؟";
 "library_insight_lastfm_replace_message" = "سيتم استبدال النبذة ووسوم الأسلوب بمحتوى من Last.fm.";
+"song_file_rename_busy" = "انتظر انتهاء البث أو الانتقال بين المقاطع قبل إعادة تسمية هذا الملف.";
+
+"song_list_layout" = "مظهر القائمة";
+"song_list_layout_list" = "القائمة الافتراضية";
+"song_list_layout_timeline" = "المخطط الزمني";
+"song_list_layout_artwork" = "بطاقات الأغلفة";

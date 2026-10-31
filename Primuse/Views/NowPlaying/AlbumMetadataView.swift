@@ -237,7 +237,7 @@ struct AlbumMetadataTrackRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+            SongRowNumberedTitle(number: ordinal, title: song.title)
             Text(verbatim: song.filePath.split(separator: "/").suffix(2).joined(separator: "/"))
                 .font(.caption).foregroundStyle(.secondary)
             Picker("album_metadata_match", selection: Binding(

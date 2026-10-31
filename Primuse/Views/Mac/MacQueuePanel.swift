@@ -251,14 +251,14 @@ struct MacQueuePanel: View {
                 fileFormat: song.fileFormat
             )
 
-            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
-
             VStack(alignment: .leading, spacing: 1) {
-                Text(song.title)
-                    .font(.system(size: 12, weight: isPlaying ? .semibold : .medium))
-                    .foregroundStyle(isPlaying ? PMColor.brand : PMColor.text)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    Text(song.title)
+                        .font(.system(size: 12, weight: isPlaying ? .semibold : .medium))
+                        .foregroundStyle(isPlaying ? PMColor.brand : PMColor.text)
+                        .lineLimit(1)
+                }
                 if unreachable {
                     // Playback steps over this entry until its source answers.
                     Label("song_row_source_unreachable", systemImage: "wifi.slash")

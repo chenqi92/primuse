@@ -6966,7 +6966,6 @@
 "song_file_rename_shared" = "Несколько аудиофайлов используют это имя и общие сопутствующие файлы. Упорядочите их вне Primuse.";
 "song_file_rename_partial" = "Не удалось восстановить некоторые файлы. В медиатеке сохранены подтверждённые пути. Обновите папку перед повторной попыткой.";
 "song_file_rename_readback" = "Файл переименован, но обновлённые сведения не удалось прочитать. Обновите папку.";
-"song_file_rename_busy" = "Завершите трансляцию или переход между треками перед переименованием файла.";
 
 "library_insight_lastfm_fetch" = "Загрузить из Last.fm";
 "library_insight_lastfm_fetching" = "Загрузка из Last.fm…";
@@ -6974,3 +6973,9 @@
 "library_insight_lastfm_failed" = "Не удалось загрузить данные из Last.fm. Повторите попытку позже.";
 "library_insight_lastfm_replace_title" = "Заменить описание?";
 "library_insight_lastfm_replace_message" = "Описание и теги стиля будут заменены содержимым из Last.fm.";
+"song_file_rename_busy" = "Завершите трансляцию или переход между треками перед переименованием файла.";
+
+"song_list_layout" = "Вид списка";
+"song_list_layout_list" = "Обычный список";
+"song_list_layout_timeline" = "Лента";
+"song_list_layout_artwork" = "Карточки обложек";

@@ -2395,13 +2395,14 @@ struct MacSimilarSongsPopover: View {
                     fileFormat: row.song.fileFormat
                 )
 
-                SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                    .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(row.song.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(PMColor.text)
-                        .lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                        Text(row.song.title)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(PMColor.text)
+                            .lineLimit(1)
+                    }
                     Text(
                         library.artistDisplayName(for: row.song)
                             ?? String(localized: "unknown_artist")

@@ -6966,7 +6966,6 @@
 "song_file_rename_shared" = "ไฟล์เสียงหลายไฟล์ใช้ชื่อและไฟล์ประกอบร่วมกัน โปรดจัดระเบียบนอก Primuse";
 "song_file_rename_partial" = "กู้คืนบางไฟล์ไม่ได้ คลังเก็บตำแหน่งที่ยืนยันแล้วไว้ โปรดรีเฟรชโฟลเดอร์ก่อนลองอีกครั้ง";
 "song_file_rename_readback" = "เปลี่ยนชื่อไฟล์แล้ว แต่อ่านข้อมูลใหม่ไม่ได้ โปรดรีเฟรชโฟลเดอร์";
-"song_file_rename_busy" = "รอให้การแคสต์หรือการเปลี่ยนเพลงสิ้นสุดก่อนเปลี่ยนชื่อไฟล์";
 
 "library_insight_lastfm_fetch" = "ดึงข้อมูลจาก Last.fm";
 "library_insight_lastfm_fetching" = "กำลังดึงข้อมูลจาก Last.fm…";
@@ -6974,3 +6973,9 @@
 "library_insight_lastfm_failed" = "ดึงข้อมูลจาก Last.fm ไม่สำเร็จ โปรดลองอีกครั้งภายหลัง";
 "library_insight_lastfm_replace_title" = "แทนที่คำแนะนำหรือไม่";
 "library_insight_lastfm_replace_message" = "คำแนะนำและแท็กสไตล์จะถูกแทนที่ด้วยเนื้อหาจาก Last.fm";
+"song_file_rename_busy" = "รอให้การแคสต์หรือการเปลี่ยนเพลงสิ้นสุดก่อนเปลี่ยนชื่อไฟล์";
+
+"song_list_layout" = "รูปแบบรายการ";
+"song_list_layout_list" = "รายการเริ่มต้น";
+"song_list_layout_timeline" = "ไทม์ไลน์";
+"song_list_layout_artwork" = "การ์ดปก";

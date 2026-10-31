@@ -37,17 +37,16 @@ struct PlaylistPendingEntryRow: View {
                 }
                 .accessibilityHidden(true)
 
-            if let trackNumber {
-                SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-            }
-
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title.isEmpty ? String(localized: "unknown_title") : entry.title)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    if let trackNumber {
+                        SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
+                    }
+                    Text(entry.title.isEmpty ? String(localized: "unknown_title") : entry.title)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if !detailLine.isEmpty {
                     Text(detailLine)
                         .font(.caption)
@@ -182,10 +181,11 @@ struct PlaylistPendingMatchSheet: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 10) {
-                                SongRowTrackNumber(number: index + 1, largestNumber: results.count)
-                                    .foregroundStyle(.secondary)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(song.title).foregroundStyle(.primary)
+                                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                        SongRowTrackNumber(number: index + 1, largestNumber: results.count)
+                                        Text(song.title).foregroundStyle(.primary)
+                                    }
                                     Text(
                                         [library.artistDisplayName(for: song), song.albumTitle]
                                             .compactMap { $0 }

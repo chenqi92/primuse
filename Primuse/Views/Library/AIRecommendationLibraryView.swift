@@ -721,7 +721,7 @@ struct AIRecommendationLibraryView: View {
                 fileFormat: song.fileFormat
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(isCurrent ? platformAccentColor : platformPrimaryTextColor)
                     .lineLimit(1)
@@ -867,7 +867,7 @@ struct AIRecommendationLibraryView: View {
                         .foregroundStyle(platformSecondaryTextColor)
                         .lineLimit(1)
                 }
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.headline)
                     .foregroundStyle(platformPrimaryTextColor)
                     .lineLimit(2)

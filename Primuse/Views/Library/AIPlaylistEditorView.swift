@@ -468,11 +468,12 @@ struct AIPlaylistEditorView: View {
                 fileFormat: song.fileFormat
             )
 
-            SongRowTrackNumber(number: ordinal, largestNumber: generatedSongs.count)
-                .font(.subheadline).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    SongRowTrackNumber(number: ordinal, largestNumber: generatedSongs.count)
+                    Text(song.title)
+                        .lineLimit(1)
+                }
                 Text(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))
                     .font(.caption)
                     .foregroundStyle(.secondary)

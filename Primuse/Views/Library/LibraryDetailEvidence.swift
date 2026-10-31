@@ -447,7 +447,23 @@ private final class SongLocationEvidenceFixture {
     }
 
     func prepare() async {
-        let songs = (0..<(Self.showsContentTags ? 3 : 4_000)).map { index in
+        let usesReferenceArtwork = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_REFERENCE_ARTWORK"] == "1"
+        var coverReferences: [String] = []
+        if usesReferenceArtwork {
+            let covers = FileManager.default.temporaryDirectory.appendingPathComponent("song-list-reference-covers")
+            for index in 0..<10 {
+                let id = "song-list-reference-\(index)"
+                if let data = try? Data(contentsOf: covers.appendingPathComponent("\(index).jpg")),
+                   await MetadataAssetStore.shared.cacheCover(data, forSongID: id) {
+                    coverReferences.append(MetadataAssetStore.shared.expectedCoverFileName(for: id))
+                }
+            }
+        }
+        let titles = ["Crazy Dave (Intro Theme)", "BB’s Theme", "Moss Grotto", "Liyue", "Time Go Fishing",
+                      "A Time of Quiet Between the Storms", "Another Love", "Diet Pepsi", "High Fashion", "Kiss"]
+        let artists = ["Laura Shigihara", "Ludvig Forssell", "Christopher Larkin", "陈致逸", "Daniel Pemberton",
+                       "Hans Zimmer", "Tom Odell", "Addison Rae", "Addison Rae", "天门"]
+        var songs = (0..<(Self.showsContentTags ? 3 : 4_000)).map { index in
             Song(id: "location-\(index)", title: String(format: "Track %04d", index),
                  albumTitle: "Location Album", artistName: "Location Artist", trackNumber: index + 1, duration: 180,
                  fileFormat: .flac, filePath: "/location-fixture/\(index).flac", sourceID: "location-fixture",
@@ -456,6 +472,15 @@ private final class SongLocationEvidenceFixture {
                     copyright: index < 2 ? "℗ 2026 Example Records" : "© 2026 Guest Artist",
                     isFileInspectionComplete: true
                  ) : nil)
+        }
+        if usesReferenceArtwork, !coverReferences.isEmpty {
+            for index in songs.indices {
+                songs[index].coverArtFileName = coverReferences[index % coverReferences.count]
+                if index >= 3_990 {
+                    songs[index].title = titles[index % titles.count]
+                    songs[index].artistName = artists[index % artists.count]
+                }
+            }
         }
         library.addSongs(songs, affectedSourceIDs: ["location-fixture"])
         await library.waitForPendingIndex()
@@ -469,6 +494,7 @@ private final class SongLocationEvidenceFixture {
 }
 
 struct SongLocationEvidenceHost: View {
+    @AppStorage(AppThemePreferences.iOSAppearanceKey) private var appearanceRawValue = "system"
     @State private var fixture = SongLocationEvidenceFixture()
     @State private var isReady = false
     @State private var page = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_PAGE"] ?? "songs"
@@ -499,6 +525,7 @@ struct SongLocationEvidenceHost: View {
                 ProgressView()
             }
         }
+        .preferredColorScheme(IOSAppearancePreference(rawValue: appearanceRawValue)?.colorScheme)
         .task {
             guard !isReady else { return }
             await fixture.prepare()

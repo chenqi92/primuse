@@ -349,14 +349,14 @@ struct QueueView: View {
                 }
             }
 
-            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                .font(.subheadline).foregroundStyle(.secondary)
-
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .font(.subheadline.weight(isPlaying ? .semibold : .regular))
-                    .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    Text(song.title)
+                        .font(.subheadline.weight(isPlaying ? .semibold : .regular))
+                        .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                        .lineLimit(1)
+                }
                 if unreachable {
                     // Playback steps over this entry until its source answers.
                     Label("song_row_source_unreachable", systemImage: "wifi.slash")

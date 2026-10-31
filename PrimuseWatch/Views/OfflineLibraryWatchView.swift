@@ -24,7 +24,11 @@ struct OfflineLibraryWatchView: View {
                             dismiss()
                         } label: {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(verbatim: "\((index + 1).formatted()). \(file.title)").lineLimit(2)
+                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                    Text(index + 1, format: .number.grouping(.never))
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                    Text(verbatim: file.title).lineLimit(2)
+                                }
                                 Text([file.artist, ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)]
                                     .filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)

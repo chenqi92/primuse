@@ -609,12 +609,13 @@ private struct TransferLibraryWindow: View {
             }
             Image(systemName: "music.note").font(TransferTreeLayout.titleFont)
                 .foregroundStyle(.secondary).frame(width: TransferTreeLayout.iconWidth)
-            if let ordinal {
-                SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                    .font(TransferTreeLayout.titleFont).foregroundStyle(.secondary)
-            }
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title).font(TransferTreeLayout.titleFont).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    if let ordinal {
+                        SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    }
+                    Text(song.title).font(TransferTreeLayout.titleFont).lineLimit(1)
+                }
                 Text(reason.map(WiFiTransferText.string) ?? song.artistName ?? "")
                     .font(TransferTreeLayout.detailFont).foregroundStyle(.secondary).lineLimit(1)
             }

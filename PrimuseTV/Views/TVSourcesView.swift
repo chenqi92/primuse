@@ -1284,12 +1284,14 @@ private struct TVLocalRemovalsView: View {
             focusBinding: $focusedID, focusID: focusID
         ) { focused in
             HStack(spacing: 20) {
-                TVSongOrdinal(number: row.ordinal, largestNumber: loadedCount)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: row.title)
-                        .tvFont(.rowTitle)
-                        .foregroundStyle(TVColor.text)
-                        .lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        TVSongOrdinal(number: row.ordinal, largestNumber: loadedCount)
+                        Text(verbatim: row.title)
+                            .tvFont(.rowTitle)
+                            .foregroundStyle(TVColor.text)
+                            .lineLimit(1)
+                    }
                     Text(verbatim: row.detail)
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)

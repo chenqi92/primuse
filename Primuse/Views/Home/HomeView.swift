@@ -4636,7 +4636,7 @@ struct HomeView: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)

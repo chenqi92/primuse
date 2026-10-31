@@ -3521,3 +3521,123 @@ final class ListeningHistoryClassificationTests: XCTestCase {
         XCTAssertEqual(model.snapshot?.playsThisYear, before)
     }
 }
+
+#if os(iOS)
+@MainActor
+final class SongListAppearanceLayoutTests: XCTestCase {
+    func testLocationVisibilityIncludesTheOverflowingCoverWithoutExpandingCompactRows() {
+        let size = CGSize(width: 440, height: 72)
+        for ordinal in 1...4 {
+            let height = SongLocationVisibility.height(size: size, appearance: .artwork,
+                ordinal: ordinal, accessibilitySize: false)
+            let geometry = SongTimelineGeometry(size: size, appearance: .artwork,
+                ordinal: ordinal, accessibilitySize: false, rightToLeft: false)
+            let bounds = CGRect(origin: .zero, size: geometry.cover.size)
+                .applying(CGAffineTransform(rotationAngle: geometry.angle * .pi / 180))
+            XCTAssertGreaterThan(height, size.height)
+            XCTAssertGreaterThanOrEqual(height + 0.001, bounds.height)
+            for appearance in [SongListAppearance.list, .timeline] {
+                XCTAssertEqual(SongLocationVisibility.height(size: size, appearance: appearance,
+                    ordinal: ordinal, accessibilitySize: false), size.height)
+            }
+        }
+        for size in [CGSize(width: 280, height: 72), CGSize(width: 440, height: 150)] {
+            XCTAssertEqual(SongLocationVisibility.height(size: size, appearance: .artwork,
+                ordinal: 1, accessibilitySize: size.height == 150), size.height)
+        }
+    }
+
+    func testScrollMotionReversesAcrossViewportAndRespectsReducedMotion() {
+        for artwork in [false, true] {
+            for leading in [false, true] {
+                let center = SongListScrollMotion(position: 0, artwork: artwork, leading: leading, reduceMotion: false)
+                XCTAssertEqual(center.scale, 1)
+                XCTAssertEqual(center.tilt, 0)
+                let top = SongListScrollMotion(position: -1, artwork: artwork, leading: leading, reduceMotion: false)
+                let bottom = SongListScrollMotion(position: 1, artwork: artwork, leading: leading, reduceMotion: false)
+                XCTAssertEqual(top.scale, bottom.scale)
+                XCTAssertLessThan(top.scale, center.scale)
+                XCTAssertEqual(top.tilt, -bottom.tilt)
+                XCTAssertEqual(top.turn, -bottom.turn)
+                XCTAssertEqual(top.reflection, -bottom.reflection)
+                if !artwork {
+                    XCTAssertEqual(top.tilt, 0, "Glass labels must stay in a 2D compositing layer")
+                    XCTAssertEqual(top.turn, 0)
+                }
+                XCTAssertEqual(SongListScrollMotion(position: 100, artwork: artwork, leading: leading, reduceMotion: false), bottom)
+                for position in [-2.0, -0.5, 0.5, 2, .infinity, .nan] {
+                    let reduced = SongListScrollMotion(position: position, artwork: artwork, leading: leading, reduceMotion: true)
+                    XCTAssertEqual(reduced, center)
+                }
+            }
+        }
+    }
+
+    func testProtrudingCoverHitRegionExcludesTheAdjacentSongsEmptyHalf() {
+        for rightToLeft in [false, true] {
+            let shape = SongTimelineHitShape(appearance: .artwork, ordinal: 1,
+                accessibilitySize: false, rightToLeft: rightToLeft)
+            let path = shape.path(in: CGRect(x: 0, y: 0, width: 440, height: 72))
+            XCTAssertTrue(path.contains(CGPoint(x: rightToLeft ? 380 : 60, y: -12)))
+            XCTAssertFalse(path.contains(CGPoint(x: rightToLeft ? 60 : 380, y: 36)))
+            let next = SongTimelineHitShape(appearance: .artwork, ordinal: 2,
+                accessibilitySize: false, rightToLeft: rightToLeft)
+            XCTAssertFalse(next.path(in: CGRect(x: 0, y: 0, width: 440, height: 72))
+                .contains(CGPoint(x: rightToLeft ? 380 : 60, y: 60)))
+        }
+    }
+
+    func testNarrowAndAccessibilityLayoutsKeepCardsClearOfTheAxis() {
+        for width in [260.0, 288, 317, 332, 393, 760, 1024] {
+            for accessibility in [false, true] {
+                let metrics = SongTimelineMetrics(width: width, accessibilitySize: accessibility)
+                XCTAssertGreaterThan(metrics.cardWidth, 0)
+                XCTAssertLessThanOrEqual(metrics.cardWidth, metrics.width)
+                let rightEdge = metrics.width - metrics.cardWidth
+                XCTAssertGreaterThan(rightEdge, metrics.axisX)
+                if metrics.usesFullWidth {
+                    XCTAssertFalse(metrics.isLeading(ordinal: 3991))
+                } else {
+                    XCTAssertLessThan(metrics.cardWidth, metrics.axisX)
+                    XCTAssertNotEqual(metrics.isLeading(ordinal: 3990), metrics.isLeading(ordinal: 3991))
+                }
+            }
+        }
+        XCTAssertEqual(SongListAppearance.resolved("obsolete"), .list)
+    }
+
+    func testDecorativeRowsKeepStableHeightAcrossLoadingAndSelection() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let manager = SourceManager(sourcesProvider: { [] }, songsProvider: { [] })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await library.whenReady()
+        let song = Song(id: "timeline-layout", title: "A Time of Quiet Between the Storms", artistName: "Hans Zimmer",
+                        duration: 180, fileFormat: .flac, filePath: "", sourceID: "timeline-layout")
+        for appearance in [SongListAppearance.timeline, .artwork] {
+            for typeSize in [DynamicTypeSize.large, .accessibility3] {
+                let root = SongTimelineRowContent(song: song, title: song.title, artist: song.artistName,
+                    appearance: appearance, ordinal: 3991)
+                    .environment(library).environment(manager).environment(\.dynamicTypeSize, typeSize)
+                let host = UIHostingController(rootView: root)
+                for width in [288.0, 332, 720] {
+                    let initial = host.sizeThatFits(in: CGSize(width: width, height: 1000))
+                    host.view.frame = CGRect(origin: .zero, size: initial)
+                    host.view.layoutIfNeeded()
+                    try await Task.sleep(for: .milliseconds(50))
+                    let later = host.sizeThatFits(in: CGSize(width: width, height: 1000))
+                    XCTAssertEqual(initial.height, later.height, accuracy: 0.5)
+                    XCTAssertGreaterThan(initial.height, 44)
+                    XCTAssertLessThanOrEqual(initial.width, width)
+                    let selected = UIHostingController(rootView:
+                        SongTimelineRowContent(song: song, title: song.title, artist: song.artistName,
+                            appearance: appearance, ordinal: 3991, isPlaying: true, isLoading: true, isSelected: true)
+                            .environment(library).environment(manager).environment(\.dynamicTypeSize, typeSize)
+                            .environment(\.songLocationEmphasis, 1))
+                    XCTAssertEqual(selected.sizeThatFits(in: CGSize(width: width, height: 1000)).height, initial.height, accuracy: 0.5)
+                }
+            }
+        }
+    }
+}
+#endif

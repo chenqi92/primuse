@@ -2183,11 +2183,7 @@ struct TVSongOrdinal: View {
     let largestNumber: Int
 
     var body: some View {
-        Text(max(number, largestNumber), format: .number.grouping(.never))
-            .hidden()
-            .overlay(alignment: .trailing) {
-                Text(number, format: .number.grouping(.never))
-            }
+        Text(number, format: .number.grouping(.never))
             .tvFont(.meta, design: .monospaced)
             .foregroundStyle(TVColor.textFaint)
             .fixedSize()
@@ -2239,9 +2235,6 @@ struct TVSongRow: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                     }
-                if let ordinal {
-                    TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
-                }
                 VStack(alignment: .leading, spacing: 3) {
                     if let reason {
                         Label(reason, systemImage: "sparkles")
@@ -2250,6 +2243,9 @@ struct TVSongRow: View {
                             .lineLimit(1)
                     }
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if let ordinal {
+                            TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
+                        }
                         Text(song.title).tvFont(.cardTitle)
                             .foregroundStyle(isCurrent ? TVColor.brand : TVColor.text).lineLimit(2)
                         TVContentRatingBadge(songID: song.id)

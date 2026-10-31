@@ -6966,7 +6966,6 @@
 "song_file_rename_shared" = "Kilka plików audio ma tę samą nazwę i wspólne pliki towarzyszące. Uporządkuj je poza Primuse.";
 "song_file_rename_partial" = "Nie udało się przywrócić części plików. Biblioteka zachowuje potwierdzone lokalizacje. Odśwież folder przed ponowną próbą.";
 "song_file_rename_readback" = "Nazwa została zmieniona, ale nie można odczytać nowych informacji. Odśwież folder.";
-"song_file_rename_busy" = "Zakończ przesyłanie lub przejście między utworami przed zmianą nazwy pliku.";
 
 "library_insight_lastfm_fetch" = "Pobierz z Last.fm";
 "library_insight_lastfm_fetching" = "Pobieranie z Last.fm…";
@@ -6974,3 +6973,9 @@
 "library_insight_lastfm_failed" = "Nie udało się pobrać z Last.fm. Spróbuj ponownie później.";
 "library_insight_lastfm_replace_title" = "Zastąpić opis?";
 "library_insight_lastfm_replace_message" = "Opis i tagi stylu zostaną zastąpione treścią z Last.fm.";
+"song_file_rename_busy" = "Zakończ przesyłanie lub przejście między utworami przed zmianą nazwy pliku.";
+
+"song_list_layout" = "Wygląd listy";
+"song_list_layout_list" = "Lista domyślna";
+"song_list_layout_timeline" = "Oś czasu";
+"song_list_layout_artwork" = "Karty okładek";

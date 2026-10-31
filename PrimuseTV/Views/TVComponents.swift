@@ -551,8 +551,13 @@ struct TVSongCard: View {
                             .lineLimit(1, reservesSpace: true)
                             .opacity(reason.isEmpty ? 0 : 1)
                     }
-                    Text(verbatim: ordinal.map { "\($0.formatted()). \(song.title)" } ?? song.title).tvFont(.cardTitle)
-                        .foregroundStyle(TVColor.text).lineLimit(2, reservesSpace: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let ordinal {
+                            TVSongOrdinal(number: ordinal, largestNumber: ordinal)
+                        }
+                        Text(verbatim: song.title).tvFont(.cardTitle)
+                            .foregroundStyle(TVColor.text).lineLimit(2, reservesSpace: true)
+                    }
                     Text(song.artist).tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }

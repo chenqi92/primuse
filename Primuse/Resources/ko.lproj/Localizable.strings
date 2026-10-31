@@ -7060,7 +7060,6 @@
 "song_file_rename_shared" = "여러 오디오 파일이 이 이름과 관련 파일을 공유합니다. Primuse 외부에서 정리하세요.";
 "song_file_rename_partial" = "일부 파일을 복원하지 못했습니다. 보관함에는 확인된 위치가 유지됩니다. 폴더를 새로 고친 후 다시 시도하세요.";
 "song_file_rename_readback" = "파일 이름은 변경되었지만 새 정보를 읽지 못했습니다. 폴더를 새로 고치세요.";
-"song_file_rename_busy" = "전송이나 곡 전환이 끝난 후 파일 이름을 변경하세요.";
 
 "library_insight_lastfm_fetch" = "Last.fm에서 가져오기";
 "library_insight_lastfm_fetching" = "Last.fm에서 가져오는 중…";
@@ -7068,3 +7067,9 @@
 "library_insight_lastfm_failed" = "Last.fm에서 가져오지 못했습니다. 나중에 다시 시도하세요.";
 "library_insight_lastfm_replace_title" = "소개를 바꾸겠습니까?";
 "library_insight_lastfm_replace_message" = "소개와 스타일 태그가 Last.fm의 내용으로 바뀝니다.";
+"song_file_rename_busy" = "전송이나 곡 전환이 끝난 후 파일 이름을 변경하세요.";
+
+"song_list_layout" = "목록 스타일";
+"song_list_layout_list" = "기본 목록";
+"song_list_layout_timeline" = "타임라인";
+"song_list_layout_artwork" = "커버 카드";

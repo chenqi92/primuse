@@ -832,9 +832,11 @@ private struct TVSearchSongRow: View {
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 56, radius: 6)
-                TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(song.title).tvFont(.cardTitle).foregroundStyle(TVColor.text).lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
+                        Text(song.title).tvFont(.cardTitle).foregroundStyle(TVColor.text).lineLimit(1)
+                    }
                     if hit.isLyric, let snippet = hit.lyricSnippet, !snippet.isEmpty {
                         // 歌词命中:展示命中片段,与 iOS/macOS 一致。
                         HStack(spacing: 6) {
@@ -889,10 +891,12 @@ private struct TVAppleMusicSearchRow: View {
                       action: { store.playAppleMusicCatalogHit(hit); action() }) { focused in
             HStack(spacing: 16) {
                 artwork
-                TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(hit.title).tvFont(.cardTitle)
-                        .foregroundStyle(TVColor.text).lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        TVSongOrdinal(number: ordinal, largestNumber: largestOrdinal)
+                        Text(hit.title).tvFont(.cardTitle)
+                            .foregroundStyle(TVColor.text).lineLimit(1)
+                    }
                     Text(hit.albumTitle.isEmpty
                          ? hit.artistName
                          : "\(hit.artistName) · \(hit.albumTitle)")

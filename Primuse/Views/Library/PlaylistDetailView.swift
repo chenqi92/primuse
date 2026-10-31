@@ -2397,11 +2397,11 @@ struct PlaylistReorderSheet: View {
                             filePath: song.filePath,
                             fileFormat: song.fileFormat
                         )
-                        SongRowTrackNumber(number: index + 1, largestNumber: localSongs.count)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title).font(.subheadline).lineLimit(1)
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                SongRowTrackNumber(number: index + 1, largestNumber: localSongs.count)
+                                Text(song.title).font(.subheadline).lineLimit(1)
+                            }
                             if let artist = library.artistDisplayName(for: song) {
                                 Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
@@ -2591,12 +2591,6 @@ struct PlaylistReorderSheet: View {
 
     private func macSongRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         HStack(spacing: 10) {
-            Text(verbatim: (index + 1).formatted(.number.locale(locale)))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(PMColor.textFaint)
-                .lineLimit(1)
-                .frame(width: ordinalWidth, alignment: .trailing)
-
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
                 songID: song.id,
@@ -2608,7 +2602,7 @@ struct PlaylistReorderSheet: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
+                SongRowNumberedTitle(number: index + 1, title: song.title)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)

@@ -406,7 +406,7 @@ struct HomeForYouSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 reasonLine(result, reason: reason, lineLimit: 2)
 
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(2)
@@ -457,7 +457,7 @@ struct HomeForYouSection: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 reasonLine(result, reason: reason, lineLimit: 1)
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -955,7 +955,7 @@ struct MacHomeForYouSection: View {
                         .font(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(PMColor.textFaint)
                 }
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)

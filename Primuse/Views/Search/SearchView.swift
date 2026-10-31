@@ -2498,7 +2498,7 @@ struct SearchView: View {
                         macAppleMusicBadge(size: 18)
                             .padding(6)
                     }
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)
@@ -2880,13 +2880,14 @@ struct SearchView: View {
                         .frame(width: 32, height: 32)
                         .clipShape(RoundedRectangle(cornerRadius: 5))
 
-                        SongRowTrackNumber(number: index + 1, largestNumber: results.count)
-                            .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(PMColor.text)
-                                .lineLimit(1)
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                SongRowTrackNumber(number: index + 1, largestNumber: results.count)
+                                Text(song.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(PMColor.text)
+                                    .lineLimit(1)
+                            }
                             Text(song.artistName)
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(PMColor.textFaint)
@@ -3092,13 +3093,14 @@ struct SearchView: View {
                         filePath: result.song.filePath,
                         fileFormat: result.song.fileFormat
                     )
-                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                        .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(result.song.title)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(PMColor.text)
-                            .lineLimit(1)
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                            Text(result.song.title)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(PMColor.text)
+                                .lineLimit(1)
+                        }
                         Text(verbatim: String(
                             format: String(localized: "search_ai_reason_format"),
                             result.relatedConcept
@@ -3195,13 +3197,14 @@ struct SearchView: View {
                                       sourceID: result.song.sourceID,
                                       filePath: result.song.filePath,
                                       fileFormat: result.song.fileFormat)
-                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                        .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(result.song.title)
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(PMColor.text)
-                            .lineLimit(1)
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                            Text(result.song.title)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(PMColor.text)
+                                .lineLimit(1)
+                        }
                         Text(library.artistDisplayName(for: result.song) ?? "")
                             .font(.system(size: 10.5))
                             .foregroundStyle(PMColor.textFaint)
@@ -3268,13 +3271,14 @@ struct SearchView: View {
                             filePath: result.song.filePath,
                             fileFormat: result.song.fileFormat
                         )
-                        SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                            .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(result.song.title)
-                                .font(.system(size: 11.5, weight: .semibold))
-                                .foregroundStyle(PMColor.text)
-                                .lineLimit(1)
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                                Text(result.song.title)
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(PMColor.text)
+                                    .lineLimit(1)
+                            }
                             Text(library.artistDisplayName(for: result.song) ?? "")
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(PMColor.textFaint)
@@ -4053,10 +4057,11 @@ struct SearchView: View {
                         AppleMusicCatalogBadge(size: 14).offset(x: 5, y: 5)
                     }
 
-                    SongRowTrackNumber(number: number, largestNumber: visibleAppleMusicSearchResults.count)
-                        .font(.subheadline).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(song.title).font(.subheadline).lineLimit(1)
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            SongRowTrackNumber(number: number, largestNumber: visibleAppleMusicSearchResults.count)
+                            Text(song.title).font(.subheadline).lineLimit(1)
+                        }
                         Text(song.artistName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 4)

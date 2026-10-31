@@ -92,23 +92,62 @@ final class SongListLocation {
 
 extension EnvironmentValues {
     @Entry var songListLocation: SongListLocation? = nil
+    @Entry var songLocationEmphasis: Double = 0
+}
+
+enum SongLocationVisibility {
+    static func height(size: CGSize, appearance: SongListAppearance, ordinal: Int, accessibilitySize: Bool) -> CGFloat {
+        guard appearance == .artwork else { return size.height }
+        let geometry = SongTimelineGeometry(size: size, appearance: appearance, ordinal: ordinal,
+            accessibilitySize: accessibilitySize, rightToLeft: false)
+        guard !geometry.metrics.usesFullWidth else { return size.height }
+        let angle = geometry.angle * .pi / 180
+        return max(size.height, geometry.cover.height * (abs(cos(angle)) + abs(sin(angle))))
+    }
 }
 
 private struct SongLocationRowModifier: ViewModifier {
     let songID: String
+    var appearance: SongListAppearance = .list
+    var ordinal = 1
     @Environment(\.songListLocation) private var location
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var emphasis = 0.0
 
     func body(content: Content) -> some View {
         let viewport = location?.viewportBounds
+        let highlightID = location?.highlightedSongID == songID ? location?.request?.id : nil
+        let accessibilitySize = dynamicTypeSize.isAccessibilitySize
         content
+        .environment(\.songLocationEmphasis, emphasis)
         .background {
-            if location?.highlightedSongID == songID {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.accentColor.opacity(0.16))
+            if appearance == .list {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.accentColor.opacity(colorScheme == .dark ? 0.16 : 0.09))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 1)
+                    }
+                    .opacity(emphasis)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
         }
-        .onScrollVisibilityChange(threshold: 0.9) { visible in
-            if viewport == nil { location?.visibilityChanged(songID, visible: visible) }
+        .background {
+            // 可见性探针覆盖完整封面，但不扩大会参与懒加载定位的行高。
+            GeometryReader { proxy in
+                Color.clear
+                    .frame(height: SongLocationVisibility.height(size: proxy.size, appearance: appearance,
+                        ordinal: ordinal, accessibilitySize: accessibilitySize))
+                    .onScrollVisibilityChange(threshold: appearance == .artwork ? 0.98 : 0.9) { visible in
+                        if viewport == nil { location?.visibilityChanged(songID, visible: visible) }
+                    }
+                    .frame(maxHeight: .infinity)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
         .onGeometryChange(for: Bool.self) { proxy in
             guard let viewport else { return false }
@@ -117,6 +156,21 @@ private struct SongLocationRowModifier: ViewModifier {
             return frame.height > 0 && visible.width > 0 && visible.height >= frame.height * 0.9
         } action: { visible in
             if viewport != nil { location?.visibilityChanged(songID, visible: visible) }
+        }
+        .task(id: highlightID) {
+            guard highlightID != nil else {
+                withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.35)) { emphasis = 0 }
+                return
+            }
+            var reset = Transaction(animation: nil)
+            reset.disablesAnimations = true
+            withTransaction(reset) { emphasis = 0 }
+            do {
+                try await Task.sleep(for: .milliseconds(35))
+                withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.18)) { emphasis = 1 }
+                try await Task.sleep(for: .milliseconds(1600))
+                withAnimation(.easeOut(duration: reduceMotion ? 0.2 : 0.65)) { emphasis = 0 }
+            } catch { }
         }
         .onDisappear { location?.visibilityChanged(songID, visible: false) }
     }
@@ -153,11 +207,12 @@ private struct SongLocationReader: ViewModifier {
 
 extension View {
     @ViewBuilder
-    func songLocationRow(_ songID: String, assignsScrollID: Bool = true) -> some View {
+    func songLocationRow(_ songID: String, assignsScrollID: Bool = true,
+                         appearance: SongListAppearance = .list, ordinal: Int = 1) -> some View {
         if assignsScrollID {
-            modifier(SongLocationRowModifier(songID: songID)).id(songID)
+            modifier(SongLocationRowModifier(songID: songID, appearance: appearance, ordinal: ordinal)).id(songID)
         } else {
-            modifier(SongLocationRowModifier(songID: songID))
+            modifier(SongLocationRowModifier(songID: songID, appearance: appearance, ordinal: ordinal))
         }
     }
 
@@ -1859,6 +1914,7 @@ struct SongListView: View {
         .onScrollPhaseChange { _, newPhase in
             updateListInteraction(for: newPhase)
         }
+        .modifier(SongListAppearancePreference())
         .toolbar {
             iosToolbar
         }
@@ -2704,7 +2760,7 @@ struct SongListView: View {
                     }
                 }
 
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
                     .lineLimit(1)
@@ -4003,6 +4059,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     let locatedSongID: String?
     let locationRequestID: UUID?
     @Environment(\.songListLocation) private var location
+    @Environment(\.songListAppearance) private var appearance
     let selection: SongSelectionModel
     let showsListeningIntents: Bool
     let onPlay: (Song) -> Void
@@ -4055,6 +4112,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                 // element expands into both a row and a divider, SwiftUI may
                 // walk thousands of intermediate children.
                 .scrollTargetLayout()
+                .padding(.vertical, appearance == .artwork ? 40 : 0)
             }
             .scrollPosition($scrollPosition)
             // iPhone Duo 竖栏：行和字母索引都停在竖栏左侧，「开始听」的横滑一排铺到屏幕右缘。
@@ -4073,6 +4131,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                         rowOrderRevision: rowOrderRevision
                     )
                 }
+                .accessibilityIdentifier("songList.alphabetIndex")
                 .frame(width: 112)
                 .padding(.trailing, sectionIndexTrailingInset)
                 // 「开始听」那一行的标题右端有「全部」，索引从它下面开始，两者不叠在一起。
@@ -4110,7 +4169,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     }
 
     private var showsSectionIndex: Bool {
-        !selection.isActive
+        appearance == .list && !selection.isActive
             && cache.positionCount >= 24
             && sectionIndexEntries.count > 1
     }
@@ -4136,6 +4195,7 @@ private struct IOSSongListPositionSlot: View {
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
     @Environment(\.songRowStyle) private var rowStyle
+    @Environment(\.songListAppearance) private var appearance
 
     var body: some View {
         VStack(spacing: 0) {
@@ -4146,14 +4206,16 @@ private struct IOSSongListPositionSlot: View {
                 selection: selection,
                 onPlay: onPlay
             )
-            .padding(.leading, 16)
-            .padding(.trailing, trailingPadding)
-            .padding(.vertical, 4)
+            .padding(.leading, appearance == .artwork ? 0 : 16)
+            .padding(.trailing, appearance == .artwork ? 0 : trailingPadding)
+            .padding(.vertical, appearance == .list ? 4 : 0)
 
-            Divider()
-                .padding(.leading, rowStyle.separatorLeadingInset)
-                .opacity(isLast ? 0 : 1)
-                .accessibilityHidden(true)
+            if appearance == .list {
+                Divider()
+                    .padding(.leading, rowStyle.separatorLeadingInset)
+                    .opacity(isLast ? 0 : 1)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }
@@ -4349,6 +4411,7 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
     @Environment(\.songRowStyle) private var rowStyle
+    @Environment(\.songListAppearance) private var appearance
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.projectionRevision == rhs.projectionRevision
@@ -4362,24 +4425,27 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(projection.rows) { row in
-                    IOSSongListProjectedRow(
-                        songID: row.id,
-                        ordinal: row.offset + 1,
-                        totalCount: projection.rows.count,
-                        cache: cache,
-                        selection: selection,
-                        onPlay: onPlay
-                    )
-                    .padding(.horizontal)
-                    .padding(.vertical, 4)
-                    .id(row.id)
+                    VStack(spacing: 0) {
+                        IOSSongListProjectedRow(
+                            songID: row.id,
+                            ordinal: row.offset + 1,
+                            totalCount: projection.rows.count,
+                            cache: cache,
+                            selection: selection,
+                            onPlay: onPlay
+                        )
+                        .padding(.horizontal, appearance == .artwork ? 0 : 16)
+                        .padding(.vertical, appearance == .list ? 4 : 0)
 
-                    if row.offset < projection.rows.count - 1 {
-                        Divider()
-                            .padding(.leading, rowStyle.separatorLeadingInset)
+                        if appearance == .list, row.offset < projection.rows.count - 1 {
+                            Divider()
+                                .padding(.leading, rowStyle.separatorLeadingInset)
+                        }
                     }
+                    .id(row.id)
                 }
             }
+            .padding(.vertical, appearance == .artwork ? 40 : 0)
         }
         .pmExtendsUnderVerticalBar()
         .background(songListBackground)
@@ -5218,6 +5284,7 @@ private struct LibraryFolderNodeView: View {
         content
             .navigationTitle(Text(verbatim: navigationTitle))
             #if os(iOS)
+            .modifier(SongListAppearancePreference())
             .navigationBarTitleDisplayMode(.inline)
             .minimalNavigationDetail()
             .toolbar { iosToolbar }
@@ -5525,6 +5592,7 @@ private struct LibraryFolderNodeView: View {
 
 private struct LibraryFolderSongRow: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.songListAppearance) private var appearance
 
     let songID: String
     let ordinal: Int
@@ -5542,8 +5610,10 @@ private struct LibraryFolderSongRow: View {
         ) {
             #if os(iOS)
             IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
+                .padding(.horizontal, appearance == .artwork ? 0 : 8)
+                .padding(.vertical, appearance == .list ? 5 : 0)
+                .padding(.top, appearance == .artwork && ordinal == 1 ? 40 : 0)
+                .padding(.bottom, appearance == .artwork && ordinal == totalCount ? 40 : 0)
             #else
             IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
                 .songSelectable(
@@ -5556,8 +5626,10 @@ private struct LibraryFolderSongRow: View {
                 .padding(.vertical, 5)
             #endif
 
-            Divider()
-                .padding(.leading, 72)
+            if appearance == .list {
+                Divider()
+                    .padding(.leading, 72)
+            }
         }
     }
 }
@@ -5943,6 +6015,7 @@ private struct SongListNormalToolbarMenu: View {
                     Image(systemName: "ellipsis")
                 }
                 .accessibilityLabel(Text("a11y_more_actions"))
+                .accessibilityIdentifier("songList.more")
             }
         }
     }
@@ -6159,6 +6232,8 @@ private struct IOSSongListRow: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.songListAppearance) private var appearance
 
     let model: SongListRowModel
     let ordinal: Int
@@ -6175,20 +6250,34 @@ private struct IOSSongListRow: View {
         let isSelected = membership?.isSelected == true
         Group {
             if let membership {
-                IOSSelectionSongRow(
-                    song: song,
-                    isPlaying: player.currentSong?.id == song.id,
-                    ordinal: ordinal,
-                    totalCount: totalCount,
-                    membership: membership
-                )
+                if appearance != .list {
+                    SongTimelineRowContent(
+                        song: song,
+                        title: library.displayTitle(for: song),
+                        artist: library.artistDisplayName(for: song),
+                        appearance: appearance,
+                        ordinal: ordinal,
+                        isPlaying: player.currentSong?.id == song.id,
+                        isSelected: membership.isSelected
+                    )
+                } else {
+                    IOSSelectionSongRow(
+                        song: song,
+                        isPlaying: player.currentSong?.id == song.id,
+                        ordinal: ordinal,
+                        totalCount: totalCount,
+                        membership: membership
+                    )
+                }
             } else {
                 SongRowView(
                     song: song,
                     isPlaying: player.currentSong?.id == song.id,
                     trackNumber: ordinal,
                     largestTrackNumber: totalCount,
+                    showsActions: appearance == .list,
                     selection: selection,
+                    listAppearance: appearance,
                     context: SongRowView.context(
                         for: song,
                         sourcesStore: sourcesStore,
@@ -6197,8 +6286,8 @@ private struct IOSSongListRow: View {
                 )
             }
         }
-        .songLocationRow(song.id, assignsScrollID: false)
-        .contentShape(Rectangle())
+        .songLocationRow(song.id, assignsScrollID: false, appearance: appearance, ordinal: ordinal)
+        .modifier(SongListRowHitRegion(appearance: appearance, ordinal: ordinal))
         .onTapGesture {
             if selection.isActive {
                 selection.toggle(song.id)
@@ -6252,14 +6341,14 @@ private struct IOSSelectionSongRow: View {
             SongSelectionCheckmark(isSelected: membership.isSelected)
                 .frame(width: 28, height: 44)
 
-            SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
-                .font(.subheadline).foregroundStyle(.secondary)
-
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .font(.subheadline)
-                    .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    Text(song.title)
+                        .font(.subheadline)
+                        .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                        .lineLimit(1)
+                }
 
                 Text(verbatim: selectionSubtitle)
                     .font(.caption)

@@ -1545,7 +1545,7 @@ struct MacHomeView: View {
                 fileFormat: song.fileFormat
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: "\(ordinal.formatted()). \(song.title)")
+                SongRowNumberedTitle(number: ordinal, title: song.title)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
                     .lineLimit(1)

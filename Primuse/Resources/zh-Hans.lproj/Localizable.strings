@@ -7153,7 +7153,6 @@
 "song_file_rename_shared" = "多个音频文件共用此名称及关联文件，请在 Primuse 外分别整理。";
 "song_file_rename_partial" = "部分文件未能恢复原名，资料库已保留确认后的文件位置。请刷新文件夹后再试。";
 "song_file_rename_readback" = "文件已重命名，但未能读取更新后的信息，请刷新文件夹。";
-"song_file_rename_busy" = "请在投放或歌曲过渡结束后重命名此文件。";
 
 "library_insight_lastfm_fetch" = "从 Last.fm 获取";
 "library_insight_lastfm_fetching" = "正在从 Last.fm 获取…";
@@ -7161,3 +7160,9 @@
 "library_insight_lastfm_failed" = "从 Last.fm 获取失败，请稍后重试。";
 "library_insight_lastfm_replace_title" = "替换简介？";
 "library_insight_lastfm_replace_message" = "现有简介和风格标签将替换为 Last.fm 的内容。";
+"song_file_rename_busy" = "请在投放或歌曲过渡结束后重命名此文件。";
+
+"song_list_layout" = "列表样式";
+"song_list_layout_list" = "默认列表";
+"song_list_layout_timeline" = "时间线";
+"song_list_layout_artwork" = "封面卡片";

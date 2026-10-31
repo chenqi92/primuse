@@ -2027,12 +2027,13 @@ struct PlaylistImportView: View {
                         Image(systemName: "music.note")
                             .foregroundStyle(PMColor.brand)
                             .frame(width: 18)
-                        SongRowTrackNumber(number: index + 1, largestNumber: manualMatchResults.count)
-                            .font(.system(size: 11)).foregroundStyle(PMColor.textFaint)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title)
-                                .font(.system(size: 12.5, weight: .medium))
-                                .foregroundStyle(PMColor.text)
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                SongRowTrackNumber(number: index + 1, largestNumber: manualMatchResults.count)
+                                Text(song.title)
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .foregroundStyle(PMColor.text)
+                            }
                             Text(
                                 [library.artistDisplayName(for: song), song.albumTitle]
                                     .compactMap { $0 }
