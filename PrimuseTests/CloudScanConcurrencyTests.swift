@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 import XCTest
 @testable import Primuse
 
@@ -171,4 +172,426 @@ private actor BlockingListings {
         catch { cancelled.fulfill(); throw error }
         return []
     }
+}
+
+final class BaiduSnapshotConcurrencyTests: XCTestCase {
+    func testSlowDirectoryDoesNotHoldUpQueuedDirectoriesAndStaysResumable() async throws {
+        let progressed = expectation(description: "Queued directory completes while the first is blocked")
+        let fixture = SnapshotListingFixture(mode: .slowFirst)
+        let harness = SnapshotHarness(fixture)
+        let progress = SnapshotProgressRecorder()
+        defer { harness.close() }
+        let traversal = Task {
+            try await harness.scan { state, _ in
+                if await progress.recordQueuedProgress(state) {
+                    progressed.fulfill()
+                }
+            }
+        }
+        await fulfillment(of: [progressed], timeout: 5)
+        fixture.release()
+        let changes = try await traversal.value
+        XCTAssertEqual(changes.reconciledIndex?.count, 12)
+        XCTAssertEqual(fixture.counts.count, 7)
+        XCTAssertTrue(fixture.counts.values.allSatisfy { $0 == 1 })
+        XCTAssertLessThanOrEqual(fixture.peak, 4)
+    }
+
+    func testDirectoryBudgetDrainsAdmittedWorkAndResumeDoesNotRelistIt() async throws {
+        let fixture = SnapshotListingFixture(mode: .normal)
+        let harness = SnapshotHarness(fixture)
+        defer { harness.close() }
+        let progress = SnapshotProgressRecorder()
+        do {
+            _ = try await harness.scan(budget: .init(maximumDirectories: 3)) {
+                await progress.record($0, $1)
+            }
+            XCTFail("Expected the directory budget to stop the traversal")
+        } catch BaiduSnapshotExecutionError.budgetExhausted(let reason, _) {
+            XCTAssertEqual(reason, .directories)
+        }
+        let latest = await progress.latest
+        let checkpoint = try XCTUnwrap(latest)
+        XCTAssertEqual(checkpoint.visitedDirectories.count, 3)
+        XCTAssertEqual(checkpoint.pendingDirectories.count, 4)
+        XCTAssertEqual(fixture.counts.values.reduce(0, +), 3)
+
+        let changes = try await harness.scan(resume: checkpoint) { _, _ in }
+        XCTAssertEqual(changes.reconciledIndex?.count, 12)
+        XCTAssertTrue(fixture.counts.values.allSatisfy { $0 == 1 })
+        XCTAssertEqual(changes.telemetry?.resumed, true)
+        XCTAssertEqual(changes.telemetry?.directoryCount, 4)
+    }
+
+    func testCancellationPreservesActiveAndQueuedDirectories() async throws {
+        let ready = expectation(description: "Four listings are active")
+        let fixture = SnapshotListingFixture(mode: .blockChildren, ready: ready)
+        let harness = SnapshotHarness(fixture)
+        defer { harness.close() }
+        let progress = SnapshotProgressRecorder()
+        let traversal = Task {
+            try await harness.scan { await progress.record($0, $1) }
+        }
+        await fulfillment(of: [ready], timeout: 5)
+        traversal.cancel()
+        let result = await traversal.result
+        if case .success = result { XCTFail("Cancellation must not produce an authoritative snapshot") }
+        let latest = await progress.latest
+        let checkpoint = try XCTUnwrap(latest)
+        XCTAssertEqual(checkpoint.visitedDirectories, ["/"])
+        XCTAssertEqual(Set(checkpoint.pendingDirectories), Set((0..<6).map { "/\($0)" }))
+        XCTAssertEqual(fixture.counts.values.reduce(0, +), 5)
+        XCTAssertEqual(fixture.activeCount, 0)
+    }
+
+    func testFailedSecondPageDoesNotCheckpointPartialDirectory() async throws {
+        let fixture = SnapshotListingFixture(mode: .failedSecondPage)
+        let harness = SnapshotHarness(fixture)
+        defer { harness.close() }
+        let progress = SnapshotProgressRecorder()
+        do {
+            _ = try await harness.scan { await progress.record($0, $1) }
+            XCTFail("A failed page must fail the snapshot")
+        } catch CloudDriveError.apiError(let code, _) {
+            XCTAssertEqual(code, 2)
+        }
+        let latest = await progress.latest
+        let checkpoint = try XCTUnwrap(latest)
+        XCTAssertTrue(checkpoint.snapshot.isEmpty)
+        XCTAssertTrue(checkpoint.visitedDirectories.isEmpty)
+        XCTAssertEqual(checkpoint.pendingDirectories, ["/"])
+        XCTAssertEqual(fixture.counts["/"], 2)
+    }
+
+    func testDuplicateIdentityAcrossDirectoriesDoesNotCommitTheConflictingDirectory() async throws {
+        let fixture = SnapshotListingFixture(mode: .duplicateIdentity)
+        let harness = SnapshotHarness(fixture)
+        defer { harness.close() }
+        let progress = SnapshotProgressRecorder()
+        do {
+            _ = try await harness.scan { await progress.record($0, $1) }
+            XCTFail("Duplicate stable identities must fail the snapshot")
+        } catch BaiduSnapshotDiffError.duplicateStableKey(let key) {
+            XCTAssertEqual(key, "baidu:100")
+        }
+        let latest = await progress.latest
+        let checkpoint = try XCTUnwrap(latest)
+        XCTAssertEqual(checkpoint.visitedDirectories.count, 2)
+        XCTAssertEqual(checkpoint.pendingDirectories.count, 5)
+        XCTAssertEqual(checkpoint.snapshot.count, 7)
+    }
+
+    func testDisappearingDescendantIsDiscardedButMissingRootFails() async throws {
+        let descendant = SnapshotHarness(SnapshotListingFixture(mode: .missingChild))
+        defer { descendant.close() }
+        let changes = try await descendant.scan { _, _ in }
+        XCTAssertEqual(changes.reconciledIndex?.count, 10)
+        XCTAssertNil(changes.reconciledIndex?["baidu:1"])
+
+        let root = SnapshotHarness(SnapshotListingFixture(mode: .missingRoot))
+        defer { root.close() }
+        do {
+            _ = try await root.scan { _, _ in }
+            XCTFail("A missing selected root must not become an empty snapshot")
+        } catch SourceRootResolutionError.requiresReselection(let path) {
+            XCTAssertEqual(path, "/")
+        }
+    }
+}
+
+private actor SnapshotProgressRecorder {
+    var latest: BaiduSnapshotResumeState?
+    private var reportedQueuedProgress = false
+    func record(_ state: BaiduSnapshotResumeState, _ telemetry: SourceSyncTelemetry) {
+        latest = state
+    }
+    func recordQueuedProgress(_ state: BaiduSnapshotResumeState) -> Bool {
+        guard !reportedQueuedProgress, state.visitedDirectories.contains("/4"),
+              state.pendingDirectories.contains("/0") else { return false }
+        reportedQueuedProgress = true
+        return true
+    }
+}
+
+private struct SnapshotHarness: Sendable {
+    let id = UUID().uuidString
+    let source: BaiduPanSource
+    let session: URLSession
+    let fixture: SnapshotListingFixture
+
+    init(_ fixture: SnapshotListingFixture) {
+        self.fixture = fixture
+        SnapshotListingProtocol.fixtures.insert(fixture, id: id)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SnapshotListingProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Fixture-ID": id]
+        session = URLSession(configuration: configuration)
+        source = BaiduPanSource(sourceID: id, session: session, tokenProvider: { "fixture-token" })
+    }
+
+    func scan(
+        resume: BaiduSnapshotResumeState? = nil,
+        budget: BaiduSnapshotRefreshBudget = .init(),
+        progress: @escaping @Sendable (BaiduSnapshotResumeState, SourceSyncTelemetry) async -> Void
+    ) async throws -> IncrementalSourceChanges {
+        try await source.snapshotChanges(
+            from: SourceSyncState(sourceID: id, scopeFingerprint: "fixture"),
+            roots: ["/"], rootIdentities: [], resumeState: resume, budget: budget, progress: progress
+        )
+    }
+
+    func close() {
+        fixture.release()
+        session.invalidateAndCancel()
+        SnapshotListingProtocol.fixtures.remove(id)
+    }
+}
+
+private final class SnapshotListingFixture: @unchecked Sendable {
+    enum Mode { case normal, slowFirst, blockChildren, failedSecondPage, duplicateIdentity, missingChild, missingRoot }
+    let mode: Mode
+    let ready: XCTestExpectation?
+    private let lock = NSLock()
+    private var requests: [String: Int] = [:]
+    private var active: [ObjectIdentifier: SnapshotListingProtocol] = [:]
+    private var held: [SnapshotListingProtocol] = []
+    private var maximumActive = 0
+    private var released = false
+    var counts: [String: Int] { lock.withLock { requests } }
+    var peak: Int { lock.withLock { maximumActive } }
+    var activeCount: Int { lock.withLock { active.count } }
+
+    init(mode: Mode, ready: XCTestExpectation? = nil) {
+        self.mode = mode
+        self.ready = ready
+    }
+
+    func start(_ connection: SnapshotListingProtocol) {
+        let path = connection.directory
+        let blocked = lock.withLock {
+            requests[path, default: 0] += 1
+            active[ObjectIdentifier(connection)] = connection
+            maximumActive = max(maximumActive, active.count)
+            let shouldHold = !released && (mode == .blockChildren && path != "/"
+                || mode == .slowFirst && path == "/0")
+            if shouldHold {
+                held.append(connection)
+                if held.count == 4 { ready?.fulfill() }
+            }
+            return shouldHold
+        }
+        if !blocked { complete(connection) }
+    }
+
+    func stop(_ connection: SnapshotListingProtocol) {
+        lock.withLock {
+            active[ObjectIdentifier(connection)] = nil
+            held.removeAll { $0 === connection }
+        }
+    }
+
+    func release() {
+        let connections = lock.withLock {
+            released = true
+            let result = held
+            held.removeAll()
+            return result
+        }
+        for connection in connections { complete(connection) }
+    }
+
+    private func complete(_ connection: SnapshotListingProtocol) {
+        let exists = lock.withLock { active.removeValue(forKey: ObjectIdentifier(connection)) != nil }
+        guard exists else { return }
+        let path = connection.directory
+        let json: [String: Any]
+        if mode == .failedSecondPage {
+            json = connection.offset == 0
+                ? ["errno": 0, "list": (0..<1000).map { entry("/\($0).flac", id: $0 + 1) }]
+                : ["errno": 2]
+        } else if mode == .missingRoot || mode == .missingChild && path == "/0" {
+            json = ["errno": -9]
+        } else if path == "/" {
+            json = ["errno": 0, "list": (0..<6).map { entry("/\($0)", id: $0 + 1, directory: true) }]
+        } else {
+            let number = Int(path.dropFirst()) ?? 0
+            json = ["errno": 0, "list": [entry("\(path)/song.flac", id: mode == .duplicateIdentity ? 100 : 100 + number)]]
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: json)
+            let response = HTTPURLResponse(url: connection.request.url!, statusCode: 200,
+                                           httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            connection.client?.urlProtocol(connection, didReceive: response, cacheStoragePolicy: .notAllowed)
+            connection.client?.urlProtocol(connection, didLoad: data)
+            connection.client?.urlProtocolDidFinishLoading(connection)
+        } catch { connection.client?.urlProtocol(connection, didFailWithError: error) }
+    }
+
+    private func entry(_ path: String, id: Int, directory: Bool = false) -> [String: Any] {
+        ["path": path, "server_filename": (path as NSString).lastPathComponent,
+         "isdir": directory ? 1 : 0, "size": directory ? 0 : 100, "fs_id": id, "md5": "revision"]
+    }
+}
+
+private final class SnapshotListingFixtures: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: SnapshotListingFixture] = [:]
+    func insert(_ fixture: SnapshotListingFixture, id: String) { lock.withLock { values[id] = fixture } }
+    func remove(_ id: String) { _ = lock.withLock { values.removeValue(forKey: id) } }
+    func get(_ id: String) -> SnapshotListingFixture? { lock.withLock { values[id] } }
+}
+
+private final class SnapshotListingProtocol: URLProtocol, @unchecked Sendable {
+    static let fixtures = SnapshotListingFixtures()
+    private var fixture: SnapshotListingFixture? {
+        request.value(forHTTPHeaderField: "X-Fixture-ID").flatMap { Self.fixtures.get($0) }
+    }
+    private var query: [URLQueryItem] { URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [] }
+    var directory: String { query.first { $0.name == "dir" }?.value ?? "" }
+    var offset: Int { Int(query.first { $0.name == "start" }?.value ?? "0") ?? 0 }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let fixture else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+        fixture.start(self)
+    }
+    override func stopLoading() { fixture?.stop(self) }
+}
+
+final class CloudDirectoryPipelineTests: XCTestCase {
+    func testLibraryScanReplenishesSlotsBeforeTheSlowDirectoryFinishes() async throws {
+        let reachedLaterDirectory = expectation(description: "Later directory starts before slow listing ends")
+        let connector = PipelineCloudConnector(mode: .slowFirst, ready: reachedLaterDirectory)
+        let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)
+        let scan = Task {
+            var last: ConnectorScanner.ScanUpdate?
+            for try await update in await scanner.scan(directories: ["/"]) { last = update }
+            return last
+        }
+        await fulfillment(of: [reachedLaterDirectory], timeout: 5)
+        await connector.release()
+        let last = try await scan.value
+        XCTAssertEqual(last?.resumeState?.pendingDirectories, [])
+        let listed = await connector.listed
+        XCTAssertEqual(listed.count, 7)
+        XCTAssertEqual(Set(listed).count, 7)
+        let peak = await connector.peak
+        XCTAssertGreaterThan(peak, 1)
+        XCTAssertLessThanOrEqual(peak, 4)
+    }
+
+    func testCancellingLibraryScanDrainsAllActiveListings() async throws {
+        let ready = expectation(description: "Four cloud listings started")
+        let stopped = expectation(description: "All cloud listings stopped")
+        let connector = PipelineCloudConnector(mode: .blockChildren, ready: ready, stopped: stopped)
+        let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)
+        let scan = Task {
+            for try await _ in await scanner.scan(directories: ["/"]) {}
+        }
+        await fulfillment(of: [ready], timeout: 5)
+        scan.cancel()
+        _ = await scan.result
+        await fulfillment(of: [stopped], timeout: 5)
+        let listed = await connector.listed
+        XCTAssertEqual(listed.count, 5)
+    }
+
+    func testQuotaFailureKeepsUnconsumedListingsAndSongsForResume() async throws {
+        let connector = PipelineCloudConnector(mode: .rateLimited)
+        let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)
+        let song = Song(id: "kept", title: "Kept", fileFormat: .flac,
+                        filePath: "/5/kept.flac", sourceID: connector.sourceID)
+        var last: ConnectorScanner.ScanUpdate?
+        do {
+            for try await update in await scanner.scan(directories: ["/"], existingSongs: [song]) {
+                last = update
+            }
+            XCTFail("An exhausted shared quota must stop the directory pipeline")
+        } catch let error as HTTPResponseFailure {
+            XCTAssertEqual(error.statusCode, 429)
+        }
+        let checkpoint = try XCTUnwrap(last?.resumeState)
+        XCTAssertEqual(Set(checkpoint.pendingDirectories), Set((0..<6).map { "/\($0)" }))
+        XCTAssertEqual(last?.songs.map(\.id), [song.id])
+        let countBeforeResume = await connector.listed.count
+        XCTAssertEqual(countBeforeResume, 5)
+        await connector.release()
+        for try await update in await scanner.scan(
+            directories: ["/"], existingSongs: [song], resumeState: checkpoint
+        ) { last = update }
+        XCTAssertEqual(last?.resumeState?.pendingDirectories, [])
+        let listed = await connector.listed
+        XCTAssertEqual(Set(listed.dropFirst(countBeforeResume)), Set((0..<6).map { "/\($0)" }))
+    }
+
+    func testOrdinaryDirectoryFailureDoesNotCancelOtherListings() async throws {
+        let connector = PipelineCloudConnector(mode: .ordinaryFailure)
+        let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)
+        var last: ConnectorScanner.ScanUpdate?
+        do {
+            for try await update in await scanner.scan(directories: ["/"]) { last = update }
+            XCTFail("The failed directory must be reported")
+        } catch let error as HTTPResponseFailure { XCTAssertEqual(error.statusCode, 500) }
+        XCTAssertEqual(last?.resumeState?.pendingDirectories, ["/2"])
+        let listed = await connector.listed
+        XCTAssertEqual(Set(listed), Set(["/"] + (0..<6).map { "/\($0)" }))
+    }
+}
+
+private actor PipelineCloudConnector: OAuthCloudSource {
+    enum Mode { case normal, slowFirst, blockChildren, rateLimited, ordinaryFailure }
+    nonisolated let sourceID = "pipeline-" + UUID().uuidString
+    private var mode: Mode
+    private let ready: XCTestExpectation?
+    private let stopped: XCTestExpectation?
+    private let gate = AsyncStream<Void>.makeStream()
+    private var active = 0
+    private var childStarts = 0
+    private(set) var listed: [String] = []
+    private(set) var peak = 0
+
+    init(mode: Mode, ready: XCTestExpectation? = nil, stopped: XCTestExpectation? = nil) {
+        self.mode = mode
+        self.ready = ready
+        self.stopped = stopped
+    }
+
+    func release() {
+        mode = .normal
+        gate.continuation.finish()
+    }
+    func connect() async throws {}
+    func disconnect() async {}
+    func accountIdentifier() async throws -> String { sourceID }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        try Task.checkCancellation()
+        listed.append(path)
+        if path == "/" {
+            return (0..<6).map {
+                RemoteFileItem(name: "\($0)", path: "/\($0)", isDirectory: true, size: 0, modifiedDate: nil)
+            }
+        }
+        active += 1
+        childStarts += 1
+        peak = max(peak, active)
+        defer {
+            active -= 1
+            if active == 0, childStarts >= 4 { stopped?.fulfill() }
+        }
+        if mode == .slowFirst, path == "/4" { ready?.fulfill() }
+        if mode == .blockChildren, childStarts == 4 { ready?.fulfill() }
+        if mode == .rateLimited, childStarts == 4 { throw HTTPResponseFailure(statusCode: 429) }
+        if mode == .ordinaryFailure, path == "/2" { throw HTTPResponseFailure(statusCode: 500) }
+        if mode == .blockChildren || mode == .rateLimited || mode == .slowFirst && path == "/0" {
+            for await _ in gate.stream {}
+            try Task.checkCancellation()
+        }
+        return []
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
 }

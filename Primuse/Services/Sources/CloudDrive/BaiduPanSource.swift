@@ -1415,25 +1415,32 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         }
         let tracker = BaiduSnapshotBudgetTracker(budget: budget, resumed: resumed)
 
-        while !traversal.pendingDirectories.isEmpty {
-            try Task.checkCancellation()
-            var batch: [String] = []
-            while batch.count < Self.snapshotDirectoryConcurrency,
-                  let directory = traversal.pendingDirectories.popLast() {
-                guard !traversal.visitedDirectories.contains(directory),
-                      !batch.contains(directory) else { continue }
-                batch.append(directory)
-            }
-            guard !batch.isEmpty else { continue }
-
-            do {
-                let outcomes = try await withThrowingTaskGroup(
-                    of: SnapshotDirectoryListingOutcome.self,
-                    returning: [SnapshotDirectoryListingOutcome].self
-                ) { group in
-                    for directory in batch {
-                        group.addTask { [self] in
+        var inFlight: Set<String> = []
+        do {
+            try await withThrowingTaskGroup(of: SnapshotDirectoryListingOutcome.self) { group in
+                var exhaustedBudget: Error?
+                var completedSinceProgress = 0
+                var lastProgressAt = Date()
+                while !traversal.pendingDirectories.isEmpty || !inFlight.isEmpty {
+                    try Task.checkCancellation()
+                    while exhaustedBudget == nil,
+                          inFlight.count < Self.snapshotDirectoryConcurrency,
+                          let directory = traversal.pendingDirectories.popLast() {
+                        guard !traversal.visitedDirectories.contains(directory),
+                              !inFlight.contains(directory) else { continue }
+                        do {
                             try await tracker.reserveDirectory()
+                        } catch {
+                            traversal.pendingDirectories.append(directory)
+                            guard error.isBaiduSnapshotBudgetExhaustion else { throw error }
+                            // Finish admitted directories before parking the queue, so a
+                            // directory-count boundary does not cancel successful siblings.
+                            exhaustedBudget = error
+                            break
+                        }
+                        inFlight.insert(directory)
+                        group.addTask { [self] in
+                            try Task.checkCancellation()
                             do {
                                 return .listing(SnapshotDirectoryListing(
                                     directory: directory,
@@ -1447,122 +1454,89 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                             }
                         }
                     }
-                    var results: [SnapshotDirectoryListingOutcome] = []
-                    results.reserveCapacity(batch.count)
-                    for try await result in group {
-                        results.append(result)
-                    }
-                    return results
-                }
 
-                var listings: [SnapshotDirectoryListing] = []
-                var missingDirectories: [String] = []
-                listings.reserveCapacity(outcomes.count)
-                missingDirectories.reserveCapacity(outcomes.count)
-                for outcome in outcomes {
+                    guard let outcome = try await group.next() else { break }
+                    try Task.checkCancellation()
+                    let directory: String
                     switch outcome {
+                    case .missing(let missingDirectory):
+                        directory = missingDirectory
+                        if BaiduSnapshotMissingDirectoryPolicy.disposition(
+                            missingDirectory: directory,
+                            roots: normalizedRoots
+                        ) == .requiresRootReselection {
+                            throw SourceRootResolutionError.requiresReselection(directory)
+                        }
+                        traversal.liveDirectories.remove(directory)
+                        let staleDirectoryKeys = traversal.snapshot.compactMap {
+                            stableKey, item in
+                            item.isDirectory && item.path == directory ? stableKey : nil
+                        }
+                        for stableKey in staleDirectoryKeys {
+                            traversal.snapshot[stableKey] = nil
+                        }
+                        snapshotReconciliationListings[directory] = nil
                     case .listing(let listing):
-                        listings.append(listing)
-                    case .missing(let directory):
-                        missingDirectories.append(directory)
-                    }
-                }
+                        directory = listing.directory
+                        let directoryItems = try snapshotDirectoryItems(
+                            listing.siblings,
+                            seenEpoch: state.scanEpoch + 1
+                        )
+                        // Commit only complete, validated directories. A failed page or
+                        // duplicate identity must leave the entire directory resumable.
+                        for stableKey in directoryItems.keys {
+                            guard traversal.snapshot[stableKey] == nil else {
+                                throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
+                            }
+                        }
+                        for (stableKey, item) in directoryItems {
+                            traversal.snapshot[stableKey] = item
+                        }
+                        traversal.liveDirectories.insert(directory)
+                        snapshotReconciliationListings[directory] = listing.siblings
 
-                if let missingRoot = missingDirectories.first(where: {
-                    BaiduSnapshotMissingDirectoryPolicy.disposition(
-                        missingDirectory: $0,
-                        roots: normalizedRoots
-                    ) == .requiresRootReselection
-                }) {
-                    throw SourceRootResolutionError.requiresReselection(missingRoot)
-                }
-                for directory in missingDirectories {
-                    // The parent page was valid when it queued this child, but
-                    // the child vanished before its own paged listing. Count
-                    // that listing attempt as complete and discard the stale
-                    // directory row. Song deletions remain guarded by the
-                    // normal two-snapshot confirmation policy.
+                        var queued = Set(traversal.pendingDirectories).union(inFlight)
+                        for child in listing.siblings
+                            .filter(\.isDirectory)
+                            .map(\.path)
+                            .sorted()
+                            .reversed()
+                        where !traversal.visitedDirectories.contains(child)
+                            && queued.insert(child).inserted {
+                            traversal.pendingDirectories.append(child)
+                            traversal.liveDirectories.insert(child)
+                        }
+                    }
                     traversal.visitedDirectories.insert(directory)
-                    traversal.liveDirectories.remove(directory)
-                    let staleDirectoryKeys = traversal.snapshot.compactMap {
-                        stableKey, item in
-                        item.isDirectory && item.path == directory
-                            ? stableKey
-                            : nil
-                    }
-                    for stableKey in staleDirectoryKeys {
-                        traversal.snapshot[stableKey] = nil
-                    }
-                    snapshotReconciliationListings[directory] = nil
-                }
+                    inFlight.remove(directory)
+                    completedSinceProgress += 1
 
-                let listingsByDirectory = Dictionary(
-                    uniqueKeysWithValues: listings.map { ($0.directory, $0) }
-                )
-                var prepared: [(
-                    directory: String,
-                    siblings: [RemoteFileItem],
-                    items: [String: SourceSyncIndexedItem]
-                )] = []
-                var batchStableKeys: Set<String> = []
-                for directory in batch where !missingDirectories.contains(directory) {
-                    guard let listing = listingsByDirectory[directory] else {
-                        throw CloudDriveError.invalidResponse
-                    }
-                    let directoryItems = try snapshotDirectoryItems(
-                        listing.siblings,
-                        seenEpoch: state.scanEpoch + 1
-                    )
-                    for stableKey in directoryItems.keys {
-                        if traversal.snapshot[stableKey] != nil
-                            || !batchStableKeys.insert(stableKey).inserted {
-                            throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
-                        }
-                    }
-                    prepared.append((directory, listing.siblings, directoryItems))
-                }
-
-                // Validate the whole batch before publishing any of it. A
-                // failed/cancelled page therefore leaves every popped directory
-                // resumable without a partial sibling set in the checkpoint.
-                for listing in prepared {
-                    for (stableKey, item) in listing.items {
-                        guard traversal.snapshot[stableKey] == nil else {
-                            throw BaiduSnapshotDiffError.duplicateStableKey(stableKey)
-                        }
-                        traversal.snapshot[stableKey] = item
-                    }
-                    traversal.visitedDirectories.insert(listing.directory)
-                    traversal.liveDirectories.insert(listing.directory)
-                    snapshotReconciliationListings[listing.directory] = listing.siblings
-                }
-
-                var queued = Set(traversal.pendingDirectories)
-                for listing in prepared {
-                    for child in listing.siblings
-                        .filter(\.isDirectory)
-                        .map(\.path)
-                        .sorted()
-                        .reversed()
-                    where !traversal.visitedDirectories.contains(child)
-                        && queued.insert(child).inserted {
-                        traversal.pendingDirectories.append(child)
-                        traversal.liveDirectories.insert(child)
+                    let now = Date()
+                    if completedSinceProgress >= Self.snapshotDirectoryConcurrency
+                        || now.timeIntervalSince(lastProgressAt) >= 1
+                        || traversal.pendingDirectories.isEmpty {
+                        // In-flight directories are absent from the work queue, but must
+                        // stay in the durable queue if the app exits before they finish.
+                        var checkpoint = traversal
+                        checkpoint.pendingDirectories.append(contentsOf: inFlight.sorted())
+                        await progress(checkpoint, await tracker.telemetry())
+                        completedSinceProgress = 0
+                        lastProgressAt = now
                     }
                 }
-                await progress(traversal, await tracker.telemetry())
-            } catch {
-                var queued = Set(traversal.pendingDirectories)
-                for directory in batch.reversed()
-                where !traversal.visitedDirectories.contains(directory)
-                    && queued.insert(directory).inserted {
-                    traversal.pendingDirectories.append(directory)
-                }
-                await progress(traversal, await tracker.telemetry(
-                    budgetExhausted: error.isBaiduSnapshotBudgetExhaustion
-                ))
-                throw error
+                if let exhaustedBudget { throw exhaustedBudget }
             }
+        } catch {
+            var queued = Set(traversal.pendingDirectories)
+            for directory in inFlight.sorted()
+            where !traversal.visitedDirectories.contains(directory)
+                && queued.insert(directory).inserted {
+                traversal.pendingDirectories.append(directory)
+            }
+            await progress(traversal, await tracker.telemetry(
+                budgetExhausted: error.isBaiduSnapshotBudgetExhaustion
+            ))
+            throw error
         }
 
         try await tracker.check()

@@ -4,6 +4,11 @@ import PrimuseKit
 
 actor ConnectorScanner {
     private static let progressYieldStride = 20
+    private struct DirectoryListingResult: Sendable {
+        let directory: String
+        let listing: Result<[RemoteFileItem], Error>
+    }
+
     /// A re-scan that finds nothing new never advances `addedCount`, so a
     /// stride-only rule would leave the card frozen on its opening update for
     /// the whole walk. Time-based ticks keep a slow remote scan visibly alive.
@@ -803,170 +808,308 @@ actor ConnectorScanner {
                         )
                     )
 
-                    directoryWalk: while let directory = pendingDirectories.popLast() {
-                        pendingSet.remove(directory)
-                        guard visitedDirectories.insert(directory).inserted else { continue }
-                        try Task.checkCancellation()
+                    let listingConcurrency = connector is any OAuthCloudSource ? 4 : 1
+                    let listingConnector = connector
+                    try await withThrowingTaskGroup(of: DirectoryListingResult.self) { group in
+                        var inFlight: Set<String> = []
+                        defer { group.cancelAll() }
+                        directoryWalk: while !pendingDirectories.isEmpty {
+                            try Task.checkCancellation()
+                            for candidate in pendingDirectories.reversed() {
+                                guard inFlight.count < listingConcurrency else { break }
+                                guard !visitedDirectories.contains(candidate),
+                                      inFlight.insert(candidate).inserted else { continue }
+                                let observed = listingConnector is any DestructiveDirectoryListingConfirmingConnector
+                                    ? Self.previouslyObservedChildPaths(
+                                        in: candidate, identityIndex: identityBaseline, existingSongs: existingSongs
+                                    ) : []
+                                group.addTask {
+                                    do {
+                                        try Task.checkCancellation()
+                                        let siblings: [RemoteFileItem]
+                                        if let confirming = listingConnector as?
+                                            any DestructiveDirectoryListingConfirmingConnector {
+                                            siblings = try await confirming.listFiles(
+                                                at: candidate, confirmingPreviouslyObservedPaths: observed
+                                            )
+                                        } else {
+                                            siblings = try await listingConnector.listFiles(at: candidate)
+                                        }
+                                        return DirectoryListingResult(directory: candidate, listing: .success(siblings))
+                                    } catch {
+                                        return DirectoryListingResult(directory: candidate, listing: .failure(error))
+                                    }
+                                }
+                            }
+                            guard let result = try await group.next() else { break }
+                            try Task.checkCancellation()
+                            let directory = result.directory
+                            inFlight.remove(directory)
+                            // Keep admitted listings in the checkpoint queue until their
+                            // results are consumed; cancellation must not lose those paths.
+                            pendingDirectories.removeAll { $0 == directory }
+                            pendingSet.remove(directory)
+                            guard visitedDirectories.insert(directory).inserted else { continue }
 
-                        let inFlightResumeState = SourceScanResumeState(
-                            pendingDirectories: pendingDirectories + [directory] + failedDirectories,
-                            encounteredSongIDs: encounteredSongIDs,
-                            index: syncIndex
-                        )
-                        continuation.yield(
-                            ScanUpdate(
-                                scannedCount: scannedCount,
-                                addedCount: addedCount,
-                                mutationCount: mutationCount,
-                                totalCount: totalCount,
-                                currentFile: directory,
-                                songs: [],
-                                carriesFullSnapshot: false,
-                                resumeState: inFlightResumeState
+                            let inFlightResumeState = SourceScanResumeState(
+                                pendingDirectories: pendingDirectories + [directory] + failedDirectories,
+                                encounteredSongIDs: encounteredSongIDs,
+                                index: syncIndex
                             )
-                        )
+                            continuation.yield(
+                                ScanUpdate(
+                                    scannedCount: scannedCount,
+                                    addedCount: addedCount,
+                                    mutationCount: mutationCount,
+                                    totalCount: totalCount,
+                                    currentFile: directory,
+                                    songs: [],
+                                    carriesFullSnapshot: false,
+                                    resumeState: inFlightResumeState
+                                )
+                            )
 
-                        do {
-                            let siblings: [RemoteFileItem]
-                            if let confirming = connector as?
-                                any DestructiveDirectoryListingConfirmingConnector {
-                                let previouslyObservedPaths = Self.previouslyObservedChildPaths(
-                                    in: directory,
-                                    identityIndex: identityBaseline,
-                                    existingSongs: existingSongs
-                                )
-                                siblings = try await confirming.listFiles(
-                                    at: directory,
-                                    confirmingPreviouslyObservedPaths: previouslyObservedPaths
-                                )
-                            } else {
-                                siblings = try await connector.listFiles(at: directory)
-                            }
-                            let sidecarIndex = await directoryIndex(siblings, of: directory)
-                            for directoryItem in siblings where directoryItem.isDirectory {
-                                try validateStableIdentity(
-                                    for: directoryItem,
-                                    observedPaths: &observedStablePaths
-                                )
-                                recordSyncItem(
-                                    directoryItem,
-                                    songIDs: [],
-                                    seenEpoch: scanEpoch,
-                                    in: &syncIndex
-                                )
-                            }
-                            let cueTracksByAudioPath = try await loadCueTracks(from: siblings)
-                            for rawItem in siblings where !rawItem.isDirectory {
-                                if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
+                            do {
+                                let siblings = try result.listing.get()
+                                let sidecarIndex = await directoryIndex(siblings, of: directory)
+                                for directoryItem in siblings where directoryItem.isDirectory {
                                     try validateStableIdentity(
-                                        for: rawItem,
+                                        for: directoryItem,
                                         observedPaths: &observedStablePaths
                                     )
                                     recordSyncItem(
-                                        rawItem,
+                                        directoryItem,
                                         songIDs: [],
                                         seenEpoch: scanEpoch,
                                         in: &syncIndex
                                     )
-                                    continue
                                 }
-                                guard let item = SidecarHintResolver.scannableItem(
-                                    rawItem,
-                                    index: sidecarIndex
-                                ) else { continue }
-                                try Task.checkCancellation()
-
-                                if Date().timeIntervalSince(lastProgressYieldAt) >= Self.progressHeartbeatInterval {
-                                    lastProgressYieldAt = Date()
-                                    continuation.yield(
-                                        ScanUpdate(
-                                            scannedCount: scannedCount,
-                                            addedCount: addedCount,
-                                            mutationCount: mutationCount,
-                                            totalCount: totalCount,
-                                            currentFile: item.name,
-                                            songs: [],
-                                            carriesFullSnapshot: false
+                                let cueTracksByAudioPath = try await loadCueTracks(from: siblings)
+                                for rawItem in siblings where !rawItem.isDirectory {
+                                    if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
+                                        try validateStableIdentity(
+                                            for: rawItem,
+                                            observedPaths: &observedStablePaths
                                         )
-                                    )
-                                }
-
-                                try validateStableIdentity(
-                                    for: item,
-                                    observedPaths: &observedStablePaths
-                                )
-                                let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
-                                let identityMatch = identityMatch(
-                                    for: item,
-                                    stableKey: stableKey,
-                                    baseline: identityBaseline,
-                                    claimedKeys: claimedIdentityKeys
-                                )
-                                let priorEntry = identityMatch?.item
-                                if let identityKey = identityMatch?.key {
-                                    claimedIdentityKeys.insert(identityKey)
-                                }
-                                let preferredSongID: String? = {
-                                    guard priorEntry?.songIDs.count == 1,
-                                          let candidate = priorEntry?.songIDs.first,
-                                          existingByID[candidate] != nil else { return existingIDsByPath[item.path] }
-                                    return candidate
-                                }()
-                                let songID = preferredSongID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
-
-                                if PrimuseConstants.supportedStreamDescriptorExtensions.contains(
-                                    (item.name as NSString).pathExtension.lowercased()
-                                ) {
-                                    encounteredSongIDs.insert(songID)
-                                    if let existing = existingByID[songID],
-                                       STRMRevision.wrapperMatches(
-                                           songRevision: existing.revision,
-                                           wrapperRevision: item.revision,
-                                           wrapperSize: item.size,
-                                           wrapperModifiedDate: item.modifiedDate
-                                       ) {
                                         recordSyncItem(
-                                            item,
-                                            songIDs: [songID],
+                                            rawItem,
+                                            songIDs: [],
                                             seenEpoch: scanEpoch,
                                             in: &syncIndex
                                         )
-                                        if let idx = allSongIndexByID[songID] {
-                                            var refreshed = existing
-                                            refreshed.filePath = item.path
-                                            refreshed.lastModified = item.modifiedDate ?? existing.lastModified
-                                            applySidecarHints(from: item, to: &refreshed)
-                                            refreshSuspiciousSourceTitle(in: &refreshed, from: item)
-                                            allSongs[idx] = refreshed
-                                            recordRow(refreshed, for: songID)
-                                        }
                                         continue
                                     }
-                                    guard let descriptorSong = await buildSTRMSong(from: item, songID: songID) else {
-                                        // Keep an existing row when a transient read or a
-                                        // temporarily malformed regenerated descriptor is
-                                        // encountered. A deep scan must never turn that
-                                        // read failure into an inferred deletion.
-                                        if existingByID[songID] != nil {
+                                    guard let item = SidecarHintResolver.scannableItem(
+                                        rawItem,
+                                        index: sidecarIndex
+                                    ) else { continue }
+                                    try Task.checkCancellation()
+
+                                    if Date().timeIntervalSince(lastProgressYieldAt) >= Self.progressHeartbeatInterval {
+                                        lastProgressYieldAt = Date()
+                                        continuation.yield(
+                                            ScanUpdate(
+                                                scannedCount: scannedCount,
+                                                addedCount: addedCount,
+                                                mutationCount: mutationCount,
+                                                totalCount: totalCount,
+                                                currentFile: item.name,
+                                                songs: [],
+                                                carriesFullSnapshot: false
+                                            )
+                                        )
+                                    }
+
+                                    try validateStableIdentity(
+                                        for: item,
+                                        observedPaths: &observedStablePaths
+                                    )
+                                    let stableKey = item.providerID ?? "path:\(item.path.lowercased())"
+                                    let identityMatch = identityMatch(
+                                        for: item,
+                                        stableKey: stableKey,
+                                        baseline: identityBaseline,
+                                        claimedKeys: claimedIdentityKeys
+                                    )
+                                    let priorEntry = identityMatch?.item
+                                    if let identityKey = identityMatch?.key {
+                                        claimedIdentityKeys.insert(identityKey)
+                                    }
+                                    let preferredSongID: String? = {
+                                        guard priorEntry?.songIDs.count == 1,
+                                              let candidate = priorEntry?.songIDs.first,
+                                              existingByID[candidate] != nil else { return existingIDsByPath[item.path] }
+                                        return candidate
+                                    }()
+                                    let songID = preferredSongID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
+
+                                    if PrimuseConstants.supportedStreamDescriptorExtensions.contains(
+                                        (item.name as NSString).pathExtension.lowercased()
+                                    ) {
+                                        encounteredSongIDs.insert(songID)
+                                        if let existing = existingByID[songID],
+                                           STRMRevision.wrapperMatches(
+                                               songRevision: existing.revision,
+                                               wrapperRevision: item.revision,
+                                               wrapperSize: item.size,
+                                               wrapperModifiedDate: item.modifiedDate
+                                           ) {
                                             recordSyncItem(
                                                 item,
                                                 songIDs: [songID],
                                                 seenEpoch: scanEpoch,
                                                 in: &syncIndex
                                             )
+                                            if let idx = allSongIndexByID[songID] {
+                                                var refreshed = existing
+                                                refreshed.filePath = item.path
+                                                refreshed.lastModified = item.modifiedDate ?? existing.lastModified
+                                                applySidecarHints(from: item, to: &refreshed)
+                                                refreshSuspiciousSourceTitle(in: &refreshed, from: item)
+                                                allSongs[idx] = refreshed
+                                                recordRow(refreshed, for: songID)
+                                            }
+                                            continue
+                                        }
+                                        guard let descriptorSong = await buildSTRMSong(from: item, songID: songID) else {
+                                            // Keep an existing row when a transient read or a
+                                            // temporarily malformed regenerated descriptor is
+                                            // encountered. A deep scan must never turn that
+                                            // read failure into an inferred deletion.
+                                            if existingByID[songID] != nil {
+                                                recordSyncItem(
+                                                    item,
+                                                    songIDs: [songID],
+                                                    seenEpoch: scanEpoch,
+                                                    in: &syncIndex
+                                                )
+                                            }
+                                            continue
+                                        }
+                                        recordSyncItem(
+                                            item,
+                                            songIDs: [songID],
+                                            seenEpoch: scanEpoch,
+                                            in: &syncIndex
+                                        )
+                                        if let existing = existingByID[songID] {
+                                            if songContentChanged(existing: existing, incoming: descriptorSong),
+                                               let idx = allSongIndexByID[songID] {
+                                                var replacement = descriptorSong
+                                                replacement.dateAdded = existing.dateAdded
+                                                replacement = SongUserMetadataPolicy.preservingUserEdits(
+                                                    from: existing,
+                                                    in: replacement
+                                                )
+                                                allSongs[idx] = replacement
+                                                recordRow(replacement, for: songID)
+                                            } else if let idx = allSongIndexByID[songID] {
+                                                var refreshed = existing
+                                                refreshed.filePath = descriptorSong.filePath
+                                                refreshed.lastModified = descriptorSong.lastModified ?? existing.lastModified
+                                                applySidecarHints(from: item, to: &refreshed)
+                                                allSongs[idx] = refreshed
+                                                recordRow(refreshed, for: songID)
+                                            }
+                                        } else {
+                                            allSongs.append(descriptorSong)
+                                            allSongIndexByID[songID] = allSongs.count - 1
+                                            recordRow(descriptorSong, for: songID)
+                                            scannedCount += 1
+                                            addedCount += 1
                                         }
                                         continue
                                     }
+
+                                    if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
+                                        let cueImage = SidecarHintResolver.cueImageItem(item, index: sidecarIndex)
+                                        var cueSongs = buildCueSongs(
+                                            from: cueImage,
+                                            descriptors: descriptors,
+                                            sidecarIndex: sidecarIndex,
+                                            cueImageCount: cueTracksByAudioPath.count
+                                        )
+                                        if let priorEntry {
+                                            reuseCueSongIdentities(
+                                                in: &cueSongs,
+                                                priorSongIDs: priorEntry.songIDs,
+                                                existingSong: { existingByID[$0] }
+                                            )
+                                        }
+                                        recordSyncItem(
+                                            cueImage,
+                                            songIDs: cueSongs.map(\.id),
+                                            seenEpoch: scanEpoch,
+                                            in: &syncIndex
+                                        )
+                                        for cueSong in cueSongs {
+                                            encounteredSongIDs.insert(cueSong.id)
+                                            if let existing = existingByID[cueSong.id] {
+                                                if let index = allSongIndexByID[cueSong.id] {
+                                                    let carried = carriedOverCueTrack(
+                                                        existing: existing,
+                                                        rebuilt: cueSong,
+                                                        cueImage: cueImage
+                                                    )
+                                                    allSongs[index] = carried
+                                                    recordRow(carried, for: cueSong.id)
+                                                }
+                                                continue
+                                            }
+                                            allSongs.append(cueSong)
+                                            allSongIndexByID[cueSong.id] = allSongs.count - 1
+                                            recordRow(cueSong, for: cueSong.id)
+                                            scannedCount += 1
+                                            addedCount += 1
+                                        }
+                                        continue
+                                    }
+
+                                    encounteredSongIDs.insert(songID)
                                     recordSyncItem(
                                         item,
                                         songIDs: [songID],
                                         seenEpoch: scanEpoch,
                                         in: &syncIndex
                                     )
+
                                     if let existing = existingByID[songID] {
-                                        if songContentChanged(existing: existing, incoming: descriptorSong),
-                                           let idx = allSongIndexByID[songID] {
-                                            var replacement = descriptorSong
+                                        // Same path can either be unchanged (skip) or a
+                                        // remote replacement (emit fresh bare song so
+                                        // backfill re-runs against new bytes). Compare
+                                        // size, mtime, AND provider revision — Baidu /
+                                        // Aliyun / Dropbox listFiles return nil mtime
+                                        // and a same-size overwrite would slip past the
+                                        // first two checks.
+                                        if !Self.fileIdentityChanged(existing: existing, item: item) {
+                                            if let idx = allSongIndexByID[songID] {
+                                                var refreshed = existing
+                                                refreshed.filePath = item.path
+                                                if item.size > 0 { refreshed.fileSize = item.size }
+                                                refreshed.lastModified = item.modifiedDate ?? existing.lastModified
+                                                refreshed.revision = item.revision ?? existing.revision
+                                                applySidecarHints(from: item, to: &refreshed)
+                                                refreshSuspiciousSourceTitle(in: &refreshed, from: item)
+                                                if let repairedDuration = AudioDurationPolicy.repairedStoredDTSDuration(
+                                                    stored: refreshed.duration,
+                                                    fileSize: refreshed.fileSize,
+                                                    bitRateKbps: refreshed.bitRate,
+                                                    fileExtension: (refreshed.filePath as NSString).pathExtension,
+                                                    format: refreshed.fileFormat
+                                                ) {
+                                                    refreshed.duration = repairedDuration
+                                                }
+                                                if let adopted = adoptingPeerSeed(intoUnreadRow: refreshed) {
+                                                    refreshed = adopted
+                                                }
+                                                allSongs[idx] = refreshed
+                                                recordRow(refreshed, for: songID)
+                                            }
+                                            continue
+                                        }
+                                        let refreshed = buildBareSong(from: item, songID: songID)
+                                        if let idx = allSongIndexByID[songID] {
+                                            var replacement = refreshed
                                             replacement.dateAdded = existing.dateAdded
                                             replacement = SongUserMetadataPolicy.preservingUserEdits(
                                                 from: existing,
@@ -974,230 +1117,58 @@ actor ConnectorScanner {
                                             )
                                             allSongs[idx] = replacement
                                             recordRow(replacement, for: songID)
-                                        } else if let idx = allSongIndexByID[songID] {
-                                            var refreshed = existing
-                                            refreshed.filePath = descriptorSong.filePath
-                                            refreshed.lastModified = descriptorSong.lastModified ?? existing.lastModified
-                                            applySidecarHints(from: item, to: &refreshed)
-                                            allSongs[idx] = refreshed
-                                            recordRow(refreshed, for: songID)
-                                        }
-                                    } else {
-                                        allSongs.append(descriptorSong)
-                                        allSongIndexByID[songID] = allSongs.count - 1
-                                        recordRow(descriptorSong, for: songID)
-                                        scannedCount += 1
-                                        addedCount += 1
-                                    }
-                                    continue
-                                }
-
-                                if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
-                                    let cueImage = SidecarHintResolver.cueImageItem(item, index: sidecarIndex)
-                                    var cueSongs = buildCueSongs(
-                                        from: cueImage,
-                                        descriptors: descriptors,
-                                        sidecarIndex: sidecarIndex,
-                                        cueImageCount: cueTracksByAudioPath.count
-                                    )
-                                    if let priorEntry {
-                                        reuseCueSongIdentities(
-                                            in: &cueSongs,
-                                            priorSongIDs: priorEntry.songIDs,
-                                            existingSong: { existingByID[$0] }
-                                        )
-                                    }
-                                    recordSyncItem(
-                                        cueImage,
-                                        songIDs: cueSongs.map(\.id),
-                                        seenEpoch: scanEpoch,
-                                        in: &syncIndex
-                                    )
-                                    for cueSong in cueSongs {
-                                        encounteredSongIDs.insert(cueSong.id)
-                                        if let existing = existingByID[cueSong.id] {
-                                            if let index = allSongIndexByID[cueSong.id] {
-                                                let carried = carriedOverCueTrack(
-                                                    existing: existing,
-                                                    rebuilt: cueSong,
-                                                    cueImage: cueImage
-                                                )
-                                                allSongs[index] = carried
-                                                recordRow(carried, for: cueSong.id)
-                                            }
-                                            continue
-                                        }
-                                        allSongs.append(cueSong)
-                                        allSongIndexByID[cueSong.id] = allSongs.count - 1
-                                        recordRow(cueSong, for: cueSong.id)
-                                        scannedCount += 1
-                                        addedCount += 1
-                                    }
-                                    continue
-                                }
-
-                                encounteredSongIDs.insert(songID)
-                                recordSyncItem(
-                                    item,
-                                    songIDs: [songID],
-                                    seenEpoch: scanEpoch,
-                                    in: &syncIndex
-                                )
-
-                                if let existing = existingByID[songID] {
-                                    // Same path can either be unchanged (skip) or a
-                                    // remote replacement (emit fresh bare song so
-                                    // backfill re-runs against new bytes). Compare
-                                    // size, mtime, AND provider revision — Baidu /
-                                    // Aliyun / Dropbox listFiles return nil mtime
-                                    // and a same-size overwrite would slip past the
-                                    // first two checks.
-                                    if !Self.fileIdentityChanged(existing: existing, item: item) {
-                                        if let idx = allSongIndexByID[songID] {
-                                            var refreshed = existing
-                                            refreshed.filePath = item.path
-                                            if item.size > 0 { refreshed.fileSize = item.size }
-                                            refreshed.lastModified = item.modifiedDate ?? existing.lastModified
-                                            refreshed.revision = item.revision ?? existing.revision
-                                            applySidecarHints(from: item, to: &refreshed)
-                                            refreshSuspiciousSourceTitle(in: &refreshed, from: item)
-                                            if let repairedDuration = AudioDurationPolicy.repairedStoredDTSDuration(
-                                                stored: refreshed.duration,
-                                                fileSize: refreshed.fileSize,
-                                                bitRateKbps: refreshed.bitRate,
-                                                fileExtension: (refreshed.filePath as NSString).pathExtension,
-                                                format: refreshed.fileFormat
-                                            ) {
-                                                refreshed.duration = repairedDuration
-                                            }
-                                            if let adopted = adoptingPeerSeed(intoUnreadRow: refreshed) {
-                                                refreshed = adopted
-                                            }
-                                            allSongs[idx] = refreshed
-                                            recordRow(refreshed, for: songID)
                                         }
                                         continue
                                     }
-                                    let refreshed = buildBareSong(from: item, songID: songID)
-                                    if let idx = allSongIndexByID[songID] {
-                                        var replacement = refreshed
-                                        replacement.dateAdded = existing.dateAdded
-                                        replacement = SongUserMetadataPolicy.preservingUserEdits(
-                                            from: existing,
-                                            in: replacement
-                                        )
-                                        allSongs[idx] = replacement
-                                        recordRow(replacement, for: songID)
-                                    }
-                                    continue
-                                }
 
-                                let bareSong = buildBareSong(from: item, songID: songID)
-                                let newSong = adoptingPeerSeed(onto: bareSong) ?? bareSong
-                                allSongs.append(newSong)
-                                allSongIndexByID[songID] = allSongs.count - 1
-                                recordRow(newSong, for: songID)
-                                scannedCount += 1
-                                addedCount += 1
+                                    let bareSong = buildBareSong(from: item, songID: songID)
+                                    let newSong = adoptingPeerSeed(onto: bareSong) ?? bareSong
+                                    allSongs.append(newSong)
+                                    allSongIndexByID[songID] = allSongs.count - 1
+                                    recordRow(newSong, for: songID)
+                                    scannedCount += 1
+                                    addedCount += 1
 
-                                // Yield progress every 20 items — yielding on every
-                                // file made the SwiftUI publisher chain the bottleneck
-                                // when scanning fast cloud listings.
-                                //
-                                // 不带累积数组: 这一条的 resume 状态把正在走的目录
-                                // 原样排回队列, checkpoint 要的本来就是上一个走完的
-                                // 目录那份快照。附上整份 allSongs 只会让下一次
-                                // append 触发整份写时复制。
-                                if addedCount % Self.progressYieldStride == 0 {
-                                    continuation.yield(
-                                        ScanUpdate(
-                                            scannedCount: scannedCount,
-                                            addedCount: addedCount,
-                                            mutationCount: mutationCount,
-                                            totalCount: totalCount,
-                                            currentFile: item.name,
-                                            songs: [],
-                                            carriesFullSnapshot: false,
-                                            resumeState: SourceScanResumeState(
-                                                pendingDirectories: pendingDirectories + [directory] + failedDirectories,
-                                                encounteredSongIDs: encounteredSongIDs,
-                                                index: syncIndex
+                                    // Yield progress every 20 items — yielding on every
+                                    // file made the SwiftUI publisher chain the bottleneck
+                                    // when scanning fast cloud listings.
+                                    //
+                                    // 不带累积数组: 这一条的 resume 状态把正在走的目录
+                                    // 原样排回队列, checkpoint 要的本来就是上一个走完的
+                                    // 目录那份快照。附上整份 allSongs 只会让下一次
+                                    // append 触发整份写时复制。
+                                    if addedCount % Self.progressYieldStride == 0 {
+                                        continuation.yield(
+                                            ScanUpdate(
+                                                scannedCount: scannedCount,
+                                                addedCount: addedCount,
+                                                mutationCount: mutationCount,
+                                                totalCount: totalCount,
+                                                currentFile: item.name,
+                                                songs: [],
+                                                carriesFullSnapshot: false,
+                                                resumeState: SourceScanResumeState(
+                                                    pendingDirectories: pendingDirectories + [directory] + failedDirectories,
+                                                    encounteredSongIDs: encounteredSongIDs,
+                                                    index: syncIndex
+                                                )
                                             )
                                         )
-                                    )
+                                    }
                                 }
-                            }
 
-                            for child in siblings
-                                .filter(\.isDirectory)
-                                .map(\.path)
-                                .sorted()
-                                .reversed()
-                            where !visitedDirectories.contains(child)
-                                && !failedDirectories.contains(child)
-                                && pendingSet.insert(child).inserted {
-                                pendingDirectories.append(child)
-                            }
-                            successfulDirectoryCount += 1
+                                for child in siblings
+                                    .filter(\.isDirectory)
+                                    .map(\.path)
+                                    .sorted()
+                                    .reversed()
+                                where !visitedDirectories.contains(child)
+                                    && !failedDirectories.contains(child)
+                                    && pendingSet.insert(child).inserted {
+                                    pendingDirectories.append(child)
+                                }
+                                successfulDirectoryCount += 1
 
-                            continuation.yield(
-                                ScanUpdate(
-                                    scannedCount: scannedCount,
-                                    addedCount: addedCount,
-                                    mutationCount: mutationCount,
-                                    totalCount: totalCount,
-                                    currentFile: "",
-                                    songs: [],
-                                    carriesFullSnapshot: false,
-                                    resumeState: SourceScanResumeState(
-                                        pendingDirectories: pendingDirectories + failedDirectories,
-                                        encounteredSongIDs: encounteredSongIDs,
-                                        index: syncIndex
-                                    )
-                                )
-                            )
-                        } catch is CancellationError {
-                            throw CancellationError()
-                        } catch {
-                            let disposition = ScanDirectoryFailurePolicy.disposition(
-                                isMissingPath: Self.isMissingPathError(error),
-                                isSelectedRoot: selectedRoots.contains(directory)
-                            )
-                            switch disposition {
-                            case .failMissingRoot:
-                                // Do not write the missing root back into the
-                                // resume queue. ScanService clears the stale
-                                // checkpoint and keeps the existing library
-                                // snapshot until the user selects a new root.
-                                plog("⚠️ Selected scan root no longer exists: \(directory)")
-                                throw error
-                            case .discardMissingChild:
-                                // A child captured by an older checkpoint may
-                                // have been moved or deleted. Dropping it lets
-                                // the rest of the tree finish and prevents an
-                                // endless Continue Scan loop on the same path.
-                                // Preserve its previously-committed subtree in
-                                // this scan result: absence of a listing is not
-                                // authoritative enough to delete user library
-                                // rows. A later parent listing/change feed can
-                                // reconcile a real move or deletion safely.
-                                let preserved = Self.indexedSubtree(
-                                    rootedAt: directory,
-                                    in: identityBaseline
-                                )
-                                for (key, entry) in preserved {
-                                    syncIndex[key] = entry
-                                    encounteredSongIDs.formUnion(entry.songIDs)
-                                }
-                                // Source edits and older libraries can leave
-                                // the identity index empty or incomplete.
-                                // Those rows still need the same protection.
-                                for song in existingSongs where Self.immediateChildPath(
-                                    descendant: song.filePath, of: directory
-                                ) != nil {
-                                    encounteredSongIDs.insert(song.id)
-                                }
-                                plog("↷ Dropped stale child directory from scan checkpoint: \(directory)")
                                 continuation.yield(
                                     ScanUpdate(
                                         scannedCount: scannedCount,
@@ -1214,44 +1185,104 @@ actor ConnectorScanner {
                                         )
                                     )
                                 )
-                                continue
-                            case .retainForResume:
-                                break
-                            }
-                            hadDirectoryFailure = true
-                            if firstDirectoryError == nil {
-                                firstDirectoryError = error
-                            }
-                            if !failedDirectories.contains(directory) {
-                                failedDirectories.append(directory)
-                            }
-                            plog("⚠️ Failed to scan directory \(directory): \(error)")
-                            continuation.yield(
-                                ScanUpdate(
-                                    scannedCount: scannedCount,
-                                    addedCount: addedCount,
-                                    mutationCount: mutationCount,
-                                    totalCount: totalCount,
-                                    currentFile: directory,
-                                    songs: [],
-                                    carriesFullSnapshot: false,
-                                    resumeState: SourceScanResumeState(
-                                        pendingDirectories: pendingDirectories + failedDirectories,
-                                        encounteredSongIDs: encounteredSongIDs,
-                                        index: syncIndex
+                            } catch is CancellationError {
+                                throw CancellationError()
+                            } catch {
+                                let disposition = ScanDirectoryFailurePolicy.disposition(
+                                    isMissingPath: Self.isMissingPathError(error),
+                                    isSelectedRoot: selectedRoots.contains(directory)
+                                )
+                                switch disposition {
+                                case .failMissingRoot:
+                                    // Do not write the missing root back into the
+                                    // resume queue. ScanService clears the stale
+                                    // checkpoint and keeps the existing library
+                                    // snapshot until the user selects a new root.
+                                    plog("⚠️ Selected scan root no longer exists: \(directory)")
+                                    throw error
+                                case .discardMissingChild:
+                                    // A child captured by an older checkpoint may
+                                    // have been moved or deleted. Dropping it lets
+                                    // the rest of the tree finish and prevents an
+                                    // endless Continue Scan loop on the same path.
+                                    // Preserve its previously-committed subtree in
+                                    // this scan result: absence of a listing is not
+                                    // authoritative enough to delete user library
+                                    // rows. A later parent listing/change feed can
+                                    // reconcile a real move or deletion safely.
+                                    let preserved = Self.indexedSubtree(
+                                        rootedAt: directory,
+                                        in: identityBaseline
+                                    )
+                                    for (key, entry) in preserved {
+                                        syncIndex[key] = entry
+                                        encounteredSongIDs.formUnion(entry.songIDs)
+                                    }
+                                    // Source edits and older libraries can leave
+                                    // the identity index empty or incomplete.
+                                    // Those rows still need the same protection.
+                                    for song in existingSongs where Self.immediateChildPath(
+                                        descendant: song.filePath, of: directory
+                                    ) != nil {
+                                        encounteredSongIDs.insert(song.id)
+                                    }
+                                    plog("↷ Dropped stale child directory from scan checkpoint: \(directory)")
+                                    continuation.yield(
+                                        ScanUpdate(
+                                            scannedCount: scannedCount,
+                                            addedCount: addedCount,
+                                            mutationCount: mutationCount,
+                                            totalCount: totalCount,
+                                            currentFile: "",
+                                            songs: [],
+                                            carriesFullSnapshot: false,
+                                            resumeState: SourceScanResumeState(
+                                                pendingDirectories: pendingDirectories + failedDirectories,
+                                                encounteredSongIDs: encounteredSongIDs,
+                                                index: syncIndex
+                                            )
+                                        )
+                                    )
+                                    continue
+                                case .retainForResume:
+                                    break
+                                }
+                                hadDirectoryFailure = true
+                                if firstDirectoryError == nil {
+                                    firstDirectoryError = error
+                                }
+                                if !failedDirectories.contains(directory) {
+                                    failedDirectories.append(directory)
+                                }
+                                plog("⚠️ Failed to scan directory \(directory): \(error)")
+                                continuation.yield(
+                                    ScanUpdate(
+                                        scannedCount: scannedCount,
+                                        addedCount: addedCount,
+                                        mutationCount: mutationCount,
+                                        totalCount: totalCount,
+                                        currentFile: directory,
+                                        songs: [],
+                                        carriesFullSnapshot: false,
+                                        resumeState: SourceScanResumeState(
+                                            pendingDirectories: pendingDirectories + failedDirectories,
+                                            encounteredSongIDs: encounteredSongIDs,
+                                            index: syncIndex
+                                        )
                                     )
                                 )
-                            )
-                            let sharedCooldown = (error as? HTTPResponseFailure).map {
-                                $0.isRateLimited || $0.statusCode == 429 ||
-                                    ($0.retryAfter.map { $0.isFinite && $0 >= 0 } ?? false)
-                            } ?? false
-                            if (error as? RemoteDirectoryHTTPStatusError)?.isRateLimited == true || sharedCooldown {
-                                rateLimitStopError = error
-                                plog("⏸ Directory listings remain rate limited; stopping with \(pendingDirectories.count + failedDirectories.count) directories left for Continue Scan")
-                                break directoryWalk
+                                let sharedCooldown = (error as? HTTPResponseFailure).map {
+                                    $0.isRateLimited || $0.statusCode == 429 ||
+                                        ($0.retryAfter.map { $0.isFinite && $0 >= 0 } ?? false)
+                                } ?? false
+                                if (error as? RemoteDirectoryHTTPStatusError)?.isRateLimited == true || sharedCooldown {
+                                    rateLimitStopError = error
+                                    plog("⏸ Directory listings remain rate limited; stopping with \(pendingDirectories.count + failedDirectories.count) directories left for Continue Scan")
+                                    break directoryWalk
+                                }
                             }
                         }
+
                     }
 
                     if successfulDirectoryCount == 0, let stopError = rateLimitStopError ?? firstDirectoryError {
