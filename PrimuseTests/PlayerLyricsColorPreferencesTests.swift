@@ -5,6 +5,102 @@ import UIKit
 import XCTest
 @testable import Primuse
 
+@MainActor
+final class LyricsCascadeScrollTests: XCTestCase {
+    func testLineLyricsCascadeKeepsTheSameScrollAnchorAsStandardMotion() async throws {
+        try await checkCascadeScroll(wordTimed: false)
+    }
+
+    func testWordLyricsCascadeKeepsTheSameScrollAnchorAsStandardMotion() async throws {
+        try await checkCascadeScroll(wordTimed: true)
+    }
+
+    private func checkCascadeScroll(wordTimed: Bool) async throws {
+        try XCTSkipIf(UIAccessibility.isReduceMotionEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled,
+                      "Cascade motion is disabled by the current accessibility or power setting")
+        let suite = "LyricsCascadeScrollTests.\(UUID().uuidString)"
+        let standardDefaults = try XCTUnwrap(UserDefaults(suiteName: suite + ".standard"))
+        let cascadeDefaults = try XCTUnwrap(UserDefaults(suiteName: suite + ".cascade"))
+        defer {
+            standardDefaults.removePersistentDomain(forName: suite + ".standard")
+            cascadeDefaults.removePersistentDomain(forName: suite + ".cascade")
+        }
+        for (defaults, motion) in [(standardDefaults, "standard"), (cascadeDefaults, "cascade")] {
+            defaults.set(motion, forKey: PlayerAppearancePreferences.lyricsMotionKey)
+            defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        }
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: standardDefaults),
+            activateAudioSession: { _ in }
+        )
+        player.currentTime = 4
+        let lines = (0..<16).map { index in
+            let text = index.isMultiple(of: 3)
+                ? "A longer lyric that wraps across several lines before the next short phrase"
+                : "A short lyric line"
+            return LyricLine(
+                timestamp: Double(index * 2),
+                text: text,
+                syllables: wordTimed ? [LyricSyllable(text: text, start: Double(index * 2), end: Double(index * 2 + 2))] : nil
+            )
+        }
+        let translations = Dictionary(uniqueKeysWithValues: lines.map { ($0.id, "这是一行译文，用来验证长短句切换时的定位。") })
+        func lyricsView(defaults: UserDefaults) -> some View {
+            LyricsScrollView(
+                lyrics: lines, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+                isResolvingLyrics: false, player: player, songID: "cascade-regression",
+                isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
+                isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
+                onBackgroundTap: {}, onShareLyricLine: { _ in },
+                translatedTextByLineID: translations, translationActivity: .idle
+            )
+            .defaultAppStorage(defaults)
+            .frame(width: 390, height: 340)
+        }
+        let host = UIHostingController(rootView: VStack(spacing: 0) {
+            lyricsView(defaults: standardDefaults)
+            lyricsView(defaults: cascadeDefaults)
+        })
+        host.safeAreaRegions = []
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 680)
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(500))
+        @MainActor func scrollViews(in view: UIView) -> [UIScrollView] {
+            if let scroll = view as? UIScrollView { return [scroll] }
+            return view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let scrolls = scrollViews(in: host.view).sorted {
+            $0.convert(.zero, to: host.view).y < $1.convert(.zero, to: host.view).y
+        }
+        XCTAssertEqual(scrolls.count, 2)
+        let standard = try XCTUnwrap(scrolls.first)
+        let cascade = try XCTUnwrap(scrolls.last)
+        XCTAssertEqual(cascade.contentOffset.y, standard.contentOffset.y, accuracy: 1)
+        for time in [6.0, 8, 10, 12] {
+            let start = cascade.contentOffset.y
+            player.currentTime = time
+            var offsets: [CGFloat] = []
+            for _ in 0..<65 {
+                try await Task.sleep(for: .milliseconds(20))
+                offsets.append(cascade.contentOffset.y)
+            }
+            let target = standard.contentOffset.y
+            XCTAssertGreaterThan(target - start, 20, "The fixture must advance to a different row")
+            XCTAssertEqual(cascade.contentOffset.y, target, accuracy: 2, "Cascade drift at \(time)s")
+            XCTAssertLessThanOrEqual(try XCTUnwrap(offsets.max()), target + 2, "Cascade overshot its anchor at \(time)s")
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(offsets.min()), start - 2, "Cascade scrolled backwards at \(time)s")
+        }
+    }
+}
+
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
     func testLyricsPulseIsSelectableWithoutChangingExistingPreferences() {
         XCTAssertEqual(PlayerLyricsMotion.allCases.map(\.rawValue), ["standard", "cascade", "pulse"])

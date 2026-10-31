@@ -16341,6 +16341,10 @@ struct LyricsScrollView: View {
                     visualScale: CGFloat(activity.scale),
                     rowAlignment: alignment
                 )
+                // Keep the scroll target and measured anchor outside the
+                // animated translation, or scrollTo counts that distance twice.
+                .offset(y: usesCascadeStyle ? cascadeOffset : 0)
+                .animation(cascadeAnimation(forRow: index), value: cascadeGeneration)
             }
             .if(!usesLazyRows) { $0.id(LyricsScrollTarget.line(id: line.id)) }
             .opacity(browsedOpacity(index: index, base: activity.opacity))
@@ -16351,28 +16355,29 @@ struct LyricsScrollView: View {
                 .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
                 value: currentLineIndex
             )
-            .padding(.vertical, 5)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 Self.rowAnchorY(proxy.frame(in: .named(Self.lyricsContentSpace)))
             } action: { y in
                 rowAnchorYs.values[index] = y
             }
+            .padding(.vertical, 5)
 
             if showsLyricsInterlude, let window = LyricPlaybackPositionPolicy.interludeWindow(
                 afterLine: index,
                 in: lyrics
             ) {
-                interludeMarker(
-                    window,
-                    isActive: activeInterlude == .afterLine(index),
-                    alignment: alignment
-                )
+                ZStack {
+                    interludeMarker(
+                        window,
+                        isActive: activeInterlude == .afterLine(index),
+                        alignment: alignment
+                    )
+                    .offset(y: usesCascadeStyle ? cascadeOffset : 0)
+                    .animation(cascadeAnimation(forRow: index), value: cascadeGeneration)
+                }
                 .id(LyricsScrollTarget.interlude(afterLineID: line.id))
             }
         }
-        // 层叠换句的位移挂在整格(含译文、和声、间奏点)外面、测量定位点之外;平时为 0。
-        .offset(y: usesCascadeStyle ? cascadeOffset : 0)
-        .animation(cascadeAnimation(forRow: index), value: cascadeGeneration)
     }
 
     /// 第一句前的前奏够长时,第一句上面那一行点(只在前奏里展开);对齐跟第一句。
@@ -16381,12 +16386,16 @@ struct LyricsScrollView: View {
         if showsLyricsInterlude,
            let window = LyricPlaybackPositionPolicy.introWindow(in: lyrics),
            let first = lyrics.first {
-            interludeMarker(
-                window,
-                isActive: activeInterlude == .intro,
-                alignment: duetAlignment(for: first, isDuet: isDuet),
-                spacingEdge: .bottom
-            )
+            ZStack {
+                interludeMarker(
+                    window,
+                    isActive: activeInterlude == .intro,
+                    alignment: duetAlignment(for: first, isDuet: isDuet),
+                    spacingEdge: .bottom
+                )
+                .offset(y: usesCascadeStyle ? cascadeOffset : 0)
+                .animation(cascadeAnimation(forRow: 0), value: cascadeGeneration)
+            }
             .id(LyricsScrollTarget.intro)
         }
     }
