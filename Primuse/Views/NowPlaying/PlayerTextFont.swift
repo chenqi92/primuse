@@ -477,11 +477,12 @@ final class PlayerTextFontActivation: @unchecked Sendable {
 struct LyricsTypeface: Equatable {
     var family: PlayerTextFont = .system
     var isAvailable = true
+    var weightSelection: PlayerLyricsWeight = .automatic
 
     static let system = LyricsTypeface()
 
     func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        family.font(size: size, weight: weight, isAvailable: isAvailable)
+        family.font(size: size, weight: weightSelection.resolve(weight), isAvailable: isAvailable)
     }
 
     /// 真正画出来的是不是系统字体(没选别的,或选的还没下好、这台设备没有)。
@@ -499,13 +500,16 @@ extension EnvironmentValues {
 struct LyricsTypefaceProvider: ViewModifier {
     @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
     private var rawValue = PlayerTextFont.system.rawValue
+    @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
+    private var weightRawValue = PlayerLyricsWeight.automatic.rawValue
 
     func body(content: Content) -> some View {
         let family = PlayerTextFont(rawValue: rawValue) ?? .system
         content
             .environment(\.lyricsTypeface, LyricsTypeface(
                 family: family,
-                isAvailable: PlayerTextFontLibrary.shared.isAvailable(family)
+                isAvailable: PlayerTextFontLibrary.shared.isAvailable(family),
+                weightSelection: .resolved(weightRawValue)
             ))
             .task(id: family) {
                 PlayerTextFontLibrary.shared.prepare(family)
@@ -520,6 +524,7 @@ extension LyricsTypeface {
     /// `NSFontManager` 原样返回这一面,不会退回系统字体。
     @MainActor
     func nsFont(size: CGFloat, weight: Font.Weight) -> NSFont {
+        let weight = weightSelection.resolve(weight)
         let system = NSFont.systemFont(ofSize: size, weight: Self.appKitWeight(weight))
         guard !drawsSystemFont else { return system }
         let isBold = [Font.Weight.semibold, .bold, .heavy, .black].contains(weight)
@@ -562,6 +567,25 @@ extension LyricsTypeface {
 #endif
 
 #if os(iOS) || os(macOS)
+struct LyricsWeightPicker: View {
+    @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
+    private var rawValue = PlayerLyricsWeight.automatic.rawValue
+
+    var body: some View {
+        Picker("lyrics_weight", selection: Binding(
+            get: { PlayerLyricsWeight.resolved(rawValue) },
+            set: { rawValue = $0.rawValue }
+        )) {
+            ForEach(PlayerLyricsWeight.allCases) { weight in
+                Text(LocalizedStringKey(weight.titleKey)).tag(weight)
+            }
+        }
+        .onChange(of: rawValue) { _, _ in
+            CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsWeightKey)
+        }
+    }
+}
+
 /// 按组排的字体块:常用、手写与书法、日文与韩文、西文花体各一排横滑,最后是「我导入的」和导入按钮。
 /// 每块用那种字体写个样字,要下载的标朵云、下载中画一圈进度、失败标个感叹号。点一块就选中它,
 /// 还没下的顺手开始下;失败过的再点一次重试。导入的字体长按(Mac 右键)可以删除。

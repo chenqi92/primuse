@@ -455,6 +455,8 @@ private struct MenuBarPlayerProgress: View {
 /// Scrubber slider only commits seek on release, otherwise AVAudioEngine
 /// chokes on the per-frame seeks during a drag.
 private struct MenuBarScrubberLine: View {
+    @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     let value: Double
     let total: Double
     var tint: Color = .secondary
@@ -464,19 +466,24 @@ private struct MenuBarScrubberLine: View {
     @State private var dragValue: Double = 0
 
     var body: some View {
-        Slider(
+        PMVolumeSlider(
             value: Binding(
                 get: { isDragging ? dragValue : value },
-                set: { dragValue = $0 }
+                set: {
+                    dragValue = $0
+                    if !isDragging { onSeek($0) }
+                }
             ),
-            in: 0...max(total, 0.01),
+            range: 0...max(total, 0.01),
+            controlSize: .mini,
+            trackThicknessScale: PlayerTrackThickness.resolved(thicknessRawValue).scale,
+            fillColor: tint,
+            accessibilityLabel: String(localized: "playback"),
             onEditingChanged: { editing in
                 if editing { isDragging = true; dragValue = value }
                 else { isDragging = false; onSeek(dragValue) }
             }
         )
-        .controlSize(.mini)
-        .tint(tint)
     }
 }
 #endif

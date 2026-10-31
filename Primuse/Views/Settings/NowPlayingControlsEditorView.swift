@@ -166,8 +166,8 @@ struct NowPlayingControlsEditorView: View {
     /// 设置搜索跳过来的几项在全局那一页,先切过去再定位。
     private static let globalAnchors: Set<String> = [
         "appearance.playerOrientationButton", "appearance.playerFollowsDeviceOrientation",
-        "appearance.playerProgressStyle", "appearance.playerProgressGlow",
-        "appearance.volumeBar", "appearance.playerVolumeStyle",
+        "appearance.playerProgressStyle", "appearance.playerProgressThickness", "appearance.playerProgressGlow",
+        "appearance.volumeBar", "appearance.playerVolumeStyle", "appearance.playerVolumeThickness",
         "appearance.playerControlTint", "appearance.playerAlwaysDark",
         "appearance.playerBackdrop", "appearance.ambientStrength",
     ]
@@ -695,6 +695,10 @@ private struct MusicArtworkStyleSections: View {
 
 /// 几种播放页共用的样子:进度条、音量条、控件颜色与深色、背景(在「全局」那一页)。
 private struct PlayerSharedLookSettingsSections: View {
+    @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
+    private var progressThickness = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
+    private var volumeThickness = PlayerTrackThickness.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
@@ -726,6 +730,12 @@ private struct PlayerSharedLookSettingsSections: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .settingsAnchor("appearance.playerProgressStyle")
+            Picker("player_progress_thickness", selection: $progressThickness) {
+                ForEach(PlayerTrackThickness.allCases) { thickness in
+                    Text(LocalizedStringKey(thickness.titleKey)).tag(thickness.rawValue)
+                }
+            }
+            .settingsAnchor("appearance.playerProgressThickness")
             Toggle("player_progress_glow", isOn: $progressGlows)
                 .settingsAnchor("appearance.playerProgressGlow")
                 .accessibilityHint(Text("player_progress_glow_description"))
@@ -761,6 +771,12 @@ private struct PlayerSharedLookSettingsSections: View {
                     }
                 }
                 .settingsAnchor("appearance.playerVolumeStyle")
+                Picker("player_volume_thickness", selection: $volumeThickness) {
+                    ForEach(PlayerTrackThickness.allCases) { thickness in
+                        Text(LocalizedStringKey(thickness.titleKey)).tag(thickness.rawValue)
+                    }
+                }
+                .settingsAnchor("appearance.playerVolumeThickness")
             }
         }
 

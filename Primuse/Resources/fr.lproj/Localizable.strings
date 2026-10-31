@@ -7073,3 +7073,14 @@
 "song_list_layout_list" = "Liste par défaut";
 "song_list_layout_timeline" = "Chronologie";
 "song_list_layout_artwork" = "Cartes de pochettes";
+
+"lyrics_weight" = "Graisse des paroles";
+"lyrics_weight_default" = "Par défaut";
+"lyrics_weight_semibold" = "Demi-gras";
+"lyrics_weight_bold" = "Gras";
+"player_progress_thickness" = "Épaisseur de la barre de progression";
+"player_volume_thickness" = "Épaisseur de la barre de volume";
+"player_track_thickness_thin" = "Fine";
+"player_track_thickness_standard" = "Standard";
+"player_track_thickness_thick" = "Épaisse";
+"player_track_thickness_extraThick" = "Très épaisse";

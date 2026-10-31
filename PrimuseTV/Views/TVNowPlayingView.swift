@@ -1661,7 +1661,7 @@ private struct TVLyricCompanionFont: ViewModifier {
 
     func body(content: Content) -> some View {
         if lyricsTypeface.drawsSystemFont {
-            content.tvFont(size: size, relativeTo: .caption)
+            content.tvFont(size: size, weight: lyricsTypeface.weightSelection.resolve(.regular), relativeTo: .caption)
         } else {
             content.font(lyricsTypeface.font(size: size))
         }
@@ -1800,6 +1800,8 @@ private final class TVMusicVideoLayerView: UIView {
 // MARK: - 可聚焦进度条(Siri Remote 左右拖动 ∓10s 定位)
 
 struct TVScrubber: View {
+    @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     let progress: Double
     let tint: Color
     var immersiveDark = false
@@ -1812,15 +1814,19 @@ struct TVScrubber: View {
     @FocusState.Binding var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var trackHeight: CGFloat {
+        (focused ? 8 : 4) * PlayerTrackThickness.resolved(thicknessRawValue).scale
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(immersiveDark
                                ? Color.white.opacity(focused ? 0.34 : 0.18)
                                : TVColor.text.opacity(focused ? 0.30 : 0.16))
-                    .frame(height: focused ? 8 : 4)
+                    .frame(height: trackHeight)
                 Capsule().fill(tint)
-                    .frame(width: max(0, geo.size.width * progress), height: focused ? 8 : 4)
+                    .frame(width: max(0, geo.size.width * progress), height: trackHeight)
                 Circle().fill(immersiveDark ? Color.white : TVColor.text)
                     .frame(width: focused ? 24 : 14, height: focused ? 24 : 14)
                     .shadow(color: .black.opacity(0.22), radius: 3, y: 2)

@@ -19,6 +19,10 @@ struct TVOptionsView: View {
     /// 歌词字体(#332),和 iPhone、Mac 同一份(经 iCloud 同步)。
     @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
     private var lyricsFontRawValue = PlayerTextFont.system.rawValue
+    @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
+    private var lyricsWeightRawValue = PlayerLyricsWeight.automatic.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
+    private var progressThicknessRawValue = PlayerTrackThickness.standard.rawValue
     @State private var albumScrapeTarget: TVSongMatchTarget?
     @State private var playbackRangeTarget: TVSongMatchTarget?
 
@@ -93,6 +97,15 @@ struct TVOptionsView: View {
         }
         // 歌词字号:按一下换下一档,和睡眠定时一样就地循环。
         if !isSpokenWord, !store.isLiveRadio {
+            let weight = PlayerLyricsWeight.resolved(lyricsWeightRawValue)
+            song.append(.init(
+                id: "lyricsWeight", icon: "bold",
+                label: String(localized: "lyrics_weight") + " · " + NSLocalizedString(weight.titleKey, comment: ""),
+                run: {
+                    lyricsWeightRawValue = weight.next.rawValue
+                    CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsWeightKey)
+                }
+            ))
             let level = TVLyricsFontLevel.resolved(lyricsFontLevelRawValue)
             song.append(.init(
                 id: "lyricsFontSize", icon: "textformat.size",
@@ -113,6 +126,17 @@ struct TVOptionsView: View {
         }
 
         var playback: [Action] = []
+        if !store.isLiveRadio {
+            let thickness = PlayerTrackThickness.resolved(progressThicknessRawValue)
+            playback.append(.init(
+                id: "progressThickness", icon: "lineweight",
+                label: String(localized: "player_progress_thickness") + " · " + NSLocalizedString(thickness.titleKey, comment: ""),
+                run: {
+                    progressThicknessRawValue = thickness.next.rawValue
+                    CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.progressThicknessKey)
+                }
+            ))
+        }
         if store.isMedleyActive {
             playback.append(.init(id: "medleyFull", icon: "music.note", label: String(localized: "medley_continue_full"), run: {
                 store.continueCurrentMedleySongInFull()

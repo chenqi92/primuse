@@ -6979,3 +6979,14 @@
 "song_list_layout_list" = "Звичайний список";
 "song_list_layout_timeline" = "Стрічка";
 "song_list_layout_artwork" = "Картки обкладинок";
+
+"lyrics_weight" = "Товщина шрифту тексту пісні";
+"lyrics_weight_default" = "Типова";
+"lyrics_weight_semibold" = "Напівжирний";
+"lyrics_weight_bold" = "Жирний";
+"player_progress_thickness" = "Товщина смуги прогресу";
+"player_volume_thickness" = "Товщина смуги гучності";
+"player_track_thickness_thin" = "Тонка";
+"player_track_thickness_standard" = "Стандартна";
+"player_track_thickness_thick" = "Товста";
+"player_track_thickness_extraThick" = "Дуже товста";

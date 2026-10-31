@@ -335,6 +335,8 @@ struct PreviewVolumeRow: View {
     /// 这一页的进度条画法(有声书那套版式自己的细线);nil 时按「设置 › 进度条」选的画。
     var matchedTrack: ProgressSlider.TrackStyle? = nil
 
+    @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @AppStorage(PlayerAppearancePreferences.volumeBarStyleKey)
     private var volumeBarStyleRawValue = NowPlayingVolumeBarStyle.system.rawValue
@@ -375,10 +377,10 @@ struct PreviewVolumeRow: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(primary.opacity(colorSchemeContrast == .increased ? 0.3 : 0.2))
-                    .frame(height: 4)
+                    .frame(height: 4 * PlayerTrackThickness.resolved(thicknessRawValue).scale)
                 Capsule()
                     .fill(primary)
-                    .frame(width: filled, height: 4)
+                    .frame(width: filled, height: 4 * PlayerTrackThickness.resolved(thicknessRawValue).scale)
                 Circle()
                     .fill(primary)
                     .frame(width: 12, height: 12)

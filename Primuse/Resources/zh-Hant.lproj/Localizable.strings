@@ -7050,3 +7050,14 @@
 "song_list_layout_list" = "預設列表";
 "song_list_layout_timeline" = "時間軸";
 "song_list_layout_artwork" = "封面卡片";
+
+"lyrics_weight" = "歌詞字重";
+"lyrics_weight_default" = "預設";
+"lyrics_weight_semibold" = "半粗體";
+"lyrics_weight_bold" = "粗體";
+"player_progress_thickness" = "進度列粗細";
+"player_volume_thickness" = "音量列粗細";
+"player_track_thickness_thin" = "細";
+"player_track_thickness_standard" = "標準";
+"player_track_thickness_thick" = "粗";
+"player_track_thickness_extraThick" = "特粗";

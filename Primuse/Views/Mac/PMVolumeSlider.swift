@@ -11,6 +11,7 @@ struct PMVolumeSlider: NSViewRepresentable {
     var range: ClosedRange<Double> = 0...1
     var controlSize: NSControl.ControlSize = .mini
     var isEnabled = true
+    var trackThicknessScale: CGFloat? = nil
     /// 已填充那一段的颜色。nil 时 AppKit 用系统强调色，和 app 自己的主题色对不上。
     var fillColor: Color?
     var accessibilityLabel: String = String(localized: "volume")
@@ -59,6 +60,10 @@ struct PMVolumeSlider: NSViewRepresentable {
         slider.setAccessibilityLabel(accessibilityLabel)
         slider.setAccessibilityHelp(accessibilityHelp)
         (slider as? PMWindowSafeSlider)?.onEditingChanged = onEditingChanged
+        if let slider = slider as? PMWindowSafeSlider, slider.trackThicknessScale != trackThicknessScale {
+            slider.trackThicknessScale = trackThicknessScale
+            slider.needsDisplay = true
+        }
         context.coordinator.updateValue(clampedValue, on: slider)
     }
 
@@ -85,9 +90,71 @@ struct PMVolumeSlider: NSViewRepresentable {
     }
 }
 
+final class PMThicknessSliderCell: NSSliderCell {
+    override func drawBar(inside rect: NSRect, flipped: Bool) {
+        guard let slider = controlView as? PMWindowSafeSlider,
+              let scale = slider.trackThicknessScale,
+              !isVertical, scale != 1 || slider.isTrackingMouse else {
+            super.drawBar(inside: rect, flipped: flipped)
+            return
+        }
+        let height = Self.trackHeight(base: rect.height, scale: scale, isActive: slider.isTrackingMouse)
+        let track = NSRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
+        let path = NSBezierPath(roundedRect: track, xRadius: height / 2, yRadius: height / 2)
+        NSColor.quaternaryLabelColor.setFill()
+        path.fill()
+        NSGraphicsContext.saveGraphicsState()
+        path.addClip()
+        let fill = slider.trackFillColor ?? .controlAccentColor
+        fill.withAlphaComponent(slider.isEnabled ? 1 : 0.4).setFill()
+        let width = min(track.width, max(0, knobRect(flipped: flipped).midX - track.minX))
+        NSRect(x: track.minX, y: track.minY, width: width, height: height).fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    static func trackHeight(base: CGFloat, scale: CGFloat, isActive: Bool) -> CGFloat {
+        base * scale + (isActive ? min(2, base) : 0)
+    }
+}
+
 final class PMWindowSafeSlider: NSSlider {
-    var isTrackingMouse = false
+    private var systemSliderCell: NSSliderCell?
+    private var thicknessSliderCell: PMThicknessSliderCell?
+    var trackThicknessScale: CGFloat? {
+        didSet { updateTrackDrawing() }
+    }
+    var isTrackingMouse = false {
+        didSet { updateTrackDrawing() }
+    }
     var onEditingChanged: (Bool) -> Void = { _ in }
+
+    private func updateTrackDrawing() {
+        defer { needsDisplay = true }
+        guard let current = cell as? NSSliderCell else { return }
+        let custom = trackThicknessScale.map { $0 != 1 || isTrackingMouse } ?? false
+        guard custom != (current is PMThicknessSliderCell) else { return }
+        if systemSliderCell == nil { systemSliderCell = current }
+        if custom, thicknessSliderCell == nil { thicknessSliderCell = PMThicknessSliderCell() }
+        guard let replacement = custom ? thicknessSliderCell : systemSliderCell else { return }
+        let fill = trackFillColor
+        replacement.minValue = current.minValue
+        replacement.maxValue = current.maxValue
+        replacement.doubleValue = current.doubleValue
+        replacement.controlSize = current.controlSize
+        replacement.sliderType = current.sliderType
+        replacement.isVertical = current.isVertical
+        replacement.isEnabled = current.isEnabled
+        replacement.isContinuous = current.isContinuous
+        replacement.target = current.target
+        replacement.action = current.action
+        replacement.altIncrementValue = current.altIncrementValue
+        replacement.numberOfTickMarks = current.numberOfTickMarks
+        replacement.tickMarkPosition = current.tickMarkPosition
+        replacement.allowsTickMarkValuesOnly = current.allowsTickMarkValuesOnly
+        cell = replacement
+        trackFillColor = fill
+        sendAction(on: [.leftMouseDown, .leftMouseDragged, .leftMouseUp])
+    }
 
     override var mouseDownCanMoveWindow: Bool { false }
 

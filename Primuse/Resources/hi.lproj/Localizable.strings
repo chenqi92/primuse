@@ -6979,3 +6979,14 @@
 "song_list_layout_list" = "डिफ़ॉल्ट सूची";
 "song_list_layout_timeline" = "टाइमलाइन";
 "song_list_layout_artwork" = "कवर कार्ड";
+
+"lyrics_weight" = "गीत के बोलों के फ़ॉन्ट की मोटाई";
+"lyrics_weight_default" = "डिफ़ॉल्ट";
+"lyrics_weight_semibold" = "अर्ध-बोल्ड";
+"lyrics_weight_bold" = "बोल्ड";
+"player_progress_thickness" = "प्रगति बार की मोटाई";
+"player_volume_thickness" = "वॉल्यूम बार की मोटाई";
+"player_track_thickness_thin" = "पतला";
+"player_track_thickness_standard" = "मानक";
+"player_track_thickness_thick" = "मोटा";
+"player_track_thickness_extraThick" = "बहुत मोटा";

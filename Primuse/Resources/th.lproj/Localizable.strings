@@ -6979,3 +6979,14 @@
 "song_list_layout_list" = "รายการเริ่มต้น";
 "song_list_layout_timeline" = "ไทม์ไลน์";
 "song_list_layout_artwork" = "การ์ดปก";
+
+"lyrics_weight" = "ความหนาของแบบอักษรเนื้อเพลง";
+"lyrics_weight_default" = "ค่าเริ่มต้น";
+"lyrics_weight_semibold" = "กึ่งหนา";
+"lyrics_weight_bold" = "หนา";
+"player_progress_thickness" = "ความหนาของแถบความคืบหน้า";
+"player_volume_thickness" = "ความหนาของแถบระดับเสียง";
+"player_track_thickness_thin" = "บาง";
+"player_track_thickness_standard" = "มาตรฐาน";
+"player_track_thickness_thick" = "หนา";
+"player_track_thickness_extraThick" = "หนาพิเศษ";

@@ -7074,3 +7074,14 @@
 "song_list_layout_list" = "標準リスト";
 "song_list_layout_timeline" = "タイムライン";
 "song_list_layout_artwork" = "カバーカード";
+
+"lyrics_weight" = "歌詞の文字の太さ";
+"lyrics_weight_default" = "デフォルト";
+"lyrics_weight_semibold" = "セミボールド";
+"lyrics_weight_bold" = "太字";
+"player_progress_thickness" = "再生バーの太さ";
+"player_volume_thickness" = "音量バーの太さ";
+"player_track_thickness_thin" = "細い";
+"player_track_thickness_standard" = "標準";
+"player_track_thickness_thick" = "太い";
+"player_track_thickness_extraThick" = "極太";

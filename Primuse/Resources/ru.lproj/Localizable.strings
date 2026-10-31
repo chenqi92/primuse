@@ -6979,3 +6979,14 @@
 "song_list_layout_list" = "Обычный список";
 "song_list_layout_timeline" = "Лента";
 "song_list_layout_artwork" = "Карточки обложек";
+
+"lyrics_weight" = "Толщина шрифта текста песни";
+"lyrics_weight_default" = "По умолчанию";
+"lyrics_weight_semibold" = "Полужирный";
+"lyrics_weight_bold" = "Жирный";
+"player_progress_thickness" = "Толщина полосы прогресса";
+"player_volume_thickness" = "Толщина полосы громкости";
+"player_track_thickness_thin" = "Тонкая";
+"player_track_thickness_standard" = "Стандартная";
+"player_track_thickness_thick" = "Толстая";
+"player_track_thickness_extraThick" = "Очень толстая";

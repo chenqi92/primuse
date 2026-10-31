@@ -7073,3 +7073,14 @@
 "song_list_layout_list" = "기본 목록";
 "song_list_layout_timeline" = "타임라인";
 "song_list_layout_artwork" = "커버 카드";
+
+"lyrics_weight" = "가사 글꼴 굵기";
+"lyrics_weight_default" = "기본값";
+"lyrics_weight_semibold" = "약간 굵게";
+"lyrics_weight_bold" = "굵게";
+"player_progress_thickness" = "재생 막대 굵기";
+"player_volume_thickness" = "음량 막대 굵기";
+"player_track_thickness_thin" = "얇게";
+"player_track_thickness_standard" = "표준";
+"player_track_thickness_thick" = "굵게";
+"player_track_thickness_extraThick" = "매우 굵게";

@@ -80,6 +80,8 @@ struct PMVolumePercentage: View {
 }
 
 struct PMPlaybackVolumeSlider: View {
+    @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     /// 跟同一处进度条的填充色一致；nil 时用主题品牌色。
     var tint: Color?
 
@@ -101,6 +103,7 @@ struct PMPlaybackVolumeSlider: View {
                 set: { write($0, target: state.target) }
             ),
             isEnabled: state.target.isAdjustable,
+            trackThicknessScale: PlayerTrackThickness.resolved(thicknessRawValue).scale,
             fillColor: tint ?? PMColor.brand,
             accessibilityHelp: state.accessibilityHelp,
             onEditingChanged: { editing in

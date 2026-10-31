@@ -7073,3 +7073,14 @@
 "song_list_layout_list" = "Standardliste";
 "song_list_layout_timeline" = "Zeitleiste";
 "song_list_layout_artwork" = "Cover-Karten";
+
+"lyrics_weight" = "Schriftstärke der Liedtexte";
+"lyrics_weight_default" = "Standard";
+"lyrics_weight_semibold" = "Halbfett";
+"lyrics_weight_bold" = "Fett";
+"player_progress_thickness" = "Dicke der Fortschrittsleiste";
+"player_volume_thickness" = "Dicke der Lautstärkeleiste";
+"player_track_thickness_thin" = "Dünn";
+"player_track_thickness_standard" = "Standard";
+"player_track_thickness_thick" = "Dick";
+"player_track_thickness_extraThick" = "Sehr dick";

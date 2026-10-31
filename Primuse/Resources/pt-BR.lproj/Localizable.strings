@@ -6979,3 +6979,14 @@
 "song_list_layout_list" = "Lista padrão";
 "song_list_layout_timeline" = "Linha do tempo";
 "song_list_layout_artwork" = "Cartões de capas";
+
+"lyrics_weight" = "Peso da fonte das letras";
+"lyrics_weight_default" = "Padrão";
+"lyrics_weight_semibold" = "Seminegrito";
+"lyrics_weight_bold" = "Negrito";
+"player_progress_thickness" = "Espessura da barra de progresso";
+"player_volume_thickness" = "Espessura da barra de volume";
+"player_track_thickness_thin" = "Fina";
+"player_track_thickness_standard" = "Padrão";
+"player_track_thickness_thick" = "Grossa";
+"player_track_thickness_extraThick" = "Muito grossa";

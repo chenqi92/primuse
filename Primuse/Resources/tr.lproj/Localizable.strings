@@ -6979,3 +6979,14 @@
 "song_list_layout_list" = "Varsayılan liste";
 "song_list_layout_timeline" = "Zaman çizelgesi";
 "song_list_layout_artwork" = "Kapak kartları";
+
+"lyrics_weight" = "Şarkı sözü yazı kalınlığı";
+"lyrics_weight_default" = "Varsayılan";
+"lyrics_weight_semibold" = "Yarı kalın";
+"lyrics_weight_bold" = "Kalın";
+"player_progress_thickness" = "İlerleme çubuğu kalınlığı";
+"player_volume_thickness" = "Ses çubuğu kalınlığı";
+"player_track_thickness_thin" = "İnce";
+"player_track_thickness_standard" = "Standart";
+"player_track_thickness_thick" = "Kalın";
+"player_track_thickness_extraThick" = "Çok kalın";

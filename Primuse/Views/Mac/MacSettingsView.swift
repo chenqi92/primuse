@@ -5609,6 +5609,8 @@ private struct MacSTLyricsView: View {
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale = 0.0
     @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
     private var lyricsFontRawValue = PlayerTextFont.system.rawValue
+    @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
+    private var lyricsWeightRawValue = PlayerLyricsWeight.automatic.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
@@ -5811,9 +5813,13 @@ private struct MacSTLyricsView: View {
                         divider: false,
                         block: true
                     ) {
-                        PlayerTextFontPicker(selection: $lyricsFontRawValue, sampleWeight: .semibold)
+                        PlayerTextFontPicker(selection: $lyricsFontRawValue, sampleWeight: PlayerLyricsWeight.resolved(lyricsWeightRawValue).resolve(.semibold))
                     }
                     .settingsAnchor("lyrics.font")
+                    MacSTRow(String(localized: "lyrics_weight")) {
+                        LyricsWeightPicker().labelsHidden().frame(width: 180)
+                    }
+                    .settingsAnchor("lyrics.weight")
                     MacSTRow(String(localized: "lyrics_font_size")) {
                         MacSTSlider(
                             value: Binding(
@@ -7388,6 +7394,10 @@ private struct MacSTThemeView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
+    private var progressThickness = PlayerTrackThickness.standard.rawValue
+    @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
+    private var volumeThickness = PlayerTrackThickness.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressGlowKey)
     private var progressGlows = PlayerAppearancePreferences.progressGlowByDefault
     @AppStorage(MissingArtworkStyle.storageKey) private var missingArtworkStyle = MissingArtworkStyle.standard.rawValue
@@ -7753,6 +7763,16 @@ private struct MacSTThemeView: View {
                     )
                 }
                 .settingsAnchor("appearance.playerProgressStyle")
+                MacSTRow(String(localized: "player_progress_thickness")) {
+                    MacSTPicker(selection: $progressThickness,
+                                options: PlayerTrackThickness.allCases.map { ($0.rawValue, $0.titleKey) }, width: 180)
+                }
+                .settingsAnchor("appearance.playerProgressThickness")
+                MacSTRow(String(localized: "player_volume_thickness")) {
+                    MacSTPicker(selection: $volumeThickness,
+                                options: PlayerTrackThickness.allCases.map { ($0.rawValue, $0.titleKey) }, width: 180)
+                }
+                .settingsAnchor("appearance.playerVolumeThickness")
                 MacSTRow(
                     String(localized: "player_progress_glow"),
                     hint: String(localized: "player_progress_glow_description")

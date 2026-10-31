@@ -1017,3 +1017,114 @@ final class SystemVolumeSliderTests: XCTestCase {
         return bytes
     }
 }
+
+@MainActor
+final class PlayerTypographyAndTrackTests: XCTestCase {
+    func testUnsetAndUnknownPreferencesPreserveTheExistingAppearance() {
+        for rawValue in ["", "future-setting"] {
+            let weight = PlayerLyricsWeight.resolved(rawValue)
+            XCTAssertEqual(weight.resolve(.regular), .regular)
+            XCTAssertEqual(weight.resolve(.semibold), .semibold)
+            XCTAssertEqual(weight.resolve(.bold), .bold)
+            XCTAssertEqual(ProgressSlider.TrackStyle.standard.applyingThickness(.resolved(rawValue)), .standard)
+            XCTAssertEqual(PlayerVolumeTrackStyle.system.applyingThickness(.resolved(rawValue)), .system)
+        }
+    }
+
+    func testLyricsWeightOverridesBothCurrentAndCompanionLinesAndInvalidatesMeasurement() {
+        let original = LyricsTypeface.system
+        var bold = original
+        bold.weightSelection = .bold
+        XCTAssertEqual(bold.font(size: 26, weight: .semibold), Font.system(size: 26, weight: .bold))
+        XCTAssertEqual(bold.font(size: 16, weight: .medium), Font.system(size: 16, weight: .bold))
+        XCTAssertNotEqual(LyricsFlowMeasurementKey(typeface: original), LyricsFlowMeasurementKey(typeface: bold))
+        bold.family = .builtin(.pingFang)
+        XCTAssertEqual(bold.font(size: 26), PlayerTextFont.builtin(.pingFang).font(size: 26, weight: .bold))
+        bold.isAvailable = false
+        XCTAssertEqual(bold.font(size: 26), Font.system(size: 26, weight: .bold))
+    }
+
+    func testEveryTrackStyleStillGrowsOnPressAndRetainsItsKnobAndHitTarget() {
+        for appearance in NowPlayingProgressStyle.allCases {
+            let base = ProgressSlider.TrackStyle.forProgressStyle(appearance)
+            for thickness in PlayerTrackThickness.allCases {
+                let track = base.applyingThickness(thickness)
+                XCTAssertGreaterThan(track.restingHeight, 0)
+                XCTAssertGreaterThan(track.draggingHeight, track.restingHeight)
+                XCTAssertEqual(track.knobDiameter, base.knobDiameter)
+                XCTAssertLessThan(track.draggingHeight, CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
+                let volume = PlayerVolumeTrackStyle.matching(base).applyingThickness(thickness)
+                for reduceMotion in [false, true] {
+                    XCTAssertGreaterThan(volume.height(isActive: true, reduceMotion: reduceMotion), volume.height(isActive: false, reduceMotion: reduceMotion))
+                }
+            }
+        }
+    }
+
+    func testNewPreferencesJoinTheExistingInterfaceSyncSet() {
+        for key in [PlayerAppearancePreferences.lyricsWeightKey,
+                    PlayerAppearancePreferences.progressThicknessKey,
+                    PlayerAppearancePreferences.volumeThicknessKey] {
+            XCTAssertTrue(InterfaceLayoutSync.keys.contains(key))
+        }
+    }
+
+    func testSavedPreferencesChangeTheRenderedLyricsAndBothTracks() throws {
+        let suite = "PlayerTypographyAndTrackTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let before = try renderSample(defaults: defaults)
+        for (key, value) in [
+            (PlayerAppearancePreferences.lyricsWeightKey, PlayerLyricsWeight.bold.rawValue),
+            (PlayerAppearancePreferences.progressThicknessKey, PlayerTrackThickness.extraThick.rawValue),
+            (PlayerAppearancePreferences.volumeThicknessKey, PlayerTrackThickness.thin.rawValue)
+        ] {
+            defaults.set(value, forKey: key)
+            let changed = try renderSample(defaults: defaults)
+            XCTAssertNotEqual(before.pngData(), changed.pngData(), "Saved preference did not affect rendering: \(key)")
+            defaults.removeObject(forKey: key)
+        }
+        defaults.set(PlayerLyricsWeight.bold.rawValue, forKey: PlayerAppearancePreferences.lyricsWeightKey)
+        defaults.set(PlayerTrackThickness.extraThick.rawValue, forKey: PlayerAppearancePreferences.progressThicknessKey)
+        defaults.set(PlayerTrackThickness.thin.rawValue, forKey: PlayerAppearancePreferences.volumeThicknessKey)
+        let reopened = try XCTUnwrap(UserDefaults(suiteName: suite))
+        XCTAssertEqual(reopened.string(forKey: PlayerAppearancePreferences.lyricsWeightKey), "bold")
+        let after = try renderSample(defaults: reopened)
+        XCTAssertEqual(before.size, after.size)
+        XCTAssertNotEqual(before.pngData(), after.pngData())
+        for (name, image) in [("default-appearance", before), ("bold-thick-progress-thin-volume", after)] {
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    private func renderSample(defaults: UserDefaults) throws -> UIImage {
+        struct Sample: View {
+            @Environment(\.lyricsTypeface) var typeface
+            var body: some View {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("穿过人海，与你相遇")
+                        .font(typeface.font(size: 26, weight: .semibold))
+                    Text("A song for every moment")
+                        .font(typeface.font(size: 18, weight: .medium))
+                    ProgressSlider(value: 80, total: 200, fillTint: .blue, onSeek: { _ in })
+                    VolumeSlider(value: .constant(0.62), fillTint: .blue)
+                }
+                .padding(24)
+                .frame(width: 390, height: 250)
+                .background(.white)
+                .foregroundStyle(.black)
+            }
+        }
+        let view = Sample()
+            .modifier(LyricsTypefaceProvider())
+            .defaultAppStorage(defaults)
+            .environment(ThemeService())
+            .environment(\.colorScheme, .light)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        return try XCTUnwrap(renderer.uiImage)
+    }
+}

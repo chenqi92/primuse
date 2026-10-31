@@ -6834,3 +6834,14 @@
 "song_list_layout_list" = "Default list";
 "song_list_layout_timeline" = "Timeline";
 "song_list_layout_artwork" = "Cover cards";
+
+"lyrics_weight" = "Lyrics weight";
+"lyrics_weight_default" = "Default";
+"lyrics_weight_semibold" = "Semibold";
+"lyrics_weight_bold" = "Bold";
+"player_progress_thickness" = "Progress bar thickness";
+"player_volume_thickness" = "Volume bar thickness";
+"player_track_thickness_thin" = "Thin";
+"player_track_thickness_standard" = "Standard";
+"player_track_thickness_thick" = "Thick";
+"player_track_thickness_extraThick" = "Extra thick";

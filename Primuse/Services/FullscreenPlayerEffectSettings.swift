@@ -88,6 +88,57 @@ final class AnimatedArtworkPreferences {
     }
 }
 
+enum PlayerTrackThickness: String, CaseIterable, Identifiable {
+    case thin, standard, thick, extraThick
+
+    var id: String { rawValue }
+    var titleKey: String { "player_track_thickness_" + rawValue }
+    var scale: CGFloat {
+        switch self {
+        case .thin: 0.7
+        case .standard: 1
+        case .thick: 1.4
+        case .extraThick: 1.8
+        }
+    }
+
+    static func resolved(_ rawValue: String) -> Self { Self(rawValue: rawValue) ?? .standard }
+    var next: Self {
+        let index = Self.allCases.firstIndex(of: self) ?? 1
+        return Self.allCases[(index + 1) % Self.allCases.count]
+    }
+}
+
+enum PlayerLyricsWeight: String, CaseIterable, Identifiable {
+    case automatic, light, regular, semibold, bold
+
+    var id: String { rawValue }
+    var titleKey: String {
+        switch self {
+        case .automatic: "lyrics_weight_default"
+        case .light: "transcript_reader_weight_light"
+        case .regular: "transcript_reader_weight_regular"
+        case .semibold: "lyrics_weight_semibold"
+        case .bold: "lyrics_weight_bold"
+        }
+    }
+
+    static func resolved(_ rawValue: String) -> Self { Self(rawValue: rawValue) ?? .automatic }
+    func resolve(_ original: Font.Weight) -> Font.Weight {
+        switch self {
+        case .automatic: original
+        case .light: .light
+        case .regular: .regular
+        case .semibold: .semibold
+        case .bold: .bold
+        }
+    }
+    var next: Self {
+        let index = Self.allCases.firstIndex(of: self) ?? 0
+        return Self.allCases[(index + 1) % Self.allCases.count]
+    }
+}
+
 enum PlayerAppearancePreferences {
     static let pinsMiniPlayerKey = "primuse.player.pinsMiniPlayer"
     static let pinsMiniPlayerByDefault = false
@@ -128,6 +179,7 @@ enum PlayerAppearancePreferences {
     static let showsAlbumInSubtitleByDefault = true
     /// 音量条的画法(`NowPlayingVolumeBarStyle` 的原始值,#338):系统样式带圆钮,或者和进度条同一种画法。
     static let volumeBarStyleKey = "primuse.player.volumeBarStyle"
+    static let volumeThicknessKey = "playerVolumeThickness"
 
     static func volumeBarStyle(rawValue: String) -> NowPlayingVolumeBarStyle {
         NowPlayingVolumeBarStyle(rawValue: rawValue) ?? .system
@@ -167,6 +219,7 @@ enum PlayerAppearancePreferences {
     /// 歌词的字体(`PlayerTextFont` 的原始值,#332):歌词页、封面下的歌词、全屏效果、Mac 桌面歌词与歌词岛
     /// 都用它,译文、注音行也跟着换。随 iCloud 同步,电视也跟着这一份。
     static let lyricsFontKey = "primuse.player.lyricsFont"
+    static let lyricsWeightKey = "playerLyricsWeight"
     static let lyricsColorModeKey = "primuse.player.lyricsColorMode"
     static let customLyricsColorHexKey = "primuse.player.customLyricsColorHex"
     static let gradientLyricsStartColorHexKey = "primuse.player.gradientLyricsStartColorHex"
@@ -215,6 +268,7 @@ enum PlayerAppearancePreferences {
 
     /// 播放页进度条的画法(#69):胶囊条、波浪、细线加圆点。
     static let progressStyleKey = "primuse.player.progressStyle"
+    static let progressThicknessKey = "playerProgressThickness"
     /// 进度条播放过的那段外面一圈同色的光晕(#319),三种画法都能叠。播放时亮,暂停时变淡。
     static let progressGlowKey = "primuse.player.progressGlow"
     static let progressGlowByDefault = false

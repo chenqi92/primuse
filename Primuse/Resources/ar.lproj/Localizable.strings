@@ -6979,3 +6979,14 @@
 "song_list_layout_list" = "القائمة الافتراضية";
 "song_list_layout_timeline" = "المخطط الزمني";
 "song_list_layout_artwork" = "بطاقات الأغلفة";
+
+"lyrics_weight" = "سُمك خط كلمات الأغنية";
+"lyrics_weight_default" = "افتراضي";
+"lyrics_weight_semibold" = "شبه عريض";
+"lyrics_weight_bold" = "عريض";
+"player_progress_thickness" = "سُمك شريط التقدم";
+"player_volume_thickness" = "سُمك شريط الصوت";
+"player_track_thickness_thin" = "رفيع";
+"player_track_thickness_standard" = "قياسي";
+"player_track_thickness_thick" = "سميك";
+"player_track_thickness_extraThick" = "سميك جدًا";

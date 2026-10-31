@@ -11493,6 +11493,13 @@ struct ProgressSlider: View {
         /// 播放过的那段和播放头外面一圈同色的光晕(#319)。
         var glows = false
 
+        func applyingThickness(_ thickness: PlayerTrackThickness) -> Self {
+            var result = self
+            result.restingHeight *= thickness.scale
+            result.draggingHeight *= thickness.scale
+            return result
+        }
+
         static let standard = TrackStyle()
 
         /// 设置 › 播放器 › 进度条 选的画法。
@@ -11512,7 +11519,12 @@ struct ProgressSlider: View {
     let total: TimeInterval
     let interactionID: String?
     let fillTint: Color?
-    let trackStyle: TrackStyle
+    private let baseTrackStyle: TrackStyle
+    @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
+    private var trackStyle: TrackStyle {
+        baseTrackStyle.applyingThickness(.resolved(thicknessRawValue))
+    }
     /// 波浪只在播放时流动,暂停时抚平成直线。
     let isPlaying: Bool
     let onPreview: (TimeInterval?) -> Void
@@ -11532,7 +11544,7 @@ struct ProgressSlider: View {
         self.total = total
         self.interactionID = interactionID
         self.fillTint = fillTint
-        self.trackStyle = trackStyle
+        self.baseTrackStyle = trackStyle
         self.isPlaying = isPlaying
         self.onPreview = onPreview
         self.onSeek = onSeek
@@ -11940,6 +11952,13 @@ struct PlayerVolumeTrackStyle: Equatable {
         )
     }
 
+    func applyingThickness(_ thickness: PlayerTrackThickness) -> Self {
+        var result = self
+        result.restingHeight *= thickness.scale
+        result.activeHeight *= thickness.scale
+        return result
+    }
+
     func height(isActive: Bool, reduceMotion: Bool) -> CGFloat {
         guard isActive else { return restingHeight }
         return CGFloat(SliderScrubFeedbackPolicy.activeHeight(
@@ -11961,6 +11980,8 @@ struct PlayerVolumeTrackStyle: Equatable {
 struct SystemVolumeSlider: UIViewRepresentable {
     static let compactHeight: CGFloat = 24
 
+    @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     var trackStyle: PlayerVolumeTrackStyle = .system
     var fillTint: Color? = nil
 
@@ -12135,7 +12156,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
         StyleKey(
             isLight: colorScheme == .light,
             usesIncreasedContrast: colorSchemeContrast == .increased,
-            trackStyle: trackStyle,
+            trackStyle: trackStyle.applyingThickness(.resolved(thicknessRawValue)),
             fillTint: fillTint,
             reduceMotion: reduceMotion
         )
@@ -12266,6 +12287,8 @@ final class SystemVolumeTrackView: UIView {
 #endif
 
 struct VolumeSlider: View {
+    @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     @Binding var value: Double
     var trackStyle: PlayerVolumeTrackStyle = .system
     /// 填充与圆钮的颜色;nil 时用前景色。
@@ -12288,6 +12311,7 @@ struct VolumeSlider: View {
     }
 
     var body: some View {
+        let trackStyle = trackStyle.applyingThickness(.resolved(thicknessRawValue))
         GeometryReader { geo in
             let width = geo.size.width
             let progress = CGFloat(max(0, min(1, displayValue)))
@@ -14108,6 +14132,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
             if snapshot.showsLyricsPreferences {
                 Section {
+                    LyricsWeightPicker().pickerStyle(.menu)
+
                     Picker(selection: $lyricsFontScale) {
                         Text("lyrics_font_small").tag(0.85)
                         Text("lyrics_font_medium").tag(1.0)
@@ -14803,7 +14829,9 @@ private struct NowPlayingLyricPreview: View {
     /// 系统字体时照旧是 `.callout`(跟着系统字体大小),选了别的字体时按同样大小换上它。
     private var resolvedFont: Font {
         if let font { return font }
-        return lyricsTypeface.drawsSystemFont ? .callout : lyricsTypeface.font(size: calloutSize)
+        return lyricsTypeface.drawsSystemFont
+            ? .callout.weight(lyricsTypeface.weightSelection.resolve(.regular))
+            : lyricsTypeface.font(size: calloutSize)
     }
 
     private var lineFont: Font { emphasizedFont ?? resolvedFont }

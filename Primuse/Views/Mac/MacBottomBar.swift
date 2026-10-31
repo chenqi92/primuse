@@ -563,6 +563,8 @@ private struct MacBottomBarProgress: View {
 // MARK: - Scrubber
 
 private struct Scrubber: View {
+    @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
+    private var thicknessRawValue = PlayerTrackThickness.standard.rawValue
     let value: Double
     let total: Double
     var onDrag: (Double) -> Void
@@ -576,7 +578,7 @@ private struct Scrubber: View {
             let width = geo.size.width
             let frac = total > 0 ? CGFloat(max(0, min(1, value / total))) : 0
             let dotSize: CGFloat = (hover || dragging) ? 10 : 0
-            let barHeight: CGFloat = (hover || dragging) ? 4 : 3
+            let barHeight: CGFloat = ((hover || dragging) ? 4 : 3) * PlayerTrackThickness.resolved(thicknessRawValue).scale
 
             ZStack(alignment: .leading) {
                 Capsule()
