@@ -2,11 +2,107 @@ import Foundation
 import XCTest
 import PrimuseKit
 @testable import Primuse
+#if os(macOS)
+import AppKit
+import SwiftUI
+import Vision
+#endif
 
 final class LastFmSimilarQuotaTests: XCTestCase {
     private var insightSubject: LibraryInsightSubject {
         .album(title: "A & B", artist: "Artist + Band", year: nil, genres: [], tracks: [])
     }
+
+    #if os(macOS)
+    @MainActor
+    func testIntroEditorOffersAIFillSetupWithoutAConfiguredService() async throws {
+        let (library, intelligence, _) = try makeInsightUIContext()
+        XCTAssertFalse(intelligence.isLibraryInsightAvailable)
+        XCTAssertFalse(intelligence.libraryInsightNeedsRemoteConsent)
+        for subject in [insightSubject, .artist(name: "Artist", genres: [], albums: [], tracks: [])] {
+            let view = LibraryInsightEditorSheet(subject: subject, details: { subject }, record: nil) {}
+                .environment(library)
+                .environment(intelligence)
+            let text = try await insightText(in: view)
+            XCTAssertTrue(text.contains(withoutSpaces(String(localized: "library_insight_ai_fill"))), text)
+            XCTAssertTrue(text.contains(withoutSpaces(String(localized: "library_insight_lastfm_fetch"))), text)
+            XCTAssertNil(LibraryInsightStore.shared.record(for: subject, in: library))
+        }
+    }
+
+    @MainActor
+    func testEmptyOrFailedLastFmFetchRetainsAIActionForAlbumsAndArtists() async throws {
+        let (library, intelligence, directory) = try makeInsightUIContext()
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        let manager = SourceManager(sourcesProvider: { [] })
+        for subject in [insightSubject, .artist(name: "Artist", genres: [], albums: [], tracks: [])] {
+            for status in [200, 503] {
+                let fixture = SimilarFixture(status: status, body: status == 200
+                    ? #"{"error":6,"message":"Not found"}"# : "{}")
+                let store = LibraryInsightStore(lastFm: fixture.api())
+                let saved = await store.fetchLastFm(subject, library: library)
+                XCTAssertFalse(saved)
+                XCTAssertEqual(store.lastFmFailure(for: subject), status == 200
+                    ? String(localized: "library_insight_lastfm_empty")
+                    : String(localized: "library_insight_lastfm_failed"))
+                let view = LibraryInsightSynopsis(subject: subject, details: { subject }, songs: { [] }, store: store)
+                    .padding(16)
+                    .background(Color.black)
+                    .environment(library)
+                    .environment(intelligence)
+                    .environment(sources)
+                    .environment(manager)
+                let text = try await insightText(in: view, width: 320)
+                XCTAssertTrue(text.contains(withoutSpaces(String(localized: "library_insight_generate"))), text)
+                XCTAssertTrue(text.contains(withoutSpaces(String(localized: "library_insight_lastfm_fetch"))), text)
+                XCTAssertNil(store.record(for: subject, in: library))
+            }
+        }
+    }
+
+    @MainActor
+    private func makeInsightUIContext() throws -> (MusicLibrary, MusicIntelligenceService, URL) {
+        let suite = "LibraryInsightUI.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let intelligence = MusicIntelligenceService(settingsStore: settings, recommendationReuseDefaults: defaults)
+        let library = MusicLibrary(storageDirectory: directory)
+        addTeardownBlock {
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        return (library, intelligence, directory)
+    }
+
+    @MainActor
+    private func insightText(in view: some View, width: CGFloat = 800) async throws -> String {
+        let host = NSHostingView(rootView: view)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try? await Task.sleep(for: .milliseconds(100))
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let screenshot = NSImage(size: host.bounds.size)
+        screenshot.addRepresentation(bitmap)
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "Introduction actions"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["zh-Hans", "en-US"]
+        try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
+        return withoutSpaces((request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined())
+    }
+
+    private func withoutSpaces(_ text: String) -> String { text.filter { !$0.isWhitespace } }
+    #endif
 
     func testInsightUsesAlbumAndArtistAndFallsBackToEnglishOnlyForMissingText() async throws {
         let fixture = SimilarFixture(status: 200, body: #"{"album":{"wiki":{"content":""}}}"#,

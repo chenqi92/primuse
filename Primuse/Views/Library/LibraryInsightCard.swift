@@ -14,7 +14,7 @@ struct LibraryInsightActions {
     let sourceManager: SourceManager
     let sourcesStore: SourcesStore
 
-    private var store: LibraryInsightStore { .shared }
+    var store = LibraryInsightStore.shared
 
     var canAskAI: Bool {
         intelligence.isLibraryInsightAvailable
@@ -106,7 +106,7 @@ struct LibraryInsightSynopsis: View {
     @State private var collapsedTextHeight: CGFloat = 0
     @State private var expandedTextHeight: CGFloat = 0
 
-    private var store: LibraryInsightStore { .shared }
+    var store = LibraryInsightStore.shared
 
     private var actions: LibraryInsightActions {
         LibraryInsightActions(
@@ -116,7 +116,8 @@ struct LibraryInsightSynopsis: View {
             library: library,
             intelligence: intelligence,
             sourceManager: sourceManager,
-            sourcesStore: sourcesStore
+            sourcesStore: sourcesStore,
+            store: store
         )
     }
 
@@ -171,7 +172,7 @@ struct LibraryInsightSynopsis: View {
             .background {
                 Color.clear
                     .sheet(isPresented: $isEditing) {
-                        LibraryInsightEditorSheet(subject: subject, details: details, record: record) {
+                        LibraryInsightEditorSheet(subject: subject, details: details, record: record, store: store) {
                             actions.writeBack()
                         }
                     }
@@ -455,6 +456,10 @@ struct LibraryInsightSynopsis: View {
             }
         } else if let message = store.lastFmFailure(for: subject) {
             noteAndActions(Text(verbatim: message)) {
+                if actions.canAskAI {
+                    chip("library_insight_generate", systemImage: "sparkles") { generate() }
+                        .disabled(store.retryDate(for: subject) != nil)
+                }
                 chip("library_insight_lastfm_fetch", systemImage: "arrow.down.circle") { actions.fetchLastFm() }
                 chip("library_insight_write_own", systemImage: "pencil") {
                     store.clearFailure(for: subject)
@@ -552,7 +557,10 @@ struct LibraryInsightSynopsis: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 note.fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) { actions() }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { actions() }
+                    VStack(alignment: .leading, spacing: 8) { actions() }
+                }
             }
         }
     }
@@ -607,10 +615,15 @@ struct LibraryInsightTagRow: View {
 
 /// 去智能设置:Mac 开设置窗口,iPhone / iPad 推入设置页。
 struct LibraryInsightSettingsLink: View {
+    var title: LocalizedStringKey = "ai_song_discovery_open_settings"
+    var systemImage: String?
+
     var body: some View {
         #if os(macOS)
-        Button("ai_song_discovery_open_settings") {
+        Button {
             SettingsWindowController.shared.show(tab: .intelligence)
+        } label: {
+            label
         }
         .controlSize(.small)
         #else
@@ -618,10 +631,19 @@ struct LibraryInsightSettingsLink: View {
             AISettingsView()
                 .minimalNavigationDetail()
         } label: {
-            Text("ai_song_discovery_open_settings")
+            label
                 .font(.subheadline.weight(.semibold))
         }
         #endif
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if let systemImage {
+            Label(title, systemImage: systemImage)
+        } else {
+            Text(title)
+        }
     }
 }
 
@@ -643,16 +665,18 @@ struct LibraryInsightEditorSheet: View {
     @State private var isFilling = false
     @State private var builtInConsent: BuiltInAIConsentRequest?
 
-    private var store: LibraryInsightStore { .shared }
+    private let store: LibraryInsightStore
 
     init(
         subject: LibraryInsightSubject,
         details: @escaping () -> LibraryInsightSubject,
         record: LibraryInsightRecord?,
+        store: LibraryInsightStore = .shared,
         onSaved: @escaping () -> Void
     ) {
         self.subject = subject
         self.details = details
+        self.store = store
         self.onSaved = onSaved
         _summary = State(initialValue: record?.summary ?? "")
         _tagText = State(initialValue: LibraryInsightEditing.tagText(record?.tags ?? []))
@@ -739,6 +763,9 @@ struct LibraryInsightEditorSheet: View {
                         }
                     }
                     .disabled(isFilling || store.isGenerating(subject) || store.retryDate(for: subject) != nil)
+                } else if intelligence.shouldExposeRemoteConfiguration {
+                    LibraryInsightSettingsLink(title: "library_insight_ai_fill", systemImage: "sparkles")
+                        .disabled(isFilling || store.isGenerating(subject))
                 }
                 if store.isFetchingLastFm(subject) {
                     ProgressView(String(localized: "library_insight_lastfm_fetching"))

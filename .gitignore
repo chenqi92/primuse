@@ -56,3 +56,4 @@ Marketing
 # Python
 __pycache__/
 *.pyc
+.openidea
