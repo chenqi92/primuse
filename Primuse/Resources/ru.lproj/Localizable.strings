@@ -6967,3 +6967,10 @@
 "song_file_rename_partial" = "Не удалось восстановить некоторые файлы. В медиатеке сохранены подтверждённые пути. Обновите папку перед повторной попыткой.";
 "song_file_rename_readback" = "Файл переименован, но обновлённые сведения не удалось прочитать. Обновите папку.";
 "song_file_rename_busy" = "Завершите трансляцию или переход между треками перед переименованием файла.";
+
+"library_insight_lastfm_fetch" = "Загрузить из Last.fm";
+"library_insight_lastfm_fetching" = "Загрузка из Last.fm…";
+"library_insight_lastfm_empty" = "Описание в Last.fm не найдено.";
+"library_insight_lastfm_failed" = "Не удалось загрузить данные из Last.fm. Повторите попытку позже.";
+"library_insight_lastfm_replace_title" = "Заменить описание?";
+"library_insight_lastfm_replace_message" = "Описание и теги стиля будут заменены содержимым из Last.fm.";

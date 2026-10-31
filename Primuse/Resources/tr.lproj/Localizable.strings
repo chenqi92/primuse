@@ -6967,3 +6967,10 @@
 "song_file_rename_partial" = "Bazı dosyalar geri yüklenemedi. Arşiv doğrulanan konumları koruyor. Yeniden denemeden önce klasörü yenileyin.";
 "song_file_rename_readback" = "Dosya yeniden adlandırıldı ancak güncel bilgiler okunamadı. Klasörü yenileyin.";
 "song_file_rename_busy" = "Bu dosyayı yeniden adlandırmadan önce yayının veya parça geçişinin bitmesini bekleyin.";
+
+"library_insight_lastfm_fetch" = "Last.fm’den getir";
+"library_insight_lastfm_fetching" = "Last.fm’den getiriliyor…";
+"library_insight_lastfm_empty" = "Last.fm’de açıklama bulunamadı.";
+"library_insight_lastfm_failed" = "Last.fm’den alınamadı. Daha sonra tekrar deneyin.";
+"library_insight_lastfm_replace_title" = "Açıklama değiştirilsin mi?";
+"library_insight_lastfm_replace_message" = "Açıklama ve tarz etiketleri Last.fm içeriğiyle değiştirilecek.";

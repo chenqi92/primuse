@@ -30,6 +30,12 @@ struct LibraryInsightActions {
         }
     }
 
+    func fetchLastFm() {
+        Task {
+            if await store.fetchLastFm(subject, library: library) { writeBack() }
+        }
+    }
+
     func grantConsentAndGenerate() {
         do {
             try intelligence.grantRemoteConsent()
@@ -95,6 +101,7 @@ struct LibraryInsightSynopsis: View {
     @State private var isEditing = false
     @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var confirmsRegenerate = false
+    @State private var confirmsLastFm = false
     @State private var isExpanded = false
     @State private var collapsedTextHeight: CGFloat = 0
     @State private var expandedTextHeight: CGFloat = 0
@@ -177,6 +184,16 @@ struct LibraryInsightSynopsis: View {
                         Button("cancel", role: .cancel) {}
                     } message: {
                         Text("library_insight_regenerate_confirm_message")
+                    }
+                    .confirmationDialog(
+                        Text("library_insight_lastfm_replace_title"),
+                        isPresented: $confirmsLastFm,
+                        titleVisibility: .visible
+                    ) {
+                        Button("library_insight_lastfm_fetch", role: .destructive) { actions.fetchLastFm() }
+                        Button("cancel", role: .cancel) {}
+                    } message: {
+                        Text("library_insight_lastfm_replace_message")
                     }
                     .builtInAIConsentSheet($builtInConsent)
                     .libraryDetailPresentationReset()
@@ -362,17 +379,28 @@ struct LibraryInsightSynopsis: View {
         if store.isGenerating(subject) {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
-                Text("library_insight_generating")
+                Text(verbatim: store.progressMessage(for: subject))
             }
             .font(metaFont)
             .foregroundStyle(.white.opacity(0.72))
+        } else if let message = store.lastFmFailure(for: subject) {
+            Text(verbatim: message)
+                .font(metaFont)
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
         } else if let failure = store.failure(for: subject) {
             Text(verbatim: LibraryInsightStore.message(for: failure))
                 .font(metaFont)
                 .foregroundStyle(.white.opacity(0.72))
                 .lineLimit(1)
         } else {
-            Text(verbatim: LibraryInsightStore.footer(for: record))
+            Group {
+                if let url = record.importedURL, isExpanded || !canExpand {
+                    Link(destination: url) { Text(verbatim: LibraryInsightStore.footer(for: record)) }
+                } else {
+                    Text(verbatim: LibraryInsightStore.footer(for: record))
+                }
+            }
                 .font(metaFont)
                 .foregroundStyle(.white.opacity(0.55))
                 .lineLimit(1)
@@ -386,6 +414,13 @@ struct LibraryInsightSynopsis: View {
         } label: {
             Label("library_insight_edit", systemImage: "pencil")
         }
+        .disabled(store.isGenerating(subject))
+        Button {
+            confirmsLastFm = true
+        } label: {
+            Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
+        }
+        .disabled(store.isGenerating(subject))
         if actions.canAskAI {
             Button {
                 if record.isWorthKeeping {
@@ -414,9 +449,17 @@ struct LibraryInsightSynopsis: View {
         if store.isGenerating(subject) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("library_insight_generating")
+                Text(verbatim: store.progressMessage(for: subject))
                     .font(chipFont)
                     .foregroundStyle(.white.opacity(0.78))
+            }
+        } else if let message = store.lastFmFailure(for: subject) {
+            noteAndActions(Text(verbatim: message)) {
+                chip("library_insight_lastfm_fetch", systemImage: "arrow.down.circle") { actions.fetchLastFm() }
+                chip("library_insight_write_own", systemImage: "pencil") {
+                    store.clearFailure(for: subject)
+                    isEditing = true
+                }
             }
         } else if let failure = store.failure(for: subject) {
             noteAndActions(Text(verbatim: LibraryInsightStore.message(for: failure))) {
@@ -437,12 +480,19 @@ struct LibraryInsightSynopsis: View {
                 }
                 chip("library_insight_write_own", systemImage: "pencil") { isEditing = true }
             }
-        } else if actions.canAskAI {
+        } else {
             Menu {
+                if actions.canAskAI {
+                    Button {
+                        generate()
+                    } label: {
+                        Label("library_insight_generate", systemImage: "sparkles")
+                    }
+                }
                 Button {
-                    generate()
+                    actions.fetchLastFm()
                 } label: {
-                    Label("library_insight_generate", systemImage: "sparkles")
+                    Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
                 }
                 Button {
                     isEditing = true
@@ -456,8 +506,6 @@ struct LibraryInsightSynopsis: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
-        } else {
-            chip("library_insight_add", systemImage: "text.badge.plus") { isEditing = true }
         }
     }
 
@@ -590,6 +638,7 @@ struct LibraryInsightEditorSheet: View {
     @State private var summary: String
     @State private var tagText: String
     @State private var aiDraft: LibraryInsightDraft?
+    @State private var importedDraft: LibraryInsightImportedDraft?
     @State private var aiMessage: String?
     @State private var isFilling = false
     @State private var builtInConsent: BuiltInAIConsentRequest?
@@ -627,6 +676,7 @@ struct LibraryInsightEditorSheet: View {
                 Button("cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("save", action: save)
+                    .disabled(isFilling || store.isGenerating(subject))
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
             }
@@ -645,6 +695,7 @@ struct LibraryInsightEditorSheet: View {
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("save", action: save)
+                            .disabled(isFilling || store.isGenerating(subject))
                     }
                 }
         }
@@ -671,11 +722,15 @@ struct LibraryInsightEditorSheet: View {
                     .foregroundStyle(.secondary)
             }
 
-            if canAskAI {
-                Section {
+            Section {
+                Button(action: fillFromLastFm) {
+                    Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
+                }
+                .disabled(isFilling || store.isGenerating(subject))
+                if canAskAI {
                     Button(action: fillWithAI) {
                         HStack(spacing: 8) {
-                            if isFilling {
+                            if isFilling && !store.isFetchingLastFm(subject) {
                                 ProgressView().controlSize(.small)
                                 Text("library_insight_ai_filling")
                             } else {
@@ -683,26 +738,31 @@ struct LibraryInsightEditorSheet: View {
                             }
                         }
                     }
-                    .disabled(isFilling || store.retryDate(for: subject) != nil)
-                    if let aiMessage {
-                        Text(verbatim: aiMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } footer: {
-                    Text("library_insight_ai_fill_hint")
+                    .disabled(isFilling || store.isGenerating(subject) || store.retryDate(for: subject) != nil)
                 }
+                if store.isFetchingLastFm(subject) {
+                    ProgressView(String(localized: "library_insight_lastfm_fetching"))
+                }
+                if let aiMessage {
+                    Text(verbatim: aiMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                if canAskAI { Text("library_insight_ai_fill_hint") }
             }
 
             Section {
                 TextEditor(text: $summary)
                     .frame(minHeight: 160)
+                    .disabled(isFilling)
             } header: {
                 Text("library_insight_editor_summary")
             }
 
             Section {
                 TextField("library_insight_editor_tags_placeholder", text: $tagText, axis: .vertical)
+                    .disabled(isFilling)
                 let tags = LibraryInsightEditing.tags(fromText: tagText)
                 if !tags.isEmpty {
                     LibraryInsightTagRow(tags: tags)
@@ -743,8 +803,26 @@ struct LibraryInsightEditorSheet: View {
                 return
             }
             aiDraft = draft
+            importedDraft = nil
             summary = draft.answer.summary
             tagText = LibraryInsightEditing.tagText(draft.answer.tags)
+        }
+    }
+
+    private func fillFromLastFm() {
+        aiMessage = nil
+        isFilling = true
+        Task {
+            defer { isFilling = false }
+            guard let draft = await store.lastFmDraft(for: subject) else {
+                aiMessage = store.lastFmFailure(for: subject)
+                store.clearFailure(for: subject)
+                return
+            }
+            importedDraft = draft
+            aiDraft = nil
+            summary = draft.summary
+            tagText = LibraryInsightEditing.tagText(draft.tags)
         }
     }
 
@@ -754,6 +832,7 @@ struct LibraryInsightEditorSheet: View {
             summary: summary,
             tags: LibraryInsightEditing.tags(fromText: tagText),
             aiDraft: aiDraft,
+            importedDraft: importedDraft,
             library: library
         )
         onSaved()

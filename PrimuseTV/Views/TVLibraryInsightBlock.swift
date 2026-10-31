@@ -18,6 +18,7 @@ struct TVLibraryInsightBlock: View {
     @State private var showsEditor = false
     @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var summaryOverflows = false
+    @State private var confirmsLastFm = false
 
     private var store: LibraryInsightStore { .shared }
 
@@ -64,9 +65,22 @@ struct TVLibraryInsightBlock: View {
                     )
                 }
                 .builtInAIConsentSheet($builtInConsent)
+                .confirmationDialog(
+                    String(localized: "library_insight_lastfm_replace_title"),
+                    isPresented: $confirmsLastFm, titleVisibility: .visible
+                ) {
+                    Button("library_insight_lastfm_fetch", role: .destructive) { fetchLastFm() }
+                    Button("cancel", role: .cancel) {}
+                } message: {
+                    Text("library_insight_lastfm_replace_message")
+                }
                 .contextMenu {
                     Button("library_insight_edit", systemImage: "pencil") { showsEditor = true }
                         .disabled(store.isGenerating(subject))
+                    Button("library_insight_lastfm_fetch", systemImage: "arrow.down.circle") {
+                        if showsSynopsis { confirmsLastFm = true } else { fetchLastFm() }
+                    }
+                    .disabled(store.isGenerating(subject))
                     if let insight, !store.isGenerating(subject) {
                         // 自己写的简介在电视上不给一键覆盖。
                         if !insight.isWorthKeeping, canAskAI {
@@ -86,6 +100,12 @@ struct TVLibraryInsightBlock: View {
                 if !showsSynopsis, canAskAI {
                     TVPillButton(title: String(localized: "library_insight_edit"), systemImage: "pencil") {
                         showsEditor = true
+                    }
+                    .disabled(store.isGenerating(subject))
+                }
+                if !showsSynopsis {
+                    TVPillButton(title: String(localized: "library_insight_lastfm_fetch"), systemImage: "arrow.down.circle") {
+                        fetchLastFm()
                     }
                     .disabled(store.isGenerating(subject))
                 }
@@ -146,10 +166,14 @@ struct TVLibraryInsightBlock: View {
         if store.isGenerating(subject) {
             HStack(spacing: 14) {
                 ProgressView()
-                Text(String(localized: "library_insight_generating"))
+                Text(verbatim: store.progressMessage(for: subject))
                     .tvFont(.body)
                     .foregroundStyle(TVColor.textMuted)
             }
+        } else if let message = store.lastFmFailure(for: subject) {
+            Text(verbatim: message)
+                .tvFont(.body)
+                .foregroundStyle(TVColor.textMuted)
         } else if !canAskAI {
             Label(String(localized: "library_insight_edit"), systemImage: "pencil")
                 .tvFont(.button)
@@ -212,7 +236,9 @@ struct TVLibraryInsightBlock: View {
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 Group {
                     if store.isGenerating(subject) {
-                        Text(String(localized: "library_insight_generating"))
+                        Text(verbatim: store.progressMessage(for: subject))
+                    } else if let message = store.lastFmFailure(for: subject) {
+                        Text(verbatim: message)
                     } else if let failure = store.failure(for: subject) {
                         Text(verbatim: LibraryInsightStore.message(for: failure))
                     } else {
@@ -238,6 +264,10 @@ struct TVLibraryInsightBlock: View {
             return
         }
         guard !store.isGenerating(subject) else { return }
+        if store.lastFmFailure(for: subject) != nil {
+            fetchLastFm()
+            return
+        }
         guard canAskAI else {
             showsEditor = true
             return
@@ -267,6 +297,10 @@ struct TVLibraryInsightBlock: View {
         }
         let full = details()
         Task { await store.generate(full, library: tvStore.library, intelligence: intelligence) }
+    }
+
+    private func fetchLastFm() {
+        Task { await store.fetchLastFm(subject, library: tvStore.library) }
     }
 }
 
@@ -404,6 +438,7 @@ private struct TVLibraryInsightReader: View {
 
     let subject: LibraryInsightSubject
     @State private var showsEditor = false
+    @State private var showsSource = false
 
     private var store: LibraryInsightStore { .shared }
 
@@ -422,6 +457,17 @@ private struct TVLibraryInsightReader: View {
                 record: store.record(for: subject, in: tvStore.library),
                 library: tvStore.library
             )
+        }
+        .sheet(isPresented: $showsSource) {
+            if let url = insight?.importedURL {
+                VStack(spacing: 28) {
+                    Text("Last.fm").tvFont(.sectionTitle)
+                    TVQRCode(content: url.absoluteString, size: 300)
+                    TVPillButton(title: String(localized: "done"), systemImage: "checkmark") { showsSource = false }
+                }
+                .padding(48)
+                .onExitCommand { showsSource = false }
+            }
         }
         .onExitCommand { dismiss() }
     }
@@ -462,7 +508,17 @@ private struct TVLibraryInsightReader: View {
                 TVInsightReaderText(text: insight.summary)
             }
             if let insight {
-                Text(verbatim: LibraryInsightStore.footer(for: insight))
+                Group {
+                    if insight.importedURL != nil {
+                        TVFocusButton(radius: 10, scale: 1.02, lift: 0, action: { showsSource = true }) { focused in
+                            Text(verbatim: LibraryInsightStore.footer(for: insight))
+                                .padding(8)
+                                .background(focused ? TVColor.surfaceStrong : .clear, in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    } else {
+                        Text(verbatim: LibraryInsightStore.footer(for: insight))
+                    }
+                }
                     .tvFont(.meta)
                     .foregroundStyle(TVColor.textFaint)
                     .padding(.top, 22)
@@ -498,6 +554,8 @@ struct TVLibraryInsightEditor: View {
     let library: MusicLibrary
     @State private var summary: String
     @State private var tagText: String
+    @State private var importedDraft: LibraryInsightImportedDraft?
+    @State private var fetchMessage: String?
 
     private var store: LibraryInsightStore { .shared }
 
@@ -523,6 +581,25 @@ struct TVLibraryInsightEditor: View {
                     .tvFont(.body)
                     .foregroundStyle(TVColor.textMuted)
                     .lineLimit(2)
+                TVPillButton(title: String(localized: "library_insight_lastfm_fetch"), systemImage: "arrow.down.circle") {
+                    Task {
+                        fetchMessage = nil
+                        if let draft = await store.lastFmDraft(for: subject) {
+                            importedDraft = draft
+                            summary = draft.summary
+                            tagText = LibraryInsightEditing.tagText(draft.tags)
+                        } else {
+                            fetchMessage = store.lastFmFailure(for: subject)
+                            store.clearFailure(for: subject)
+                        }
+                    }
+                }
+                .disabled(store.isGenerating(subject))
+                if store.isFetchingLastFm(subject) {
+                    ProgressView(String(localized: "library_insight_lastfm_fetching"))
+                } else if let fetchMessage {
+                    Text(verbatim: fetchMessage).tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                }
                 if !summary.isEmpty {
                     TVInsightReaderText(text: summary)
                         .frame(height: 200)
@@ -531,10 +608,12 @@ struct TVLibraryInsightEditor: View {
                     TextField(String(localized: "library_insight_editor_summary"), text: $summary)
                         .accessibilityIdentifier("tv.insight.summary")
                 }
+                .disabled(store.isGenerating(subject))
                 TVTextFieldBox {
                     TextField(String(localized: "library_insight_editor_tags"), text: $tagText)
                         .accessibilityIdentifier("tv.insight.tags")
                 }
+                .disabled(store.isGenerating(subject))
                 HStack(spacing: 18) {
                     TVPillButton(title: String(localized: "save"), systemImage: "checkmark", style: .solid) {
                         guard !store.isGenerating(subject) else { return }
@@ -543,6 +622,7 @@ struct TVLibraryInsightEditor: View {
                             summary: summary,
                             tags: LibraryInsightEditing.tags(fromText: tagText),
                             aiDraft: nil,
+                            importedDraft: importedDraft,
                             library: library
                         )
                         dismiss()

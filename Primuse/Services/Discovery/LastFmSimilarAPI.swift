@@ -1,11 +1,11 @@
 import Foundation
 import PrimuseKit
 
-/// Last.fm `track.getSimilar` / `artist.getSimilar` 客户端。返回 raw 数据,
+/// Last.fm 相似歌曲、相似艺人与简介客户端。相似结果返回 raw 数据,
 /// 本地匹配交给 `SimilarTracksService`。
 ///
 /// 不需要用户 sessionKey, 只用 application apiKey (内置在 AppSecrets)。
-/// 同一 API key 的两个端点共享请求节奏和服务端冷却。
+/// 同一 API key 的各端点共享请求节奏和服务端冷却。
 struct LastFmSimilarAPI: Sendable {
     private let apiKey: @Sendable () -> String
     private let session: URLSession
@@ -41,6 +41,28 @@ struct LastFmSimilarAPI: Sendable {
                 return String(format: String(localized: "error_lastfm_decode %@"), message)
             }
         }
+    }
+
+    func libraryInsight(for subject: LibraryInsightSubject, languageCode: String) async throws -> LibraryInsightImportedDraft? {
+        let key = apiKey()
+        guard !key.isEmpty else { throw SimilarError.missingAPIKey }
+        let language = LastFmLibraryInsight.language(languageCode)
+        for code in language == "en" ? ["en"] : [language, "en"] {
+            try Task.checkCancellation()
+            guard var items = LastFmLibraryInsight.queryItems(for: subject, languageCode: code) else { return nil }
+            items += [URLQueryItem(name: "api_key", value: key), URLQueryItem(name: "format", value: "json")]
+            var components = URLComponents(string: "https://ws.audioscrobbler.com/2.0/")!
+            components.queryItems = items
+            let data: Data
+            do {
+                data = try await response(for: components.url!, apiKey: key)
+            } catch SimilarError.api(let code, _, _) where code == 6 || code == 7 {
+                return nil
+            }
+            try Task.checkCancellation()
+            if let draft = try LastFmLibraryInsight.decode(data, for: subject) { return draft }
+        }
+        return nil
     }
 
     /// 拿一首歌的相似歌。`limit` 上限 100 (Last.fm 接口最大值)。

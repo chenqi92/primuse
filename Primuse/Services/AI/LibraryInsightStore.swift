@@ -15,10 +15,14 @@ final class LibraryInsightStore {
     private(set) var generatingIDs: Set<String> = []
     private(set) var failures: [String: AILibraryContentFailure] = [:]
     private(set) var retryDates: [String: Date] = [:]
+    private(set) var fetchingLastFmIDs: Set<String> = []
+    private(set) var lastFmFailures: [String: String] = [:]
+    private let lastFm: LastFmSimilarAPI
     /// 最近一次写回音乐源的结果(写进了哪些、哪些没写成),只给界面看。
     private(set) var writebackNotes: [String: String] = [:]
 
-    init() {
+    init(lastFm: LastFmSimilarAPI = LastFmSimilarAPI()) {
+        self.lastFm = lastFm
         // 上一版只在本机 Caches 里缓存过一份,现在改存曲库,旧文件清掉。
         let legacy = FileManager.default
             .primuseDirectoryURL(for: .cachesDirectory)
@@ -44,6 +48,20 @@ final class LibraryInsightStore {
 
     func isGenerating(_ subject: LibraryInsightSubject) -> Bool {
         generatingIDs.contains(recordID(for: subject))
+    }
+
+    func isFetchingLastFm(_ subject: LibraryInsightSubject) -> Bool {
+        fetchingLastFmIDs.contains(recordID(for: subject))
+    }
+
+    func lastFmFailure(for subject: LibraryInsightSubject) -> String? {
+        lastFmFailures[recordID(for: subject)]
+    }
+
+    func progressMessage(for subject: LibraryInsightSubject) -> String {
+        isFetchingLastFm(subject)
+            ? String(localized: "library_insight_lastfm_fetching")
+            : String(localized: "library_insight_generating")
     }
 
     func failure(for subject: LibraryInsightSubject) -> AILibraryContentFailure? {
@@ -84,6 +102,7 @@ final class LibraryInsightStore {
         guard generatingIDs.insert(id).inserted else { return false }
         failures[id] = nil
         retryDates[id] = nil
+        lastFmFailures[id] = nil
         return true
     }
 
@@ -95,6 +114,45 @@ final class LibraryInsightStore {
         let id = recordID(for: subject)
         failures[id] = nil
         retryDates[id] = nil
+        lastFmFailures[id] = nil
+    }
+
+    @discardableResult
+    func fetchLastFm(_ subject: LibraryInsightSubject, library: MusicLibrary) async -> Bool {
+        let id = recordID(for: subject)
+        let previous = library.storedLibraryInsightRecord(id: id)
+        guard let draft = await lastFmDraft(for: subject),
+              library.storedLibraryInsightRecord(id: id) == previous,
+              let record = LibraryInsightEditing.recordFromImport(
+                summary: draft.summary, tags: draft.tags, subject: subject, id: id,
+                sourceLabel: draft.sourceLabel, sourceURL: draft.sourceURL,
+                previous: previous, now: Date()
+              ) else { return false }
+        library.saveLibraryInsightRecord(record)
+        return true
+    }
+
+    func lastFmDraft(for subject: LibraryInsightSubject) async -> LibraryInsightImportedDraft? {
+        let id = recordID(for: subject)
+        guard beginBatchGeneration(subject) else { return nil }
+        fetchingLastFmIDs.insert(id)
+        defer {
+            fetchingLastFmIDs.remove(id)
+            endBatchGeneration(subject)
+        }
+        do {
+            let draft = try await lastFm.libraryInsight(for: subject, languageCode: Self.languageCode)
+            try Task.checkCancellation()
+            if draft == nil { lastFmFailures[id] = String(localized: "library_insight_lastfm_empty") }
+            return draft
+        } catch is CancellationError {
+            return nil
+        } catch LastFmSimilarAPI.SimilarError.missingAPIKey {
+            lastFmFailures[id] = String(localized: "error_lastfm_api_key_missing")
+        } catch {
+            lastFmFailures[id] = String(localized: "library_insight_lastfm_failed")
+        }
+        return nil
     }
 
     /// 让 AI 写一份并直接存下(卡片上的「生成简介」「重新生成」)。用户改过的内容会被换掉,
@@ -133,8 +191,7 @@ final class LibraryInsightStore {
             return nil
         }
         generatingIDs.insert(id)
-        failures[id] = nil
-        retryDates[id] = nil
+        clearFailure(for: subject)
         defer { generatingIDs.remove(id) }
         switch await intelligence.libraryInsight(request) {
         case .success(let answer, let providerName):
@@ -152,6 +209,7 @@ final class LibraryInsightStore {
         summary: String,
         tags: [String],
         aiDraft: LibraryInsightDraft?,
+        importedDraft: LibraryInsightImportedDraft? = nil,
         library: MusicLibrary
     ) {
         let id = recordID(for: subject)
@@ -162,16 +220,17 @@ final class LibraryInsightStore {
             id: id,
             previous: library.storedLibraryInsightRecord(id: id),
             aiDraft: aiDraft,
+            importedDraft: importedDraft,
             now: Date()
         ) else { return }
         library.saveLibraryInsightRecord(record)
-        failures[id] = nil
+        clearFailure(for: subject)
     }
 
     func remove(_ subject: LibraryInsightSubject, library: MusicLibrary) {
         guard let record = record(for: subject, in: library) else { return }
         library.saveLibraryInsightRecord(LibraryInsightEditing.tombstone(of: record, now: Date()))
-        failures[recordID(for: subject)] = nil
+        clearFailure(for: subject)
     }
 
     /// 「未知专辑」「未知艺术家」这类占位名字没什么可介绍的。
@@ -189,6 +248,10 @@ final class LibraryInsightStore {
 
     /// 卡片底部的出处:自己写/改过的标「已编辑」,AI 原样给的标服务名和「可能有误」。
     nonisolated static func footer(for record: LibraryInsightRecord) -> String {
+        if record.isUserEdited, record.importedFrom == "Last.fm" {
+            return String(localized: "library_insight_footer_edited") + " · "
+                + String(format: String(localized: "library_insight_footer_imported_format"), "Last.fm")
+        }
         if !record.isUserEdited, let source = record.importedFrom {
             return String(format: String(localized: "library_insight_footer_imported_format"), source)
         }

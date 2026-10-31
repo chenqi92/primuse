@@ -7061,3 +7061,10 @@
 "song_file_rename_partial" = "Certains fichiers n’ont pas pu être restaurés. La bibliothèque conserve les emplacements confirmés. Actualisez le dossier avant de réessayer.";
 "song_file_rename_readback" = "Le fichier a été renommé, mais ses nouvelles informations sont illisibles. Actualisez le dossier.";
 "song_file_rename_busy" = "Terminez la diffusion ou la transition entre les titres avant de renommer ce fichier.";
+
+"library_insight_lastfm_fetch" = "Récupérer depuis Last.fm";
+"library_insight_lastfm_fetching" = "Récupération depuis Last.fm…";
+"library_insight_lastfm_empty" = "Aucune présentation trouvée sur Last.fm.";
+"library_insight_lastfm_failed" = "Impossible de récupérer le contenu de Last.fm. Réessayez plus tard.";
+"library_insight_lastfm_replace_title" = "Remplacer la présentation ?";
+"library_insight_lastfm_replace_message" = "La présentation et les tags de style seront remplacés par le contenu de Last.fm.";

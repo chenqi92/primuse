@@ -7154,3 +7154,10 @@
 "song_file_rename_partial" = "部分文件未能恢复原名，资料库已保留确认后的文件位置。请刷新文件夹后再试。";
 "song_file_rename_readback" = "文件已重命名，但未能读取更新后的信息，请刷新文件夹。";
 "song_file_rename_busy" = "请在投放或歌曲过渡结束后重命名此文件。";
+
+"library_insight_lastfm_fetch" = "从 Last.fm 获取";
+"library_insight_lastfm_fetching" = "正在从 Last.fm 获取…";
+"library_insight_lastfm_empty" = "Last.fm 暂无相关简介。";
+"library_insight_lastfm_failed" = "从 Last.fm 获取失败，请稍后重试。";
+"library_insight_lastfm_replace_title" = "替换简介？";
+"library_insight_lastfm_replace_message" = "现有简介和风格标签将替换为 Last.fm 的内容。";

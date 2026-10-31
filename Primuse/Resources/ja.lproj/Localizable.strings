@@ -7062,3 +7062,10 @@
 "song_file_rename_partial" = "一部のファイルを元に戻せませんでした。ライブラリには確認済みの場所が保持されています。フォルダを更新してから再試行してください。";
 "song_file_rename_readback" = "名前は変更されましたが、更新された情報を読み取れませんでした。フォルダを更新してください。";
 "song_file_rename_busy" = "キャストまたは曲の切り替えが終わってから名前を変更してください。";
+
+"library_insight_lastfm_fetch" = "Last.fmから取得";
+"library_insight_lastfm_fetching" = "Last.fmから取得中…";
+"library_insight_lastfm_empty" = "Last.fmに紹介文が見つかりません。";
+"library_insight_lastfm_failed" = "Last.fmから取得できませんでした。後でもう一度お試しください。";
+"library_insight_lastfm_replace_title" = "紹介文を置き換えますか？";
+"library_insight_lastfm_replace_message" = "紹介文とスタイルタグがLast.fmの内容に置き換わります。";

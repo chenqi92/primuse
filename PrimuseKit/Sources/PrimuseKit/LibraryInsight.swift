@@ -117,6 +117,7 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
     public var isUserEdited: Bool
     /// 从音乐源读回来的出处,比如「album.nfo」或服务器名;不是读回来的为 nil。
     public var importedFrom: String?
+    public var importedURL: URL?
     public var updatedAt: Date
     public var deletedAt: Date?
 
@@ -132,6 +133,7 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
         aiLanguageCode: String? = nil,
         isUserEdited: Bool,
         importedFrom: String? = nil,
+        importedURL: URL? = nil,
         updatedAt: Date,
         deletedAt: Date? = nil
     ) {
@@ -146,6 +148,7 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
         self.aiLanguageCode = aiLanguageCode
         self.isUserEdited = isUserEdited
         self.importedFrom = importedFrom
+        self.importedURL = importedURL
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
     }
@@ -236,6 +239,7 @@ public enum LibraryInsightEditing {
         id: String,
         previous: LibraryInsightRecord?,
         aiDraft: (answer: LibraryInsightAIExchange.Answer, providerName: String, languageCode: String)?,
+        importedDraft: LibraryInsightImportedDraft? = nil,
         now: Date
     ) -> LibraryInsightRecord? {
         let summary = normalizedSummary(rawSummary)
@@ -252,6 +256,7 @@ public enum LibraryInsightEditing {
             return tombstone
         }
         let matchesDraft = aiDraft.map { $0.answer.known && $0.answer.summary == summary && $0.answer.tags == tags } ?? false
+        let matchesImport = importedDraft.map { $0.summary == summary && $0.tags == tags } ?? false
         return LibraryInsightRecord(
             id: id,
             kind: subject.kind,
@@ -259,11 +264,12 @@ public enum LibraryInsightEditing {
             artistName: subject.artistName,
             summary: summary,
             tags: tags,
-            aiKnown: aiDraft.map { $0.answer.known } ?? live?.aiKnown,
-            aiProviderName: aiDraft?.providerName ?? live?.aiProviderName,
-            aiLanguageCode: aiDraft?.languageCode ?? live?.aiLanguageCode,
-            isUserEdited: !matchesDraft,
-            importedFrom: matchesDraft ? nil : live?.importedFrom,
+            aiKnown: importedDraft == nil ? (aiDraft.map { $0.answer.known } ?? live?.aiKnown) : nil,
+            aiProviderName: importedDraft == nil ? (aiDraft?.providerName ?? live?.aiProviderName) : nil,
+            aiLanguageCode: importedDraft == nil ? (aiDraft?.languageCode ?? live?.aiLanguageCode) : nil,
+            isUserEdited: !matchesDraft && !matchesImport,
+            importedFrom: aiDraft != nil ? nil : (importedDraft?.sourceLabel ?? live?.importedFrom),
+            importedURL: aiDraft != nil ? nil : (importedDraft.map { $0.sourceURL } ?? live?.importedURL),
             updatedAt: nextVersion(after: previous, now: now)
         )
     }
@@ -275,6 +281,8 @@ public enum LibraryInsightEditing {
         subject: LibraryInsightSubject,
         id: String,
         sourceLabel: String,
+        sourceURL: URL? = nil,
+        previous: LibraryInsightRecord? = nil,
         now: Date
     ) -> LibraryInsightRecord? {
         let summary = normalizedSummary(rawSummary)
@@ -289,7 +297,8 @@ public enum LibraryInsightEditing {
             tags: tags,
             isUserEdited: false,
             importedFrom: sourceLabel,
-            updatedAt: now
+            importedURL: sourceURL,
+            updatedAt: nextVersion(after: previous, now: now)
         )
     }
 

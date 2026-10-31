@@ -6822,3 +6822,10 @@
 "song_file_rename_partial" = "Some files could not be restored. The library keeps the confirmed file locations. Refresh the folder before retrying.";
 "song_file_rename_readback" = "The file was renamed, but its updated information could not be read. Refresh the folder.";
 "song_file_rename_busy" = "Finish casting or the track transition before renaming this file.";
+
+"library_insight_lastfm_fetch" = "Fetch from Last.fm";
+"library_insight_lastfm_fetching" = "Fetching from Last.fm…";
+"library_insight_lastfm_empty" = "No introduction found on Last.fm.";
+"library_insight_lastfm_failed" = "Could not fetch from Last.fm. Try again later.";
+"library_insight_lastfm_replace_title" = "Replace Introduction?";
+"library_insight_lastfm_replace_message" = "The introduction and style tags will be replaced with content from Last.fm.";

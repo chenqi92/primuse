@@ -6967,3 +6967,10 @@
 "song_file_rename_partial" = "कुछ फ़ाइलें वापस नहीं लाई जा सकीं। लाइब्रेरी में पुष्टि किए गए स्थान सुरक्षित हैं। दोबारा प्रयास करने से पहले फ़ोल्डर रीफ़्रेश करें।";
 "song_file_rename_readback" = "फ़ाइल का नाम बदल गया, लेकिन नई जानकारी नहीं पढ़ी जा सकी। फ़ोल्डर रीफ़्रेश करें।";
 "song_file_rename_busy" = "इस फ़ाइल का नाम बदलने से पहले कास्टिंग या ट्रैक का बदलाव पूरा होने दें।";
+
+"library_insight_lastfm_fetch" = "Last.fm से प्राप्त करें";
+"library_insight_lastfm_fetching" = "Last.fm से प्राप्त किया जा रहा है…";
+"library_insight_lastfm_empty" = "Last.fm पर कोई परिचय नहीं मिला।";
+"library_insight_lastfm_failed" = "Last.fm से प्राप्त नहीं किया जा सका। बाद में फिर कोशिश करें।";
+"library_insight_lastfm_replace_title" = "परिचय बदलें?";
+"library_insight_lastfm_replace_message" = "परिचय और शैली टैग Last.fm की सामग्री से बदल दिए जाएँगे।";

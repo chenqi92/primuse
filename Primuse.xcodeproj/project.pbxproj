@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		318A69104A16B298C21D01E2 /* LastFmSimilarAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86755A200F0E3D194EE50F3E /* LastFmSimilarAPI.swift */; };
+		1624163A651DE180304002E5 /* LastFmLibraryInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291658F946F9B680DE8457B3 /* LastFmLibraryInsight.swift */; };
 		02B0128AC9D5932B9438F29A /* ImmersiveKineticMetalBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */; };
 		049D4134DD6831CA70BE9E36 /* ImmersiveBeatClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */; };
 		0E23E5BD570779D25BE67AEB /* TVScrobbleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175D4D5ADB724296C3E76047 /* TVScrobbleSettingsView.swift */; };
@@ -2458,6 +2460,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		291658F946F9B680DE8457B3 /* LastFmLibraryInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastFmLibraryInsight.swift; sourceTree = "<group>"; };
 		1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveBeatClock.swift; sourceTree = "<group>"; };
 		175D4D5ADB724296C3E76047 /* TVScrobbleSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVScrobbleSettingsView.swift; sourceTree = "<group>"; };
 		192D7EFF313B3C4AD4AAE546 /* ImmersiveKineticMetalBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMetalBackdrop.swift; sourceTree = "<group>"; };
@@ -4510,6 +4513,7 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				291658F946F9B680DE8457B3 /* LastFmLibraryInsight.swift */,
 				D8AFE7849C1E531A5F438F05 /* ArtworkAccentPixelPolicy.swift */,
 				261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */,
 				1316C5936DF2F3A9E78938A9 /* ImmersiveBeatClock.swift */,
@@ -6971,6 +6975,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1624163A651DE180304002E5 /* LastFmLibraryInsight.swift in Sources */,
 				00014D40318427D0E3812916 /* PlaylistGrouping.swift in Sources */,
 				882A8056156F2E82C41F0763 /* SpokenChapterGeneration.swift in Sources */,
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
@@ -8115,6 +8120,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				318A69104A16B298C21D01E2 /* LastFmSimilarAPI.swift in Sources */,
 				54F69915F13FE42EE60806BC /* SpokenChapterGenerationSheet.swift in Sources */,
 				26884377D015FA9A4E5B1416 /* SpokenChapterGenerator.swift in Sources */,
 				261844CC39ED43658592A34E /* PlayHistoryArchiver.swift in Sources */,

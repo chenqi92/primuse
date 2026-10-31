@@ -6967,3 +6967,10 @@
 "song_file_rename_partial" = "No se pudieron restaurar algunos archivos. La biblioteca conserva las ubicaciones confirmadas. Actualiza la carpeta antes de volver a intentar.";
 "song_file_rename_readback" = "Se cambió el nombre, pero no se pudo leer la información actualizada. Actualiza la carpeta.";
 "song_file_rename_busy" = "Finaliza la transmisión o la transición de pista antes de renombrar este archivo.";
+
+"library_insight_lastfm_fetch" = "Obtener de Last.fm";
+"library_insight_lastfm_fetching" = "Obteniendo de Last.fm…";
+"library_insight_lastfm_empty" = "No se encontró una descripción en Last.fm.";
+"library_insight_lastfm_failed" = "No se pudo obtener el contenido de Last.fm. Inténtalo más tarde.";
+"library_insight_lastfm_replace_title" = "¿Reemplazar la descripción?";
+"library_insight_lastfm_replace_message" = "La descripción y las etiquetas de estilo se reemplazarán con contenido de Last.fm.";

@@ -4,6 +4,128 @@ import PrimuseKit
 @testable import Primuse
 
 final class LastFmSimilarQuotaTests: XCTestCase {
+    private var insightSubject: LibraryInsightSubject {
+        .album(title: "A & B", artist: "Artist + Band", year: nil, genres: [], tracks: [])
+    }
+
+    func testInsightUsesAlbumAndArtistAndFallsBackToEnglishOnlyForMissingText() async throws {
+        let fixture = SimilarFixture(status: 200, body: #"{"album":{"wiki":{"content":""}}}"#,
+                                     englishBody: #"{"album":{"wiki":{"content":"English description"}}}"#)
+        let result = try await fixture.api().libraryInsight(for: insightSubject, languageCode: "zh-Hans")
+        XCTAssertEqual(result?.summary, "English description")
+        let queries = fixture.requests.map { request in
+            Dictionary(uniqueKeysWithValues: URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!.map { ($0.name, $0.value ?? "") })
+        }
+        XCTAssertEqual(queries.map { $0["lang"] }, ["zh", "en"])
+        XCTAssertEqual(queries.first?["method"], "album.getInfo")
+        XCTAssertEqual(queries.first?["album"], "A & B")
+        XCTAssertEqual(queries.first?["artist"], "Artist + Band")
+        XCTAssertNil(queries.first?["sk"])
+    }
+
+    func testInsightWithLocalizedTextDoesNotFetchEnglish() async throws {
+        let fixture = SimilarFixture(status: 200, body: #"{"artist":{"bio":{"content":"本地语言简介"}}}"#)
+        let subject = LibraryInsightSubject.artist(name: "Artist", genres: [], albums: [], tracks: [])
+        let result = try await fixture.api().libraryInsight(for: subject, languageCode: "zh-Hans")
+        XCTAssertEqual(result?.summary, "本地语言简介")
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testInsightMissingEntryIsNotAnErrorAndDoesNotRetryInAnotherLanguage() async throws {
+        let fixture = SimilarFixture(status: 200, body: #"{"error":6,"message":"Album not found"}"#)
+        let result = try await fixture.api().libraryInsight(for: insightSubject, languageCode: "zh-Hans")
+        XCTAssertNil(result)
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testInsightAndRecommendationsShareTheAPIKeyCooldown() async throws {
+        let fixture = SimilarFixture(status: 200, body: #"{"error":29,"message":"Rate limit exceeded"}"#)
+        do {
+            _ = try await fixture.api().libraryInsight(for: insightSubject, languageCode: "zh-Hans")
+            XCTFail("Expected a quota failure")
+        } catch LastFmSimilarAPI.SimilarError.api(let code, _, _) { XCTAssertEqual(code, 29) }
+        _ = try? await fixture.api().similarTracks(artist: "Artist", track: "Track")
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    @MainActor
+    func testFailedInsightFetchKeepsExistingRecordAndSuccessfulFetchPersistsAsImported() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let empty = SimilarFixture(status: 200, body: #"{"album":{"tags":{"tag":[{"name":"Rock"}]}}}"#)
+        let store = LibraryInsightStore(lastFm: empty.api())
+        store.saveEdit(insightSubject, summary: "My introduction", tags: ["Jazz"], aiDraft: nil, library: library)
+        let before = store.record(for: insightSubject, in: library)
+        let savedEmpty = await store.fetchLastFm(insightSubject, library: library)
+        XCTAssertFalse(savedEmpty)
+        XCTAssertEqual(store.record(for: insightSubject, in: library), before)
+        XCTAssertNotNil(store.lastFmFailure(for: insightSubject))
+
+        let success = SimilarFixture(status: 200, body: #"{"album":{"wiki":{"content":"Imported introduction"},"tags":{"tag":[{"name":"Pop"}]}}}"#)
+        let importing = LibraryInsightStore(lastFm: success.api())
+        let saved = await importing.fetchLastFm(insightSubject, library: library)
+        XCTAssertTrue(saved)
+        let record = try XCTUnwrap(importing.record(for: insightSubject, in: library))
+        XCTAssertEqual(record.summary, "Imported introduction")
+        XCTAssertEqual(record.importedFrom, "Last.fm")
+        XCTAssertNotNil(record.importedURL)
+        XCTAssertFalse(record.isUserEdited)
+        XCTAssertNil(record.aiProviderName)
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Could not persist") }
+        let reopened = MusicLibrary(storageDirectory: directory)
+        let persisted = try XCTUnwrap(importing.record(for: insightSubject, in: reopened))
+        XCTAssertEqual(persisted.summary, record.summary)
+        XCTAssertEqual(persisted.tags, record.tags)
+        XCTAssertEqual(persisted.importedFrom, record.importedFrom)
+        XCTAssertEqual(persisted.importedURL, record.importedURL)
+        XCTAssertFalse(persisted.isUserEdited)
+    }
+
+    @MainActor
+    func testInsightResponseDoesNotOverwriteAnEditMadeDuringTheRequest() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let subject = insightSubject
+        let fixture = SimilarFixture(
+            status: 200, body: #"{"album":{"wiki":{"content":"Fetched description"}}}"#,
+            beforeReply: { @MainActor in
+                LibraryInsightStore().saveEdit(subject, summary: "New manual edit", tags: [], aiDraft: nil, library: library)
+            }
+        )
+        let store = LibraryInsightStore(lastFm: fixture.api())
+        let saved = await store.fetchLastFm(subject, library: library)
+        XCTAssertFalse(saved)
+        XCTAssertEqual(store.record(for: subject, in: library)?.summary, "New manual edit")
+        XCTAssertEqual(store.record(for: subject, in: library)?.isUserEdited, true)
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Could not persist") }
+    }
+
+    @MainActor
+    func testCancelledInsightFetchDoesNotSaveOrLeaveTheSubjectBusy() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let fixture = SimilarFixture(status: 0)
+        let store = LibraryInsightStore(lastFm: fixture.api())
+        let subject = insightSubject
+        let task = Task { await store.fetchLastFm(subject, library: library) }
+        for _ in 0..<200 {
+            if !fixture.requests.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertTrue(store.isFetchingLastFm(subject))
+        XCTAssertFalse(store.beginBatchGeneration(subject))
+        task.cancel()
+        let saved = await task.value
+        XCTAssertFalse(saved)
+        XCTAssertNil(store.record(for: subject, in: library))
+        XCTAssertNil(store.lastFmFailure(for: subject))
+        XCTAssertFalse(store.isGenerating(subject))
+        XCTAssertFalse(store.isFetchingLastFm(subject))
+    }
+
     func testBusinessRateLimitIsNotCachedAsEmptyRecommendations() async throws {
         for status in [200, 400, 403, 503] {
             let fixture = SimilarFixture(status: status, body: #"{"error":29,"message":"Rate limit exceeded"}"#)
@@ -213,6 +335,8 @@ private final class SimilarFixture: @unchecked Sendable {
     let headers: [String: String]
     let body: Data
     let artistBody: Data?
+    let englishBody: Data?
+    let beforeReply: (@Sendable () async -> Void)?
     private let lock = NSLock()
     private var recorded: [URLRequest] = []
     var requests: [URLRequest] { lock.withLock { recorded } }
@@ -223,13 +347,20 @@ private final class SimilarFixture: @unchecked Sendable {
         config.protocolClasses = [SimilarProtocol.self]
         return URLSession(configuration: config)
     }()
-    init(status: Int, headers: [String: String] = [:], body: String = "{}", artistBody: String? = nil,
+    init(status: Int, headers: [String: String] = [:], body: String = "{}", artistBody: String? = nil, englishBody: String? = nil,
+         beforeReply: (@Sendable () async -> Void)? = nil,
          registry: RequestQuotaRegistry = RequestQuotaRegistry()) {
         self.registry = registry
         self.status = status; self.headers = headers; self.body = Data(body.utf8)
         self.artistBody = artistBody.map { Data($0.utf8) }
+        self.englishBody = englishBody.map { Data($0.utf8) }
+        self.beforeReply = beforeReply
     }
     func body(for request: URLRequest) -> Data {
+        if let englishBody,
+           URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "lang" && $0.value == "en" }) == true {
+            return englishBody
+        }
         guard let artistBody, request.url!.absoluteString.contains("artist.getSimilar") else { return body }
         return artistBody
     }
@@ -251,6 +382,16 @@ private final class SimilarProtocol: URLProtocol, @unchecked Sendable {
         guard let fixture = Self.lock.withLock({ Self.fixtures[key] }) else { return }
         fixture.record(request)
         if fixture.status == 0 { return }
+        if let beforeReply = fixture.beforeReply {
+            Task { @Sendable [self, fixture, beforeReply] in
+                await beforeReply()
+                reply(with: fixture)
+            }
+        } else {
+            reply(with: fixture)
+        }
+    }
+    private func reply(with fixture: SimilarFixture) {
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: fixture.status, httpVersion: nil, headerFields: fixture.headers)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: fixture.body(for: request))
         client?.urlProtocolDidFinishLoading(self)

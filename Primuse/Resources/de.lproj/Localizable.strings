@@ -7061,3 +7061,10 @@
 "song_file_rename_partial" = "Einige Dateien konnten nicht zurückgesetzt werden. Die Mediathek behält die bestätigten Pfade. Aktualisiere den Ordner vor einem neuen Versuch.";
 "song_file_rename_readback" = "Die Datei wurde umbenannt, ihre neuen Informationen konnten aber nicht gelesen werden. Aktualisiere den Ordner.";
 "song_file_rename_busy" = "Beende die Übertragung oder den Titelübergang, bevor du diese Datei umbenennst.";
+
+"library_insight_lastfm_fetch" = "Von Last.fm abrufen";
+"library_insight_lastfm_fetching" = "Wird von Last.fm abgerufen…";
+"library_insight_lastfm_empty" = "Keine Beschreibung auf Last.fm gefunden.";
+"library_insight_lastfm_failed" = "Abruf von Last.fm fehlgeschlagen. Versuche es später erneut.";
+"library_insight_lastfm_replace_title" = "Beschreibung ersetzen?";
+"library_insight_lastfm_replace_message" = "Beschreibung und Stil-Tags werden durch Inhalte von Last.fm ersetzt.";
