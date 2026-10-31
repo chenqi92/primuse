@@ -1510,6 +1510,7 @@ extension AudioPlayerService {
                 // Skip buffers until seek position, then schedule first playable buffer before play()
                 var iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
                 var firstPlayableBuffer: AVAudioPCMBuffer?
+                var secondPlayableBuffer: AVAudioPCMBuffer?
                 var rangeSeekRejected = false
 
                 firstBufferSearch: while true {
@@ -1524,26 +1525,30 @@ extension AudioPlayerService {
                             firstPlayableBuffer = buffer
                             break
                         }
+                        if firstPlayableBuffer != nil {
+                            // Hold one buffer ahead to recognize a terminal first buffer.
+                            secondPlayableBuffer = try await iteratorBox.next()
+                        }
                         break firstBufferSearch
-                    } catch AudioDecoderError.seekUnavailable
-                        where !rangeSeekRejected
-                            && (seekDecoderKind == .cloudStream || seekDecoderKind == .httpStream) {
-                        // Range-backed cloud/HTTP InputSources can expose byte
-                        // seeking while a format decoder still rejects PCM
-                        // seeking; the decoder then refuses rather than decoding
-                        // millions of frames to reach the target. Only now
-                        // complete the normal LRU cache once and seek the local
-                        // file with FFmpeg/native random access.
+                    } catch where !rangeSeekRejected
+                        && (seekDecoderKind == .cloudStream || seekDecoderKind == .httpStream)
+                        && !OperationCancellationPolicy.isCancellation(error)
+                        && !SourceManager.isMissingFileError(error) {
+                        guard !Task.isCancelled, playID == id else { return }
+                        // A decoder can accept the seek, then fail while reading
+                        // either startup buffer from the new Range. Recover both
+                        // cases once through a complete file at the same position.
                         rangeSeekRejected = true
                         guard RemoteSeekPreparationPolicy.afterRangeSeekRejected(
                                   cacheEnabled: playbackSettings.audioCacheEnabled,
                                   isColdSessionRestore: isColdSessionRestore
                               ) == .materializeCompleteFile,
+                              CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: song.sourceID) == nil,
                               let cached = await materializeCachedURLForPlaybackRecovery(
                                   song,
                                   trigger: "remote-seek"
                               ) else {
-                            throw AudioDecoderError.seekUnavailable
+                            throw error
                         }
                         guard !Task.isCancelled, playID == id else { return }
                         let localDecoderKind: DecoderKind = await ffmpegCanDecodeOffMain(cached)
@@ -1574,6 +1579,8 @@ extension AudioPlayerService {
                             ).makeAsyncIterator()
                         )
                         samplesSkipped = 0
+                        firstPlayableBuffer = nil
+                        secondPlayableBuffer = nil
                     }
                 }
 
@@ -1611,15 +1618,6 @@ extension AudioPlayerService {
                     }
                     return
                 }
-                guard !Task.isCancelled, playID == id else { return }
-
-                // Hold one buffer ahead just like the initial playback path.
-                // Without this prefetch, a seek/recovery with exactly one
-                // remaining buffer schedules it as an ordinary buffer and an
-                // unknown-duration stream never receives a terminal callback.
-                let secondPlayableBuffer = try await iteratorBox.next()
-                guard !Task.isCancelled, playID == id else { return }
-
                 let gate = DecodedBufferGate(
                     maxBufferedDuration: Self.decodedAudioLookahead,
                     maxBufferedBytes: Self.maxInFlightDecodedBytes,

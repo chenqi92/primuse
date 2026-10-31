@@ -72,6 +72,12 @@ private struct SFBInputSourceDecodeLane: Sendable {
                 throw AudioDecoderError.decodingFailed("Native input source closed")
             }
             try decoder.decode(into: buffer, length: length)
+            // Some native decoders report a failed InputSource read as zero
+            // frames. Preserve that failure instead of treating it as EOF.
+            if buffer.frameLength == 0,
+               let error = (box.value as? CloudInputSourceObjC)?.lastReadError {
+                throw error
+            }
         }
     }
 

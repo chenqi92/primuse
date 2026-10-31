@@ -78,7 +78,9 @@
         NSData *data = self.fetchBlock(_offset + copied, toRead - copied, &fetchError);
         NSInteger chunk = data == nil ? 0 : (NSInteger)MIN((NSUInteger)(toRead - copied), data.length);
         if (chunk == 0) {
-            if (fetchError) { self.lastReadError = fetchError; }
+            self.lastReadError = fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain
+                                                                  code:EIO
+                                                              userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned no bytes mid-stream"}];
             // Bytes already copied are real data; hand them over and let the
             // next read report the failure.
             if (copied > 0) { break; }
@@ -89,11 +91,7 @@
             // gapless boundary callback —— 用户体感就是歌没播完就切下一首。
             // 返回错误让上层走 retry / autoAdvance 路径而不是误判 EOF。
             if (error) {
-                *error = data == nil
-                    ? (fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil])
-                    : [NSError errorWithDomain:NSPOSIXErrorDomain
-                                          code:EIO
-                                      userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned 0 bytes mid-stream"}];
+                *error = self.lastReadError;
             }
             *bytesRead = 0;
             return NO;
@@ -103,6 +101,7 @@
     }
     _offset += copied;
     *bytesRead = copied;
+    if (copied == toRead) { self.lastReadError = nil; }
     return YES;
 }
 
@@ -129,21 +128,16 @@
     int64_t requested = MIN((int64_t)length, _totalLength - offset);
     NSError *fetchError = nil;
     NSData *data = fetch(offset, requested, &fetchError);
-    if (data == nil) {
-        if (fetchError) { self.lastReadError = fetchError; }
+    if (data == nil || data.length == 0) {
+        self.lastReadError = fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain
+                                                              code:EIO
+                                                          userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned no bytes mid-stream"}];
         if (error) {
-            *error = fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil];
+            *error = self.lastReadError;
         }
         return nil;
     }
-    if (data.length == 0 && requested > 0) {
-        if (error) {
-            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
-                                         code:EIO
-                                     userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned 0 bytes mid-stream"}];
-        }
-        return nil;
-    }
+    self.lastReadError = nil;
     if (data.length > (NSUInteger)requested) {
         return [data subdataWithRange:NSMakeRange(0, (NSUInteger)requested)];
     }

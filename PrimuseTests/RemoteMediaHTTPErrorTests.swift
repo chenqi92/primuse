@@ -5,6 +5,123 @@ import XCTest
 @testable import Primuse
 
 final class RemoteMediaHTTPErrorTests: XCTestCase {
+    func testCloudReadErrorClearsAfterSuccessfulRead() throws {
+        for explicitError in [false, true] {
+            let input = CloudInputSourceObjC(
+                url: URL(string: "primuse-cloud://fixture/read.bin"), totalLength: 8
+            ) { offset, length, error in
+                if offset < 4 {
+                    if explicitError {
+                        error?.pointee = URLError(.networkConnectionLost) as NSError
+                        return nil
+                    }
+                    return Data()
+                }
+                return Data(repeating: 7, count: min(Int(length), 8 - Int(offset)))
+            }
+            try input.open()
+            defer { try? input.close() }
+            var bytes = [UInt8](repeating: 0, count: 4)
+            XCTAssertThrowsError(try bytes.withUnsafeMutableBytes { try input.read($0.baseAddress!, length: 4) })
+            XCTAssertNotNil(input.lastReadError)
+            try input.seek(toOffset: 4)
+            let count = try bytes.withUnsafeMutableBytes { try input.read($0.baseAddress!, length: 4) }
+            XCTAssertEqual(count, 4)
+            XCTAssertEqual(bytes, [7, 7, 7, 7])
+            XCTAssertNil(input.lastReadError)
+            let end = try bytes.withUnsafeMutableBytes { try input.read($0.baseAddress!, length: 4) }
+            XCTAssertEqual(end, 0)
+            XCTAssertNil(input.lastReadError)
+        }
+    }
+
+    @MainActor
+    func testWebDAVSeekReadFailureRecoversAtRequestedPosition() async throws {
+        _ = AppServices.shared
+        await Task.yield()
+        let audioSession = AudioSessionManager.shared
+        let previousBegan = audioSession.onInterruptionBegan
+        let previousEnded = audioSession.onInterruptionEnded
+        let previousConfiguration = audioSession.onConfigurationChange
+        let modes = ListeningPlayModeStore.shared.ledger
+        let historyWasSuspended = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobbleWasSuspended = ScrobbleService.shared.isSuspended
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        defer {
+            audioSession.onInterruptionBegan = previousBegan
+            audioSession.onInterruptionEnded = previousEnded
+            audioSession.onConfigurationChange = previousConfiguration
+            ListeningPlayModeStore.shared.update { $0 = modes }
+            PlayHistoryStore.shared.isRecordingSuspended = historyWasSuspended
+            ScrobbleService.shared.isSuspended = scrobbleWasSuspended
+        }
+
+        for startPlaying in [false, true] {
+            let source = MusicSource(id: UUID().uuidString, name: "WebDAV seek", type: .webdav)
+            let failureOffset = Int64((startPlaying ? 14 : 10) * 1_024 * 1_024)
+            let target = startPlaying ? Double(failureOffset - 44 - 32_768) / 192_000 : 75
+            let connector = SeekReadFailureConnector(sourceID: source.id, failureOffset: failureOffset)
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let suite = "WebDAVSeekTests.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = PlaybackSettingsStore(defaults: defaults)
+            settings.outputMode = .effects
+            settings.audioCacheEnabled = true
+            settings.prewarmQueueCount = 0
+            settings.skipLeadingSilenceEnabled = false
+            settings.skipTrailingSilenceEnabled = false
+            settings.replayGainEnabled = false
+            settings.gaplessEnabled = false
+            settings.crossfadeEnabled = false
+            let player = AudioPlayerService(
+                sourceManager: manager, playbackSettings: settings,
+                playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+            )
+            let song = Song(
+                id: UUID().uuidString, title: "WebDAV seek", duration: 120,
+                fileFormat: .wav, filePath: "/music.wav", sourceID: source.id,
+                fileSize: Int64(connector.payload.count)
+            )
+            defer {
+                player.stop()
+                CloudPlaybackSource.cancelSessions(sourceID: source.id)
+                manager.deleteAudioCache(for: song)
+            }
+            await Task.yield()
+            player.playbackMetadataSourceType = { _ in .webdav }
+            player.audioEngine.setVolume(0, persist: false)
+            player.setQueue([song])
+            player.repeatMode = .off
+            await player.play(song: song)
+            XCTAssertTrue(player.isPlaying)
+            XCTAssertEqual(player.activeDecoderKind, .cloudStream)
+            XCTAssertNil(manager.cachedURL(for: song))
+
+            player.seek(to: target, startPlaying: startPlaying)
+            let deadline = Date().addingTimeInterval(20)
+            while player.isLoading, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertFalse(player.isLoading)
+            XCTAssertNil(player.lastPlaybackError)
+            XCTAssertEqual(player.currentSong?.id, song.id)
+            XCTAssertEqual(player.currentTime, target, accuracy: 1)
+            XCTAssertEqual(player.isPlaying, startPlaying)
+            XCTAssertEqual(player.currentIndex, 0)
+            let failedReads = await connector.failedReads
+            let completeReads = await connector.completeReads
+            XCTAssertGreaterThan(failedReads, 0, "Must exercise an uncached read after the decoder seeks")
+            XCTAssertGreaterThan(completeReads, 0, "Must recover through the complete-file path")
+            XCTAssertNotNil(manager.cachedURL(for: song))
+            XCTAssertNotEqual(manager.offlineAudioSnapshot(for: song).state, .pinned)
+        }
+    }
+
     func testWebDAVListingsExcludeRecycleDirectoryAndDescendants() {
         for path in ["/podcast/#recycle", "/podcast/#RECYCLE/", "/podcast/#recycle/old"] {
             XCTAssertFalse(WebDAVDirectoryVisibilityPolicy.includes(path: path, isDirectory: true))
@@ -259,6 +376,63 @@ final class RemoteMediaHTTPErrorTests: XCTestCase {
             try? FileManager.default.removeItem(at: cache)
         }
         return source
+    }
+}
+
+private actor SeekReadFailureConnector: MusicSourceConnector {
+    nonisolated let sourceID: String
+    nonisolated let payload: Data
+    private let failureOffset: Int64
+    private(set) var failedReads = 0
+    private(set) var completeReads = 0
+
+    init(sourceID: String, failureOffset: Int64) {
+        self.sourceID = sourceID
+        self.failureOffset = failureOffset
+        // Muted PCM fixture: enough uncached data to seek beyond the read-ahead window.
+        let byteCount = 120 * 48_000 * 4
+        var data = Data("RIFF".utf8)
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var value = value.littleEndian
+            withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+        }
+        append(UInt32(byteCount + 36))
+        data.append(Data("WAVEfmt ".utf8))
+        append(UInt32(16))
+        append(UInt16(1))
+        append(UInt16(2))
+        append(UInt32(48_000))
+        append(UInt32(192_000))
+        append(UInt16(4))
+        append(UInt16(16))
+        data.append(Data("data".utf8))
+        append(UInt32(byteCount))
+        data.append(Data(repeating: 0, count: byteCount))
+        payload = data
+    }
+
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+
+    func fetchRange(path: String, offset: Int64, length: Int64, priority: RangeFetchPriority) async throws -> Data {
+        // Playback's small random windows fail; the ordinary complete transfer succeeds.
+        // WAV seeking itself succeeds, and the subsequent PCM read raises a decoder error.
+        if length > CloudPlaybackSource.chunkSize {
+            completeReads += 1
+        } else if offset >= failureOffset, offset < 20 * 1_024 * 1_024 {
+            failedReads += 1
+            throw SourceError.connectionFailed("Invalid WebDAV Content-Range response")
+        }
+        guard offset >= 0, offset < payload.count, length > 0 else { return Data() }
+        return payload.subdata(in: Int(offset)..<min(payload.count, Int(offset + length)))
     }
 }
 
