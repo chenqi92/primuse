@@ -1232,6 +1232,7 @@ extension AudioPlayerService {
         currentTime = targetTime
         duration = savedDuration
 
+        let previousDecoderKind = activeDecoderKind
         seekTask = Task {
             defer {
                 if playID == id {
@@ -1263,7 +1264,15 @@ extension AudioPlayerService {
                 guard !Task.isCancelled, playID == id else { return }
                 let resolvedDecoderKind = await decoderKind(for: song, url: url)
                 guard !Task.isCancelled, playID == id else { return }
-                activeDecoderKind = resolvedDecoderKind
+                // A supported extension does not guarantee that native decoding
+                // succeeded. Keep the fallback that actually played this item
+                // when rebuilding its local file at the saved position.
+                if url.isFileURL, resolvedDecoderKind == .native,
+                   previousDecoderKind == .ffmpeg || previousDecoderKind == .assetReader {
+                    activeDecoderKind = previousDecoderKind
+                } else {
+                    activeDecoderKind = resolvedDecoderKind
+                }
                 activeDSDPlaybackMode = try await configureOutputPipeline(
                     for: song,
                     url: url,

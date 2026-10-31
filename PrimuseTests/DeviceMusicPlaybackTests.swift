@@ -57,6 +57,158 @@ private final class RepeatPlaybackAudioProbe: @unchecked Sendable {
 
 final class DeviceMusicPlaybackTests: XCTestCase {
     @MainActor
+    func testOpenListCachedDecoderInterruptionRecovery() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["PRIMUSE_OPENLIST_RECOVERY_URL"],
+              let base = URL(string: address), let host = base.host,
+              let username = environment["PRIMUSE_OPENLIST_RECOVERY_USER"],
+              let password = environment["PRIMUSE_OPENLIST_RECOVERY_PASSWORD"],
+              let fallbackPath = environment["PRIMUSE_OPENLIST_RECOVERY_FALLBACK_PATH"],
+              let nativePath = environment["PRIMUSE_OPENLIST_RECOVERY_NATIVE_PATH"] else {
+            throw XCTSkip("Requires an OpenList test account and ordinary music, including a native-incompatible MP3 fixture")
+        }
+        _ = AppServices.shared
+        await Task.yield()
+        let session = AudioSessionManager.shared
+        let previousBegan = session.onInterruptionBegan
+        let previousEnded = session.onInterruptionEnded
+        let previousConfiguration = session.onConfigurationChange
+        let modes = ListeningPlayModeStore.shared.ledger
+        let historyWasSuspended = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobbleWasSuspended = ScrobbleService.shared.isSuspended
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        defer {
+            session.onInterruptionBegan = previousBegan
+            session.onInterruptionEnded = previousEnded
+            session.onConfigurationChange = previousConfiguration
+            ListeningPlayModeStore.shared.update { $0 = modes }
+            PlayHistoryStore.shared.isRecordingSuspended = historyWasSuspended
+            ScrobbleService.shared.isSuspended = scrobbleWasSuspended
+        }
+        func require(_ label: String, _ condition: () -> Bool) async throws {
+            let ready = await waitUntil(timeout: 20, condition)
+            guard ready else {
+                XCTFail("OpenList recovery timed out: \(label)")
+                throw URLError(.timedOut)
+            }
+        }
+        for (path, expectedDecoder) in [(fallbackPath, AudioPlayerService.DecoderKind.ffmpeg),
+                                        (nativePath, .native)] {
+            let source = MusicSource(id: UUID().uuidString, name: "OpenList recovery", type: .webdav)
+            let connector = WebDAVSource(
+                sourceID: source.id, host: host, port: base.port, useSsl: base.scheme == "https",
+                basePath: base.path, username: username, password: password
+            )
+            addTeardownBlock { await connector.disconnect() }
+            try await connector.connect()
+            let downloaded = try await connector.localURL(for: path)
+            defer { try? FileManager.default.removeItem(at: downloaded) }
+            let payload = try Data(contentsOf: downloaded)
+            XCTAssertGreaterThan(payload.count, 1_024)
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let suite = "OpenListRecovery.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = PlaybackSettingsStore(defaults: defaults)
+            settings.outputMode = .effects
+            settings.prewarmQueueCount = 0
+            settings.skipLeadingSilenceEnabled = false
+            settings.skipTrailingSilenceEnabled = false
+            settings.replayGainEnabled = false
+            settings.gaplessEnabled = false
+            settings.crossfadeEnabled = false
+            settings.audioCacheEnabled = true
+            let song = Song(id: UUID().uuidString, title: "OpenList recovery \(expectedDecoder)",
+                            duration: 75, fileFormat: .mp3, filePath: path, sourceID: source.id,
+                            fileSize: Int64(payload.count))
+            let prepareDeadline = Date().addingTimeInterval(5)
+            while !(await manager.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)) {
+                guard Date() < prepareDeadline else { throw URLError(.timedOut) }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            let cached = manager.cacheURL(for: song)
+            try FileManager.default.createDirectory(at: cached.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try payload.write(to: cached, options: .atomic)
+            XCTAssertNotNil(manager.cachedURL(for: song))
+            let player = AudioPlayerService(
+                sourceManager: manager, playbackSettings: settings,
+                playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("session.json"))
+            )
+            defer {
+                player.stop()
+                CloudPlaybackSource.cancelSessions(sourceID: source.id)
+                manager.deleteAudioCache(for: song)
+            }
+            await Task.yield()
+            player.playbackMetadataSourceType = { _ in .webdav }
+            player.audioEngine.setVolume(0, persist: false)
+            player.setQueue([song])
+            player.repeatMode = .off
+            await player.play(song: song)
+            try await require("initial playback") { player.audioEngine.isActuallyPlaying && player.currentTime > 1 }
+            XCTAssertEqual(player.activeDecoderKind, expectedDecoder)
+            player.seek(to: 25, startPlaying: true)
+            try await require("manual seek") { !player.isLoading && player.audioEngine.isActuallyPlaying && player.currentTime >= 25 }
+            XCTAssertEqual(player.activeDecoderKind, expectedDecoder)
+
+            for shouldResume in [true, false] {
+                player.syncPlaybackProgressFromEngine()
+                player.updateNowPlayingInfo()
+                let frozen = player.currentTime
+                let eventTime = Date()
+                player.audioEngine.stopPlayback()
+                session.onInterruptionBegan?(eventTime)
+                XCTAssertTrue(player.interruptionResumePolicy.isAwaitingInterruptionEnd)
+                session.onInterruptionEnded?(shouldResume)
+                if !shouldResume {
+                    try await Task.sleep(for: .milliseconds(300))
+                    XCTAssertFalse(player.audioEngine.isActuallyPlaying)
+                    player.pause()
+                    XCTAssertTrue(player.needsPlaybackRecovery)
+                    player.resume()
+                }
+                try await require("interruption resume") { !player.isLoading && player.audioEngine.isActuallyPlaying }
+                player.syncPlaybackProgressFromEngine()
+                XCTAssertEqual(player.currentTime, frozen, accuracy: 0.8)
+                XCTAssertEqual(player.activeDecoderKind, expectedDecoder)
+                let resumed = player.currentTime
+                try await require("resumed clock") { player.currentTime > resumed + 0.3 }
+                print("OPENLIST_RECOVERY decoder=\(expectedDecoder) automatic=\(shouldResume) frozen=\(frozen) resumed=\(resumed)")
+            }
+
+            player.syncPlaybackProgressFromEngine()
+            player.updateNowPlayingInfo()
+            let frozen = player.currentTime
+            let eventTime = Date()
+            player.audioEngine.stopPlayback()
+            session.onInterruptionBegan?(eventTime)
+            // Only this test source's cache is damaged; the server's music is untouched.
+            try Data(repeating: 0, count: payload.count).write(to: cached, options: .atomic)
+            session.onInterruptionEnded?(true)
+            try await require("failed recovery") { !player.isLoading && player.lastPlaybackError != nil }
+            XCTAssertFalse(player.hasPreparedLocalPlayback)
+            XCTAssertTrue(player.needsPlaybackRecovery)
+            XCTAssertEqual(player.pendingRecoveryTime, frozen, accuracy: 0.8)
+            player.pause()
+            XCTAssertTrue(player.needsPlaybackRecovery)
+            XCTAssertEqual(player.currentTime, frozen, accuracy: 0.8)
+            try payload.write(to: cached, options: .atomic)
+            player.resume()
+            try await require("retry after pause") { !player.isLoading && player.audioEngine.isActuallyPlaying }
+            player.syncPlaybackProgressFromEngine()
+            XCTAssertEqual(player.currentTime, frozen, accuracy: 0.8)
+            XCTAssertEqual(player.activeDecoderKind, expectedDecoder)
+            let resumed = player.currentTime
+            try await require("retry clock") { player.currentTime > resumed + 0.3 }
+            print("OPENLIST_RECOVERY decoder=\(expectedDecoder) failedThenPausePlay=true frozen=\(frozen) resumed=\(resumed)")
+        }
+    }
+
+    @MainActor
     func testSpotlightSearchDiagnostics() async throws {
         guard ProcessInfo.processInfo.environment["PRIMUSE_DEVICE_SPOTLIGHT_QA"] == "1" else {
             throw XCTSkip("Opt-in device Spotlight diagnostics.")

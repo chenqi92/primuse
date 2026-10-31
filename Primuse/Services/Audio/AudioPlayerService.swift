@@ -7746,7 +7746,7 @@ final class AudioPlayerService {
             completionMode: .preserveCachedProgress
         )
         pendingRecoveryTime = currentTime
-        needsPlaybackRecovery = (hasPreparedLocalPlayback || wasConfiguringOutput)
+        needsPlaybackRecovery = (needsPlaybackRecovery || hasPreparedLocalPlayback || wasConfiguringOutput)
             && currentSong != nil && !isAtTrackEnd
         audioEngine.pauseWithFade()
         isPlaying = false
