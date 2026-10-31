@@ -350,7 +350,11 @@ struct TVRoot: View {
                         tabs: visibleTabs,
                         onSelect: selectTab,
                         // 焦点停在「正在播放」上往下走时,下面仍是当前那一页。
-                        onContentDown: { _ in requestContentFocus(from: tab) },
+                        onContentDown: { item in
+                            let destination = TVTabFocusSelectionPolicy.contentDestination(focused: item, active: tab)
+                            selectTab(destination)
+                            requestContentFocus(from: destination)
+                        },
                         focusRequest: tabFocusRequest,
                         allowsFocusDrivenSelection: !suppressesFocusDrivenTabSelection && !isRoutingToScrubber,
                         onFocusChanged: tabBarFocusChanged,
@@ -363,12 +367,20 @@ struct TVRoot: View {
                     .disabled(hidesTabBar)
                     .accessibilityHidden(hidesTabBar)
                     .zIndex(1)
-                    content
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        // 进出全屏播放页(随顶栏收放的那次动画)时旧页面立刻拿掉、新页面淡入。
-                        // 旧页面上停着焦点:要是跟着淡出,淡出放完才真正拿掉,那一下正好碰上
-                        // 新页面请求焦点(电视主线程忙时常有),UIKit 会断言闪退。
-                        .transition(.asymmetric(insertion: .opacity, removal: .identity))
+                    TVTabContent(
+                        selection: tab,
+                        allowsAnimation: isTabBarFocused,
+                        onDisplayed: { item in
+                            guard item == tab, item != .nowPlaying,
+                                  let request = contentFocusRouting.contentDidAppear(
+                                    in: focusRoutingTab(item), nowPlayingMode: nowPlayingFocusMode
+                                  ) else { return }
+                            applyContentFocusRequest(request)
+                        }
+                    ) { item in
+                        content(for: item)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .animation(.easeInOut(duration: 0.25), value: hidesTabBar)
             }
@@ -667,8 +679,8 @@ struct TVRoot: View {
     #endif
 
     @ViewBuilder
-    private var content: some View {
-        switch tab {
+    private func content(for item: Tab) -> some View {
+        switch item {
         case .home:
             TVHomeView(
                 browseMemory: homeBrowseMemory,
@@ -770,6 +782,7 @@ struct TVRoot: View {
     }
 
     private func selectTab(_ item: Tab) {
+        guard item != tab else { return }
         tab = item
         guard item == .nowPlaying, store.hasNowPlaying else { return }
         // 顶栏随即收起,焦点要明确送进播放页(封面)。
@@ -957,7 +970,75 @@ struct TVRoot: View {
     }
 }
 
+/// 顶栏切页时旧页先退出交互，再与新页交叠淡出；全屏播放页立即卸载，避免保留旧焦点。
+struct TVTabContent<Content: View>: View {
+    let selection: TVRoot.Tab
+    let allowsAnimation: Bool
+    var onDisplayed: (TVRoot.Tab) -> Void
+    @ViewBuilder var content: (TVRoot.Tab) -> Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var displayed: TVRoot.Tab
+    @State private var retiring: TVRoot.Tab?
+
+    init(
+        selection: TVRoot.Tab,
+        allowsAnimation: Bool,
+        onDisplayed: @escaping (TVRoot.Tab) -> Void = { _ in },
+        @ViewBuilder content: @escaping (TVRoot.Tab) -> Content
+    ) {
+        self.selection = selection
+        self.allowsAnimation = allowsAnimation
+        self.onDisplayed = onDisplayed
+        self.content = content
+        _displayed = State(initialValue: selection)
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(retiring.map { [$0, displayed] } ?? [displayed], id: \.self) { item in
+                content(item)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .opacity(item == displayed ? 1 : 0)
+                    .disabled(item != displayed)
+                    .allowsHitTesting(item == displayed)
+                    .accessibilityHidden(item != displayed)
+                    .zIndex(item == displayed ? 1 : 0)
+                    .transition(.opacity)
+                    .onAppear { if item == displayed { onDisplayed(item) } }
+            }
+        }
+        .onChange(of: selection) { _, next in
+            guard next != displayed else { return }
+            let crossfade = allowsAnimation && !reduceMotion
+                && displayed != .nowPlaying && next != .nowPlaying
+            var transaction = Transaction(animation: crossfade ? .easeInOut(duration: 0.24) : nil)
+            transaction.disablesAnimations = !crossfade
+            withTransaction(transaction) {
+                retiring = crossfade ? displayed : nil
+                displayed = next
+            }
+        }
+        .task(id: displayed) {
+            guard retiring != nil else { return }
+            do { try await Task.sleep(for: .milliseconds(240)) } catch { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { retiring = nil }
+        }
+    }
+}
+
 enum TVTabFocusSelectionPolicy {
+    static func contentDestination(focused: TVRoot.Tab, active: TVRoot.Tab) -> TVRoot.Tab {
+        focused == .nowPlaying ? active : focused
+    }
+
+    static func settledSelection(_ selection: TVRoot.Tab?) async -> TVRoot.Tab? {
+        guard let selection else { return nil }
+        do { try await Task.sleep(for: .milliseconds(120)) } catch { return nil }
+        return Task.isCancelled ? nil : selection
+    }
+
     static func selection(
         focused: TVRoot.Tab?,
         active: TVRoot.Tab,
@@ -1049,6 +1130,14 @@ struct TVTabBar: View {
     @FocusState private var focusedTarget: TVTabBarFocusTarget?
     @State private var pendingProgrammaticFocusTarget: TVTabBarFocusTarget?
 
+    private var pendingSelection: TVRoot.Tab? {
+        TVTabFocusSelectionPolicy.selection(
+            focused: focusedTarget?.tab,
+            active: active,
+            allowsFocusDrivenSelection: allowsFocusDrivenSelection
+        )
+    }
+
     private var debugFocusTab: TVRoot.Tab? {
         #if DEBUG
         // rawValue 与原来的截图参数一一对应:home / library / radio / spokenWord / ...
@@ -1115,11 +1204,9 @@ struct TVTabBar: View {
                 focusedTarget = corrected
                 return
             }
-            if let selection = TVTabFocusSelectionPolicy.selection(
-                focused: focused?.tab,
-                active: active,
-                allowsFocusDrivenSelection: allowsFocusDrivenSelection
-            ) {
+        }
+        .task(id: pendingSelection) {
+            if let selection = await TVTabFocusSelectionPolicy.settledSelection(pendingSelection) {
                 onSelect(selection)
             }
         }

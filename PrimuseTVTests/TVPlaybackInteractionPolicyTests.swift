@@ -10,6 +10,97 @@ import SwiftUI
 @testable import PrimuseTV
 
 @MainActor
+final class TVTabTransitionTests: XCTestCase {
+    func testDownBeforeFocusSettlesEntersHighlightedPageButDoesNotOpenPlayer() {
+        XCTAssertEqual(TVTabFocusSelectionPolicy.contentDestination(focused: .library, active: .home), .library)
+        XCTAssertEqual(TVTabFocusSelectionPolicy.contentDestination(focused: .nowPlaying, active: .home), .home)
+    }
+
+    func testRapidFocusTraversalOnlySelectsSettledDestination() async {
+        let skipped = Task { await TVTabFocusSelectionPolicy.settledSelection(.library) }
+        await Task.yield()
+        skipped.cancel()
+        let cancelled = await skipped.value
+        XCTAssertNil(cancelled)
+        let settled = await TVTabFocusSelectionPolicy.settledSelection(.search)
+        XCTAssertEqual(settled, .search)
+    }
+
+    func testCrossfadeRetiresInteractionAndRapidChangesKeepLatestPage() async throws {
+        let probe = TabProbe()
+        try await withHost(probe) {
+            probe.selection = .library
+            try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.visible, [.home, .library])
+            XCTAssertEqual(probe.enabled[.home], false)
+            XCTAssertEqual(probe.enabled[.library], true)
+            probe.selection = .sources
+            try await Task.sleep(for: .milliseconds(40))
+            probe.selection = .search
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertEqual(probe.visible, [.search])
+            XCTAssertEqual(probe.enabled[.search], true)
+        }
+    }
+
+    func testPlayerAndContentFocusChangesDoNotKeepOutgoingPage() async throws {
+        let probe = TabProbe()
+        try await withHost(probe) {
+            probe.selection = .nowPlaying
+            try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.visible, [.nowPlaying])
+            probe.selection = .home
+            try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.visible, [.home])
+            probe.allowsAnimation = false
+            probe.selection = .library
+            try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.visible, [.library])
+        }
+    }
+
+    private func withHost(_ probe: TabProbe, run: () async throws -> Void) async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: TabHarness(probe: probe))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKey() }
+        try await Task.sleep(for: .milliseconds(150))
+        try await run()
+    }
+
+    @Observable final class TabProbe {
+        var selection = TVRoot.Tab.home
+        var allowsAnimation = true
+        var visible: Set<TVRoot.Tab> = []
+        var enabled: [TVRoot.Tab: Bool] = [:]
+    }
+
+    private struct TabHarness: View {
+        let probe: TabProbe
+        var body: some View {
+            TVTabContent(selection: probe.selection, allowsAnimation: probe.allowsAnimation) { item in
+                TabPage(item: item, probe: probe)
+            }
+        }
+    }
+
+    private struct TabPage: View {
+        let item: TVRoot.Tab
+        let probe: TabProbe
+        @Environment(\.isEnabled) private var isEnabled
+        var body: some View {
+            Button(item.rawValue) {}
+                .onAppear { probe.visible.insert(item) }
+                .onDisappear { probe.visible.remove(item); probe.enabled[item] = nil }
+                .onChange(of: isEnabled, initial: true) { _, value in probe.enabled[item] = value }
+        }
+    }
+}
+
+@MainActor
 final class TVRapidTrackSwitchTests: XCTestCase {
     func testFailedPlayerIsReplacedWhenLoadingAnotherTrack() {
         let player = TVSwitchTestPlayer()
