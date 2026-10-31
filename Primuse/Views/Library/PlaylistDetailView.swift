@@ -1033,14 +1033,9 @@ struct PlaylistDetailView: View {
     }
 
     #if os(iOS)
-    /// 封面墙头图要的歌；返回 nil 时用原来的单封面头部。手机横屏首屏放不下一面墙，
-    /// 自己设过封面（上传或选了某首歌）的歌单仍显示那张封面。
+    /// 封面墙只跟随显示设置和歌曲内容；首页与列表的自选封面不改变详情页背景。
     private var coverWallSongs: [Song]? {
         guard usesCoverWallHeader, !usesCompactHeaderLayout else { return nil }
-        let presentation = library.artworkPresentation(
-            for: LibraryArtworkOwner(kind: .playlist, id: playlist.id)
-        )
-        guard presentation.uploadedContentID == nil, presentation.selectedSong == nil else { return nil }
         // 能不能上墙只看歌单里的歌, 随内容缓存, 不必每次重画都把前几百首挑一遍。
         return songAvailability.coverWallAvailable ? storedSongs : nil
     }

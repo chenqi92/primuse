@@ -9,6 +9,127 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testPlaylistCustomCoverKeepsDynamicHeaderAndUpdatesHomeArtwork() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "PlaylistCoverWallTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: CollectionCoverWall.preferenceKey)
+
+        let library = MusicLibrary(storageDirectory: root)
+        let manager = SourceManager(sourcesProvider: { [] })
+        let sources = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        let songs = (0..<4).map { index in
+            let id = UUID().uuidString
+            return Song(id: id, title: "Track \(index)", albumID: "album-\(index)", albumTitle: "Album \(index)",
+                 fileFormat: .mp3, filePath: "/cover-wall-\(index).mp3", sourceID: suite,
+                 coverArtFileName: MetadataAssetStore.shared.expectedCoverFileName(for: id))
+        }
+        for (index, song) in songs.enumerated() {
+            await MetadataAssetStore.shared.cacheCover(try image(color: index == 0 ? .red : .blue), forSongID: song.id)
+        }
+        defer {
+            for song in songs { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id) }
+        }
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let playlist = library.createPlaylist(name: "Cover wall", songIDs: songs.map(\.id))
+        let owner = LibraryArtworkOwner(kind: .playlist, id: playlist.id)
+        XCTAssertTrue(CollectionCoverWall.isAvailable(for: library.songs(forPlaylist: playlist.id)))
+
+        let services = AppServices.shared
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 720)
+        let host = UIHostingController(rootView:
+            VStack(spacing: 0) {
+                NavigationStack { PlaylistDetailView(playlist: playlist) }
+                    .frame(height: 600)
+                // Home cards use this same artwork surface.
+                PlaylistArtworkView(playlist: playlist, size: 100, cornerRadius: 0)
+                    .frame(height: 120)
+            }
+            .frame(width: 390, height: 720)
+            .ignoresSafeArea()
+            .environment(services.playerService).environment(library).environment(manager).environment(sources)
+            .environment(services.metadataBackfill).environment(services.scraperService)
+            .environment(services.scraperSettingsStore).environment(services.musicIntelligence)
+            .environment(services.playbackSettingsStore).environment(services.themeService)
+            .environment(services.coverTintProvider).environment(services.batchRemoval)
+            .environment(\.scenePhase, .inactive)
+            .environment(\.verticalSizeClass, .regular)
+            .environment(\.horizontalSizeClass, .compact)
+            .environment(\.colorScheme, .light)
+            .defaultAppStorage(defaults))
+        host.safeAreaRegions = []
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = CGRect(x: 0, y: 0, width: 390, height: 720)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+
+        func pixels(in rect: CGRect) async throws -> [UInt8] {
+            try await Task.sleep(for: .milliseconds(700))
+            host.view.layoutIfNeeded()
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let rendered = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            add(XCTAttachment(image: rendered))
+            let cgImage = try XCTUnwrap(rendered.cgImage?.cropping(to: rect))
+            var result = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * 4)
+            try result.withUnsafeMutableBytes { buffer in
+                let context = try XCTUnwrap(CGContext(data: buffer.baseAddress,
+                    width: cgImage.width, height: cgImage.height, bitsPerComponent: 8,
+                    bytesPerRow: cgImage.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+            }
+            return result
+        }
+        let headerRect = CGRect(x: 20, y: 120, width: 350, height: 160)
+        let tileCenter = CGRect(x: 190, y: 655, width: 10, height: 10)
+        let originalHeader = try await pixels(in: headerRect)
+        let automaticTile = try await pixels(in: tileCenter)
+        let automaticIsRed = automaticTile[0] > 200 && automaticTile[2] < 30
+        let automaticIsBlue = automaticTile[2] > 200 && automaticTile[0] < 30
+        XCTAssertTrue(automaticIsRed || automaticIsBlue, "Automatic artwork must resolve a playlist member")
+
+        XCTAssertTrue(library.setArtwork(for: owner, to: songs[automaticIsRed ? 1 : 0]))
+        let selectedHeader = try await pixels(in: headerRect)
+        XCTAssertTrue(selectedHeader == originalHeader, "Selecting the home cover must preserve the dynamic header")
+        let selectedTile = try await pixels(in: tileCenter)
+        XCTAssertGreaterThan(selectedTile[automaticIsRed ? 2 : 0], 200)
+        XCTAssertLessThan(selectedTile[automaticIsRed ? 0 : 2], 30)
+
+        let uploadedData = try image(color: .green, width: 97)
+        let existingFiles = Set(try FileManager.default.contentsOfDirectory(
+            at: MetadataAssetStore.shared.customArtworkDirectoryURL, includingPropertiesForKeys: nil))
+        let contentID = try XCTUnwrap(MetadataAssetStore.shared.storeCustomArtworkSync(uploadedData))
+        let uploadedURL = MetadataAssetStore.shared.customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg")
+        defer {
+            if !existingFiles.contains(uploadedURL) { try? FileManager.default.removeItem(at: uploadedURL) }
+        }
+        XCTAssertTrue(library.setUploadedArtwork(contentID: contentID, for: owner))
+        let uploadedHeader = try await pixels(in: headerRect)
+        XCTAssertTrue(uploadedHeader == originalHeader, "Uploading the home cover must preserve the dynamic header")
+        let uploadedTile = try await pixels(in: tileCenter)
+        XCTAssertGreaterThan(uploadedTile[1], 200)
+        XCTAssertLessThan(uploadedTile[0], 30)
+
+        defaults.set(false, forKey: CollectionCoverWall.preferenceKey)
+        let staticHeader = try await pixels(in: headerRect)
+        XCTAssertTrue(staticHeader != originalHeader, "Disabling the wall must still restore the single cover")
+        let staticTile = try await pixels(in: tileCenter)
+        XCTAssertEqual(staticTile, uploadedTile)
+    }
+
     func testServerPlayerKeepsOfflineFallbackProvisionalUntilFullCoverArrives() async throws {
         let songID = UUID().uuidString
         let sourceID = UUID().uuidString

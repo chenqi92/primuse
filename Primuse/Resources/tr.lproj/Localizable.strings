@@ -6423,7 +6423,7 @@
 "source_mutation_read_only" = "Bu kaynak dosya değişikliklerine izin vermiyor.";
 "metadata_writeback_local_only_notice" = "Kaynak yazma erişimini reddetti. Değişiklikleriniz yalnızca Primuse içinde kaydedildi; kaynak dosya güncellenmedi.";
 "library_playlist_cover_wall_title" = "Çalma listesi ve tür başlığında kapak duvarı";
-"library_playlist_cover_wall_description" = "Bir çalma listesinde, akıllı listede veya türde en az 4 farklı albüm kapağı varsa başlık, birkaç saniyede bir yeniden dizilen eğik bir kapak duvarına dönüşür. Telefon yatay konumdayken ve özel kapağı olan listelerde tek kapak gösterilmeye devam eder.";
+"library_playlist_cover_wall_description" = "Bir çalma listesinde, akıllı listede veya türde en az 4 farklı albüm kapağı varsa başlık, birkaç saniyede bir yeniden dizilen eğik bir kapak duvarına dönüşür. Telefon yatay konumdayken tek kapak gösterilmeye devam eder.";
 "player_backdrop_strength_footer" = "Sağa doğru gittikçe arka plan kapağın renklerine yaklaşır. Açık modda çok koyu kapak renkleri metnin okunabilir kaldığı noktada durur. Bulanık kapak gibi bir arka plan görselinde, görseli koyulaştıran katmanın gücünü ayarlar.";
 "player_progress_style_title" = "İlerleme çubuğu";
 "player_progress_style_footer" = "Dalga yalnızca çalarken akar; duraklatınca veya sürüklerken düz bir çizgiye dönüşür. iPhone, iPad ve Mac'teki çalara uygulanır. Podcast'ler ve sesli kitaplar da buna uyar; yalnızca dikey sesli kitap düzeni sadece dalgaya geçer, diğer iki seçenekte kendi ince çizgisini korur. Diğer ikisini de orada kullanmak için aşağıdaki Sesli kitaplar'ı açın.";

@@ -6517,7 +6517,7 @@
 "source_mutation_read_only" = "Diese Quelle erlaubt keine Dateiänderungen.";
 "metadata_writeback_local_only_notice" = "Die Quelle hat den Schreibzugriff verweigert. Deine Änderungen wurden nur in Primuse gespeichert; die Quelldatei wurde nicht aktualisiert.";
 "library_playlist_cover_wall_title" = "Cover-Wand im Kopf von Playlists und Genres";
-"library_playlist_cover_wall_description" = "Hat eine Playlist, intelligente Playlist oder ein Genre mindestens 4 verschiedene Albumcover, wird der Kopfbereich zu einer schrägen Cover-Wand, die sich alle paar Sekunden neu anordnet. Smartphones im Querformat und Playlists mit eigenem Cover zeigen weiterhin ein einzelnes Cover.";
+"library_playlist_cover_wall_description" = "Hat eine Playlist, intelligente Playlist oder ein Genre mindestens 4 verschiedene Albumcover, wird der Kopfbereich zu einer schrägen Cover-Wand, die sich alle paar Sekunden neu anordnet. Smartphones im Querformat zeigen weiterhin ein einzelnes Cover.";
 "player_backdrop_strength_footer" = "Je weiter rechts, desto näher kommt der Hintergrund den Farben des Covers. Im hellen Modus stoppen sehr dunkle Coverfarben dort, wo Text noch gut lesbar ist. Bei einem Hintergrundbild wie „Unscharfes Cover“ steuert dies die Stärke der Abdunklung.";
 "player_progress_style_title" = "Fortschrittsbalken";
 "player_progress_style_footer" = "Die Welle bewegt sich nur bei der Wiedergabe und wird beim Pausieren oder Ziehen zur geraden Linie. Gilt für den Player auf iPhone, iPad und Mac. Podcasts und Hörbücher folgen ebenfalls, nur wechselt das Hörbuch-Layout im Hochformat lediglich zur Welle und behält sonst seine eigene dünne Linie. Aktiviere unten „Hörbücher“, damit dort auch die anderen beiden gelten.";
