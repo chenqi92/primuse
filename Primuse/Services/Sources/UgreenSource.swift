@@ -2,6 +2,7 @@ import Foundation
 import PrimuseKit
 
 actor UgreenSource: MusicSourceConnector {
+    nonisolated let directoryListingConcurrency = 4
     let sourceID: String
     private let api: UgreenAPI
     private let username: String

@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Incremental song persistence")
 struct IncrementalSongStoreTests {
+    @Test("Stream descriptor fast rejection preserves path extension semantics")
+    func streamDescriptorPaths() {
+        for path in ["/Music/song.mp3", "/Music/song.STRM", "/Music/song.strm/", "/Music/.strm", "/Music/STRM", "", "/中文/歌曲.strm", "/Music/song.strm?x=1", "/Music/song.strm.flac", "/Music/song.strm.", "/Music/song.strm "] {
+            let song = makeSong(id: "extension", path: path, title: "Song")
+            #expect(song.isStreamDescriptor == PrimuseConstants.supportedStreamDescriptorExtensions.contains((path as NSString).pathExtension.lowercased()))
+        }
+    }
+
     @Test("Fresh and authoritative empty stores remain distinct")
     func emptyAuthority() throws {
         try withStore { store in

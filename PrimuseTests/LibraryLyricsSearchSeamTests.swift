@@ -178,3 +178,40 @@ final class LibrarySearchProjectionSnapshotTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(filtered).output.songResults.isEmpty)
     }
 }
+
+@MainActor
+final class LibrarySearchPathCacheTests: XCTestCase {
+    func testRenameDeletionAndSameIDReplacementCannotReuseOldPaths() async throws {
+        var song = Song(id: "path-cache", title: "Title", fileFormat: .mp3, filePath: "/旧目录/track.mp3", sourceID: "source-a")
+        func matches(_ query: String, _ songs: [Song]) async throws -> [String] {
+            let result = await LibrarySearchIndex.shared.search(query: query, songs: songs, albums: [], metadataRevisionKey: "same", matchKinds: [.path])
+            return try XCTUnwrap(result).output.songResults.map(\.song.id)
+        }
+        let first = try await matches("旧", [song])
+        XCTAssertEqual(first, [song.id])
+        song.filePath = "/新目录/track.mp3"
+        song.sourceID = "source-b"
+        let stale = try await matches("旧", [song])
+        let renamed = try await matches("新", [song])
+        XCTAssertTrue(stale.isEmpty)
+        XCTAssertEqual(renamed, [song.id])
+        let deleted = try await matches("新", [])
+        XCTAssertTrue(deleted.isEmpty)
+        song.filePath = "/另一个/track.mp3"
+        let replaced = try await matches("新", [song])
+        XCTAssertTrue(replaced.isEmpty)
+    }
+
+    func testRepeatedShortQueriesAcrossLargeLibraryKeepCorrectResults() async throws {
+        let songs = (0..<32_032).map { Song(id: "path-scale-\($0)", title: "Title", fileFormat: .m4a,
+            filePath: "/音乐/艺人\($0 / 50)/专辑/track\($0).m4a", sourceID: "path-scale") }
+        var times: [TimeInterval] = []
+        for query in ["无", "没", "无", "没"] {
+            let start = Date()
+            let result = await LibrarySearchIndex.shared.search(query: query, songs: songs, albums: [], metadataRevisionKey: "large", matchKinds: [.path])
+            times.append(Date().timeIntervalSince(start))
+            XCTAssertTrue(try XCTUnwrap(result).output.songResults.isEmpty)
+        }
+        print("SEARCH_PATH_32032 seconds=\(times)")
+    }
+}

@@ -5284,12 +5284,10 @@ final class ScanService {
             catalogAuthoritativeSongIDs = plan.authoritativeSongIDs
             detectedCatalogChanges = !plan.songs.isEmpty || plan.hasRemovals
             plog("source=\(LogRedactionPolicy.digest(sourceID)) FN catalog commit walked=\(songs.count) changed=\(plan.enrichmentSongs.count) upserts=\(plan.songs.count) prune=\(pruneMissingSongs) removals=\(plan.hasRemovals)")
-        } else if source?.type == .local {
-            // A referenced folder is reconciled on every launch and every
-            // return to the foreground. With nothing changed on disk, a full
-            // commit only repeats whole-library work on the main actor while
-            // the person is already changing tracks, and queues every song for
-            // background enrichment again.
+        } else if let source, !source.type.isServerLibrary, source.type != .upnp {
+            // Unchanged file trees only need their sync/checkpoint state updated.
+            // Republishing the full catalogue repeats library-wide indexing and
+            // enrichment, especially when several sources finish together.
             let librarySongs = library.songs
             detectedCatalogChanges = await Task.detached(priority: .utility) {
                 SourceCatalogSnapshotPolicy.hasChanges(
@@ -5959,8 +5957,14 @@ final class ScanService {
         #endif
     }
 
+    @ObservationIgnored private var normalizedDirectoryMemo: [[String]: [String]] = [:]
+
     private func normalizedDirectories(_ directories: [String]) -> [String] {
-        SynologyScanner.deduplicateDirectories(directories).sorted()
+        if let normalized = normalizedDirectoryMemo[directories] { return normalized }
+        let normalized = SynologyScanner.deduplicateDirectories(directories).sorted()
+        if normalizedDirectoryMemo.count >= 64 { normalizedDirectoryMemo.removeAll(keepingCapacity: true) }
+        normalizedDirectoryMemo[directories] = normalized
+        return normalized
     }
 
     /// 续扫播种时 checkpoint 行与资料库行的取舍。checkpoint 行是这次扫描刚

@@ -8,6 +8,63 @@ import XCTest
 
 final class DirectoryScanCooldownTests: XCTestCase {
     @MainActor
+    func testUnchangedFileTreeKeepsTagsWithoutRepublishingButAppliesRealChanges() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var source = MusicSource(id: UUID().uuidString, name: "File tree", type: .webdav)
+        source.extraConfig = MusicSource.encodeScannedDirectories(["/Music"], into: nil, type: source.type)
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let connector = MutableFileTreeConnector(sourceID: source.id)
+        let scan = ScanService(fileManager: BaiduRepairFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) })
+        let manager = SourceManager(sourcesProvider: { [source] in [source] })
+        var completions: [SourceScanLifecycleCompletion] = []
+        scan.successfulSourceScanHandler = { _, completion in completions.append(completion) }
+        defer { scan.cancelAllActiveScans() }
+        func run() async throws {
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library,
+                sourceStore: store, requestsContinuedProcessing: false))
+            let deadline = Date().addingTimeInterval(10)
+            while scan.scanStates[source.id]?.isScanning == true, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertFalse(scan.scanStates[source.id]?.isScanning == true)
+            XCTAssertFalse(scan.scanStates[source.id]?.canResume == true)
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        }
+        try await run()
+        XCTAssertEqual(library.songs.count, 2)
+        let tagged = library.songs.map { song -> Song in
+            var song = song
+            song.duration = 180
+            song.artistName = "Existing artist"
+            return song
+        }
+        library.addSongs(tagged)
+        let before = library.musicSongsRevision
+        let stored = library.songs
+        try await run()
+        XCTAssertEqual(completions.last, .committedNoChanges)
+        XCTAssertEqual(library.musicSongsRevision, before, "Unchanged scans must not invalidate the song library")
+        XCTAssertEqual(library.songs, stored)
+
+        await connector.setPhase(1)
+        try await run()
+        XCTAssertEqual(completions.last, .committedSnapshot)
+        XCTAssertEqual(library.songs.count, 3)
+        XCTAssertEqual(library.songs.first { $0.filePath.hasSuffix("keep.mp3") }?.fileSize, 200)
+        XCTAssertEqual(library.songs.first { $0.filePath.hasSuffix("keep.mp3") }?.duration, 0)
+        XCTAssertEqual(library.songs.first { $0.filePath.hasSuffix("remove.mp3") }?.duration, 180)
+        await connector.setPhase(2)
+        try await run()
+        XCTAssertEqual(completions.last, .committedSnapshot)
+        XCTAssertEqual(library.songs.count, 2)
+        XCTAssertFalse(library.songs.contains { $0.filePath.hasSuffix("remove.mp3") })
+    }
+
+    @MainActor
     func testMissingBaiduIndexRescansOnlyRequestedSubtreeAndKeepsOtherSongs() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -321,6 +378,28 @@ private final class BaiduRepairFileManager: FileManager, @unchecked Sendable {
     override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
 }
 
+private actor MutableFileTreeConnector: MusicSourceConnector {
+    let sourceID: String
+    var phase = 0
+    init(sourceID: String) { self.sourceID = sourceID }
+    func setPhase(_ phase: Int) { self.phase = phase }
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        var names = ["keep.mp3"]
+        if phase < 2 { names.append("remove.mp3") }
+        if phase > 0 { names.append("new.mp3") }
+        return names.map { name in
+            let replaced = phase > 0 && name == "keep.mp3"
+            return RemoteFileItem(name: name, path: "/Music/" + name, isDirectory: false,
+                size: replaced ? 200 : 100, modifiedDate: nil, revision: replaced ? "v2" : "v1", providerID: name)
+        }
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+}
+
 private actor ScopedBaiduRepairConnector: ResumableSnapshotMusicSourceConnector {
     let sourceID: String
     private(set) var listedPaths: [String] = []
@@ -342,4 +421,101 @@ private actor ScopedBaiduRepairConnector: ResumableSnapshotMusicSourceConnector 
     func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+}
+
+@MainActor
+final class BackfillStatusReuseTests: XCTestCase {
+    func testLargeLibraryReusesCountsAndInvalidatesAfterSongOrSourceChanges() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let songs = (0..<32_032).map { Song(id: "count-\($0)", title: "Track", fileFormat: .m4a,
+            filePath: "/Music/Album\($0 / 50)/\($0).m4a", sourceID: "count-source") }
+        library.addSongs(songs)
+        var sources: Set<String> = ["count-source"]
+        let backfill = MetadataBackfillService(library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { sources }, bareOnlySourceIDs: { sources }, storageDirectory: root.appendingPathComponent("state"))
+        defer { backfill.stop() }
+        let firstStart = Date()
+        await backfill.refreshStatusSnapshotOffMain()
+        let firstTime = Date().timeIntervalSince(firstStart)
+        XCTAssertEqual(backfill.remainingCount(forSource: "count-source"), songs.count)
+        let computations = backfill.remainingCountsComputationCount
+        let reuseStart = Date()
+        async let first: Void = backfill.refreshStatusSnapshotOffMain()
+        async let second: Void = backfill.refreshStatusSnapshotOffMain()
+        _ = await (first, second)
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCountsComputationCount, computations)
+        print("BACKFILL_STATUS_32032 first=\(firstTime)s reuse3=\(Date().timeIntervalSince(reuseStart))s")
+        var changed = songs[0]
+        changed.title = "Updated title"
+        library.replaceSongs([changed])
+        async let changedFirst: Void = backfill.refreshStatusSnapshotOffMain()
+        async let changedSecond: Void = backfill.refreshStatusSnapshotOffMain()
+        _ = await (changedFirst, changedSecond)
+        XCTAssertEqual(backfill.remainingCountsComputationCount, computations + 1)
+        XCTAssertEqual(backfill.statusDisplayItems(forSource: "count-source").first { $0.songID == changed.id }?.title, "Updated title")
+        sources = []
+        await backfill.refreshStatusSnapshotOffMain()
+        XCTAssertEqual(backfill.remainingCount(forSource: "count-source"), 0)
+        XCTAssertTrue(backfill.statusDisplayItems(forSource: "count-source").isEmpty)
+        sources = ["count-source"]
+        await backfill.refreshStatusSnapshotOffMain()
+        XCTAssertEqual(backfill.remainingCount(forSource: "count-source"), songs.count)
+    }
+}
+
+private final class ArtworkLoadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.withLock { value } }
+    func load(_ data: Data?) -> Data? { lock.withLock { value += 1 }; return data }
+}
+
+final class ArtworkTintCacheTests: XCTestCase {
+    private func artwork() throws -> Data {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 2048, height: 1024, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(CGColor(red: 0.1, green: 0.2, blue: 0.8, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 2048, height: 1024))
+        let image = try XCTUnwrap(context.makeImage())
+        let output = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return output as Data
+    }
+
+    func testLargeArtworkDecodesOnlyThumbnailAndIdenticalRequestsShareWork() async throws {
+        let data = try artwork()
+        let image = try XCTUnwrap(ArtworkTintCache.thumbnail(data: data)?.platformCGImage)
+        XCTAssertEqual(image.width, 80)
+        XCTAssertEqual(image.height, 40)
+        let cache = ArtworkTintCache(capacity: 2)
+        let counter = ArtworkLoadCounter()
+        async let first = cache.palette(identity: "same-content") { counter.load(data) }
+        async let second = cache.palette(identity: "same-content") { counter.load(data) }
+        let results = await (first, second)
+        XCTAssertTrue(results.0.analyzedImage)
+        XCTAssertTrue(results.1.analyzedImage)
+        XCTAssertNotNil(results.0.palette)
+        XCTAssertEqual(counter.count, 1)
+        _ = await cache.palette(identity: "replacement") { counter.load(data) }
+        XCTAssertEqual(counter.count, 2)
+        _ = await cache.palette(identity: "third") { counter.load(data) }
+        _ = await cache.palette(identity: "same-content") { counter.load(data) }
+        XCTAssertEqual(counter.count, 4, "Eviction must bound retained palettes")
+    }
+
+    func testUnreadableArtworkCanRecoverWithoutChangingItsReference() async throws {
+        let cache = ArtworkTintCache()
+        let counter = ArtworkLoadCounter()
+        let missing = await cache.palette(identity: "recover") { counter.load(nil) }
+        XCTAssertFalse(missing.analyzedImage)
+        let data = try artwork()
+        let recovered = await cache.palette(identity: "recover") { counter.load(data) }
+        XCTAssertTrue(recovered.analyzedImage)
+        XCTAssertEqual(counter.count, 2)
+    }
 }

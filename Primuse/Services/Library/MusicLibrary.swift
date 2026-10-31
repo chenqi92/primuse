@@ -656,6 +656,12 @@ actor LibrarySearchIndex {
     private var lastMetadataRevisionKey: String?
     private var projectionSongs: [Song] = []
     private var projectionIndexByID: [String: Int] = [:]
+    private struct SearchDisplayPath {
+        let filePath: String
+        let sourceID: String
+        let value: String?
+    }
+    private var searchDisplayPaths: [String: SearchDisplayPath] = [:]
     private var isPreparing = false
 
     private struct PendingFullPreparation {
@@ -1135,6 +1141,7 @@ actor LibrarySearchIndex {
                 }
                 projectionSongs = songs
                 projectionIndexByID = index
+                searchDisplayPaths = searchDisplayPaths.filter { index[$0.key] != nil }
             }
             let songIndexByID = projectionIndexByID
             // crash-pattern: allow index-map-subscript index and retained snapshot share storage
@@ -1202,12 +1209,16 @@ actor LibrarySearchIndex {
                     limit: songLimit * 2
                 )
                 Self.appendUnique(ids, to: &pathIDs, seen: &seenPaths)
-            } else if searchesPaths {
-                let ids = songs.lazy
-                    .filter { Self.pathContainsLiteral($0, query: trimmed) }
-                    .prefix(songLimit * 2)
-                    .map(\.id)
-                Self.appendUnique(Array(ids), to: &pathIDs, seen: &seenPaths)
+            } else if searchesPaths, songLimit > 0 {
+                var ids: [String] = []
+                for (offset, song) in songs.enumerated() {
+                    if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+                    if displayPath(for: song)?.localizedCaseInsensitiveContains(trimmed) == true {
+                        ids.append(song.id)
+                        if ids.count >= songLimit * 2 { break }
+                    }
+                }
+                Self.appendUnique(ids, to: &pathIDs, seen: &seenPaths)
             }
 
             var lyricHits: [LyricsHit] = []
@@ -2124,11 +2135,14 @@ actor LibrarySearchIndex {
             .contains { $0.localizedCaseInsensitiveContains(query) }
     }
 
-    private static func pathContainsLiteral(_ song: Song, query: String) -> Bool {
-        SongPathPresentationPolicy.displayPath(
-            filePath: song.filePath,
-            sourceID: song.sourceID
-        )?.localizedCaseInsensitiveContains(query) == true
+    private func displayPath(for song: Song) -> String? {
+        if let cached = searchDisplayPaths[song.id],
+           cached.filePath == song.filePath, cached.sourceID == song.sourceID {
+            return cached.value
+        }
+        let path = SongPathPresentationPolicy.displayPath(filePath: song.filePath, sourceID: song.sourceID)
+        searchDisplayPaths[song.id] = SearchDisplayPath(filePath: song.filePath, sourceID: song.sourceID, value: path)
+        return path
     }
 
     private static func containsHan(_ text: String) -> Bool {

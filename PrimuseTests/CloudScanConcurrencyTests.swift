@@ -175,6 +175,23 @@ private actor BlockingListings {
 }
 
 final class BaiduSnapshotConcurrencyTests: XCTestCase {
+    func testCancellingOneSourceLeavesTheOtherSnapshotComplete() async throws {
+        let ready = expectation(description: "First source has active requests")
+        let blocked = SnapshotHarness(SnapshotListingFixture(mode: .blockChildren, ready: ready))
+        let other = SnapshotHarness(SnapshotListingFixture(mode: .normal))
+        defer { blocked.close(); other.close() }
+        let first = Task { try await blocked.scan { _, _ in } }
+        await fulfillment(of: [ready], timeout: 5)
+        let second = Task { try await other.scan { _, _ in } }
+        first.cancel()
+        if case .success = await first.result { XCTFail("Cancelled source must remain unfinished") }
+        let result = try await second.value
+        XCTAssertEqual(result.reconciledIndex?.count, 12)
+        XCTAssertEqual(other.fixture.counts.count, 7)
+        XCTAssertTrue(other.fixture.counts.values.allSatisfy { $0 == 1 })
+        XCTAssertEqual(blocked.fixture.activeCount, 0)
+    }
+
     func testSlowDirectoryDoesNotHoldUpQueuedDirectoriesAndStaysResumable() async throws {
         let progressed = expectation(description: "Queued directory completes while the first is blocked")
         let fixture = SnapshotListingFixture(mode: .slowFirst)
@@ -462,6 +479,71 @@ private final class SnapshotListingProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class CloudDirectoryPipelineTests: XCTestCase {
+    func testEightSlotConnectorKeepsCloudDefaultAtFour() async throws {
+        let ready = expectation(description: "Listings admitted")
+        let recorder = PipelineCloudConnector(mode: .blockChildren, ready: ready)
+        XCTAssertEqual(recorder.directoryListingConcurrency, 4)
+        let connector = PipelineFileConnector(recorder: recorder, capacity: 8)
+        let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)
+        let task = Task { for try await _ in await scanner.scan(directories: ["/"]) {} }
+        defer { task.cancel() }
+        await fulfillment(of: [ready], timeout: 3)
+        let deadline = Date().addingTimeInterval(3)
+        while await recorder.peak < 6, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        let peak = await recorder.peak
+        XCTAssertEqual(peak, 6, "All six available children fit within the eight-slot connector budget")
+        await recorder.release()
+        try await task.value
+    }
+
+    func testChildListingsOverlapSlowCueReadAndRemainResumable() async throws {
+        let childrenStarted = expectation(description: "Children listed while root CUE is still reading")
+        let cueStarted = expectation(description: "CUE read started")
+        let connector = SlowCuePipelineConnector(childrenStarted: childrenStarted, cueStarted: cueStarted)
+        let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)
+        let task = Task {
+            var last: ConnectorScanner.ScanUpdate?
+            for try await update in await scanner.scan(directories: ["/"]) { last = update }
+            return last
+        }
+        defer { task.cancel() }
+        await fulfillment(of: [cueStarted, childrenStarted], timeout: 3)
+        await connector.releaseCue()
+        let result = try await task.value
+        XCTAssertEqual(result?.songs.count, 8)
+        XCTAssertEqual(result?.resumeState?.pendingDirectories, [])
+        let listed = await connector.listed
+        XCTAssertEqual(listed.count, 9)
+        XCTAssertEqual(Set(listed).count, 9)
+        let peak = await connector.peak
+        XCTAssertLessThanOrEqual(peak, 4)
+    }
+
+    func testNonOAuthConnectorUsesItsDirectoryCapacityThroughAdaptiveRouting() async throws {
+        let ready = expectation(description: "HTTP file connector fills directory slots")
+        let recorder = PipelineCloudConnector(mode: .slowFirst, ready: ready)
+        let connector = PipelineFileConnector(recorder: recorder)
+        let routing = SourceConnectionRouter(sourceID: connector.sourceID, candidates: [
+            RoutedConnectorCandidate(kind: .localAddress, endpoint: .init(host: "localhost", port: 80, useSsl: false), connector: connector)
+        ], routeDidChange: { _ in })
+        XCTAssertEqual(routing.directoryListingConcurrency, 4)
+        let scanner = ConnectorScanner(connector: connector, sourceID: connector.sourceID)
+        let scan = Task {
+            var last: ConnectorScanner.ScanUpdate?
+            for try await update in await scanner.scan(directories: ["/"]) { last = update }
+            return last
+        }
+        await fulfillment(of: [ready], timeout: 5)
+        await recorder.release()
+        let last = try await scan.value
+        XCTAssertEqual(last?.resumeState?.pendingDirectories, [])
+        let peak = await recorder.peak
+        XCTAssertGreaterThan(peak, 1)
+        XCTAssertLessThanOrEqual(peak, connector.directoryListingConcurrency)
+        let listed = await recorder.listed
+        XCTAssertEqual(Set(listed), Set(["/"] + (0..<6).map { "/\($0)" }))
+    }
+
     func testLibraryScanReplenishesSlotsBeforeTheSlowDirectoryFinishes() async throws {
         let reachedLaterDirectory = expectation(description: "Later directory starts before slow listing ends")
         let connector = PipelineCloudConnector(mode: .slowFirst, ready: reachedLaterDirectory)
@@ -541,6 +623,22 @@ final class CloudDirectoryPipelineTests: XCTestCase {
     }
 }
 
+private struct PipelineFileConnector: MusicSourceConnector {
+    let recorder: PipelineCloudConnector
+    var sourceID: String { recorder.sourceID }
+    let directoryListingConcurrency: Int
+    init(recorder: PipelineCloudConnector, capacity: Int = 4) {
+        self.recorder = recorder
+        directoryListingConcurrency = capacity
+    }
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { try await recorder.listFiles(at: path) }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+}
+
 private actor PipelineCloudConnector: OAuthCloudSource {
     enum Mode { case normal, slowFirst, blockChildren, rateLimited, ordinaryFailure }
     nonisolated let sourceID = "pipeline-" + UUID().uuidString
@@ -594,4 +692,83 @@ private actor PipelineCloudConnector: OAuthCloudSource {
     func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+}
+
+private actor SlowCuePipelineConnector: MusicSourceConnector {
+    nonisolated let sourceID = "slow-cue-" + UUID().uuidString
+    nonisolated let directoryListingConcurrency = 4
+    let childrenStarted: XCTestExpectation
+    let cueStarted: XCTestExpectation
+    let gate = AsyncStream<Void>.makeStream()
+    private(set) var listed: [String] = []
+    private(set) var peak = 0
+    private var active = 0
+    private var children = 0
+    init(childrenStarted: XCTestExpectation, cueStarted: XCTestExpectation) {
+        self.childrenStarted = childrenStarted
+        self.cueStarted = cueStarted
+    }
+    func connect() async throws {}
+    func disconnect() async {}
+    func releaseCue() { gate.continuation.finish() }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        listed.append(path)
+        if path == "/" {
+            return (0..<8).map { RemoteFileItem(name: "\($0)", path: "/\($0)", isDirectory: true, size: 0, modifiedDate: nil) }
+                + [RemoteFileItem(name: "slow.cue", path: "/slow.cue", isDirectory: false, size: 10, modifiedDate: nil)]
+        }
+        active += 1
+        peak = max(peak, active)
+        children += 1
+        if children == 4 { childrenStarted.fulfill() }
+        defer { active -= 1 }
+        try await Task.sleep(for: .milliseconds(30))
+        return [RemoteFileItem(name: "song.flac", path: path + "/song.flac", isDirectory: false, size: 100, modifiedDate: nil)]
+    }
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        cueStarted.fulfill()
+        for await _ in gate.stream {}
+        try Task.checkCancellation()
+        return Data()
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+}
+
+final class ObservedChildPathIndexTests: XCTestCase {
+    func testNestedPathsRetainCaseAndCannotCrossSiblingBoundaries() throws {
+        let index = try ConnectorScanner.ObservedChildPathIndex(paths: [
+            " /Music/Artist/Album/song.flac ", "/music/Artist/Other/song.mp3",
+            "/Musicology/wrong.mp3", "/音乐/歌手/专辑/曲目.flac", "/Music/.hidden/file.mp3"
+        ])
+        XCTAssertEqual(index.childPaths(in: "/MUSIC/"), ["/MUSIC/Artist", "/MUSIC/.hidden"])
+        XCTAssertEqual(index.childPaths(in: "/music/artist"), ["/music/artist/Album", "/music/artist/Other"])
+        XCTAssertEqual(index.childPaths(in: "/音乐"), ["/音乐/歌手"])
+        XCTAssertTrue(index.childPaths(in: "/Mus").isEmpty)
+        XCTAssertTrue(index.childPaths(in: "/Music/Artist/Album/song.flac").isEmpty)
+    }
+
+    func testLargeLibraryBuildsOneIndexForAllDirectories() throws {
+        let paths = (0..<32_032).map { "/Music/Artist\($0 / 500)/Album\($0 / 50)/Track\($0).m4a" }
+        let started = Date()
+        let index = try ConnectorScanner.ObservedChildPathIndex(paths: paths)
+        let built = Date().timeIntervalSince(started)
+        var observed = Set<String>()
+        let queried = Date()
+        for album in 0...640 {
+            observed.formUnion(index.childPaths(in: "/Music/Artist\(album / 10)/Album\(album)"))
+        }
+        XCTAssertEqual(observed, Set(paths))
+        print("SCAN_INDEX_32032 build=\(built)s lookup641=\(Date().timeIntervalSince(queried))s")
+    }
+
+    func testCancelledIndexBuildStopsBeforeListing() async {
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try ConnectorScanner.ObservedChildPathIndex(paths: ["/Music/a.mp3"])
+        }
+        do { _ = try await task.value; XCTFail("Cancelled scans must not build or list") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
 }

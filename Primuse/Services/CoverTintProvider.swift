@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import ImageIO
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -72,7 +73,7 @@ final class CoverTintProvider {
             extracted.reserveCapacity(pending.count)
             for song in pending {
                 guard !Task.isCancelled else { break }
-                let result = Self.computeTint(
+                let result = await Self.computeTint(
                     songID: song.id,
                     coverFileName: song.coverArtFileName
                 )
@@ -146,20 +147,59 @@ final class CoverTintProvider {
     nonisolated private static func computeTint(
         songID: String,
         coverFileName: String?
-    ) -> (palette: ImmersiveArtworkPalette?, analyzedImage: Bool) {
+    ) async -> (palette: ImmersiveArtworkPalette?, analyzedImage: Bool) {
         let hashedName = MetadataAssetStore.shared.expectedCoverFileName(for: songID)
-        var data = MetadataAssetStore.shared.readCoverData(named: hashedName)
-        if data == nil,
-           let coverFileName,
-           !coverFileName.isEmpty,
-           !coverFileName.contains("/"),
-           !coverFileName.contains("://") {
-            data = MetadataAssetStore.shared.readCoverData(named: coverFileName)
+        let names = [hashedName, coverFileName].compactMap { $0 }.filter {
+            !$0.isEmpty && !$0.contains("/") && !$0.contains("://")
         }
-        guard let data, let image = PlatformImage(data: data) else { return (nil, false) }
-        let result = ThemeService.extractDominantColor(from: image)
-        return (result.map {
+        for name in names {
+            guard let identity = MetadataAssetStore.shared.coverContentIdentifier(named: name) else { continue }
+            // Legacy files use size/mtime identities, which are only unique within a filename.
+            let key = identity.hasPrefix("sha256:") ? identity : name + ":" + identity
+            let result = await ArtworkTintCache.shared.palette(identity: key) {
+                MetadataAssetStore.shared.readCoverData(named: name)
+            }
+            if result.analyzedImage { return result }
+        }
+        return (nil, false)
+    }
+}
+
+actor ArtworkTintCache {
+    static let shared = ArtworkTintCache()
+    private struct Entry {
+        let palette: ImmersiveArtworkPalette?
+    }
+    private var entries: [String: Entry] = [:]
+    private var order: [String] = []
+    private let capacity: Int
+
+    init(capacity: Int = 256) { self.capacity = max(1, capacity) }
+
+    func palette(identity: String, load: @Sendable () -> Data?) -> (palette: ImmersiveArtworkPalette?, analyzedImage: Bool) {
+        if let entry = entries[identity] { return (entry.palette, true) }
+        guard let data = load(), let image = Self.thumbnail(data: data) else { return (nil, false) }
+        let result = ThemeService.extractDominantColor(from: image).map {
             ImmersiveArtworkPalette(primary: $0.accent, secondary: $0.secondaryDark)
-        }, true)
+        }
+        if order.count >= capacity { entries.removeValue(forKey: order.removeFirst()) }
+        entries[identity] = Entry(palette: result)
+        order.append(identity)
+        return (result, true)
+    }
+
+    nonisolated static func thumbnail(data: Data) -> PlatformImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 80,
+                kCGImageSourceShouldCacheImmediately: true,
+              ] as CFDictionary) else { return nil }
+        #if os(macOS)
+        return NSImage(cgImage: image, size: .zero)
+        #else
+        return UIImage(cgImage: image)
+        #endif
     }
 }

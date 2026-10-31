@@ -1,6 +1,15 @@
 import XCTest
 
 @MainActor
+private func dismissStoredSourceAuthenticationAlerts(in app: XCUIApplication) {
+    let alert = app.alerts["音乐源登录失败"]
+    guard alert.waitForExistence(timeout: 8) else { return }
+    for _ in 0..<8 where alert.exists {
+        alert.buttons["稍后"].tap()
+    }
+}
+
+@MainActor
 final class SearchExperienceUITests: XCTestCase {
     func testCategoryTabsFilterResultsAndKeepSavedOrder() {
         continueAfterFailure = false
@@ -135,6 +144,7 @@ final class SearchExperienceUITests: XCTestCase {
         continueAfterFailure = false
         let app = searchApp(navigationMode: "standard")
         app.launch()
+        dismissStoredSourceAuthenticationAlerts(in: app)
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 25))
         field.tap()
@@ -203,6 +213,7 @@ final class SongLocationUITests: XCTestCase {
     func testLargeSongListLocatesPausedSongAndRepeatsAfterScrollingAway() {
         let app = launch("songs")
         defer { app.terminate() }
+        dismissStoredSourceAuthenticationAlerts(in: app)
         locateAndVerify(app)
         app.scrollViews.firstMatch.swipeDown(velocity: .fast)
         app.scrollViews.firstMatch.swipeDown(velocity: .fast)

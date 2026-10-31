@@ -35,6 +35,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
     DestructiveDirectoryListingConfirmingConnector,
     EmbeddedMetadataWritebackAdapter {
     nonisolated let supportsSidecarWriting = true
+    nonisolated let directoryListingConcurrency = 8
     let sourceID: String
     private let host: String
     private let port: Int?
@@ -69,6 +70,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
     /// 避免每次 chunk fetch 都重新 SSL handshake。
     /// 8 路并发: 配合 CloudPlaybackSource 小文件全 prefetch 时多 chunk 并发。
     private var directorySession: URLSession?
+    private var activeDirectoryTasks: [UUID: Task<(Data, URLResponse), Error>] = [:]
     private var rangeSession: URLSession?
     private var redirectedMediaSession: URLSession?
 
@@ -219,6 +221,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
         completeMetadataFallbackTasks.removeAll()
         directorySession?.invalidateAndCancel()
         directorySession = nil
+        for task in activeDirectoryTasks.values { task.cancel() }
+        activeDirectoryTasks.removeAll()
         rangeSession?.invalidateAndCancel()
         rangeSession = nil
         redirectedMediaSession?.invalidateAndCancel()
@@ -230,14 +234,17 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
             throw SourceError.connectionFailed("Not connected")
         }
 
+        let generation = connectionGeneration
         var completedRetryAttempts = 0
         var completedRateLimitWaits = 0
         while true {
+            try Task.checkCancellation()
+            guard connectionGeneration == generation else { throw CancellationError() }
             do {
                 return try await listFilesUsingTrustedTransport(at: path, completedRateLimitWaits: completedRateLimitWaits)
             } catch {
+                guard connectionGeneration == generation else { throw CancellationError() }
                 if OperationCancellationPolicy.isCancellation(error) {
-                    resetDirectorySession()
                     throw CancellationError()
                 }
 
@@ -284,7 +291,10 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
         at path: String,
         confirmingPreviouslyObservedPaths paths: Set<String>
     ) async throws -> [RemoteFileItem] {
+        let generation = connectionGeneration
         let first = try await listFiles(at: path)
+        try Task.checkCancellation()
+        guard connectionGeneration == generation else { throw CancellationError() }
         let firstMissing = WebDAVDirectoryListingConfirmationPolicy.missingPaths(
             previouslyObserved: paths,
             listed: Set(first.map(\.path))
@@ -355,7 +365,9 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
 
     private func resetDirectorySession() {
         guard directorySession != nil else { return }
-        directorySession?.invalidateAndCancel()
+        // Other directories may still own requests on this session. They finish
+        // normally; disconnect() cancels their individually tracked tasks.
+        directorySession?.finishTasksAndInvalidate()
         directorySession = Self.makeRangeSession(
             host: host,
             port: port,
@@ -1504,7 +1516,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
         guard let quota = WebDAVDirectoryRequestPolicy.quota(url: directoryURL, username: username) else {
             throw URLError(.badURL)
         }
-        let session = try requireTransportSession(directorySession)
+        let generation = connectionGeneration
         let timing = directoryTiming
         let data: Data
         do {
@@ -1512,9 +1524,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
             // Connection probes and fresh deletion confirmations use this same
             // admission point without acquiring an independent retry budget.
             data = try await quotaRegistry.execute(for: quota, replay: .never, operation: { [request] in
-                let (data, response) = try await TrustedHTTPTransport.data(
-                    for: request, session: session, maxBytes: 16 * 1024 * 1024
-                )
+                let (data, response) = try await self.directoryResponse(for: request, generation: generation)
                 guard let http = response as? HTTPURLResponse else {
                     throw SourceError.connectionFailed("Invalid WebDAV directory response")
                 }
@@ -1534,6 +1544,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
                                                 retryAfter: failure.retryAfter, isRateLimited: failure.isRateLimited)
         }
 
+        try Task.checkCancellation()
+        guard connectionGeneration == generation else { throw CancellationError() }
         let entries = try WebDAVMultistatusParser.parse(data)
         guard let currentSourcePath = RemotePathScopePolicy(rootPath: "/")
             .resolvedPath(forStoredPath: path) else {
@@ -1571,6 +1583,27 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFi
             )
         }
         return items.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    }
+
+    private func directoryResponse(for request: URLRequest, generation: UUID) async throws -> (Data, URLResponse) {
+        try Task.checkCancellation()
+        guard connectionGeneration == generation else { throw CancellationError() }
+        // Select after quota admission: a waiting request must not retain a
+        // session that another directory has already retired for recovery.
+        let session = try requireTransportSession(directorySession)
+        let requestID = UUID()
+        let task = Task {
+            try await TrustedHTTPTransport.data(
+                for: request, session: session, maxBytes: 16 * 1024 * 1024
+            )
+        }
+        activeDirectoryTasks[requestID] = task
+        defer { activeDirectoryTasks[requestID] = nil }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     private func makeWebDAVRequest(url: URL, method: String) throws -> URLRequest {

@@ -2,6 +2,7 @@ import Foundation
 import PrimuseKit
 
 actor QnapSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
+    nonisolated let directoryListingConcurrency = 4
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
     private let api: QnapAPI

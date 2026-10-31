@@ -582,6 +582,9 @@ actor ConnectorScanner {
                         usableResumeState?.index ?? [:],
                         uniquingKeysWith: { _, resumed in resumed }
                     )
+                    let observedChildren = connector is any DestructiveDirectoryListingConfirmingConnector
+                        ? try ObservedChildPathIndex(paths: identityBaseline.values.map(\.path) + existingSongs.map(\.filePath))
+                        : nil
                     var hadDirectoryFailure = false
                     var successfulDirectoryCount = 0
                     var firstDirectoryError: Error?
@@ -808,21 +811,17 @@ actor ConnectorScanner {
                         )
                     )
 
-                    let listingConcurrency = connector is any OAuthCloudSource ? 4 : 1
+                    let listingConcurrency = max(1, min(8, connector.directoryListingConcurrency))
                     let listingConnector = connector
                     try await withThrowingTaskGroup(of: DirectoryListingResult.self) { group in
                         var inFlight: Set<String> = []
                         defer { group.cancelAll() }
-                        directoryWalk: while !pendingDirectories.isEmpty {
-                            try Task.checkCancellation()
+                        func enqueueListings(_ group: inout ThrowingTaskGroup<DirectoryListingResult, Error>) {
                             for candidate in pendingDirectories.reversed() {
                                 guard inFlight.count < listingConcurrency else { break }
                                 guard !visitedDirectories.contains(candidate),
                                       inFlight.insert(candidate).inserted else { continue }
-                                let observed = listingConnector is any DestructiveDirectoryListingConfirmingConnector
-                                    ? Self.previouslyObservedChildPaths(
-                                        in: candidate, identityIndex: identityBaseline, existingSongs: existingSongs
-                                    ) : []
+                                let observed = observedChildren?.childPaths(in: candidate) ?? []
                                 group.addTask {
                                     do {
                                         try Task.checkCancellation()
@@ -841,6 +840,10 @@ actor ConnectorScanner {
                                     }
                                 }
                             }
+                        }
+                        directoryWalk: while !pendingDirectories.isEmpty {
+                            try Task.checkCancellation()
+                            enqueueListings(&group)
                             guard let result = try await group.next() else { break }
                             try Task.checkCancellation()
                             let directory = result.directory
@@ -884,6 +887,19 @@ actor ConnectorScanner {
                                         in: &syncIndex
                                     )
                                 }
+                                for child in siblings
+                                    .filter(\.isDirectory)
+                                    .map(\.path)
+                                    .sorted()
+                                    .reversed()
+                                where !visitedDirectories.contains(child)
+                                    && !failedDirectories.contains(child)
+                                    && pendingSet.insert(child).inserted {
+                                    pendingDirectories.append(child)
+                                }
+                                // Keep directory I/O moving while CUE/STRM reads process this result.
+                                // Admitted children stay pending until consumed, including on cancellation.
+                                if listingConcurrency > 1 { enqueueListings(&group) }
                                 let cueTracksByAudioPath = try await loadCueTracks(from: siblings)
                                 for rawItem in siblings where !rawItem.isDirectory {
                                     if SourceArtistArtworkCatalog.isSupportedCandidateFileName(rawItem.name) {
@@ -1157,16 +1173,6 @@ actor ConnectorScanner {
                                     }
                                 }
 
-                                for child in siblings
-                                    .filter(\.isDirectory)
-                                    .map(\.path)
-                                    .sorted()
-                                    .reversed()
-                                where !visitedDirectories.contains(child)
-                                    && !failedDirectories.contains(child)
-                                    && pendingSet.insert(child).inserted {
-                                    pendingDirectories.append(child)
-                                }
                                 successfulDirectoryCount += 1
 
                                 continuation.yield(
@@ -2123,20 +2129,28 @@ actor ConnectorScanner {
         )
     }
 
-    nonisolated static func previouslyObservedChildPaths(
-        in directory: String,
-        identityIndex: [String: SourceSyncIndexedItem],
-        existingSongs: [Song]
-    ) -> Set<String> {
-        var paths = Set(identityIndex.values.compactMap { item in
-            immediateChildPath(descendant: item.path, of: directory)
-        })
-        for song in existingSongs {
-            if let path = immediateChildPath(descendant: song.filePath, of: directory) {
-                paths.insert(path)
+    struct ObservedChildPathIndex: Sendable {
+        private var children: [String: Set<String>] = [:]
+
+        init(paths: [String]) throws {
+            for (offset, path) in paths.enumerated() {
+                if offset.isMultiple(of: 512) { try Task.checkCancellation() }
+                let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard path.hasPrefix("/") else { continue }
+                var parent = ""
+                for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+                    children[parent, default: []].insert(String(component))
+                    parent += "/" + component.lowercased()
+                }
             }
         }
-        return paths
+
+        func childPaths(in directory: String) -> Set<String> {
+            var base = directory
+            while base.hasSuffix("/") { base.removeLast() }
+            let prefix = base + "/"
+            return Set((children[base.lowercased()] ?? []).map { prefix + $0 })
+        }
     }
 
     private nonisolated static func immediateChildPath(

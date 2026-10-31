@@ -1335,6 +1335,7 @@ struct RoutedConnectorCandidate: Sendable {
 /// candidate after a transport failure. Mutations are never replayed because a
 /// lost response cannot prove whether the remote write or deletion took effect.
 actor SourceConnectionRouter {
+    nonisolated let directoryListingConcurrency: Int
     private struct HandshakeDeadlineExceeded: Error {}
     private struct EndpointProbeFailure: Error {
         let underlying: any Error
@@ -1379,6 +1380,7 @@ actor SourceConnectionRouter {
         self.endpointProbe = endpointProbe
         self.handshakeTimeout = handshakeTimeout
         self.candidates = candidates
+        self.directoryListingConcurrency = candidates.map { $0.connector.directoryListingConcurrency }.min() ?? 1
         self.routeDidChange = routeDidChange
     }
 
@@ -1971,6 +1973,7 @@ private protocol RoutedConnectorProxy: MusicSourceConnector {
 
 private extension RoutedConnectorProxy {
     var supportsSidecarWriting: Bool { routedSupportsSidecarWriting }
+    var directoryListingConcurrency: Int { routing.directoryListingConcurrency }
     var preferredDeleteBatchSize: Int { routedPreferredDeleteBatchSize }
 
     func canRenameSongFile(_ song: Song) async -> Bool {

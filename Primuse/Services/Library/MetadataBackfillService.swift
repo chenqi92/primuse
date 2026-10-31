@@ -2925,6 +2925,58 @@ final class MetadataBackfillService {
         let isWaitingForWiFi: Bool
     }
 
+    private struct RemainingCountsState: Equatable {
+        let songGeneration: UInt64
+        let sourceIDs: Set<String>
+        let bareOnlySourceIDs: Set<String>
+        let containerCodecOnlySourceIDs: Set<String>
+        let disabledSourceIDs: Set<String>
+        let failedSongIDs: Set<String>
+        let incompleteSongIDs: Set<String>
+        let sourceIssueSongIDs: Set<String>
+        let sessionGivenUpIDs: Set<String>
+        let sessionNetworkParkedIDs: Set<String>
+        let sessionStallParkedIDs: Set<String>
+        let transientFailureCounts: [String: Int]
+        let sourceTransientFailureCounts: [String: Int]
+        let artworkGivenUpIDs: Set<String>
+        let titleCheckedIDs: Set<String>
+        let albumArtistCheckedIDs: Set<String>
+        let albumArtistUnconfirmedIDs: Set<String>
+        let artistCheckedIDs: Set<String>
+        let deferredRetrySongIDs: Set<String>
+        let diagnosticRecords: [String: MetadataBackfillDiagnosticRecord]
+        let isWaitingForWiFi: Bool
+
+        init(input: RemainingCountsInput, songGeneration: UInt64) {
+            self.songGeneration = songGeneration
+            self.sourceIDs = input.sourceIDs
+            self.bareOnlySourceIDs = input.bareOnlySourceIDs
+            self.containerCodecOnlySourceIDs = input.containerCodecOnlySourceIDs
+            self.disabledSourceIDs = input.disabledSourceIDs
+            self.failedSongIDs = input.failedSongIDs
+            self.incompleteSongIDs = input.incompleteSongIDs
+            self.sourceIssueSongIDs = input.sourceIssueSongIDs
+            self.sessionGivenUpIDs = input.sessionGivenUpIDs
+            self.sessionNetworkParkedIDs = input.sessionNetworkParkedIDs
+            self.sessionStallParkedIDs = input.sessionStallParkedIDs
+            self.transientFailureCounts = input.transientFailureCounts
+            self.sourceTransientFailureCounts = input.sourceTransientFailureCounts
+            self.artworkGivenUpIDs = input.artworkGivenUpIDs
+            self.titleCheckedIDs = input.titleCheckedIDs
+            self.albumArtistCheckedIDs = input.albumArtistCheckedIDs
+            self.albumArtistUnconfirmedIDs = input.albumArtistUnconfirmedIDs
+            self.artistCheckedIDs = input.artistCheckedIDs
+            self.deferredRetrySongIDs = input.deferredRetrySongIDs
+            self.diagnosticRecords = input.diagnosticRecords
+            self.isWaitingForWiFi = input.isWaitingForWiFi
+        }
+    }
+
+    @ObservationIgnored private var completedRemainingCounts: (RemainingCountsState, RemainingCountsComputation)?
+    @ObservationIgnored private var pendingRemainingCounts: (RemainingCountsState, Task<RemainingCountsComputation, Never>)?
+    @ObservationIgnored private(set) var remainingCountsComputationCount = 0
+
     private struct RemainingCountsComputation: Sendable {
         let remainingBySource: [String: Int]
         let deferredBySource: [String: Int]
@@ -2978,7 +3030,16 @@ final class MetadataBackfillService {
                     >= remainingCountRefreshInterval else { return }
         lastRemainingCountRefreshAt = now
         remainingCountComputationGeneration &+= 1
-        applyRemainingCounts(Self.computeRemainingCounts(makeRemainingCountsInput()))
+        let input = makeRemainingCountsInput()
+        let state = RemainingCountsState(input: input, songGeneration: library.songMutationGenerationForMaintenance)
+        if let cached = completedRemainingCounts, cached.0 == state {
+            applyRemainingCounts(cached.1)
+            return
+        }
+        remainingCountsComputationCount += 1
+        let result = Self.computeRemainingCounts(input)
+        completedRemainingCounts = (state, result)
+        applyRemainingCounts(result)
     }
 
     /// 修复一批历史行是一次性的活, 不需要实时性: 库内容没动就不重算, 动过
@@ -3022,9 +3083,23 @@ final class MetadataBackfillService {
         let songMutationGeneration = library.songMutationGenerationForMaintenance
         let queueGeneration = queueMutationGeneration
         let input = makeRemainingCountsInput()
-        let computation = await Task.detached(priority: .utility) {
-            Self.computeRemainingCounts(input)
-        }.value
+        let state = RemainingCountsState(input: input, songGeneration: songMutationGeneration)
+        let computation: RemainingCountsComputation
+        if let cached = completedRemainingCounts, cached.0 == state {
+            computation = cached.1
+        } else {
+            let task: Task<RemainingCountsComputation, Never>
+            if let pending = pendingRemainingCounts, pending.0 == state {
+                task = pending.1
+            } else {
+                remainingCountsComputationCount += 1
+                task = Task.detached(priority: .utility) { Self.computeRemainingCounts(input) }
+                pendingRemainingCounts = (state, task)
+            }
+            computation = await task.value
+            if pendingRemainingCounts?.0 == state { pendingRemainingCounts = nil }
+            completedRemainingCounts = (state, computation)
+        }
         // 代次被顶替与"输入真的变了"必须分开: 被顶替时接管的那次刷新还在跑,
         // 把节流时间戳退回 .distantPast 会让它之后的 start() 再次整库同步对账。
         // "歌曲代次动了"又要再分出来: 扫描每 1.5 s 发布一次库, 整场扫描里

@@ -169,7 +169,7 @@ final class RemoteMediaHTTPErrorTests: XCTestCase {
         ).isEmpty)
     }
 
-    func testWebDAVConfirmationIncludesPreviouslyIndexedAndLegacySongChildren() {
+    func testWebDAVConfirmationIncludesPreviouslyIndexedAndLegacySongChildren() throws {
         let indexed = SourceSyncIndexedItem(
             stableKey: "path:/music/indexed",
             path: "/Music/Indexed",
@@ -188,11 +188,8 @@ final class RemoteMediaHTTPErrorTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            ConnectorScanner.previouslyObservedChildPaths(
-                in: "/Music/",
-                identityIndex: [indexed.stableKey: indexed],
-                existingSongs: [legacySong]
-            ),
+            try ConnectorScanner.ObservedChildPathIndex(paths: [indexed.path, legacySong.filePath])
+                .childPaths(in: "/Music/"),
             ["/Music/Indexed", "/Music/Legacy"]
         )
     }

@@ -4,6 +4,7 @@ import PrimuseKit
 actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
+    nonisolated let directoryListingConcurrency = 4
 
     private let api: SynologyAPI
     private let username: String

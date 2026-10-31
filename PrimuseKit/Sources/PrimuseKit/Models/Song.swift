@@ -1215,7 +1215,12 @@ public extension Song {
     /// The path stored in this row is a small runtime-resolved stream
     /// descriptor, not the media object itself.
     var isStreamDescriptor: Bool {
-        PrimuseConstants.supportedStreamDescriptorExtensions.contains(
+        var path = filePath[...]
+        while path.last == "/" { path.removeLast() }
+        guard PrimuseConstants.supportedStreamDescriptorExtensions.contains(where: {
+            path.suffix($0.count + 1).lowercased() == "." + $0
+        }) else { return false }
+        return PrimuseConstants.supportedStreamDescriptorExtensions.contains(
             (filePath as NSString).pathExtension.lowercased()
         )
     }

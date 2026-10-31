@@ -788,6 +788,8 @@ enum ArtworkFetchPurpose: Sendable {
 protocol MusicSourceConnector: Sendable {
     var sourceID: String { get }
     var supportsSidecarWriting: Bool { get }
+    /// Safe parallel directory reads for this connector's transport/session model.
+    var directoryListingConcurrency: Int { get }
     func canRenameSongFile(_ song: Song) async -> Bool
     func renameSongFile(_ song: Song, stem: String) async throws -> SongFileRenameResult
     func connect() async throws
@@ -1516,6 +1518,7 @@ struct LyricsSidecarReplacementCollision: LocalizedError, Equatable {
 
 extension MusicSourceConnector {
     var supportsSidecarWriting: Bool { false }
+    var directoryListingConcurrency: Int { self is any OAuthCloudSource ? 4 : 1 }
     var preferredDeleteBatchSize: Int { 1 }
 
     /// 默认 noop ── 大多数 connector 不需要预热, 单次 fetchRange 自带的
