@@ -8,6 +8,126 @@ import XCTest
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     @MainActor
+    func testMusicInterruptionRecoveryAcrossLocalCachedRangeAndRepeatPlayback() async throws {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_BUFFERING_MUSIC_FIXTURE"] else {
+            throw XCTSkip("Requires an ordinary music WAV fixture for muted playback recovery")
+        }
+        let url = URL(fileURLWithPath: path)
+        let payload = try Data(contentsOf: url)
+        _ = AppServices.shared
+        await Task.yield()
+        let audioSession = AudioSessionManager.shared
+        let previousBegan = audioSession.onInterruptionBegan
+        let previousEnded = audioSession.onInterruptionEnded
+        let previousConfiguration = audioSession.onConfigurationChange
+        let modes = ListeningPlayModeStore.shared.ledger
+        let historyWasSuspended = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobbleWasSuspended = ScrobbleService.shared.isSuspended
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        defer {
+            audioSession.onInterruptionBegan = previousBegan
+            audioSession.onInterruptionEnded = previousEnded
+            audioSession.onConfigurationChange = previousConfiguration
+            ListeningPlayModeStore.shared.update { $0 = modes }
+            PlayHistoryStore.shared.isRecordingSuspended = historyWasSuspended
+            ScrobbleService.shared.isSuspended = scrobbleWasSuspended
+        }
+        func waitFor(_ label: String, _ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(15)
+            while !condition(), Date() < deadline {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            guard condition() else {
+                XCTFail("Interruption recovery timed out: \(label)")
+                throw URLError(.timedOut)
+            }
+        }
+        for mode in ["local", "cached", "range", "repeat-gapless", "repeat-crossfade"] {
+            let directory = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let suite = "MusicInterruptionTests.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = PlaybackSettingsStore(defaults: defaults)
+            settings.outputMode = .effects
+            settings.prewarmQueueCount = 0
+            settings.skipLeadingSilenceEnabled = false
+            settings.skipTrailingSilenceEnabled = false
+            settings.replayGainEnabled = false
+            settings.gaplessEnabled = mode == "repeat-gapless"
+            settings.crossfadeEnabled = mode == "repeat-crossfade"
+            settings.audioCacheEnabled = mode == "cached"
+            let repeats = mode.hasPrefix("repeat-")
+            let usesSource = mode == "cached" || mode == "range"
+            let source = MusicSource(id: UUID().uuidString, name: "Interruption fixture", type: .webdav)
+            let connector = FixtureRangeConnector(sourceID: source.id, payload: payload)
+            let sourceManager = usesSource ? SourceManager(
+                sourcesProvider: { [source] }, connectorFactory: { _ in connector }
+            ) : nil
+            let song = Song(id: UUID().uuidString, title: "Music interruption \(mode)",
+                            duration: repeats ? 6 : 30, fileFormat: .wav,
+                            filePath: usesSource ? "/music.wav" : path, sourceID: source.id,
+                            fileSize: Int64(payload.count), cueStartTime: 30,
+                            cueEndTime: repeats ? 36 : 60)
+            if mode == "cached", let sourceManager {
+                let deadline = Date().addingTimeInterval(3)
+                while !(await sourceManager.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)) {
+                    guard Date() < deadline else { throw URLError(.timedOut) }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                let cached = sourceManager.cacheURL(for: song)
+                try FileManager.default.createDirectory(at: cached.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try payload.write(to: cached)
+                XCTAssertNotNil(sourceManager.cachedURL(for: song))
+            }
+            let player = AudioPlayerService(sourceManager: sourceManager, playbackSettings: settings,
+                playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+            defer {
+                player.stop()
+                CloudPlaybackSource.cancelSessions(sourceID: source.id)
+                sourceManager?.deleteAudioCache(for: song)
+            }
+            await Task.yield()
+            player.playbackMetadataSourceType = { _ in usesSource ? .webdav : .local }
+            player.audioEngine.setVolume(0, persist: false)
+            player.setQueue([song])
+            player.shuffleEnabled = false
+            player.repeatMode = repeats ? .one : .off
+            await player.play(song: song)
+            try await waitFor("\(mode) initial playback") { player.audioEngine.isActuallyPlaying && player.currentTime > 1 }
+            XCTAssertEqual(player.activeDecoderKind, mode == "range" ? .cloudStream : .native)
+            if repeats {
+                let ticket = player.playbackAdvancePolicy.activeTicket
+                try await waitFor("\(mode) repeated boundary") {
+                    player.playbackAdvancePolicy.activeTicket != ticket && player.currentTime > 1
+                }
+            } else {
+                player.seek(to: 12, startPlaying: true)
+                try await waitFor("\(mode) seek") { !player.isLoading && player.audioEngine.isActuallyPlaying && player.currentTime >= 12 }
+            }
+            for configurationFirst in [false, true] {
+                player.syncPlaybackProgressFromEngine()
+                player.updateNowPlayingInfo()
+                let frozen = player.currentTime
+                let eventTime = Date()
+                player.audioEngine.stopPlayback()
+                if configurationFirst { audioSession.onConfigurationChange?(eventTime, nil) }
+                audioSession.onInterruptionBegan?(eventTime)
+                XCTAssertTrue(player.interruptionResumePolicy.isAwaitingInterruptionEnd, mode)
+                XCTAssertEqual(player.pendingRecoveryTime, frozen, accuracy: 0.1, mode)
+                audioSession.onInterruptionEnded?(true)
+                try await waitFor("\(mode) resumed") { !player.isLoading && player.audioEngine.isActuallyPlaying }
+                player.syncPlaybackProgressFromEngine()
+                XCTAssertEqual(player.currentTime, frozen, accuracy: 0.75, mode)
+                let resumed = player.currentTime
+                try await waitFor("\(mode) progressing") { player.currentTime > resumed + 0.25 }
+                print("INTERRUPTION_RECOVERY mode=\(mode) configurationFirst=\(configurationFirst) frozen=\(frozen) resumed=\(resumed)")
+            }
+        }
+    }
+
+    @MainActor
     func testDeviceLargeWebDAVMusicSurvivesNetworkStalls() async throws {
         guard let address = ProcessInfo.processInfo.environment["PRIMUSE_LARGE_AUDIO_QA_URL"],
               let base = URL(string: address), let host = base.host else {
@@ -122,8 +242,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteBufferingKeepsPositionAndTransportAvailable() throws {
-        try withBufferingPlayer { player in
+    func testRemoteBufferingKeepsPositionAndTransportAvailable() async throws {
+        try await withBufferingPlayer { player in
             let empty = DecodedBufferGate.Snapshot(
                 bufferedDuration: 0, bufferedBytes: 0, bufferCount: 0, decodingFinished: false
             )
@@ -214,8 +334,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteBufferingTimeoutPreservesCuePositionWithoutLoadingEntireFile() throws {
-        try withBufferingPlayer { player in
+    func testRemoteBufferingTimeoutPreservesCuePositionWithoutLoadingEntireFile() async throws {
+        try await withBufferingPlayer { player in
             let songID = player.currentSong?.id
             let empty = DecodedBufferGate.Snapshot(
                 bufferedDuration: 0, bufferedBytes: 0, bufferCount: 0, decodingFinished: false
@@ -232,8 +352,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
-    func testNewDecodedGateDiscardsPreviousBufferingWait() throws {
-        try withBufferingPlayer { player in
+    func testNewDecodedGateDiscardsPreviousBufferingWait() async throws {
+        try await withBufferingPlayer { player in
             let replacementID = UUID()
             player.playID = replacementID
             player.installDecodedBufferGate(
@@ -246,7 +366,105 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
-    private func withBufferingPlayer(_ body: (AudioPlayerService) throws -> Void) throws {
+    func testInterruptionDuringRemoteBufferingRecoversAtFrozenPosition() async throws {
+        try await withBufferingPlayer { player in
+            let manager = AudioSessionManager.shared
+            let originalPlayID = player.playID
+            let position = player.duration - 0.25
+            player.currentTime = position
+            player.updateNowPlayingInfo()
+            XCTAssertFalse(player.lastPublishedPlaybackWasActive)
+
+            manager.onInterruptionBegan?(Date().addingTimeInterval(10))
+            XCTAssertTrue(player.interruptionResumePolicy.isAwaitingInterruptionEnd)
+            XCTAssertTrue(player.needsPlaybackRecovery)
+            XCTAssertEqual(player.currentTime, position)
+            XCTAssertEqual(player.pendingRecoveryTime, position)
+            XCTAssertNil(player.remotePlaybackBufferingStartedAt)
+
+            manager.onInterruptionBegan?(Date().addingTimeInterval(20))
+            XCTAssertEqual(player.pendingRecoveryTime, position)
+            manager.onInterruptionEnded?(true)
+            XCTAssertFalse(player.interruptionResumePolicy.isAwaitingInterruptionEnd)
+            XCTAssertNotEqual(player.playID, originalPlayID)
+            XCTAssertTrue(player.isLoading)
+            XCTAssertEqual(player.currentTime, position)
+            XCTAssertFalse(player.isAtTrackEnd)
+        }
+    }
+
+    @MainActor
+    func testConfigurationChangeBeforeBufferingInterruptionRetainsRecovery() async throws {
+        try await withBufferingPlayer { player in
+            let manager = AudioSessionManager.shared
+            let originalPlayID = player.playID
+            player.updateNowPlayingInfo()
+            manager.onConfigurationChange?(Date().addingTimeInterval(10), nil)
+            XCTAssertEqual(player.pendingRecoveryTime, 92)
+            XCTAssertTrue(player.hasConfigurationRecoveryActivityEvidence)
+            XCTAssertNil(player.remotePlaybackBufferingStartedAt)
+
+            manager.onInterruptionBegan?(Date().addingTimeInterval(20))
+            XCTAssertTrue(player.interruptionResumePolicy.isAwaitingInterruptionEnd)
+            manager.onInterruptionEnded?(true)
+            XCTAssertNotEqual(player.playID, originalPlayID)
+            XCTAssertTrue(player.isLoading)
+            XCTAssertEqual(player.currentTime, 92)
+        }
+    }
+
+    @MainActor
+    func testDeniedBufferingInterruptionWaitsForManualSamePositionResume() async throws {
+        try await withBufferingPlayer { player in
+            let manager = AudioSessionManager.shared
+            let originalPlayID = player.playID
+            player.updateNowPlayingInfo()
+            manager.onInterruptionBegan?(Date().addingTimeInterval(10))
+            manager.onInterruptionEnded?(false)
+            XCTAssertEqual(player.playID, originalPlayID)
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertFalse(player.isLoading)
+            XCTAssertFalse(player.interruptionResumePolicy.playbackIsIntended)
+            XCTAssertEqual(player.pendingRecoveryTime, 92)
+
+            player.resume()
+            XCTAssertNotEqual(player.playID, originalPlayID)
+            XCTAssertTrue(player.isLoading)
+            XCTAssertEqual(player.currentTime, 92)
+        }
+    }
+
+    @MainActor
+    func testManualPauseDuringBufferingInterruptionPreventsAutomaticResume() async throws {
+        try await withBufferingPlayer { player in
+            let manager = AudioSessionManager.shared
+            player.updateNowPlayingInfo()
+            manager.onInterruptionBegan?(Date().addingTimeInterval(10))
+            player.pause()
+            let pausedPlayID = player.playID
+            manager.onInterruptionEnded?(true)
+            XCTAssertEqual(player.playID, pausedPlayID)
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertFalse(player.isLoading)
+            XCTAssertFalse(player.interruptionResumePolicy.playbackIsIntended)
+            XCTAssertEqual(player.currentTime, 92)
+            XCTAssertEqual(player.pendingRecoveryTime, 92)
+        }
+    }
+
+    @MainActor
+    private func withBufferingPlayer(_ body: (AudioPlayerService) throws -> Void) async throws {
+        _ = AppServices.shared
+        await Task.yield()
+        let manager = AudioSessionManager.shared
+        let previousBegan = manager.onInterruptionBegan
+        let previousEnded = manager.onInterruptionEnded
+        let previousConfiguration = manager.onConfigurationChange
+        defer {
+            manager.onInterruptionBegan = previousBegan
+            manager.onInterruptionEnded = previousEnded
+            manager.onConfigurationChange = previousConfiguration
+        }
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let suite = "RemotePlaybackBufferingTests.\(UUID().uuidString)"
@@ -258,6 +476,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             activateAudioSession: { _ in XCTFail("Buffer-health tests must not start an audio session") }
         )
         defer { player.stop() }
+        await Task.yield()
         player.currentSong = Song(id: UUID().uuidString, title: "Remote CUE track", fileFormat: .wav,
                                   filePath: "album.wav", sourceID: "buffering-fixture", fileSize: 682_103_954,
                                   cueStartTime: 270.64, cueEndTime: 557.47)

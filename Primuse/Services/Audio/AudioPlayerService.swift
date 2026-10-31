@@ -781,7 +781,7 @@ final class AudioPlayerService {
             cachedCurrentTime: currentTime,
             currentTimeAnchor: currentTimeAnchor,
             eventTime: date,
-            isAdvancing: isPlaying && !isLoading,
+            isAdvancing: isPlaying && !isLoading && remotePlaybackBufferingStartedAt == nil,
             duration: duration
         )
     }
@@ -2377,6 +2377,7 @@ final class AudioPlayerService {
             let wasPlaying = self.lastPublishedPlaybackWasActive
                 || configurationRecoveryWasActive
                 || musicVideoSeekWasActive
+                || self.isRemotePlaybackBuffering
             let wasAwaitingInterruptionEnd = self.interruptionResumePolicy
                 .isAwaitingInterruptionEnd
             self.interruptionResumePolicy.interruptionBegan(
@@ -2389,6 +2390,9 @@ final class AudioPlayerService {
                 && !wasPlaying
                 && self.interruptionResumePolicy.isAwaitingInterruptionEnd
             let frozenProgress = self.interpolatedTime(at: interruptionTime)
+            // The interruption now owns recovery; a Range refill cannot resume
+            // the old node or suppress the authorized same-position rebuild.
+            self.remotePlaybackBufferingStartedAt = nil
             self.stopTimeUpdater()
             self.audioEngine.suspendPlaybackClockReads()
             if self.isSystemMediaPlaybackActive {
@@ -2520,7 +2524,9 @@ final class AudioPlayerService {
                 && self.interruptionResumePolicy.playbackIsIntended
             let interruptedActivityWasPublished = self.lastPublishedPlaybackWasActive
                 || carriedConfigurationActivity
+                || self.isRemotePlaybackBuffering
             let frozenProgress = self.interpolatedTime(at: configurationChangeTime)
+            self.remotePlaybackBufferingStartedAt = nil
             self.stopTimeUpdater()
             self.audioEngine.suspendPlaybackClockReads()
             self.invalidateAutomaticAdvance(reason: "engine-configuration-change")
