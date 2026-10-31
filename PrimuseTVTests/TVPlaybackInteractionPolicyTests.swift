@@ -9,6 +9,173 @@ import UIKit
 import SwiftUI
 @testable import PrimuseTV
 
+@MainActor
+final class TVRapidTrackSwitchTests: XCTestCase {
+    func testFailedPlayerIsReplacedWhenLoadingAnotherTrack() {
+        let player = TVSwitchTestPlayer()
+        let engine = makeEngine(player: player)
+        defer { engine.releaseAuxiliaryPlayback() }
+        player.volume = 0.35
+        player.isMuted = true
+        player.fail()
+
+        loadTrack(engine)
+
+        XCTAssertFalse(engine.displayPlayer === player)
+        XCTAssertNotNil(engine.displayPlayer.currentItem)
+        XCTAssertEqual(engine.displayPlayer.volume, 0.35, accuracy: 0.001)
+        XCTAssertTrue(engine.displayPlayer.isMuted)
+        XCTAssertEqual(engine.status, .loading)
+    }
+
+    func testHealthyPlayerIsReusedAcrossRapidSelections() {
+        let player = TVSwitchTestPlayer()
+        let engine = makeEngine(player: player)
+        defer { engine.releaseAuxiliaryPlayback() }
+
+        for _ in 0..<30 {
+            engine.prepareForSelection(startAt: 0)
+            loadTrack(engine)
+            XCTAssertTrue(engine.displayPlayer === player)
+            XCTAssertEqual(player.activeClockCount, 1)
+        }
+    }
+
+    func testQueuedClockFromPreviousTrackCannotEndNewSegment() throws {
+        let player = TVSwitchTestPlayer()
+        let engine = makeEngine(player: player)
+        defer { engine.releaseAuxiliaryPlayback() }
+        var ended = 0
+        engine.onEnded = { ended += 1 }
+        loadTrack(engine)
+        let oldClock = try XCTUnwrap(player.clocks.last?.callback)
+
+        engine.prepareForSelection(startAt: 0)
+        loadTrack(engine, cueEndTime: 5)
+        oldClock(CMTime(seconds: 9, preferredTimescale: 600))
+
+        XCTAssertEqual(ended, 0)
+        XCTAssertEqual(engine.currentTime, 0)
+        XCTAssertEqual(engine.status, .loading)
+        let currentClock = try XCTUnwrap(player.clocks.last?.callback)
+        currentClock(CMTime(seconds: 2, preferredTimescale: 600))
+        XCTAssertEqual(engine.currentTime, 2)
+        currentClock(CMTime(seconds: 5, preferredTimescale: 600))
+        XCTAssertEqual(ended, 1, "The current segment must still advance normally")
+    }
+
+    func testPlayerFailureWithoutItemFailureReachesRecoveryOnce() async {
+        let player = TVSwitchTestPlayer()
+        let engine = makeEngine(player: player)
+        defer { engine.releaseAuxiliaryPlayback() }
+        var failures: [String] = []
+        engine.onFailure = { failures.append($0) }
+        loadTrack(engine)
+
+        player.fail()
+        player.fail()
+        for _ in 0..<100 where failures.isEmpty { await Task.yield() }
+
+        XCTAssertEqual(failures.count, 1)
+        XCTAssertEqual(engine.status, .failed("Player unavailable"))
+        XCTAssertNil(player.currentItem)
+        XCTAssertEqual(player.activeClockCount, 0)
+        loadTrack(engine)
+        XCTAssertFalse(engine.displayPlayer === player)
+    }
+
+    func testQueuedFailureFromReplacedPlayerCannotFailNewSelection() async {
+        let player = TVSwitchTestPlayer()
+        let engine = makeEngine(player: player)
+        defer { engine.releaseAuxiliaryPlayback() }
+        var failures = 0
+        engine.onFailure = { _ in failures += 1 }
+        loadTrack(engine)
+        player.fail()
+        engine.prepareForSelection(startAt: 0)
+        loadTrack(engine)
+        // The failed player's KVO callback has already queued a main-actor task.
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(failures, 0)
+        XCTAssertFalse(engine.displayPlayer === player)
+        XCTAssertEqual(engine.status, .loading)
+    }
+
+    func testReleasedAuxiliaryDeckGetsAClockOnNextLoad() throws {
+        let player = TVSwitchTestPlayer()
+        let engine = makeEngine(player: player)
+        defer { engine.releaseAuxiliaryPlayback() }
+        loadTrack(engine)
+        let oldClock = try XCTUnwrap(player.clocks.last?.callback)
+        engine.releaseAuxiliaryPlayback()
+        XCTAssertEqual(player.activeClockCount, 0)
+        oldClock(CMTime(seconds: 9, preferredTimescale: 600))
+        XCTAssertEqual(engine.status, .idle)
+        XCTAssertEqual(engine.currentTime, 0)
+
+        loadTrack(engine)
+        XCTAssertEqual(player.activeClockCount, 1)
+        let newClock = try XCTUnwrap(player.clocks.last?.callback)
+        newClock(CMTime(seconds: 3, preferredTimescale: 600))
+        XCTAssertEqual(engine.currentTime, 3)
+    }
+
+    private func makeEngine(player: TVSwitchTestPlayer) -> TVAudioEngine {
+        TVAudioEngine(managesSystemPlayback: false, makePlayer: {
+            player.status == .failed ? TVSwitchTestPlayer() : player
+        })
+    }
+
+    private func loadTrack(_ engine: TVAudioEngine, cueEndTime: Double? = nil) {
+        // No playback or network: only AVPlayer's selection and callback lifecycle is exercised.
+        engine.load(url: URL(fileURLWithPath: "/dev/null"), title: "Track", artist: "", album: "",
+                    duration: 10, cueStartTime: cueEndTime == nil ? nil : 0, cueEndTime: cueEndTime)
+    }
+}
+
+private final class TVSwitchTestPlayer: AVPlayer, @unchecked Sendable {
+    struct Clock {
+        let token: NSObject
+        let callback: @Sendable (CMTime) -> Void
+    }
+    nonisolated(unsafe) var clocks: [Clock] = []
+    nonisolated(unsafe) private var removedClocks: Set<ObjectIdentifier> = []
+    nonisolated(unsafe) private var selectedItem: AVPlayerItem?
+    nonisolated(unsafe) private var simulatedStatus: AVPlayer.Status = .readyToPlay
+    var activeClockCount: Int { clocks.count - removedClocks.count }
+
+    override var currentItem: AVPlayerItem? { selectedItem }
+    override var status: AVPlayer.Status { simulatedStatus }
+    override var error: Error? {
+        status == .failed ? NSError(domain: "TVSwitchTest", code: 1,
+                                   userInfo: [NSLocalizedDescriptionKey: "Player unavailable"]) : nil
+    }
+    override func replaceCurrentItem(with item: AVPlayerItem?) { selectedItem = item }
+    override func pause() {}
+
+    func fail() {
+        willChangeValue(forKey: "status")
+        simulatedStatus = .failed
+        didChangeValue(forKey: "status")
+    }
+
+    override func addPeriodicTimeObserver(forInterval interval: CMTime, queue: DispatchQueue?,
+                                         using block: @escaping @Sendable (CMTime) -> Void) -> Any {
+        let token = NSObject()
+        clocks.append(Clock(token: token, callback: block))
+        return token
+    }
+
+    override func removeTimeObserver(_ observer: Any) {
+        let identity = ObjectIdentifier(observer as AnyObject)
+        if clocks.contains(where: { ObjectIdentifier($0.token) == identity }) {
+            XCTAssertTrue(removedClocks.insert(identity).inserted, "A clock must be removed exactly once")
+        } else {
+            super.removeTimeObserver(observer)
+        }
+    }
+}
+
 final class TVContentFocusRoutingTests: XCTestCase {
     func testHorizontalTabTraversalDoesNotIssueContentFocus() {
         var state = TVContentFocusRoutingState()

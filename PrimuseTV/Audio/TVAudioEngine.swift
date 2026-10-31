@@ -336,12 +336,14 @@ final class TVAudioEngine {
     var onRemotePreviousTrack: (() -> Void)?
     var onRemoteNextTrack: (() -> Void)?
 
-    private let player = AVPlayer()
+    private var player: AVPlayer
     private var timeObserver: Any?
+    private var timeObservationID: UUID?
     private var endObserver: NSObjectProtocol?
     private var stalledObserver: NSObjectProtocol?
     private var segmentBoundaryObserver: Any?
     private var itemStatusObs: NSKeyValueObservation?
+    private var playerStatusObs: NSKeyValueObservation?
     private var playerTimeControlObs: NSKeyValueObservation?
     private var sessionCategoryConfigured = false
     private var sessionIsActive = false
@@ -456,11 +458,13 @@ final class TVAudioEngine {
     private var npAlbum = ""
 
     @ObservationIgnored private let managesSystemPlayback: Bool
+    @ObservationIgnored private let makePlayer: () -> AVPlayer
 
-    init(managesSystemPlayback: Bool = true) {
+    init(managesSystemPlayback: Bool = true, makePlayer: @escaping () -> AVPlayer = { AVPlayer() }) {
         self.managesSystemPlayback = managesSystemPlayback
+        self.makePlayer = makePlayer
+        self.player = makePlayer()
         player.automaticallyWaitsToMinimizeStalling = true
-        addPeriodicObserver()
         if managesSystemPlayback {
             setupAudioSessionObservers()
             setupRemoteCommands()
@@ -482,7 +486,6 @@ final class TVAudioEngine {
     /// The two medley decks are reused and never own system controls or the audio session.
     func releaseAuxiliaryPlayback() {
         stop()
-        if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
         itemStatusObs?.invalidate()
         playerTimeControlObs?.invalidate()
     }
@@ -601,6 +604,7 @@ final class TVAudioEngine {
     /// starts. Keeping the audio session active avoids an avoidable route handoff
     /// between adjacent queue items, while all track-specific state is cleared.
     func prepareForSelection(startAt seconds: Double, seekFloor: Double = 0) {
+        removePeriodicObserver()
         selectionRequestedAt = ProcessInfo.processInfo.systemUptime
         selectionStartRoute = ""
         playbackFloor = seekFloor.isFinite ? max(0, seekFloor) : 0
@@ -756,6 +760,7 @@ final class TVAudioEngine {
     }
 
     private func startLiveRadio(_ request: LiveRequest) {
+        removePeriodicObserver()
         resetSFBIfNeeded()
         itemStatusObs?.invalidate()
         itemStatusObs = nil
@@ -1003,9 +1008,13 @@ final class TVAudioEngine {
 
     /// 挂 KVO 状态观察 + 上播放器 + 刷新 Now Playing。两条 load 路径共用。
     private func finishLoad(item: AVPlayerItem) {
+        removePeriodicObserver()
         removeEndObserver()
         removeSegmentBoundaryObserver()
         removeStalledObserver()
+        itemStatusObs?.invalidate()
+        itemStatusObs = nil
+        replaceFailedPlayerIfNeeded()
         item.allowedAudioSpatializationFormats = .multichannel
         if let physicalEnd = playbackSegment.physicalEnd {
             item.forwardPlaybackEndTime = CMTime(
@@ -1021,8 +1030,9 @@ final class TVAudioEngine {
             let status = item.status
             let errorMessage = item.error?.localizedDescription
             let itemDuration = item.duration.seconds
-            Task { @MainActor in
-                guard let self, self.activeItemID == observedItemID else { return }
+            Task { @MainActor [weak self, weak item] in
+                guard let self, let item, self.player.currentItem === item,
+                      self.activeItemID == observedItemID else { return }
                 switch status {
                 case .readyToPlay:
                     plog("📺 TV engine: item readyToPlay dur=\(itemDuration)")
@@ -1038,6 +1048,17 @@ final class TVAudioEngine {
             }
         }
         player.replaceCurrentItem(with: item)
+        playerStatusObs = player.observe(\.status, options: [.initial, .new]) { [weak self, weak item] observedPlayer, _ in
+            guard observedPlayer.status == .failed else { return }
+            let message = observedPlayer.error?.localizedDescription ?? PMString("ext.tv.playback.failed")
+            Task { @MainActor [weak self, weak observedPlayer, weak item] in
+                guard let self, let observedPlayer, let item,
+                      self.player === observedPlayer, self.player.currentItem === item,
+                      self.activeItemID == observedItemID else { return }
+                self.reportFailure(message)
+            }
+        }
+        addPeriodicObserver(expectedItemID: observedItemID)
         loadChapters(from: item.asset, expectedItemID: observedItemID)
         playerTimeControlObs?.invalidate()
         playerTimeControlObs = player.observe(\.timeControlStatus, options: [.new]) {
@@ -1104,6 +1125,7 @@ final class TVAudioEngine {
         cueEndTime: Double? = nil,
         startAt logicalTime: Double = 0
     ) throws {
+        removePeriodicObserver()
         clearLiveState()
         resetSFBIfNeeded()
         activateAudioSession()
@@ -1355,6 +1377,7 @@ final class TVAudioEngine {
     }
 
     func stop() {
+        removePeriodicObserver()
         if let externalTransport {
             self.externalTransport = nil
             isExternallyDriven = false
@@ -1797,12 +1820,38 @@ final class TVAudioEngine {
 
     // MARK: 内部
 
-    private func addPeriodicObserver() {
+    /// A failed AVPlayer cannot accept another playable item; retry needs a new player.
+    private func replaceFailedPlayerIfNeeded() {
+        guard player.status == .failed else { return }
+        let volume = player.volume
+        let isMuted = player.isMuted
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        player = makePlayer()
+        player.automaticallyWaitsToMinimizeStalling = true
+        player.volume = volume
+        player.isMuted = isMuted
+        plog("📺 TV engine: replaced failed AVPlayer")
+    }
+
+    private func removePeriodicObserver() {
+        timeObservationID = nil
+        guard let timeObserver else { return }
+        player.removeTimeObserver(timeObserver)
+        self.timeObserver = nil
+    }
+
+    private func addPeriodicObserver(expectedItemID: ObjectIdentifier) {
+        let observationID = UUID()
+        timeObservationID = observationID
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                guard let item = self.player.currentItem else { return }
+                // Removing an observer does not retract callbacks already queued for the old song.
+                guard let self, self.timeObservationID == observationID,
+                      self.activeItemID == expectedItemID,
+                      let item = self.player.currentItem,
+                      ObjectIdentifier(item) == expectedItemID else { return }
                 if self.isLiveStream {
                     if let startedAt = self.liveStartedAt,
                        self.player.timeControlStatus == .playing {
@@ -1930,6 +1979,7 @@ final class TVAudioEngine {
     private func reportFailure(_ message: String) {
         guard !failureReportedForSelection else { return }
         failureReportedForSelection = true
+        removePeriodicObserver()
         pendingStartID = nil
         liveStallTask?.cancel()
         liveStallTask = nil
@@ -1997,6 +2047,8 @@ final class TVAudioEngine {
         liveStallTask = nil
         playerTimeControlObs?.invalidate()
         playerTimeControlObs = nil
+        playerStatusObs?.invalidate()
+        playerStatusObs = nil
         guard let stalledObserver else { return }
         NotificationCenter.default.removeObserver(stalledObserver)
         self.stalledObserver = nil
