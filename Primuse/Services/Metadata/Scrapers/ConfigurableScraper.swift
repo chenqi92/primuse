@@ -111,9 +111,7 @@ actor ConfigurableScraper: MusicScraper {
         ]
 
         let data = try await executeRequest(endpoint: endpoint, vars: vars)
-        plog("🔧 \(config.id) search: got \(data.count) bytes, responseText preview: \(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
         let parsed = try await runScript(endpoint.script, data: data)
-        plog("🔧 \(config.id) search: JS returned items=\((parsed as? [Any])?.count ?? -1)")
 
         guard let items = parsed as? [[String: Any]] else {
             plog("🔧 \(config.id) search: parsed is NOT [[String:Any]], actual=\(String(describing: parsed).prefix(200))")
@@ -411,6 +409,18 @@ actor ConfigurableScraper: MusicScraper {
         }.data
         guard data.count <= Self.maxEndpointResponseBytes else {
             throw ScraperError.networkError("Response too large: \(data.count)B")
+        }
+        // The musicu API can return HTTP 200 and outer code 0 even when its
+        // requested operation failed. Preserve that failure for source backoff.
+        if request.url?.host?.lowercased() == "u.y.qq.com" || config.id == "qqmusic",
+           let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let codes = [response["code"] as? Int].compactMap { $0 } + response.compactMap { key, value -> Int? in
+                guard key.hasPrefix("req"), let operation = value as? [String: Any] else { return nil }
+                return operation["code"] as? Int
+            }
+            if let code = codes.first(where: { $0 != 0 }) {
+                throw ScraperError.networkError("QQ Music API error \(code)")
+            }
         }
         return data
     }

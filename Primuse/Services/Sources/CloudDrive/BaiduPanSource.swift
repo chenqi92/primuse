@@ -15,6 +15,8 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     nonisolated var preferredDeleteBatchSize: Int { 100 }
     private let helper: CloudDriveHelper
     private let session: URLSession
+    private let cdnResolutionSession: URLSession
+    private let rangeSession: URLSession
     private let requests: CloudRequestScheduler
     private let tokenProvider: (@Sendable () async throws -> String)?
 
@@ -261,9 +263,12 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     /// 不能在 init 里做(actor init 不能 await)。
     private var didLoadPersistedDlinks = false
 
-    /// Debounced save task。命中频繁的播放会触发多次 cache 写入,
-    /// 用 2s 节流避免每次都写盘。
     private var dlinkPersistTask: Task<Void, Never>?
+    private var dlinksNeedPersisting = false
+    private var lastDlinkPersistTime: TimeInterval?
+    private let dlinkPersistInterval: TimeInterval
+    private let dlinkPersistTiming: RequestExecutor.Timing
+    private(set) var dlinkPersistWriteCount = 0
     private var activeSnapshotReconciliationBudget: BaiduSnapshotBudgetTracker?
     /// Complete per-directory listings retained only between a snapshot walk
     /// and its immediate reconciliation. Reusing the authoritative response
@@ -273,13 +278,29 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     init(
         sourceID: String, session: URLSession = .shared,
         tokenProvider: (@Sendable () async throws -> String)? = nil,
-        requests: CloudRequestScheduler = .shared
+        requests: CloudRequestScheduler = .shared,
+        rangeSession: URLSession = CloudDriveHelper.rangeSession,
+        dlinkPersistInterval: TimeInterval = 30,
+        dlinkPersistTiming: RequestExecutor.Timing = .init()
     ) {
         self.sourceID = sourceID
-        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests)
+        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests, session: session)
         self.session = session
+        self.rangeSession = rangeSession
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = session.configuration.protocolClasses
+        configuration.httpAdditionalHeaders = session.configuration.httpAdditionalHeaders
+        self.cdnResolutionSession = URLSession(configuration: configuration,
+            delegate: NoRedirectURLSessionDelegate(), delegateQueue: nil)
         self.requests = requests
         self.tokenProvider = tokenProvider
+        self.dlinkPersistInterval = max(2, dlinkPersistInterval)
+        self.dlinkPersistTiming = dlinkPersistTiming
+    }
+
+    deinit {
+        dlinkPersistTask?.cancel()
+        cdnResolutionSession.invalidateAndCancel()
     }
 
     // MARK: - Persisted dlink cache
@@ -326,17 +347,39 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         plog("☁️ Baidu loaded persisted dlink cache: \(loadedDlink) dlinks, \(loadedCdn) CDN URLs (\(entries.count - loadedDlink) expired skipped)")
     }
 
-    /// Debounce 2s 后写盘。频繁刮削 / 播放时多次触发只写一次。
-    private func scheduleDlinkPersist() {
-        dlinkPersistTask?.cancel()
+    /// Continuous backfill must neither rewrite the full cache per song nor
+    /// postpone its save indefinitely. Invalidations bypass the normal cadence.
+    private func scheduleDlinkPersist(urgent: Bool = false) {
+        dlinksNeedPersisting = true
+        if urgent {
+            dlinkPersistTask?.cancel()
+            dlinkPersistTask = nil
+            persistDlinksNow()
+            return
+        }
+        guard dlinkPersistTask == nil else { return }
+        let delay = lastDlinkPersistTime.map {
+            max(2, $0 + dlinkPersistInterval - dlinkPersistTiming.now())
+        } ?? 2
+        let timing = dlinkPersistTiming
+        let deadline = timing.now() + delay
         dlinkPersistTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            await self?.persistDlinksNow()
+            do {
+                try await timing.sleep(max(0, deadline - timing.now()))
+                try Task.checkCancellation()
+                await self?.finishScheduledDlinkPersist()
+            } catch {}
         }
     }
 
+    private func finishScheduledDlinkPersist() {
+        guard !Task.isCancelled else { return }
+        dlinkPersistTask = nil
+        persistDlinksNow()
+    }
+
     private func persistDlinksNow() {
+        guard dlinksNeedPersisting else { return }
         let now = Date()
         var entries: [PersistedDlinkEntry] = []
         let allPaths = Set(dlinkCache.keys).union(cdnURLCache.keys)
@@ -361,6 +404,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(entries)
             try data.write(to: url, options: .atomic)
+            dlinksNeedPersisting = false
+            lastDlinkPersistTime = dlinkPersistTiming.now()
+            dlinkPersistWriteCount += 1
             plog("☁️ Baidu persisted \(entries.count) dlink entries to \(url.lastPathComponent)")
         } catch {
             plog("⚠️ Baidu failed to persist dlink cache: \(error.localizedDescription)")
@@ -384,7 +430,11 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         plog("⚠️ Baidu accountIdentifier: missing 'uk' in response: \(json)")
         throw CloudDriveError.invalidResponse
     }
-    func disconnect() async {}
+    func disconnect() async {
+        dlinkPersistTask?.cancel()
+        dlinkPersistTask = nil
+        persistDlinksNow()
+    }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         let dir = path.isEmpty ? "/" : path
@@ -823,7 +873,8 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             offset: offset,
             length: length,
             userAgent: Self.dlinkUserAgent,
-            referer: Self.dlinkReferer
+            referer: Self.dlinkReferer,
+            session: rangeSession
         )
         plog("☁️ Baidu fetchRange got \(data.count) bytes for \(path) [offset=\(offset)]")
         return data
@@ -834,16 +885,17 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     /// 才懒加载，刚作废的旧直链又被读回来，覆盖后回读拿到的仍是旧文件。
     private func invalidateDlink(for path: String) {
         loadPersistedDlinksIfNeeded()
-        dlinkCache.removeValue(forKey: path)
-        scheduleDlinkPersist()
+        if dlinkCache.removeValue(forKey: path) != nil {
+            scheduleDlinkPersist(urgent: true)
+        }
     }
 
     private func invalidateCdnURL(for path: String) {
         loadPersistedDlinksIfNeeded()
-        cdnURLCache.removeValue(forKey: path)
+        let removed = cdnURLCache.removeValue(forKey: path)
         cdnURLResolveTasks[path]?.task.cancel()
         cdnURLResolveTasks[path] = nil
-        scheduleDlinkPersist()
+        if removed != nil { scheduleDlinkPersist(urgent: true) }
     }
 
     /// Resolve `path` to a pre-signed CDN URL by HEAD-ing the dlink with
@@ -856,7 +908,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             return cached.url
         }
         if let inFlight = cdnURLResolveTasks[path] {
-            return try await inFlight.task.value
+            let resolved = try await inFlight.task.value
+            try Task.checkCancellation()
+            guard !inFlight.task.isCancelled else { throw CancellationError() }
+            return resolved
         }
         let taskID = UUID()
         let task = Task<URL, Error> { [weak self] in
@@ -872,8 +927,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             }
         }
         let resolved = try await task.value
+        guard cdnURLResolveTasks[path]?.id == taskID else { throw CancellationError() }
         cdnURLCache[path] = (resolved, Date().addingTimeInterval(Self.dlinkTTL))
         scheduleDlinkPersist()
+        try Task.checkCancellation()
         return resolved
     }
 
@@ -892,11 +949,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         head.timeoutInterval = 30
 
         // Don't auto-follow redirects — we want the Location header.
-        let session = URLSession(configuration: .ephemeral, delegate: NoRedirectURLSessionDelegate(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
         let request = head
         let (_, http) = try await helper.dataRequest(
-            url: dlinkURL, replay: .idempotent, session: session, timeout: 30,
+            url: dlinkURL, replay: .idempotent, session: cdnResolutionSession, timeout: 30,
             request: { _ in request }
         )
         plog("☁️ Baidu resolveCdnURL HEAD status=\(http.statusCode) for \(path)")
@@ -975,6 +1030,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             ($0 as NSString).deletingLastPathComponent
         }
         for (dir, dirPaths) in pathsByDir {
+            guard !Task.isCancelled else { return }
             do {
                 let entries = try await listEntries(in: dir)
                 let entryByName: [String: [String: Any]] = Dictionary(
@@ -992,6 +1048,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                     }
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 plog("⚠️ Baidu prefetchMetadata: listEntries failed for \(dir): \(error.localizedDescription)")
             }
         }
@@ -1010,7 +1067,9 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         let fsIds = Array(fsIdByPath.values)
         let batchSize = 100
         var resolvedCount = 0
+        defer { if resolvedCount > 0 { scheduleDlinkPersist() } }
         for batchStart in stride(from: 0, to: fsIds.count, by: batchSize) {
+            guard !Task.isCancelled else { return }
             let batch = Array(fsIds[batchStart..<min(batchStart + batchSize, fsIds.count)])
             let fsidsArg = "[" + batch.map(String.init).joined(separator: ",") + "]"
             do {
@@ -1033,10 +1092,10 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                     resolvedCount += 1
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 plog("⚠️ Baidu prefetchMetadata: batch \(batchStart) failed: \(error.localizedDescription)")
             }
         }
-        scheduleDlinkPersist()
         let elapsed = Date().timeIntervalSince(started)
         plog(String(format: "☁️ Baidu prefetchMetadata: resolved %d/%d dlinks in %.2fs (saved ~%d API calls)",
                     resolvedCount, neededPaths.count, elapsed, max(0, neededPaths.count - (fsIds.count + 99) / 100)))

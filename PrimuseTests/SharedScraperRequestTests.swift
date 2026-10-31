@@ -4,6 +4,47 @@ import XCTest
 @testable import Primuse
 
 final class SharedScraperRequestTests: XCTestCase {
+    func testQQBusinessFailuresReachCircuitBreakerInsteadOfBecomingSearchMisses() async throws {
+        for usesProxy in [false, true] {
+            let fixture = ScraperHTTPFixture { _ in
+                .init(body: Data(#"{"code":0,"req_1":{"code":2001,"data":{"body":{"song":{"list":[]}}}}}"#.utf8))
+            }
+            defer { fixture.close() }
+            let config = ScraperConfig(id: usesProxy ? "qqmusic" : fixture.id, name: "Fixture", version: 1,
+                rateLimit: 0, capabilities: ["metadata", "lyrics"], search: .init(
+                    url: usesProxy ? fixture.url("search") : "https://u.y.qq.com/cgi-bin/musicu.fcg",
+                    method: "POST", bodyTemplate: "{}", script: "return [];"))
+            let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: ScraperRequestPool())
+            let manager = ScraperManager(scraperFactory: { _ in scraper })
+            let settings = ScraperSettings(sources: [
+                .init(id: config.id, type: .itunes, isEnabled: true, priority: 0)
+            ])
+            for index in 0..<8 {
+                _ = await manager.scrapeMetadata(title: "Song \(index)", artist: nil, album: nil, duration: nil,
+                    needs: .init(metadata: true, cover: false, lyrics: false), settings: settings)
+            }
+            XCTAssertEqual(fixture.requests.count, 3, "Repeated API failures must open the existing source circuit")
+        }
+    }
+
+    func testQQEmptySuccessAndUnrelatedProviderCodesDoNotOpenCircuit() async throws {
+        for (host, body) in [
+            ("u.y.qq.com", #"{"code":0,"req_1":{"code":0,"data":{}}}"#),
+            ("unrelated.test", #"{"code":2001,"req_1":{"code":2001}}"#)
+        ] {
+            let fixture = ScraperHTTPFixture { _ in .init(body: Data(body.utf8)) }
+            defer { fixture.close() }
+            var config = fixture.config()
+            config.search = .init(url: "https://\(host)/search", method: "GET", script: "return [];")
+            let scraper = ConfigurableScraper(config: config, session: fixture.session)
+            for _ in 0..<4 {
+                let result = try await scraper.search(query: "Song", artist: nil, album: nil, limit: 1)
+                XCTAssertTrue(result.items.isEmpty)
+            }
+            XCTAssertEqual(fixture.requests.count, 4)
+        }
+    }
+
     func testCustomInstancesAndResourcesShareCooldown() async {
         let fixture = ScraperHTTPFixture { _ in .init(status: 429, headers: ["Retry-After": "3600"]) }
         defer { fixture.close() }
