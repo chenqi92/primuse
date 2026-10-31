@@ -7050,3 +7050,15 @@
 
 "playlist_delete_local_confirm_format" = "%lld 個のローカルプレイリストを削除します。「最近削除した項目」から復元できます。曲は削除されません。";
 "playlist_delete_mirror_confirm_format" = "音楽サービスまたは Apple Music の %lld 個のプレイリストは、このデバイスでのみ非表示になります。元のサービスのプレイリストや曲は削除されません。";
+
+"song_file_rename_from_tags" = "タグからファイル名を生成";
+"song_file_rename_artist_title" = "アーティスト - 曲名";
+"song_file_rename_track_title" = "曲番号 - 曲名";
+"song_file_rename_unsupported" = "このソースはファイル名の変更に対応していません。";
+"song_file_rename_invalid" = "パス区切りや予約文字を含まない有効なファイル名を入力してください。";
+"song_file_rename_collision" = "同じ名前のファイルが存在します。別の名前を選んでください。";
+"song_file_rename_cue" = "CUE ファイルを含むフォルダでは、音声ファイルの名前を変更できません。";
+"song_file_rename_shared" = "複数の音声ファイルがこの名前と関連ファイルを共有しています。Primuse の外で整理してください。";
+"song_file_rename_partial" = "一部のファイルを元に戻せませんでした。ライブラリには確認済みの場所が保持されています。フォルダを更新してから再試行してください。";
+"song_file_rename_readback" = "名前は変更されましたが、更新された情報を読み取れませんでした。フォルダを更新してください。";
+"song_file_rename_busy" = "キャストまたは曲の切り替えが終わってから名前を変更してください。";

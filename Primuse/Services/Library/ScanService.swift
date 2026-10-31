@@ -974,9 +974,22 @@ final class ScanService {
         return result
     }
 
+    func prepareForFileRename(sourceID: String) async throws {
+        cancelScan(for: sourceID)
+        removeCheckpoint(for: sourceID)
+        if let syncStateStore {
+            _ = try await syncStateStore.advanceMutationEpoch(
+                sourceID: sourceID, mutationEpoch: syncStateMutationEpochs[sourceID, default: 0])
+        }
+        try await waitForCheckpointPersistence()
+    }
+
     func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary) async throws {
         guard original.id == updated.id, original.sourceID == updated.sourceID,
-              original.filePath != updated.filePath else { return }
+              original.filePath != updated.filePath
+                || original.lyricsFileName != updated.lyricsFileName
+                || original.coverArtFileName != updated.coverArtFileName
+                || original.mvPath != updated.mvPath else { return }
         let sourceID = original.sourceID
         // An in-flight scan still holds the old remote ID. Fence its pending
         // snapshot before publishing the replacement under the existing Song ID.
@@ -994,6 +1007,9 @@ final class ScanService {
         relocated.fileSize = updated.fileSize
         relocated.lastModified = updated.lastModified
         relocated.revision = updated.revision
+        relocated.lyricsFileName = updated.lyricsFileName
+        relocated.coverArtFileName = updated.coverArtFileName
+        relocated.mvPath = updated.mvPath
         // A single-row replacement refreshes the visible lookup immediately;
         // scan batch merging leaves that lookup on its previous async snapshot.
         library.replaceSong(relocated)
@@ -1003,19 +1019,26 @@ final class ScanService {
         )
         try await library.persistIncrementalNowAndWait().get()
         try await waitForCheckpointPersistence()
-        guard var state = syncStates[sourceID],
-              var entry = state.index[original.filePath],
+        guard original.filePath != updated.filePath,
+              var state = syncStates[sourceID],
+              let oldKey = [original.filePath, "path:\(original.filePath.lowercased())"].first(where: { state.index[$0] != nil }),
+              var entry = state.index[oldKey],
               !entry.isDirectory, entry.songIDs == [original.id] else { return }
-        state.index.removeValue(forKey: original.filePath)
-        entry.stableKey = updated.filePath
+        let newKey = oldKey.hasPrefix("path:") ? "path:\(updated.filePath.lowercased())" : updated.filePath
+        state.index.removeValue(forKey: oldKey)
+        entry.stableKey = newKey
         entry.path = updated.filePath
+        if oldKey.hasPrefix("path:") || entry.displayName == (original.filePath as NSString).lastPathComponent {
+            entry.displayName = (updated.filePath as NSString).lastPathComponent
+        }
         entry.size = updated.fileSize
         entry.modifiedDate = updated.lastModified
         entry.revision = updated.revision
-        state.index[updated.filePath] = entry
-        state.identityAliases[original.filePath] = updated.filePath
-        state.missingStableKeys.removeValue(forKey: original.filePath)
-        state.missingStableKeys.removeValue(forKey: updated.filePath)
+        entry.sidecarFingerprint = nil
+        state.index[newKey] = entry
+        if oldKey != newKey { state.identityAliases[oldKey] = newKey }
+        state.missingStableKeys.removeValue(forKey: oldKey)
+        state.missingStableKeys.removeValue(forKey: newKey)
         try await persistSyncState(state)
     }
 

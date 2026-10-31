@@ -7049,3 +7049,15 @@
 
 "playlist_delete_local_confirm_format" = "로컬 플레이리스트 %lld개를 삭제합니다. 최근 삭제된 항목에서 복원할 수 있습니다. 곡은 삭제되지 않습니다.";
 "playlist_delete_mirror_confirm_format" = "음악 서비스 또는 Apple Music의 플레이리스트 %lld개는 이 기기에서만 숨겨집니다. 원래 서비스의 플레이리스트와 곡은 삭제되지 않습니다.";
+
+"song_file_rename_from_tags" = "태그로 파일 이름 생성";
+"song_file_rename_artist_title" = "아티스트 - 제목";
+"song_file_rename_track_title" = "트랙 번호 - 제목";
+"song_file_rename_unsupported" = "이 소스는 파일 이름 변경을 지원하지 않습니다.";
+"song_file_rename_invalid" = "경로 구분자나 예약 문자가 없는 유효한 파일 이름을 입력하세요.";
+"song_file_rename_collision" = "같은 이름의 파일이 이미 있습니다. 다른 이름을 선택하세요.";
+"song_file_rename_cue" = "CUE 파일이 있는 폴더의 오디오는 아직 이름을 변경할 수 없습니다.";
+"song_file_rename_shared" = "여러 오디오 파일이 이 이름과 관련 파일을 공유합니다. Primuse 외부에서 정리하세요.";
+"song_file_rename_partial" = "일부 파일을 복원하지 못했습니다. 보관함에는 확인된 위치가 유지됩니다. 폴더를 새로 고친 후 다시 시도하세요.";
+"song_file_rename_readback" = "파일 이름은 변경되었지만 새 정보를 읽지 못했습니다. 폴더를 새로 고치세요.";
+"song_file_rename_busy" = "전송이나 곡 전환이 끝난 후 파일 이름을 변경하세요.";

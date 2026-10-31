@@ -6955,3 +6955,15 @@
 
 "playlist_delete_local_confirm_format" = "%lld yerel çalma listesi silinecek. Bunları Son Silinenler bölümünden geri yükleyebilirsiniz. Şarkılar silinmeyecek.";
 "playlist_delete_mirror_confirm_format" = "Müzik servislerinden veya Apple Music’ten %lld çalma listesi yalnızca bu aygıtta gizlenecek. Asıl servisteki çalma listeleri ve şarkılar silinmeyecek.";
+
+"song_file_rename_from_tags" = "Etiketlerden Dosya Adı";
+"song_file_rename_artist_title" = "Sanatçı - Başlık";
+"song_file_rename_track_title" = "Parça No - Başlık";
+"song_file_rename_unsupported" = "Bu kaynak dosya yeniden adlandırmayı desteklemiyor.";
+"song_file_rename_invalid" = "Yol ayırıcı veya ayrılmış karakter içermeyen geçerli bir dosya adı girin.";
+"song_file_rename_collision" = "Bu adda bir dosya zaten var. Başka bir ad seçin.";
+"song_file_rename_cue" = "CUE dosyaları içeren klasörlerdeki ses dosyaları henüz yeniden adlandırılamaz.";
+"song_file_rename_shared" = "Birden fazla ses dosyası bu adı ve eşlik eden dosyaları paylaşıyor. Bunları Primuse dışında düzenleyin.";
+"song_file_rename_partial" = "Bazı dosyalar geri yüklenemedi. Arşiv doğrulanan konumları koruyor. Yeniden denemeden önce klasörü yenileyin.";
+"song_file_rename_readback" = "Dosya yeniden adlandırıldı ancak güncel bilgiler okunamadı. Klasörü yenileyin.";
+"song_file_rename_busy" = "Bu dosyayı yeniden adlandırmadan önce yayının veya parça geçişinin bitmesini bekleyin.";

@@ -768,6 +768,7 @@ targets:
       # 标签写回的公共事务层。电视端本身不改标签,但 SFTP / 云盘连接器都声明了
       # 这个适配协议,协议与共享类型都在这份文件里。
       - path: Primuse/Services/Metadata/EmbeddedMetadataWritebackCoordinator.swift
+      - path: Primuse/Services/Metadata/SongFileRenameCoordinator.swift
       # SFTP:与 iOS / macOS 同一份 Citadel 实现,电视端直接建库与按段读取。
       - path: Primuse/Services/Sources/SFTPSource.swift
       # UPnP/DLNA:SSDP 发现 + ContentDirectory 浏览,与 iOS / macOS 同一份实现。

@@ -30,6 +30,8 @@ struct TagEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var title: String
+    @State private var fileNameStem: String
+    @State private var canRenameFile = false
     @State private var artist: String
     @State private var album: String
     @State private var genre: String
@@ -81,6 +83,7 @@ struct TagEditorView: View {
         self.onSave = onSave
         self.onNavigate = onNavigate
         _title = State(initialValue: song.title)
+        _fileNameStem = State(initialValue: ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension)
         _artist = State(initialValue: song.artistName ?? "")
         _album = State(initialValue: song.albumTitle ?? "")
         _genre = State(initialValue: song.genre ?? "")
@@ -112,6 +115,9 @@ struct TagEditorView: View {
                 editorSongID = requestedSongID
             }
             computeCandidates()
+            let canRename = await sourceManager.canRenameSongFile(song)
+            guard !Task.isCancelled, song.id == requestedSongID else { return }
+            canRenameFile = canRename
             await loadLyricsEditor()
             guard !Task.isCancelled, song.id == requestedSongID else { return }
             let mode = await sourceManager.tagMetadataPersistenceMode(for: song)
@@ -321,11 +327,7 @@ struct TagEditorView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                Text(fileNameDisplay)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+                fileNameEditor
 
                 Button {
                     applyFilenameSplit()
@@ -363,6 +365,43 @@ struct TagEditorView: View {
 
     private var fileNameDisplay: String {
         (song.filePath as NSString).lastPathComponent
+    }
+
+    private var fileNameEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if canRenameFile {
+                HStack(spacing: 4) {
+                    TextField("tag_editor_filename_label", text: $fileNameStem)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("tagEditor.fileName")
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        #endif
+                    Text(verbatim: "." + (fileNameDisplay as NSString).pathExtension)
+                        .foregroundStyle(.secondary)
+                }
+                Menu {
+                    Button("song_file_rename_artist_title") {
+                        fileNameStem = AudioFileRenamePlan.suggestedStem(title: title, artist: artist)
+                    }
+                    Button("song_file_rename_track_title") {
+                        fileNameStem = AudioFileRenamePlan.suggestedStem(title: title, artist: "", track: Int(trackText))
+                    }
+                    Button("reset") {
+                        fileNameStem = (fileNameDisplay as NSString).deletingPathExtension
+                    }
+                } label: {
+                    Label("song_file_rename_from_tags", systemImage: "wand.and.stars")
+                }
+                .font(.caption.weight(.semibold))
+                .accessibilityIdentifier("tagEditor.generateFileName")
+            } else {
+                Text(fileNameDisplay).lineLimit(2).truncationMode(.middle)
+            }
+        }
+        .font(.system(size: 12, design: .monospaced))
+        .disabled(isSaving)
     }
 
     /// 当前规则下的拆分结果。空标题的结果不算数 —— 那说明规则不适用。
@@ -930,6 +969,9 @@ struct TagEditorView: View {
 
             ScrollView {
                 VStack(spacing: 6) {
+                    if canRenameFile {
+                        fileNameEditor.padding(.vertical, 8)
+                    }
                     suggestionCard
                         .padding(.bottom, tagSuggestions.isEmpty ? 0 : 6)
                     macField(String(localized: "tag_editor_title"), text: $title, original: song.title)
@@ -1593,6 +1635,23 @@ struct TagEditorView: View {
             original.lastModified = stored.lastModified
             original.revision = stored.revision
         }
+        let desiredFileName: String
+        do {
+            desiredFileName = canRenameFile
+                ? try AudioFileRenamePlan.fileName(stem: fileNameStem, original: fileNameDisplay)
+                : (original.filePath as NSString).lastPathComponent
+        } catch {
+            writebackErrorMessage = SongFileRenameError.plan(.invalidName).localizedDescription
+            return false
+        }
+        if desiredFileName != (original.filePath as NSString).lastPathComponent {
+            do {
+                try await sourceManager.validateSongFileRename(original, stem: fileNameStem)
+            } catch {
+                writebackErrorMessage = error.localizedDescription
+                return false
+            }
+        }
         var updated = original
         updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if updated.title.isEmpty {
@@ -1731,6 +1790,24 @@ struct TagEditorView: View {
         if needsLibraryReplace {
             library.replaceSong(updated)
         }
+        if desiredFileName != (updated.filePath as NSString).lastPathComponent {
+            do {
+                let result = try await sourceManager.renameSongFile(updated, stem: fileNameStem)
+                updated = result.song
+                library.replaceSong(updated)
+                metadataWritebackNotice = [metadataWritebackNotice, result.notice].compactMap { $0 }.joined(separator: "\n")
+                if metadataWritebackNotice?.isEmpty == true { metadataWritebackNotice = nil }
+            } catch SongFileRenameError.partial(let result, let message) {
+                library.replaceSong(result.song)
+                fileNameStem = ((result.song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                savedSongPendingNotice = result.song
+                writebackNoticeMessage = message
+                return false
+            } catch {
+                writebackErrorMessage = error.localizedDescription
+                return false
+            }
+        }
         invalidateSelectedCoverIfNeeded()
         if let metadataWritebackNotice {
             savedSongPendingNotice = updated
@@ -1802,6 +1879,7 @@ struct TagEditorView: View {
 
     private func resetFromOriginal() {
         title = song.title
+        fileNameStem = (fileNameDisplay as NSString).deletingPathExtension
         artist = song.artistName ?? ""
         album = song.albumTitle ?? ""
         genre = song.genre ?? ""
@@ -1817,6 +1895,8 @@ struct TagEditorView: View {
     @MainActor
     private func resetEditorState(for song: Song) {
         title = song.title
+        fileNameStem = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+        canRenameFile = false
         artist = song.artistName ?? ""
         album = song.albumTitle ?? ""
         genre = song.genre ?? ""

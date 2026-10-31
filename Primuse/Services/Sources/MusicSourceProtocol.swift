@@ -208,6 +208,10 @@ struct ConnectorScannedSong: Sendable {
         }
     }
 
+    func carryingSongIdentity(_ songID: String) -> ConnectorScannedSong {
+        ConnectorScannedSong(copying: self, songID: songID)
+    }
+
     /// Keeps the library row's song ID when the server renamed the song's id.
     /// See `SubsonicSongIdentityCarryPolicy`.
     func carryingSongIdentity(
@@ -784,6 +788,8 @@ enum ArtworkFetchPurpose: Sendable {
 protocol MusicSourceConnector: Sendable {
     var sourceID: String { get }
     var supportsSidecarWriting: Bool { get }
+    func canRenameSongFile(_ song: Song) async -> Bool
+    func renameSongFile(_ song: Song, stem: String) async throws -> SongFileRenameResult
     func connect() async throws
     func disconnect() async
     func listFiles(at path: String) async throws -> [RemoteFileItem]

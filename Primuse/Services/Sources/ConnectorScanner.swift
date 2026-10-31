@@ -209,6 +209,7 @@ actor ConnectorScanner {
             uniquingKeysWith: { first, _ in first }
         )
         let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
+        let existingPathsByID = Dictionary(existingSongs.map { ($0.id, $0.filePath) }, uniquingKeysWith: { first, _ in first })
         var index = existingIndex
         var changedCount = 0
         // Keep the pre-deletion identity baseline. If an item reappears between
@@ -335,7 +336,7 @@ actor ConnectorScanner {
                     let preferredID = oldEntry?.songIDs.count == 1
                         ? oldEntry?.songIDs.first
                         : nil
-                    let songID = preferredID ?? generatedSongID(for: item)
+                    let songID = preferredID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
                     if let oldEntry,
                        let old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }),
                        Self.wrapperFingerprintMatches(oldEntry, item),
@@ -412,7 +413,7 @@ actor ConnectorScanner {
 
                 let preferredID = (oldEntry?.songIDs.count == 1 ? oldEntry?.songIDs.first : nil)
                     ?? existingIDsByPath[item.path]
-                let songID = preferredID ?? generatedSongID(for: item)
+                let songID = preferredID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
                 let incoming = buildBareSong(from: item, songID: songID)
                 if var old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }) {
                     // `incoming` is a bare row named after the file; the stored
@@ -548,6 +549,7 @@ actor ConnectorScanner {
                     let totalCount = 0
                     var allSongs = existingSongs
                     let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
+                    let existingPathsByID = Dictionary(existingSongs.map { ($0.id, $0.filePath) }, uniquingKeysWith: { first, _ in first })
                     var existingByID: [String: Song] = [:]
                     existingByID.reserveCapacity(existingSongs.count)
                     for song in existingSongs { existingByID[song.id] = song }
@@ -909,7 +911,7 @@ actor ConnectorScanner {
                                           existingByID[candidate] != nil else { return existingIDsByPath[item.path] }
                                     return candidate
                                 }()
-                                let songID = preferredSongID ?? generatedSongID(for: item)
+                                let songID = preferredSongID ?? generatedSongID(for: item, existingPathsByID: existingPathsByID)
 
                                 if PrimuseConstants.supportedStreamDescriptorExtensions.contains(
                                     (item.name as NSString).pathExtension.lowercased()
@@ -2113,14 +2115,18 @@ actor ConnectorScanner {
         return prefix + component
     }
 
-    private func generatedSongID(for item: RemoteFileItem) -> String {
+    private func generatedSongID(for item: RemoteFileItem, existingPathsByID: [String: String]) -> String {
         let material = SourceSongIdentityMaterialPolicy.itemIdentity(
             path: item.path,
             providerID: item.providerID,
             usesStableProviderIdentity: connector
                 is any StableProviderSongIdentityConnector
         )
-        return hash("\(sourceID):\(material)")
+        let generated = hash("\(sourceID):\(material)")
+        guard !(connector is any StableProviderSongIdentityConnector) else { return generated }
+        return PathSongIdentityPolicy.unoccupiedID(generatedID: generated, path: item.path,
+            existingPathsByID: existingPathsByID,
+            collisionID: { hash("\(sourceID):\(material):file-rename:\($0)") })
     }
 
     private func identityMatch(

@@ -7049,3 +7049,15 @@
 
 "playlist_delete_local_confirm_format" = "%lld lokale Playlists werden gelöscht. Du kannst sie unter „Zuletzt gelöscht“ wiederherstellen. Songs werden nicht gelöscht.";
 "playlist_delete_mirror_confirm_format" = "%lld Playlists von Musikdiensten oder Apple Music werden nur auf diesem Gerät ausgeblendet. Playlists und Songs im ursprünglichen Dienst werden nicht gelöscht.";
+
+"song_file_rename_from_tags" = "Name aus Tags";
+"song_file_rename_artist_title" = "Interpret - Titel";
+"song_file_rename_track_title" = "Titelnummer - Titel";
+"song_file_rename_unsupported" = "Diese Quelle unterstützt das Umbenennen von Dateien nicht.";
+"song_file_rename_invalid" = "Gib einen gültigen Dateinamen ohne Pfadtrenner oder reservierte Zeichen ein.";
+"song_file_rename_collision" = "Eine Datei mit diesem Namen ist bereits vorhanden. Wähle einen anderen Namen.";
+"song_file_rename_cue" = "Audiodateien in Ordnern mit CUE-Dateien können noch nicht umbenannt werden.";
+"song_file_rename_shared" = "Mehrere Audiodateien teilen diesen Namen und Begleitdateien. Ordne sie außerhalb von Primuse.";
+"song_file_rename_partial" = "Einige Dateien konnten nicht zurückgesetzt werden. Die Mediathek behält die bestätigten Pfade. Aktualisiere den Ordner vor einem neuen Versuch.";
+"song_file_rename_readback" = "Die Datei wurde umbenannt, ihre neuen Informationen konnten aber nicht gelesen werden. Aktualisiere den Ordner.";
+"song_file_rename_busy" = "Beende die Übertragung oder den Titelübergang, bevor du diese Datei umbenennst.";

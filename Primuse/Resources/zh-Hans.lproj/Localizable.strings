@@ -7142,3 +7142,15 @@
 
 "playlist_delete_local_confirm_format" = "将删除 %lld 个本地歌单，可在“最近删除”中恢复。歌曲不会被删除。";
 "playlist_delete_mirror_confirm_format" = "选中的 %lld 个音乐服务或 Apple Music 歌单仅在本机隐藏，不会删除原服务中的歌单或歌曲。";
+
+"song_file_rename_from_tags" = "根据标签生成文件名";
+"song_file_rename_artist_title" = "歌手 - 歌曲名";
+"song_file_rename_track_title" = "曲号 - 歌曲名";
+"song_file_rename_unsupported" = "此来源暂不支持重命名文件。";
+"song_file_rename_invalid" = "请输入有效文件名，不要包含路径分隔符或保留字符。";
+"song_file_rename_collision" = "已存在同名文件，请换一个名称。";
+"song_file_rename_cue" = "包含 CUE 文件的文件夹暂不支持重命名音频。";
+"song_file_rename_shared" = "多个音频文件共用此名称及关联文件，请在 Primuse 外分别整理。";
+"song_file_rename_partial" = "部分文件未能恢复原名，资料库已保留确认后的文件位置。请刷新文件夹后再试。";
+"song_file_rename_readback" = "文件已重命名，但未能读取更新后的信息，请刷新文件夹。";
+"song_file_rename_busy" = "请在投放或歌曲过渡结束后重命名此文件。";

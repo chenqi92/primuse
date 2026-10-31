@@ -1973,6 +1973,14 @@ private extension RoutedConnectorProxy {
     var supportsSidecarWriting: Bool { routedSupportsSidecarWriting }
     var preferredDeleteBatchSize: Int { routedPreferredDeleteBatchSize }
 
+    func canRenameSongFile(_ song: Song) async -> Bool {
+        (try? await routing.withRead { await $0.canRenameSongFile(song) }) ?? false
+    }
+
+    func renameSongFile(_ song: Song, stem: String) async throws -> SongFileRenameResult {
+        try await routing.withMutation { try await $0.renameSongFile(song, stem: stem) }
+    }
+
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {
@@ -3371,6 +3379,8 @@ final class SourceManager {
     /// 副本装好时原文件正被播放, 当时没删; 等这组文件没人用了再删。值是原文件字节数。
     @ObservationIgnored private var supersededOfflineOriginalByteCounts: [String: Int64] = [:]
     @ObservationIgnored var metadataFileReplacementHandler: ((Song, Song) async throws -> Void)?
+    @ObservationIgnored var prepareFileRenameHandler: ((String) async throws -> Void)?
+    @ObservationIgnored var prepareFileRenamePlayback: ((Song) throws -> ((Song) -> Void))?
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
     @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]

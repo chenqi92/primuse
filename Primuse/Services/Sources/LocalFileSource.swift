@@ -1,8 +1,9 @@
 import CryptoKit
+import Darwin
 import Foundation
 import PrimuseKit
 
-actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWritebackAdapter {
+actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWritebackAdapter, PathFileRenameConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting: Bool
     private var basePath: URL
@@ -175,6 +176,46 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     func disconnect() async {}
+
+    func canRenameFile(at path: String) async -> Bool {
+        guard supportsSidecarWriting,
+              let url = try? renameURL(for: path),
+              !isIndividuallyReferencedFile(url),
+              (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else { return false }
+        return FileManager.default.isWritableFile(atPath: url.deletingLastPathComponent().path)
+    }
+
+    func renameFileState(at path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let url = try renameURL(for: path)
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else { throw SourceError.fileNotFound(path) }
+        return EmbeddedMetadataRemoteFileState(fileSize: Int64(values.fileSize ?? 0),
+            modifiedDate: values.contentModificationDate, revision: nil)
+    }
+
+    func moveFileWithoutReplacing(from: String, to: String, expected: EmbeddedMetadataRemoteFileState) async throws {
+        guard await canRenameFile(at: from),
+              (from as NSString).deletingLastPathComponent == (to as NSString).deletingLastPathComponent else {
+            throw SongFileRenameError.unsupported
+        }
+        let source = try renameURL(for: from)
+        let destination = try renameURL(for: to)
+        guard expected.matches(try await renameFileState(at: from)) else { throw EmbeddedMetadataWritebackSourceError.conflict }
+        let status = source.path.withCString { fromPath in
+            destination.path.withCString { toPath in
+                renameatx_np(AT_FDCWD, fromPath, AT_FDCWD, toPath, UInt32(RENAME_EXCL))
+            }
+        }
+        guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    }
+
+    private func renameURL(for path: String) throws -> URL {
+        let resolved = try resolvedURL(for: path, allowRoot: false)
+        let parent = try resolvedURL(for: (path as NSString).deletingLastPathComponent, allowRoot: true)
+        let candidate = parent.appendingPathComponent((path as NSString).lastPathComponent).standardizedFileURL
+        guard candidate.path == resolved.path else { throw SongFileRenameError.unsupported }
+        return candidate
+    }
 
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         if isVirtualReferenceRoot(path) {
@@ -477,6 +518,20 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             existingSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        let existingIDsByPath = Dictionary(
+            existingSongs.filter { !$0.isCueTrack }.map { ($0.filePath, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let existingPathsByID = existingByID.mapValues(\.filePath)
+        let songIDsByPath = Dictionary(inventory.items.map { item in
+            let id = existingIDsByPath[item.path] ?? PathSongIdentityPolicy.unoccupiedID(
+                generatedID: Self.generateID(sourceID: sourceID, path: item.path),
+                path: item.path,
+                existingPathsByID: existingPathsByID,
+                collisionID: { Self.generateID(sourceID: sourceID, path: "\(item.path):file-rename:\($0)") }
+            )
+            return (item.path, id)
+        }, uniquingKeysWith: { first, _ in first })
         let titleRepairKey = Self.metadataTitleRepairKey(sourceID: sourceID, path: path)
         // Finish a new or previously interrupted import before running the
         // one-time legacy-title repair. Otherwise every already-committed row
@@ -487,7 +542,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                   cueTracksByAudioPath[item.path]?.isEmpty != false else {
                 return false
             }
-            let id = Self.generateID(sourceID: sourceID, path: item.path)
+            let id = songIDsByPath[item.path]!
             return existingByID[id] == nil
         }
         let shouldRepairFileNameTitles = !hasUnseenRegularFiles
@@ -498,7 +553,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                     for item in inventory.items {
                         try Task.checkCancellation()
                         let ext = (item.name as NSString).pathExtension.lowercased()
-                        let physicalID = Self.generateID(sourceID: self.sourceID, path: item.path)
+                        let physicalID = songIDsByPath[item.path]!
 
                         if PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                             if let existing = existingByID[physicalID],
@@ -592,7 +647,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                             continue
                         }
                         if let scanned = self.buildBareScannedSong(from: item) {
-                            continuation.yield(scanned)
+                            continuation.yield(scanned.carryingSongIdentity(physicalID))
                         }
                     }
                     if shouldRepairFileNameTitles {

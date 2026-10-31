@@ -1239,6 +1239,10 @@ final class AppServices {
         // 应用外部变更，所以启动时就把 store 建出来完成登记，别等用户打开设置页。
         _ = LyricsAPIServerStore.shared
         let scanService = ScanService()
+        manager.prepareFileRenameHandler = { [weak scanService] sourceID in
+            guard let scanService else { throw CancellationError() }
+            try await scanService.prepareForFileRename(sourceID: sourceID)
+        }
         manager.metadataFileReplacementHandler = { [weak scanService, weak library] original, updated in
             guard let scanService, let library else { throw CancellationError() }
             try await scanService.recordMetadataFileReplacement(original: original, updated: updated, in: library)
@@ -1253,6 +1257,10 @@ final class AppServices {
             manager?.setAutomaticAudioCachingEnabled(enabled)
         }
         let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
+        manager.prepareFileRenamePlayback = { [weak player] song in
+            guard let player else { throw CancellationError() }
+            return try player.prepareForSourceFileRename(song)
+        }
         manager.onPlaybackSourceAvailabilityChange = { [weak player] in
             player?.playbackSourceAvailabilityDidChange()
         }

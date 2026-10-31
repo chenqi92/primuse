@@ -31,7 +31,7 @@ enum WebDAVDirectoryListingConfirmationPolicy {
     }
 }
 
-actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
+actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector, PathFileRenameConnector,
     DestructiveDirectoryListingConfirmingConnector,
     EmbeddedMetadataWritebackAdapter {
     nonisolated let supportsSidecarWriting = true
@@ -471,6 +471,22 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
         }
         invalidateLocalCache(for: path)
+    }
+
+    func moveFileWithoutReplacing(from: String, to: String, expected: EmbeddedMetadataRemoteFileState) async throws {
+        guard (from as NSString).deletingLastPathComponent == (to as NSString).deletingLastPathComponent,
+              let etag = WebDAVWritebackPolicy.strongETag(expected.revision) else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        var request = try makeWebDAVRequest(url: fileURL(for: from), method: "MOVE")
+        request.setValue(try fileURL(for: to).absoluteString, forHTTPHeaderField: "Destination")
+        request.setValue("F", forHTTPHeaderField: "Overwrite")
+        request.setValue(etag, forHTTPHeaderField: "If-Match")
+        let (_, response) = try await TrustedHTTPTransport.data(
+            for: request, session: try requireTransportSession(mutationSession ?? rangeSession), maxBytes: 1024 * 1024)
+        try validateMutationResponse(response, operation: "MOVE")
+        invalidateLocalCache(for: from)
+        invalidateLocalCache(for: to)
     }
 
     func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {

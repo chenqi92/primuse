@@ -6810,3 +6810,15 @@
 
 "playlist_delete_local_confirm_format" = "%lld local playlists will be deleted. You can restore them from Recently Deleted. Songs will not be deleted.";
 "playlist_delete_mirror_confirm_format" = "%lld playlists from music services or Apple Music will only be hidden on this device. Playlists and songs in the original service will not be deleted.";
+
+"song_file_rename_from_tags" = "Name from Tags";
+"song_file_rename_artist_title" = "Artist - Title";
+"song_file_rename_track_title" = "Track - Title";
+"song_file_rename_unsupported" = "This source does not support file renaming.";
+"song_file_rename_invalid" = "Enter a valid file name without path separators or reserved characters.";
+"song_file_rename_collision" = "A file with this name already exists. Choose another name.";
+"song_file_rename_cue" = "Files in folders containing CUE sheets cannot be renamed yet.";
+"song_file_rename_shared" = "Several audio files share this name and their companion files. Rename them separately outside Primuse.";
+"song_file_rename_partial" = "Some files could not be restored. The library keeps the confirmed file locations. Refresh the folder before retrying.";
+"song_file_rename_readback" = "The file was renamed, but its updated information could not be read. Refresh the folder.";
+"song_file_rename_busy" = "Finish casting or the track transition before renaming this file.";

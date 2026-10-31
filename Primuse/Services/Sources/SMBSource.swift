@@ -29,7 +29,7 @@ private actor SMBOperationGate {
     }
 }
 
-actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
+actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFileRenameConnector {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
     private let host: String
@@ -387,6 +387,27 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                     data: data,
                     relativePath: relativePath
                 )
+            }
+        }
+    }
+
+    func moveFileWithoutReplacing(from: String, to: String, expected: EmbeddedMetadataRemoteFileState) async throws {
+        guard (from as NSString).deletingLastPathComponent == (to as NSString).deletingLastPathComponent,
+              case let .share(share, sourcePath) = try resolve(path: Self.normalizeRemotePath(from)),
+              case let .share(destinationShare, destinationPath) = try resolve(path: Self.normalizeRemotePath(to)),
+              share == destinationShare else { throw SongFileRenameError.unsupported }
+        try await withSerializedOperation {
+            let client = try await self.ensureConnectedShare(named: share)
+            let attributes = try await Self.awaitRequest { _ in
+                try await client.attributesOfItem(atPath: sourcePath)
+            }
+            let size = (attributes[.fileSizeKey] as? Int64) ?? (attributes[.fileSizeKey] as? Int).map(Int64.init) ?? 0
+            let modified = attributes[.contentModificationDateKey] as? Date
+            let current = EmbeddedMetadataRemoteFileState(fileSize: size, modifiedDate: modified,
+                revision: Self.fileRevision(size: size, modifiedDate: modified))
+            guard expected.matches(current) else { throw EmbeddedMetadataWritebackSourceError.conflict }
+            try await Self.awaitRequest { _ in
+                try await client.moveItem(atPath: sourcePath, toPath: destinationPath)
             }
         }
     }
