@@ -6159,7 +6159,7 @@
 "player_controls_status_source" = "Source musicale";
 "player_controls_status_output" = "Appareil de sortie";
 "player_controls_status_sleep" = "Temps restant de la minuterie";
-"player_controls_status_footer" = "Même activés, ces éléments n’apparaissent que s’il y a quelque chose à afficher : plusieurs sources musicales, un son qui ne sort pas du haut-parleur de l’iPhone ou une minuterie en cours.";
+"player_controls_status_footer" = "Faites glisser pour réorganiser. Les éléments apparaissent uniquement si nécessaire.";
 "player_controls_reset" = "Rétablir les boutons par défaut";
 "player_controls_empty" = "Vide";
 "player_controls_slot_hint" = "Choisissez le bouton pour cet emplacement";

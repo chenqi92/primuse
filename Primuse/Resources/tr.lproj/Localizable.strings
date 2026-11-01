@@ -6065,7 +6065,7 @@
 "player_controls_status_source" = "Müzik Kaynağı";
 "player_controls_status_output" = "Çıkış Aygıtı";
 "player_controls_status_sleep" = "Uyku Zamanlayıcısında Kalan Süre";
-"player_controls_status_footer" = "Açık olan öğeler de yalnızca gösterilecek bir şey olduğunda görünür: birden fazla müzik kaynağı, sesin iPhone hoparlöründen gelmemesi ya da çalışan bir uyku zamanlayıcısı.";
+"player_controls_status_footer" = "Sıralamak için sürükleyin. Öğeler yalnızca gerektiğinde görünür.";
 "player_controls_reset" = "Varsayılan Düğmeleri Geri Yükle";
 "player_controls_empty" = "Boş";
 "player_controls_slot_hint" = "Bu yer için düğme seçin";

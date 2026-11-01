@@ -3685,11 +3685,6 @@ struct NowPlayingView: View {
                 #endif
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !isFullscreenPlayerPresented {
-                PlayerActivityBar(songID: player.currentSong?.id)
-            }
-        }
         // 进度条从这里读按住快退 / 快进的预览位置；只有进度条观察它，按住期间整页不跟着重画。
         .environment(transportHoldScrub)
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
@@ -17469,7 +17464,7 @@ extension PlaybackProgressBar where CenterAccessory == EmptyView {
 /// 几项排成一组整体居中,中间用「·」隔开,不往两端分。
 /// 什么都没有就空着。落在 Home 指示条那一带,只是文字、不可点。自己读播放器状态,
 /// 倒计时每秒只重画这一行。
-fileprivate struct NowPlayingStatusLine: View {
+struct NowPlayingStatusLine: View {
     /// 有声内容的定时写在下面的「定时」块里,这里不重复;「播放页按钮」里也能关掉。
     let showsSleepTimer: Bool
     let showsOutput: Bool
@@ -17490,45 +17485,45 @@ fileprivate struct NowPlayingStatusLine: View {
         let name: String
     }
 
+    @AppStorage(NowPlayingControlLayout.musicStorageKey) private var storage = ""
+    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
+    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
+
     var body: some View {
+        let layout = NowPlayingControlLayout.decode(storage)
         let output = showsOutput ? self.output : nil
         let showsSleep = showsSleepTimer && player.isSleepTimerActive
-        HStack(spacing: 6) {
-            if let source {
-                HStack(spacing: 3) {
-                    Image(systemName: source.iconName)
-                        .imageScale(.small)
-                    Text(verbatim: source.name)
-                        .contentTransition(.opacity)
-                }
-                .transition(.opacity)
-            }
-            if source != nil, output != nil || showsSleep {
-                separator
-            }
-            if let output {
-                HStack(spacing: 3) {
-                    Image(systemName: output.symbol)
-                        .imageScale(.small)
-                    Text(verbatim: output.name)
-                }
-                .transition(.opacity)
-            }
-            if output != nil, showsSleep {
-                separator
-            }
-            if showsSleep {
-                // 放不下时先截来源和设备名,倒计时总是完整的。
-                sleepLabel
-                    .fixedSize()
-                    .layoutPriority(1)
-                    .transition(.opacity)
+        let activity = showsActivity ? PlayerActivityStore.shared.status(for: player.currentSong?.id) : nil
+        let items = layout.statusItems.filter { item in
+            guard layout.showsStatusItem(item) else { return false }
+            switch item {
+            case .source: return source != nil
+            case .output: return output != nil
+            case .sleepTimer: return showsSleep
+            case .activity: return activity != nil
             }
         }
-        .frame(maxWidth: .infinity)
-        .font(.caption2.monospacedDigit())
+        PlayerStatusItemsRow(items: items) { item in
+            switch item {
+            case .source:
+                if let source {
+                    Label(source.name, systemImage: source.iconName)
+                        .labelStyle(.titleAndIcon)
+                }
+            case .output:
+                if let output {
+                    Label(output.name, systemImage: output.symbol)
+                        .labelStyle(.titleAndIcon)
+                }
+            case .sleepTimer:
+                sleepLabel.fixedSize().layoutPriority(1)
+            case .activity:
+                if let activity {
+                    PlayerActivityStatusView(status: activity)
+                }
+            }
+        }
         .foregroundStyle(tint)
-        .lineLimit(1)
         .accessibilityElement(children: .combine)
         .pmAnimation(.control, value: output)
         .pmAnimation(.control, value: showsSleep)
@@ -17539,12 +17534,6 @@ fileprivate struct NowPlayingStatusLine: View {
             player.scheduleSleep(minutes: minutes)
         }
         #endif
-    }
-
-    private var separator: some View {
-        Text(verbatim: "·")
-            .accessibilityHidden(true)
-            .transition(.opacity)
     }
 
     private var sleepLabel: some View {

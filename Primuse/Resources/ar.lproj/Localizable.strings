@@ -6065,7 +6065,7 @@
 "player_controls_status_source" = "مصدر الموسيقى";
 "player_controls_status_output" = "جهاز الإخراج";
 "player_controls_status_sleep" = "الوقت المتبقي لمؤقت النوم";
-"player_controls_status_footer" = "حتى العناصر المفعّلة لا تظهر إلا عند وجود ما يُعرض: أكثر من مصدر موسيقى، أو صوت لا يخرج من سماعة iPhone، أو مؤقت نوم قيد التشغيل.";
+"player_controls_status_footer" = "اسحب لتغيير الترتيب. تظهر العناصر عند الحاجة فقط.";
 "player_controls_reset" = "استعادة الأزرار الافتراضية";
 "player_controls_empty" = "فارغ";
 "player_controls_slot_hint" = "اختر الزر لهذا المكان";

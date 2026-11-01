@@ -74,6 +74,8 @@ struct NowPlayingControlsEditorView: View {
     }
 
     @AppStorage(NowPlayingControlLayout.musicStorageKey) private var storage = ""
+    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
+    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
     @AppStorage(NowPlayingLyricsPageControls.storageKey) private var lyricsStorage = ""
     @AppStorage(NowPlayingImmersiveLyricsControls.storageKey) private var immersiveStorage = ""
     @AppStorage(NowPlayingEffectPlayerControls.storageKey) private var effectStorage = ""
@@ -227,7 +229,12 @@ struct NowPlayingControlsEditorView: View {
             NowPlayingActualSizePreview(surface: previewSurfaceBinding, surfaces: switchableSurfaces)
         }
         .onChange(of: focusedAnchor, initial: true) { _, anchor in
-            if let anchor, Self.globalAnchors.contains(anchor) { page = .global }
+            if anchor == "appearance.activityStatus" {
+                page = .music
+                surface = .cover
+            } else if let anchor, Self.globalAnchors.contains(anchor) {
+                page = .global
+            }
         }
     }
 
@@ -284,6 +291,7 @@ struct NowPlayingControlsEditorView: View {
                 RadioControlsSections(storage: $radioStorage)
             }
         }
+        .environment(\.editMode, .constant(page == .music && surface == .cover ? .active : .inactive))
     }
 
     // MARK: 封面
@@ -350,9 +358,12 @@ struct NowPlayingControlsEditorView: View {
             MusicArtworkStyleSections()
 
             Section {
-                Toggle("player_controls_status_source", isOn: statusBinding(.source))
-                Toggle("player_controls_status_output", isOn: statusBinding(.output))
-                Toggle("player_controls_status_sleep", isOn: statusBinding(.sleepTimer))
+                ForEach(layout.statusItems, id: \.self) { item in
+                    Toggle(item.titleKey, isOn: statusBinding(item))
+                        .accessibilityIdentifier("playerStatusToggle.\(item.rawValue)")
+                        .settingsAnchor(item == .activity ? "appearance.activityStatus" : "player.status.\(item.rawValue)")
+                }
+                .onMove { storage = layout.movingStatusItems(fromOffsets: $0, toOffset: $1).encoded() }
             } header: {
                 Text("player_controls_status_header")
             } footer: {
@@ -463,8 +474,11 @@ struct NowPlayingControlsEditorView: View {
 
     private func statusBinding(_ item: NowPlayingStatusItem) -> Binding<Bool> {
         Binding(
-            get: { layout.showsStatusItem(item) },
-            set: { storage = layout.settingStatusItem(item, visible: $0).encoded() }
+            get: { item == .activity ? showsActivity : layout.showsStatusItem(item) },
+            set: {
+                if item == .activity { showsActivity = $0 }
+                else { storage = layout.settingStatusItem(item, visible: $0).encoded() }
+            }
         )
     }
 
@@ -695,8 +709,6 @@ private struct MusicArtworkStyleSections: View {
 
 /// 几种播放页共用的样子:进度条、音量条、控件颜色与深色、背景(在「全局」那一页)。
 private struct PlayerSharedLookSettingsSections: View {
-    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
-    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
     private var progressThickness = PlayerTrackThickness.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
@@ -752,8 +764,6 @@ private struct PlayerSharedLookSettingsSections: View {
         }
 
         Section {
-            Toggle("player_activity_status", isOn: $showsActivity)
-                .settingsAnchor("appearance.activityStatus")
             Toggle(isOn: $showsVolumeBar) {
                 SettingsInfoLabel("player_volume_bar") {
                     Text("player_volume_bar_description")
@@ -2601,7 +2611,6 @@ enum NowPlayingStylePreset: String, CaseIterable, Identifiable {
         PlayerAppearancePreferences.playButtonStyleKey: .string(NowPlayingPlayButtonStyle.filledCircle.rawValue),
         PlayerAppearancePreferences.skipButtonStyleKey: .string(NowPlayingSkipButtonStyle.standard.rawValue),
         PlayerAppearancePreferences.showsAlbumInSubtitleKey: .bool(PlayerAppearancePreferences.showsAlbumInSubtitleByDefault),
-        WordLyricsDiscoveryPreferences.showsActivityKey: .bool(WordLyricsDiscoveryPreferences.showsActivityByDefault),
         PlayerAppearancePreferences.showsVolumeBarKey: .bool(PlayerAppearancePreferences.showsVolumeBarByDefault),
         PlayerAppearancePreferences.volumeBarStyleKey: .string(NowPlayingVolumeBarStyle.system.rawValue),
         PlayerAppearancePreferences.progressStyleKey: .string(NowPlayingProgressStyle.standard.rawValue),

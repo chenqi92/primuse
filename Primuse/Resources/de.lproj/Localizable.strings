@@ -6159,7 +6159,7 @@
 "player_controls_status_source" = "Musikquelle";
 "player_controls_status_output" = "Ausgabegerät";
 "player_controls_status_sleep" = "Verbleibende Schlaftimer-Zeit";
-"player_controls_status_footer" = "Auch eingeschaltete Einträge erscheinen nur, wenn es etwas anzuzeigen gibt: mehr als eine Musikquelle, Ton nicht über den iPhone-Lautsprecher oder ein laufender Schlaftimer.";
+"player_controls_status_footer" = "Zum Sortieren ziehen. Einträge erscheinen nur bei Bedarf.";
 "player_controls_reset" = "Standardtasten wiederherstellen";
 "player_controls_empty" = "Leer";
 "player_controls_slot_hint" = "Taste für diese Position wählen";

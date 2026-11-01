@@ -757,20 +757,46 @@ final class SharedScraperRequestTests: XCTestCase {
         store.remove(batch)
         XCTAssertEqual(store.status(for: "b")?.id, second)
         let preview = VStack(spacing: 20) {
-            PlayerActivityStatusView(status: .init(
-                id: UUID(), songID: "a", title: "正在从 AMLL 获取逐字歌词", progress: 0.5
-            ))
-            PlayerActivityStatusView(status: .init(
-                id: UUID(), songID: "a", title: "逐字歌词已下载", progress: nil, isRunning: false
-            ))
-            PlayerActivityStatusView(status: .init(
-                id: UUID(), songID: nil, title: "正在获取封面", progress: 0.75
-            ))
+            ForEach([false, true], id: \.self) { activityFirst in
+                PlayerStatusItemsRow(items: activityFirst ? [.activity, .source] : [.source, .activity]) { item in
+                    if item == .source {
+                        Label("Navidrome", systemImage: "externaldrive")
+                    } else {
+                        PlayerActivityStatusView(status: .init(
+                            id: first, songID: "a", title: "正在获取逐字歌词", progress: 0.5
+                        ))
+                    }
+                }
+            }
+            PlayerStatusItemsRow(items: [.source, .output, .activity]) { item in
+                switch item {
+                case .source: Label("Navidrome", systemImage: "externaldrive")
+                case .output: Label("AirPods", systemImage: "headphones")
+                case .activity:
+                    PlayerActivityStatusView(status: .init(
+                        id: first, songID: "a", title: "逐字歌词已下载", progress: nil, isRunning: false
+                    ))
+                case .sleepTimer: EmptyView()
+                }
+            }
         }
+        .foregroundStyle(.secondary)
         .padding(24)
         .frame(width: 390)
         .background(Color(white: 0.12))
         .environment(\.colorScheme, .dark)
+        let inline = UIHostingController(rootView: PlayerStatusItemsRow(items: [.source, .activity]) { item in
+            if item == .source {
+                Label("Navidrome", systemImage: "externaldrive")
+            } else {
+                PlayerActivityStatusView(status: .init(
+                    id: first, songID: "a", title: "正在从 AMLL 获取逐字歌词", progress: 0.5
+                ))
+            }
+        })
+        inline.safeAreaRegions = []
+        let fitted = inline.sizeThatFits(in: CGSize(width: 338, height: 100))
+        XCTAssertLessThanOrEqual(fitted.height, 20, "Task activity must stay within the existing footer line")
         let host = UIHostingController(rootView: preview)
         host.safeAreaRegions = []
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

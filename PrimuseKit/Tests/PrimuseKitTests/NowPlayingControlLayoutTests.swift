@@ -188,6 +188,34 @@ import Testing
         #expect(!reset.showsStatusItem(.source))
     }
 
+    @Test func statusOrderPersistsAcrossVisibilityAndButtonChanges() {
+        let moved = Layout.default.movingStatusItems(fromOffsets: [3], toOffset: 0)
+        #expect(moved.statusItems == [.activity, .source, .output, .sleepTimer])
+        #expect(!moved.isDefault)
+        let changed = moved.settingStatusItem(.output, visible: false)
+            .placing(.cast, at: .slot(.header))
+            .settingMenuItem(.share, visible: false)
+        let decoded = Layout.decode(changed.encoded())
+        #expect(decoded.statusItems == moved.statusItems)
+        #expect(!decoded.showsStatusItem(.output))
+        #expect(decoded.resettingActions().statusItems == moved.statusItems)
+        #expect(decoded.replacingActions(with: .default).statusItems == moved.statusItems)
+        #expect(moved.movingStatusItems(fromOffsets: [0], toOffset: 4).encoded().isEmpty)
+    }
+
+    @Test func statusOrderMigratesOlderAndFutureSettings() {
+        let old = Layout.decode(#"{"hiddenStatus":["source"]}"#)
+        #expect(old.statusItems == [.source, .output, .sleepTimer, .activity])
+        #expect(!old.showsStatusItem(.source))
+        let future = Layout.decode(#"{"statusOrder":["activity","futureStatus","source","activity"]}"#)
+        #expect(future.statusItems == [.activity, .source, .output, .sleepTimer])
+        let moved = future.movingStatusItems(fromOffsets: [2, 3], toOffset: 0)
+        #expect(moved.statusItems == [.output, .sleepTimer, .activity, .source])
+        #expect(moved.encoded().contains("futureStatus"))
+        #expect(Layout.decode(moved.encoded()) == moved)
+        #expect(moved.movingStatusItems(fromOffsets: [99], toOffset: 0) == moved)
+    }
+
     @Test func encodingIsStable() {
         let layout = Layout.default
             .placing(.equalizer, at: .slot(.header))

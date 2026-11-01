@@ -6136,7 +6136,7 @@
 "player_controls_status_source" = "音樂來源";
 "player_controls_status_output" = "輸出裝置";
 "player_controls_status_sleep" = "睡眠計時剩餘時間";
-"player_controls_status_footer" = "打開的項目也只在有內容時出現：不只一個音樂來源、聲音沒從手機揚聲器出來、開著睡眠計時。";
+"player_controls_status_footer" = "按住右側拖移排序，僅在有對應狀態時顯示。";
 "player_controls_reset" = "恢復預設按鈕";
 "player_controls_empty" = "留空";
 "player_controls_slot_hint" = "選擇放在這裡的按鈕";

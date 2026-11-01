@@ -6065,7 +6065,7 @@
 "player_controls_status_source" = "แหล่งเพลง";
 "player_controls_status_output" = "อุปกรณ์เอาต์พุต";
 "player_controls_status_sleep" = "เวลาที่เหลือของตัวตั้งเวลาปิด";
-"player_controls_status_footer" = "รายการที่เปิดไว้จะแสดงเฉพาะเมื่อมีข้อมูล เช่น มีแหล่งเพลงมากกว่าหนึ่งแห่ง เสียงไม่ได้ออกจากลำโพง iPhone หรือมีตัวตั้งเวลาปิดทำงานอยู่";
+"player_controls_status_footer" = "ลากเพื่อจัดลำดับใหม่ รายการจะแสดงเมื่อมีข้อมูลที่เกี่ยวข้องเท่านั้น";
 "player_controls_reset" = "คืนค่าปุ่มเริ่มต้น";
 "player_controls_empty" = "ว่าง";
 "player_controls_slot_hint" = "เลือกปุ่มสำหรับตำแหน่งนี้";

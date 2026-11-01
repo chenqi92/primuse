@@ -6065,7 +6065,7 @@
 "player_controls_status_source" = "Fuente de música";
 "player_controls_status_output" = "Dispositivo de salida";
 "player_controls_status_sleep" = "Tiempo restante del temporizador";
-"player_controls_status_footer" = "Aunque estén activados, solo aparecen cuando hay algo que mostrar: más de una fuente de música, sonido fuera de la bocina del iPhone o un temporizador en curso.";
+"player_controls_status_footer" = "Arrastra para reordenar. Los elementos aparecen solo cuando corresponde.";
 "player_controls_reset" = "Restaurar botones predeterminados";
 "player_controls_empty" = "Vacío";
 "player_controls_slot_hint" = "Elige el botón para este lugar";

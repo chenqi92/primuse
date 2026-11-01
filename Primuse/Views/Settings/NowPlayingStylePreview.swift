@@ -154,8 +154,6 @@ struct NowPlayingStylePreview: View {
     var animatesStage = false
     var onSelect: (NowPlayingPreviewSlot) -> Void = { _ in }
 
-    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
-    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var alwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
@@ -176,15 +174,6 @@ struct NowPlayingStylePreview: View {
             )
             screen(context)
                 .frame(width: canvas.size.width, height: canvas.size.height)
-                .overlay(alignment: .bottom) {
-                    if showsActivity {
-                        PlayerActivityStatusView(status: .init(
-                            id: Self.previewActivityID, songID: nil,
-                            title: String(localized: "player_activity_lyrics"), progress: 0.5
-                        ))
-                        .padding(.bottom, canvas.bottomSafeArea + 4)
-                    }
-                }
                 .clipShape(RoundedRectangle(cornerRadius: canvas.cornerRadius, style: .continuous))
                 // 全屏效果页本来就固定深色;其余按「播放页始终用深色」。
                 .environment(\.colorScheme, surface == .effect || alwaysDark ? .dark : systemColorScheme)
@@ -194,8 +183,6 @@ struct NowPlayingStylePreview: View {
         .aspectRatio(canvas.size, contentMode: .fit)
         .accessibilityElement(children: .contain)
     }
-
-    private static let previewActivityID = UUID()
 
     @ViewBuilder
     private func screen(_ context: NowPlayingPreviewContext) -> some View {
@@ -551,6 +538,9 @@ private struct MusicPortraitPreviewScreen: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
+    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
+    private static let previewActivityID = UUID()
     @AppStorage(NowPlayingControlLayout.musicStorageKey) private var storage = ""
     @AppStorage(NowPlayingLyricsPageControls.storageKey) private var lyricsStorage = ""
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -905,29 +895,27 @@ private struct MusicPortraitPreviewScreen: View {
             .accessibilityHidden(true)
     }
 
-    /// 最底下那行:开着的几项各画一个图标和一截占位。
     private var statusLine: some View {
-        let items: [(item: NowPlayingStatusItem, symbol: String)] = [
-            (item: .source, symbol: "externaldrive"),
-            (item: .output, symbol: "headphones"),
-            (item: .sleepTimer, symbol: "moon.zzz.fill"),
-        ]
-        let shown = items.filter { coverLayout.showsStatusItem($0.item) }
-        return HStack(spacing: 6) {
-            ForEach(Array(shown.enumerated()), id: \.offset) { index, entry in
-                if index > 0 {
-                    Text(verbatim: "·")
+        let shown = coverLayout.statusItems.filter {
+            coverLayout.showsStatusItem($0) && ($0 != .activity || showsActivity)
+        }
+        return PlayerStatusItemsRow(items: shown) { item in
+            if item == .activity {
+                PlayerActivityStatusView(status: .init(
+                    id: Self.previewActivityID, songID: nil,
+                    title: String(localized: "player_activity_lyrics"), progress: 0.5
+                ))
+            } else {
+                HStack(spacing: 3) {
+                    Image(systemName: item == .source ? "externaldrive"
+                        : (item == .output ? "headphones" : "moon.zzz.fill"))
+                    Capsule()
+                        .fill(appearance.tertiary.opacity(0.6))
+                        .frame(width: 38, height: 5)
                 }
-                Image(systemName: entry.symbol)
-                    .imageScale(.small)
-                Capsule()
-                    .fill(appearance.tertiary.opacity(0.6))
-                    .frame(width: 38, height: 5)
             }
         }
-        .font(.caption2)
         .foregroundStyle(appearance.tertiary)
-        .frame(maxWidth: .infinity)
         .padding(.horizontal, 26)
         .accessibilityHidden(true)
     }

@@ -6160,7 +6160,7 @@
 "player_controls_status_source" = "ミュージックソース";
 "player_controls_status_output" = "出力デバイス";
 "player_controls_status_sleep" = "スリープタイマーの残り時間";
-"player_controls_status_footer" = "オンの項目も、表示する内容があるときだけ出ます：ミュージックソースが複数ある、iPhone のスピーカー以外から音が出ている、スリープタイマーが動いている。";
+"player_controls_status_footer" = "ドラッグして並べ替えます。該当する情報があるときだけ表示されます。";
 "player_controls_reset" = "ボタンをデフォルトに戻す";
 "player_controls_empty" = "空ける";
 "player_controls_slot_hint" = "この場所に置くボタンを選択";

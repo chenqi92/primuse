@@ -6159,7 +6159,7 @@
 "player_controls_status_source" = "음악 소스";
 "player_controls_status_output" = "출력 기기";
 "player_controls_status_sleep" = "잠자기 타이머 남은 시간";
-"player_controls_status_footer" = "켜 둔 항목도 보여 줄 내용이 있을 때만 나타납니다: 음악 소스가 두 개 이상이거나, 소리가 iPhone 스피커가 아닌 곳에서 나오거나, 잠자기 타이머가 동작 중일 때.";
+"player_controls_status_footer" = "드래그하여 순서를 변경하세요. 해당하는 정보가 있을 때만 표시됩니다.";
 "player_controls_reset" = "기본 버튼으로 복원";
 "player_controls_empty" = "비워 두기";
 "player_controls_slot_hint" = "이 자리에 둘 버튼 선택";

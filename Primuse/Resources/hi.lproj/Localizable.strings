@@ -6065,7 +6065,7 @@
 "player_controls_status_source" = "संगीत स्रोत";
 "player_controls_status_output" = "आउटपुट डिवाइस";
 "player_controls_status_sleep" = "स्लीप टाइमर का बचा समय";
-"player_controls_status_footer" = "चालू आइटम भी तभी दिखते हैं जब दिखाने को कुछ हो: एक से ज़्यादा संगीत स्रोत, आवाज़ iPhone स्पीकर से न आ रही हो, या स्लीप टाइमर चल रहा हो।";
+"player_controls_status_footer" = "क्रम बदलने के लिए खींचें। आइटम केवल ज़रूरत होने पर दिखाई देते हैं।";
 "player_controls_reset" = "डिफ़ॉल्ट बटन बहाल करें";
 "player_controls_empty" = "खाली";
 "player_controls_slot_hint" = "इस जगह के लिए बटन चुनें";

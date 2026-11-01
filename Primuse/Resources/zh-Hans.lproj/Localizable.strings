@@ -6252,7 +6252,7 @@
 "player_controls_status_source" = "音乐来源";
 "player_controls_status_output" = "输出设备";
 "player_controls_status_sleep" = "睡眠定时剩余时间";
-"player_controls_status_footer" = "打开的项也只在有内容时出现：不止一个音乐源、声音没从手机扬声器出来、开着睡眠定时。";
+"player_controls_status_footer" = "按住右侧拖动排序，仅在有对应状态时显示。";
 "player_controls_reset" = "恢复默认按钮";
 "player_controls_empty" = "空着";
 "player_controls_slot_hint" = "选择放在这里的按钮";

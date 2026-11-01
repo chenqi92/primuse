@@ -179,11 +179,12 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     public var id: String { rawValue }
 }
 
-/// 播放页最底下那行状态里的三项。
+/// 播放页最底下那行可以显示的状态。
 public enum NowPlayingStatusItem: String, CaseIterable, Codable, Hashable, Sendable {
     case source
     case output
     case sleepTimer
+    case activity
 }
 
 /// 一份配置要铺到哪种版面上。各版面位置不一样多,按这里的规则取用同一份配置。
@@ -260,6 +261,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     /// 最下面那一排按顺序存的按钮名,认不出的名字原样保留。nil 是这一排还按旧版三格(`stored`)或默认读。
     private var storedBar: [String]?
     private var hiddenStatus: [String]
+    private var storedStatusOrder: [String]?
     /// 「更多」里关掉的项,认不出的名字原样保留。
     private var hiddenMenu: [String]
     /// 归一之后三个单格实际放的按钮。
@@ -267,7 +269,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     /// 归一之后最下面那一排从左到右的按钮。颗数不限,版面按自己摆得下的排开。
     public private(set) var bar: [NowPlayingControlAction]
 
-    private init(stored: [String: String], storedBar: [String]?, hiddenStatus: [String], hiddenMenu: [String]) {
+    private init(stored: [String: String], storedBar: [String]?, hiddenStatus: [String], hiddenMenu: [String], statusOrder: [String]? = nil) {
         // 存了整串时旧版三格只是写给旧版本看的副本,读回来不用,存的时候照这一串重新写。
         self.stored = storedBar == nil
             ? stored
@@ -276,6 +278,10 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         // 排好序、去重:同一份配置不管先关哪项,比较和编码出来都一样。
         self.hiddenStatus = Array(Set(hiddenStatus)).sorted()
         self.hiddenMenu = Array(Set(hiddenMenu)).sorted()
+        let defaults = NowPlayingStatusItem.allCases.map(\.rawValue)
+        var seen = Set<String>()
+        let order = ((statusOrder ?? []) + defaults).filter { seen.insert($0).inserted }
+        self.storedStatusOrder = order == defaults ? nil : order
         let resolved = Self.resolve(stored: self.stored, storedBar: storedBar)
         self.actions = resolved.actions
         self.bar = resolved.bar.compactMap(\.action)
@@ -287,6 +293,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         var slots: [String: String]?
         var bar: [String]?
         var hiddenStatus: [String]?
+        var statusOrder: [String]?
         var hiddenMenu: [String]?
     }
 
@@ -300,7 +307,8 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             stored: decoded.slots ?? [:],
             storedBar: decoded.bar,
             hiddenStatus: decoded.hiddenStatus ?? [],
-            hiddenMenu: decoded.hiddenMenu ?? []
+            hiddenMenu: decoded.hiddenMenu ?? [],
+            statusOrder: decoded.statusOrder
         )
     }
 
@@ -318,6 +326,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             slots: slots.isEmpty ? nil : slots,
             bar: storedBar,
             hiddenStatus: hiddenStatus.isEmpty ? nil : hiddenStatus,
+            statusOrder: storedStatusOrder,
             hiddenMenu: hiddenMenu.isEmpty ? nil : hiddenMenu
         )
         let encoder = JSONEncoder()
@@ -327,7 +336,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     }
 
     public var isDefault: Bool {
-        actions == Self.defaultActions && buttonsAreDefault && hiddenStatus.isEmpty && hiddenMenu.isEmpty
+        actions == Self.defaultActions && buttonsAreDefault && hiddenStatus.isEmpty && hiddenMenu.isEmpty && storedStatusOrder == nil
     }
 
     /// 按钮摆法(单格与最下面那一排)和默认一样,别的版本写进来的认不出的名字也没有。
@@ -359,6 +368,28 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
 
     public var placedActions: Set<NowPlayingControlAction> {
         Set(actions.values).union(bar)
+    }
+
+    public var statusItems: [NowPlayingStatusItem] {
+        storedStatusOrder?.compactMap(NowPlayingStatusItem.init(rawValue:)) ?? NowPlayingStatusItem.allCases
+    }
+
+    public func movingStatusItems(fromOffsets source: IndexSet, toOffset destination: Int) -> NowPlayingControlLayout {
+        let current = statusItems
+        let valid = source.filter { current.indices.contains($0) }
+        let moving = valid.sorted().map { current[$0] }
+        var order = current.enumerated().filter { !valid.contains($0.offset) }.map(\.element)
+        let insertion = max(0, min(destination - valid.filter { $0 < destination }.count, order.count))
+        order.insert(contentsOf: moving, at: insertion)
+        guard order != current else { return self }
+        var iterator = order.makeIterator()
+        let raw = (storedStatusOrder ?? current.map(\.rawValue)).map { value in
+            NowPlayingStatusItem(rawValue: value) == nil ? value : iterator.next()!.rawValue
+        }
+        return NowPlayingControlLayout(
+            stored: stored, storedBar: storedBar, hiddenStatus: hiddenStatus,
+            hiddenMenu: hiddenMenu, statusOrder: raw
+        )
     }
 
     public func showsStatusItem(_ item: NowPlayingStatusItem) -> Bool {
@@ -464,13 +495,13 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     public func settingStatusItem(_ item: NowPlayingStatusItem, visible: Bool) -> NowPlayingControlLayout {
         var hidden = hiddenStatus.filter { $0 != item.rawValue }
         if !visible { hidden.append(item.rawValue) }
-        return NowPlayingControlLayout(stored: stored, storedBar: storedBar, hiddenStatus: hidden, hiddenMenu: hiddenMenu)
+        return NowPlayingControlLayout(stored: stored, storedBar: storedBar, hiddenStatus: hidden, hiddenMenu: hiddenMenu, statusOrder: storedStatusOrder)
     }
 
     public func settingMenuItem(_ item: NowPlayingMenuItem, visible: Bool) -> NowPlayingControlLayout {
         var hidden = hiddenMenu.filter { $0 != item.rawValue }
         if !visible { hidden.append(item.rawValue) }
-        return NowPlayingControlLayout(stored: stored, storedBar: storedBar, hiddenStatus: hiddenStatus, hiddenMenu: hidden)
+        return NowPlayingControlLayout(stored: stored, storedBar: storedBar, hiddenStatus: hiddenStatus, hiddenMenu: hidden, statusOrder: storedStatusOrder)
     }
 
     /// 「更多」里的项全部显示回来。
@@ -486,7 +517,8 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             stored: other.stored,
             storedBar: other.storedBar,
             hiddenStatus: hiddenStatus,
-            hiddenMenu: hiddenMenu
+            hiddenMenu: hiddenMenu,
+            statusOrder: storedStatusOrder
         )
     }
 
@@ -497,7 +529,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
 
     /// 只恢复按钮,状态行的显隐不动。
     public func resettingActions() -> NowPlayingControlLayout {
-        NowPlayingControlLayout(stored: [:], storedBar: nil, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu)
+        NowPlayingControlLayout(stored: [:], storedBar: nil, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu, statusOrder: storedStatusOrder)
     }
 
     // MARK: 归一
@@ -562,7 +594,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             // 这一排改过(或者已经整串存着):旧版三格不再单独记,存的时候照这一串写。
             for slot in NowPlayingControlSlot.legacyBar { stored.removeValue(forKey: slot.rawValue) }
         }
-        return NowPlayingControlLayout(stored: stored, storedBar: storedBar, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu)
+        return NowPlayingControlLayout(stored: stored, storedBar: storedBar, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu, statusOrder: storedStatusOrder)
     }
 
     /// 没存的单格取默认;同一个按钮出现两次只留前面那处(单格先于底栏);隔空播放不在页面上(别处改坏、

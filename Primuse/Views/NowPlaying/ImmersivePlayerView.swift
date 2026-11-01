@@ -38,6 +38,7 @@ struct ImmersivePlayerView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(SourceManager.self) private var sourceManager
     @Environment(CoverTintProvider.self) private var coverTintProvider
     @Environment(ThemeService.self) private var theme
@@ -300,12 +301,6 @@ struct ImmersivePlayerView: View {
                         edge: ImmersiveEffectDrawer.transitionEdge(for: geometry.size),
                         motion: .panel
                     )
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if !presentsOnExternalDisplay && !showsEffectPicker {
-                    PlayerActivityBar(songID: player.currentSong?.id)
-                        .padding(.bottom, geometry.safeAreaInsets.bottom + 4)
                 }
             }
             .onChange(of: geometry.size) { _, _ in discPosition.endDrag() }
@@ -790,7 +785,21 @@ struct ImmersivePlayerView: View {
 
     @ViewBuilder
     private func bottomChrome(metrics: ImmersiveStageMetrics) -> some View {
-        showcaseControls(metrics: metrics)
+        VStack(spacing: 6) {
+            showcaseControls(metrics: metrics)
+            if !presentsOnExternalDisplay {
+                NowPlayingStatusLine(
+                    showsSleepTimer: !player.currentItemIsSpokenWord,
+                    showsOutput: true,
+                    source: player.currentSong.flatMap { song in
+                        guard sourcesStore.sources.count > 1,
+                              let source = sourcesStore.source(id: song.sourceID) else { return nil }
+                        return NowPlayingSourceLabel(iconName: source.type.iconName, name: source.name)
+                    },
+                    tint: chromeInk.opacity(0.6)
+                )
+            }
+        }
     }
 
     private func showcaseControls(metrics: ImmersiveStageMetrics) -> some View {

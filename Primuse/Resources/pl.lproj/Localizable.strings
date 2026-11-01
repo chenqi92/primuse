@@ -6065,7 +6065,7 @@
 "player_controls_status_source" = "Źródło muzyki";
 "player_controls_status_output" = "Urządzenie wyjściowe";
 "player_controls_status_sleep" = "Pozostały czas wyłącznika";
-"player_controls_status_footer" = "Nawet włączone elementy pojawiają się tylko wtedy, gdy jest co pokazać: więcej niż jedno źródło muzyki, dźwięk spoza głośnika iPhone’a lub działający wyłącznik czasowy.";
+"player_controls_status_footer" = "Przeciągnij, aby zmienić kolejność. Elementy pojawiają się tylko w razie potrzeby.";
 "player_controls_reset" = "Przywróć domyślne przyciski";
 "player_controls_empty" = "Puste";
 "player_controls_slot_hint" = "Wybierz przycisk dla tego miejsca";

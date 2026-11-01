@@ -6065,7 +6065,7 @@
 "player_controls_status_source" = "Джерело музики";
 "player_controls_status_output" = "Пристрій виводу";
 "player_controls_status_sleep" = "Залишок часу таймера сну";
-"player_controls_status_footer" = "Навіть увімкнені пункти з’являються, лише коли є що показати: більше одного джерела музики, звук не з динаміка iPhone або запущено таймер сну.";
+"player_controls_status_footer" = "Перетягніть, щоб змінити порядок. Елементи з’являються лише за потреби.";
 "player_controls_reset" = "Відновити типові кнопки";
 "player_controls_empty" = "Порожньо";
 "player_controls_slot_hint" = "Виберіть кнопку для цього місця";

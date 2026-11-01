@@ -5920,7 +5920,7 @@
 "player_controls_status_source" = "Music Source";
 "player_controls_status_output" = "Output Device";
 "player_controls_status_sleep" = "Sleep Timer Remaining";
-"player_controls_status_footer" = "Items that are on still appear only when there’s something to show: more than one music source, sound not coming from the iPhone speaker, or a sleep timer running.";
+"player_controls_status_footer" = "Drag to reorder. Items appear only when relevant.";
 "player_controls_reset" = "Restore Default Buttons";
 "player_controls_empty" = "Empty";
 "player_controls_slot_hint" = "Choose the button for this spot";
