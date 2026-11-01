@@ -1399,7 +1399,6 @@ private struct LibraryReplacementObserver: View {
                 guard let cachedSongID = note.object as? String,
                       let currentSong = playerService.currentSong,
                       currentSong.id == cachedSongID else { return }
-                playerService.retryNowPlayingArtwork(afterCachingSongID: cachedSongID)
                 themeService.updateFromCoverArt(
                     fileName: currentSong.coverArtFileName,
                     songID: currentSong.id,

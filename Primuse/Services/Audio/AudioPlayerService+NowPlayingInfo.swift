@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import CryptoKit
 import Foundation
 import ImageIO
@@ -16,6 +17,19 @@ import WidgetKit
 #endif
 
 extension AudioPlayerService {
+    func observeNowPlayingArtworkCache() {
+        // 锁屏补图跟随播放器生命周期，不能依赖 SwiftUI 场景仍在接收更新。
+        nowPlayingArtworkCacheObservation = NotificationCenter.default
+            .publisher(for: .primuseArtworkDidCache)
+            .compactMap { $0.object as? String }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] songID in
+                MainActor.assumeIsolated {
+                    self?.retryNowPlayingArtwork(afterCachingSongID: songID)
+                }
+            }
+    }
+
     func bumpCoverRevision() {
         coverRevision &+= 1
     }
@@ -467,10 +481,15 @@ extension AudioPlayerService {
         }
 
         if let sourceManager {
+            // 本地封面补读、同名替换不会改变引用。让下层解码缓存跟随实际内容，
+            // 否则清掉系统封面缓存后仍会取回替换前的图片。
+            let contentID = MetadataAssetStore.shared.displayCoverIdentity(
+                songID: songID, reference: coverRef
+            ) ?? ""
             return await CachedArtworkView.resolveImage(
                 coverRef: coverRef, songID: songID, size: 256,
                 sourceID: sourceID, filePath: filePath, fileFormat: fileFormat,
-                sourceManager: sourceManager
+                sourceManager: sourceManager, cacheDiscriminator: contentID
             )
         }
         guard let data = MetadataAssetStore.shared.displayCoverData(songID: songID, reference: coverRef) else { return nil }

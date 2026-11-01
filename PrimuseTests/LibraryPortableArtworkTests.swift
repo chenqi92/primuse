@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import MediaPlayer
 import PrimuseKit
 import UIKit
 import UniformTypeIdentifiers
@@ -9,6 +10,195 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testLocalNowPlayingPublishesCachedCoverAndKeepsItDuringLyricsUpdates() async throws {
+        try await withArtworkPlayer { player, _, sourceID in
+            let song = Song(id: UUID().uuidString, title: "Cached cover", fileFormat: .flac,
+                            filePath: "/cached.flac", sourceID: sourceID)
+            defer { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id) }
+            await MetadataAssetStore.shared.cacheCover(try image(color: .red), forSongID: song.id)
+            player.currentSong = song
+            player.updateNowPlayingInfo()
+            player.updateNowPlayingArtworkIfNeeded()
+            try await waitForSystemArtwork(player, songID: song.id)
+            let artwork = try XCTUnwrap(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+            XCTAssertNotNil(artwork.image(at: CGSize(width: 64, height: 64)))
+            player.updateNowPlayingInfo(lyricsLineOnly: true)
+            XCTAssertTrue(artwork === MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+        }
+    }
+
+    func testLocalNowPlayingPublishesSidecarAndSwitchesToUncachedCover() async throws {
+        try await withArtworkPlayer { player, root, sourceID in
+            let songs = ["red", "blue"].map {
+                Song(id: UUID().uuidString, title: $0, fileFormat: .flac,
+                     filePath: "/\($0).flac", sourceID: sourceID, coverArtFileName: "/\($0).png")
+            }
+            defer {
+                for song in songs {
+                    MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id)
+                    for size in [480, 1536] {
+                        if let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: song.coverArtFileName, maximumPixels: size) {
+                            MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: key)
+                        }
+                    }
+                }
+            }
+            try image(color: .red).write(to: root.appendingPathComponent("red.png"))
+            try image(color: .blue).write(to: root.appendingPathComponent("blue.png"))
+            for song in songs {
+                player.currentSong = song
+                player.updateNowPlayingInfo()
+                player.updateNowPlayingArtworkIfNeeded()
+                try await waitForSystemArtwork(player, songID: song.id)
+            }
+            player.currentSong = songs[0]
+            player.updateNowPlayingInfo()
+            XCTAssertEqual(player.publishedArtworkSongID, songs[0].id)
+            XCTAssertNotNil(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork],
+                            "Returning to a cached local song must include artwork in the first snapshot")
+        }
+    }
+
+    func testLocalNowPlayingRecoversLateCoverWithoutViewAndRefreshesReplacement() async throws {
+        try await withArtworkPlayer { player, _, sourceID in
+            let song = Song(id: UUID().uuidString, title: "Late cover", fileFormat: .flac,
+                            filePath: "/late.flac", sourceID: sourceID)
+            defer { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id) }
+            player.currentSong = song
+            player.updateNowPlayingArtworkIfNeeded()
+            await player.nowPlayingArtworkLoadTask?.value
+            XCTAssertNil(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork])
+            await MetadataAssetStore.shared.cacheCover(try image(color: .red), forSongID: song.id)
+            try await waitForSystemArtwork(player, songID: song.id)
+            func publishedData() -> Data? {
+                (MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)?
+                    .image(at: CGSize(width: 32, height: 16))?.pngData()
+            }
+            let old = try XCTUnwrap(publishedData())
+            await MetadataAssetStore.shared.cacheCover(try image(color: .blue), forSongID: song.id)
+            let deadline = Date().addingTimeInterval(5)
+            while publishedData() == old, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let updated = try XCTUnwrap(publishedData())
+            XCTAssertNotEqual(old, updated)
+        }
+    }
+
+    func testLateCoverForPreviousSongDoesNotReplaceCurrentSystemArtwork() async throws {
+        try await withArtworkPlayer { player, _, sourceID in
+            let previous = Song(id: UUID().uuidString, title: "Previous", fileFormat: .flac,
+                                filePath: "/previous.flac", sourceID: sourceID)
+            let current = Song(id: UUID().uuidString, title: "Current", fileFormat: .flac,
+                               filePath: "/current.flac", sourceID: sourceID)
+            defer {
+                for song in [previous, current] { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id) }
+            }
+            player.currentSong = previous
+            player.updateNowPlayingArtworkIfNeeded()
+            await player.nowPlayingArtworkLoadTask?.value
+            await MetadataAssetStore.shared.cacheCover(try image(color: .blue), forSongID: current.id)
+            player.currentSong = current
+            player.updateNowPlayingArtworkIfNeeded()
+            try await waitForSystemArtwork(player, songID: current.id)
+            await player.nowPlayingArtworkLoadTask?.value
+            let old = try XCTUnwrap((MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)?
+                .image(at: CGSize(width: 32, height: 16))?.pngData())
+            await MetadataAssetStore.shared.cacheCover(try image(color: .red), forSongID: previous.id)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(player.publishedArtworkSongID, current.id)
+            XCTAssertEqual((MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)?
+                .image(at: CGSize(width: 32, height: 16))?.pngData(), old)
+            player.stop()
+            await MetadataAssetStore.shared.cacheCover(try image(color: .green), forSongID: current.id)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertNil(MPNowPlayingInfoCenter.default().nowPlayingInfo)
+        }
+    }
+
+    func testLocalNowPlayingReadsEmbeddedCoverWithoutAudioCache() async throws {
+        try await withArtworkPlayer { player, root, sourceID in
+            let music = root.appendingPathComponent("Music", isDirectory: true)
+            try FileManager.default.createDirectory(at: music, withIntermediateDirectories: true)
+            try image(color: .red).write(to: music.appendingPathComponent("cover.jpg"))
+            var payload = Data([0]) + Data("image/png".utf8) + Data([0, 3, 0])
+            payload.append(try image(color: .green))
+            let length = UInt32(payload.count)
+            var frame = Data("APIC".utf8)
+            frame.append(contentsOf: [UInt8(length >> 24), UInt8((length >> 16) & 255), UInt8((length >> 8) & 255), UInt8(length & 255), 0, 0])
+            frame.append(payload)
+            let count = frame.count
+            var file = Data([0x49, 0x44, 0x33, 3, 0, 0,
+                             UInt8((count >> 21) & 127), UInt8((count >> 14) & 127), UInt8((count >> 7) & 127), UInt8(count & 127)])
+            file.append(frame)
+            file.append(Data(repeating: 0, count: 4_096))
+            try file.write(to: music.appendingPathComponent("embedded.mp3"))
+            for reference in [nil, "missing-cache.jpg", "/Music/cover.jpg"] as [String?] {
+                let song = Song(id: UUID().uuidString, title: "Embedded cover", fileFormat: .mp3,
+                                filePath: "/Music/embedded.mp3", sourceID: sourceID, coverArtFileName: reference)
+                defer { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id) }
+                let cachedAudio = await player.sourceManager?.cachedURLForBackgroundRead(for: song)
+                XCTAssertNil(cachedAudio)
+                player.currentSong = song
+                player.updateNowPlayingInfo()
+                player.updateNowPlayingArtworkIfNeeded()
+                try await waitForSystemArtwork(player, songID: song.id)
+                let image = try XCTUnwrap((MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)?.image(at: CGSize(width: 32, height: 16)))
+                var pixel = [UInt8](repeating: 0, count: 4)
+                let cgImage = try XCTUnwrap(image.cgImage)
+                try pixel.withUnsafeMutableBytes { bytes in
+                    let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                        bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                    context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                }
+                XCTAssertGreaterThan(pixel[1], 240, "The embedded green cover must win over the generic red folder cover")
+                XCTAssertLessThan(pixel[0], 15)
+            }
+        }
+    }
+
+    private func waitForSystemArtwork(_ player: AudioPlayerService, songID: String) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while player.publishedArtworkSongID != songID {
+            guard Date() < deadline else {
+                XCTFail("Local cover was not published to Now Playing")
+                throw URLError(.timedOut)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String, songID)
+        XCTAssertNotNil(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork])
+    }
+
+    private func withArtworkPlayer(_ body: (AudioPlayerService, URL, String) async throws -> Void) async throws {
+        _ = AppServices.shared
+        await Task.yield()
+        let session = AudioSessionManager.shared
+        let previousBegan = session.onInterruptionBegan
+        let previousEnded = session.onInterruptionEnded
+        let previousConfiguration = session.onConfigurationChange
+        defer {
+            session.onInterruptionBegan = previousBegan
+            session.onInterruptionEnded = previousEnded
+            session.onConfigurationChange = previousConfiguration
+        }
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceID = UUID().uuidString
+        let source = MusicSource(id: sourceID, name: "Music", type: .local, basePath: root.path)
+        let manager = SourceManager(sourcesProvider: { [source] })
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: sourceID))
+        defer { defaults.removePersistentDomain(forName: sourceID) }
+        let player = AudioPlayerService(
+            sourceManager: manager, playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Artwork tests must not start playback") }
+        )
+        defer { player.stop() }
+        await Task.yield()
+        try await body(player, root, sourceID)
+    }
+
     func testArtistPageKeepsGrayscalePortraitNeutralAndTracksOverrides() async throws {
         try await verifyArtistPageTint(portrait: .gray)
     }

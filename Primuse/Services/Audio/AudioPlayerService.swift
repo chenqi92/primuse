@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import CryptoKit
 import Foundation
 import ImageIO
@@ -1645,6 +1646,7 @@ final class AudioPlayerService {
         observeOutputPipelineSettings()
         observeReplayGainSettings()
         observeSpokenWordClassification()
+        observeNowPlayingArtworkCache()
         NotificationCenter.default.addObserver(
             forName: .primuseArtistNameConfigurationDidChange,
             object: nil,
@@ -8464,6 +8466,7 @@ final class AudioPlayerService {
     @ObservationIgnored var nowPlayingArtworkLoadTokens: [String: UUID] = [:]
     @ObservationIgnored var nowPlayingArtworkLoadTask: Task<Void, Never>?
     @ObservationIgnored var nowPlayingArtworkPrefetchTask: Task<Void, Never>?
+    @ObservationIgnored var nowPlayingArtworkCacheObservation: AnyCancellable?
 
     /// 单调递增的封面刷新 token。当刮削回写完成、cache 失效但 coverArtFileName
     /// 字符串可能没变（hash deterministic）时, view 上的 onChange(coverRef) 不会
