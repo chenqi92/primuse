@@ -900,6 +900,8 @@ struct ArtistArtworkView: View {
     var size: CGFloat? = nil
     var cornerRadius: CGFloat = 12
     var showsPlaceholder = true
+    /// A rectangular detail hero owns its frame; size only selects the decode resolution.
+    var fillsProposedSize = false
     var onImageChange: ((PlatformImage?) -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
@@ -995,7 +997,8 @@ struct ArtistArtworkView: View {
                     size: side,
                     cornerRadius: 0,
                     placeholderIcon: "music.mic",
-                    showsPlaceholder: true
+                    showsPlaceholder: true,
+                    fillsProposedSize: fillsProposedSize
                 )
             }
 
@@ -1012,6 +1015,7 @@ struct ArtistArtworkView: View {
                     filePath: fallbackSong.filePath,
                     fileFormat: fallbackSong.fileFormat,
                     showsPlaceholder: false,
+                    fillsProposedSize: fillsProposedSize,
                     revisionToken: library.artworkOverrideRevision,
                     onResolutionChange: { isResolved in
                         guard !isResolved, !failedFallbacks.hasFailed(identity: identity) else { return }
@@ -1038,6 +1042,7 @@ struct ArtistArtworkView: View {
                 size: side,
                 cornerRadius: 0,
                 showsPlaceholder: false,
+                fillsProposedSize: fillsProposedSize,
                 onResolutionChange: { automaticArtworkResolved = $0 }
             )
 
@@ -1045,7 +1050,7 @@ struct ArtistArtworkView: View {
                 Image(platformImage: uploadedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: side, height: side)
+                    .if(!fillsProposedSize) { $0.frame(width: side, height: side) }
                     .clipped()
                     .preference(key: ArtworkImagePreferenceKey.self, value: ArtworkImagePreference(image: uploadedImage))
             } else if let song = presentation.selectedSong {
@@ -1058,11 +1063,12 @@ struct ArtistArtworkView: View {
                     filePath: song.filePath,
                     fileFormat: song.fileFormat,
                     showsPlaceholder: false,
+                    fillsProposedSize: fillsProposedSize,
                     revisionToken: library.artworkOverrideRevision
                 )
             }
         }
-        .frame(width: side, height: side)
+        .if(!fillsProposedSize) { $0.frame(width: side, height: side) }
         .clipped()
     }
 }
