@@ -1,6 +1,7 @@
 #if os(tvOS) || TV_FOCUS_ROUTING_HARNESS
 #if os(tvOS)
 import SwiftUI
+import UIKit
 import PrimuseKit
 #endif
 
@@ -1029,13 +1030,16 @@ struct TVTabContent<Content: View>: View {
 }
 
 enum TVTabFocusSelectionPolicy {
+    static let highlightDuration: TimeInterval = 0.18
+
     static func contentDestination(focused: TVRoot.Tab, active: TVRoot.Tab) -> TVRoot.Tab {
         focused == .nowPlaying ? active : focused
     }
 
     static func settledSelection(_ selection: TVRoot.Tab?) async -> TVRoot.Tab? {
         guard let selection else { return nil }
-        do { try await Task.sleep(for: .milliseconds(120)) } catch { return nil }
+        // 先让焦点高亮到位，再创建目标页，避免首屏布局打断横向导航。
+        do { try await Task.sleep(for: .milliseconds(220)) } catch { return nil }
         return Task.isCancelled ? nil : selection
     }
 
@@ -1118,6 +1122,7 @@ extension TVTabBarItem {
 
 struct TVTabBar: View {
     @AppStorage(AppIconService.storageKey) private var iconID = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let active: TVRoot.Tab
     /// 当前该出现的页(电台 / 有声按有无内容增减),顺序即显示顺序。
     var tabs: [TVRoot.Tab] = [.home, .library, .nowPlaying, .playlists, .sources, .search]
@@ -1172,12 +1177,25 @@ struct TVTabBar: View {
                         onSelect(item)
                     }
                     .focused($focusedTarget, equals: .tab(item))
+                    .anchorPreference(key: TVTabBoundsPreferenceKey.self, value: .bounds) {
+                        [item: $0]
+                    }
                     .onMoveCommand { direction in
                         if direction == .down {
                             onContentDown(item)
                         }
                     }
                 }
+            }
+            .backgroundPreferenceValue(TVTabBoundsPreferenceKey.self) { anchors in
+                GeometryReader { proxy in
+                    TVTabFocusHighlight(
+                        focusFrame: focusedTarget?.tab.flatMap { anchors[$0] }.map { proxy[$0] },
+                        reduceMotion: reduceMotion
+                    )
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
             .focusSection()
 
@@ -1233,6 +1251,75 @@ struct TVTabBar: View {
     }
 }
 
+private struct TVTabBoundsPreferenceKey: PreferenceKey {
+    static var defaultValue: [TVRoot.Tab: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [TVRoot.Tab: Anchor<CGRect>], nextValue: () -> [TVRoot.Tab: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct TVTabFocusHighlight: UIViewRepresentable {
+    var focusFrame: CGRect?
+    var reduceMotion: Bool
+
+    func makeUIView(context: Context) -> TVTabFocusHighlightView {
+        TVTabFocusHighlightView()
+    }
+
+    func updateUIView(_ view: TVTabFocusHighlightView, context: Context) {
+        view.highlight.backgroundColor = UIColor(TVColor.text)
+        view.highlight.layer.shadowColor = UIColor(TVColor.focusShadow).cgColor
+        view.move(to: focusFrame, reduceMotion: reduceMotion)
+    }
+}
+
+/// 单一高亮由合成动画移动；切页期间 SwiftUI 重建内容时，不逐帧重算其位置。
+final class TVTabFocusHighlightView: UIView {
+    let highlight = UIView()
+    private var targetFrame: CGRect?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
+        highlight.isHidden = true
+        highlight.layer.cornerRadius = 16
+        highlight.layer.cornerCurve = .continuous
+        highlight.layer.shadowOpacity = 0.45
+        highlight.layer.shadowRadius = 10
+        highlight.layer.shadowOffset = CGSize(width: 0, height: 4)
+        addSubview(highlight)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func move(to frame: CGRect?, reduceMotion: Bool) {
+        guard let frame else {
+            targetFrame = nil
+            highlight.layer.removeAllAnimations()
+            highlight.isHidden = true
+            return
+        }
+        let animates = targetFrame != nil && !reduceMotion && window != nil
+        let changed = targetFrame != frame
+        targetFrame = frame
+        highlight.isHidden = false
+        if !animates {
+            highlight.layer.removeAllAnimations()
+            UIView.performWithoutAnimation { highlight.frame = frame }
+        } else if changed {
+            UIView.animate(
+                withDuration: TVTabFocusSelectionPolicy.highlightDuration,
+                delay: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]
+            ) {
+                self.highlight.frame = frame
+            }
+        }
+    }
+}
+
 private struct TVSettingsButton: View {
     let isFocused: Bool
     var action: () -> Void
@@ -1257,21 +1344,14 @@ private struct TVTabItem: View {
     let isActive: Bool
     let isFocused: Bool
     var action: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .tvFont(.rowTitle, weight: isActive ? .bold : .medium)
+                .tvFont(.rowTitle, weight: .semibold)
                 .lineLimit(1).minimumScaleFactor(0.85)
                 .foregroundStyle(isFocused ? TVColor.bg : (isActive ? TVColor.text : TVColor.textMuted))
                 .padding(.horizontal, 24).padding(.vertical, 10)
-                .background(isFocused ? TVColor.text : .clear,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .shadow(color: isFocused ? TVColor.focusShadow.opacity(0.45) : .clear,
-                        radius: 10, y: 4)
-                .scaleEffect(isFocused && !reduceMotion ? 1.04 : 1)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isFocused)
         }
         .buttonStyle(TVBareButtonStyle())
         .focusEffectDisabled()

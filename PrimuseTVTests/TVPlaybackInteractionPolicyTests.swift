@@ -26,6 +26,86 @@ final class TVTabTransitionTests: XCTestCase {
         XCTAssertEqual(settled, .search)
     }
 
+    func testPageSelectionWaitsUntilHighlightMovementFinishes() async {
+        let probe = TabProbe()
+        let selection = Task {
+            let settled = await TVTabFocusSelectionPolicy.settledSelection(.library)
+            if let settled { probe.selection = settled }
+        }
+        try? await Task.sleep(for: .seconds(TVTabFocusSelectionPolicy.highlightDuration))
+        XCTAssertEqual(probe.selection, .home)
+        await selection.value
+        XCTAssertEqual(probe.selection, .library)
+    }
+
+    func testHighlightRetargetsWithoutLeavingAnOutgoingBackground() async throws {
+        try await withWindow(Color.clear) { window in
+            let view = TVTabFocusHighlightView(frame: window.bounds)
+            window.addSubview(view)
+            defer { view.removeFromSuperview() }
+            let home = CGRect(x: 20, y: 20, width: 100, height: 50)
+            let library = CGRect(x: 140, y: 20, width: 100, height: 50)
+            let sources = CGRect(x: 260, y: 20, width: 150, height: 50)
+            view.move(to: home, reduceMotion: false)
+            view.move(to: sources, reduceMotion: false)
+            try await Task.sleep(for: .milliseconds(60))
+            let intermediate = try XCTUnwrap(view.highlight.layer.presentation()).frame
+            XCTAssertGreaterThan(intermediate.minX, home.minX)
+            XCTAssertLessThan(intermediate.minX, sources.minX)
+            view.move(to: library, reduceMotion: false)
+            XCTAssertEqual(view.subviews, [view.highlight])
+            let retargeted = try XCTUnwrap(view.highlight.layer.presentation()).frame
+            XCTAssertEqual(retargeted.minX, intermediate.minX, accuracy: 10)
+            try await Task.sleep(for: .milliseconds(260))
+            XCTAssertEqual(view.highlight.frame, library)
+            XCTAssertEqual(view.highlight.layer.presentation()?.frame, library)
+        }
+    }
+
+    func testHighlightClearsOnFocusExitAndReducedMotionMovesImmediately() async throws {
+        try await withWindow(Color.clear) { window in
+            let view = TVTabFocusHighlightView(frame: window.bounds)
+            window.addSubview(view)
+            defer { view.removeFromSuperview() }
+            let first = CGRect(x: 20, y: 20, width: 100, height: 50)
+            let second = CGRect(x: 240, y: 20, width: 150, height: 50)
+            view.move(to: first, reduceMotion: false)
+            view.move(to: second, reduceMotion: false)
+            view.move(to: second, reduceMotion: true)
+            XCTAssertEqual(view.highlight.frame, second)
+            XCTAssertTrue(view.highlight.layer.animationKeys()?.isEmpty ?? true)
+            view.move(to: nil, reduceMotion: false)
+            XCTAssertTrue(view.highlight.isHidden)
+            XCTAssertTrue(view.highlight.layer.animationKeys()?.isEmpty ?? true)
+            view.move(to: first, reduceMotion: false)
+            XCTAssertFalse(view.highlight.isHidden)
+            XCTAssertEqual(view.highlight.frame, first)
+            XCTAssertTrue(view.highlight.layer.animationKeys()?.isEmpty ?? true)
+            XCTAssertFalse(view.isUserInteractionEnabled)
+        }
+    }
+
+    func testTabBarKeepsOneHighlightAndStableLabelBoundsWhenSelectionChanges() async throws {
+        let probe = TabProbe()
+        try await withWindow(TabBarHarness(probe: probe)) { window in
+            probe.focusRequest += 1
+            try await Task.sleep(for: .milliseconds(150))
+            let highlight = try XCTUnwrap(highlightViews(in: window).first)
+            XCTAssertFalse(highlight.highlight.isHidden)
+            let homeFrame = highlight.highlight.frame
+            probe.selection = .sources
+            probe.focusRequest += 1
+            try await Task.sleep(for: .milliseconds(280))
+            XCTAssertEqual(highlightViews(in: window), [highlight])
+            XCTAssertGreaterThan(highlight.highlight.frame.minX, homeFrame.minX)
+            XCTAssertGreaterThan(highlight.highlight.frame.width, 0)
+            probe.selection = .home
+            probe.focusRequest += 1
+            try await Task.sleep(for: .milliseconds(280))
+            XCTAssertEqual(highlight.highlight.frame, homeFrame)
+        }
+    }
+
     func testCrossfadeRetiresInteractionAndRapidChangesKeepLatestPage() async throws {
         let probe = TabProbe()
         try await withHost(probe) {
@@ -60,15 +140,23 @@ final class TVTabTransitionTests: XCTestCase {
     }
 
     private func withHost(_ probe: TabProbe, run: () async throws -> Void) async throws {
+        try await withWindow(TabHarness(probe: probe)) { _ in try await run() }
+    }
+
+    private func withWindow<Content: View>(_ content: Content, run: (UIWindow) async throws -> Void) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
-        let host = UIHostingController(rootView: TabHarness(probe: probe))
+        let host = UIHostingController(rootView: content)
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKey() }
         try await Task.sleep(for: .milliseconds(150))
-        try await run()
+        try await run(window)
+    }
+
+    private func highlightViews(in view: UIView) -> [TVTabFocusHighlightView] {
+        (view as? TVTabFocusHighlightView).map { [$0] } ?? view.subviews.flatMap { highlightViews(in: $0) }
     }
 
     @Observable final class TabProbe {
@@ -76,6 +164,25 @@ final class TVTabTransitionTests: XCTestCase {
         var allowsAnimation = true
         var visible: Set<TVRoot.Tab> = []
         var enabled: [TVRoot.Tab: Bool] = [:]
+        var focusRequest = 0
+    }
+
+    private struct TabBarHarness: View {
+        let probe: TabProbe
+        var body: some View {
+            VStack {
+                TVTabBar(
+                    active: probe.selection,
+                    tabs: [.home, .library, .sources, .search, .nowPlaying],
+                    onSelect: { probe.selection = $0 },
+                    onContentDown: { _ in },
+                    focusRequest: probe.focusRequest,
+                    onFocusChanged: { _ in },
+                    onSettings: {}
+                )
+                Spacer()
+            }
+        }
     }
 
     private struct TabHarness: View {
