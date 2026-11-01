@@ -2570,6 +2570,8 @@
 "playable_songs_count_format" = "Utwory odtwarzane za pomocą %d";
 "playback" = "Odtwarzanie";
 "playback_error_apple_music_generic" = "Apple Music nie może teraz rozpocząć odtwarzania. Spróbuj ponownie za chwilę. Jeśli problem będzie się powtarzał, sprawdź, czy utwór można odtworzyć w aplikacji Muzyka.";
+"playback_error_apple_music_authentication" = "Apple Music nie może uwierzytelnić sesji odtwarzania. Sprawdź, czy Twoje konto odtwarza muzykę w aplikacji Muzyka, a następnie całkowicie zamknij i ponownie otwórz Primuse.";
+"playback_error_apple_music_start_after_access_check" = "Dostęp do odtwarzania Apple Music został potwierdzony, ale odtwarzacz systemowy nie uruchomił się. Spróbuj ponownie. Jeśli ostatnio zmieniono konto sklepu, całkowicie zamknij i ponownie otwórz Primuse.";
 "playback_error_connection" = "Nie można połączyć się ze źródłem";
 "playback_icloud_downloading" = "Pobieranie z iCloud…";
 "playback_icloud_error_offline" = "Ten utwór jest jeszcze w iCloud i nie można go pobrać bez połączenia z siecią.";

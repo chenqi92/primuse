@@ -789,6 +789,8 @@
 "playback_error_decode" = "無法播放此曲目";
 "playback_error_format" = "不支援的音訊格式";
 "playback_error_apple_music_generic" = "Apple Music 暫時無法播放，請稍後再試。若問題持續，請在「音樂」App 中確認該歌曲可以播放。";
+"playback_error_apple_music_authentication" = "Apple Music 播放工作階段驗證失敗。請在「音樂」App 中確認帳號能正常播放，然後完全結束並重新開啟 Primuse。";
+"playback_error_apple_music_start_after_access_check" = "Apple Music 播放權限已確認，但系統播放器未能啟動。請再試一次；若剛切換過商店帳號，請完全結束並重新開啟 Primuse。";
 "gapless_not_available" = "無縫播放已可用於佇列曲目；開啟淡入淡出會自動將其關閉。";
 "clear_metadata" = "清除封面與歌詞";
 "clear_metadata_confirm" = "將刪除所有已快取的封面和歌詞。需要時會從音樂來源重新取得。";

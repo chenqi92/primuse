@@ -1083,6 +1083,8 @@
 "Share playlists, smart playlists, and family music sources" = "Çalma listelerini, akıllı çalma listelerini ve aile müziği kaynaklarını paylaşın";
 "Done" = "Bitti";
 "playback_error_apple_music_generic" = "Apple Music şu anda çalmayı başlatamıyor. Kısa bir süre sonra tekrar deneyin. Sorun devam ederse şarkının Müzik uygulamasında çalınabildiğini kontrol edin.";
+"playback_error_apple_music_authentication" = "Apple Music çalma oturumunun kimliğini doğrulayamadı. Hesabınızın Müzik uygulamasında müzik çalabildiğini doğrulayın, ardından Primuse’u tamamen kapatıp yeniden açın.";
+"playback_error_apple_music_start_after_access_check" = "Apple Music çalma erişimi doğrulandı ancak sistem oynatıcısı başlatılamadı. Tekrar deneyin. Yakın zamanda mağaza hesabını değiştirdiyseniz Primuse’u tamamen kapatıp yeniden açın.";
 "ai_primuse_relay_fallback_provider_format" = "Yerleşik hizmet kullanılamıyor. “%@”ye geri dönüş doğrulandı.";
 "radio_connected_for" = "Şunun için bağlanıldı:";
 "lyrics_source_reload_unchanged" = "Kaynak şarkı sözleri zaten önbelleğe alınan şarkı sözleriyle eşleşiyor.";

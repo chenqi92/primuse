@@ -403,7 +403,12 @@ final class AppleMusicService {
         } catch {
             guard isPlaybackRequestPending(requestID), !Task.isCancelled else { return false }
             plog("⚠️Apple Music subscription check failed: \(error.localizedDescription)")
-            failPlaybackRequest(requestID, message: String(localized: "apple_music_subscription_check_failed"))
+            let failure = userFacingPlaybackFailure(error)
+            failPlaybackRequest(
+                requestID,
+                message: failure.stopsSource ? failure.message : String(localized: "apple_music_subscription_check_failed"),
+                stopsSource: failure.stopsSource
+            )
             return false
         }
     }
@@ -580,18 +585,34 @@ final class AppleMusicService {
         }
     }
 
-    private func userFacingPlaybackError(_ error: any Error) -> String {
+    private func userFacingPlaybackFailure(
+        _ error: any Error,
+        catalogPlaybackWasVerified: Bool = false
+    ) -> (message: String, stopsSource: Bool) {
         let underlying: any Error
         if let failure = error as? QueueStartFailure {
             underlying = failure.underlyingError
         } else {
             underlying = error
         }
-        let nsError = underlying as NSError
-        if nsError.domain == AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain {
-            return String(localized: "playback_error_apple_music_generic")
+        let tokenError = underlying as? MusicTokenRequestError
+        let failure = AppleMusicPlaybackFailurePolicy.classify(
+            underlying,
+            catalogPlaybackWasVerified: catalogPlaybackWasVerified,
+            authenticationRequired: tokenError == .userNotSignedIn || tokenError == .userTokenRevoked
+        )
+        let message: String
+        switch failure {
+        case .authenticationRequired:
+            message = String(localized: "playback_error_apple_music_authentication")
+        case .systemPlayerFailedAfterAccessCheck:
+            message = String(localized: "playback_error_apple_music_start_after_access_check")
+        case .systemPlayerFailed:
+            message = String(localized: "playback_error_apple_music_generic")
+        case .other:
+            message = underlying.localizedDescription
         }
-        return underlying.localizedDescription
+        return (message, failure.stopsSource)
     }
 
     private func logQueueStartFailure(_ error: any Error, context: String) {
@@ -710,7 +731,11 @@ final class AppleMusicService {
                  return
              }
              logQueueStartFailure(error, context: "library queue")
-             failPlaybackRequest(requestID, message: userFacingPlaybackError(error))
+             let failure = userFacingPlaybackFailure(
+                error,
+                catalogPlaybackWasVerified: AppleMusicSubscriptionGatePolicy.requiresCatalogCapability(for: source)
+             )
+             failPlaybackRequest(requestID, message: failure.message, stopsSource: failure.stopsSource)
              isAppleMusicPlaying = false
              resetPlaybackEndObservation()
          }
@@ -820,7 +845,8 @@ final class AppleMusicService {
                 return
             }
             logQueueStartFailure(error, context: "catalog item")
-            failPlaybackRequest(requestID, message: userFacingPlaybackError(error))
+            let failure = userFacingPlaybackFailure(error, catalogPlaybackWasVerified: true)
+            failPlaybackRequest(requestID, message: failure.message, stopsSource: failure.stopsSource)
             // 不清 nowPlayingSong — 让 mini player 保留, 用户能看到自己点了
             // 哪首歌, 并通过 lastPlaybackError UI 看到错误原因。否则用户
             // 体验是 "点了没反应" + 没 mini player + 看不到任何错误。
@@ -913,7 +939,7 @@ final class AppleMusicService {
                     return
                 }
                 self.logQueueStartFailure(error, context: "resume")
-                self.lastPlaybackError = self.userFacingPlaybackError(error)
+                self.lastPlaybackError = self.userFacingPlaybackFailure(error).message
             }
             guard self.isPlaybackRequestActive(requestID),
                   self.playbackCommandGeneration == commandGeneration,

@@ -1033,6 +1033,8 @@
 "playback_error_decode" = "Dieser Titel kann nicht wiedergegeben werden";
 "playback_error_format" = "Nicht unterstütztes Audioformat";
 "playback_error_apple_music_generic" = "Apple Music kann die Wiedergabe gerade nicht starten. Versuche es in Kürze erneut. Falls das Problem weiterhin besteht, prüfe, ob der Titel in der Musik-App abgespielt werden kann.";
+"playback_error_apple_music_authentication" = "Die Apple Music-Wiedergabesitzung konnte nicht authentifiziert werden. Prüfe, ob dein Account in der Musik-App Musik abspielen kann, und beende und öffne Primuse dann vollständig neu.";
+"playback_error_apple_music_start_after_access_check" = "Der Apple Music-Wiedergabezugriff wurde bestätigt, aber der Systemplayer konnte nicht starten. Versuche es erneut. Falls du kürzlich den Store-Account gewechselt hast, beende Primuse vollständig und öffne die App erneut.";
 "gapless_not_available" = "Nahtlose Wiedergabe ist für Titel in der Warteschlange verfügbar. Überblenden deaktiviert sie.";
 "clear_metadata" = "Cover und Liedtexte löschen";
 "clear_metadata_confirm" = "Dadurch werden alle zwischengespeicherten Cover und Liedtexte gelöscht. Sie werden bei Bedarf erneut aus deinen Musikquellen abgerufen.";

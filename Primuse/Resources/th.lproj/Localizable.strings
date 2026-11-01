@@ -2570,6 +2570,8 @@
 "playable_songs_count_format" = "%d เพลงที่เล่นได้";
 "playback" = "การเล่น";
 "playback_error_apple_music_generic" = "Apple Music ไม่สามารถเริ่มเล่นได้ในขณะนี้ โปรดลองอีกครั้งในอีกสักครู่ หากยังพบปัญหา โปรดตรวจสอบว่าเพลงนี้เล่นได้ในแอปเพลง";
+"playback_error_apple_music_authentication" = "Apple Music ไม่สามารถยืนยันตัวตนของเซสชันการเล่นได้ โปรดตรวจสอบว่าบัญชีของคุณเล่นเพลงในแอปเพลงได้ จากนั้นปิด Primuse ให้สนิทแล้วเปิดใหม่";
+"playback_error_apple_music_start_after_access_check" = "ยืนยันสิทธิ์การเล่น Apple Music แล้ว แต่เครื่องเล่นของระบบเริ่มทำงานไม่ได้ โปรดลองอีกครั้ง หากเพิ่งเปลี่ยนบัญชีร้านค้า ให้ปิด Primuse ให้สนิทแล้วเปิดใหม่";
 "playback_error_connection" = "ไม่สามารถเชื่อมต่อกับแหล่งสัญญาณได้";
 "playback_icloud_downloading" = "กำลังดาวน์โหลดจาก iCloud…";
 "playback_icloud_error_offline" = "เพลงนี้ยังอยู่ใน iCloud และดาวน์โหลดไม่ได้เมื่อไม่มีการเชื่อมต่อเครือข่าย";

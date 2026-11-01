@@ -825,6 +825,8 @@
 "playback_error_decode" = "无法播放此曲目";
 "playback_error_format" = "不支持的音频格式";
 "playback_error_apple_music_generic" = "Apple Music 暂时无法播放，请稍后重试。若问题持续，请在“音乐”App 中确认该歌曲可以播放。";
+"playback_error_apple_music_authentication" = "Apple Music 播放会话认证失败。请在“音乐”App 中确认账号能正常播放，然后完全退出并重新打开 Primuse。";
+"playback_error_apple_music_start_after_access_check" = "Apple Music 播放权限已确认，但系统播放器未能启动。请重试；若刚切换过商店账号，请完全退出并重新打开 Primuse。";
 
 // MARK: - Gapless
 "gapless_not_available" = "无缝播放已可用于队列曲目；开启淡入淡出会自动关闭它。";

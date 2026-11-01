@@ -1034,6 +1034,8 @@
 "playback_error_decode" = "この曲を再生できません";
 "playback_error_format" = "サポートされていないオーディオフォーマット";
 "playback_error_apple_music_generic" = "Apple Music で現在再生を開始できません。しばらくしてからもう一度お試しください。問題が続く場合は、ミュージックアプリで曲を再生できるか確認してください。";
+"playback_error_apple_music_authentication" = "Apple Music の再生セッションを認証できませんでした。ミュージックアプリでアカウントが音楽を再生できることを確認し、Primuse を完全に終了してから開き直してください。";
+"playback_error_apple_music_start_after_access_check" = "Apple Music の再生権限は確認できましたが、システムプレーヤーを開始できませんでした。もう一度お試しください。ストアのアカウントを切り替えた場合は、Primuse を完全に終了してから開き直してください。";
 "gapless_not_available" = "ギャップレス再生は再生キューの曲で利用できます。クロスフェードをオンにするとオフになります。";
 "clear_metadata" = "カバーアートと歌詞を消去";
 "clear_metadata_confirm" = "キャッシュされたすべてのカバーアートと歌詞を削除します。必要なときに音楽ソースから再取得されます。";

@@ -810,6 +810,8 @@
 "playback_error_decode" = "Cannot play this track";
 "playback_error_format" = "Unsupported audio format";
 "playback_error_apple_music_generic" = "Apple Music couldn't start playback right now. Try again shortly. If the problem persists, check that the song plays in the Music app.";
+"playback_error_apple_music_authentication" = "Apple Music could not authenticate the playback session. Confirm that your account can play music in the Music app, then fully close and reopen Primuse.";
+"playback_error_apple_music_start_after_access_check" = "Apple Music playback access was verified, but the system player could not start. Try again. If you recently switched store accounts, fully close and reopen Primuse.";
 
 // MARK: - Gapless
 "gapless_not_available" = "Gapless playback is available for queued tracks. Crossfade turns it off.";

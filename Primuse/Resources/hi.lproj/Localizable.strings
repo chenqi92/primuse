@@ -2570,6 +2570,8 @@
 "playable_songs_count_format" = "%d बजाने योग्य गाने";
 "playback" = "प्लेबैक";
 "playback_error_apple_music_generic" = "Apple Music अभी प्लेबैक शुरू नहीं कर सकता। थोड़ी देर बाद फिर कोशिश करें। यदि समस्या बनी रहती है, तो जाँचें कि गीत संगीत ऐप में चल रहा है या नहीं।";
+"playback_error_apple_music_authentication" = "Apple Music प्लेबैक सत्र को प्रमाणित नहीं कर सका। पुष्टि करें कि आपका खाता संगीत ऐप में संगीत चला सकता है, फिर Primuse को पूरी तरह बंद करके दोबारा खोलें।";
+"playback_error_apple_music_start_after_access_check" = "Apple Music प्लेबैक की अनुमति की पुष्टि हो गई, लेकिन सिस्टम प्लेयर शुरू नहीं हो सका। दोबारा कोशिश करें। यदि आपने हाल ही में स्टोर खाता बदला है, तो Primuse को पूरी तरह बंद करके दोबारा खोलें।";
 "playback_error_connection" = "स्रोत से कनेक्ट नहीं हो सकता";
 "playback_icloud_downloading" = "iCloud से डाउनलोड हो रहा है…";
 "playback_icloud_error_offline" = "यह गाना अभी iCloud में है और नेटवर्क कनेक्शन के बिना डाउनलोड नहीं हो सकता।";
