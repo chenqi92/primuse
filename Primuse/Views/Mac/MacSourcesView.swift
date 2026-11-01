@@ -829,7 +829,9 @@ struct MacSourcesView: View {
     @ViewBuilder
     private func scanPill(_ source: MusicSource, scanning: ScanService.ScanState?) -> some View {
         if scanning?.isScanning == true {
-            pill("pause", systemImage: "pause.fill") { scanService.cancelScan(for: source.id) }
+            pill("pause", systemImage: "pause.fill") {
+                scanService.cancelScan(for: source.id, automaticallyResumes: false)
+            }
         } else {
             let resuming = scanning?.canResume == true
             pill(resuming ? "resume_scan" : "rescan",

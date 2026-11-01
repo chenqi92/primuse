@@ -144,10 +144,12 @@ struct ScanContinuedProcessingPolicyTests {
         )
     }
 
-    @Test("Expiration stops the scan only once the app is really gone")
-    func expirationCancelsOnlyInBackground() {
-        #expect(ScanContinuedProcessingPolicy.cancelsScanOnExpiration(isApplicationActive: false))
-        #expect(!ScanContinuedProcessingPolicy.cancelsScanOnExpiration(isApplicationActive: true))
+    @Test("System UI cancellation stops the scan in both foreground and background")
+    func expirationAlwaysPauses() {
+        #expect(ScanContinuedProcessingPolicy.Interruption.systemExpiration.pausesScan(isApplicationActive: false))
+        #expect(ScanContinuedProcessingPolicy.Interruption.systemExpiration.pausesScan(isApplicationActive: true))
+        #expect(ScanContinuedProcessingPolicy.Interruption.stalled.pausesScan(isApplicationActive: false))
+        #expect(!ScanContinuedProcessingPolicy.Interruption.stalled.pausesScan(isApplicationActive: true))
     }
 
     @Test("An unknown total reports indeterminate progress")

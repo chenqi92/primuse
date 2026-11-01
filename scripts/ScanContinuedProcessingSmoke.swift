@@ -83,7 +83,7 @@ private struct ScanContinuationSmoke {
         total: Int = 10,
         timeout: Duration = .seconds(5),
         started: @escaping () -> Void = {},
-        expired: @escaping () -> Void = {}
+        expired: @escaping (ScanContinuedProcessingPolicy.Interruption) -> Void = { _ in }
     ) -> ScanContinuedProcessingSession {
         ScanContinuedProcessingSession(
             identifier: UUID(), sourceName: "Navidrome", scannedCount: scanned,
@@ -104,7 +104,7 @@ private struct ScanContinuationSmoke {
         let queuedExpiration = failedTask.expirationHandler
         failed.finish(scanCompleted: false)
         check(failedTask.completions == [true], "Scan failure must release the system UI normally")
-        check(failedTask.progress.completedUnitCount == 3, "Failure must not fill scan progress")
+        check(failedTask.progress.isFinished, "Released system session must finish its progress")
         check(!failed.isGranted && failedTask.expirationHandler == nil, "Failed session must release execution")
 
         let retry = session()
@@ -125,6 +125,7 @@ private struct ScanContinuationSmoke {
         check(scheduler.cancellations == [id(cancelled)], "Cancel only this pending request")
         let lateTask = scheduler.grant(id(cancelled))
         check(lateTask.completions == [true] && lateStarts == 0, "Late grant must not revive a cancelled scan")
+        check(lateTask.progress.isFinished, "Late grant must not leave unfinished system progress")
 
         var released: ScanContinuedProcessingSession? = session()
         let releasedID = id(released!)
@@ -133,17 +134,23 @@ private struct ScanContinuationSmoke {
         check(scheduler.grant(releasedID).completions == [true], "Orphan grant must not create a failure card")
 
         var expirations = 0
-        let expiring = session(expired: { expirations += 1 })
+        let expiring = session(expired: { reason in
+            check(reason == .systemExpiration, "System cancellation must be distinguished from a stall")
+            expirations += 1
+        })
         check(expiring.submit(), "Expiring scan must submit")
         let expiredTask = scheduler.grant(id(expiring))
         expiredTask.expirationHandler?()
         try await Task.sleep(for: .milliseconds(30))
         expiring.finish(scanCompleted: true)
         check(expirations == 1 && expiredTask.completions == [true], "Expiration must finish exactly once")
-        check(expiredTask.progress.completedUnitCount == 3, "Expiration must preserve incomplete progress")
+        check(expiredTask.progress.isFinished, "Expiration must finish the system session")
 
         var stalled = 0
-        let idle = session(timeout: .milliseconds(180), expired: { stalled += 1 })
+        let idle = session(timeout: .milliseconds(180), expired: { reason in
+            check(reason == .stalled, "Watchdog must report a stall")
+            stalled += 1
+        })
         check(idle.submit(), "Stalled scan must submit")
         let idleTask = scheduler.grant(id(idle))
         for _ in 0..<5 {
@@ -151,10 +158,10 @@ private struct ScanContinuationSmoke {
             idle.update(scannedCount: 3, totalCount: 10)
         }
         check(stalled == 1 && idleTask.completions == [true], "Unchanged updates must not keep a stalled task alive")
-        check(idleTask.progress.completedUnitCount == 3, "Watchdog must not fake progress")
+        check(idleTask.progress.isFinished, "Watchdog must close the system progress")
 
         var unknownStalls = 0
-        let unknown = session(total: 0, timeout: .milliseconds(180), expired: { unknownStalls += 1 })
+        let unknown = session(total: 0, timeout: .milliseconds(180), expired: { _ in unknownStalls += 1 })
         check(unknown.submit(), "Unknown-total scan must submit")
         let unknownTask = scheduler.grant(id(unknown))
         unknown.update(scannedCount: 100, totalCount: 0)
@@ -162,7 +169,7 @@ private struct ScanContinuationSmoke {
         check(unknownStalls == 1 && unknownTask.completions == [true], "Indeterminate progress must not evade the watchdog")
 
         var progressingExpirations = 0
-        let progressing = session(timeout: .milliseconds(1600), expired: { progressingExpirations += 1 })
+        let progressing = session(timeout: .milliseconds(1600), expired: { _ in progressingExpirations += 1 })
         check(progressing.submit(), "Progressing scan must submit")
         let progressingTask = scheduler.grant(id(progressing))
         try await Task.sleep(for: .milliseconds(1100))
@@ -180,11 +187,29 @@ private struct ScanContinuationSmoke {
         scheduler.rejectsSubmission = false
         scheduler.rejectsRegistration = true
         check(!session().submit(), "Registration failure must preserve fallback")
+        scheduler.rejectsRegistration = false
 
-        check(!ScanContinuedProcessingPolicy.cancelsScanOnExpiration(isApplicationActive: true),
-              "Foreground scanning must continue after releasing the system task")
-        check(ScanContinuedProcessingPolicy.cancelsScanOnExpiration(isApplicationActive: false),
-              "Background scanning must pause through the checkpoint callback")
+        var unknownProgressExpirations = 0
+        let unknownProgress = session(total: 0, timeout: .milliseconds(180), expired: { _ in unknownProgressExpirations += 1 })
+        check(unknownProgress.submit(), "Unknown-total progress must submit")
+        let unknownProgressTask = scheduler.grant(id(unknownProgress))
+        for count in 4...9 {
+            try await Task.sleep(for: .milliseconds(60))
+            unknownProgress.update(scannedCount: count, totalCount: 0)
+        }
+        check(unknownProgress.isGranted && unknownProgressExpirations == 0,
+              "Real discovered rows must keep indeterminate scanning alive")
+        check(unknownProgressTask.progress.totalUnitCount == 0,
+              "Unknown-total scans must not invent a total while running")
+        unknownProgress.finish(scanCompleted: false)
+        check(unknownProgressTask.progress.isFinished, "Unknown-total cancellation must close progress")
+
+        check(ScanContinuedProcessingPolicy.Interruption.systemExpiration.pausesScan(isApplicationActive: true),
+              "System UI cancellation must stop foreground scanning")
+        check(!ScanContinuedProcessingPolicy.Interruption.stalled.pausesScan(isApplicationActive: true),
+              "Foreground scanning can continue without a stalled system session")
+        check(ScanContinuedProcessingPolicy.Interruption.stalled.pausesScan(isApplicationActive: false),
+              "Background stalls must pause through the checkpoint callback")
         print("Scan continuation: \(assertions) assertions passed")
     }
 }

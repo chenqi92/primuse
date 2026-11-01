@@ -8,6 +8,29 @@ import XCTest
 /// 也就一直留在资料库里。
 @MainActor
 final class SourceChangeScanInvalidationTests: XCTestCase {
+    func testUserCancelledScanWaitsForManualResume() async throws {
+        let fixture = try makeFixture(pausedPaths: ["/Music"])
+        XCTAssertTrue(fixture.start())
+        try await fixture.waitUntilConnectorIsWaiting()
+        fixture.scan.cancelScan(for: fixture.source.id, automaticallyResumes: false)
+        XCTAssertEqual(fixture.scan.scanStates[fixture.source.id]?.canResume, true)
+        XCTAssertFalse(fixture.scan.hasResumableScanWork)
+        fixture.scan.resumePendingScans(
+            sourceManager: fixture.manager, library: fixture.library,
+            sourceStore: fixture.store, scraperService: nil
+        )
+        XCTAssertNotEqual(fixture.scan.scanStates[fixture.source.id]?.isScanning, true)
+        XCTAssertFalse(fixture.scan.scanSource(
+            fixture.source, snapshotExecutionContext: .foregroundResume,
+            sourceManager: fixture.manager, library: fixture.library, sourceStore: fixture.store
+        ))
+        XCTAssertTrue(fixture.start())
+        XCTAssertEqual(fixture.scan.scanStates[fixture.source.id]?.isScanning, true)
+        fixture.scan.cancelScan(for: fixture.source.id)
+        XCTAssertTrue(fixture.scan.hasResumableScanWork)
+        await fixture.connector.release()
+    }
+
     func testUnchangedSourceRowKeepsRunningScanAndItsCheckpoint() async throws {
         let fixture = try makeFixture(pausedPaths: ["/Music"])
         XCTAssertTrue(fixture.start())

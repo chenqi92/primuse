@@ -64,6 +64,8 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     /// retrying the same unavailable source in a tight loop.
     public var automaticResumeFailureCount: Int
     public var automaticResumeAfter: Date?
+    /// 用户取消后保留进度，只有再次手动扫描才恢复。
+    public var isPausedByUser: Bool
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -83,7 +85,8 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         baiduTelemetry: SourceSyncTelemetry? = nil,
         subsonicCatalogState: SubsonicCatalogResumeState? = nil,
         automaticResumeFailureCount: Int = 0,
-        automaticResumeAfter: Date? = nil
+        automaticResumeAfter: Date? = nil,
+        isPausedByUser: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.phase = phase
@@ -103,6 +106,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         self.subsonicCatalogState = subsonicCatalogState
         self.automaticResumeFailureCount = automaticResumeFailureCount
         self.automaticResumeAfter = automaticResumeAfter
+        self.isPausedByUser = isPausedByUser
     }
 
     public var isUsable: Bool {
@@ -124,7 +128,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     }
 
     public func canAutomaticallyResume(at date: Date = Date()) -> Bool {
-        automaticResumeAfter.map { $0 <= date } ?? true
+        !isPausedByUser && (automaticResumeAfter.map { $0 <= date } ?? true)
     }
 
     public func recordingAutomaticResumeFailure(at date: Date = Date()) -> Self {
@@ -156,7 +160,8 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     ) -> Date? where S.Element == ScanCheckpoint {
         var earliest: Date?
         for checkpoint in checkpoints {
-            guard let resumeAfter = checkpoint.automaticResumeAfter, resumeAfter > date else { continue }
+            guard !checkpoint.isPausedByUser,
+                  let resumeAfter = checkpoint.automaticResumeAfter, resumeAfter > date else { continue }
             earliest = earliest.map { min($0, resumeAfter) } ?? resumeAfter
         }
         return earliest
@@ -209,6 +214,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
         case subsonicCatalogState
         case automaticResumeFailureCount
         case automaticResumeAfter
+        case isPausedByUser
     }
 
     public init(from decoder: Decoder) throws {
@@ -268,6 +274,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
             Date.self,
             forKey: .automaticResumeAfter
         )
+        isPausedByUser = try container.decodeIfPresent(Bool.self, forKey: .isPausedByUser) ?? false
     }
 }
 

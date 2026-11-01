@@ -5,6 +5,38 @@ import Testing
 
 @Suite("Scan checkpoint preparation")
 struct ScanCheckpointPreparationTests {
+    @Test("User cancellation survives restart and excludes automatic retry timers")
+    func userPauseIsDurable() throws {
+        let now = Date(timeIntervalSince1970: 100)
+        var checkpoint = ScanCheckpointPreparationPolicy.preparingCheckpoint(
+            existing: nil, directories: ["/Music"], mode: .automatic, now: now
+        ).recordingAutomaticResumeFailure(at: now)
+        checkpoint.isPausedByUser = true
+        let restored = try JSONDecoder().decode(ScanCheckpoint.self, from: JSONEncoder().encode(checkpoint))
+        #expect(restored.isPausedByUser)
+        #expect(!restored.canAutomaticallyResume(at: now.addingTimeInterval(100_000)))
+        #expect(ScanCheckpoint.earliestAutomaticResumeDate(in: [restored], after: now) == nil)
+        #expect(restored.clearingAutomaticResumeFailure().isPausedByUser)
+        var resumed = ScanCheckpointPreparationPolicy.preparingCheckpoint(
+            existing: restored, directories: ["/Music"], mode: .automatic
+        )
+        resumed.isPausedByUser = false
+        #expect(resumed.canAutomaticallyResume(at: now.addingTimeInterval(100_000)))
+        #expect(resumed.directoryState == restored.directoryState)
+    }
+
+    @Test("Older checkpoints retain automatic resume behavior")
+    func legacyPauseDefault() throws {
+        let checkpoint = ScanCheckpointPreparationPolicy.preparingCheckpoint(
+            existing: nil, directories: ["/Music"], mode: .automatic
+        )
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(checkpoint)) as? [String: Any])
+        json.removeValue(forKey: "isPausedByUser")
+        let restored = try JSONDecoder().decode(ScanCheckpoint.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(!restored.isPausedByUser)
+        #expect(restored.canAutomaticallyResume())
+    }
+
     @Test("Initial intent contains a recoverable queue before progress")
     func initialIntentBeforeProgress() {
         let checkpoint = ScanCheckpointPreparationPolicy.preparingCheckpoint(

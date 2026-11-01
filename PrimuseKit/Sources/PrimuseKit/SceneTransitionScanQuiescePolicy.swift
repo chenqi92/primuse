@@ -115,10 +115,17 @@ public enum ScanContinuedProcessingPolicy {
         return hasExistingSession ? .keepExisting : .submit
     }
 
-    /// 系统收回执行权时要不要取消扫描。app 还在前台就不取消 —— 扫描回到普通
-    /// 的前台生命周期继续跑, 取消只会白丢掉预检与已经走过的目录。
-    public static func cancelsScanOnExpiration(isApplicationActive: Bool) -> Bool {
-        !isApplicationActive
+    public enum Interruption: Sendable {
+        /// 包括用户在系统任务卡片上点取消；系统不提供更细的原因。
+        case systemExpiration
+        case stalled
+
+        public func pausesScan(isApplicationActive: Bool) -> Bool {
+            switch self {
+            case .systemExpiration: true
+            case .stalled: !isApplicationActive
+            }
+        }
     }
 
     /// 系统任务卡片上的进度。连接器扫描要走完整棵树才知道总数, 在那之前

@@ -100,12 +100,12 @@ public struct LibraryGenreIndex: Sendable {
 public enum LibraryGenreIndexBuilder {
     private struct Group {
         var displayName: String
-        var songs: [Song] = []
+        var songPositions: [Int] = []
         var albumIDs: [String] = []
         var seenAlbumIDs: Set<String> = []
 
-        mutating func append(_ song: Song) {
-            songs.append(song)
+        mutating func append(_ song: Song, at position: Int) {
+            songPositions.append(position)
             if let albumID = song.albumID?.trimmingCharacters(in: .whitespacesAndNewlines),
                !albumID.isEmpty,
                seenAlbumIDs.insert(albumID).inserted {
@@ -119,7 +119,7 @@ public enum LibraryGenreIndexBuilder {
         // 整库只有几十种流派写法, 折叠要带区域设置, 按原始字符串各算一次。
         var resolvedByGenre: [String: [(displayName: String, id: String)]] = [:]
 
-        for song in songs {
+        for (position, song) in songs.enumerated() {
             guard let genre = song.genre else { continue }
             let lookup: [(displayName: String, id: String)]
             if let memoized = resolvedByGenre[genre] {
@@ -131,7 +131,7 @@ public enum LibraryGenreIndexBuilder {
             for resolved in lookup where !resolved.id.isEmpty {
                 // Keep each group's buffers uniquely owned while appending;
                 // copying it out of the dictionary copies a growing array per song.
-                groups[resolved.id, default: Group(displayName: resolved.displayName)].append(song)
+                groups[resolved.id, default: Group(displayName: resolved.displayName)].append(song, at: position)
             }
         }
 
@@ -141,15 +141,15 @@ public enum LibraryGenreIndexBuilder {
             return LibraryGenre(
                 id: genreID,
                 name: group.displayName,
-                songCount: group.songs.count,
+                songCount: group.songPositions.count,
                 albumCount: group.albumIDs.count,
-                representativeSongIDs: representativeSongIDs(from: group.songs)
+                representativeSongIDs: representativeSongIDs(in: songs, positions: group.songPositions)
             )
         }
 
         return LibraryGenreIndex(
             genres: genres,
-            songIDsByGenreID: groups.mapValues { $0.songs.map(\.id) },
+            songIDsByGenreID: groups.mapValues { $0.songPositions.map { songs[$0].id } },
             albumIDsByGenreID: groups.mapValues(\.albumIDs)
         )
     }
@@ -180,37 +180,42 @@ public enum LibraryGenreIndexBuilder {
     /// 只需线性扫描: 按排名走到的每张专辑第一首就是它排名最高的歌, 所以
     /// 「先各专辑取最高, 再取前三张」与「整组排序后顺着挑」结果相同, 而
     /// 大流派动辄上万首, 整组排序是启动时最贵的一步。
-    private static func representativeSongIDs(from songs: [Song]) -> [String] {
-        var bestByAlbumID: [String: Song] = [:]
-        for song in songs {
+    private static func representativeSongIDs(in songs: [Song], positions: [Int]) -> [String] {
+        // 只保存原数组的位置；大流派不能为每首歌、每张专辑再复制完整 Song。
+        var bestByAlbumID: [String: Int] = [:]
+        for position in positions {
+            let song = songs[position]
             guard let albumID = song.albumID?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !albumID.isEmpty else { continue }
-            if let current = bestByAlbumID[albumID], !ranksBefore(song, current) { continue }
-            bestByAlbumID[albumID] = song
+            if let current = bestByAlbumID[albumID], !ranksBefore(song, songs[current]) { continue }
+            bestByAlbumID[albumID] = position
         }
-        var selected = topRanked(3, from: bestByAlbumID.values)
+        var selected = topRanked(3, in: songs, positions: bestByAlbumID.values)
         if selected.count < 3 {
-            // 补位时同一个 id 只收一次, 且按排名走到的是它排名最高的那首。
-            let selectedIDs = Set(selected.map(\.id))
-            var bestByID: [String: Song] = [:]
-            for song in songs where !selectedIDs.contains(song.id) {
-                if let current = bestByID[song.id], !ranksBefore(song, current) { continue }
-                bestByID[song.id] = song
+            let selectedIDs = Set(selected.map { songs[$0].id })
+            var bestByID: [String: Int] = [:]
+            for position in positions where !selectedIDs.contains(songs[position].id) {
+                let song = songs[position]
+                if let current = bestByID[song.id], !ranksBefore(song, songs[current]) { continue }
+                bestByID[song.id] = position
             }
-            selected.append(contentsOf: topRanked(3 - selected.count, from: bestByID.values))
+            selected.append(contentsOf: topRanked(3 - selected.count, in: songs, positions: bestByID.values))
         }
-        return selected.map(\.id)
+        return selected.map { songs[$0].id }
     }
 
     /// 排名最前的 `limit` 首(最多 3 首), 按排名顺序, 线性插入。
-    private static func topRanked<S: Sequence>(_ limit: Int, from songs: S) -> [Song] where S.Element == Song {
+    private static func topRanked<S: Sequence>(
+        _ limit: Int, in songs: [Song], positions: S
+    ) -> [Int] where S.Element == Int {
         guard limit > 0 else { return [] }
-        var top: [Song] = []
+        var top: [Int] = []
         top.reserveCapacity(limit + 1)
-        for song in songs {
-            guard top.count < limit || ranksBefore(song, top[top.count - 1]) else { continue }
-            let position = top.firstIndex { ranksBefore(song, $0) } ?? top.count
-            top.insert(song, at: position)
+        for position in positions {
+            let song = songs[position]
+            guard top.count < limit || ranksBefore(song, songs[top[top.count - 1]]) else { continue }
+            let insertion = top.firstIndex { ranksBefore(song, songs[$0]) } ?? top.count
+            top.insert(position, at: insertion)
             if top.count > limit { top.removeLast() }
         }
         return top
