@@ -498,6 +498,35 @@ final class SubsonicArtistArtworkRecoveryTests: XCTestCase {
         await connector.disconnect()
     }
 
+    func testArtistDetailRequestsFullPixelsWithoutInflatingListRequests() async throws {
+        for mode in [ArtistArtworkFixture.Mode.primary, .cold, .alias] {
+            let fixture = try ArtistArtworkFixture(mode: mode)
+            let connector = source(fixture)
+            _ = try await connector.fetchArtworkData(for: request(), maximumBytes: 1_048_576, purpose: .thumbnail)
+            XCTAssertTrue(fixture.imageSizes.allSatisfy { $0 == "480" })
+            let before = fixture.imageSizes.count
+            _ = try await connector.fetchArtworkData(for: request(), maximumBytes: 1_048_576, purpose: .fullResolution)
+            let fullRequests = fixture.imageSizes.dropFirst(before)
+            XCTAssertFalse(fullRequests.isEmpty)
+            XCTAssertTrue(fullRequests.allSatisfy { $0 == "1536" }, "Wrong detail requests: \(fullRequests)")
+            await connector.disconnect()
+        }
+    }
+
+    func testKnownSmallArtistImageIsOnlyAThumbnailFallback() async throws {
+        let fixture = try ArtistArtworkFixture(mode: .smallInfo)
+        let connector = source(fixture)
+        let full = try await connector.fetchArtworkData(for: "subsonic-artist/chinese",
+            maximumBytes: 1_048_576, purpose: .fullResolution)
+        XCTAssertNil(full)
+        XCTAssertFalse(fixture.paths.contains("small"))
+        let thumbnail = try await connector.fetchArtworkData(for: "subsonic-artist/chinese",
+            maximumBytes: 1_048_576, purpose: .thumbnail)
+        XCTAssertEqual(thumbnail, fixture.photo)
+        XCTAssertTrue(fixture.paths.contains("small"))
+        await connector.disconnect()
+    }
+
     func testMissingPrimaryUsesVerifiedSingleAlbumArtist() async throws {
         let fixture = try ArtistArtworkFixture(mode: .alias)
         let connector = source(fixture)
@@ -604,13 +633,15 @@ final class SubsonicArtistArtworkRecoveryTests: XCTestCase {
 }
 
 private final class ArtistArtworkFixture: @unchecked Sendable {
-    enum Mode { case primary, alias, compilation, collaboration, unrelated, mixedAlbum, cold, info, broken }
+    enum Mode { case primary, alias, compilation, collaboration, unrelated, mixedAlbum, cold, info, smallInfo, broken }
     let mode: Mode
     let host = "artist-" + UUID().uuidString.lowercased() + ".invalid"
     let photo: Data
     private let lock = NSLock()
     private var recordedPaths: [String] = []
     private var recordedImageIDs: [String] = []
+    private var recordedImageSizes: [String] = []
+    var imageSizes: [String] { lock.withLock { recordedImageSizes } }
     var paths: [String] { lock.withLock { recordedPaths } }
     var imageIDs: [String] { lock.withLock { recordedImageIDs } }
     static let star = Data(base64Encoded: "UklGRhoCAABXRUJQVlA4IA4CAACQJwCdASosASwBPlEmkkajoiGhIrCYiHAKCWlu4XYBG/OHo3T52aYAUCQEgJASAkBICQEgJASAkBICQEgJASAkBICQEgI/RnpUoKRArX5cS4lnieXz2JER/wmkw8S4lxLRNVp/Z/hv0n8+a/LiXEuJDSopmxP5wF0WCRjrHWLBTcmltiCJyL2jvgqzeOsJzjmoRPIBTSVhGLIt4Ns9WUlxLiPD3I0JcFLJcR5aSh9hbzwAoEfaECxoC9QvEuJcR8dec3NBX2oJ+WpyyXEuJcIK9oI+8LnqMDdGWzPvC6J9uy3uA7p5c/GzVK+FlW27M+8LM/OXmzBzxahSxYvwAmEYWWUqG0HxtCQEgIwia1MgK8UoeKGulX87LnTqUP0p3R+JcS4l1NCQEgJASAkBICQEgJASAkBICQEgJASAkBICQEgJAR+AAP7/uxAAEBoF5HMK7FSIWLuyfH0ZrT/1nTA5pTUt/X9cAWesMYoWJPo/E6b9WCmelO0rNp+OH6f7qh99s6E6+XVETeYumt0xZ8w8Vij6fqFlnSnahtY1d2vxfqMwY0EDztCmFWhHZOLWHdTSV7e4/k14wThpM5vYMacfKNVsCKkeOBXwJ/KhKTDkMBkYdMe/COwSe9Pz58Xyr9F02CbC8wfegSKgkZZw7DweKiCo4aFOBX1Bhg4j63TOP7ha//496+yfNQAAAAAA")!
@@ -636,7 +667,10 @@ private final class ArtistArtworkFixture: @unchecked Sendable {
         lock.withLock { recordedPaths.append(method) }
         if url.path.hasPrefix("/image/") { return (200, "image/png", photo) }
         if method == "getCoverArt.view" {
-            lock.withLock { recordedImageIDs.append(id) }
+            lock.withLock {
+                recordedImageIDs.append(id)
+                recordedImageSizes.append(query.first { $0.name == "size" }?.value ?? "")
+            }
             if mode == .broken && id == "chinese" { return (404, "text/plain", Data()) }
             let real = id == "english" || mode == .primary || (mode == .cold && id == "ar-chinese")
             return (200, real ? "image/png" : "image/webp", real ? photo : Self.star)
@@ -650,11 +684,12 @@ private final class ArtistArtworkFixture: @unchecked Sendable {
         switch method {
         case "getArtist.view":
             var result: [String: Any] = ["id": id, "name": id == "english" ? "Tsai Chin" : "蔡琴"]
-            if mode != .cold && mode != .info { result["coverArt"] = id }
+            if mode != .cold && mode != .info && mode != .smallInfo { result["coverArt"] = id }
             if mode == .broken { result["artistImageUrl"] = "https://\(host)/image/photo" }
             body["artist"] = result
         case "getArtistInfo2.view":
-            body["artistInfo2"] = mode == .info ? ["largeImageUrl": "https://\(host)/image/photo"] : [:]
+            body["artistInfo2"] = mode == .info ? ["largeImageUrl": "https://\(host)/image/photo"]
+                : mode == .smallInfo ? ["smallImageUrl": "https://\(host)/image/small"] : [:]
         case "getSong.view": body["song"] = song
         case "getAlbum.view":
             var songs = [song]

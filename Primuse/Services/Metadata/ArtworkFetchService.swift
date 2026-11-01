@@ -63,27 +63,26 @@ actor ArtworkFetchService {
 
     /// Fetch artist image: check cache → Apple Music artist photo → store
     func fetchArtistImage(artistName: String, artistID: String) async -> Data? {
-        // 1. Check disk cache
-        if let cached = await assetStore.cachedArtistImage(forArtistID: artistID) {
-            return cached
-        }
-
-        // 2. Deduplicate in-flight requests
-        let requestID = artistID
-        if let existing = inFlightArtist[requestID] {
-            return await existing.value
-        }
-
+        let cacheID = ArtistArtworkResolutionPolicy.cacheID(baseID: artistID,
+            maximumPixels: SubsonicArtworkPolicy.fullResolutionPixels)
+        if let cached = await assetStore.cachedArtistImage(forArtistID: cacheID) { return cached }
+        if let existing = inFlightArtist[cacheID] { return await existing.value }
         let task = Task<Data?, Never> {
-            let data = await searchArtistPhoto(artistName: artistName)
-            if let data {
-                _ = await assetStore.storeArtistImage(data, forArtistID: artistID)
-            }
-            return data
+            let result = await ArtistArtworkResolutionPolicy.resolve(
+                cached: { await self.assetStore.cachedArtistImage(forArtistID: cacheID) },
+                fetch: { await self.searchArtistPhoto(artistName: artistName) },
+                store: { data in
+                    _ = await self.assetStore.storeArtistImage(data, forArtistID: cacheID)
+                    // Existing hasArtistImage/list/scrape bookkeeping keeps its legacy index.
+                    _ = await self.assetStore.storeArtistImage(data, forArtistID: artistID)
+                },
+                fallback: { await self.assetStore.cachedArtistImage(forArtistID: artistID) }
+            )
+            return result?.data
         }
-        inFlightArtist[requestID] = task
+        inFlightArtist[cacheID] = task
         let result = await task.value
-        inFlightArtist[requestID] = nil
+        inFlightArtist[cacheID] = nil
         return result
     }
 
@@ -145,7 +144,7 @@ actor ArtworkFetchService {
     private func searchArtistPhoto(artistName: String) async -> Data? {
         guard let url = await AppleMusicCatalogNeighbors.artistArtworkURL(
             matchingName: artistName,
-            side: 600
+            side: SubsonicArtworkPolicy.fullResolutionPixels
         ) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15

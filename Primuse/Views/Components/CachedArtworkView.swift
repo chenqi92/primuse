@@ -1760,45 +1760,51 @@ struct CachedArtworkView: View {
         // existing name-based artwork provider. Source artwork gets its own
         // disk namespace so an older scraped image cannot mask a server image.
         if let artistID, artistName != nil {
-            let data: Data?
             let owned = SourceOwnedArtworkReference.resolve(effectiveRef)
-            let sourceCacheID = owned.map { _ in
+            let baseID = owned.map { _ in
                 SubsonicArtistArtworkRequest.cacheID(artistID: artistID, reference: effectiveRef ?? "")
-            }
-            if let sourceCacheID,
-               let cached = await MetadataAssetStore.shared.cachedArtistImage(
-                forArtistID: sourceCacheID,
-                maximumAge: SubsonicArtistArtworkRequest.isServerArtist(effectiveRef)
-                    ? SubsonicArtistArtworkRequest.refreshInterval : nil
-               ) {
-                data = cached
-            } else if let owned,
-                      let sourceData = await sourceManager.artworkData(
-                        for: owned.reference,
-                        sourceID: owned.sourceID,
-                        maximumBytes: 8 * 1024 * 1024
-                      ) {
-                if let sourceCacheID {
-                    _ = await MetadataAssetStore.shared.storeArtistImage(
-                        sourceData,
-                        forArtistID: sourceCacheID
-                    )
+            } ?? artistID
+            let pixels = ArtistArtworkResolutionPolicy.requestedPixels(for: bucket.maximumPixels)
+            let requestedID = ArtistArtworkResolutionPolicy.cacheID(baseID: baseID, maximumPixels: pixels)
+            let isServerArtist = SubsonicArtistArtworkRequest.isServerArtist(effectiveRef)
+            let store = MetadataAssetStore.shared
+            let result = await ArtistArtworkResolutionPolicy.resolve(
+                cached: {
+                    await store.cachedArtistImage(forArtistID: requestedID,
+                        maximumAge: isServerArtist ? SubsonicArtistArtworkRequest.refreshInterval : nil)
+                },
+                fetch: {
+                    // Missing catalog portraits are still explicit scraper work,
+                    // never a name-based network search launched by a view mount.
+                    guard let owned else { return nil }
+                    return await sourceManager.artworkData(for: owned.reference, sourceID: owned.sourceID,
+                        maximumBytes: 8 * 1024 * 1024,
+                        purpose: pixels > SubsonicArtworkPolicy.thumbnailPixels ? .fullResolution : .thumbnail)
+                },
+                store: { data in _ = await store.storeArtistImage(data, forArtistID: requestedID) },
+                fallback: {
+                    // Keep expired and pre-upgrade 480px portraits available offline.
+                    // They are not evidence of a successful full-resolution request.
+                    for fallbackID in [requestedID, baseID, artistID] {
+                        if let data = await store.cachedArtistImage(forArtistID: fallbackID),
+                           !isServerArtist || !SourceArtworkDataValidator.isDefaultArtistPlaceholder(data) {
+                            return data
+                        }
+                    }
+                    // If no older portrait exists, try a single thumbnail request.
+                    // Its known medium/small fallback may be displayed, never promoted.
+                    guard pixels > SubsonicArtworkPolicy.thumbnailPixels, let owned,
+                          !Task.isCancelled,
+                          let data = await sourceManager.artworkData(for: owned.reference,
+                            sourceID: owned.sourceID, maximumBytes: 8 * 1024 * 1024,
+                            purpose: .thumbnail), !Task.isCancelled else { return nil }
+                    _ = await store.storeArtistImage(data, forArtistID: baseID)
+                    return data
                 }
-                data = sourceData
-            } else if let sourceCacheID,
-                      let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: sourceCacheID),
-                      !SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) {
-                // Keep a known photo available when revalidation is offline.
-                data = cached
-            } else if let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artistID),
-                      !SubsonicArtistArtworkRequest.isServerArtist(effectiveRef)
-                        || !SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) {
-                data = cached
-            } else {
-                data = nil
-            }
-            guard let data else { return nil }
-            return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
+            )
+            guard let result else { return nil }
+            return result.isProvisional ? decode(result.data, bucket: bucket)
+                : finalize(data: result.data, bucket: bucket, cacheKey: cacheKey)
         }
 
         // Song path. Apple Music artwork is always owned by MusicKit. Do not

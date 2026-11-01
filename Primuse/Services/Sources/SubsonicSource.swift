@@ -2060,7 +2060,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         try await connect()
         let context = try await resolveArtistArtworkContext(request)
         guard let artistID = context.id else { return nil }
-        if let data = try await artistImageData(id: artistID, maximumBytes: maximumBytes) { return data }
+        if let data = try await artistImageData(id: artistID, maximumBytes: maximumBytes, purpose: purpose) { return data }
 
         // Borrow artwork only from a single credited album artist on an album
         // whose tracks all credit this artist. Compilation/guest credits do not
@@ -2082,7 +2082,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
               let songs = album.song, !songs.isEmpty,
               songs.allSatisfy({ creditIDs($0) == [artistID] }) else { return nil }
         pdiag("🖼️ Subsonic artist artwork fallback artist=\(artistID) albumArtist=\(fallbackID)")
-        return try await artistImageData(id: fallbackID, maximumBytes: maximumBytes)
+        return try await artistImageData(id: fallbackID, maximumBytes: maximumBytes, purpose: purpose)
     }
 
     private func creditIDs(_ song: SubsonicChild) -> Set<String> {
@@ -2106,12 +2106,13 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return (ids.count == 1 ? ids.first : nil, song)
     }
 
-    private func artistImageData(id: String, maximumBytes: Int) async throws -> Data? {
+    private func artistImageData(id: String, maximumBytes: Int, purpose: ArtworkFetchPurpose) async throws -> Data? {
+        let pixels = purpose == .thumbnail ? SubsonicArtworkPolicy.thumbnailPixels : SubsonicArtworkPolicy.fullResolutionPixels
         let response: ArtistContainer = try await requestJSON("getArtist", query: [URLQueryItem(name: "id", value: id)])
         var visited: Set<URL> = []
         let cover = response.artist?.coverArt.flatMap { id in
             id.isEmpty ? nil : buildRESTURL(method: "getCoverArt", query: [
-                URLQueryItem(name: "id", value: id), URLQueryItem(name: "size", value: "480")
+                URLQueryItem(name: "id", value: id), URLQueryItem(name: "size", value: String(pixels))
             ])
         }
         for url in [cover, response.artist?.artistImageURL.flatMap(URL.init(string:))].compactMap({ $0 }) {
@@ -2122,7 +2123,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             URLQueryItem(name: "id", value: id), URLQueryItem(name: "count", value: "0")
         ])
         try Task.checkCancellation()
-        for value in [info?.artistInfo2?.largeImageUrl, info?.artistInfo2?.mediumImageUrl, info?.artistInfo2?.smallImageUrl] {
+        // Known medium/small renditions are provisional thumbnail fallbacks,
+        // not evidence that a detail-sized request succeeded.
+        let infoImages = purpose == .thumbnail
+            ? [info?.artistInfo2?.largeImageUrl, info?.artistInfo2?.mediumImageUrl, info?.artistInfo2?.smallImageUrl]
+            : [info?.artistInfo2?.largeImageUrl]
+        for value in infoImages {
             guard let url = value.flatMap(URL.init(string:)), visited.insert(url).inserted else { continue }
             if let data = try await readArtistImage(url, maximumBytes: maximumBytes) { return data }
         }
@@ -2130,7 +2136,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         // populated its image index. Its own artist artwork key works then.
         if sourceType == .navidrome,
            let url = buildRESTURL(method: "getCoverArt", query: [
-            URLQueryItem(name: "id", value: "ar-" + id), URLQueryItem(name: "size", value: "480")
+            URLQueryItem(name: "id", value: "ar-" + id), URLQueryItem(name: "size", value: String(pixels))
            ]), visited.insert(url).inserted {
             return try await readArtistImage(url, maximumBytes: maximumBytes)
         }

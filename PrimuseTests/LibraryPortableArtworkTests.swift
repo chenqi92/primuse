@@ -1177,6 +1177,238 @@ private actor UploadedArtworkReadGate {
 
 
 extension LibraryPortableArtworkTests {
+    func testArtistRectangularArtworkMatchesTheHeroFieldCrop() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (library, artist) = try await heroTestArtist(in: root)
+        let owner = LibraryArtworkOwner(kind: .artist, id: artist.id)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let data = try XCTUnwrap(UIGraphicsImageRenderer(
+            size: CGSize(width: 1_200, height: 2_400), format: format
+        ).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 300, height: 2_400))
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 300, y: 0, width: 600, height: 2_400))
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 900, y: 0, width: 300, height: 2_400))
+        }.pngData())
+        let cleanup = try installHeroTestArtwork(data, library: library, owner: owner)
+        defer { if let cleanup { try? FileManager.default.removeItem(at: cleanup) } }
+        var displayed: UIImage?
+        let view = ArtistArtworkView(
+            artist: artist, size: 360, cornerRadius: 0, showsPlaceholder: false,
+            fillsProposedSize: true, onImageChange: { displayed = $0 }
+        )
+        .frame(width: 240, height: 360)
+        .ignoresSafeArea()
+        .environment(library)
+        .environment(SourceManager(sourcesProvider: { [] }))
+        .environment(\.scenePhase, .inactive)
+        let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 240, height: 360))
+        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+        var rendered: CGImage?
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(100))
+            let snapshot = try heroTestSnapshot(host.view)
+            let left = try rgb(snapshot, x: 45, y: 80)
+            let right = try rgb(snapshot, x: 195, y: 80)
+            if left.0 > 220, left.2 < 35, right.1 > 220, right.2 < 35 {
+                rendered = snapshot
+                break
+            }
+        }
+        let actual = try XCTUnwrap(rendered, "The rectangular view must retain both outer color bands")
+        let source = try XCTUnwrap(displayed?.cgImage)
+        let geometry = try XCTUnwrap(ArtistHeroArtworkGeometry(width: 240, photoHeight: 360))
+        let field = try XCTUnwrap(ArtistHeroArtworkField.render(image: source, geometry: geometry))
+        // A square-first 360pt image cropped again to 240pt loses these bands.
+        // Compare the actual hosted view with the independently prepared field.
+        for x in [45, 120, 195] {
+            let visible = try rgb(actual, x: x, y: 80)
+            let derived = try rgb(field, x: x, y: 80)
+            XCTAssertLessThan(abs(visible.0 - derived.0) + abs(visible.1 - derived.1) + abs(visible.2 - derived.2), 30)
+        }
+    }
+
+    func testArtistHeroKeepsWhiteArtworkSharpAndContinuesBelowItsLayoutFrame() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (library, artist) = try await heroTestArtist(in: root)
+        let owner = LibraryArtworkOwner(kind: .artist, id: artist.id)
+        var cleanup: [URL] = []
+        defer { cleanup.forEach { try? FileManager.default.removeItem(at: $0) } }
+        func upload(_ color: UIColor) throws {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let data = try XCTUnwrap(UIGraphicsImageRenderer(
+                size: CGSize(width: 600, height: 800), format: format
+            ).image { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
+            }.pngData())
+            if let url = try installHeroTestArtwork(data, library: library, owner: owner) { cleanup.append(url) }
+        }
+        try upload(.white)
+        let view = ZStack(alignment: .top) {
+            Color(uiColor: UIColor(white: 0.08, alpha: 1))
+            ArtistHeroArtworkView(artist: artist, size: CGSize(width: 320, height: 400), onImageChange: { _ in })
+                // The actual photograph retains 400pt of layout space; the
+                // field must still paint below it, as in the detail header.
+                .frame(width: 320, height: 400, alignment: .top)
+        }
+        .frame(width: 320, height: 760)
+        .ignoresSafeArea()
+        .environment(library)
+        .environment(SourceManager(sourcesProvider: { [] }))
+        .environment(\.scenePhase, .inactive)
+        let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 320, height: 760))
+        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+        var whiteSnapshot: CGImage?
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(100))
+            let snapshot = try heroTestSnapshot(host.view)
+            let sharp = try rgb(snapshot, x: 160, y: 80)
+            let continued = try rgb(snapshot, x: 160, y: 408)
+            let body = try rgb(snapshot, x: 160, y: 700)
+            if min(sharp.0, sharp.1, sharp.2) > 240, continued.0 > body.0 + 20 {
+                whiteSnapshot = snapshot
+                break
+            }
+        }
+        let white = try XCTUnwrap(whiteSnapshot, "The sharp portrait and its continued field must both appear")
+        let body = try rgb(white, x: 160, y: 700)
+        let finished = try rgb(white, x: 160, y: 530)
+        XCTAssertLessThan(abs(finished.0 - body.0) + abs(finished.1 - body.1) + abs(finished.2 - body.2), 6,
+                          "The field must fade out before the page-body color, rather than tint the whole page")
+
+        try upload(.blue)
+        var blueSnapshot: CGImage?
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(100))
+            let snapshot = try heroTestSnapshot(host.view)
+            let sharp = try rgb(snapshot, x: 160, y: 80)
+            let continued = try rgb(snapshot, x: 160, y: 408)
+            if sharp.2 > 220, sharp.0 < 35, continued.2 > continued.0 + 20 {
+                blueSnapshot = snapshot
+                break
+            }
+        }
+        let blue = try XCTUnwrap(blueSnapshot, "The field must follow the newly selected image, not retain the white one")
+        let unchangedBody = try rgb(blue, x: 160, y: 700)
+        XCTAssertLessThan(abs(unchangedBody.0 - body.0) + abs(unchangedBody.1 - body.1) + abs(unchangedBody.2 - body.2), 6)
+    }
+
+    func testLongArtistTitleKeepsContrastOnWhiteArtworkAtLargeTypeSizes() async throws {
+        let cases: [(String, String, DynamicTypeSize)] = [
+            ("long-default", "A Very Long Artist Name With Multiple Collaborators", .large),
+            ("long-accessibility2", "A Very Long Artist Name With Multiple Collaborators", .accessibility2),
+            ("short-default", "Adele", .large),
+        ]
+        for (caseName, name, dynamicType) in cases {
+            let probe = HeroTitleBoundsProbe()
+            let coordinateSpace = UUID()
+            let view = ZStack(alignment: .bottom) {
+                Color.white
+                ArtistHeroTitleBlock(
+                    name: name,
+                    summary: "120 monthly plays · 12 songs · 2 albums"
+                )
+                .onGeometryChange(for: CGRect.self) { geometry in
+                    geometry.frame(in: .named(coordinateSpace))
+                } action: { probe.frame = $0 }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+            }
+            .frame(width: 390, height: 500)
+            .coordinateSpace(name: coordinateSpace)
+            .dynamicTypeSize(dynamicType)
+            .ignoresSafeArea()
+            let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 390, height: 500))
+            defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+            var rendered: CGImage?
+            for _ in 0..<20 {
+                try await Task.sleep(for: .milliseconds(100))
+                let snapshot = try heroTestSnapshot(host.view)
+                if probe.frame.width > 0, probe.frame.height > 30 { rendered = snapshot; break }
+            }
+            let snapshot = try XCTUnwrap(rendered, "The actual title must finish layout")
+            let attachment = XCTAttachment(image: UIImage(cgImage: snapshot))
+            attachment.name = "Artist title white fixture - \(caseName)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let frame = probe.frame
+            XCTAssertGreaterThan(frame.height, caseName == "short-default" ? 30 : 65)
+            // Immediately outside the measured text bounds, but inside the local
+            // feather's plateau: no assumptions about line heights or title Y.
+            let x = max(0, Int(floor(frame.minX)) - 2)
+            for y in [frame.minY + 2, frame.midY, frame.maxY - 2] {
+                let background = try rgb(snapshot, x: x, y: Int(y))
+                XCTAssertGreaterThanOrEqual(whiteContrast(on: background), 3,
+                    "Actual title background must follow \(dynamicType), including its first line")
+            }
+            let untouched = try rgb(snapshot, x: 195, y: 40)
+            XCTAssertGreaterThan(min(untouched.0, untouched.1, untouched.2), 245,
+                                 "A title contrast field must not become a whole-photo dark overlay")
+        }
+    }
+
+    private final class HeroTitleBoundsProbe {
+        var frame = CGRect.zero
+    }
+
+    private func whiteContrast(on pixel: (Int, Int, Int)) -> Double {
+        func linear(_ channel: Int) -> Double {
+            let value = Double(channel) / 255
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linear(pixel.0) + 0.7152 * linear(pixel.1) + 0.0722 * linear(pixel.2)
+        return 1.05 / (luminance + 0.05)
+    }
+
+    private func heroTestArtist(in root: URL) async throws -> (MusicLibrary, Artist) {
+        let library = MusicLibrary(storageDirectory: root)
+        let name = "Hero surface \(UUID().uuidString)"
+        library.addSongs([Song(id: UUID().uuidString, title: "Hero fixture", artistName: name,
+                               fileFormat: .mp3, filePath: "/hero-fixture.mp3", sourceID: name)])
+        await library.waitForPendingIndex()
+        return (library, try XCTUnwrap(library.visibleArtists.first { $0.name == name }))
+    }
+
+    /// Return only files created by this fixture, matching the existing override tests.
+    private func installHeroTestArtwork(_ data: Data, library: MusicLibrary, owner: LibraryArtworkOwner) throws -> URL? {
+        let directory = MetadataAssetStore.shared.customArtworkDirectoryURL
+        let existing = Set(try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))
+        let contentID = try XCTUnwrap(MetadataAssetStore.shared.storeCustomArtworkSync(data))
+        XCTAssertTrue(library.setUploadedArtwork(contentID: contentID, for: owner))
+        let url = directory.appendingPathComponent("\(contentID).jpg")
+        return existing.contains(url) ? nil : url
+    }
+
+    private func hostHeroTestView<Content: View>(_ content: Content, size: CGSize) throws
+        -> (UIWindow, UIHostingController<Content>, UIWindow?) {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let original = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(origin: .zero, size: size)
+        let host = UIHostingController(rootView: content)
+        host.safeAreaRegions = []
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        return (window, host, original)
+    }
+
+    private func heroTestSnapshot(_ view: UIView) throws -> CGImage {
+        view.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return try XCTUnwrap(UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
+            view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
+        }.cgImage)
+    }
+
     func testArtworkIdentityLookupSkipsUnrelatedCloudPathsAndRevalidatesMatches() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

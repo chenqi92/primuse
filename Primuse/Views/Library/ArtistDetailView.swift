@@ -512,7 +512,7 @@ struct ArtistDetailView: View {
         .background {
             if compact { compactBackdrop }
         }
-        .clipped()
+        .if(compact) { $0.clipped() }
     }
 
     /// 海报高度:去掉顶部安全区后取首屏的六成多,夹在 260–440 之间,再把顶部安全区加回来 ——
@@ -534,26 +534,10 @@ struct ArtistDetailView: View {
                 }
                 .background {
                     GeometryReader { geometry in
-                        ArtistArtworkView(
+                        ArtistHeroArtworkView(
                             artist: artist,
-                            size: max(geometry.size.width, geometry.size.height),
-                            cornerRadius: 0,
+                            size: geometry.size,
                             onImageChange: { displayedArtwork = $0 }
-                        )
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                    }
-                    // 下半段渐隐成透明, 整页底色透上来, 看不出海报在哪儿结束。
-                    .mask {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .black, location: 0),
-                                .init(color: .black, location: 0.46),
-                                .init(color: .black.opacity(0.18), location: 0.8),
-                                .init(color: .clear, location: 1),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
                         )
                     }
                     .overlay {
@@ -570,20 +554,12 @@ struct ArtistDetailView: View {
                     .accessibilityHidden(true)
                 }
 
-            VStack(spacing: 8) {
-                Text(verbatim: displayArtistName)
-                    .font(.largeTitle.weight(.heavy))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                    .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
-
-                Text(verbatim: "\(monthlyListenText) · \(artistSummaryText)")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .multilineTextAlignment(.center)
-            }
+            ArtistHeroTitleBlock(
+                name: displayArtistName,
+                summary: "\(monthlyListenText) · \(artistSummaryText)",
+                leadingBleed: insets.leading + 24,
+                trailingBleed: insets.trailing + 24
+            )
             .padding(.leading, insets.leading + 24)
             .padding(.trailing, insets.trailing + 24)
             .padding(.bottom, 12)
@@ -1126,6 +1102,55 @@ struct ArtistDetailView: View {
 }
 
 #if os(iOS)
+/// The real title layer owns its local contrast field, including long names and Dynamic Type.
+/// A background never changes the existing title layout or darkens the whole photograph.
+struct ArtistHeroTitleBlock: View {
+    let name: String
+    let summary: String
+    var leadingBleed: CGFloat = 24
+    var trailingBleed: CGFloat = 24
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(verbatim: name)
+                .font(.largeTitle.weight(.heavy))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
+            Text(verbatim: summary)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.78))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .background {
+            GeometryReader { geometry in
+                // Reach the photograph's edges, even for a short name. The
+                // vertical feather follows the text, avoiding a rectangular card.
+                let feather: CGFloat = 40
+                let width = max(1, geometry.size.width) + leadingBleed + trailingBleed
+                let height = max(1, geometry.size.height) + feather * 2
+                Rectangle()
+                    .fill(.black.opacity(0.56))
+                    .frame(width: width, height: height)
+                    .mask {
+                        LinearGradient(stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: feather / height),
+                            .init(color: .black, location: 1 - feather / height),
+                            .init(color: .clear, location: 1),
+                        ], startPoint: .top, endPoint: .bottom)
+                    }
+                    .offset(x: -leadingBleed, y: -feather)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 private struct ArtistScrollEdgeEffectModifier: ViewModifier {
     let softensEdges: Bool
 
