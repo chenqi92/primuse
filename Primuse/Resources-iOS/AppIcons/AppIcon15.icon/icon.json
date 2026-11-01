@@ -15,58 +15,46 @@
       },
       "layers": [
         {
-          "name": "Light",
-          "image-name": "Light.png",
-          "glass": false,
-          "hidden-specializations": [
+          "name": "Artwork",
+          "image-name-specializations": [
+            {
+              "value": "Light.png"
+            },
+            {
+              "appearance": "dark",
+              "value": "Dark.png"
+            },
+            {
+              "appearance": "tinted",
+              "value": "Mono.png"
+            }
+          ],
+          "glass-specializations": [
             {
               "value": false
             },
             {
               "appearance": "dark",
-              "value": true
+              "value": false
             },
             {
               "appearance": "tinted",
               "value": true
             }
           ]
+        }
+      ],
+      "specular-specializations": [
+        {
+          "value": false
         },
         {
-          "name": "Dark",
-          "image-name": "Dark.png",
-          "glass": false,
-          "hidden-specializations": [
-            {
-              "value": true
-            },
-            {
-              "appearance": "dark",
-              "value": false
-            },
-            {
-              "appearance": "tinted",
-              "value": true
-            }
-          ]
+          "appearance": "dark",
+          "value": false
         },
         {
-          "name": "Mono",
-          "image-name": "Mono.png",
-          "glass": true,
-          "hidden-specializations": [
-            {
-              "value": true
-            },
-            {
-              "appearance": "dark",
-              "value": true
-            },
-            {
-              "appearance": "tinted",
-              "value": false
-            }
-          ]
+          "appearance": "tinted",
+          "value": true
         }
       ]
     }

@@ -16,12 +16,11 @@ from generate_brand_marks import build_marks, clear_edges, soft_note_artwork
 OUTPUT = ROOT / "Primuse" / "Resources-iOS" / "AppIcons"
 
 
-def appearance_visibility(light: bool, dark: bool, mono: bool) -> list[dict]:
-    # Zero color opacity leaves the layer's glass contour visible.
+def appearance_values(light: str | bool, dark: str | bool, mono: str | bool) -> list[dict]:
     return [
-        {"value": not light},
-        {"appearance": "dark", "value": not dark},
-        {"appearance": "tinted", "value": not mono},
+        {"value": light},
+        {"appearance": "dark", "value": dark},
+        {"appearance": "tinted", "value": mono},
     ]
 
 
@@ -55,24 +54,14 @@ def save_icon(icon_name: str, light_name: str, dark_name: str, mono: Image.Image
                 "name": "Artwork",
                 "shadow": {"kind": "neutral", "opacity": 0},
                 "translucency": {"enabled": False, "value": 0},
+                "specular-specializations": appearance_values(False, False, True),
                 "layers": [
                     {
-                        "name": "Light",
-                        "image-name": "Light.png",
-                        "glass": False,
-                        "hidden-specializations": appearance_visibility(True, False, False),
-                    },
-                    {
-                        "name": "Dark",
-                        "image-name": "Dark.png",
-                        "glass": False,
-                        "hidden-specializations": appearance_visibility(False, True, False),
-                    },
-                    {
-                        "name": "Mono",
-                        "image-name": "Mono.png",
-                        "glass": True,
-                        "hidden-specializations": appearance_visibility(False, False, True),
+                        # Hidden layers still compile into transparent entries in Assets.car.
+                        # Swap the artwork so SpringBoard receives only one image per appearance.
+                        "name": "Artwork",
+                        "image-name-specializations": appearance_values("Light.png", "Dark.png", "Mono.png"),
+                        "glass-specializations": appearance_values(False, False, True),
                     },
                 ],
             }
