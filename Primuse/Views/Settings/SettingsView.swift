@@ -381,6 +381,8 @@ struct LyricsAppearanceSections: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
     private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
@@ -589,6 +591,10 @@ struct LyricsAppearanceSections: View {
             .settingsAnchor("lyrics.browseTimeline")
                 .accessibilityHint(Text("player_lyrics_browse_timeline_description"))
                 .accessibilityIdentifier("playerLyricsBrowseTimelineToggle")
+
+            Toggle("player_simulated_word_lyrics", isOn: $simulatesWordLyrics)
+                .settingsAnchor("lyrics.simulatedWordTiming")
+                .accessibilityIdentifier("simulatedWordLyricsToggle")
 
             Toggle(isOn: $showsLyricsSource) {
                 SettingsInfoLabel("player_lyrics_source_badge") {

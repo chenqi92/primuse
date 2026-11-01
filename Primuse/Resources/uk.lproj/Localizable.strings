@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "Товста";
 "player_track_thickness_extraThick" = "Дуже товста";
 
+"player_simulated_word_lyrics" = "Імітувати підсвічування слів";
+"lyrics_simulated_word_badge" = "Імітація синхронізації";
+
 "explore_word_lyrics" = "Шукати тексти з послівною синхронізацією";
 "player_activity_status" = "Стан завдань";
 "word_lyrics_searching" = "Пошук текстів із послівною синхронізацією";

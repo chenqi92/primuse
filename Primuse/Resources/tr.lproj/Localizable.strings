@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "Kalın";
 "player_track_thickness_extraThick" = "Çok kalın";
 
+"player_simulated_word_lyrics" = "Sözcük sözcük şarkı sözü simülasyonu";
+"lyrics_simulated_word_badge" = "Simüle zamanlama";
+
 "explore_word_lyrics" = "Kelime Eşzamanlı Şarkı Sözlerini Ara";
 "player_activity_status" = "Görev Durumu";
 "word_lyrics_searching" = "Kelime eşzamanlı şarkı sözleri aranıyor";

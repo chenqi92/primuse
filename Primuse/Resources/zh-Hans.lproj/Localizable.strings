@@ -7180,6 +7180,9 @@
 "player_track_thickness_thick" = "粗";
 "player_track_thickness_extraThick" = "特粗";
 
+"player_simulated_word_lyrics" = "模拟逐字歌词";
+"lyrics_simulated_word_badge" = "模拟逐字";
+
 "explore_word_lyrics" = "探索逐字歌词";
 "player_activity_status" = "任务状态";
 "word_lyrics_searching" = "正在探索逐字歌词";

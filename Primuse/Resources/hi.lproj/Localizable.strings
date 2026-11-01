@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "मोटा";
 "player_track_thickness_extraThick" = "बहुत मोटा";
 
+"player_simulated_word_lyrics" = "शब्द-दर-शब्द गीत का अनुकरण";
+"lyrics_simulated_word_badge" = "अनुमानित समय";
+
 "explore_word_lyrics" = "शब्द-सिंक बोल खोजें";
 "player_activity_status" = "कार्य स्थिति";
 "word_lyrics_searching" = "शब्द-सिंक बोल खोजे जा रहे हैं";

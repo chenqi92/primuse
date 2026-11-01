@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "Grueso";
 "player_track_thickness_extraThick" = "Muy grueso";
 
+"player_simulated_word_lyrics" = "Simular letras palabra por palabra";
+"lyrics_simulated_word_badge" = "Sincronización simulada";
+
 "explore_word_lyrics" = "Explorar letras sincronizadas por palabra";
 "player_activity_status" = "Estado de tareas";
 "word_lyrics_searching" = "Buscando letras sincronizadas por palabra";

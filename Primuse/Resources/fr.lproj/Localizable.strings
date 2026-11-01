@@ -7087,6 +7087,9 @@
 "player_track_thickness_thick" = "Épaisse";
 "player_track_thickness_extraThick" = "Très épaisse";
 
+"player_simulated_word_lyrics" = "Simuler les paroles mot à mot";
+"lyrics_simulated_word_badge" = "Synchronisation simulée";
+
 "explore_word_lyrics" = "Rechercher des paroles synchronisées mot à mot";
 "player_activity_status" = "État des tâches";
 "word_lyrics_searching" = "Recherche de paroles synchronisées mot à mot";

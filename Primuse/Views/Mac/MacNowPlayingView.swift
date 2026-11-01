@@ -55,6 +55,7 @@ struct MacNowPlayingView: View {
     /// 自动生成的罗马音与双语 LRC 里的读音行。
     @State private var lyricRomanizationOverlay: LyricRomanizationOverlay = .empty
     /// 歌词列表与沉浸层显示的那份：按罗马音设置换过正文或附属罗马音；翻译、跳转仍用 `lyrics`。
+    @State private var usesSimulatedWordTiming = false
     @State private var romanizedLyrics: [LyricLine] = []
     @State private var romanizedLyricsWritingDirection: LyricWritingDirection = .natural
     /// 最近一次真正跑完的歌词加载对应的世代。跟当前世代不一致就说明还在加载。
@@ -99,6 +100,8 @@ struct MacNowPlayingView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
     private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
@@ -246,6 +249,7 @@ struct MacNowPlayingView: View {
             if isImmersiveStageActive {
                 MacImmersivePlayerView(
                     lyrics: romanizedLyrics,
+                    showsSimulatedWordTiming: usesSimulatedWordTiming,
                     translatedTextByLineID: lyricTranslationsByLineID,
                     // 安全区由这棵树的宿主决定,沉浸层不能自己再忽略一次。
                     ignoresWindowSafeArea: false,
@@ -365,6 +369,8 @@ struct MacNowPlayingView: View {
         .onChange(of: LyricsTranslationSettingsStore.shared.showsBundledTranslations) { _, _ in
             installLyrics(loadedLyrics)
         }
+        .onChange(of: simulatesWordLyrics) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: isSpokenWord) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: LyricsRomanizationSettingsStore.shared.displayMode) { _, _ in refreshRomanizedLyrics() }
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
@@ -1054,11 +1060,11 @@ struct MacNowPlayingView: View {
     /// 显示用的那份按设置去过译文、换过罗马音。文字稿不标来源。
     @ViewBuilder
     private var lyricsInfoBadges: some View {
-        let showsWordLevel = lyrics.contains(where: \.containsWordLevelContent)
+        let showsWordLevel = romanizedLyrics.contains(where: \.containsWordLevelContent)
         let source = showsLyricsSource && !isSpokenWord ? LyricsSourceBadge.resolve(loadedLyrics) : nil
-        if showsWordLevel || source != nil {
+        if (showsWordLevel && !usesSimulatedWordTiming) || source != nil {
             LyricsInfoBadges(
-                showsWordLevel: showsWordLevel,
+                showsWordLevel: showsWordLevel && !usesSimulatedWordTiming,
                 source: source,
                 foreground: playerSecondaryColor,
                 fill: playerGlassFill
@@ -1232,8 +1238,24 @@ struct MacNowPlayingView: View {
             }
         }
         .overlay(alignment: .top) {
-            lyricsTranslationStatus
+            if usesSimulatedWordTiming {
+                HStack(alignment: .top, spacing: 8) {
+                    LyricsInfoBadges(
+                        showsWordLevel: false,
+                        showsSimulatedWordTiming: true,
+                        source: nil,
+                        foreground: playerSecondaryColor,
+                        fill: playerGlassFill
+                    )
+                    Spacer(minLength: 8)
+                    lyricsTranslationStatus
+                }
                 .padding(.top, 12)
+                .padding(.horizontal, 12)
+            } else {
+                lyricsTranslationStatus
+                    .padding(.top, 12)
+            }
         }
     }
 
@@ -1415,7 +1437,7 @@ struct MacNowPlayingView: View {
     }
 
     private var lyricsLookahead: TimeInterval {
-        lyrics.contains { $0.isWordLevel } ? Self.wordLevelLookahead : Self.lineLevelLookahead
+        romanizedLyrics.contains { $0.isWordLevel } ? Self.wordLevelLookahead : Self.lineLevelLookahead
     }
 
     /// 歌词行与行之间的距离。每一行(和展开的提示点)在自己上面留这么多。
@@ -2051,7 +2073,13 @@ struct MacNowPlayingView: View {
             overlay: lyricRomanizationOverlay,
             mode: mode
         )
-        if display != romanizedLyrics { romanizedLyrics = display }
+        let timed = SimulatedWordLyricsPolicy.presentation(
+            of: display,
+            enabled: simulatesWordLyrics && !lyrics.contains(where: \.containsWordLevelContent),
+            isSpokenWord: isSpokenWord
+        )
+        usesSimulatedWordTiming = timed.isSimulated
+        if timed.lines != romanizedLyrics { romanizedLyrics = timed.lines }
         let direction = mode == .romanizationOnly && display != lyrics
             ? LyricWritingDirectionPolicy.resolve(in: display)
             : lyricsWritingDirection

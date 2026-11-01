@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "Gruby";
 "player_track_thickness_extraThick" = "Bardzo gruby";
 
+"player_simulated_word_lyrics" = "Symuluj tekst słowo po słowie";
+"lyrics_simulated_word_badge" = "Symulowana synchronizacja";
+
 "explore_word_lyrics" = "Szukaj tekstów synchronizowanych słowo po słowie";
 "player_activity_status" = "Stan zadań";
 "word_lyrics_searching" = "Wyszukiwanie tekstów synchronizowanych słowo po słowie";

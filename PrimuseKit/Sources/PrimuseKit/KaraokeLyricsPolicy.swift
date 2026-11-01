@@ -414,3 +414,39 @@ public enum KaraokeLineFitPolicy {
         }
     }
 }
+
+/// Display-only timing; the original document remains suitable for editing and export.
+public enum SimulatedWordLyricsPolicy {
+    public struct Presentation: Equatable, Sendable {
+        public let lines: [LyricLine]
+        public let isSimulated: Bool
+    }
+
+    public static func presentation(
+        of lines: [LyricLine],
+        enabled: Bool = false,
+        isSpokenWord: Bool = false
+    ) -> Presentation {
+        var displayed = lines
+        var isSimulated = false
+        for window in windows(in: lines, enabled: enabled, isSpokenWord: isSpokenWord) {
+            let line = lines[window.lineIndex]
+            let timed = KaraokeSweepPolicy.sweepLine(line, window: window)
+            displayed[window.lineIndex] = timed
+            isSimulated = isSimulated || timed.isWordLevel
+        }
+        return Presentation(lines: displayed, isSimulated: isSimulated)
+    }
+
+    public static func windows(
+        in lines: [LyricLine],
+        enabled: Bool = false,
+        isSpokenWord: Bool = false
+    ) -> [KaraokeLineWindow] {
+        guard enabled, !isSpokenWord,
+              !lines.contains(where: \.containsWordLevelContent) else { return [] }
+        return KaraokeLineWindowPolicy.windows(in: lines).filter {
+            $0.start.isFinite && $0.end.isFinite
+        }
+    }
+}

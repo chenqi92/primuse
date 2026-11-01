@@ -1539,6 +1539,9 @@ struct NowPlayingView: View {
     /// 歌词面板与全屏舞台显示的那份：按罗马音设置换过正文或附属罗马音。翻译任务、点歌词跳转、
     /// 歌词海报、编辑器仍用 `presentedLyrics`。跟着 `presentedLyrics` 一起更新（见
     /// `refreshRomanizedLyrics`），传下去的数组只在内容真的变了时才换。
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
+    @State private var usesSimulatedWordTiming = false
     @State private var romanizedPresentedLyrics: [LyricLine] = []
     @State private var romanizedLyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricPosterComposer: LyricPosterComposer?
@@ -3633,6 +3636,7 @@ struct NowPlayingView: View {
                     ImmersivePlayerView(
                         effect: fullscreenPlayerEffectBinding,
                         lyrics: romanizedPresentedLyrics,
+                        showsSimulatedWordTiming: usesSimulatedWordTiming,
                         lyricCompanions: {
                             LyricsScrollView.companionTexts(
                                 for: $0,
@@ -3835,6 +3839,8 @@ struct NowPlayingView: View {
             presentBundledTranslationVisibility()
             lyricsRevision &+= 1
         }
+        .onChange(of: simulatesWordLyrics) { _, _ in refreshRomanizedLyrics() }
+        .onChange(of: player.currentItemIsSpokenWord) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: LyricsRomanizationSettingsStore.shared.displayMode) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: isResolvingLyrics) { _, _ in rememberSpokenWordTextPresence() }
@@ -8904,6 +8910,7 @@ struct NowPlayingView: View {
     ) -> some View {
         LyricsScrollView(
             lyrics: romanizedPresentedLyrics,
+            showsSimulatedWordTiming: usesSimulatedWordTiming,
             lyricsWritingDirection: romanizedLyricsWritingDirection,
             lyricsRevision: lyricsRevision,
             isResolvingLyrics: isResolvingLyrics,
@@ -11006,7 +11013,13 @@ struct NowPlayingView: View {
             overlay: lyricRomanizationOverlay,
             mode: mode
         )
-        if display != romanizedPresentedLyrics { romanizedPresentedLyrics = display }
+        let timed = SimulatedWordLyricsPolicy.presentation(
+            of: display,
+            enabled: simulatesWordLyrics && !presentedLyrics.contains(where: \.containsWordLevelContent),
+            isSpokenWord: player.currentItemIsSpokenWord
+        )
+        usesSimulatedWordTiming = timed.isSimulated
+        if timed.lines != romanizedPresentedLyrics { romanizedPresentedLyrics = timed.lines }
         let direction = mode == .romanizationOnly && display != presentedLyrics
             ? LyricWritingDirectionPolicy.resolve(in: display)
             : lyricsWritingDirection
@@ -15206,6 +15219,7 @@ struct LyricsBrowseTimeline: View {
 
 struct LyricsScrollView: View {
     let lyrics: [LyricLine]
+    var showsSimulatedWordTiming = false
     let lyricsWritingDirection: LyricWritingDirection
     let lyricsRevision: UInt
     /// 歌词结果还没回来。空歌词此时是"还不知道", 不是"没有"。
@@ -15493,10 +15507,23 @@ struct LyricsScrollView: View {
                 lineLevelLyricsView
             }
         }
-        .overlay(alignment: .topTrailing) {
-            translationStatusBadge
-                .padding(.top, 8)
-                .padding(.trailing, translationStatusTrailingInset)
+        .overlay(alignment: .top) {
+            HStack(alignment: .top, spacing: 8) {
+                if showsSimulatedWordTiming {
+                    LyricsInfoBadges(
+                        showsWordLevel: false,
+                        showsSimulatedWordTiming: true,
+                        source: nil,
+                        foreground: appearance.secondary,
+                        fill: appearance.primary.opacity(0.10)
+                    )
+                }
+                Spacer(minLength: 8)
+                translationStatusBadge
+            }
+            .padding(.top, 8)
+            .padding(.leading, 12)
+            .padding(.trailing, translationStatusTrailingInset)
         }
         .task(id: playbackFollowTaskIdentity) {
             guard hasSynchronizedLyrics else {
@@ -15947,6 +15974,7 @@ struct LyricsScrollView: View {
     }
 
     private struct PlaybackFollowTaskIdentity: Hashable {
+        let showsSimulatedWordTiming: Bool
         let songID: String?
         let lyricsRevision: UInt
         let isPlaying: Bool
@@ -15956,6 +15984,7 @@ struct LyricsScrollView: View {
 
     private var playbackFollowTaskIdentity: PlaybackFollowTaskIdentity {
         PlaybackFollowTaskIdentity(
+            showsSimulatedWordTiming: showsSimulatedWordTiming,
             songID: songID,
             lyricsRevision: lyricsRevision,
             isPlaying: player.isPlaying,
@@ -16438,9 +16467,9 @@ struct LyricsScrollView: View {
     @ViewBuilder
     private func lyricsInfoBadges(showsWordLevel: Bool) -> some View {
         let source = showsLyricsSource && !isSpokenWordTranscript ? LyricsSourceBadge.resolve(lyrics) : nil
-        if showsWordLevel || source != nil {
+        if (showsWordLevel && !showsSimulatedWordTiming) || source != nil {
             LyricsInfoBadges(
-                showsWordLevel: showsWordLevel,
+                showsWordLevel: showsWordLevel && !showsSimulatedWordTiming,
                 source: source,
                 foreground: appearance.secondary,
                 fill: appearance.primary.opacity(0.10)
@@ -17998,13 +18027,17 @@ enum NowPlayingArrangement: Equatable {
 /// 歌词最上面那一排小标签(iOS 与 Mac 播放页共用):逐字歌词标「逐字」,知道来源时再标来源(#357)。
 struct LyricsInfoBadges: View {
     let showsWordLevel: Bool
+    var showsSimulatedWordTiming = false
     let source: LyricsSourceBadge?
     let foreground: Color
     let fill: Color
 
     var body: some View {
         HStack(spacing: 6) {
-            if showsWordLevel {
+            if showsSimulatedWordTiming {
+                capsule(symbol: "waveform", text: Text("lyrics_simulated_word_badge"))
+                    .accessibilityIdentifier("simulatedWordLyricsBadge")
+            } else if showsWordLevel {
                 capsule(symbol: "waveform", text: Text("lyrics_word_level_badge"))
             }
             if let source {

@@ -258,6 +258,8 @@ enum PlayerAppearancePreferences {
     /// 键名不带点号(见 #344 的教训)。
     static let showsLyricsSourceKey = "playerShowsLyricsSource"
     static let showsLyricsSourceByDefault = true
+    static let simulatesWordLyricsKey = "playerSimulatesWordLyrics"
+    static let simulatesWordLyricsByDefault = false
 
     /// 播放页控件(进度条、开着的随机与循环、功能块里的强调色)跟主题色,还是单色(#189)。
     static let controlTintKey = "primuse.player.controlTint"

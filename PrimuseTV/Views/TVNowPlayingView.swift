@@ -29,6 +29,9 @@ private var tvDebugShelfLaunch: (show: Bool, tab: TVPlayerShelfTab) {
 /// 长按封面是喜欢、前往、随机、睡眠定时与更多。Menu 键先收起货架,再离开播放页。
 struct TVNowPlayingView: View {
     @Environment(TVStore.self) private var store
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
+    @State private var simulatedWordWindows: [String: KaraokeLineWindow] = [:]
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
     @Environment(\.resetFocus) private var resetFocus
@@ -157,6 +160,18 @@ struct TVNowPlayingView: View {
         }
     }
 
+    private func refreshSimulatedWordWindows() {
+        simulatedWordWindows = TVSimulatedWordLyrics.windows(
+            in: store.lyrics,
+            enabled: simulatesWordLyrics,
+            isSpokenWord: store.currentItemIsSpokenWord
+        )
+    }
+
+    private var showsSimulatedWordTiming: Bool {
+        simulatesWordLyrics && !store.currentItemIsSpokenWord && !simulatedWordWindows.isEmpty
+    }
+
     var body: some View {
         ZStack {
             if store.hasNowPlaying { player } else { emptyState }
@@ -173,6 +188,9 @@ struct TVNowPlayingView: View {
                 dismiss()
             }
         }
+        .onChange(of: store.lyricsRevision, initial: true) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: simulatesWordLyrics) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: store.currentItemIsSpokenWord) { _, _ in refreshSimulatedWordWindows() }
         .onAppear {
             // 播放页整页重建时全屏效果跟着被收掉,不经过 onChange(showImmersive)。
             pdiag("tv nowPlaying appear showImmersive=\(showImmersive)")
@@ -1235,7 +1253,17 @@ struct TVNowPlayingView: View {
         } else {
             lyricsList
                 .overlay(alignment: .top) {
-                    TVLyricsTranslationStatusLine(songID: store.currentSongID)
+                    VStack(spacing: 8) {
+                        if showsSimulatedWordTiming {
+                            Text("lyrics_simulated_word_badge")
+                                .tvFont(.meta)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(.white.opacity(0.1), in: Capsule())
+                                .accessibilityIdentifier("simulatedWordLyricsBadge")
+                        }
+                        TVLyricsTranslationStatusLine(songID: store.currentSongID)
+                    }
                 }
         }
     }
@@ -1439,7 +1467,10 @@ struct TVNowPlayingView: View {
     @ViewBuilder
     private func lyricLine(index i: Int, current cur: Int?, isDuet: Bool) -> some View {
         // 按「罗马音显示」换过正文或附属罗马音；当前行、时间仍按原来那一行。
-        let ln = TVLyricsRomanizationController.shared.displayLine(store.lyrics[i], songID: store.currentSongID)
+        let source = TVLyricsRomanizationController.shared.displayLine(store.lyrics[i], songID: store.currentSongID)
+        let ln = TVSimulatedWordLyrics.displayLine(
+            source, window: showsSimulatedWordTiming ? simulatedWordWindows[source.id] : nil
+        )
         let isTrailing = LyricDuetLayoutPolicy.side(for: ln.voice, preferred: .leading, isDuet: isDuet) == .trailing
         let textAlignment: TextAlignment = isTrailing ? .trailing : .leading
         let flowAlignment: LyricFlowHorizontalAlignment = isTrailing ? .trailing : .leading

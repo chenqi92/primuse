@@ -88,6 +88,8 @@ struct TVSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     /// 和 iPhone、Mac 同一个键,经 iCloud 键值同步(启动时在 App 里登记)。
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
@@ -541,6 +543,18 @@ struct TVSettingsView: View {
                 get: { showsActivity },
                 set: { showsActivity = $0; CloudKVSSync.shared.markChanged(key: WordLyricsDiscoveryPreferences.showsActivityKey) }
             ))
+            settingDivider
+            toggleRow(
+                "waveform",
+                String(localized: "player_simulated_word_lyrics"),
+                isOn: Binding(
+                    get: { simulatesWordLyrics },
+                    set: {
+                        simulatesWordLyrics = $0
+                        CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.simulatesWordLyricsKey)
+                    }
+                )
+            )
             settingDivider
             toggleRow(
                 "ellipsis",

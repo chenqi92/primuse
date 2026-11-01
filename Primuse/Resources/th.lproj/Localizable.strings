@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "หนา";
 "player_track_thickness_extraThick" = "หนาพิเศษ";
 
+"player_simulated_word_lyrics" = "จำลองเนื้อเพลงทีละคำ";
+"lyrics_simulated_word_badge" = "จังหวะจำลอง";
+
 "explore_word_lyrics" = "ค้นหาเนื้อเพลงที่ซิงค์รายคำ";
 "player_activity_status" = "สถานะงาน";
 "word_lyrics_searching" = "กำลังค้นหาเนื้อเพลงที่ซิงค์รายคำ";

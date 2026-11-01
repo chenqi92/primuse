@@ -8,6 +8,7 @@ import PrimuseKit
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
+    var showsSimulatedWordTiming = false
     /// 翻译任务给出的译文（按行 id），和常规播放页同一份。
     var translatedTextByLineID: [String: String] = [:]
     /// 是否由这层自己忽略窗口安全区。
@@ -218,12 +219,24 @@ struct MacImmersivePlayerView: View {
                 }
 
                 // 顶栏那排按钮下面:没有实时频谱、临时降档时写明原因。
-                ImmersiveStageNotice(
-                    items: stageNoticeItems,
-                    isChromeVisible: showsChrome,
-                    isSuppressed: !isStageReady || !isRenderingActive || isLowPower || showsEffectPicker
-                        || player.lastPlaybackError != nil
-                )
+                VStack(spacing: 8) {
+                    if showsSimulatedWordTiming && !isLowPower && !showsEffectPicker {
+                        LyricsInfoBadges(
+                            showsWordLevel: false,
+                            showsSimulatedWordTiming: true,
+                            source: nil,
+                            foreground: .white.opacity(0.8),
+                            fill: .black.opacity(0.25)
+                        )
+                        .allowsHitTesting(false)
+                    }
+                    ImmersiveStageNotice(
+                        items: stageNoticeItems,
+                        isChromeVisible: showsChrome,
+                        isSuppressed: !isStageReady || !isRenderingActive || isLowPower || showsEffectPicker
+                            || player.lastPlaybackError != nil
+                    )
+                }
                 .padding(.top, 70)
                 .padding(.horizontal, 26)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

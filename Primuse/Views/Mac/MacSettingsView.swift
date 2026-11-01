@@ -5615,6 +5615,8 @@ private struct MacSTLyricsView: View {
     private var lyricsWeightRawValue = PlayerLyricsWeight.automatic.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
     private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
@@ -5873,6 +5875,12 @@ private struct MacSTLyricsView: View {
                             ))
                     }
                     .settingsAnchor("lyrics.tapToSeek")
+                    MacSTRow(String(localized: "player_simulated_word_lyrics")) {
+                        MacSTToggle(isOn: $simulatesWordLyrics)
+                            .accessibilityLabel(Text("player_simulated_word_lyrics"))
+                            .accessibilityIdentifier("simulatedWordLyricsToggle")
+                    }
+                    .settingsAnchor("lyrics.simulatedWordTiming")
                     MacSTRow(
                         String(localized: "player_lyrics_source_badge"),
                         hint: String(localized: "player_lyrics_source_badge_description"),

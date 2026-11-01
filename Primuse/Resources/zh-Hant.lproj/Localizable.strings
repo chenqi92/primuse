@@ -7064,6 +7064,9 @@
 "player_track_thickness_thick" = "粗";
 "player_track_thickness_extraThick" = "特粗";
 
+"player_simulated_word_lyrics" = "模擬逐字歌詞";
+"lyrics_simulated_word_badge" = "模擬逐字";
+
 "explore_word_lyrics" = "探索逐字歌詞";
 "player_activity_status" = "工作狀態";
 "word_lyrics_searching" = "正在探索逐字歌詞";

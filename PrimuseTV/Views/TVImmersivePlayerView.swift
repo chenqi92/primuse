@@ -158,6 +158,9 @@ struct TVImmersivePlayerView: View {
     var presentsModePickerOnAppear = false
 
     @Environment(TVStore.self) private var store
+    @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
+    private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
+    @State private var simulatedWordWindows: [String: KaraokeLineWindow] = [:]
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -290,6 +293,18 @@ struct TVImmersivePlayerView: View {
         return items
     }
 
+    private func refreshSimulatedWordWindows() {
+        simulatedWordWindows = TVSimulatedWordLyrics.windows(
+            in: store.lyrics,
+            enabled: simulatesWordLyrics,
+            isSpokenWord: store.currentItemIsSpokenWord
+        )
+    }
+
+    private var showsSimulatedWordTiming: Bool {
+        simulatesWordLyrics && !store.currentItemIsSpokenWord && !simulatedWordWindows.isEmpty
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let metrics = ImmersiveStageMetrics(size: geometry.size, prefersWide: true)
@@ -344,12 +359,22 @@ struct TVImmersivePlayerView: View {
                 }
 
                 // 顶部正中:没有实时频谱、临时降档时写明原因。右上角是「返回」提示。
-                ImmersiveStageNotice(
-                    items: stageNoticeItems,
-                    isChromeVisible: showsChrome,
-                    isSuppressed: isLowPower || showsModePicker || showsQueue,
-                    isTelevision: true
-                )
+                VStack(spacing: 8) {
+                    if showsSimulatedWordTiming && !isLowPower && !showsModePicker {
+                        Text("lyrics_simulated_word_badge")
+                            .tvFont(.meta)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.black.opacity(0.25), in: Capsule())
+                            .allowsHitTesting(false)
+                    }
+                    ImmersiveStageNotice(
+                        items: stageNoticeItems,
+                        isChromeVisible: showsChrome,
+                        isSuppressed: isLowPower || showsModePicker || showsQueue,
+                        isTelevision: true
+                    )
+                }
                 .padding(.top, 56)
                 .padding(.horizontal, 320)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -432,6 +457,9 @@ struct TVImmersivePlayerView: View {
                 .presentationBackground(.clear)
                 .onExitCommand { closeDiscPosition() }
         }
+        .onChange(of: store.lyricsRevision, initial: true) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: simulatesWordLyrics) { _, _ in refreshSimulatedWordWindows() }
+        .onChange(of: store.currentItemIsSpokenWord) { _, _ in refreshSimulatedWordWindows() }
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
             presentationActivity.handle(.appeared)
@@ -1060,7 +1088,10 @@ struct TVImmersivePlayerView: View {
         let romanization = TVLyricsRomanizationController.shared
         return (lower..<upper).compactMap { position in
             // 按「罗马音显示」换过正文或附属罗马音；时间仍按原来那一行。
-            let line = romanization.displayLine(store.lyrics[position], songID: store.currentSongID)
+            let source = romanization.displayLine(store.lyrics[position], songID: store.currentSongID)
+            let line = TVSimulatedWordLyrics.displayLine(
+                source, window: showsSimulatedWordTiming ? simulatedWordWindows[source.id] : nil
+            )
             let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
             return ImmersiveStageLyric(

@@ -341,6 +341,120 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
     }
 
     @MainActor
+    func testSimulatedWordTimingBadgeStaysAtTopMidSong() async throws {
+        let suite = "SimulatedWordLyricsUI.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            activateAudioSession: { _ in }
+        )
+        player.currentTime = 50
+        let lines = (0..<30).map { index in
+            LyricLine(id: "line-\(index)", timestamp: Double(index * 5), text: "清晨的微风 · \(index + 1)", isSynchronized: true)
+        }
+        let presentation = SimulatedWordLyricsPolicy.presentation(of: lines, enabled: true)
+        let content = LyricsScrollView(
+            lyrics: presentation.lines, showsSimulatedWordTiming: presentation.isSimulated,
+            lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+            isResolvingLyrics: false, player: player, songID: "simulated-mid-song",
+            isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
+            isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
+            onBackgroundTap: {}, onShareLyricLine: { _ in },
+            translatedTextByLineID: [:], translationActivity: .idle
+        )
+        .defaultAppStorage(defaults)
+        .environment(\.locale, Locale(identifier: "zh-Hans"))
+        .environment(\.colorScheme, .dark)
+        .frame(width: 390, height: 540)
+        .background(.black)
+        let host = UIHostingController(rootView: content)
+        host.safeAreaRegions = []
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 540)
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(600))
+        @MainActor func scrollViews(in view: UIView) -> [UIScrollView] {
+            if let scroll = view as? UIScrollView { return [scroll] }
+            return view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let scroll = try XCTUnwrap(scrollViews(in: host.view).first)
+        XCTAssertGreaterThan(scroll.contentOffset.y, 500, "The viewport must be well past the document header")
+        let image = UIGraphicsImageRenderer(size: host.view.bounds.size).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "simulated-mid-song-top-badge"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testSimulatedWordLyricsRenderProgressAndTimingBadge() throws {
+        let lines = [
+            LyricLine(id: "first", timestamp: 0, text: "清晨的微风", isSynchronized: true),
+            LyricLine(id: "next", timestamp: 5, text: "照亮新的旅程")
+        ]
+        let presentation = SimulatedWordLyricsPolicy.presentation(of: lines, enabled: true)
+        let line = try XCTUnwrap(presentation.lines.first)
+        func render(at time: Double) throws -> UIImage {
+            let content = VStack(alignment: .leading, spacing: 24) {
+                LyricsInfoBadges(
+                    showsWordLevel: true, showsSimulatedWordTiming: presentation.isSimulated,
+                    source: nil, foreground: .white.opacity(0.8), fill: .white.opacity(0.1)
+                )
+                KaraokeLineView(
+                    line: line, fontSize: 42, weight: .bold,
+                    activeColor: .red, inactiveColor: .gray,
+                    timeAt: { _ in time }, fixedTime: time,
+                    animatesSyllableBounce: false, isolatesAnimatedProgressFromLayout: true
+                )
+                Text(lines[1].text).font(.system(size: 30)).foregroundStyle(.gray)
+            }
+            .padding(24)
+            .frame(width: 390, height: 240, alignment: .topLeading)
+            .background(.black)
+            .environment(\.locale, Locale(identifier: "zh-Hans"))
+            .id(time)
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.uiImage)
+            return try XCTUnwrap(UIImage(data: XCTUnwrap(image.pngData())))
+        }
+        let before = try render(at: -1)
+        let during = try render(at: 2)
+        let finished = try render(at: 5)
+        let counts = try [before, during, finished].map { image in
+            let cgImage = try XCTUnwrap(image.cgImage)
+            let pixels = try rgbaPixels(from: cgImage)
+            let headerPixels = pixels.prefix(cgImage.width * 110)
+            XCTAssertGreaterThan(headerPixels.filter {
+                $0.red > 70 && abs(Int($0.red) - Int($0.blue)) < 4
+            }.count, 100, "The timing badge remains visible throughout the sweep")
+            return pixels.filter {
+                $0.alpha > 40 && Int($0.red) - Int($0.blue) > 60
+            }.count
+        }
+        XCTAssertEqual(counts[0], 0)
+        XCTAssertGreaterThan(counts[1], counts[0])
+        XCTAssertGreaterThan(counts[2], counts[1])
+        for (name, image) in [("simulated-before", before), ("simulated-during", during), ("simulated-finished", finished)] {
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    @MainActor
     func testWordLevelHighlightWaitsForFirstSyllableTimestamp() throws {
         let line = LyricLine(
             timestamp: 0,

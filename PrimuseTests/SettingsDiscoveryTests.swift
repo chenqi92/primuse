@@ -3,6 +3,25 @@ import XCTest
 
 final class SettingsDiscoveryTests: XCTestCase {
     @MainActor
+    func testSimulatedWordLyricsDefaultsOffAndPersistsBothStates() throws {
+        let id = "lyrics.simulatedWordTiming"
+        XCTAssertEqual(SettingsCatalog.byID[id]?.page, .lyrics)
+        for query in ["模拟逐字", "simulated"] {
+            XCTAssertTrue(SettingsCatalog.search(query).contains { $0.id == id }, query)
+        }
+        try withService { service, playback, defaults in
+            XCTAssertFalse(PlayerAppearancePreferences.simulatesWordLyricsByDefault)
+            XCTAssertEqual(service.booleanValue(for: id), false)
+            try service.setEnabled(true, for: id)
+            let restored = SettingsActionService(playback: playback, defaults: defaults)
+            XCTAssertEqual(restored.booleanValue(for: id), true)
+            XCTAssertTrue(defaults.bool(forKey: PlayerAppearancePreferences.simulatesWordLyricsKey))
+            try restored.setEnabled(false, for: id)
+            XCTAssertEqual(service.booleanValue(for: id), false)
+        }
+    }
+
+    @MainActor
     func testMiniPlayerPinningIsDiscoverableAndPersistsBothStates() throws {
         let id = "player.pinMiniPlayer"
         guard PlayerAppearancePreferences.supportsMiniPlayerPinning else {

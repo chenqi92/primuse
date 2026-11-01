@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "سميك";
 "player_track_thickness_extraThick" = "سميك جدًا";
 
+"player_simulated_word_lyrics" = "محاكاة كلمات الأغنية كلمة بكلمة";
+"lyrics_simulated_word_badge" = "توقيت محاكى";
+
 "explore_word_lyrics" = "استكشاف كلمات متزامنة كلمة بكلمة";
 "player_activity_status" = "حالة المهام";
 "word_lyrics_searching" = "جارٍ البحث عن كلمات متزامنة كلمة بكلمة";

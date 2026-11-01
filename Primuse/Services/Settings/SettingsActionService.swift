@@ -27,7 +27,7 @@ struct SettingsActionService {
         "playback.skipTrailingSilence", "playback.replayGain",
         "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen", "playback.mixWithOthers",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
-        "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
+        "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.simulatedWordTiming", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
         "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind"
     ]
@@ -152,6 +152,7 @@ struct SettingsActionService {
         case "lyrics.bundledTranslation": LyricsTranslationSettingsStore.shared.showsBundledTranslations
         case "lyrics.exploreWordTiming": preference(WordLyricsDiscoveryPreferences.enabledKey, fallback: false)
         case "appearance.activityStatus": preference(WordLyricsDiscoveryPreferences.showsActivityKey, fallback: true)
+        case "lyrics.simulatedWordTiming": preference(PlayerAppearancePreferences.simulatesWordLyricsKey, fallback: PlayerAppearancePreferences.simulatesWordLyricsByDefault)
         case "lyrics.tapToSeek": preference(PlayerAppearancePreferences.tapLyricsToSeekKey, fallback: PlayerAppearancePreferences.tapLyricsToSeekByDefault)
         case "lyrics.browseTimeline": preference(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey, fallback: PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault)
         case "lyrics.blurInactive": preference(PlayerAppearancePreferences.blursInactiveLyricsKey, fallback: PlayerAppearancePreferences.blursInactiveLyricsByDefault)
@@ -198,6 +199,7 @@ struct SettingsActionService {
         case "lyrics.bundledTranslation": LyricsTranslationSettingsStore.shared.showsBundledTranslations = enabled
         case "lyrics.exploreWordTiming": defaults.set(enabled, forKey: WordLyricsDiscoveryPreferences.enabledKey)
         case "appearance.activityStatus": defaults.set(enabled, forKey: WordLyricsDiscoveryPreferences.showsActivityKey)
+        case "lyrics.simulatedWordTiming": defaults.set(enabled, forKey: PlayerAppearancePreferences.simulatesWordLyricsKey)
         case "lyrics.tapToSeek": defaults.set(enabled, forKey: PlayerAppearancePreferences.tapLyricsToSeekKey)
         case "lyrics.browseTimeline": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
         case "lyrics.blurInactive": defaults.set(enabled, forKey: PlayerAppearancePreferences.blursInactiveLyricsKey)

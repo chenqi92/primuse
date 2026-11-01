@@ -7087,6 +7087,9 @@
 "player_track_thickness_thick" = "굵게";
 "player_track_thickness_extraThick" = "매우 굵게";
 
+"player_simulated_word_lyrics" = "단어별 가사 효과 시뮬레이션";
+"lyrics_simulated_word_badge" = "시뮬레이션 타이밍";
+
 "explore_word_lyrics" = "단어별 동기화 가사 찾기";
 "player_activity_status" = "작업 상태";
 "word_lyrics_searching" = "단어별 동기화 가사 검색 중";

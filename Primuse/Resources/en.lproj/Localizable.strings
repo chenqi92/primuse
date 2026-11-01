@@ -6848,6 +6848,9 @@
 "player_track_thickness_thick" = "Thick";
 "player_track_thickness_extraThick" = "Extra thick";
 
+"player_simulated_word_lyrics" = "Simulate Word-by-Word Lyrics";
+"lyrics_simulated_word_badge" = "Simulated Timing";
+
 "explore_word_lyrics" = "Explore Word-Synced Lyrics";
 "player_activity_status" = "Task Status";
 "word_lyrics_searching" = "Finding word-synced lyrics";

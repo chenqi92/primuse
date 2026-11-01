@@ -763,6 +763,7 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.tapLyricsToSeekKey,
         PlayerAppearancePreferences.showsLyricsBrowseTimelineKey,
         PlayerAppearancePreferences.showsLyricsSourceKey,
+        PlayerAppearancePreferences.simulatesWordLyricsKey,
         WordLyricsDiscoveryPreferences.enabledKey,
         WordLyricsDiscoveryPreferences.showsActivityKey,
         PlayerAppearancePreferences.showsLyricsInterludeKey,

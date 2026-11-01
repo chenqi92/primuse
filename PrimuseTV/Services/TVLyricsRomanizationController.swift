@@ -119,3 +119,37 @@ extension TVLyricLine {
         )
     }
 }
+
+
+enum TVSimulatedWordLyrics {
+    static func windows(in lines: [TVLyricLine], enabled: Bool, isSpokenWord: Bool) -> [String: KaraokeLineWindow] {
+        let windows = SimulatedWordLyricsPolicy.windows(
+            in: lines.map(sourceLine), enabled: enabled, isSpokenWord: isSpokenWord
+        )
+        return Dictionary(windows.map { ($0.lineID, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    static func displayLine(_ line: TVLyricLine, window: KaraokeLineWindow?) -> TVLyricLine {
+        guard let window, line.syllables.isEmpty else { return line }
+        let timed = KaraokeSweepPolicy.sweepLine(sourceLine(line), window: window)
+        return TVLyricLine(
+            id: line.id, time: line.time, text: line.text, isSynchronized: line.isSynchronized,
+            syllables: (timed.syllables ?? []).map {
+                TVSyllable(w: $0.text, start: $0.start, end: $0.end, endTiming: $0.endTiming)
+            },
+            translation: line.translation, romanization: line.romanization,
+            writingDirection: line.writingDirection, voice: line.voice,
+            background: line.background, endTimestamp: line.endTimestamp
+        )
+    }
+
+    private static func sourceLine(_ line: TVLyricLine) -> LyricLine {
+        LyricLine(
+            id: line.id, timestamp: line.time, text: line.text, isSynchronized: line.isSynchronized,
+            syllables: line.syllables.isEmpty ? nil : line.syllables.map {
+                LyricSyllable(text: $0.w, start: $0.start, end: $0.end, endTiming: $0.endTiming)
+            },
+            endTimestamp: line.endTimestamp, voice: line.voice, background: line.background.map(sourceLine)
+        )
+    }
+}

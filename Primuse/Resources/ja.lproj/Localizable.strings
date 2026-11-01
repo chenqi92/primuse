@@ -7088,6 +7088,9 @@
 "player_track_thickness_thick" = "太い";
 "player_track_thickness_extraThick" = "極太";
 
+"player_simulated_word_lyrics" = "単語ごとの歌詞表示をシミュレート";
+"lyrics_simulated_word_badge" = "擬似タイミング";
+
 "explore_word_lyrics" = "単語同期の歌詞を探す";
 "player_activity_status" = "タスクの状態";
 "word_lyrics_searching" = "単語同期の歌詞を検索中";

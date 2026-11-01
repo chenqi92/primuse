@@ -10,6 +10,7 @@ import PrimuseKit
 struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
+    var showsSimulatedWordTiming = false
     /// Resolved by the player, which is the only place that knows whether a
     /// translation exists for the current target language.
     let lyricCompanions: (LyricLine) -> [String]
@@ -253,12 +254,24 @@ struct ImmersivePlayerView: View {
                 }
 
                 // 顶上那排圆钮下面:没有实时频谱、临时降档时写明原因。
-                ImmersiveStageNotice(
-                    items: stageNoticeItems,
-                    isChromeVisible: showsChrome,
-                    isSuppressed: isAmbientRest || showsEffectPicker || player.lastPlaybackError != nil
-                        || presentsOnExternalDisplay
-                )
+                VStack(spacing: 8) {
+                    if showsSimulatedWordTiming && !isAmbientRest && !showsEffectPicker {
+                        LyricsInfoBadges(
+                            showsWordLevel: false,
+                            showsSimulatedWordTiming: true,
+                            source: nil,
+                            foreground: .white.opacity(0.8),
+                            fill: .black.opacity(0.25)
+                        )
+                        .allowsHitTesting(false)
+                    }
+                    ImmersiveStageNotice(
+                        items: stageNoticeItems,
+                        isChromeVisible: showsChrome,
+                        isSuppressed: isAmbientRest || showsEffectPicker || player.lastPlaybackError != nil
+                            || presentsOnExternalDisplay
+                    )
+                }
                 .padding(.top, topChromeInset(chromeMetrics) + 56)
                 .padding(.horizontal, max(chromeMetrics.safeArea.leading, chromeMetrics.safeArea.trailing) + 20)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

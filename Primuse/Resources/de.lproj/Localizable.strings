@@ -7087,6 +7087,9 @@
 "player_track_thickness_thick" = "Dick";
 "player_track_thickness_extraThick" = "Sehr dick";
 
+"player_simulated_word_lyrics" = "Wortweise Liedtexte simulieren";
+"lyrics_simulated_word_badge" = "Simuliertes Timing";
+
 "explore_word_lyrics" = "Wortsynchrone Liedtexte suchen";
 "player_activity_status" = "Aufgabenstatus";
 "word_lyrics_searching" = "Wortsynchrone Liedtexte werden gesucht";

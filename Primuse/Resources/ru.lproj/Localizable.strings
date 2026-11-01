@@ -6993,6 +6993,9 @@
 "player_track_thickness_thick" = "Толстая";
 "player_track_thickness_extraThick" = "Очень толстая";
 
+"player_simulated_word_lyrics" = "Имитировать пословную подсветку";
+"lyrics_simulated_word_badge" = "Имитация синхронизации";
+
 "explore_word_lyrics" = "Искать тексты с пословной синхронизацией";
 "player_activity_status" = "Статус задач";
 "word_lyrics_searching" = "Поиск текстов с пословной синхронизацией";
