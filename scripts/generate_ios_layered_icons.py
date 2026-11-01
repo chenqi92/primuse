@@ -16,11 +16,12 @@ from generate_brand_marks import build_marks, clear_edges, soft_note_artwork
 OUTPUT = ROOT / "Primuse" / "Resources-iOS" / "AppIcons"
 
 
-def appearance_opacity(light: int, dark: int, mono: int) -> list[dict]:
+def appearance_visibility(light: bool, dark: bool, mono: bool) -> list[dict]:
+    # Zero color opacity leaves the layer's glass contour visible.
     return [
-        {"value": light},
-        {"appearance": "dark", "value": dark},
-        {"appearance": "tinted", "value": mono},
+        {"value": not light},
+        {"appearance": "dark", "value": not dark},
+        {"appearance": "tinted", "value": not mono},
     ]
 
 
@@ -59,19 +60,19 @@ def save_icon(icon_name: str, light_name: str, dark_name: str, mono: Image.Image
                         "name": "Light",
                         "image-name": "Light.png",
                         "glass": False,
-                        "opacity-specializations": appearance_opacity(1, 0, 0),
+                        "hidden-specializations": appearance_visibility(True, False, False),
                     },
                     {
                         "name": "Dark",
                         "image-name": "Dark.png",
                         "glass": False,
-                        "opacity-specializations": appearance_opacity(0, 1, 0),
+                        "hidden-specializations": appearance_visibility(False, True, False),
                     },
                     {
                         "name": "Mono",
                         "image-name": "Mono.png",
                         "glass": True,
-                        "opacity-specializations": appearance_opacity(0, 0, 1),
+                        "hidden-specializations": appearance_visibility(False, False, True),
                     },
                 ],
             }
