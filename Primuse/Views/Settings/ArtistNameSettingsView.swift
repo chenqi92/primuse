@@ -97,6 +97,14 @@ struct ArtistNameSettingsView: View {
             .settingsAnchor("artists.displaySeparator")
 
             Section {
+                Toggle("artist_name_settings_merge_collaborative_albums", isOn: Binding(
+                    get: { store.configuration.mergesCollaborativeAlbums },
+                    set: { store.setMergesCollaborativeAlbums($0) }
+                ))
+            }
+            .settingsAnchor("artists.mergeCollaborativeAlbums")
+
+            Section {
                 Button("artist_name_settings_reset", role: .destructive) {
                     showsResetConfirmation = true
                 }

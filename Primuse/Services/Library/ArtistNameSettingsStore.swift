@@ -71,6 +71,12 @@ final class ArtistNameSettingsStore {
         _ = apply(.defaultValue)
     }
 
+    func setMergesCollaborativeAlbums(_ value: Bool) {
+        var next = configuration
+        next.mergesCollaborativeAlbums = value
+        _ = apply(next)
+    }
+
     @discardableResult
     func apply(_ value: ArtistNameConfiguration) -> Bool {
         let value = value.normalized()

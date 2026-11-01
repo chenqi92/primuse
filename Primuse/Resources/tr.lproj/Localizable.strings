@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "Şarkı sözleri alınıyor";
 "player_activity_artwork" = "Kapaklar alınıyor";
 "player_activity_scraping" = "Meta veriler alınıyor";
+
+"artist_name_settings_merge_collaborative_albums" = "Aynı adlı ortak albümleri birleştir";

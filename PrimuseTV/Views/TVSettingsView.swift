@@ -370,6 +370,11 @@ struct TVSettingsView: View {
                                 artistRulesValue + " · " + PMString("artist_name_settings_tv_read_only")
                             )
                             settingDivider
+                            toggleRow("square.stack", PMString("artist_name_settings_merge_collaborative_albums"), isOn: Binding(
+                                get: { artistNameSettings.configuration.mergesCollaborativeAlbums },
+                                set: { artistNameSettings.setMergesCollaborativeAlbums($0) }
+                            ))
+                            settingDivider
                             navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlistCount)) { go(.playlists) }
                             settingDivider
                             navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sourceCount)) { go(.sources) }

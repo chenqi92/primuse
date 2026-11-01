@@ -7193,3 +7193,5 @@
 "player_activity_lyrics" = "正在刮削歌词";
 "player_activity_artwork" = "正在获取封面";
 "player_activity_scraping" = "正在刮削";
+
+"artist_name_settings_merge_collaborative_albums" = "合并同名合作专辑";

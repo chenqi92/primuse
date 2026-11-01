@@ -7101,3 +7101,5 @@
 "player_activity_lyrics" = "歌詞を取得中";
 "player_activity_artwork" = "アートワークを取得中";
 "player_activity_scraping" = "メタデータを取得中";
+
+"artist_name_settings_merge_collaborative_albums" = "同名のコラボアルバムを統合";

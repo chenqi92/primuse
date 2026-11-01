@@ -1014,3 +1014,5 @@
 "immersive_disc_vinyl" = "Вініл";
 "immersive_disc_style" = "Стиль диска";
 "immersive_disc_settings" = "Налаштування диска";
+
+"artist_name_settings_merge_collaborative_albums" = "Об’єднувати спільні альбоми з однаковою назвою";

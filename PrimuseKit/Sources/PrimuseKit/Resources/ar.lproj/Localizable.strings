@@ -1014,3 +1014,5 @@
 "immersive_disc_vinyl" = "فينيل";
 "immersive_disc_style" = "نمط القرص";
 "immersive_disc_settings" = "إعدادات القرص";
+
+"artist_name_settings_merge_collaborative_albums" = "دمج ألبومات التعاون التي تحمل العنوان نفسه";

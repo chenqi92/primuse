@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "Obteniendo letras";
 "player_activity_artwork" = "Obteniendo portadas";
 "player_activity_scraping" = "Obteniendo metadatos";
+
+"artist_name_settings_merge_collaborative_albums" = "Combinar álbumes colaborativos con el mismo título";

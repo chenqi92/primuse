@@ -551,4 +551,63 @@ struct AlbumArtistInferencePolicyTests {
         #expect(AlbumArtistInferencePolicy.creditNames(in: "Charli xcx") == ["Charli xcx"])
         #expect(AlbumArtistInferencePolicy.creditNames(in: "Elvis Presley") == ["Elvis Presley"])
     }
+
+    private var mergingConfiguration: ArtistNameConfiguration {
+        var value = ArtistNameConfiguration.defaultValue
+        value.mergesCollaborativeAlbums = true
+        return value
+    }
+
+    @Test func optInMergesAnAlbumMadeEntirelyOfCollaborationsAcrossFoldersAndSources() {
+        let guests = ["A-Lin", "陈立农", "黄子弘凡", "王赫野", "汪苏泷", "姚晓棠"]
+        let tracks = guests.enumerated().map { index, guest in
+            track("\(index)", sourceID: index < 3 ? "baidu" : "smb", directory: "/folder/\(index)",
+                  albumTitle: "归程", albumArtistName: "吉克隽逸 & \(guest)",
+                  trackArtistName: "吉克隽逸 & \(guest)", year: 2026, number: index + 1)
+        }
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
+        let expected = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, "吉克隽逸") })
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: mergingConfiguration) == expected)
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks.reversed(), configuration: mergingConfiguration) == expected)
+    }
+
+    @Test func optInKeepsUnrelatedTitlesAndArtistsApart() {
+        let tracks = [flat("1", "A & B"), flat("2", "A & C"), flat("3", "D & E"),
+                      flat("4", "A & F", album: "Other")]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: mergingConfiguration)
+                == ["1": "A", "2": "A"])
+    }
+
+    @Test func optInDoesNotChainAmbiguousCollaboratorsOrSplitABand() {
+        for tracks in [
+            [flat("1", "A & B"), flat("2", "A & C"), flat("3", "B & D")],
+            [flat("1", "Simon & Garfunkel feat. A"), flat("2", "Simon & Garfunkel feat. B")],
+            [flat("1", "Unknown Artist & B"), flat("2", "Unknown Artist & C")],
+        ] {
+            #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: mergingConfiguration).isEmpty)
+        }
+    }
+
+    @Test func optInHonorsProtectedNamesAndCollaborationSeparators() {
+        var configuration = mergingConfiguration
+        configuration.protectedNames += ["Simon & Garfunkel"]
+        for artist in ["AC/DC", "Simon & Garfunkel", "Charli xcx"] {
+            let tracks = [flat("1", "\(artist) (feat. Guest B)"), flat("2", "Guest C & \(artist)")]
+            #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: configuration)
+                    == ["1": artist, "2": artist])
+        }
+    }
+
+    @Test func optInRespectsReleaseConflictsAndExplicitUnrelatedAlbumArtists() {
+        for tracks in [
+            [flat("1", "A & B", year: 2025), flat("2", "A & C", year: 2026)],
+            [flat("1", "A & B", number: 1), flat("2", "A & C", number: 1)],
+            [flat("1", "A & B", albumArtist: "Band One"), flat("2", "A & C", albumArtist: "Band Two")],
+        ] {
+            #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks, configuration: mergingConfiguration).isEmpty)
+        }
+        let discs = [flat("1", "A & B", disc: 1, number: 1), flat("2", "A & C", disc: 2, number: 1)]
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: discs, configuration: mergingConfiguration)
+                == ["1": "A", "2": "A"])
+    }
 }

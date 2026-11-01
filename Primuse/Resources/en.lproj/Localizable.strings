@@ -6861,3 +6861,5 @@
 "player_activity_lyrics" = "Fetching lyrics";
 "player_activity_artwork" = "Fetching artwork";
 "player_activity_scraping" = "Scraping metadata";
+
+"artist_name_settings_merge_collaborative_albums" = "Merge same-title collaboration albums";

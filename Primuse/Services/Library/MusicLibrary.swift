@@ -8778,7 +8778,7 @@ final class MusicLibrary {
         var nextSongs = songs
         var changedSongs: [Song] = []
         changedSongs.reserveCapacity(nextSongs.count)
-        let inferred = Self.inferredAlbumArtists(for: nextSongs, folders: albumArtistFolders)
+        let inferred = Self.inferredAlbumArtists(for: nextSongs, folders: albumArtistFolders, configuration: value)
         let derivedIDMemo = DerivedIDMemo()
         for index in nextSongs.indices {
             let previousArtistID = nextSongs[index].artistID
@@ -12231,7 +12231,8 @@ final class MusicLibrary {
             let inferred = MusicLibrary.inferredAlbumArtists(
                 for: [s],
                 among: songs,
-                folders: albumArtistFolders
+                folders: albumArtistFolders,
+                configuration: artistNameConfiguration
             )
             MusicLibrary.fillDerivedIDs(
                 &s,
@@ -12339,7 +12340,8 @@ final class MusicLibrary {
         let inferred = regrouped.isEmpty ? [:] : MusicLibrary.inferredAlbumArtists(
             for: regrouped,
             among: originalSongs,
-            folders: albumArtistFolders
+            folders: albumArtistFolders,
+            configuration: artistNameConfiguration
         )
 
         var lastApplied: Song?
@@ -14524,7 +14526,7 @@ final class MusicLibrary {
         // 同一目录同名专辑的 album artist 归属只有整库口径才算得出来,
         // 装载时算一次, 逐首复用。网盘的父目录在扫描同步索引里, 装载时还
         // 拿不到; 发布后 `updateAlbumArtistFolders` 会按目录再整库重建一次。
-        let inferred = inferredAlbumArtists(for: songs, folders: .empty)
+        let inferred = inferredAlbumArtists(for: songs, folders: .empty, configuration: configuration)
         let memo = DerivedIDMemo()
 
         for index in songs.indices {
@@ -16353,10 +16355,12 @@ final class MusicLibrary {
     /// 整库口径: 每个源的所有歌一起判定目录权威性与同目录同名专辑的归属。
     nonisolated static func inferredAlbumArtists(
         for songs: [Song],
-        folders: AlbumArtistFolderIndex
+        folders: AlbumArtistFolderIndex,
+        configuration: ArtistNameConfiguration = .defaultValue
     ) -> [String: String] {
         AlbumArtistInferencePolicy.inferredAlbumArtists(
-            for: songs.map { albumArtistInferenceTrack($0, folders: folders) }
+            for: songs.map { albumArtistInferenceTrack($0, folders: folders) },
+            configuration: configuration
         )
     }
 
@@ -16371,7 +16375,8 @@ final class MusicLibrary {
     nonisolated static func inferredAlbumArtists(
         for candidates: [Song],
         among library: [Song],
-        folders: AlbumArtistFolderIndex
+        folders: AlbumArtistFolderIndex,
+        configuration: ArtistNameConfiguration = .defaultValue
     ) -> [String: String] {
         guard !candidates.isEmpty else { return [:] }
         var titlesBySource: [String: Set<String>] = [:]
@@ -16380,6 +16385,7 @@ final class MusicLibrary {
             titlesBySource[song.sourceID, default: []].insert(title)
         }
         guard !titlesBySource.isEmpty else { return [:] }
+        let sharedTitles = Set(titlesBySource.values.flatMap { $0 })
 
         let candidateIDs = Set(candidates.map(\.id))
         let candidateTracks = candidates.map { albumArtistInferenceTrack($0, folders: folders) }
@@ -16392,7 +16398,8 @@ final class MusicLibrary {
 
         var scoped: [AlbumArtistInferencePolicy.Track] = []
         for song in library where !candidateIDs.contains(song.id) {
-            guard let titles = titlesBySource[song.sourceID] else { continue }
+            guard let titles = configuration.mergesCollaborativeAlbums
+                    ? sharedTitles : titlesBySource[song.sourceID] else { continue }
             let needsAuthority = !authoritative.contains(song.sourceID)
             let sharesTitle = albumArtistInferenceTitle(song.albumTitle)
                 .map { titles.contains($0) } ?? false
@@ -16415,7 +16422,8 @@ final class MusicLibrary {
 
         let inferred = AlbumArtistInferencePolicy.inferredAlbumArtists(
             for: scoped,
-            directoryAuthoritativeSourceIDs: authoritative
+            directoryAuthoritativeSourceIDs: authoritative,
+            configuration: configuration
         )
         return inferred.filter { candidateIDs.contains($0.key) }
     }
@@ -16481,7 +16489,7 @@ final class MusicLibrary {
         // 整库才看得见同一目录里的兄弟文件, 所以 album artist 的补全在这里先
         // 算一次, 下面两处 identity 与逐首 albumID 的对账都用同一份结果。
         let inferredAlbumArtists = precomputedInference
-            ?? Self.inferredAlbumArtists(for: songs, folders: folders)
+            ?? Self.inferredAlbumArtists(for: songs, folders: folders, configuration: configuration)
         guard !cancellationCheck() else { return nil }
         let unknownArtist = String(localized: "unknown_artist")
 
@@ -16685,7 +16693,7 @@ final class MusicLibrary {
             _ = Self.derivedIndexSignature(for: songs, configuration: configuration)
             let signature = ms(started)
             started = ProcessInfo.processInfo.systemUptime
-            _ = Self.inferredAlbumArtists(for: songs, folders: folders)
+            _ = Self.inferredAlbumArtists(for: songs, folders: folders, configuration: configuration)
             let inference = ms(started)
             started = ProcessInfo.processInfo.systemUptime
             let derived = Self.computeAlbumsAndArtists(songs: songs, configuration: configuration, folders: folders)
@@ -16728,7 +16736,7 @@ final class MusicLibrary {
         guard !cancellationCheck() else { return nil }
         // 整库才看得见同一目录里的兄弟文件, 所以 album artist 的补全在这里先
         // 算一次, 下面两处 identity 与逐首 albumID 的对账都用同一份结果。
-        let inferredAlbumArtists = Self.inferredAlbumArtists(for: songs, folders: folders)
+        let inferredAlbumArtists = Self.inferredAlbumArtists(for: songs, folders: folders, configuration: configuration)
         guard !cancellationCheck() else { return nil }
         let unknownArtist = String(localized: "unknown_artist")
         var resolvedNamesMemo: [DerivedIDMemo.ArtistNames: [String]] = [:]

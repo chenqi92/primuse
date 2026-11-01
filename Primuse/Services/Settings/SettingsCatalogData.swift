@@ -220,6 +220,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "artists.separators", titleKey: "artist_name_settings_separators", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_separator_placeholder", "add"]),
         SettingDefinition(id: "artists.protectedNames", titleKey: "artist_name_settings_protected_names", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_protected_placeholder", "add"]),
         SettingDefinition(id: "artists.displaySeparator", titleKey: "artist_name_settings_display_separator", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_display_separator_placeholder", "save"]),
+        SettingDefinition(id: "artists.mergeCollaborativeAlbums", titleKey: "artist_name_settings_merge_collaborative_albums", iosPage: .artists, macPage: .artists),
         SettingDefinition(id: "artists.reset", titleKey: "artist_name_settings_reset", iosPage: .artists, macPage: .artists, anchor: "artists.separators"),
         SettingDefinition(id: "scraping.sources", titleKey: "scraper_sources", iosPage: .scraping, macPage: .scraping, keywords: ["Scraping Sources"]),
         SettingDefinition(id: "scraping.import", titleKey: "import_scraper_source", iosPage: .scraping, macPage: .scraping, keywords: ["Import"]),

@@ -533,6 +533,56 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         XCTAssertEqual(result.albumIDCorrections.keys.sorted(), ["2"])
     }
 
+    func testCollaborationAlbumToggleRegroupsExistingSongsAndSurvivesReload() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        let originals = ["A-Lin", "陈立农", "黄子弘凡"].enumerated().map { index, guest in
+            var row = song(id: "\(index)", metadata: .init(artist: "吉克隽逸 & \(guest)", albumTitle: "归程"))
+            row.sourceID = index == 0 ? "baidu" : "smb"
+            row.filePath = "/folder/\(index)/track.mp3"
+            row.trackNumber = index + 1
+            return row
+        }
+        library.addSongs(originals, affectedSourceIDs: ["baidu", "smb"])
+        for _ in 0..<200 where library.albums.count != 3 { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(library.albums.count, 3)
+        var configuration = ArtistNameConfiguration.defaultValue
+        configuration.mergesCollaborativeAlbums = true
+        library.updateArtistNameConfiguration(configuration)
+        for _ in 0..<200 where library.albums.count != 1 { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(library.albums.count, 1)
+        let merged = try XCTUnwrap(library.albums.first)
+        XCTAssertEqual(merged.artistName, "吉克隽逸")
+        XCTAssertEqual(library.songs(forAlbum: merged.id).count, 3)
+        XCTAssertEqual(Set(library.songs.compactMap(\.artistName)), Set(originals.compactMap(\.artistName)))
+        XCTAssertEqual(Set(library.songs.compactMap(\.albumArtistName)), Set(originals.compactMap(\.albumArtistName)))
+        _ = await library.persistNowAndWait()
+
+        let restored = MusicLibrary(storageDirectory: directory, artistNameConfiguration: configuration)
+        XCTAssertEqual(restored.albums.count, 1)
+        restored.updateArtistNameConfiguration(.defaultValue)
+        for _ in 0..<200 where restored.albums.count != 3 { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(restored.albums.count, 3)
+        XCTAssertEqual(Set(restored.songs.compactMap(\.albumID)).count, 3)
+        _ = await restored.persistNowAndWait()
+    }
+
+    func testCollaborationAlbumIncrementalInferenceMatchesFullLibraryAcrossSources() {
+        var configuration = ArtistNameConfiguration.defaultValue
+        configuration.mergesCollaborativeAlbums = true
+        var first = song(id: "first", metadata: .init(artist: "吉克隽逸 & A-Lin", albumTitle: "归程"))
+        first.sourceID = "baidu"
+        var second = song(id: "second", metadata: .init(artist: "吉克隽逸 & 陈立农", albumTitle: "归程"))
+        second.sourceID = "smb"
+        let songs = [first, second]
+        let full = MusicLibrary.inferredAlbumArtists(for: songs, folders: .empty, configuration: configuration)
+        let incremental = MusicLibrary.inferredAlbumArtists(for: [second], among: songs, folders: .empty, configuration: configuration)
+        XCTAssertEqual(incremental, [second.id: "吉克隽逸"])
+        XCTAssertEqual(incremental[second.id], full[second.id])
+        XCTAssertEqual(MusicLibrary.computeAlbumsAndArtists(songs: songs, configuration: configuration).albums.count, 1)
+    }
+
     private func song(id: String, metadata: FileMetadataReader.Metadata) -> Song {
         Song(
             id: id, title: id, albumTitle: metadata.albumTitle,
@@ -1134,6 +1184,19 @@ final class MusicDiscoveryRecommendationTests: XCTestCase {
 
 @MainActor
 final class ArtistNameSettingsStoreTests: XCTestCase {
+    func testCollaborationAlbumSettingPersistsAndCanBeDisabled() throws {
+        let suite = "ArtistNameSettingsStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ArtistNameSettingsStore(defaults: defaults, syncsThroughICloud: false)
+        XCTAssertFalse(store.configuration.mergesCollaborativeAlbums)
+        store.setMergesCollaborativeAlbums(true)
+        let restored = ArtistNameSettingsStore(defaults: defaults, syncsThroughICloud: false)
+        XCTAssertTrue(restored.configuration.mergesCollaborativeAlbums)
+        restored.setMergesCollaborativeAlbums(false)
+        XCTAssertFalse(ArtistNameConfiguration.load(from: defaults).mergesCollaborativeAlbums)
+    }
+
     func testUnsupportedFutureConfigurationIsPreservedUntilUserEdits() throws {
         let suiteName = "ArtistNameSettingsStoreTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

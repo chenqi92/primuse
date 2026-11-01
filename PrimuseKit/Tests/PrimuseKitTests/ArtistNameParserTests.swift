@@ -112,6 +112,21 @@ import Testing
     #expect(!value.isSupported)
 }
 
+@Test func collaborationAlbumSettingDefaultsOffForExistingRulesAndPersists() throws {
+    let data = Data(#"{"schemaVersion":1,"separators":["|"],"protectedNames":["AC/DC"],"displaySeparator":" + "}"#.utf8)
+    var value = try JSONDecoder().decode(ArtistNameConfiguration.self, from: data)
+    #expect(!value.mergesCollaborativeAlbums)
+    #expect(value.separators == ["|"])
+    let originalSignature = value.cacheSignature
+    value.mergesCollaborativeAlbums = true
+    let restored = try JSONDecoder().decode(ArtistNameConfiguration.self, from: value.encodedData())
+    #expect(restored.mergesCollaborativeAlbums)
+    #expect(restored.cacheSignature != originalSignature)
+    #expect(restored.protectedNames == ["AC/DC"])
+    value.mergesCollaborativeAlbums = false
+    #expect(value.cacheSignature == originalSignature)
+}
+
 @Test func songSnapshotsFromOlderVersionsDecodeWithoutNativeArtists() throws {
     let original = Song(
         id: "legacy",

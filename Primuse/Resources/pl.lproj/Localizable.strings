@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "Pobieranie tekstów";
 "player_activity_artwork" = "Pobieranie okładek";
 "player_activity_scraping" = "Pobieranie metadanych";
+
+"artist_name_settings_merge_collaborative_albums" = "Scal albumy współtworzone o tym samym tytule";

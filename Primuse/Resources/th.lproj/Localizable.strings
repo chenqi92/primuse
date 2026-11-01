@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "กำลังดึงเนื้อเพลง";
 "player_activity_artwork" = "กำลังดึงภาพปก";
 "player_activity_scraping" = "กำลังดึงข้อมูลเมตา";
+
+"artist_name_settings_merge_collaborative_albums" = "รวมอัลบั้มร่วมงานที่มีชื่อเดียวกัน";

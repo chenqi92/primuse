@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "बोल प्राप्त किए जा रहे हैं";
 "player_activity_artwork" = "कवर प्राप्त किए जा रहे हैं";
 "player_activity_scraping" = "मेटाडेटा प्राप्त किया जा रहा है";
+
+"artist_name_settings_merge_collaborative_albums" = "एक ही नाम वाले सहयोगी एल्बम मिलाएँ";

@@ -1014,3 +1014,5 @@
 "immersive_disc_vinyl" = "Plak";
 "immersive_disc_style" = "Disk Stili";
 "immersive_disc_settings" = "Disk Ayarları";
+
+"artist_name_settings_merge_collaborative_albums" = "Aynı adlı ortak albümleri birleştir";

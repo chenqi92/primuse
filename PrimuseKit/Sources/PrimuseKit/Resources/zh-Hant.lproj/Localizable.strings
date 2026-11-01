@@ -1064,3 +1064,5 @@
 "immersive_disc_vinyl" = "黑膠";
 "immersive_disc_style" = "盤面樣式";
 "immersive_disc_settings" = "盤面設定";
+
+"artist_name_settings_merge_collaborative_albums" = "合併同名合作專輯";

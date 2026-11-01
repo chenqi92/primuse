@@ -14,17 +14,33 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
     public var separators: [String]
     public var protectedNames: [String]
     public var displaySeparator: String
+    public var mergesCollaborativeAlbums: Bool
 
     public init(
         schemaVersion: Int = currentSchemaVersion,
         separators: [String],
         protectedNames: [String],
-        displaySeparator: String
+        displaySeparator: String,
+        mergesCollaborativeAlbums: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.separators = separators
         self.protectedNames = protectedNames
         self.displaySeparator = displaySeparator
+        self.mergesCollaborativeAlbums = mergesCollaborativeAlbums
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, separators, protectedNames, displaySeparator, mergesCollaborativeAlbums
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
+        separators = try values.decode([String].self, forKey: .separators)
+        protectedNames = try values.decode([String].self, forKey: .protectedNames)
+        displaySeparator = try values.decode(String.self, forKey: .displaySeparator)
+        mergesCollaborativeAlbums = try values.decodeIfPresent(Bool.self, forKey: .mergesCollaborativeAlbums) ?? false
     }
 
     public var isSupported: Bool {
@@ -92,7 +108,8 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
                 maximumLength: 256,
                 widthInsensitive: true
             ),
-            displaySeparator: Self.normalizedDisplaySeparator(displaySeparator)
+            displaySeparator: Self.normalizedDisplaySeparator(displaySeparator),
+            mergesCollaborativeAlbums: mergesCollaborativeAlbums
         )
     }
 
@@ -101,12 +118,13 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
     /// after an artist parsing rule changes.
     public var cacheSignature: String {
         let value = normalized()
-        return ([String(value.schemaVersion), value.displaySeparator]
+        let legacy = ([String(value.schemaVersion), value.displaySeparator]
             + value.separators
             + ["\u{1F}"]
             + value.protectedNames)
             .map { "\($0.utf8.count):\($0)" }
             .joined(separator: "|")
+        return value.mergesCollaborativeAlbums ? legacy + "|mergeCollaborativeAlbums:1" : legacy
     }
 
     private static func normalizedList(

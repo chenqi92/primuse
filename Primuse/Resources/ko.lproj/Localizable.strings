@@ -7100,3 +7100,5 @@
 "player_activity_lyrics" = "가사 가져오는 중";
 "player_activity_artwork" = "앨범 아트 가져오는 중";
 "player_activity_scraping" = "메타데이터 가져오는 중";
+
+"artist_name_settings_merge_collaborative_albums" = "제목이 같은 협업 앨범 병합";

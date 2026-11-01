@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "Завантаження текстів";
 "player_activity_artwork" = "Завантаження обкладинок";
 "player_activity_scraping" = "Отримання метаданих";
+
+"artist_name_settings_merge_collaborative_albums" = "Об’єднувати спільні альбоми з однаковою назвою";

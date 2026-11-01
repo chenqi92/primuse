@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "جارٍ جلب الكلمات";
 "player_activity_artwork" = "جارٍ جلب الغلاف";
 "player_activity_scraping" = "جارٍ جلب البيانات";
+
+"artist_name_settings_merge_collaborative_albums" = "دمج ألبومات التعاون التي تحمل العنوان نفسه";

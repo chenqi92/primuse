@@ -1014,3 +1014,5 @@
 "immersive_disc_vinyl" = "Vinil";
 "immersive_disc_style" = "Estilo do disco";
 "immersive_disc_settings" = "Ajustes do disco";
+
+"artist_name_settings_merge_collaborative_albums" = "Mesclar álbuns colaborativos com o mesmo título";

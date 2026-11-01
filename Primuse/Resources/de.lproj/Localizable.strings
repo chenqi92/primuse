@@ -7100,3 +7100,5 @@
 "player_activity_lyrics" = "Liedtexte werden geladen";
 "player_activity_artwork" = "Cover werden geladen";
 "player_activity_scraping" = "Metadaten werden abgerufen";
+
+"artist_name_settings_merge_collaborative_albums" = "Gemeinsame Alben mit gleichem Titel zusammenführen";

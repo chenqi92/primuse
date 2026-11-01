@@ -7100,3 +7100,5 @@
 "player_activity_lyrics" = "Récupération des paroles";
 "player_activity_artwork" = "Récupération des pochettes";
 "player_activity_scraping" = "Récupération des métadonnées";
+
+"artist_name_settings_merge_collaborative_albums" = "Fusionner les albums collaboratifs de même titre";

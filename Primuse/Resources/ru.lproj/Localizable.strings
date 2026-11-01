@@ -7006,3 +7006,5 @@
 "player_activity_lyrics" = "Загрузка текстов";
 "player_activity_artwork" = "Загрузка обложек";
 "player_activity_scraping" = "Получение метаданных";
+
+"artist_name_settings_merge_collaborative_albums" = "Объединять совместные альбомы с одинаковым названием";

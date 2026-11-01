@@ -1067,3 +1067,5 @@
 "immersive_disc_vinyl" = "Vinyle";
 "immersive_disc_style" = "Style du disque";
 "immersive_disc_settings" = "Réglages du disque";
+
+"artist_name_settings_merge_collaborative_albums" = "Fusionner les albums collaboratifs de même titre";

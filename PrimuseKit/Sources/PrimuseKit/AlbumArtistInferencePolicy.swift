@@ -157,7 +157,8 @@ public enum AlbumArtistInferencePolicy {
     /// value. Tracks absent from the result keep `albumArtistName ?? trackArtistName`.
     public static func inferredAlbumArtists(
         for tracks: [Track],
-        directoryAuthoritativeSourceIDs: Set<String>
+        directoryAuthoritativeSourceIDs: Set<String>,
+        configuration: ArtistNameConfiguration = .defaultValue
     ) -> [String: String] {
         var result: [String: String] = [:]
         var keys = GroupingKeys()
@@ -179,7 +180,6 @@ public enum AlbumArtistInferencePolicy {
         let unfoldered = tracks.filter {
             !directoryAuthoritativeSourceIDs.contains($0.sourceID) || $0.directory == nil
         }
-        guard !unfoldered.isEmpty else { return result }
         // Folding a duet into the solo credit beside it needs no majority, so
         // it is open to these scopes too: it only ever joins credits that
         // already share an artist, never an album by somebody else.
@@ -193,14 +193,98 @@ public enum AlbumArtistInferencePolicy {
                 result[track.id] = target
             }
         }
+        if configuration.mergesCollaborativeAlbums {
+            result.merge(sharedArtistTargets(for: tracks, configuration: configuration)) { _, shared in shared }
+        }
         return result
     }
 
-    public static func inferredAlbumArtists(for tracks: [Track]) -> [String: String] {
+    public static func inferredAlbumArtists(
+        for tracks: [Track],
+        configuration: ArtistNameConfiguration = .defaultValue
+    ) -> [String: String] {
         inferredAlbumArtists(
             for: tracks,
-            directoryAuthoritativeSourceIDs: directoryAuthoritativeSourceIDs(for: tracks)
+            directoryAuthoritativeSourceIDs: directoryAuthoritativeSourceIDs(for: tracks),
+            configuration: configuration
         )
+    }
+
+    /// The opt-in rule uses the title and shared artist across folders and sources.
+    /// Competing shared artists are left unresolved, so A & B cannot bridge an
+    /// A collaboration album into a separate B collaboration album.
+    private static func sharedArtistTargets(
+        for tracks: [Track],
+        configuration: ArtistNameConfiguration
+    ) -> [String: String] {
+        let parsing = configuration.normalized()
+        var keys = GroupingKeys()
+        var namesByCredit: [String: [String: String]] = [:]
+        var result: [String: String] = [:]
+        for scope in Dictionary(grouping: tracks.filter { $0.trimmedAlbumTitle != nil }, by: { $0.trimmedAlbumTitle! }).values {
+            var tracksByCredit: [String: [Track]] = [:]
+            var creditsByArtist: [String: Set<String>] = [:]
+            var spellingByArtist: [String: String] = [:]
+            for track in scope {
+                guard let credit = track.effectiveArtist else { continue }
+                let creditKey = keys.key(credit)
+                let names: [String: String]
+                if let cached = namesByCredit[credit] {
+                    names = cached
+                } else {
+                    var parsed: [String: String] = [:]
+                    for name in creditNames(in: credit, configuration: parsing) {
+                        guard !PlaceholderArtistPolicy.isPlaceholder(name) else { continue }
+                        parsed[keys.key(name)] = name
+                    }
+                    namesByCredit[credit] = parsed
+                    names = parsed
+                }
+                tracksByCredit[creditKey, default: []].append(track)
+                for (artist, spelling) in names {
+                    creditsByArtist[artist, default: []].insert(creditKey)
+                    spellingByArtist[artist] = min(spellingByArtist[artist] ?? spelling, spelling)
+                }
+            }
+            let candidates = creditsByArtist.filter { $0.value.count >= 2 }
+            var candidatesByCredit: [String: Set<String>] = [:]
+            for (artist, credits) in candidates {
+                for credit in credits { candidatesByCredit[credit, default: []].insert(artist) }
+            }
+            for (artist, credits) in candidates {
+                guard credits.allSatisfy({ candidatesByCredit[$0]?.count == 1 }),
+                      let spelling = spellingByArtist[artist] else { continue }
+                let members = credits.flatMap { tracksByCredit[$0] ?? [] }
+                guard Set(members.compactMap(\.year).filter { $0 > 0 }).count <= 1 else { continue }
+                var numberOwner: [DiscTrack: String] = [:]
+                var conflicts = false
+                for credit in credits {
+                    for track in tracksByCredit[credit] ?? [] {
+                        guard let number = DiscTrack(track) else { continue }
+                        if let owner = numberOwner[number], owner != credit { conflicts = true }
+                        numberOwner[number] = credit
+                    }
+                }
+                guard !conflicts else { continue }
+                for track in members { result[track.id] = spelling }
+            }
+        }
+        return result
+    }
+
+    private static func creditNames(in credit: String, configuration: ArtistNameConfiguration) -> [String] {
+        var masked = credit
+        var protected: [(token: String, name: String)] = []
+        for (index, name) in configuration.protectedNames.sorted(by: { $0.count > $1.count }).enumerated() {
+            let token = "\u{E000}\(index)\u{E001}"
+            masked = masked.replacingOccurrences(of: name, with: token, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive])
+            protected.append((token, name))
+        }
+        return creditNames(in: masked).flatMap {
+            ArtistNameParser.names(rawName: $0, configuration: configuration)
+        }.map { name in
+            protected.reduce(name) { $0.replacingOccurrences(of: $1.token, with: $1.name) }
+        }
     }
 
     /// Tracks whose stored album artist carries no information: nobody in the

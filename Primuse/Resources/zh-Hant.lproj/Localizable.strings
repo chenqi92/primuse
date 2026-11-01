@@ -7077,3 +7077,5 @@
 "player_activity_lyrics" = "正在擷取歌詞";
 "player_activity_artwork" = "正在取得封面";
 "player_activity_scraping" = "正在擷取資料";
+
+"artist_name_settings_merge_collaborative_albums" = "合併同名合作專輯";

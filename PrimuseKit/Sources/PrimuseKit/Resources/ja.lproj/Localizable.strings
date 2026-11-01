@@ -1067,3 +1067,5 @@
 "immersive_disc_vinyl" = "レコード";
 "immersive_disc_style" = "盤面スタイル";
 "immersive_disc_settings" = "盤面設定";
+
+"artist_name_settings_merge_collaborative_albums" = "同名のコラボアルバムを統合";

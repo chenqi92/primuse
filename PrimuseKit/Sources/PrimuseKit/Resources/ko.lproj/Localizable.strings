@@ -1067,3 +1067,5 @@
 "immersive_disc_vinyl" = "바이닐";
 "immersive_disc_style" = "디스크 스타일";
 "immersive_disc_settings" = "디스크 설정";
+
+"artist_name_settings_merge_collaborative_albums" = "제목이 같은 협업 앨범 병합";
