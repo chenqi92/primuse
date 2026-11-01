@@ -1499,8 +1499,9 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "shuffle"
         )
         AppShortcut(
-            intent: PrimusePlaySongIntent(),
+            intent: PrimusePlayLibrarySongIntent(),
             phrases: [
+                "Play \(\.$song) in \(.applicationName)",
                 "Play a song in \(.applicationName)",
             ],
             shortTitle: "Play Song",

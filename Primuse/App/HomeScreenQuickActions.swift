@@ -168,6 +168,19 @@ final class SystemActivityRouter {
         pendingDestination = nil
     }
 
+    func openSong(id: String, route: String) async -> Bool {
+        let services = AppServices.shared
+        let library = services.musicLibrary
+        guard await library.whenReady(timeout: .seconds(8)),
+              let song = library.visibleSong(id: id), song.isPlayable else { return false }
+        guard admit("item:song:\(id)", route: route) else { return true }
+        if let book = services.siriSpokenWordStart(forFound: [song], namesItem: true) {
+            return services.startSpokenWordBookForIntent(book.book, from: book.itemID)
+        }
+        await services.playerService.play(queueIDs: [id], startingAt: 0, caller: route)
+        return true
+    }
+
     private func admit(_ key: String, route: String) -> Bool {
         let now = ContinuousClock.now
         handledAt = handledAt.filter { now - $0.value < Self.duplicateWindow }

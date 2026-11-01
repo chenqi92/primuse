@@ -1071,6 +1071,14 @@ private struct SiriCatalogBookInputs: Equatable {
     let storeRevision: Int
 }
 
+#if os(iOS)
+private struct SiriCatalogSongInputs: Equatable {
+    let libraryRevision: Int
+    let priorityIDs: [String]
+    let limit: Int
+}
+#endif
+
 @MainActor
 final class AppServices {
     static let shared = AppServices()
@@ -1131,6 +1139,10 @@ final class AppServices {
     private var siriCatalogBooks: (inputs: SiriCatalogBookInputs, books: [SpokenWordBook])?
     private var siriCatalogRefreshTask: Task<Void, Never>?
     private var siriCatalogForcePending = false
+    #if os(iOS)
+    private var siriCatalogSongInputs: SiriCatalogSongInputs?
+    private(set) var siriShortcutSongs: [Song] = []
+    #endif
     private var listeningWidgetPublisher: ListeningWidgetPublisher?
     /// Feeds the "continue listening" widget.
     private var spokenWordWidgetPublisher: SpokenWordWidgetPublisher?
@@ -2427,9 +2439,16 @@ final class AppServices {
                   !Task.isCancelled else { return }
             let stations = self.siriShortcutRadioStations
             let shows = Array(PodcastStore.shared.shows.prefix(50))
-            let signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
+            var signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
                 + books.map { "b\($0.id)\u{1F}\($0.title)" }
                 + shows.map { "p\($0.id)\u{1F}\($0.title)" }
+            #if os(iOS)
+            let limit = self.siriSongShortcutLimit(bookCount: books.count)
+            guard await self.refreshSiriSongs(limit: limit), !Task.isCancelled else { return }
+            signature += self.siriShortcutSongs.map {
+                "s\($0.id)\u{1F}\($0.title)\u{1F}\(self.musicLibrary.artistDisplayName(for: $0) ?? "")\u{1F}\($0.albumTitle ?? "")"
+            }
+            #endif
             guard self.siriCatalogForcePending || signature != self.siriRadioCatalogSignature else { return }
             self.siriCatalogForcePending = false
             self.siriRadioCatalogSignature = signature
@@ -2440,6 +2459,53 @@ final class AppServices {
             )
         }
     }
+
+    #if os(iOS)
+    func siriSongShortcutSuggestions() async -> [Song] {
+        guard await musicLibrary.whenReady(timeout: .seconds(8)),
+              let books = await siriCatalogBookList(), !Task.isCancelled else { return [] }
+        let limit = siriSongShortcutLimit(bookCount: books.count)
+        let songs = musicLibrary.musicSongs
+        let priorityIDs = musicLibrary.recentPlaybackSongIDsForSync
+            + musicLibrary.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
+        // System queries can arrive before the debounced catalog refresh.
+        return await Task.detached(priority: .utility) {
+            SiriSongCatalog.shortcuts(from: songs, priorityIDs: priorityIDs, limit: limit)
+        }.value
+    }
+
+    private func siriSongShortcutLimit(bookCount: Int) -> Int {
+        let names = Bundle.main.object(forInfoDictionaryKey: "INAlternativeAppNames") as? [[String: Any]] ?? []
+        return SiriSongCatalog.shortcutLimit(
+            appNameCount: 1 + names.count,
+            settingsCount: SettingsCatalog.available.filter(\.isPage).count,
+            stationCount: siriShortcutRadioStations.count,
+            bookCount: min(bookCount, SiriListeningCatalog.bookLimit),
+            podcastCount: min(PodcastStore.shared.shows.count, SiriListeningCatalog.podcastShowLimit)
+        )
+    }
+
+    private func refreshSiriSongs(limit: Int) async -> Bool {
+        guard musicLibrary.isReady else { return false }
+        let inputs = SiriCatalogSongInputs(
+            libraryRevision: musicLibrary.spotlightIndexRevision,
+            priorityIDs: musicLibrary.recentPlaybackSongIDsForSync
+                + musicLibrary.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID),
+            limit: limit
+        )
+        if siriCatalogSongInputs == inputs { return true }
+        let songs = musicLibrary.musicSongs
+        let worker = Task.detached(priority: .utility) {
+            SiriSongCatalog.shortcuts(from: songs, priorityIDs: inputs.priorityIDs, limit: inputs.limit)
+        }
+        let selected = await worker.value
+        guard !Task.isCancelled else { return false }
+        siriShortcutSongs = selected
+        siriCatalogSongInputs = inputs
+        plog("Siri song shortcuts: selected=\(selected.count) budget=\(limit)")
+        return true
+    }
+    #endif
 
     /// 按「接着听」排好的前 50 本书;任务取消时返回 nil。
     private func siriCatalogBookList() async -> [SpokenWordBook]? {
@@ -2481,6 +2547,16 @@ final class AppServices {
         let refresh: @MainActor () -> Void = { [weak self] in
             self?.refreshSiriCatalog()
         }
+
+        #if os(iOS)
+        for name in [Notification.Name.primusePlaybackHistoryDidChange, .primusePlaylistsDidChange] {
+            sourceLifecycleObserverTokens.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                    Task { @MainActor in refresh() }
+                }
+            )
+        }
+        #endif
 
         sourceLifecycleObserverTokens.append(
             center.addObserver(
@@ -2941,6 +3017,9 @@ final class AppServices {
             Task { @MainActor in
                 guard let self, let library, let index else { return }
                 index.scheduleSynchronization(library: library)
+                #if os(iOS)
+                self.refreshSiriCatalog()
+                #endif
                 self.scheduleSourceSongCountReconciliation()
                 self.observeSpotlightLibraryToken(library: library, index: index)
             }

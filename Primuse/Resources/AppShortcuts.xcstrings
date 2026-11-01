@@ -564,6 +564,138 @@
         }
       }
     },
+    "Play ${song} in ${applicationName}" : {
+      "localizations" : {
+        "ar" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "شغّل ${song} في ${applicationName}"
+            ]
+          }
+        },
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${song} in ${applicationName} abspielen"
+            ]
+          }
+        },
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Play ${song} in ${applicationName}"
+            ]
+          }
+        },
+        "es-MX" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Reproduce ${song} en ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Écouter ${song} dans ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में ${song} चलाएँ"
+            ]
+          }
+        },
+        "ja" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}で${song}を再生"
+            ]
+          }
+        },
+        "ko" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}에서 ${song} 재생"
+            ]
+          }
+        },
+        "pl" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Odtwórz ${song} w ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Reproduza ${song} no ${applicationName}"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Включи ${song} в ${applicationName}"
+            ]
+          }
+        },
+        "th" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "เล่น ${song} ใน ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} uygulamasında ${song} çal"
+            ]
+          }
+        },
+        "uk" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Увімкни ${song} у ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 播放 ${song}"
+            ]
+          }
+        },
+        "zh-Hant" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 播放 ${song}"
+            ]
+          }
+        }
+      }
+    },
     "Play ${station} in ${applicationName}" : {
       "localizations" : {
         "ar" : {
