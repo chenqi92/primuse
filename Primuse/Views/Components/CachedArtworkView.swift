@@ -369,7 +369,7 @@ struct CachedArtworkView: View {
         .if(size != nil && !fillsProposedSize) { view in
             view.frame(width: size!, height: size!)
         }
-        .if(!fitsWholeArtwork) { view in
+        .if(!fitsWholeArtwork && !fillsProposedSize) { view in
             view.aspectRatio(1, contentMode: .fit)
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -591,7 +591,9 @@ struct CachedArtworkView: View {
                 .frame(width: geo.size.width, height: geo.size.height)
                 .clipped()
         }
-        .aspectRatio(1, contentMode: .fit)
+        .if(!fillsProposedSize) { view in
+            view.aspectRatio(1, contentMode: .fit)
+        }
     }
 
     /// Read only prepared Artwork values; MusicKit.Song getters can perform IO.

@@ -1178,6 +1178,22 @@ private actor UploadedArtworkReadGate {
 
 extension LibraryPortableArtworkTests {
     func testArtistRectangularArtworkMatchesTheHeroFieldCrop() async throws {
+        try await verifyArtistArtworkCrop(source: .uploaded)
+    }
+
+    func testCachedArtistArtworkFillsTheRectangularHero() async throws {
+        try await verifyArtistArtworkCrop(source: .artistCache)
+    }
+
+    func testFallbackSongArtworkFillsTheRectangularHero() async throws {
+        try await verifyArtistArtworkCrop(source: .songCache)
+    }
+
+    private enum HeroTestArtworkSource {
+        case uploaded, artistCache, songCache
+    }
+
+    private func verifyArtistArtworkCrop(source: HeroTestArtworkSource) async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }
         let (library, artist) = try await heroTestArtist(in: root)
@@ -1194,41 +1210,62 @@ extension LibraryPortableArtworkTests {
             UIColor.green.setFill()
             context.fill(CGRect(x: 900, y: 0, width: 300, height: 2_400))
         }.pngData())
-        let cleanup = try installHeroTestArtwork(data, library: library, owner: owner)
-        defer { if let cleanup { try? FileManager.default.removeItem(at: cleanup) } }
-        var displayed: UIImage?
-        let view = ArtistArtworkView(
-            artist: artist, size: 360, cornerRadius: 0, showsPlaceholder: false,
-            fillsProposedSize: true, onImageChange: { displayed = $0 }
-        )
-        .frame(width: 240, height: 360)
-        .ignoresSafeArea()
-        .environment(library)
-        .environment(SourceManager(sourcesProvider: { [] }))
-        .environment(\.scenePhase, .inactive)
-        let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 240, height: 360))
-        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
-        var rendered: CGImage?
-        for _ in 0..<40 {
-            try await Task.sleep(for: .milliseconds(100))
-            let snapshot = try heroTestSnapshot(host.view)
-            let left = try rgb(snapshot, x: 45, y: 80)
-            let right = try rgb(snapshot, x: 195, y: 80)
-            if left.0 > 220, left.2 < 35, right.1 > 220, right.2 < 35 {
-                rendered = snapshot
-                break
-            }
+        let cleanup: URL?
+        switch source {
+        case .uploaded:
+            cleanup = try installHeroTestArtwork(data, library: library, owner: owner)
+        case .artistCache:
+            let cacheID = ArtistArtworkResolutionPolicy.cacheID(baseID: artist.id, maximumPixels: 1536)
+            let fileName = await MetadataAssetStore.shared.storeArtistImage(data, forArtistID: cacheID)
+            cleanup = MetadataAssetStore.shared.artworkDirectoryURL.appendingPathComponent("artist")
+                .appendingPathComponent(try XCTUnwrap(fileName))
+        case .songCache:
+            let song = try XCTUnwrap(library.preferredArtworkSong(forArtistID: artist.id))
+            await MetadataAssetStore.shared.cacheCover(data, forSongID: song.id)
+            cleanup = MetadataAssetStore.shared.artworkDirectoryURL
+                .appendingPathComponent(MetadataAssetStore.shared.expectedCoverFileName(for: song.id))
         }
-        let actual = try XCTUnwrap(rendered, "The rectangular view must retain both outer color bands")
-        let source = try XCTUnwrap(displayed?.cgImage)
-        let geometry = try XCTUnwrap(ArtistHeroArtworkGeometry(width: 240, photoHeight: 360))
-        let field = try XCTUnwrap(ArtistHeroArtworkField.render(image: source, geometry: geometry))
-        // A square-first 360pt image cropped again to 240pt loses these bands.
-        // Compare the actual hosted view with the independently prepared field.
-        for x in [45, 120, 195] {
-            let visible = try rgb(actual, x: x, y: 80)
-            let derived = try rgb(field, x: x, y: 80)
-            XCTAssertLessThan(abs(visible.0 - derived.0) + abs(visible.1 - derived.1) + abs(visible.2 - derived.2), 30)
+        defer { if let cleanup { try? FileManager.default.removeItem(at: cleanup) } }
+
+        for (size, fillsProposedSize) in [
+            (CGSize(width: 240, height: 360), true),
+            (CGSize(width: 360, height: 240), true),
+            (CGSize(width: 240, height: 240), false),
+        ] {
+            var displayed: UIImage?
+            let view = ArtistArtworkView(
+                artist: artist, size: max(size.width, size.height), cornerRadius: 0, showsPlaceholder: false,
+                fillsProposedSize: fillsProposedSize, onImageChange: { displayed = $0 }
+            )
+            .frame(width: size.width, height: size.height)
+            .ignoresSafeArea()
+            .environment(library)
+            .environment(SourceManager(sourcesProvider: { [] }))
+            .environment(\.scenePhase, .inactive)
+            let (window, host, original) = try hostHeroTestView(view, size: size)
+            defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+            var rendered: CGImage?
+            for _ in 0..<40 {
+                try await Task.sleep(for: .milliseconds(100))
+                let snapshot = try heroTestSnapshot(host.view)
+                let left = try rgb(snapshot, x: Int(size.width * 0.1875), y: 20)
+                let right = try rgb(snapshot, x: Int(size.width * 0.8125), y: Int(size.height) - 20)
+                if left.0 > 220, left.2 < 35, right.1 > 220, right.2 < 35 {
+                    rendered = snapshot
+                    break
+                }
+            }
+            let actual = try XCTUnwrap(rendered, "Artwork must fill the top and bottom of the \(size) frame")
+            let source = try XCTUnwrap(displayed?.cgImage)
+            let geometry = try XCTUnwrap(ArtistHeroArtworkGeometry(width: size.width, photoHeight: size.height))
+            let field = try XCTUnwrap(ArtistHeroArtworkField.render(image: source, geometry: geometry))
+            // Compare the actual hosted view with the independently prepared field.
+            for fraction in [0.1875, 0.5, 0.8125] {
+                let x = Int(size.width * fraction)
+                let visible = try rgb(actual, x: x, y: 20)
+                let derived = try rgb(field, x: x, y: 20)
+                XCTAssertLessThan(abs(visible.0 - derived.0) + abs(visible.1 - derived.1) + abs(visible.2 - derived.2), 30)
+            }
         }
     }
 
