@@ -11,7 +11,7 @@ The public catalog contains one primary icon and five alternates, in this order:
 | `15-folded-note.png` | `AppIcon15` | 折页音符 |
 | `12-pikaqiu.png` | `AppIcon12` | 皮卡丘 |
 
-Groove remains a separate hidden alternate in `Primuse/Resources/Assets.xcassets`.
+咸鱼吃Sushi (`AppIconGroove`) remains a separate hidden alternate in `Primuse/Resources/Assets.xcassets`.
 Retired icon numbers are not reused.
 
 This directory is a design and generation input, not an app resource directory.

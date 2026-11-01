@@ -1865,7 +1865,7 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     }
 
     static let hidden = MacAppIcon(
-        id: "AppIconGroove", previewAsset: "AppIconGroovePreview", nameKey: "Groove",
+        id: "AppIconGroove", previewAsset: "AppIconGroovePreview", nameKey: "咸鱼吃Sushi",
         tint: Color(red: 0.72, green: 0.92, blue: 0.93)
     )
 

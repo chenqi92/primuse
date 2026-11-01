@@ -81,7 +81,7 @@ final class AppIconService {
         id: "AppIconGroove",
         alternateName: "AppIconGroove",
         previewAsset: "AppIconGroovePreview",
-        displayName: "Groove",
+        displayName: "咸鱼吃Sushi",
         supportsAppearance: false
     )]
 
