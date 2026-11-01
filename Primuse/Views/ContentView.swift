@@ -922,8 +922,33 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     }
 }
 
-/// Reads bounded pages from the canonical store while derived indexes prepare.
 private struct LibraryPreparingView: View {
+    @State private var showsProgress = false
+
+    var body: some View {
+        ZStack {
+            Color(.systemBackground).ignoresSafeArea()
+            if showsProgress {
+                VStack(spacing: 16) {
+                    ProgressView().controlSize(.large)
+                    Text("library_preparing")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .pmFadeTransition(motion: .contentAppear)
+            }
+        }
+        .task {
+            // 快速启动只铺底色，避免短暂闪出加载提示。
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            showsProgress = true
+        }
+    }
+}
+
+/// Only the songs destination can browse bounded pages before its indexes are ready.
+private struct LibraryStartupSongsView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AudioPlayerService.self) private var player
@@ -931,9 +956,6 @@ private struct LibraryPreparingView: View {
     @State private var firstVisibleRow = 0
     @State private var viewportHeight: CGFloat = 720
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 72
-    /// 资料库多数时候一两百毫秒就装好。一出来就转圈的话，每次冷启动都会闪一下
-    /// 「准备资料库」；先只铺底色，真慢的时候再把进度亮出来。
-    @State private var showsProgress = false
 
     private var sourceIDs: Set<String> {
         Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
@@ -955,21 +977,9 @@ private struct LibraryPreparingView: View {
                 .ignoresSafeArea()
             if let pages, !pages.isUnavailable {
                 songPages(pages)
-            } else if showsProgress {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .controlSize(.large)
-                    Text("library_preparing")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .pmFadeTransition(motion: .contentAppear)
+            } else {
+                LibraryPreparingView()
             }
-        }
-        .task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            showsProgress = true
         }
         .task(id: sourceIDs) {
             pages = nil
@@ -1043,7 +1053,7 @@ private struct LibraryPreparingView: View {
 
 struct LibraryReadyContent<Content: View>: View {
     @Environment(MusicLibrary.self) private var library
-    let title: LocalizedStringKey
+    var startupSection: LibrarySection? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -1051,10 +1061,15 @@ struct LibraryReadyContent<Content: View>: View {
             content()
         } else {
             NavigationStack {
-                LibraryPreparingView()
-                    .navigationTitle(title)
-                    .toolbarTitleDisplayMode(.inlineLarge)
-                    .minimalNavigationRoot()
+                if startupSection == .songs {
+                    LibraryStartupSongsView()
+                        .navigationTitle(LibrarySection.songs.title)
+                        .toolbarTitleDisplayMode(.inlineLarge)
+                        .minimalNavigationRoot()
+                } else {
+                    LibraryPreparingView()
+                        .minimalNavigationRoot()
+                }
             }
         }
     }
@@ -1092,6 +1107,7 @@ struct ContentView: View {
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
+    @AppStorage("primuse.navigation.libraryPage.v1") private var storedLibraryPageID = ""
     @AppStorage(PlayerAppearancePreferences.pinsMiniPlayerKey)
     private var pinsMiniPlayer = PlayerAppearancePreferences.pinsMiniPlayerByDefault
     /// iPad sidebar 当前选中项。iPhone 不用,sidebar 隐藏。值跟 selectedTab
@@ -1252,6 +1268,23 @@ struct ContentView: View {
         visibleLibrarySections.map(SidebarItem.libraryChild(for:))
     }
 
+    private var libraryStartupSection: LibrarySection? {
+        if let libraryDeepLink {
+            if case .section(let section) = libraryDeepLink { return section }
+            return nil
+        }
+        let section: LibrarySection?
+        if navigationMode == .minimal {
+            section = minimalLibrarySection ?? LibrarySection(rawValue: minimalStoredSectionRaw)
+        } else {
+            let prefix = "section:"
+            section = storedLibraryPageID.hasPrefix(prefix)
+                ? LibrarySection(rawValue: String(storedLibraryPageID.dropFirst(prefix.count)))
+                : nil
+        }
+        return section.flatMap { visibleLibrarySections.contains($0) ? $0 : nil }
+    }
+
     private var searchTabRole: TabRole {
         #if compiler(>=6.4)
         // iOS 27 no longer separates a search tab unless it activates search.
@@ -1282,7 +1315,7 @@ struct ContentView: View {
     private var tabRoot: some View {
         TabView(selection: searchAwareTabSelection) {
             Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                LibraryReadyContent(title: "home_title") {
+                LibraryReadyContent {
                     HomeView(
                         switchToSettingsTab: { selectedTab = 3 },
                         model: homeModel,
@@ -1297,7 +1330,7 @@ struct ContentView: View {
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryReadyContent(title: "library_title") {
+                LibraryReadyContent(startupSection: libraryStartupSection) {
                     LibraryView(
                         deepLink: $libraryDeepLink,
                         onActiveSectionChange: { section in
@@ -1315,7 +1348,7 @@ struct ContentView: View {
 
             Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
                 value: 2, role: searchTabRole) {
-                LibraryReadyContent(title: "search_title") {
+                LibraryReadyContent {
                     SearchView(searchText: $searchText, scope: $searchScope,
                            activatesSearchField: $searchFieldActivationRequested,
                            requestsResultLayoutEditor: $searchLayoutEditorRequested,
@@ -1533,7 +1566,8 @@ struct ContentView: View {
                 if sidebarSelection == .settings {
                     padDetail(for: sidebarSelection)
                 } else {
-                    LibraryReadyContent(title: LocalizedStringKey(String(localized: sidebarSelection.titleKey))) {
+                    LibraryReadyContent(startupSection: sidebarSelection == .librarySongs
+                        ? .songs : (sidebarSelection == .library ? libraryStartupSection : nil)) {
                         padDetail(for: sidebarSelection)
                     }
                 }

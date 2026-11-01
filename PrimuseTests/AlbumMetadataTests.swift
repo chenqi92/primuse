@@ -3,6 +3,7 @@ import XCTest
 import SwiftUI
 import UIKit
 import Observation
+import Vision
 import PrimuseKit
 @testable import Primuse
 
@@ -155,7 +156,7 @@ final class AlbumMetadataTests: XCTestCase {
         let library = MusicLibrary.makePreparing(storageDirectory: directory)
         let probe = LoadingNavigationProbe()
         let view = TabView(selection: Binding(get: { probe.selection }, set: { probe.selection = $0 })) {
-            LibraryReadyContent(title: "home_title") {
+            LibraryReadyContent {
                 Text("Loaded Library").onAppear { probe.libraryAppeared = true }
             }.tabItem { Label("home_title", systemImage: "house") }.tag(0)
             Text("Settings").onAppear { probe.settingsAppeared = true }
@@ -175,6 +176,75 @@ final class AlbumMetadataTests: XCTestCase {
         probe.selection = 0
         try await Task.sleep(for: .milliseconds(250))
         XCTAssertTrue(probe.libraryAppeared)
+    }
+
+    @MainActor
+    func testStartupOnlyShowsSongRowsAtSongsDestination() async throws {
+        let suite = "StartupDestinationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        try store.replaceAll(with: [song("startup", title: "Startup Sentinel")])
+        try store.markMigrationCompleted(version: 10)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        sources.add(MusicSource(id: "source", name: "Startup Source", type: .local))
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Startup rendering must not play audio") }
+        )
+
+        for size in [CGSize(width: 390, height: 844), CGSize(width: 1024, height: 768)] {
+            for section: LibrarySection? in [nil, .albums, .songs] {
+                let view = LibraryReadyContent(startupSection: section) {
+                    Text("Remembered Content")
+                }
+                .environment(library)
+                .environment(sources)
+                .environment(player)
+                .environment(AppServices.shared.sourceManager)
+                let window = try show(view, size: size)
+                defer { window.isHidden = true; window.rootViewController = nil }
+                try await Task.sleep(for: .milliseconds(800))
+                let text = try recognizedText(window, name: "startup-\(section?.rawValue ?? "home")-\(Int(size.width))")
+                XCTAssertFalse(library.isReady)
+                XCTAssertFalse(text.contains("RememberedContent"), text)
+                if section == .songs {
+                    XCTAssertTrue(text.contains("StartupSentinel"), text)
+                    XCTAssertTrue(text.contains("歌曲"), text)
+                } else {
+                    XCTAssertFalse(text.contains("StartupSentinel"), text)
+                    XCTAssertFalse(text.contains("首页"), text)
+                    XCTAssertFalse(text.contains("歌曲"), text)
+                    XCTAssertTrue(text.contains("准备资料库"), text)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func recognizedText(_ window: UIWindow, name: String) throws -> String {
+        window.layoutIfNeeded()
+        let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["zh-Hans", "en-US"]
+        try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined().filter { !$0.isWhitespace }
     }
 
     @MainActor
