@@ -481,7 +481,7 @@ actor MetadataAssetStore {
     }
 
     nonisolated func artworkFreshnessToken(sourceID: String?, reference: String? = nil) -> String {
-        let date = artworkRefreshClock.date(at: refreshURL(sourceID))
+        let date = artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID))
         return "\(date.timeIntervalSince1970):\(artworkDisplayRevisions.value(sourceID: sourceID, reference: reference))"
     }
 
@@ -531,7 +531,7 @@ actor MetadataAssetStore {
     }
 
     nonisolated func revalidateArtwork(sourceID: String) {
-        artworkRefreshClock.advance(at: refreshURL(sourceID))
+        artworkRefreshClock.advance(for: sourceID, at: refreshURL(sourceID))
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .primuseArtworkDidInvalidate, object: nil,
                                             userInfo: ["sourceID": sourceID])
@@ -576,7 +576,7 @@ actor MetadataAssetStore {
 
     nonisolated private func freshSourceData(cacheID: String, sourceID: String?, checksAge: Bool = true) -> Data? {
         guard let date = coverCacheDate(forSongID: cacheID),
-              date >= artworkRefreshClock.date(at: refreshURL(sourceID)),
+              date >= artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID)),
               !checksAge || Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { return nil }
         return readCoverData(named: expectedCoverFileName(for: cacheID))
     }
@@ -597,7 +597,7 @@ actor MetadataAssetStore {
         for pixels in maximumPixels <= 480 ? [1536, 480] : [1536] {
             guard let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: pixels),
                   let date = coverCacheDate(forSongID: key),
-                  date >= artworkRefreshClock.date(at: refreshURL(sourceID)),
+                  date >= artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID)),
                   !checksAge || Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { continue }
             let name = expectedCoverFileName(for: key)
             if hasReadableCoverFile(named: name) { return name }
@@ -2096,25 +2096,27 @@ private final class ArtworkDisplayRevisions: @unchecked Sendable {
     }
 }
 
-private final class ArtworkRefreshClock: @unchecked Sendable {
+final class ArtworkRefreshClock: @unchecked Sendable {
     private let lock = NSLock()
-    private var dates: [URL: Date] = [:]
+    private var dates: [String: Date] = [:]
 
-    func date(at url: URL) -> Date {
+    func date(for sourceID: String?, at url: @autoclosure () -> URL) -> Date {
         lock.lock()
         defer { lock.unlock() }
-        if let date = dates[url] { return date }
-        let value = (try? String(contentsOf: url, encoding: .utf8)).flatMap(TimeInterval.init)
+        let key = sourceID ?? "public"
+        if let date = dates[key] { return date }
+        // 封面每次读取缓存键都会走这里；命中后不再计算文件名哈希或构造 URL。
+        let value = (try? String(contentsOf: url(), encoding: .utf8)).flatMap(TimeInterval.init)
         let date = value.map(Date.init(timeIntervalSince1970:)) ?? .distantPast
-        dates[url] = date
+        dates[key] = date
         return date
     }
 
-    func advance(at url: URL) {
+    func advance(for sourceID: String?, at url: URL) {
         lock.lock()
         defer { lock.unlock() }
         let date = Date()
-        dates[url] = date
+        dates[sourceID ?? "public"] = date
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? String(date.timeIntervalSince1970).write(to: url, atomically: true, encoding: .utf8)
     }

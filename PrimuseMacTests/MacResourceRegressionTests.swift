@@ -5,6 +5,78 @@ import XCTest
 import PrimuseKit
 @testable import Primuse
 
+final class ArtworkRefreshClockTests: XCTestCase {
+    func testConcurrentCachedReadsResolveTheRefreshPathOnlyOnce() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("server")
+        try "1700000000".write(to: url, atomically: true, encoding: .utf8)
+        let resolver = RefreshPathProbe(url: url)
+        let clock = ArtworkRefreshClock()
+
+        DispatchQueue.concurrentPerform(iterations: 128) { _ in
+            XCTAssertEqual(clock.date(for: "server", at: resolver.resolve()).timeIntervalSince1970, 1_700_000_000)
+        }
+        XCTAssertEqual(resolver.count, 1, "Warm reads must not hash or construct the refresh path again")
+    }
+
+    func testAdvancingOneSourceInvalidatesWarmReadsAndPersistsAcrossRestart() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = root.appendingPathComponent("first")
+        let second = root.appendingPathComponent("second")
+        try "1700000000".write(to: first, atomically: true, encoding: .utf8)
+        try "1700000001".write(to: second, atomically: true, encoding: .utf8)
+        let clock = ArtworkRefreshClock()
+        let old = clock.date(for: "first", at: first)
+        let unrelated = clock.date(for: "second", at: second)
+
+        clock.advance(for: "first", at: first)
+
+        let updated = clock.date(for: "first", at: first)
+        XCTAssertGreaterThan(updated, old)
+        XCTAssertEqual(clock.date(for: "second", at: second), unrelated)
+        let restored = ArtworkRefreshClock()
+        XCTAssertEqual(restored.date(for: "first", at: first).timeIntervalSince1970, updated.timeIntervalSince1970)
+        XCTAssertEqual(restored.date(for: "second", at: second), unrelated)
+    }
+
+    func testMissingPublicClockIsCachedAndCanBeAdvanced() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resolver = RefreshPathProbe(url: root.appendingPathComponent("nested/public"))
+        let clock = ArtworkRefreshClock()
+        XCTAssertEqual(clock.date(for: nil, at: resolver.resolve()), .distantPast)
+        XCTAssertEqual(clock.date(for: nil, at: resolver.resolve()), .distantPast)
+        XCTAssertEqual(resolver.count, 1)
+
+        clock.advance(for: nil, at: resolver.url)
+
+        let updated = clock.date(for: nil, at: resolver.resolve())
+        XCTAssertGreaterThan(updated, .distantPast)
+        XCTAssertEqual(resolver.count, 1)
+        XCTAssertEqual(ArtworkRefreshClock().date(for: nil, at: resolver.url).timeIntervalSince1970, updated.timeIntervalSince1970)
+    }
+
+    private func directory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private final class RefreshPathProbe: @unchecked Sendable {
+        let url: URL
+        private let lock = NSLock()
+        private var resolutions = 0
+        var count: Int { lock.withLock { resolutions } }
+        init(url: URL) { self.url = url }
+        func resolve() -> URL {
+            lock.withLock { resolutions += 1 }
+            return url
+        }
+    }
+}
+
 @MainActor
 final class LargeVideoMetadataIntegrationTests: XCTestCase {
     private struct Manifest: Decodable {
