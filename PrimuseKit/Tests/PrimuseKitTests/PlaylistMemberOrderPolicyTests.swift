@@ -3,6 +3,23 @@ import Testing
 
 @Suite("Playlist member order policy")
 struct PlaylistMemberOrderPolicyTests {
+    @Test("Sync forwarding keeps unresolved identities in their original slots and retains legacy pending entries")
+    func forwardingPreservesPendingPositions() {
+        func identity(_ id: String, title: String = "") -> SongIdentity {
+            SongIdentity(songID: id, title: title, artistName: nil, duration: 180,
+                         cloudAccountID: nil, filePath: "/\(id).flac")
+        }
+        let first = identity("c", title: "Charlie")
+        let middle = identity("a", title: "Alpha")
+        let last = identity("b", title: "Bravo")
+        let legacy = identity("legacy", title: "Legacy")
+        let result = PlaylistMemberOrderPolicy.syncIdentities(
+            [identity("c"), middle, identity("b"), middle],
+            pending: [first, last, legacy, first]
+        )
+        #expect(result == [first, middle, last, legacy])
+    }
+
     @Test("Moving one song to the top keeps everything else in order")
     func movesOneSongToTop() {
         let result = PlaylistMemberOrderPolicy.movingToTop(["a", "b", "c", "d"], selected: ["c"])

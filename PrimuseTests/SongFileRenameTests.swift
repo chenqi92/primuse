@@ -153,7 +153,7 @@ final class SongFileRenameTests: XCTestCase {
 
     #if os(iOS)
     @MainActor
-    func testArtistAllAlbumsGridScrollsVertically() async throws {
+    func testArtistAlbumsGridUsesTheArtistPageScrollView() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let suite = "rename-grid-\(UUID().uuidString)"
@@ -164,7 +164,15 @@ final class SongFileRenameTests: XCTestCase {
             playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("session.json")),
             activateAudioSession: { _ in XCTFail("Browsing albums must not start playback") })
         let albums = (1...20).map { Album(id: "album-\($0)", title: "Album \($0)", artistName: "Artist") }
-        let view = NavigationStack { ArtistAlbumsView(title: "artist_releases", albums: albums) }
+        let view = NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading) {
+                    Text("Artist")
+                    ArtistAlbumsGrid(albums: albums)
+                }
+                .padding(.horizontal, 20)
+            }
+        }
             .environment(library).environment(player)
             .environment(SourceManager(sourcesProvider: { [] }))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -176,9 +184,11 @@ final class SongFileRenameTests: XCTestCase {
         host.view.layoutIfNeeded()
         try await Task.sleep(for: .milliseconds(700))
         func scrollViews(_ view: UIView) -> [UIScrollView] {
-            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
+            ((view as? UIScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
         }
-        let scroll = try XCTUnwrap(scrollViews(host.view).first { $0.contentSize.height > $0.bounds.height })
+        let pageScrollViews = scrollViews(host.view)
+        XCTAssertEqual(pageScrollViews.count, 1, "Expanded albums must share the artist page's scroll view")
+        let scroll = try XCTUnwrap(pageScrollViews.first { $0.contentSize.height > $0.bounds.height })
         XCTAssertLessThanOrEqual(scroll.contentSize.width, scroll.bounds.width + 1)
         let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
             host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)

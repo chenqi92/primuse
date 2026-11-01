@@ -720,7 +720,7 @@ struct PlaylistImportView: View {
                 }
             }
 
-            macGroupedEntries(p)
+            macEntries(p)
         }
         .padding(22)
     }
@@ -748,11 +748,8 @@ struct PlaylistImportView: View {
         .clipShape(RoundedRectangle(cornerRadius: 2.5, style: .continuous))
     }
 
-    private func macGroupedEntries(_ p: PlaylistImporter.ImportPreview) -> some View {
-        let matched = p.entries.filter { $0.matchedSong != nil }
-        let unmatched = p.entries.filter { $0.matchedSong == nil }
-
-        return VStack(alignment: .leading, spacing: 12) {
+    private func macEntries(_ p: PlaylistImporter.ImportPreview) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("playlist_import_match_results")
                     .font(.system(size: 12, weight: .semibold))
@@ -774,68 +771,24 @@ struct PlaylistImportView: View {
             }
 
             ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 12) {
-                    macEntryGroup(title: String(localized: "playlist_import_matched_group"), count: matched.count, color: PMColor.ok) {
-                        ForEach(matched) { entry in
-                            macEntryRow(entry, manualMatch: false)
-                            if entry.id != matched.last?.id {
-                                Divider().overlay(PMColor.divider).padding(.leading, 28)
-                            }
-                        }
-                    }
-
-                    macEntryGroup(title: String(localized: "playlist_import_unmatched_group"), count: unmatched.count, color: unmatched.isEmpty ? PMColor.textFaint : PMColor.warn) {
-                        if unmatched.isEmpty {
-                            Text("playlist_import_no_manual_items")
-                                .font(.system(size: 12))
-                                .foregroundStyle(PMColor.textFaint)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                        } else {
-                            ForEach(unmatched) { entry in
-                                macEntryRow(entry, manualMatch: true)
-                                if entry.id != unmatched.last?.id {
-                                    Divider().overlay(PMColor.divider).padding(.leading, 28)
-                                }
-                            }
+                LazyVStack(spacing: 0) {
+                    ForEach(p.entries) { entry in
+                        macEntryRow(entry, manualMatch: entry.matchedSong == nil)
+                        if entry.id != p.entries.last?.id {
+                            Divider().overlay(PMColor.divider).padding(.leading, 28)
                         }
                     }
                 }
+                .background(PMColor.card.opacity(0.62), in: .rect(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .padding(1)
             }
             .frame(height: 300)
         }
-    }
-
-    private func macEntryGroup<Content: View>(title: String,
-                                              count: Int,
-                                              color: Color,
-                                              @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 7, height: 7)
-                Text(verbatim: "\(title) (\(count))")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(PMColor.bgElev.opacity(0.82))
-
-            Divider().overlay(PMColor.divider)
-
-            content()
-        }
-        .background(PMColor.card.opacity(0.62), in: .rect(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     /// 设计稿 PL-06 底栏: 左「导出未匹配 → CSV」(仅有缺失时), 右「取消 + 仅创建

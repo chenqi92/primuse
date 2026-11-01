@@ -11340,11 +11340,11 @@ final class MusicLibrary {
         }
 
         if let identities, !identities.isEmpty {
-            let (resolved, unresolved) = resolveIdentitiesPartitioned(identities)
+            let (resolved, unresolved) = resolveIdentitiesPartitioned(identities, preservingUnresolvedOrder: true)
             playlistSongIDs[playlist.id] = resolved
             updatePendingPlaylistIdentities(playlistID: playlist.id, with: unresolved)
             if !unresolved.isEmpty {
-                plog("PendingIdentity: playlist \(playlist.id.prefix(8)) matched \(resolved.count)/\(identities.count), \(unresolved.count) waiting for this device's songs")
+                plog("PendingIdentity: playlist \(playlist.id.prefix(8)) has \(unresolved.count) waiting for this device's songs")
             }
         } else {
             var seen = Set<String>()
@@ -11412,16 +11412,28 @@ final class MusicLibrary {
             allPlaylists.append(playlist)
         }
 
-        let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities)
+        let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities, preservingUnresolvedOrder: true)
         if !unresolved.isEmpty {
-            plog("PendingIdentity: merged playlist \(playlist.id.prefix(8)) matched \(resolved.count)/\(additionalIdentities.count), \(unresolved.count) waiting for this device's songs")
+            plog("PendingIdentity: merged playlist \(playlist.id.prefix(8)) has \(unresolved.count) waiting for this device's songs")
         }
+        // 扫描已完成但延迟重试尚未执行时，先把本机成员与同步基线中的旧 id 对齐。
+        let waiting = previousPending?.map(\.identity) ?? []
+        let waitingIndex = makeIdentityResolutionIndex(for: waiting)
+        var replacements: [String: String] = [:]
+        for identity in waiting {
+            if let id = resolveIdentity(identity, using: waitingIndex) { replacements[identity.songID] = id }
+        }
+        func resolvedSlots(_ ids: [String]) -> [String] {
+            ids.map { replacements[$0] ?? $0 }
+        }
+        let baseSongIDs = resolvedSlots(baseSongIDs)
         // `baseSongIDs` 是本机现在的曲目表。有上次同步的基线就做三方合并: 基线里有而
         // 一边没有的, 是那一边删掉的, 不能再从另一边并回来; 没有基线(旧快照)才退化
         // 成并集 —— 那种情况下一台删歌、另一台同时改, 被删的歌会回来。
         var seen = Set<String>()
         let merged: [String]
         if let syncBase = playlistSyncBaseSongIDs[playlist.id] {
+            let syncBase = resolvedSlots(syncBase)
             let removedLocally = Set(syncBase).subtracting(baseSongIDs)
             let removedRemotely = Set(syncBase).subtracting(resolved)
             merged = (baseSongIDs + resolved).filter {
@@ -11530,7 +11542,10 @@ final class MusicLibrary {
 
     /// Walk a batch of identities through the 3-tier resolver, splitting
     /// them into "matched a local song" and "still no match" groups.
-    private func resolveIdentitiesPartitioned(_ identities: [SongIdentity]) -> (resolved: [String], unresolved: [SongIdentity]) {
+    private func resolveIdentitiesPartitioned(
+        _ identities: [SongIdentity],
+        preservingUnresolvedOrder: Bool = false
+    ) -> (resolved: [String], unresolved: [SongIdentity]) {
         let resolutionIndex = makeIdentityResolutionIndex(for: identities)
         var resolved: [String] = []
         var unresolved: [SongIdentity] = []
@@ -11545,6 +11560,9 @@ final class MusicLibrary {
                 if seen.insert(entry.id).inserted { resolved.append(entry.id) }
             } else {
                 unresolved.append(identity)
+                if preservingUnresolvedOrder, seen.insert(identity.songID).inserted {
+                    resolved.append(identity.songID)
+                }
             }
         }
         return (resolved, unresolved)
@@ -11845,8 +11863,8 @@ final class MusicLibrary {
 
     /// Re-attempt resolution for every persisted pending identity. Called
     /// after any songs-collection mutation (scan finishes, backfill
-    /// applies a batch). Identities that now resolve are appended to
-    /// their playlist / promoted into history; identities that have aged
+    /// applies a batch). Identities that now resolve replace their reserved
+    /// playlist slots / are promoted into history; identities that have aged
     /// past `pendingIdentityTTL` are dropped.
     private func flushPendingIdentities(exactIDOnly: Bool = false) -> Bool {
         guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return false }
@@ -11868,29 +11886,42 @@ final class MusicLibrary {
             ? makeDeviceLocalPathIndex(for: identitiesToResolve)
             : makeIdentityResolutionIndex(for: identitiesToResolve)
 
-        // Playlists: each pending entry that resolves gets appended to
-        // the end of the playlist. Original ordering is unrecoverable
-        // (the sync record only carries the resolved-side order), but
-        // appending matches user expectation that newly-available songs
-        // surface at the bottom.
+        // 歌曲分批扫到时仍填回同步时的位置；旧快照没有占位的条目才接在末尾。
         for (playlistID, pending) in pendingPlaylistIdentities {
             var stillPending: [PendingSongIdentity] = []
             var newlyResolved: [String] = []
+            var replacements: [String: String] = [:]
+            var expired = Set<String>()
             for entry in pending {
-                if entry.firstSeenAt < cutoff { continue }
+                if entry.firstSeenAt < cutoff {
+                    expired.insert(entry.identity.songID)
+                    continue
+                }
                 if let songID = resolveIdentity(entry.identity, using: resolutionIndex, exactIDOnly: exactIDOnly) {
                     newlyResolved.append(songID)
+                    replacements[entry.identity.songID] = songID
                 } else {
                     stillPending.append(entry)
                 }
             }
             resolvedCount += newlyResolved.count
-            if !newlyResolved.isEmpty {
-                var seen = Set(playlistSongIDs[playlistID] ?? [])
-                let toAppend = newlyResolved.filter { seen.insert($0).inserted }
-                if !toAppend.isEmpty {
+            if !replacements.isEmpty || !expired.isEmpty {
+                func replacingSlots(_ ids: [String]) -> [String] {
+                    var seen = Set<String>()
+                    return ids.compactMap { id in
+                        guard !expired.contains(id) else { return nil }
+                        let resolved = replacements[id] ?? id
+                        return seen.insert(resolved).inserted ? resolved : nil
+                    }
+                }
+                let previous = playlistSongIDs[playlistID] ?? []
+                let members = replacingSlots(previous + newlyResolved)
+                if members != previous {
                     changed = true
-                    playlistSongIDs[playlistID, default: []].append(contentsOf: toAppend)
+                    playlistSongIDs[playlistID] = members
+                }
+                if let base = playlistSyncBaseSongIDs[playlistID] {
+                    playlistSyncBaseSongIDs[playlistID] = replacingSlots(base)
                 }
             }
             if stillPending != pending { changed = true }
@@ -13613,9 +13644,10 @@ final class MusicLibrary {
         }
         mutating func cleanPlaylistEntries() {
             for id in playlistSongIDs.keys {
+                let waiting = Set((pendingPlaylistIdentities[id] ?? []).map { $0.identity.songID })
                 var seen = Set<String>()
                 playlistSongIDs[id] = playlistSongIDs[id]?.filter {
-                    (songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil)
+                    (songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil || waiting.contains($0))
                         && seen.insert($0).inserted
                 }
             }
@@ -16118,9 +16150,10 @@ final class MusicLibrary {
         defer { verifiedPlaylistCleanupInputs = playlistCleanupInputs }
         for playlistID in playlistSongIDs.keys {
             let current = playlistSongIDs[playlistID] ?? []
+            let waiting = Set((pendingPlaylistIdentities[playlistID] ?? []).map { $0.identity.songID })
             var seen = Set<String>()
             let kept = current.filter {
-                (songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil)
+                (songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil || waiting.contains($0))
                     && seen.insert($0).inserted
             }
             // 没变就别写: 每写一次都会让观察者以为成员变了。

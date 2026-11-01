@@ -702,7 +702,8 @@ final class DeviceLocalPlaylistIdentityTests: XCTestCase {
 
         library.applyRemotePlaylist(remotePlaylist, songIDs: ["other-device-song"], identities: [senderIdentity])
 
-        XCTAssertTrue(library.rawSongIDs(forPlaylist: "shared-playlist").isEmpty)
+        XCTAssertEqual(library.rawSongIDs(forPlaylist: "shared-playlist"), [senderIdentity.songID])
+        XCTAssertTrue(library.songs(forPlaylist: "shared-playlist").isEmpty)
         XCTAssertEqual(library.pendingSongIdentities(forPlaylist: "shared-playlist"), [senderIdentity])
         _ = await library.persistNowAndWait()
     }

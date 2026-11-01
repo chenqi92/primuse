@@ -97,7 +97,7 @@ struct ArtistDetailView: View {
     @State private var showArtworkEditor = false
     /// 「全部歌曲」从页面根上推进去:链接在染色正文里(深色外观),从那里推的页面会带着深色外观。
     @State private var showsAllSongs = false
-    @State private var albumCollection: ArtistAlbumCollection?
+    @State private var expandedAlbumCollections: Set<ArtistAlbumCollection> = []
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var listeningSnapshot = ArtistListeningSnapshot()
     @State private var albumShelvesCache = ArtistAlbumShelvesCache()
@@ -321,12 +321,6 @@ struct ArtistDetailView: View {
         }
         .navigationDestination(isPresented: $showsAllSongs) {
             ArtistAllSongsView(artist: artist, initialLocationID: allSongsLocationID)
-        }
-        .navigationDestination(item: $albumCollection) { collection in
-            ArtistAlbumsView(
-                title: collection.title,
-                albums: collection == .releases ? releaseAlbums : appearsOnAlbums
-            )
         }
         #if os(iOS) || os(macOS)
         .sheet(isPresented: $showArtworkEditor) {
@@ -682,26 +676,42 @@ struct ArtistDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader(title) {
                 if let collection {
-                    Button("see_all") { albumCollection = collection }
-                        .font(.subheadline.weight(.semibold))
-                        .accessibilityIdentifier("artist.albums.\(collection.rawValue).seeAll")
+                    let isExpanded = expandedAlbumCollections.contains(collection)
+                    let buttonTitle: LocalizedStringKey = isExpanded ? "update_show_less" : "see_all"
+                    Button(buttonTitle) {
+                        pmWithAnimation(.panel) {
+                            if isExpanded {
+                                expandedAlbumCollections.remove(collection)
+                            } else {
+                                expandedAlbumCollections.insert(collection)
+                            }
+                        }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("artist.albums.\(collection.rawValue).\(isExpanded ? "collapse" : "seeAll")")
                 }
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 14) {
-                    ForEach(albums) { album in
-                        NavigationLink(value: album) {
-                            albumShelfTile(album, showsPlayCount: showsPlayCount)
+            if let collection, expandedAlbumCollections.contains(collection) {
+                ArtistAlbumsGrid(albums: albums)
+                    .padding(.horizontal, 20)
+                    .accessibilityIdentifier("artist.albums.\(collection.rawValue).grid")
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(albums) { album in
+                            NavigationLink(value: album) {
+                                albumShelfTile(album, showsPlayCount: showsPlayCount)
+                            }
+                            .buttonStyle(.plain)
+                            .mediaZoomSource(.album, id: album.id)
                         }
-                        .buttonStyle(.plain)
-                        .mediaZoomSource(.album, id: album.id)
                     }
+                    .padding(.horizontal, 20)
                 }
-                .padding(.horizontal, 20)
+                .pmStopsAtVerticalBar()
+                .contentMargins(.horizontal, 0, for: .scrollContent)
             }
-            .pmStopsAtVerticalBar()
-            .contentMargins(.horizontal, 0, for: .scrollContent)
         }
     }
 
@@ -1169,44 +1179,32 @@ private struct ArtistScrollEdgeEffectModifier: ViewModifier {
 
 private enum ArtistAlbumCollection: String, Hashable {
     case releases, appearsOn
-
-    var title: LocalizedStringKey {
-        self == .releases ? "artist_releases" : "artist_appears_on"
-    }
 }
 
-struct ArtistAlbumsView: View {
-    let title: LocalizedStringKey
+struct ArtistAlbumsGrid: View {
     let albums: [Album]
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 240 : 150), spacing: 16)], spacing: 20) {
-                ForEach(albums) { album in
-                    NavigationLink(value: album) { AlbumCardView(album: album) }
-                        .buttonStyle(.pmPressable)
-                        .mediaZoomSource(.album, id: album.id)
-                        .contextMenu {
-                            LibraryCollectionMenuItems(
-                                isLiked: LibraryFavoritesStore.shared.isLiked(album),
-                                toggleLike: { LibraryFavoritesStore.shared.toggle(album) },
-                                songs: { library.songs(forAlbum: album.id) },
-                                player: player,
-                                donation: .album(id: album.id)
-                            )
-                        }
-                }
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 240 : 104), spacing: 10)], spacing: 14) {
+            ForEach(albums) { album in
+                NavigationLink(value: album) { AlbumCardView(album: album) }
+                    .buttonStyle(.pmPressable)
+                    .mediaZoomSource(.album, id: album.id)
+                    .accessibilityIdentifier("artist.album.\(album.id)")
+                    .contextMenu {
+                        LibraryCollectionMenuItems(
+                            isLiked: LibraryFavoritesStore.shared.isLiked(album),
+                            toggleLike: { LibraryFavoritesStore.shared.toggle(album) },
+                            songs: { library.songs(forAlbum: album.id) },
+                            player: player,
+                            donation: .album(id: album.id)
+                        )
+                    }
             }
-            .padding()
         }
-        .navigationTitle(title)
-        .toolbarTitleDisplayMode(.inline)
-        #if os(iOS)
-        .minimalNavigationDetail()
-        #endif
     }
 }
 

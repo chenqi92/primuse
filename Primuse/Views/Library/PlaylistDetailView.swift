@@ -36,6 +36,10 @@ struct PlaylistDetailView: View {
     init(playlist: Playlist, onMacInlineBack: (() -> Void)? = nil) {
         self.playlist = playlist
         self.onMacInlineBack = onMacInlineBack
+        _displaySortRawValue = AppStorage(PlaylistSongSortOrderPreference.storageKey(
+            for: playlist.id,
+            isLikedSongs: playlist.id == MusicLibrary.likedSongsPlaylistID
+        ))
     }
 
     @State private var exportShareItem: ExportShareItem?
@@ -54,7 +58,7 @@ struct PlaylistDetailView: View {
     @State private var songLocation = SongListLocation()
     @State private var sortedSongsCache = PlaylistSortedSongsCache()
     /// nil = 尚未选择；空串 = 用户选择了歌单顺序，不能用默认排序覆盖。
-    @AppStorage(PlaylistSongSortOrderPreference.storageKey) private var displaySortRawValue: String?
+    @AppStorage private var displaySortRawValue: String?
     /// 收藏的顺序就是收藏歌单的账：头部那颗心看它。
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?

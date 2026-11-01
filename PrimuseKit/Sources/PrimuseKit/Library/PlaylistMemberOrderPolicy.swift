@@ -7,6 +7,19 @@ import Foundation
 /// 彼此先后不变。顺序随歌单记录同步到别的设备（各设备的歌曲 id 不同，按顺序对上），
 /// 所以置顶就是把歌放到这串 id 的最前面，不另记一份「已置顶」。
 public enum PlaylistMemberOrderPolicy {
+    /// 尚未扫到的歌曲用原身份填回保留的位置，避免转发同步记录时被挪到末尾。
+    public static func syncIdentities(
+        _ members: [SongIdentity],
+        pending: [SongIdentity]
+    ) -> [SongIdentity] {
+        let pendingByID = Dictionary(pending.map { ($0.songID, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        return (members + pending).compactMap { identity in
+            guard seen.insert(identity.songID).inserted else { return nil }
+            return pendingByID[identity.songID] ?? identity
+        }
+    }
+
     /// 置顶：选中的成员移到最前面，彼此保持在歌单里原来的先后，其余成员照原顺序跟在后面。
     /// 不是成员的 id 忽略。
     public static func movingToTop<S: Sequence<String>>(_ memberIDs: [String], selected: S) -> [String] {

@@ -676,6 +676,28 @@ struct SongListSnapshotTests {
         }
     }
 
+    @Test("An imported playlist ignores other playlists' saved sorting on each device")
+    func playlistSortPreferenceIsScopedToEachPlaylist() throws {
+        let suiteName = "PlaylistSongSortOrderPreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let importedKey = PlaylistSongSortOrderPreference.storageKey(for: "imported", isLikedSongs: false)
+        let otherKey = PlaylistSongSortOrderPreference.storageKey(for: "other", isLikedSongs: false)
+
+        for oldOrder in [LibrarySongSortOrder.title, .dateAdded] {
+            defaults.set(oldOrder.rawValue, forKey: PlaylistSongSortOrderPreference.storageKey)
+            defaults.set(LibrarySongSortOrder.album.rawValue, forKey: otherKey)
+            #expect(PlaylistSongSortOrderPreference.resolve(defaults.string(forKey: importedKey), isLikedSongs: false) == nil)
+        }
+        defaults.set(LibrarySongSortOrder.artist.rawValue, forKey: importedKey)
+        let reopened = try #require(UserDefaults(suiteName: suiteName))
+        #expect(PlaylistSongSortOrderPreference.resolve(reopened.string(forKey: importedKey), isLikedSongs: false) == .artist)
+        #expect(PlaylistSongSortOrderPreference.resolve(reopened.string(forKey: otherKey), isLikedSongs: false) == .album)
+        defaults.set("", forKey: importedKey)
+        #expect(PlaylistSongSortOrderPreference.resolve(reopened.string(forKey: importedKey), isLikedSongs: false) == nil)
+        #expect(PlaylistSongSortOrderPreference.storageKey(for: "liked", isLikedSongs: true) == PlaylistSongSortOrderPreference.storageKey)
+    }
+
     @Test("Alphabetic sorts expose a complete directional section index")
     func alphabeticSortBuildsSectionIndex() {
         let songs = [

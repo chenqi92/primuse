@@ -182,6 +182,78 @@ final class SearchExperienceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["minimal.search"].waitForExistence(timeout: 5))
     }
 
+    func testArtistAlbumsExpandInlineAndStayExpandedAfterOpeningAlbum() {
+        assertArtistAlbumsExpandInline(collection: "releases")
+    }
+
+    func testArtistAppearsOnAlbumsExpandInlineAndStayExpandedAfterOpeningAlbum() {
+        assertArtistAlbumsExpandInline(collection: "appearsOn")
+    }
+
+    private func assertArtistAlbumsExpandInline(collection: String) {
+        continueAfterFailure = false
+        let app = searchApp(navigationMode: "standard")
+        let artist = ProcessInfo.processInfo.environment["PRIMUSE_ARTIST_TEST_NAME"] ?? "王菲"
+        app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "artist:\(artist)"
+        app.launch()
+        defer { app.terminate() }
+        dismissStoredSourceAuthenticationAlerts(in: app)
+        let launchAlert = app.alerts["上次启动没有完成"]
+        if launchAlert.exists {
+            launchAlert.buttons["关闭"].tap()
+            XCTAssertTrue(launchAlert.waitForNonExistence(timeout: 5))
+        }
+        let artistMenu = app.buttons["artistDetail.more"]
+        XCTAssertTrue(artistMenu.waitForExistence(timeout: 30))
+        let seeAll = app.buttons["artist.albums.\(collection).seeAll"]
+        let collapse = app.buttons["artist.albums.\(collection).collapse"]
+        for _ in 0..<8 where !seeAll.isHittable { app.swipeUp() }
+        XCTAssertTrue(seeAll.isHittable)
+        let navigationButtons = app.navigationBars.buttons.allElementsBoundByIndex.map(\.identifier)
+        seeAll.tap()
+        XCTAssertTrue(seeAll.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(collapse.waitForExistence(timeout: 5))
+        XCTAssertEqual(collapse.label, "收起")
+        XCTAssertTrue(artistMenu.exists, "Expanding albums must keep the artist page open")
+        XCTAssertEqual(app.navigationBars.buttons.allElementsBoundByIndex.map(\.identifier), navigationButtons)
+        let albums = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "artist.album."))
+        XCTAssertTrue(albums.firstMatch.waitForExistence(timeout: 5))
+        attach(app, "artist-albums-\(collection)-expanded-inline")
+
+        let firstAlbum = albums.firstMatch
+        for _ in 0..<4 where !firstAlbum.isHittable { app.swipeUp() }
+        XCTAssertTrue(firstAlbum.isHittable)
+        XCTAssertLessThan(firstAlbum.frame.width, 150, "Expanded album cards should remain compact")
+        if collection == "releases" {
+            let thirdAlbum = albums.element(boundBy: 2)
+            XCTAssertTrue(thirdAlbum.exists)
+            XCTAssertEqual(firstAlbum.frame.minY, thirdAlbum.frame.minY, accuracy: 1,
+                           "A standard iPhone should fit three album cards per row")
+        }
+        firstAlbum.tap()
+        XCTAssertTrue(artistMenu.waitForNonExistence(timeout: 5))
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        XCTAssertTrue(artistMenu.waitForExistence(timeout: 5))
+        XCTAssertFalse(seeAll.exists)
+        XCTAssertTrue(collapse.exists)
+        XCTAssertTrue(albums.firstMatch.exists)
+        for _ in 0..<8 where !collapse.isHittable { app.swipeDown() }
+        XCTAssertTrue(collapse.isHittable)
+        collapse.tap()
+        XCTAssertTrue(seeAll.waitForExistence(timeout: 5))
+        XCTAssertTrue(collapse.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(albums.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(artistMenu.exists)
+        attach(app, "artist-albums-\(collection)-collapsed")
+        seeAll.tap()
+        XCTAssertTrue(collapse.waitForExistence(timeout: 5))
+        XCTAssertTrue(albums.firstMatch.waitForExistence(timeout: 5))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(artistMenu.waitForNonExistence(timeout: 5))
+    }
+
     private func searchApp(navigationMode: String) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
         app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "search"

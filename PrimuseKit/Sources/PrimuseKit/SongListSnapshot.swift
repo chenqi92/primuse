@@ -217,6 +217,11 @@ public enum LibrarySongSortOrderPreference {
 public enum PlaylistSongSortOrderPreference {
     public static let storageKey = "playlistDetailSortOrder"
 
+    public static func storageKey(for playlistID: String, isLikedSongs: Bool) -> String {
+        // 旧的全局选择只留给「我喜欢」，普通歌单各自记忆，首次打开保留导入顺序。
+        isLikedSongs ? storageKey : "\(storageKey).playlist.\(playlistID)"
+    }
+
     public static func resolve(_ rawValue: String?, isLikedSongs: Bool) -> LibrarySongSortOrder? {
         guard let rawValue else { return isLikedSongs ? .dateAdded : nil }
         return LibrarySongSortOrder(rawValue: rawValue)

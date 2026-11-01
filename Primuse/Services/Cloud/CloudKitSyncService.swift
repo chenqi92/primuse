@@ -2659,10 +2659,10 @@ final class CloudKitSyncService {
         // Stable cross-device identities — receivers fall back through
         // (cloudAccountID, filePath) and fuzzy match when the originating
         // Song.id doesn't line up with the local mount's hash.
-        var identities = makeIdentities(forSongIDs: songIDs)
-        identities.append(contentsOf: library.pendingSongIdentities(forPlaylist: playlistID))
-        var seenIdentities = Set<SongIdentity>()
-        identities = identities.filter { seenIdentities.insert($0).inserted }
+        let identities = PlaylistMemberOrderPolicy.syncIdentities(
+            makeIdentities(forSongIDs: songIDs),
+            pending: library.pendingSongIdentities(forPlaylist: playlistID)
+        )
         if let data = try? JSONEncoder().encode(
             PlaylistCloudSyncEnvelope(playlist: playlist, songIdentities: identities)
         ) {
