@@ -65,6 +65,7 @@ final class PodcastStore {
     @ObservationIgnored private var dirtyShowIDs: Set<String> = []
     @ObservationIgnored private var showsDirty = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var persistenceTask: Task<Void, Never>?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var refreshAllTask: Task<Void, Never>?
     @ObservationIgnored private var isRegisteredWithCloud = false
@@ -403,7 +404,7 @@ final class PodcastStore {
         rebuildIndex()
         for show in gone {
             PodcastDownloadStore.shared.deleteAll(showID: show.id, keeping: nowPlayingEpisodeIDs)
-            try? FileManager.default.removeItem(at: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: show.id)))
+            dirtyShowIDs.insert(show.id)
         }
         showsDirty = true
         scheduleSave()
@@ -663,7 +664,7 @@ final class PodcastStore {
         })
     }
 
-    private func apply(_ merged: PodcastFeedMerge.Result, etag: String?, lastModified: String?, upgradedURL: URL) {
+    func apply(_ merged: PodcastFeedMerge.Result, etag: String?, lastModified: String?, upgradedURL: URL) {
         guard let index = subscribedShows.firstIndex(where: { $0.id == merged.show.id }) else { return }
         // 刷新期间用户改了设置、文件夹与标签,或退订后又订:定义部分以本机此刻为准。
         var show = merged.show
@@ -683,10 +684,13 @@ final class PodcastStore {
             show.feedURL = upgradedURL
         }
         let feedMoved = show.feedURL != current.feedURL
+        let episodesChanged = episodesByShow[show.id] != merged.episodes
         subscribedShows[index] = show
-        episodesByShow[show.id] = merged.episodes
-        rebuildIndex()
-        markDirty(showID: show.id, showsChanged: true)
+        if episodesChanged {
+            episodesByShow[show.id] = merged.episodes
+            rebuildIndex()
+        }
+        markDirty(showID: episodesChanged ? show.id : nil, showsChanged: show != current)
         if feedMoved { pushSubscriptions() }
         if !merged.addedEpisodeIDs.isEmpty {
             plog("🎙️ '\(show.title)': \(merged.addedEpisodeIDs.count) new episodes")
@@ -780,7 +784,7 @@ final class PodcastStore {
             }
             episodesByShow.removeValue(forKey: id)
             PodcastDownloadStore.shared.deleteAll(showID: id, keeping: nowPlayingEpisodeIDs)
-            try? FileManager.default.removeItem(at: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: id)))
+            dirtyShowIDs.insert(id)
         }
         rebuildIndex()
         if before != subscribedShows || !outcome.removedShowIDs.isEmpty {
@@ -1016,20 +1020,47 @@ final class PodcastStore {
         guard isLoaded else { return }
         let library = showsDirty ? LocalLibrary(shows: subscribedShows, removed: removed) : nil
         let episodes = dirtyShowIDs.compactMap { id in episodesByShow[id].map { (id, $0) } }
+        let deletedIDs = dirtyShowIDs.filter { episodesByShow[$0] == nil }
         showsDirty = false
         dirtyShowIDs = []
-        guard library != nil || !episodes.isEmpty else { return }
+        guard library != nil || !episodes.isEmpty || !deletedIDs.isEmpty else { return }
         let directory = directory
         let episodesDirectory = episodesDirectory
-        Task.detached(priority: .utility) {
-            let encoder = Self.makeEncoder()
-            try? FileManager.default.createDirectory(at: episodesDirectory, withIntermediateDirectories: true)
-            if let library, let data = try? encoder.encode(library) {
-                try? data.write(to: directory.appendingPathComponent("shows.json"), options: .atomic)
-            }
-            for (id, list) in episodes {
-                guard let data = try? encoder.encode(list) else { continue }
-                try? data.write(to: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: id)), options: .atomic)
+        // A later snapshot must never finish before an earlier one and then be overwritten.
+        let previous = persistenceTask
+        persistenceTask = Task { [weak self] in
+            await previous?.value
+            let failed = await Task.detached(priority: .utility) { () -> (Bool, Set<String>) in
+                let encoder = Self.makeEncoder()
+                var failedLibrary = false
+                var failedShows = Set<String>()
+                func write<T: Encodable>(_ value: T, to url: URL) throws {
+                    let data = try encoder.encode(value)
+                    if (try? Data(contentsOf: url, options: .mappedIfSafe)) == data { return }
+                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try data.write(to: url, options: .atomic)
+                }
+                if let library {
+                    do { try write(library, to: directory.appendingPathComponent("shows.json")) }
+                    catch { failedLibrary = true }
+                }
+                for (id, list) in episodes {
+                    do { try write(list, to: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: id))) }
+                    catch { failedShows.insert(id) }
+                }
+                for id in deletedIDs {
+                    let url = episodesDirectory.appendingPathComponent(Self.episodesFileName(for: id))
+                    do {
+                        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+                    } catch { failedShows.insert(id) }
+                }
+                return (failedLibrary, failedShows)
+            }.value
+            guard let self else { return }
+            self.showsDirty = self.showsDirty || failed.0
+            self.dirtyShowIDs.formUnion(failed.1)
+            if failed.0 || !failed.1.isEmpty {
+                plog("🎙️ Podcast save incomplete library=\(failed.0) shows=\(failed.1.count); retained for next flush")
             }
         }
     }

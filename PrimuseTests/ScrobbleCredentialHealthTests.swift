@@ -14,6 +14,8 @@ final class ScrobbleCredentialHealthTests: XCTestCase, @unchecked Sendable {
         let provider = ListenBrainzProvider(userToken: token, session: fixture.session())
         let valid = await provider.validateCredentials()
         XCTAssertEqual(valid, true)
+        XCTAssertEqual(fixture.requests.first?.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
+        XCTAssertEqual(fixture.requests.first?.value(forHTTPHeaderField: "Cache-Control"), "no-cache, no-store")
         let entry = ScrobbleEntry(songID: "fixture", title: "Track", artist: "Artist", startedAt: 1_700_000_000)
         try await provider.sendNowPlaying(entry)
         try await provider.submitListens([entry])

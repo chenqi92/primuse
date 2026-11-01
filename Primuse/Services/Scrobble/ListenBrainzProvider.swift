@@ -23,7 +23,7 @@ struct ListenBrainzProvider: ScrobbleProvider {
     init(userToken: String, baseURL: URL = URL(string: "https://api.listenbrainz.org")!, session: URLSession = .shared, requests: ScrobbleRequests = .init()) {
         self.requests = requests
         self.session = session
-        self.userToken = userToken
+        self.userToken = userToken.trimmingCharacters(in: .whitespacesAndNewlines)
         self.baseURL = baseURL
     }
 
@@ -34,6 +34,8 @@ struct ListenBrainzProvider: ScrobbleProvider {
     func validateCredentials() async -> Bool? {
         guard !userToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         var request = URLRequest(url: baseURL.appendingPathComponent("1/validate-token"))
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("no-cache, no-store", forHTTPHeaderField: "Cache-Control")
         request.setValue("Token \(userToken)", forHTTPHeaderField: "Authorization")
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -102,19 +104,33 @@ struct ListenBrainzProvider: ScrobbleProvider {
         request.httpBody = body
         request.timeoutInterval = 30
 
-        _ = try await requests.send(request, session: session, service: ScrobbleRequests.listenBrainz, account: userToken) { _, http in
-            Self.logFailure(http, operation: "submit-listens")
-            let retryAfter = HTTPResponseFailure.retryDelay(from: http)
-            if retryAfter == nil, http.statusCode == 401 {
-                throw ScrobbleError.invalidCredentials
+        do {
+            _ = try await requests.send(request, session: session, service: ScrobbleRequests.listenBrainz, account: userToken) { _, http in
+                Self.logFailure(http, operation: "submit-listens")
+                let retryAfter = HTTPResponseFailure.retryDelay(from: http)
+                if retryAfter == nil, http.statusCode == 401 {
+                    throw ScrobbleError.invalidCredentials
+                }
+                // A proxy or service policy can reject a valid token's submission.
+                // Keep the listens and share a cooldown with validation/Now Playing.
+                if http.statusCode == 403 {
+                    throw HTTPResponseFailure(statusCode: 403, retryAfter: retryAfter ?? 60, isRetryable: true)
+                }
             }
-            // A proxy or service policy can reject a valid token's submission.
-            // Keep the listens and share a cooldown with validation/Now Playing.
-            if http.statusCode == 403 {
-                throw HTTPResponseFailure(statusCode: 403, retryAfter: retryAfter ?? 60, isRetryable: true)
+        } catch ScrobbleError.invalidCredentials {
+            // Submission and validation can disagree behind a service proxy. A fresh
+            // successful validation must not turn into a persistent invalid-token loop.
+            let validated = await validateCredentials()
+            try Task.checkCancellation()
+            guard validated != false else { throw ScrobbleError.invalidCredentials }
+            let delay: TimeInterval = 300
+            if let quota = RequestQuota(service: ScrobbleRequests.listenBrainz, url: request.url!, account: .init(stableID: userToken)) {
+                let key = ScrobbleCooldownStore.key(service: ScrobbleRequests.listenBrainz.id, endpoint: quota.endpoint.key, account: userToken)
+                await requests.cooldowns.record(key, status: 401, delay: delay)
             }
+            plog("scrobble [ListenBrainz] submission unauthorized validation=\(validated == true ? "valid" : "unavailable"); deferring retries")
+            throw HTTPResponseFailure(statusCode: 401, retryAfter: delay, isRetryable: true)
         }
-
     }
 
     private static func logFailure(_ response: HTTPURLResponse, operation: String) {

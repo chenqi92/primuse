@@ -87,6 +87,29 @@ extension AudioPlayerService {
         return replacingPodcastSong(updated)
     }
 
+    /// A failed progressive start may have outlived a Wi-Fi/cellular transition.
+    /// Once a fresh Range probe succeeds, the nonzero size prevents another retry.
+    func retryPodcastRangeAfterStartupFailure(
+        probeEnclosure: (URL) async -> PodcastNetwork.EnclosureProbe? = { await PodcastNetwork.probeEnclosure($0) }
+    ) async -> Bool {
+        guard let song = currentSong, PodcastPlaybackSong.isEpisode(song), song.fileSize == 0,
+              !isPlaying, interruptionResumePolicy.playbackIsIntended, !Task.isCancelled,
+              PodcastEnclosureProbeCache.shared.probe(forEpisodeID: song.id) == nil,
+              let enclosure = URL(string: song.filePath) else { return false }
+        guard !interruptionResumePolicy.isAwaitingInterruptionEnd else { return true }
+        let failedPlayID = playID
+        let probe = await probeEnclosure(enclosure)
+        guard playID == failedPlayID, currentSong?.id == song.id,
+              !Task.isCancelled, interruptionResumePolicy.playbackIsIntended,
+              !interruptionResumePolicy.isAwaitingInterruptionEnd else { return true }
+        guard let probe, probe.supportsRange, probe.totalLength > 0 else { return false }
+        PodcastEnclosureProbeCache.shared.store(probe, forEpisodeID: song.id)
+        let updated = replacingPodcastFileSize(song, with: probe.totalLength)
+        plog("🎙️ Podcast startup recovered Range support; retrying current episode")
+        await play(song: updated)
+        return true
+    }
+
     /// 升级前存下的队列(冷启动恢复、播客队列记忆)里,视频单集还没带 `mvPath`;
     /// 按单集现在的样子补上,放画面还是只放声音才有得选(#365)。
     private func withPodcastVideoReference(_ song: Song) -> Song {

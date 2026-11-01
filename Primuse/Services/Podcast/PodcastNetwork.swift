@@ -123,7 +123,7 @@ enum PodcastNetwork {
 
     /// 不传 `timeout` 时用调度器的 90 秒(和原来会话的资源超时一样), 大的 feed 慢网下也读得完;
     /// `URLRequest` 没设超时时它的默认值是 60 秒, 不能拿来当上限。
-    /// 探测(HTTPS 升级、Range)只试一次: 只开 http 的主机 443 直接拒连, 重试只会拖慢起播。
+    /// HTTPS 升级只试一次;Range 仅在短暂断网时由调用方受限重试。
     private static func read(
         _ request: URLRequest, session: URLSession, quotaRegistry: RequestQuotaRegistry, maxBytes: Int,
         allowedStatuses: Set<Int> = [], usesTrustedTransport: Bool = true,
@@ -221,31 +221,43 @@ enum PodcastNetwork {
         var request = URLRequest(url: target)
         request.setValue(HTTPRangeProbePolicy.requestHeaderValue, forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        request.timeoutInterval = 8
-        do {
-            // 服务器不认 Range 时会把整个文件发过来:上限压小,超了就当「不支持分段」。
-            let (data, http) = try await read(request, session: session, quotaRegistry: quotaRegistry, maxBytes: 64 * 1024,
-                                              replay: .never, timeout: request.timeoutInterval)
-            let finalURL = http.url ?? target
-            switch http.statusCode {
-            case 206:
-                guard let total = HTTPRangeProbePolicy.validatedTotalLength(
-                    contentRange: http.value(forHTTPHeaderField: "Content-Range"),
-                    contentLength: Int64(data.count)
-                ) else {
+        request.timeoutInterval = 4
+        for attempt in 0..<2 {
+            do {
+                // 服务器不认 Range 时会把整个文件发过来:上限压小,超了就当「不支持分段」。
+                let (data, http) = try await read(request, session: session, quotaRegistry: quotaRegistry, maxBytes: 64 * 1024,
+                                                  replay: .never, timeout: request.timeoutInterval)
+                let finalURL = http.url ?? target
+                switch http.statusCode {
+                case 206:
+                    guard let total = HTTPRangeProbePolicy.validatedTotalLength(
+                        contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                        contentLength: Int64(data.count)
+                    ) else {
+                        return EnclosureProbe(finalURL: finalURL, totalLength: 0, supportsRange: false, probedAt: Date())
+                    }
+                    return EnclosureProbe(finalURL: finalURL, totalLength: total, supportsRange: true, probedAt: Date())
+                case 200:
                     return EnclosureProbe(finalURL: finalURL, totalLength: 0, supportsRange: false, probedAt: Date())
+                default:
+                    plog("🎙️ Enclosure probe HTTP \(http.statusCode) host=\(target.host ?? "?")")
+                    return nil
                 }
-                return EnclosureProbe(finalURL: finalURL, totalLength: total, supportsRange: true, probedAt: Date())
-            case 200:
-                return EnclosureProbe(finalURL: finalURL, totalLength: 0, supportsRange: false, probedAt: Date())
-            default:
-                plog("🎙️ Enclosure probe HTTP \(http.statusCode) host=\(target.host ?? "?")")
+            } catch {
+                guard !OperationCancellationPolicy.isCancellation(error), !Task.isCancelled else { return nil }
+                let transient = (error as? URLError).map {
+                    [.timedOut, .networkConnectionLost, .notConnectedToInternet].contains($0.code)
+                } ?? false
+                if attempt == 0, transient {
+                    do { try await Task.sleep(for: .milliseconds(350)) }
+                    catch { return nil }
+                    continue
+                }
+                plog("🎙️ Enclosure probe failed host=\(target.host ?? "?"): \(error.localizedDescription)")
                 return nil
             }
-        } catch {
-            plog("🎙️ Enclosure probe failed host=\(target.host ?? "?"): \(error.localizedDescription)")
-            return nil
         }
+        return nil
     }
 }
 

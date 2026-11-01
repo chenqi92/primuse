@@ -8,6 +8,27 @@ import PrimuseKit
 #endif
 
 final class PodcastRequestQuotaTests: XCTestCase {
+    func testEnclosureRecoversOnceFromTransientNetworkFailure() async throws {
+        for code in [URLError.Code.timedOut, .networkConnectionLost, .notConnectedToInternet] {
+            let fixture = PodcastRequestFixture(status: 206,
+                headers: ["Content-Range": "bytes 0-1/999", "Content-Length": "2"], body: Data([1, 2]),
+                transportError: URLError(code), transportFailureCount: 1)
+            let probe = await PodcastNetwork.probeEnclosure(fixture.url(), session: fixture.session)
+            XCTAssertEqual(probe?.totalLength, 999)
+            XCTAssertEqual(fixture.requests.count, 2)
+            XCTAssertTrue(fixture.requests.allSatisfy { $0.timeoutInterval <= 4 })
+        }
+    }
+
+    func testEnclosureRetryIsBoundedAndDoesNotReplayCancellationOrPermanentFailure() async {
+        for (code, expected) in [(URLError.Code.timedOut, 2), (.cancelled, 1), (.secureConnectionFailed, 1)] {
+            let fixture = PodcastRequestFixture(status: 0, transportError: URLError(code))
+            let probe = await PodcastNetwork.probeEnclosure(fixture.url(), session: fixture.session)
+            XCTAssertNil(probe)
+            XCTAssertEqual(fixture.requests.count, expected)
+        }
+    }
+
     func testFeedsOnTheSameEndpointShareLongCooldown() async throws {
         for status in [429, 503] {
             let fixture = PodcastRequestFixture(status: status, headers: ["Retry-After": "3600"])
@@ -138,12 +159,265 @@ final class PodcastRequestQuotaTests: XCTestCase {
     }
 }
 
+@MainActor
+final class PodcastPersistenceTests: XCTestCase {
+    private struct Library: Codable { var shows: [PodcastShow]; var removed: [String: Date] }
+
+    func testRepeatedUnchangedFeedsDoNotRewriteLargeEpisodeFile() async throws {
+        let fixture = try await makeStore(count: 3_300)
+        defer { fixture.clean() }
+        let before = try FileManager.default.attributesOfItem(atPath: fixture.episodesURL.path)[.systemFileNumber] as? NSNumber
+        for tick in 1...5 {
+            let merged = PodcastFeedMerge.refresh(show: fixture.store.subscribedShows[0],
+                existing: fixture.store.episodesByShow[fixture.showID] ?? [], feed: fixture.feed,
+                now: Date(timeIntervalSince1970: 1_800_000_000 + Double(tick)))
+            fixture.store.apply(merged, etag: nil, lastModified: nil, upgradedURL: fixture.url)
+            fixture.store.flush()
+            await fixture.store.persistenceTask?.value
+        }
+        let after = try FileManager.default.attributesOfItem(atPath: fixture.episodesURL.path)[.systemFileNumber] as? NSNumber
+        XCTAssertEqual(before, after, "Unchanged 3,300-episode feeds must not replace the episode file")
+        XCTAssertEqual(fixture.store.episodesByShow[fixture.showID]?.count, 3_300)
+    }
+
+    func testConsecutiveSavesKeepLatestEpisodeAndShowSnapshot() async throws {
+        let fixture = try await makeStore(count: 10)
+        defer { fixture.clean() }
+        for tick in 1...8 {
+            var feed = fixture.feed
+            feed.title = "Show \(tick)"
+            feed.items[0].title = "Episode \(tick)"
+            let merged = PodcastFeedMerge.refresh(show: fixture.store.subscribedShows[0],
+                existing: fixture.store.episodesByShow[fixture.showID] ?? [], feed: feed, now: Date())
+            fixture.store.apply(merged, etag: nil, lastModified: nil, upgradedURL: fixture.url)
+            fixture.store.flush()
+        }
+        await fixture.store.persistenceTask?.value
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .secondsSince1970
+        let episodes = try decoder.decode([PodcastEpisode].self, from: Data(contentsOf: fixture.episodesURL))
+        let library = try decoder.decode(Library.self, from: Data(contentsOf: fixture.directory.appendingPathComponent("shows.json")))
+        XCTAssertEqual(episodes.first?.title, "Episode 8")
+        XCTAssertEqual(library.shows.first?.title, "Show 8")
+    }
+
+    func testFailedWriteRemainsDirtyForNextFlush() async throws {
+        let fixture = try await makeStore(count: 2)
+        defer { fixture.clean() }
+        let episodesDirectory = fixture.episodesURL.deletingLastPathComponent()
+        try FileManager.default.removeItem(at: episodesDirectory)
+        try Data("blocked".utf8).write(to: episodesDirectory)
+        var feed = fixture.feed
+        feed.items[0].title = "Retained after write failure"
+        let merged = PodcastFeedMerge.refresh(show: fixture.store.subscribedShows[0],
+            existing: fixture.store.episodesByShow[fixture.showID] ?? [], feed: feed, now: Date())
+        fixture.store.apply(merged, etag: nil, lastModified: nil, upgradedURL: fixture.url)
+        fixture.store.flush()
+        await fixture.store.persistenceTask?.value
+        try FileManager.default.removeItem(at: episodesDirectory)
+        fixture.store.flush()
+        await fixture.store.persistenceTask?.value
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .secondsSince1970
+        let saved = try decoder.decode([PodcastEpisode].self, from: Data(contentsOf: fixture.episodesURL))
+        XCTAssertEqual(saved.first?.title, "Retained after write failure")
+    }
+
+    func testUnsubscribeIsNotUndoneByAnEarlierPendingSave() async throws {
+        let fixture = try await makeStore(count: 3_300)
+        defer { fixture.clean() }
+        var feed = fixture.feed
+        feed.items[0].title = "Pending save"
+        let merged = PodcastFeedMerge.refresh(show: fixture.store.subscribedShows[0],
+            existing: fixture.store.episodesByShow[fixture.showID] ?? [], feed: feed, now: Date())
+        fixture.store.apply(merged, etag: nil, lastModified: nil, upgradedURL: fixture.url)
+        fixture.store.flush()
+        fixture.store.unsubscribe(fixture.showID)
+        fixture.store.flush()
+        await fixture.store.persistenceTask?.value
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.episodesURL.path))
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .secondsSince1970
+        let saved = try decoder.decode(Library.self, from: Data(contentsOf: fixture.directory.appendingPathComponent("shows.json")))
+        XCTAssertTrue(saved.shows.isEmpty)
+        XCTAssertNotNil(saved.removed[fixture.showID])
+    }
+
+    private struct StoreFixture {
+        let store: PodcastStore
+        let directory: URL
+        let episodesURL: URL
+        let feed: PodcastFeed
+        let url: URL
+        let showID: String
+        let suite: String
+        func clean() {
+            try? FileManager.default.removeItem(at: directory)
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        }
+    }
+
+    private func makeStore(count: Int) async throws -> StoreFixture {
+        let suite = "podcast-persistence-" + UUID().uuidString
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let url = URL(string: "https://\(suite).invalid/feed.xml")!
+        let feed = PodcastFeed(title: "Show", items: (0..<count).map {
+            PodcastFeedItem(guid: "episode-\($0)", title: "Episode \($0)",
+                showNotes: String(repeating: "notes ", count: 200), enclosureURL: url.appendingPathComponent("\($0).m4a"))
+        })
+        let original = PodcastFeedMerge.subscribe(feed: feed, feedURL: url, now: Date(timeIntervalSince1970: 1_800_000_000))
+        let episodeDirectory = directory.appendingPathComponent("Episodes")
+        try FileManager.default.createDirectory(at: episodeDirectory, withIntermediateDirectories: true)
+        let episodesURL = episodeDirectory.appendingPathComponent(PodcastIdentity.digest(original.show.id) + ".json")
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .secondsSince1970
+        try encoder.encode(Library(shows: [original.show], removed: [:])).write(to: directory.appendingPathComponent("shows.json"))
+        try encoder.encode(original.episodes).write(to: episodesURL)
+        let store = PodcastStore(defaults: try XCTUnwrap(UserDefaults(suiteName: suite)), directory: directory)
+        store.loadIfNeeded()
+        for _ in 0..<500 where !store.isLoaded { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(store.isLoaded)
+        return StoreFixture(store: store, directory: directory, episodesURL: episodesURL,
+            feed: feed, url: url, showID: original.show.id, suite: suite)
+    }
+}
+
+#if os(iOS)
+@MainActor
+final class PodcastStartupRecoveryTests: XCTestCase {
+    func testRecoveryHonorsPauseSwitchAndInterruptionDuringProbe() async throws {
+        try await withPlayer { player in
+            for change in ["pause", "switch", "generation", "interruption"] {
+                let song = self.prepareFailure(player, url: URL(string: "https://fixture.invalid/episode.wav")!)
+                let consumed = await player.retryPodcastRangeAfterStartupFailure { url in
+                    switch change {
+                    case "pause": player.interruptionResumePolicy.registerPauseOrStopIntent()
+                    case "switch": player.currentSong = nil
+                    case "generation": player.playID = UUID()
+                    default: player.interruptionResumePolicy.interruptionBegan(wasActuallyPlaying: true, currentItemID: song.id)
+                    }
+                    return .init(finalURL: url, totalLength: 1234, supportsRange: true, probedAt: Date())
+                }
+                XCTAssertTrue(consumed, change)
+                XCTAssertFalse(player.isPlaying, change)
+                XCTAssertNil(PodcastEnclosureProbeCache.shared.probe(forEpisodeID: song.id), change)
+            }
+            let song = self.prepareFailure(player, url: URL(string: "https://fixture.invalid/interrupted.wav")!)
+            player.interruptionResumePolicy.interruptionBegan(wasActuallyPlaying: true, currentItemID: song.id)
+            let consumed = await player.retryPodcastRangeAfterStartupFailure { _ in
+                XCTFail("An active interruption must not start a recovery request")
+                return nil
+            }
+            XCTAssertTrue(consumed)
+        }
+    }
+
+    func testRecoveredRangeStartsCurrentEpisodeWithoutAdvancingQueue() async throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_PODCAST_RECOVERY_MUSIC"] == "1" else {
+            throw XCTSkip("Requires the ordinary music fixture copied to this test device")
+        }
+        let music = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PlaybackValidation/podcast-recovery-119.m4a")
+        defer { try? FileManager.default.removeItem(at: music) }
+        let payload = try Data(contentsOf: music)
+        let server = try PodcastVideoHTTPFixture(payload: payload, contentType: "audio/mp4")
+        let port = try await server.start()
+        defer { server.stop() }
+        try await withPlayer { player in
+            let song = self.prepareFailure(player, url: URL(string: "http://127.0.0.1:\(port)/episode.m4a")!)
+            let failedPlayID = player.playID
+            let suppressed = PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID
+            PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = song.id
+            defer {
+                PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = suppressed
+                PodcastEnclosureProbeCache.shared.invalidate(episodeID: song.id)
+            }
+            await player.autoAdvanceAfterFailure(trigger: "playWithFallbackDecoder(song:url:outputFormat:playID:shouldRecordPlaybackStart:)")
+            let deadline = Date().addingTimeInterval(15)
+            while !(player.audioEngine.isActuallyPlaying && player.currentTime > 1), Date() < deadline {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertEqual(player.currentSong?.id, song.id)
+            XCTAssertEqual(player.currentSong?.fileSize, Int64(payload.count))
+            XCTAssertEqual(player.queueEntries.count, 2)
+            XCTAssertNotEqual(player.playID, failedPlayID)
+            XCTAssertTrue(player.audioEngine.isActuallyPlaying)
+            XCTAssertGreaterThan(player.currentTime, 1)
+            XCTAssertEqual(player.activeDecoderKind, .httpStream)
+            let repeated = await player.retryPodcastRangeAfterStartupFailure { _ in
+                XCTFail("A recovered known-size episode must not retry again")
+                return nil
+            }
+            XCTAssertFalse(repeated)
+            player.currentSong = nil
+        }
+    }
+
+    private func prepareFailure(_ player: AudioPlayerService, url: URL) -> Song {
+        let song = Song(id: UUID().uuidString, title: "Podcast recovery fixture", duration: 15,
+            fileFormat: .m4a, filePath: url.absoluteString, sourceID: PodcastPlaybackSong.sourceID, fileSize: 0)
+        var next = song
+        next.id = UUID().uuidString
+        player.setQueue([song, next])
+        player.currentSong = song
+        player.isPlaying = false
+        player.playID = UUID()
+        player.interruptionResumePolicy.registerPlayIntent()
+        player.beginAutomaticAdvanceTransport(itemID: song.id, reason: "test-startup-failure")
+        return song
+    }
+
+    private func withPlayer(_ body: (AudioPlayerService) async throws -> Void) async throws {
+        _ = AppServices.shared
+        await Task.yield()
+        let session = AudioSessionManager.shared
+        let began = session.onInterruptionBegan, ended = session.onInterruptionEnded
+        let configuration = session.onConfigurationChange
+        let history = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobble = ScrobbleService.shared.isSuspended
+        let modes = ListeningPlayModeStore.shared.ledger
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        let suite = "PodcastRecoveryTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        settings.prewarmQueueCount = 0
+        settings.skipLeadingSilenceEnabled = false
+        settings.skipTrailingSilenceEnabled = false
+        settings.gaplessEnabled = false
+        settings.crossfadeEnabled = false
+        settings.audioCacheEnabled = false
+        let sources = SourceManager(sourcesProvider: { [] })
+        let player = AudioPlayerService(sourceManager: sources, playbackSettings: settings,
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        defer {
+            let songs = player.queueEntries.map(\.song)
+            player.currentSong = nil
+            player.stop()
+            player.playbackSessionPersistence.drain()
+            for song in songs { sources.deleteAudioCache(for: song) }
+            session.onInterruptionBegan = began
+            session.onInterruptionEnded = ended
+            session.onConfigurationChange = configuration
+            PlayHistoryStore.shared.isRecordingSuspended = history
+            ScrobbleService.shared.isSuspended = scrobble
+            ListeningPlayModeStore.shared.update { $0 = modes }
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        player.audioEngine.setVolume(0, persist: false)
+        player.shuffleEnabled = false
+        player.repeatMode = .off
+        try await body(player)
+    }
+}
+#endif
+
 private final class PodcastRequestFixture: @unchecked Sendable {
     let host: String
     let status: Int
     let headers: [String: String]
     let body: Data
     let transportError: URLError?
+    let transportFailureCount: Int?
     private let lock = NSLock()
     private var recorded: [URLRequest] = []
     var requests: [URLRequest] { lock.withLock { recorded } }
@@ -153,9 +427,10 @@ private final class PodcastRequestFixture: @unchecked Sendable {
         config.protocolClasses = [PodcastRequestProtocol.self]
         return URLSession(configuration: config)
     }()
-    init(status: Int, headers: [String: String] = [:], body: Data = Data(), host: String = UUID().uuidString.lowercased() + ".invalid", transportError: URLError? = nil) {
+    init(status: Int, headers: [String: String] = [:], body: Data = Data(), host: String = UUID().uuidString.lowercased() + ".invalid", transportError: URLError? = nil, transportFailureCount: Int? = nil) {
         self.status = status; self.headers = headers; self.body = body
         self.host = host; self.transportError = transportError
+        self.transportFailureCount = transportFailureCount
     }
     func url(_ path: String = "/feed.xml") -> URL { URL(string: "https://\(host)\(path)")! }
     func record(_ request: URLRequest) { lock.withLock { recorded.append(request) } }
@@ -172,7 +447,10 @@ private final class PodcastRequestProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
         }
         fixture.record(request)
-        if let error = fixture.transportError { client?.urlProtocol(self, didFailWithError: error); return }
+        if let error = fixture.transportError,
+           fixture.requests.count <= (fixture.transportFailureCount ?? Int.max) {
+            client?.urlProtocol(self, didFailWithError: error); return
+        }
         if fixture.status == 0 { return }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: fixture.status, httpVersion: nil, headerFields: fixture.headers)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: fixture.body)

@@ -2377,16 +2377,18 @@ extension ListeningFeaturesTests {
     }
 }
 
-private final class PodcastVideoHTTPFixture: @unchecked Sendable {
+final class PodcastVideoHTTPFixture: @unchecked Sendable {
     private let listener: NWListener
     private let payload: Data
+    private let contentType: String
     private let queue = DispatchQueue(label: "podcast-video-fixture")
     private let lock = NSLock()
     private var started = false
     private var connections: [NWConnection] = []
 
-    init(payload: Data) throws {
+    init(payload: Data, contentType: String = "video/mp4") throws {
         self.payload = payload
+        self.contentType = contentType
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -2437,7 +2439,7 @@ private final class PodcastVideoHTTPFixture: @unchecked Sendable {
             let lines = header.components(separatedBy: "\r\n")
             let method = lines[0].split(separator: " ").first ?? ""
             var status = "200 OK"
-            var contentType = "video/mp4"
+            var contentType = self.contentType
             var extra = "Accept-Ranges: bytes\r\n"
             var body = payload
             if method == "PROPFIND" {

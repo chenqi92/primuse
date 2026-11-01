@@ -8,6 +8,39 @@ import XCTest
 #endif
 
 final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
+    func testUnauthorizedSubmissionWithUnavailableValidationKeepsRetryableCooldown() async throws {
+        let suite = "scrobble-unknown-validation-" + UUID().uuidString
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let fixture = ScrobbleHTTPFixture(status: 401)
+        let requests = ScrobbleRequests(registry: RequestQuotaRegistry(), cooldowns: ScrobbleCooldownStore(suiteName: suite))
+        let provider = ListenBrainzProvider(userToken: UUID().uuidString, session: fixture.session(), requests: requests)
+        do { try await provider.submitListens([Self.entry]); XCTFail("Expected deferred retry") }
+        catch let failure as HTTPResponseFailure {
+            XCTAssertEqual(failure.statusCode, 401)
+            XCTAssertEqual(failure.isRetryable, true)
+            XCTAssertGreaterThan(failure.retryAfter ?? 0, 290)
+        }
+        XCTAssertEqual(fixture.count, 2)
+    }
+
+    func testFreshlyValidTokenWithUnauthorizedSubmissionIsDeferredAcrossRestart() async throws {
+        let suite = "scrobble-valid-unauthorized-" + UUID().uuidString
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let fixture = ScrobbleHTTPFixture(status: 401, validationBody: #"{"valid":true,"code":200}"#)
+        let session = fixture.session()
+        let token = UUID().uuidString
+        for _ in 0..<2 {
+            let requests = ScrobbleRequests(registry: RequestQuotaRegistry(), cooldowns: ScrobbleCooldownStore(suiteName: suite))
+            let provider = ListenBrainzProvider(userToken: token, session: session, requests: requests)
+            do { try await provider.submitListens([Self.entry]); XCTFail("Expected a deferred submission") }
+            catch let failure as HTTPResponseFailure {
+                XCTAssertEqual(failure.statusCode, 401)
+                XCTAssertGreaterThan(failure.retryAfter ?? 0, 290)
+            }
+        }
+        XCTAssertEqual(fixture.count, 2, "One write and one fresh validation, no immediate replay or restart bypass")
+    }
+
     func testListenBrainzForbiddenResponsesRemainRetryableAndShareCooldown() async throws {
         for body in [#"{"error":"Forbidden"}"#, "<html>Access denied</html>"] {
             for retryAfter in [nil, "3600"] as [String?] {
@@ -256,7 +289,7 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         let wasEnabled = settings.isEnabled
         settings.isEnabled = false // Only the explicit retry below may send.
         defer { settings.isEnabled = wasEnabled }
-        let fixture = ScrobbleHTTPFixture(status: 401)
+        let fixture = ScrobbleHTTPFixture(status: 401, validationBody: #"{"valid":false,"code":200}"#)
         let requests = ScrobbleRequests(registry: RequestQuotaRegistry(), cooldowns: ScrobbleCooldownStore(suiteName: suite))
         var provider = ListenBrainzProvider(userToken: UUID().uuidString, session: fixture.session(), requests: requests)
         let rejectedFingerprint = provider.credentialFingerprint
@@ -277,7 +310,7 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
 
         listen("second")
         XCTAssertEqual(service.pendingCount, 2)
-        XCTAssertEqual(fixture.count, 1, "The rejected token is not sent again")
+        XCTAssertEqual(fixture.count, 2, "The rejected token is only rechecked once, then held")
 
         fixture.setResponse(status: 200, headers: [:], body: "{}")
         provider = ListenBrainzProvider(userToken: UUID().uuidString, session: fixture.session(), requests: requests)
@@ -288,7 +321,7 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(service.pendingCount, 0)
-        XCTAssertEqual(fixture.count, 3)
+        XCTAssertEqual(fixture.count, 4)
     }
     private func queueDeadline(_ defaults: UserDefaults, key: String = "nextRetryAt") -> TimeInterval {
         guard let data = defaults.data(forKey: "primuse.scrobble.queue.v1"),
@@ -305,18 +338,28 @@ private final class ScrobbleHTTPFixture: @unchecked Sendable {
     private var body: Data
     let error: URLError?
     let hold: Bool
+    let validationBody: String?
     var started: XCTestExpectation?
     var stopped: XCTestExpectation?
     private let lock = NSLock()
     private var requests = 0
     var count: Int { lock.withLock { requests } }
-    init(status: Int, headers: [String: String] = [:], body: String = "{}", error: URLError? = nil, hold: Bool = false) {
+    init(status: Int, headers: [String: String] = [:], body: String = "{}", error: URLError? = nil, hold: Bool = false, validationBody: String? = nil) {
         self.status = status; self.headers = headers; self.body = Data(body.utf8); self.error = error; self.hold = hold
+        self.validationBody = validationBody
     }
     func setResponse(status: Int, headers: [String: String], body: String) {
         lock.withLock { self.status = status; self.headers = headers; self.body = Data(body.utf8) }
     }
-    func reply() -> (Int, [String: String], Data) { lock.withLock { requests += 1; return (status, headers, body) } }
+    func reply(for request: URLRequest) -> (Int, [String: String], Data) {
+        lock.withLock {
+            requests += 1
+            if request.url?.path.hasSuffix("validate-token") == true, let validationBody {
+                return (200, [:], Data(validationBody.utf8))
+            }
+            return (status, headers, body)
+        }
+    }
     func session() -> URLSession {
         ScrobbleHTTPProtocol.lock.withLock { ScrobbleHTTPProtocol.fixture = self }
         let config = URLSessionConfiguration.ephemeral
@@ -331,7 +374,7 @@ private final class ScrobbleHTTPProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let fixture = Self.lock.withLock { Self.fixture! }
-        let (status, headers, body) = fixture.reply()
+        let (status, headers, body) = fixture.reply(for: request)
         fixture.started?.fulfill()
         if fixture.hold { return }
         if let error = fixture.error { client?.urlProtocol(self, didFailWithError: error); return }

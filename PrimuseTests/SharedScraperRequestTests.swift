@@ -6,6 +6,41 @@ import XCTest
 @testable import Primuse
 
 final class SharedScraperRequestTests: XCTestCase {
+    func testKugouWithoutPrivateConfigurationFetchesPublicLRC() async throws {
+        let expected = "[00:01.00]A line\n[00:02.00]Another line"
+        let fixture = ScraperHTTPFixture { request in
+            if request.url?.path == "/lyrics" {
+                return .init(body: Data(#"{"_fetchEncryptedLyrics":true,"vars":[{"id":"123","accesskey":"fixture-key"}]}"#.utf8))
+            }
+            return .init(body: Data("{\"status\":200,\"content\":\"\(Data(expected.utf8).base64EncodedString())\"}".utf8))
+        }
+        defer { fixture.close() }
+        var config = ScraperConfig(id: "kugou", name: "Fixture", version: 6, rateLimit: 0, capabilities: ["lyrics"])
+        config.lyrics = fixture.encryptedConfig().lyrics
+        let result = try await ConfigurableScraper(config: config, session: fixture.session).getLyrics(externalId: "song")
+        XCTAssertEqual(result?.lrcContent, expected)
+        let request = try XCTUnwrap(fixture.requests.last)
+        XCTAssertEqual(request.url?.host, "lyrics.kugou.com")
+        let query = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first { $0.name == "fmt" }?.value, "lrc")
+        XCTAssertEqual(query?.first { $0.name == "id" }?.value, "123")
+    }
+
+    func testKugouPlainFallbackPreservesRateLimit() async {
+        let fixture = ScraperHTTPFixture { request in
+            request.url?.path == "/lyrics"
+                ? .init(body: Data(#"{"_fetchEncryptedLyrics":true,"vars":{"id":"123","accesskey":"fixture-key"}}"#.utf8))
+                : .init(status: 429, headers: ["Retry-After": "3600"])
+        }
+        defer { fixture.close() }
+        var config = ScraperConfig(id: "kugou", name: "Fixture", version: 6, rateLimit: 0, capabilities: ["lyrics"])
+        config.lyrics = fixture.encryptedConfig().lyrics
+        await assertRateLimited {
+            _ = try await ConfigurableScraper(config: config, session: fixture.session, requestPool: ScraperRequestPool()).getLyrics(externalId: "song")
+        }
+        XCTAssertEqual(fixture.requests.count, 2)
+    }
+
     func testQQBusinessFailuresReachCircuitBreakerInsteadOfBecomingSearchMisses() async throws {
         for usesProxy in [false, true] {
             let fixture = ScraperHTTPFixture { _ in

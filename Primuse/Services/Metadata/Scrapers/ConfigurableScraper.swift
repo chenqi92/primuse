@@ -273,6 +273,7 @@ actor ConfigurableScraper: MusicScraper {
               let magicHex = secrets["lyricsMagicHex"], let magic = Data(hexString: magicHex),
               let xorHex = secrets["lyricsXorKeyHex"], let xorKey = [UInt8](hexString: xorHex)
         else {
+            if config.id == "kugou" { return try await fetchPlainKugouLyrics(vars: vars) }
             plog("⚠️ Encrypted lyrics: missing secrets, skip")
             return nil
         }
@@ -318,6 +319,37 @@ actor ConfigurableScraper: MusicScraper {
         plog("🔐 Encrypted lyrics: decoded plain=\(plain.count) chars → wordLrc=\(wordLrc.count) lineLrc=\(lineLrc.count)")
         guard !final.isEmpty else { return nil }
         return ScraperLyricsResult(source: type, lrcContent: final)
+    }
+
+    /// The public LRC representation needs only the candidate's download parameters.
+    /// Keep configured encrypted/word-timed sources on their existing path.
+    private func fetchPlainKugouLyrics(vars: [String: Any]) async throws -> ScraperLyricsResult? {
+        guard let id = vars["id"], let accessKey = vars["accesskey"] as? String,
+              !accessKey.isEmpty else { return nil }
+        var url = URLComponents(string: "https://lyrics.kugou.com/download")!
+        url.queryItems = [
+            .init(name: "ver", value: "1"), .init(name: "client", value: "pc"),
+            .init(name: "id", value: String(describing: id)), .init(name: "accesskey", value: accessKey),
+            .init(name: "fmt", value: "lrc"), .init(name: "charset", value: "utf8")
+        ]
+        guard let target = url.url else { return nil }
+        var request = URLRequest(url: target)
+        request.timeoutInterval = 10
+        let data: Data
+        do {
+            data = try await performRequest(request)
+        } catch let failure as HTTPResponseFailure
+            where (400..<500).contains(failure.statusCode) && failure.statusCode != 429 {
+            return nil
+        } catch {
+            throw ScraperRequestPool.scraperError(error)
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? String,
+              let decoded = Data(base64Encoded: content),
+              let text = String(data: decoded, encoding: .utf8),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return ScraperLyricsResult(source: type, lrcContent: text)
     }
 
     // MARK: - Request Execution

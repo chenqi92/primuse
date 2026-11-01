@@ -40,6 +40,8 @@ extension AudioPlayerService {
             plog("🛡️ dropped failure advance trigger=\(trigger) reason=noActiveTicket")
             return
         }
+        if trigger.hasPrefix("playWithFallbackDecoder"),
+           await retryPodcastRangeAfterStartupFailure() { return }
         let transportIsActive = isPlaying
             ? audioEngine.isActuallyPlaying
             : interruptionResumePolicy.playbackIsIntended

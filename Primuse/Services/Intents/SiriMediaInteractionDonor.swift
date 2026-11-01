@@ -173,14 +173,21 @@ enum SiriMediaInteractionDonor {
         )
     }
 
-    private static func submit(_ intent: INPlayMediaIntent, identifier: String, kind: String) {
-        let interaction = INInteraction(intent: intent, response: nil)
+    static func playbackInteraction(_ intent: INPlayMediaIntent, identifier: String) -> INInteraction {
+        let response = INPlayMediaIntentResponse(code: .success, userActivity: nil)
+        let interaction = INInteraction(intent: intent, response: response)
         interaction.identifier = identifier
+        interaction.direction = .incoming
+        return interaction
+    }
+
+    private static func submit(_ intent: INPlayMediaIntent, identifier: String, kind: String) {
+        let interaction = playbackInteraction(intent, identifier: identifier)
         interaction.donate { error in
             if let error {
+                let nsError = error as NSError
                 plog(
-                    "Siri \(kind) interaction donation failed errorType="
-                        + String(reflecting: type(of: error))
+                    "Siri \(kind) interaction donation failed domain=\(nsError.domain) code=\(nsError.code)"
                 )
             }
         }
