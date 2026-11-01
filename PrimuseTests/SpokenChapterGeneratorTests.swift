@@ -109,6 +109,190 @@ final class SpokenChapterGeneratorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: checkpoint.path))
     }
 
+    func testElevenHourJobKeepsMoreThanOneThousandCheckpoints() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let checkpoint = url.appendingPathComponent("resume.json")
+        let library = MusicLibrary(storageDirectory: url)
+        var item = song(); item.duration = 11 * 3_600
+        let lines = (0..<1_005).map { LyricLine(timestamp: Double($0 * 39), text: "Topic \($0)", isSynchronized: true) }
+        var limits = G.Limits.onDevice; limits.maximumLines = 1
+        let first = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        var calls = 0
+        let reset = Date(timeIntervalSince1970: 2_000_000_000)
+        first.start(songs: [item], library: library, loadTranscript: { _ in lines }, limits: limits, request: { request in
+            calls += 1
+            if calls == 1_002 { throw SpokenChapterServiceFailure(failure: .failed(.dailyLimit), retryAt: reset) }
+            return self.answer(request)
+        })
+        await first.waitForCompletion()
+        XCTAssertEqual(first.savedJobs.first?.completedRequests, 1_001)
+        XCTAssertEqual(first.savedJobs.first?.status, .waitingForQuota)
+        let resumed = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        let job = try XCTUnwrap(resumed.savedJobs.first)
+        XCTAssertEqual(job.retryAt, reset)
+        var analyzed: [String] = []
+        resumed.start(songs: [item], library: library, loadTranscript: { _ in lines }, limits: limits,
+                      resuming: job.id, request: { request in
+            if request.stage == .analyze { analyzed.append(try XCTUnwrap(request.lines.last?.id)) }
+            return self.answer(request)
+        })
+        await resumed.waitForCompletion()
+        XCTAssertNil(resumed.failure)
+        XCTAssertEqual(analyzed, ["1001", "1002", "1003", "1004"])
+        XCTAssertEqual(resumed.previews.first?.record.chapters.first?.startTime, 0)
+        XCTAssertEqual(resumed.previews.first?.record.chapters.last?.startTime, Double(1_004 * 39))
+    }
+
+    func testApplyingAnotherJobPreservesPausedJobAndEditedPreviewSurvivesRestart() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let checkpoint = url.appendingPathComponent("resume.json")
+        let library = MusicLibrary(storageDirectory: url)
+        let first = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        var calls = 0
+        first.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, request: { request in
+            calls += 1
+            if calls == 2 { throw G.Failure.invalidResponse }
+            return self.answer(request)
+        })
+        await first.waitForCompletion()
+        let pausedID = try XCTUnwrap(first.savedJobs.first?.id)
+        first.start(songs: [song("two")], library: library, loadTranscript: { _ in self.transcript }, request: answer)
+        await first.waitForCompletion()
+        try await first.apply(to: library)
+        XCTAssertEqual(first.savedJobs.map(\.id), [pausedID])
+        let resumed = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        var resumedCalls = 0
+        resumed.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, resuming: pausedID, request: { request in
+            resumedCalls += 1; return self.answer(request)
+        })
+        await resumed.waitForCompletion()
+        XCTAssertEqual(resumedCalls, 2)
+        resumed.rename(songID: "one", index: 0, title: "Reviewed title")
+        let reopened = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        reopened.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, resuming: pausedID, request: { _ in
+            XCTFail("A finished preview must not spend quota again"); throw G.Failure.invalidResponse
+        })
+        await reopened.waitForCompletion()
+        XCTAssertEqual(reopened.previews.first?.record.chapters.first?.title, "Reviewed title")
+    }
+
+    func testPauseKeepsResponseThatCompletedInFlight() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let checkpoint = url.appendingPathComponent("resume.json")
+        let library = MusicLibrary(storageDirectory: url)
+        let first = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        first.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, request: { request in
+            first.cancel(); return self.answer(request)
+        })
+        await first.waitForCompletion()
+        XCTAssertEqual(first.savedJobs.first?.completedRequests, 1)
+        XCTAssertEqual(first.savedJobs.first?.status, .paused)
+        let resumed = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        var calls = 0
+        resumed.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, request: { request in
+            calls += 1; return self.answer(request)
+        })
+        await resumed.waitForCompletion()
+        XCTAssertEqual(calls, 2)
+        XCTAssertNil(resumed.failure)
+    }
+
+    func testStorageFailureStopsFurtherRequestsAndDoesNotClaimSavedProgress() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let library = MusicLibrary(storageDirectory: url)
+        let first = SpokenChapterGenerator(checkpointURL: url.appendingPathComponent("resume.json"), usesDefaultStorage: false)
+        var calls = 0
+        first.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, request: { request in
+            calls += 1
+            try Data("blocked".utf8).write(to: url.appendingPathComponent("resume.chunks"))
+            return self.answer(request)
+        })
+        await first.waitForCompletion()
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(first.savedJobs.first?.completedRequests, 0)
+        XCTAssertEqual(first.failure, String(localized: "chapter_generation_save_failed"))
+        XCTAssertTrue(first.previews.isEmpty)
+    }
+
+    func testChangedTranscriptAndExplicitResumeWithChangedProviderDoNotReuseSavedWork() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let library = MusicLibrary(storageDirectory: url)
+        let first = SpokenChapterGenerator(checkpointURL: url.appendingPathComponent("resume.json"), usesDefaultStorage: false)
+        first.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, request: answer)
+        await first.waitForCompletion()
+        let id = try XCTUnwrap(first.savedJobs.first?.id)
+        first.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript },
+                    checkpointNamespace: "new-model", resuming: id, request: { _ in
+            XCTFail("Changing a saved job's model requires a new job"); throw G.Failure.invalidResponse
+        })
+        XCTAssertEqual(first.failure, String(localized: "chapter_generation_settings_changed"))
+        first.start(songs: [song()], library: library,
+                    loadTranscript: { _ in [.init(timestamp: 0, text: "Changed", isSynchronized: true)] },
+                    resuming: id, request: { _ in
+            XCTFail("Changed transcripts must be reviewed before restarting"); throw G.Failure.invalidResponse
+        })
+        await first.waitForCompletion()
+        XCTAssertEqual(first.failure, String(localized: "chapter_generation_changed"))
+    }
+
+    func testLegacyResponsesMigrateWithoutLeakingIntoRegeneration() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let library = MusicLibrary(storageDirectory: url)
+        let checkpoint = url.appendingPathComponent("resume.json")
+        let lines = try G.lines(from: transcript, duration: song().duration)
+        let request = G.Request(title: song().title, language: Bundle.main.preferredLocalizations.first ?? "en",
+                                lines: G.windows(lines)[0].lines)
+        let key = "v2:default:" + (try SpokenChapterGenerator.fingerprint(request))
+        try JSONEncoder().encode([key: answer(request)]).write(to: checkpoint)
+        let generator = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        var calls = 0
+        generator.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, request: { request in
+            calls += 1; return self.answer(request)
+        })
+        await generator.waitForCompletion()
+        XCTAssertEqual(calls, 2)
+        try await generator.apply(to: library)
+        let regenerated = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        calls = 0
+        regenerated.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript }, request: { request in
+            calls += 1; return self.answer(request)
+        })
+        await regenerated.waitForCompletion()
+        XCTAssertEqual(calls, 3)
+    }
+
+    func testCorruptCheckpointIsNotOverwrittenOrSilentlyRestarted() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let checkpoint = url.appendingPathComponent("resume.json")
+        let corrupt = Data("incomplete write".utf8)
+        try corrupt.write(to: checkpoint)
+        let generator = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        generator.start(songs: [song()], library: MusicLibrary(storageDirectory: url), loadTranscript: { _ in self.transcript }, request: { _ in
+            XCTFail("A damaged checkpoint must not silently consume quota again"); throw G.Failure.invalidResponse
+        })
+        await generator.waitForCompletion()
+        XCTAssertFalse(generator.isRunning)
+        XCTAssertNotNil(generator.failure)
+        XCTAssertEqual(try Data(contentsOf: checkpoint), corrupt)
+    }
+
+    func testChangingProviderDoesNotReuseAnotherModelsCheckpoint() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let library = MusicLibrary(storageDirectory: url)
+        let checkpoint = url.appendingPathComponent("resume.json")
+        let generator = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        generator.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript },
+                        checkpointNamespace: "local", request: answer)
+        await generator.waitForCompletion()
+        let cloud = SpokenChapterGenerator(checkpointURL: checkpoint, usesDefaultStorage: false)
+        var calls = 0
+        cloud.start(songs: [song()], library: library, loadTranscript: { _ in self.transcript },
+                    checkpointNamespace: "cloud", request: { request in calls += 1; return self.answer(request) })
+        await cloud.waitForCompletion()
+        XCTAssertNil(cloud.failure)
+        XCTAssertEqual(calls, 3)
+    }
+
     func testCancellationAndMissingTimelineNeverPublishChapters() async throws {
         let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
         let library = MusicLibrary(storageDirectory: url)

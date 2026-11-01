@@ -7008,3 +7008,20 @@
 "player_activity_scraping" = "मेटाडेटा प्राप्त किया जा रहा है";
 
 "artist_name_settings_merge_collaborative_albums" = "एक ही नाम वाले सहयोगी एल्बम मिलाएँ";
+
+"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
+"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
+"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
+"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
+"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
+"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_tv_unavailable" = "Apple TV पर समर्थित नहीं";
+"ai_apple_tv_unavailable_detail" = "Apple के ऑन-डिवाइस मॉडल और Private Cloud Compute, Apple TV पर उपलब्ध नहीं हैं। कोई अन्य AI सेवा चुनें या वैकल्पिक सेवा सक्षम करें।";
+"ai_apple_cloud_fallback" = "ज़रूरत पड़ने पर Private Cloud Compute का उपयोग करें";
+"chapter_generation_save_failed" = "प्रगति सहेजी नहीं जा सकी। स्टोरेज खाली करके फिर कोशिश करें।";
+"chapter_generation_settings_changed" = "AI सेटिंग बदल गई हैं। जारी रखने के लिए पुरानी सेटिंग बहाल करें या कार्य हटाकर फिर शुरू करें।";
+"chapter_generation_missing_items" = "इस कार्य की कुछ सामग्री उपलब्ध नहीं है। जारी रखने से पहले उसे बहाल करें।";
+"chapter_generation_pause" = "रोकें";
+"chapter_generation_saved_jobs" = "सहेजे गए कार्य";
+"chapter_generation_resume" = "जारी रखें";
+"chapter_generation_discard_job" = "यह कार्य और सहेजी गई प्रगति हटाएँ?";

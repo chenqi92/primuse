@@ -7008,3 +7008,20 @@
 "player_activity_scraping" = "กำลังดึงข้อมูลเมตา";
 
 "artist_name_settings_merge_collaborative_albums" = "รวมอัลบั้มร่วมงานที่มีชื่อเดียวกัน";
+
+"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
+"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
+"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
+"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
+"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
+"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_tv_unavailable" = "ไม่รองรับบน Apple TV";
+"ai_apple_tv_unavailable_detail" = "โมเดลบนอุปกรณ์ของ Apple และ Private Cloud Compute ไม่พร้อมใช้งานบน Apple TV เลือกบริการ AI อื่นหรือเปิดใช้บริการสำรอง";
+"ai_apple_cloud_fallback" = "ใช้ Private Cloud Compute เมื่อจำเป็น";
+"chapter_generation_save_failed" = "บันทึกความคืบหน้าไม่ได้ โปรดเพิ่มพื้นที่ว่างแล้วลองอีกครั้ง";
+"chapter_generation_settings_changed" = "การตั้งค่า AI เปลี่ยนไป กู้คืนการตั้งค่าเดิมเพื่อดำเนินการต่อ หรือลบงานแล้วเริ่มใหม่";
+"chapter_generation_missing_items" = "บางรายการในงานนี้ไม่พร้อมใช้งาน โปรดกู้คืนก่อนดำเนินการต่อ";
+"chapter_generation_pause" = "หยุดชั่วคราว";
+"chapter_generation_saved_jobs" = "งานที่บันทึกไว้";
+"chapter_generation_resume" = "ดำเนินการต่อ";
+"chapter_generation_discard_job" = "ลบงานนี้และความคืบหน้าที่บันทึกไว้หรือไม่?";

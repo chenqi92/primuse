@@ -7008,3 +7008,20 @@
 "player_activity_scraping" = "Meta veriler alınıyor";
 
 "artist_name_settings_merge_collaborative_albums" = "Aynı adlı ortak albümleri birleştir";
+
+"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
+"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
+"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
+"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
+"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
+"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_tv_unavailable" = "Apple TV’de desteklenmiyor";
+"ai_apple_tv_unavailable_detail" = "Apple’ın aygıt içi modelleri ve Private Cloud Compute, Apple TV’de kullanılamaz. Başka bir yapay zekâ hizmeti seçin veya yedek hizmeti etkinleştirin.";
+"ai_apple_cloud_fallback" = "Gerektiğinde Private Cloud Compute kullan";
+"chapter_generation_save_failed" = "İlerleme kaydedilemedi. Depolama alanı açıp tekrar deneyin.";
+"chapter_generation_settings_changed" = "Yapay zekâ ayarları değişti. Devam etmek için önceki ayarları geri yükleyin veya görevi silip yeniden başlayın.";
+"chapter_generation_missing_items" = "Bu görevin bazı öğeleri kullanılamıyor. Devam etmeden önce geri yükleyin.";
+"chapter_generation_pause" = "Duraklat";
+"chapter_generation_saved_jobs" = "Kaydedilen görevler";
+"chapter_generation_resume" = "Devam et";
+"chapter_generation_discard_job" = "Bu görev ve kaydedilen ilerleme silinsin mi?";

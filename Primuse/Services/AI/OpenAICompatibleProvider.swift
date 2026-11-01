@@ -271,14 +271,20 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     private let apiKeyOverride: String?
     private let requestAuthorization: @Sendable () async -> Bool
     private let sessionConfiguration: URLSessionConfiguration
+    private let appleIntelligence: AppleIntelligenceClient
+    private let appleCloudAuthorization: @Sendable () async -> Bool
 
     init(
         configuration: AIRemoteProviderConfiguration,
         credentialStore: any AICredentialStoring,
         apiKeyOverride: String? = nil,
         requestAuthorization: @escaping @Sendable () async -> Bool = { true },
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        appleIntelligence: AppleIntelligenceClient = .live,
+        appleCloudAuthorization: @escaping @Sendable () async -> Bool = { false }
     ) {
+        self.appleIntelligence = appleIntelligence
+        self.appleCloudAuthorization = appleCloudAuthorization
         self.configuration = configuration
         self.credentialStore = credentialStore
         let trimmedOverride = apiKeyOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -305,6 +311,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
 
     func runtimeAvailability() async -> AIProviderRuntimeAvailability {
         guard descriptor.isEnabled else { return .unavailable(.disabled) }
+        if configuration.backend != .remote {
+            let local = await appleIntelligence.availability(configuration.backend)
+            if local != .available, configuration.backend == .appleOnDevice,
+               configuration.allowsPrivateCloudComputeFallback, await appleCloudAuthorization() {
+                return await appleIntelligence.availability(.applePrivateCloudCompute)
+            }
+            return local
+        }
         guard !descriptor.capabilities.isEmpty,
               AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil,
               (try? AIRemoteEndpointPolicy.generationEndpoint(
@@ -325,6 +339,16 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     }
 
     func interpretSearch(_ request: AISemanticSearchRequest) async throws -> AISemanticSearchPlan {
+        if configuration.backend != .remote {
+            let output = try await generateText(
+                instructions: Self.semanticSearchInstructions,
+                input: Self.semanticSearchPrompt(for: request), maximumTokens: 320
+            )
+            guard let plan = Self.decodeSearchPlan(from: output) else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+            return plan.normalized(for: request)
+        }
         let model = configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else {
             throw OpenAICompatibleProviderError.missingGenerationModel
@@ -400,6 +424,15 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         targetLanguageCode: String,
         onTranslation: (@Sendable (_ id: String, _ text: String) -> Void)?
     ) async throws -> [String: String] {
+        if configuration.backend == .appleOnDevice, candidates.count > 4 {
+            var translations: [String: String] = [:]
+            for batch in Self.batches(candidates, size: 4) {
+                try Task.checkCancellation()
+                translations.merge(try await translateLyrics(batch, targetLanguageCode: targetLanguageCode,
+                    onTranslation: onTranslation), uniquingKeysWith: { _, new in new })
+            }
+            return translations
+        }
         let input = candidates
             .filter { !$0.id.isEmpty && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .prefix(80)
@@ -440,6 +473,15 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         _ lines: [LyricRomanizationAIExchange.Line],
         sourceLanguageCode: String
     ) async throws -> [String: String] {
+        if configuration.backend == .appleOnDevice, lines.count > 4 {
+            var result: [String: String] = [:]
+            for batch in Self.batches(lines, size: 4) {
+                try Task.checkCancellation()
+                result.merge(try await romanizeLyrics(batch, sourceLanguageCode: sourceLanguageCode),
+                             uniquingKeysWith: { _, new in new })
+            }
+            return result
+        }
         let limited = Array(lines.prefix(LyricRomanizationAIExchange.maximumLines))
         guard let payload = LyricRomanizationAIExchange.payload(
             lines: limited,
@@ -464,6 +506,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         languageCode: String,
         currentYear: Int
     ) async throws -> [TagCleanupProposal] {
+        if configuration.backend == .appleOnDevice, songs.count > 2 {
+            var result: [TagCleanupProposal] = []
+            for batch in Self.batches(songs, size: 2) {
+                try Task.checkCancellation()
+                result += try await proposeTagCleanup(batch, languageCode: languageCode, currentYear: currentYear)
+            }
+            return result
+        }
         guard let payload = TagCleanupAIExchange.payload(for: songs, languageCode: languageCode) else {
             return []
         }
@@ -576,6 +626,30 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         _ request: AIRecommendationRequest,
         onSelection: (@Sendable (AIRecommendationSelection) -> Void)?
     ) async throws -> AIRecommendationPlan {
+        if configuration.backend == .appleOnDevice,
+           request.candidates.count > 12 || request.albumCandidates.count > 3 {
+            let songs = request.unit == .albums && !request.albumCandidates.isEmpty ? [] : request.candidates
+            let songBatches = Self.batches(songs, size: 12)
+            let albumBatches = Self.batches(request.albumCandidates, size: 3)
+            let count = max(songBatches.count, albumBatches.count)
+            var selections: [AIRecommendationSelection] = []
+            for index in 0..<count {
+                try Task.checkCancellation()
+                let batch = AIRecommendationRequest(
+                    scene: request.scene, intent: request.intent, languageCode: request.languageCode,
+                    preferences: Array(request.preferences.prefix(3)),
+                    candidates: index < songBatches.count ? songBatches[index] : [],
+                    maximumResults: max(1, (request.maximumResults + max(1, songBatches.count) - 1) / max(1, songBatches.count)),
+                    minimumResults: 1, unit: request.unit,
+                    albumCandidates: index < albumBatches.count ? albumBatches[index] : [],
+                    maximumAlbumResults: max(1, (request.maximumAlbumResults + max(1, albumBatches.count) - 1) / max(1, albumBatches.count))
+                )
+                selections += try await recommendations(batch).selections
+            }
+            let plan = AIRecommendationPlan(selections: selections).normalized(for: request)
+            for selection in plan.selections { onSelection?(selection) }
+            return plan
+        }
         var tokenToSongID: [String: String] = [:]
         // An albums-only request sends no songs to choose from (unless there
         // is no whole album to offer, when it falls back to songs).
@@ -756,6 +830,9 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     }
 
     func listModels() async throws -> [AIProviderModel] {
+        if configuration.backend != .remote {
+            return [AIProviderModel(id: configuration.generationModel, ownedBy: "Apple")]
+        }
         let endpoint: URL
         do {
             endpoint = try AIRemoteEndpointPolicy.modelsEndpoint(configuration: configuration)
@@ -914,11 +991,40 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
     }
 
+    private static func batches<T>(_ values: [T], size: Int) -> [[T]] {
+        stride(from: 0, to: values.count, by: size).map { Array(values[$0..<min($0 + size, values.count)]) }
+    }
+
     private func generateText(
         instructions: String,
         input: String,
         maximumTokens: Int
     ) async throws -> String {
+        if configuration.backend != .remote {
+            guard await requestAuthorization() else {
+                throw MusicIntelligenceError.unavailable(.regionRestricted)
+            }
+            try Task.checkCancellation()
+            let output: String
+            do {
+                output = try await appleIntelligence.generate(configuration.backend, instructions, input, maximumTokens)
+            } catch {
+                try Task.checkCancellation()
+                let canEscalate = [AppleIntelligenceError.contextLimit, .modelNotReady, .unavailable]
+                    .contains { $0 == error as? AppleIntelligenceError }
+                guard configuration.backend == .appleOnDevice,
+                      configuration.allowsPrivateCloudComputeFallback, canEscalate,
+                      await requestAuthorization(), await appleCloudAuthorization() else { throw error }
+                plog("AI: escalating Apple on-device request to Private Cloud Compute")
+                output = try await appleIntelligence.generate(.applePrivateCloudCompute, instructions, input, maximumTokens)
+                guard await appleCloudAuthorization() else { throw CancellationError() }
+            }
+            try Task.checkCancellation()
+            guard await requestAuthorization() else {
+                throw MusicIntelligenceError.unavailable(.regionRestricted)
+            }
+            return output
+        }
         let model = configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else {
             throw OpenAICompatibleProviderError.missingGenerationModel
@@ -999,6 +1105,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         streamingArrayKeys: [String]?,
         onItem: @escaping ([String: Any]) -> Void
     ) async throws -> String {
+        if configuration.backend != .remote {
+            let output = try await generateText(instructions: instructions, input: input, maximumTokens: maximumTokens)
+            if let streamingArrayKeys {
+                var extractor = AIStreamingJSONArrayExtractor(keys: streamingArrayKeys)
+                for item in extractor.append(output) { onItem(item) }
+            }
+            return output
+        }
         guard let streamingArrayKeys else {
             return try await generateText(
                 instructions: instructions,

@@ -7008,3 +7008,20 @@
 "player_activity_scraping" = "جارٍ جلب البيانات";
 
 "artist_name_settings_merge_collaborative_albums" = "دمج ألبومات التعاون التي تحمل العنوان نفسه";
+
+"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
+"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
+"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
+"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
+"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
+"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_tv_unavailable" = "غير مدعوم على Apple TV";
+"ai_apple_tv_unavailable_detail" = "نماذج Apple على الجهاز وPrivate Cloud Compute غير متاحة على Apple TV. اختر خدمة ذكاء اصطناعي أخرى أو فعّل استخدام خدمة بديلة.";
+"ai_apple_cloud_fallback" = "استخدام Private Cloud Compute عند الحاجة";
+"chapter_generation_save_failed" = "تعذر حفظ التقدم. وفر مساحة تخزين وحاول مجددًا.";
+"chapter_generation_settings_changed" = "تغيرت إعدادات الذكاء الاصطناعي. استعد الإعدادات السابقة للمتابعة أو احذف المهمة وابدأ مجددًا.";
+"chapter_generation_missing_items" = "بعض عناصر هذه المهمة غير متاحة. استعدها قبل المتابعة.";
+"chapter_generation_pause" = "إيقاف مؤقت";
+"chapter_generation_saved_jobs" = "المهام المحفوظة";
+"chapter_generation_resume" = "متابعة";
+"chapter_generation_discard_job" = "هل تريد حذف هذه المهمة والتقدم المحفوظ؟";

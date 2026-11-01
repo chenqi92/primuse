@@ -134,7 +134,8 @@ public enum AIProviderRegionPolicy {
         region: AICommercialRegion,
         purpose: AIProviderRegionPurpose
     ) -> Bool {
-        (try? AIRemoteEndpointPolicy.validatedBaseURL(
+        if configuration.backend != .remote { return true }
+        return (try? AIRemoteEndpointPolicy.validatedBaseURL(
             configuration.baseURL,
             allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
         )) != nil
@@ -248,28 +249,13 @@ public enum AIAvailabilityPolicy {
             )
 
         case .appleSystemModel:
-            switch regionContext.region {
-            case .international:
-                return AIAccessDecision(
-                    isAllowed: true,
-                    shouldExposeConfiguration: true,
-                    requiresExplicitConsent: false
-                )
-            case .mainlandChina:
-                return AIAccessDecision(
-                    isAllowed: false,
-                    shouldExposeConfiguration: false,
-                    requiresExplicitConsent: false,
-                    denialReason: .regionRestricted
-                )
-            case .unknown:
-                return AIAccessDecision(
-                    isAllowed: false,
-                    shouldExposeConfiguration: false,
-                    requiresExplicitConsent: false,
-                    denialReason: .regionUndetermined
-                )
-            }
+            // Storefront does not determine system-model eligibility. The
+            // Foundation Models adapter checks Apple's runtime availability.
+            return AIAccessDecision(
+                isAllowed: true,
+                shouldExposeConfiguration: true,
+                requiresExplicitConsent: false
+            )
         }
     }
 }

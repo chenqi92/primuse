@@ -152,9 +152,9 @@ struct AIRegionAvailabilityTests {
             for: .appleSystemModel,
             regionContext: region
         )
-        #expect(!appleSystemModel.isAllowed)
-        #expect(!appleSystemModel.shouldExposeConfiguration)
-        #expect(appleSystemModel.denialReason == .regionRestricted)
+        #expect(appleSystemModel.isAllowed)
+        #expect(appleSystemModel.shouldExposeConfiguration)
+        #expect(appleSystemModel.denialReason == nil)
     }
 
     @Test func unknownRegionKeepsCustomConfigurationAvailable() {
@@ -843,14 +843,14 @@ struct AIRemoteEndpointPolicyTests {
 
     @Test func providerCatalogSeparatesMainlandAndInternationalServices() throws {
         #expect(AIProviderPreset.catalog(for: .mainlandChina)
-            == AIProviderPreset.mainlandChinaCatalog)
+            == [.appleOnDevice, .applePrivateCloudCompute] + AIProviderPreset.mainlandChinaCatalog)
         #expect(AIProviderPreset.catalog(for: .international)
-            == AIProviderPreset.globalCatalog + AIProviderPreset.mainlandChinaCatalog)
+            == [.appleOnDevice, .applePrivateCloudCompute] + AIProviderPreset.globalCatalog + AIProviderPreset.mainlandChinaCatalog)
         #expect(AIProviderPreset.catalog(for: .mainlandChina).contains(.xiaomiMiMo))
         #expect(!AIProviderPreset.catalog(for: .mainlandChina).contains(.openRouter))
         #expect(AIProviderPreset.catalog(for: .international).contains(.nvidiaNIM))
         #expect(AIProviderPreset.catalog(for: .international).contains(.openRouter))
-        #expect(AIProviderPreset.catalog(for: .unknown).isEmpty)
+        #expect(AIProviderPreset.catalog(for: .unknown) == [.appleOnDevice, .applePrivateCloudCompute])
 
         let qwen = AIProviderPreset.qwen.applying(to: AIRemoteProviderConfiguration())
         #expect(qwen.baseURL == "https://dashscope.aliyuncs.com/compatible-mode/v1")

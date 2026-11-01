@@ -7102,3 +7102,20 @@
 "player_activity_scraping" = "Récupération des métadonnées";
 
 "artist_name_settings_merge_collaborative_albums" = "Fusionner les albums collaboratifs de même titre";
+
+"ai_apple_unavailable" = "Apple Intelligence est indisponible sur cet appareil ou dans sa région actuelle.";
+"ai_apple_not_ready" = "Apple Intelligence n’est pas prêt. Activez-le dans les réglages système et attendez la fin de la préparation.";
+"ai_apple_permission_missing" = "Cette version ne dispose pas de l’accès à Private Cloud Compute. Installez une version signée avec la capacité approuvée.";
+"ai_apple_quota_reached" = "La limite quotidienne de Private Cloud Compute est atteinte. Attendez sa réinitialisation ou choisissez un autre service.";
+"ai_apple_context_limit" = "Le contenu dépasse la limite de contexte du modèle. Utilisez Private Cloud Compute ou un autre service.";
+"ai_apple_refused" = "Apple Intelligence n’a pas pu répondre à cette demande.";
+"ai_apple_tv_unavailable" = "Non pris en charge sur Apple TV";
+"ai_apple_tv_unavailable_detail" = "Les modèles locaux d’Apple et Private Cloud Compute ne sont pas disponibles sur Apple TV. Choisissez un autre service IA ou activez le recours à un service de secours.";
+"ai_apple_cloud_fallback" = "Utiliser Private Cloud Compute si nécessaire";
+"chapter_generation_save_failed" = "Impossible d’enregistrer la progression. Libérez de l’espace et réessayez.";
+"chapter_generation_settings_changed" = "Les réglages IA ont changé. Rétablissez-les pour reprendre ou supprimez la tâche et recommencez.";
+"chapter_generation_missing_items" = "Certains éléments de cette tâche sont indisponibles. Restaurez-les avant de reprendre.";
+"chapter_generation_pause" = "Mettre en pause";
+"chapter_generation_saved_jobs" = "Tâches enregistrées";
+"chapter_generation_resume" = "Reprendre";
+"chapter_generation_discard_job" = "Supprimer cette tâche et sa progression ?";

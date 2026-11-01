@@ -90,6 +90,8 @@ public enum AIProviderCompatibilityMode: String, CaseIterable, Hashable, Sendabl
 
 public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     case custom
+    case appleOnDevice
+    case applePrivateCloudCompute
     case openAI
     case anthropic
     case gemini
@@ -157,11 +159,11 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     public static func catalog(for region: AICommercialRegion) -> [AIProviderPreset] {
         switch region {
         case .mainlandChina:
-            return mainlandChinaCatalog
+            return [.appleOnDevice, .applePrivateCloudCompute] + mainlandChinaCatalog
         case .international:
-            return globalCatalog + mainlandChinaCatalog
+            return [.appleOnDevice, .applePrivateCloudCompute] + globalCatalog + mainlandChinaCatalog
         case .unknown:
-            return []
+            return [.appleOnDevice, .applePrivateCloudCompute]
         }
     }
 
@@ -173,11 +175,17 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     }
 
     public static func recommended(for region: AICommercialRegion) -> AIProviderPreset? {
-        catalog(for: region).first
+        switch region {
+        case .mainlandChina: mainlandChinaCatalog.first
+        case .international: globalCatalog.first
+        case .unknown: nil
+        }
     }
 
     public func applying(to original: AIRemoteProviderConfiguration) -> AIRemoteProviderConfiguration {
         var configuration = original
+        configuration.backend = .remote
+        configuration.allowsPrivateCloudComputeFallback = false
         if self == .custom {
             configuration.prefersCustomConfiguration = true
             return configuration
@@ -188,6 +196,14 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .custom:
             return configuration
+        case .appleOnDevice, .applePrivateCloudCompute:
+            configuration.backend = self == .appleOnDevice ? .appleOnDevice : .applePrivateCloudCompute
+            configuration.displayName = self == .appleOnDevice ? "Apple Intelligence" : "Private Cloud Compute"
+            configuration.baseURL = ""
+            configuration.generationModel = self == .appleOnDevice ? "On Device" : "Private Cloud Compute"
+            configuration.additionalGenerationModels = []
+            configuration.requestTimeout = 60
+            configuration.allowInsecureLocalHTTP = false
         case .openAI:
             configuration.displayName = "OpenAI API"
             configuration.baseURL = "https://api.openai.com"
@@ -373,10 +389,13 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     public static func matching(
         configuration: AIRemoteProviderConfiguration
     ) -> AIProviderPreset {
+        if configuration.backend == .appleOnDevice { return .appleOnDevice }
+        if configuration.backend == .applePrivateCloudCompute { return .applePrivateCloudCompute }
         guard !configuration.prefersCustomConfiguration else { return .custom }
         for preset in AIProviderPreset.allCases where preset != .custom {
             let candidate = preset.applying(to: configuration)
-            if candidate.baseURL == configuration.baseURL,
+            if candidate.backend == configuration.backend,
+               candidate.baseURL == configuration.baseURL,
                candidate.apiStyle == configuration.apiStyle,
                candidate.apiPathMode == configuration.apiPathMode,
                candidate.authenticationStyle == configuration.authenticationStyle {
@@ -526,7 +545,7 @@ public enum AIAudioTranscriptionPolicy {
     public static func isCompatibleEndpoint(
         configuration: AIRemoteProviderConfiguration
     ) -> Bool {
-        guard configuration.apiStyle == .geminiGenerateContent,
+        guard configuration.backend == .remote, configuration.apiStyle == .geminiGenerateContent,
               configuration.authenticationStyle == .xGoogAPIKey,
               let baseURL = try? AIRemoteEndpointPolicy.validatedBaseURL(
                   configuration.baseURL,
@@ -579,8 +598,19 @@ public enum AISettingsOperationPolicy {
     }
 }
 
+public enum AIProviderBackend: String, Codable, CaseIterable, Sendable {
+    case remote
+    case appleOnDevice
+    case applePrivateCloudCompute
+
+    public var requiresAPIKey: Bool { self == .remote }
+    public var requiresRemoteConsent: Bool { self != .appleOnDevice }
+}
+
 public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
+    public var backend: AIProviderBackend
+    public var allowsPrivateCloudComputeFallback: Bool
     public var displayName: String
     public var baseURL: String
     public var apiStyle: AICompatibleAPIStyle
@@ -599,6 +629,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
 
     public init(
         id: UUID = UUID(),
+        backend: AIProviderBackend = .remote,
+        allowsPrivateCloudComputeFallback: Bool = false,
         displayName: String = "OpenAI Compatible",
         baseURL: String = "https://api.openai.com/v1",
         apiStyle: AICompatibleAPIStyle = .responses,
@@ -614,6 +646,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         prefersCustomConfiguration: Bool = false
     ) {
         self.id = id
+        self.backend = backend
+        self.allowsPrivateCloudComputeFallback = allowsPrivateCloudComputeFallback
         self.displayName = displayName
         self.baseURL = baseURL
         self.apiStyle = apiStyle
@@ -646,8 +680,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         return AIProviderDescriptor(
             id: id,
             displayName: displayName,
-            kind: .openAICompatible,
-            executionClass: .userConfiguredRemote,
+            kind: backend == .remote ? .openAICompatible : .appleFoundationModels,
+            executionClass: backend == .appleOnDevice ? .appleSystemModel : .userConfiguredRemote,
             capabilities: capabilities,
             priority: 100,
             isEnabled: isEnabled
@@ -665,6 +699,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     }
 
     public var supportsEmbeddings: Bool {
+        guard backend == .remote else { return false }
         switch apiStyle {
         case .responses, .chatCompletions:
             return true
@@ -675,6 +710,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
 
     private enum CodingKeys: String, CodingKey {
         case id
+        case backend
+        case allowsPrivateCloudComputeFallback
         case displayName
         case baseURL
         case apiStyle
@@ -701,6 +738,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
             )
         }
         id = try container.decode(UUID.self, forKey: .id)
+        backend = try container.decodeIfPresent(AIProviderBackend.self, forKey: .backend) ?? .remote
+        allowsPrivateCloudComputeFallback = try container.decodeIfPresent(Bool.self, forKey: .allowsPrivateCloudComputeFallback) ?? false
         displayName = try container.decode(String.self, forKey: .displayName)
         baseURL = try container.decode(String.self, forKey: .baseURL)
         apiStyle = try container.decode(AICompatibleAPIStyle.self, forKey: .apiStyle)
@@ -741,6 +780,8 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         }
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
+        try container.encode(backend, forKey: .backend)
+        try container.encode(allowsPrivateCloudComputeFallback, forKey: .allowsPrivateCloudComputeFallback)
         try container.encode(displayName, forKey: .displayName)
         try container.encode(baseURL, forKey: .baseURL)
         try container.encode(apiStyle, forKey: .apiStyle)
@@ -756,6 +797,15 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         try container.encode(allowInsecureLocalHTTP, forKey: .allowInsecureLocalHTTP)
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(prefersCustomConfiguration, forKey: .prefersCustomConfiguration)
+    }
+
+    public func validateGenerationConfiguration() throws {
+        guard AIRequestTimeoutPolicy.validated(requestTimeout) != nil else {
+            throw AIRemoteEndpointValidationError.invalidRequestTimeout
+        }
+        if backend == .remote {
+            _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: self)
+        }
     }
 }
 
@@ -1048,6 +1098,7 @@ public enum AIRemoteEndpointPolicy {
     public static func generationEndpoint(
         configuration: AIRemoteProviderConfiguration
     ) throws -> URL {
+        guard configuration.backend == .remote else { throw AIRemoteEndpointValidationError.unsupportedCapability }
         guard AIRequestTimeoutPolicy.validated(configuration.requestTimeout) != nil else {
             throw AIRemoteEndpointValidationError.invalidRequestTimeout
         }

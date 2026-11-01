@@ -7079,3 +7079,20 @@
 "player_activity_scraping" = "正在擷取資料";
 
 "artist_name_settings_merge_collaborative_albums" = "合併同名合作專輯";
+
+"ai_apple_unavailable" = "此裝置或目前地區暫時無法使用 Apple Intelligence。";
+"ai_apple_not_ready" = "Apple Intelligence 尚未準備好，請在系統設定中開啟並等待準備完成。";
+"ai_apple_permission_missing" = "此版本尚未取得 Private Cloud Compute 權限，請安裝已包含核准權限簽署的版本。";
+"ai_apple_quota_reached" = "Private Cloud Compute 今日額度已用完，請等待額度重設或選擇其他服務。";
+"ai_apple_context_limit" = "內容超出模型上下文限制，請使用 Private Cloud Compute 或其他服務處理較長內容。";
+"ai_apple_refused" = "Apple Intelligence 無法完成此要求。";
+"ai_apple_tv_unavailable" = "Apple TV 不支援";
+"ai_apple_tv_unavailable_detail" = "Apple TV 暫不支援 Apple 裝置端模型和 Private Cloud Compute。請選擇其他 AI 服務，或開啟備用服務以使用可用的服務。";
+"ai_apple_cloud_fallback" = "需要時使用 Private Cloud Compute";
+"chapter_generation_save_failed" = "無法儲存進度，請檢查儲存空間後重試。";
+"chapter_generation_settings_changed" = "AI 設定已變更。請還原原設定後繼續，或刪除此任務後重新產生。";
+"chapter_generation_missing_items" = "此任務的部分內容已無法使用，請還原後繼續。";
+"chapter_generation_pause" = "暫停";
+"chapter_generation_saved_jobs" = "已儲存的任務";
+"chapter_generation_resume" = "繼續";
+"chapter_generation_discard_job" = "刪除此任務及已儲存的進度？";

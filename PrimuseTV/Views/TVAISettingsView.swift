@@ -471,6 +471,9 @@ struct TVAISettingsView: View {
 
     /// 服务行右侧的一句状态:还缺密钥或模型时先说缺什么,其余标出主服务或启用 / 停用。
     private func providerStatusText(_ provider: AIRemoteProviderConfiguration) -> String {
+        guard AppleIntelligenceRuntime.supportsOnCurrentPlatform(provider.backend) else {
+            return String(localized: "ai_apple_tv_unavailable")
+        }
         let isPrimary = editor.defaultEngine == .provider(provider.id)
         if let state = editor.setupState(for: provider),
            state == .needsAPIKey || state == .needsModel {
@@ -720,8 +723,18 @@ struct TVAIProviderDetailView: View {
                     header
                     HStack(alignment: .top, spacing: 40) {
                         VStack(alignment: .leading, spacing: 0) {
-                            endpointSection
-                            modelSection
+                            if editor.draftConfiguration.backend == .remote {
+                                endpointSection
+                                modelSection
+                            } else {
+                                TVAISection(title: providerTitle) {
+                                    TVAINoteRow(
+                                        icon: "info.circle",
+                                        tint: TVColor.textMuted,
+                                        text: String(localized: "ai_apple_tv_unavailable_detail")
+                                    )
+                                }
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -861,7 +874,7 @@ struct TVAIProviderDetailView: View {
         var presets = [AIProviderPreset.custom]
         presets.append(contentsOf: AIProviderPreset.catalog(
             for: intelligence.regionAvailability.context.region
-        ))
+        ).filter { $0 != .appleOnDevice && $0 != .applePrivateCloudCompute })
         return presets
     }
 
@@ -964,7 +977,7 @@ struct TVAIProviderDetailView: View {
                     title: String(localized: "ai_set_primary"),
                     value: isPrimary ? String(localized: "ai_primary_provider") : "",
                     trailing: "chevron.right",
-                    isEnabled: !isPrimary
+                    isEnabled: !isPrimary && AppleIntelligenceRuntime.supportsOnCurrentPlatform(editor.draftConfiguration.backend)
                 ) {
                     editor.chooseDefaultEngine(.provider(providerID))
                 }
@@ -994,12 +1007,14 @@ struct TVAIProviderDetailView: View {
                         showsRemoveConfirmation = true
                     }
                 }
-                TVAIDivider()
-                TVAINoteRow(
-                    icon: "icloud",
-                    tint: TVColor.textMuted,
-                    text: String(localized: "ai_key_sync_footer")
-                )
+                if editor.draftConfiguration.backend.requiresAPIKey {
+                    TVAIDivider()
+                    TVAINoteRow(
+                        icon: "icloud",
+                        tint: TVColor.textMuted,
+                        text: String(localized: "ai_key_sync_footer")
+                    )
+                }
             }
         }
     }

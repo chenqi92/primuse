@@ -57,7 +57,7 @@ struct AIDistributionAvailabilityTests {
         ).map(\.id) == [relay.id])
     }
 
-    @Test func testingDistributionDoesNotBypassAppleModelAvailability() {
+    @Test func testingDistributionDefersAppleEligibilityToSystem() {
         let mainland = AIRegionContext(
             region: .mainlandChina,
             source: .appStorefront,
@@ -69,8 +69,8 @@ struct AIDistributionAvailabilityTests {
             for: .appleSystemModel,
             regionContext: mainland
         )
-        #expect(!decision.isAllowed)
-        #expect(decision.denialReason == .regionRestricted)
+        #expect(decision.isAllowed)
+        #expect(decision.denialReason == nil)
     }
 
     @Test func legacyRegionContextDecodesAsProduction() throws {

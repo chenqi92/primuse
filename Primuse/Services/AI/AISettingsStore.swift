@@ -171,7 +171,7 @@ final class AISettingsStore {
     ) throws {
         let normalized = providerSet.normalized()
         for provider in normalized.providers where provider.isEnabled {
-            _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: provider)
+            try provider.validateGenerationConfiguration()
         }
         if audioTranscriptionEnabled,
            !normalized.routedProviders.contains(where: {

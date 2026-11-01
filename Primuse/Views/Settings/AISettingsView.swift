@@ -106,11 +106,12 @@ final class AISettingsEditorModel {
     }
 
     var hasStoredAPIKeyForDraft: Bool {
-        storedAPIKeyScopes[selectedProviderID] == draftCredentialScope
+        draftConfiguration.backend.requiresAPIKey && storedAPIKeyScopes[selectedProviderID] != nil
+            && storedAPIKeyScopes[selectedProviderID] == draftCredentialScope
     }
 
     var hasUsableAPIKey: Bool {
-        hasStoredAPIKeyForDraft
+        !draftConfiguration.backend.requiresAPIKey || hasStoredAPIKeyForDraft
             || !apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -178,6 +179,7 @@ final class AISettingsEditorModel {
     }
 
     private func hasAPIKey(for provider: AIRemoteProviderConfiguration) -> Bool {
+        if !provider.backend.requiresAPIKey { return true }
         if let draft = apiKeyDrafts[provider.id],
            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return true
@@ -546,7 +548,9 @@ final class AISettingsEditorModel {
 
     /// 分工菜单里列的服务:启用了的才列,没填密钥的也能先选上。
     var routableProviders: [AIRemoteProviderConfiguration] {
-        draftProviderSet.providers.filter(\.isEnabled)
+        draftProviderSet.providers.filter {
+            $0.isEnabled && AppleIntelligenceRuntime.supportsOnCurrentPlatform($0.backend)
+        }
     }
 
     /// 菜单里这项服务能选的模型。分给某功能后又从列表里拿掉的模型也留着,勾选才看得见。
@@ -1184,6 +1188,16 @@ final class AISettingsEditorModel {
         for error: Error,
         configuration: AIRemoteProviderConfiguration? = nil
     ) -> String {
+        if let error = error as? AppleIntelligenceError { return error.localizedDescription }
+        if configuration?.backend != .remote, configuration != nil,
+           case MusicIntelligenceError.unavailable(let reason) = error {
+            switch reason {
+            case .missingConfiguration: return AppleIntelligenceError.permissionMissing.localizedDescription
+            case .modelNotReady: return AppleIntelligenceError.modelNotReady.localizedDescription
+            case .unsupportedDevice: return AppleIntelligenceError.unavailable.localizedDescription
+            default: break
+            }
+        }
         if case OpenAICompatibleProviderError.invalidConfiguration(let validationError) = error {
             return message(for: validationError)
         }
@@ -1314,10 +1328,10 @@ struct AISettingsView: View {
                     case .provider:
                         providerHeaderSection
                         providerSection
-                        modelSection
+                        if editor.draftConfiguration.backend == .remote { modelSection }
                         actionSection
                         providerManagementSection
-                        providerPrivacySection
+                        if editor.draftConfiguration.backend == .remote { providerPrivacySection }
                     case .baiduTranslate:
                         BaiduTranslateSettingsSections()
                     }
@@ -2139,7 +2153,7 @@ struct AISettingsView: View {
                         Text(mode.localizedTitle).tag(mode)
                     }
                 }
-            } else {
+            } else if editor.draftConfiguration.backend == .remote {
                 LabeledContent("ai_service_address") {
                     Text(verbatim: editor.draftConfiguration.baseURL)
                         .font(.caption.monospaced())
@@ -2148,6 +2162,15 @@ struct AISettingsView: View {
                 }
             }
 
+            if editor.draftConfiguration.backend == .appleOnDevice {
+                Toggle("ai_apple_cloud_fallback", isOn: editor.configurationBinding(\.allowsPrivateCloudComputeFallback))
+            }
+            if editor.draftConfiguration.backend == .applePrivateCloudCompute
+                || (editor.draftConfiguration.backend == .appleOnDevice && editor.draftConfiguration.allowsPrivateCloudComputeFallback) {
+                Toggle("ai_remote_consent", isOn: editor.consentBinding)
+            }
+
+            if editor.draftConfiguration.backend.requiresAPIKey {
             SecureField(editor.apiKeyTitle, text: editor.apiKeyBinding)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -2156,6 +2179,7 @@ struct AISettingsView: View {
                 Label("ai_api_key_stored", systemImage: "checkmark.shield")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
             }
         } footer: {
             // 订阅不含 API 用量、要单独计费,这条直接摆出来;发送范围的说明在下面隐私分区的圈问号里。
@@ -2490,6 +2514,8 @@ extension AIProviderSetupState {
 extension AIProviderPreset {
     var localizedTitle: String {
         switch self {
+        case .appleOnDevice: "Apple Intelligence · " + String(localized: "transcript_generation_engine_on_device")
+        case .applePrivateCloudCompute: "Apple · Private Cloud Compute"
         case .custom: String(localized: "ai_provider_preset_custom")
         case .openAI: String(localized: "ai_provider_preset_openai")
         case .anthropic: String(localized: "ai_provider_preset_anthropic")

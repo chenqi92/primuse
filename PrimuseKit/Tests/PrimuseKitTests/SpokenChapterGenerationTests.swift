@@ -39,6 +39,27 @@ struct SpokenChapterGenerationTests {
         for window in windows { #expect(window.lines.count <= 242) }
     }
 
+    @Test func onDeviceWindowsPreserveTranscriptAndBoundDenseCues() async throws {
+        let lines = (0..<120).map { G.Line(id: String($0), start: Double($0) * 30, text: String(repeating: "文", count: 80)) }
+        let windows = G.windows(lines, maximumCharacters: G.Limits.onDevice.maximumCharacters,
+                                maximumLines: G.Limits.onDevice.maximumLines)
+        let owned = windows.flatMap { window in window.lines.filter { window.ownedIDs.contains($0.id) } }
+        #expect(owned == lines)
+        #expect(windows.allSatisfy { $0.lines.count <= 22 })
+        let chapters = try await G.generate(title: "Book", language: "en", lines: lines, limits: .onDevice) { request in
+            #expect(request.previousSummaries.allSatisfy { $0.count <= 200 })
+            if request.stage == .curate {
+                #expect(request.candidates.count <= 4)
+                return .init(summary: "Whole", chapters: request.candidates)
+            }
+            return .init(summary: String(repeating: "文", count: 600),
+                         chapters: [.init(lineID: request.lines.last!.id, title: "Topic")])
+        }
+        #expect(chapters.first?.startTime == 0)
+        #expect(chapters.last?.startTime == lines.last?.start)
+        #expect(chapters.map(\.startTime) == chapters.map(\.startTime).sorted())
+    }
+
     @Test func oversizedCueLosesNoText() {
         let source = String(repeating: "word 🎵 ", count: 4000)
         let windows = G.windows([G.Line(id: "0", start: 2, text: source)])

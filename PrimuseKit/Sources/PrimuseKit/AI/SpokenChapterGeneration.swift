@@ -45,6 +45,16 @@ public enum SpokenChapterGeneration {
         }
     }
 
+    public struct Limits: Codable, Equatable, Sendable {
+        public var maximumCharacters = 12_000
+        public var maximumLines = 240
+        public var curationBatchSize = 31
+        public var summaryCharacters = 600
+        public static let standard = Limits()
+        public static let onDevice = Limits(maximumCharacters: 1_200, maximumLines: 20,
+                                            curationBatchSize: 3, summaryCharacters: 200)
+    }
+
     public struct Window: Equatable, Sendable {
         public var lines: [Line]
         public var ownedIDs: Set<String>
@@ -81,7 +91,7 @@ public enum SpokenChapterGeneration {
     /// Bounds both duration and text size; character limits are conservative across tokenizers.
     /// Oversized individual cues are split without dropping text or fabricating timing.
     public static func windows(_ input: [Line], maximumCharacters: Int = 12_000,
-                               maximumSeconds: TimeInterval = 30 * 60) -> [Window] {
+                               maximumSeconds: TimeInterval = 30 * 60, maximumLines: Int = 240) -> [Window] {
         let limit = max(256, maximumCharacters)
         var lines: [Line] = []
         for line in input {
@@ -101,7 +111,7 @@ public enum SpokenChapterGeneration {
             var count = 0
             while cursor < lines.count {
                 let next = lines[cursor]
-                if cursor > start && (count + next.text.count > limit || cursor - start >= 240
+                if cursor > start && (count + next.text.count > limit || cursor - start >= max(1, maximumLines)
                     || next.start - lines[start].start >= maximumSeconds) { break }
                 count += next.text.count; cursor += 1
             }
@@ -144,12 +154,12 @@ public enum SpokenChapterGeneration {
     }
 
     public static func generate(
-        title: String, language: String, lines: [Line],
+        title: String, language: String, lines: [Line], limits: Limits = .standard,
         ask: @Sendable (Request) async throws -> Answer,
         progress: @Sendable (Int, Int) async -> Void = { _, _ in }
     ) async throws -> [MediaChapter] {
         guard !lines.isEmpty else { throw Failure.missingTimedTranscript }
-        let plan = windows(lines)
+        let plan = windows(lines, maximumCharacters: limits.maximumCharacters, maximumLines: limits.maximumLines)
         var summaries: [String] = []
         var drafts: [Draft] = []
         var allLines: [Line] = []
@@ -158,7 +168,7 @@ public enum SpokenChapterGeneration {
             let request = Request(title: title, language: language, lines: window.lines, previousSummaries: summaries)
             let answer = try validate(try await ask(request), for: request)
             try Task.checkCancellation()
-            summaries.append(answer.summary)
+            summaries.append(String(answer.summary.prefix(limits.summaryCharacters)))
             drafts += answer.chapters.filter { window.ownedIDs.contains($0.lineID) }
             allLines += window.lines.filter { window.ownedIDs.contains($0.id) }
             await progress(index + 1, plan.count * 2)
@@ -174,10 +184,11 @@ public enum SpokenChapterGeneration {
         var curated: [Draft] = []
         // Carry the last accepted boundary into the next pass so topics spanning batches can merge.
         var curationSummaries: [String] = []
-        let curationCount = (drafts.count + 30) / 31
-        for (batch, start) in stride(from: 0, to: drafts.count, by: 31).enumerated() {
+        let batchSize = max(1, min(limits.curationBatchSize, 31))
+        let curationCount = (drafts.count + batchSize - 1) / batchSize
+        for (batch, start) in stride(from: 0, to: drafts.count, by: batchSize).enumerated() {
             try Task.checkCancellation()
-            var candidates = Array(drafts[start..<min(start + 31, drafts.count)])
+            var candidates = Array(drafts[start..<min(start + batchSize, drafts.count)])
             if let previous = curated.last { candidates.insert(previous, at: 0) }
             let context = candidates.compactMap { draft -> Line? in
                 guard var line = byID[draft.lineID] else { return nil }
@@ -190,7 +201,7 @@ public enum SpokenChapterGeneration {
             try Task.checkCancellation()
             if !curated.isEmpty { curated.removeLast() }
             curated += answer.chapters
-            curationSummaries.append(answer.summary)
+            curationSummaries.append(String(answer.summary.prefix(limits.summaryCharacters)))
             await progress(curationCount + batch + 1, curationCount * 2)
         }
         return curated.compactMap { draft in

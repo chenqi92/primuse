@@ -7008,3 +7008,20 @@
 "player_activity_scraping" = "Получение метаданных";
 
 "artist_name_settings_merge_collaborative_albums" = "Объединять совместные альбомы с одинаковым названием";
+
+"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
+"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
+"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
+"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
+"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
+"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_tv_unavailable" = "Не поддерживается на Apple TV";
+"ai_apple_tv_unavailable_detail" = "Локальные модели Apple и Private Cloud Compute недоступны на Apple TV. Выберите другой сервис ИИ или включите резервный сервис.";
+"ai_apple_cloud_fallback" = "Использовать Private Cloud Compute при необходимости";
+"chapter_generation_save_failed" = "Не удалось сохранить прогресс. Освободите место и повторите попытку.";
+"chapter_generation_settings_changed" = "Настройки ИИ изменились. Восстановите их для продолжения или удалите задачу и начните заново.";
+"chapter_generation_missing_items" = "Некоторые элементы задачи недоступны. Восстановите их перед продолжением.";
+"chapter_generation_pause" = "Приостановить";
+"chapter_generation_saved_jobs" = "Сохранённые задачи";
+"chapter_generation_resume" = "Продолжить";
+"chapter_generation_discard_job" = "Удалить эту задачу и сохранённый прогресс?";

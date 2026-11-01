@@ -366,6 +366,7 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
+      - path: PrimuseTests/AppleIntelligenceProviderTests.swift
       - path: PrimuseTests/SpokenChapterGeneratorTests.swift
       - path: PrimuseMacTests
       - path: PrimuseTests/MissingArtworkRenderingTests.swift
@@ -822,6 +823,7 @@ targets:
       - path: Primuse/Services/AI/AICredentialStore.swift
       - path: Primuse/Services/AI/MusicIntelligenceService.swift
       - path: Primuse/Services/AI/OpenAICompatibleProvider.swift
+      - path: Primuse/Services/AI/AppleIntelligenceProvider.swift
       - path: Primuse/Services/AI/PrimuseAIRelayClient.swift
       # 诊断报告打包与上传:电视的「诊断报告」页走同一套上传(Palveni,或没带密钥时的中转),不发邮件。
       - path: Primuse/Services/DiagnosticReportMailer.swift
@@ -1062,6 +1064,7 @@ targets:
     type: bundle.unit-test
     platform: tvOS
     sources:
+      - path: PrimuseTests/AppleIntelligenceProviderTests.swift
       - path: PrimuseTests/SpokenChapterGeneratorTests.swift
       - path: PrimuseTests/ScrobbleRequestTests.swift
       - path: PrimuseTests/ScrobbleCredentialHealthTests.swift

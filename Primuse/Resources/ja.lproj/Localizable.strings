@@ -7103,3 +7103,20 @@
 "player_activity_scraping" = "メタデータを取得中";
 
 "artist_name_settings_merge_collaborative_albums" = "同名のコラボアルバムを統合";
+
+"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
+"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
+"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
+"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
+"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
+"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_tv_unavailable" = "Apple TVでは非対応";
+"ai_apple_tv_unavailable_detail" = "Apple TVではAppleのオンデバイスモデルとPrivate Cloud Computeを利用できません。別のAIサービスを選ぶか、代替サービスを有効にしてください。";
+"ai_apple_cloud_fallback" = "必要に応じてPrivate Cloud Computeを使用";
+"chapter_generation_save_failed" = "進捗を保存できませんでした。空き容量を確保して再試行してください。";
+"chapter_generation_settings_changed" = "AI設定が変更されました。元の設定に戻して再開するか、タスクを削除してやり直してください。";
+"chapter_generation_missing_items" = "このタスクの一部の項目を利用できません。復元してから再開してください。";
+"chapter_generation_pause" = "一時停止";
+"chapter_generation_saved_jobs" = "保存済みのタスク";
+"chapter_generation_resume" = "再開";
+"chapter_generation_discard_job" = "このタスクと保存済みの進捗を削除しますか？";

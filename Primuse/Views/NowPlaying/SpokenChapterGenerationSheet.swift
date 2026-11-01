@@ -17,6 +17,8 @@ struct SpokenChapterGenerationSheet: View {
     @State private var editingSongID = ""
     @State private var editingTitle = ""
     @State private var editingPreview = false
+    @State private var resumingJobID: String?
+    @State private var discardingJobID: String?
 
     var generator: SpokenChapterGenerator = .shared
     private var record: SpokenChapterRecord? {
@@ -34,12 +36,32 @@ struct SpokenChapterGenerationSheet: View {
                     if generator.isRunning {
                         Text(generator.currentTitle).lineLimit(2)
                         ProgressView(value: (Double(generator.completedItems) + generator.progress) / Double(max(1, generator.totalItems)))
-                        Button("cancel", role: .cancel) { generator.cancel() }
+                        Button("chapter_generation_pause") { generator.cancel() }
                     } else {
-                        Button("chapter_generation_start") { confirmsUpload = true }
+                        Button("chapter_generation_start") { requestStart() }
                             .disabled(generator.isApplying)
                     }
                     if let failure = error ?? generator.failure { Text(failure).foregroundStyle(.secondary) }
+                }
+                if !generator.isRunning, !generator.jobs(for: song.id).isEmpty {
+                    Section("chapter_generation_saved_jobs") {
+                        ForEach(generator.jobs(for: song.id)) { job in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(job.title)
+                                ProgressView(value: job.progress)
+                                if let date = job.retryAt, date > Date() {
+                                    Text(date, style: .relative).foregroundStyle(.secondary)
+                                }
+                                HStack {
+                                    Button("chapter_generation_resume") { requestStart(resuming: job.id) }
+                                        .disabled(generator.isApplying)
+                                    Spacer()
+                                    Button("delete", role: .destructive) { discardingJobID = job.id }
+                                        .disabled(generator.isApplying)
+                                }
+                            }
+                        }
+                    }
                 }
                 if !generator.previews.isEmpty {
                     ForEach(generator.previews) { preview in
@@ -102,6 +124,18 @@ struct SpokenChapterGenerationSheet: View {
                     } catch { self.error = String(localized: "chapter_generation_failed") }
                 }
             } message: { Text("chapter_generation_upload") }
+            .alert(Text("chapter_generation_discard_job"), isPresented: Binding(
+                get: { discardingJobID != nil }, set: { if !$0 { discardingJobID = nil } }
+            )) {
+                Button("cancel", role: .cancel) { discardingJobID = nil }
+                Button("delete", role: .destructive) {
+                    if let id = discardingJobID {
+                        do { try generator.discard(id) }
+                        catch { self.error = String(localized: "chapter_generation_save_failed") }
+                    }
+                    discardingJobID = nil
+                }
+            }
             .alert(Text("delete"), isPresented: $confirmsDelete) {
                 Button("cancel", role: .cancel) {}
                 Button("delete", role: .destructive) { updateRecord { $0.isDeleted = true; $0.chapters = [] } }
@@ -131,10 +165,28 @@ struct SpokenChapterGenerationSheet: View {
         #endif
     }
 
+    private func requestStart(resuming id: String? = nil) {
+        resumingJobID = id
+        if intelligence.spokenChaptersNeedsRemoteConsent {
+            confirmsUpload = true
+        } else if intelligence.needsBuiltInConsent(for: .spokenChapters) {
+            consent = BuiltInAIConsentRequest(onAgree: start)
+        } else { start() }
+    }
+
     private func start() {
         error = nil
-        generator.start(songs: wholeBook ? bookSongs : [song], library: library,
-                        intelligence: intelligence, loadTranscript: loadTranscript)
+        let songs: [Song]
+        if let id = resumingJobID, let job = generator.savedJobs.first(where: { $0.id == id }) {
+            let available = Dictionary(([song] + bookSongs).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            songs = job.songIDs.compactMap { available[$0] ?? library.song(id: $0) }
+            guard songs.count == job.songIDs.count else {
+                error = String(localized: "chapter_generation_missing_items")
+                return
+            }
+        } else { songs = wholeBook ? bookSongs : [song] }
+        generator.start(songs: songs, library: library, intelligence: intelligence,
+                        loadTranscript: loadTranscript, resuming: resumingJobID)
     }
 
     private func updateRecord(_ change: (inout SpokenChapterRecord) -> Void) {

@@ -7102,3 +7102,20 @@
 "player_activity_scraping" = "Metadaten werden abgerufen";
 
 "artist_name_settings_merge_collaborative_albums" = "Gemeinsame Alben mit gleichem Titel zusammenführen";
+
+"ai_apple_unavailable" = "Apple Intelligence ist auf diesem Gerät oder in der aktuellen Region nicht verfügbar.";
+"ai_apple_not_ready" = "Apple Intelligence ist noch nicht bereit. Aktiviere es in den Systemeinstellungen und warte, bis die Einrichtung abgeschlossen ist.";
+"ai_apple_permission_missing" = "Dieser Build hat keinen Zugriff auf Private Cloud Compute. Installiere einen Build mit der genehmigten Berechtigung.";
+"ai_apple_quota_reached" = "Das Tageslimit für Private Cloud Compute ist erreicht. Warte auf die Zurücksetzung oder wähle einen anderen Dienst.";
+"ai_apple_context_limit" = "Der Inhalt überschreitet das Kontextlimit des Modells. Verwende Private Cloud Compute oder einen anderen Dienst.";
+"ai_apple_refused" = "Apple Intelligence konnte diese Anfrage nicht erfüllen.";
+"ai_apple_tv_unavailable" = "Auf Apple TV nicht unterstützt";
+"ai_apple_tv_unavailable_detail" = "Apples lokale Modelle und Private Cloud Compute sind auf Apple TV nicht verfügbar. Wähle einen anderen KI-Dienst oder aktiviere einen Ersatzdienst.";
+"ai_apple_cloud_fallback" = "Bei Bedarf Private Cloud Compute verwenden";
+"chapter_generation_save_failed" = "Der Fortschritt konnte nicht gespeichert werden. Gib Speicherplatz frei und versuche es erneut.";
+"chapter_generation_settings_changed" = "Die KI-Einstellungen wurden geändert. Stelle sie zum Fortsetzen wieder her oder lösche die Aufgabe und starte neu.";
+"chapter_generation_missing_items" = "Einige Inhalte dieser Aufgabe sind nicht verfügbar. Stelle sie vor dem Fortsetzen wieder her.";
+"chapter_generation_pause" = "Pausieren";
+"chapter_generation_saved_jobs" = "Gespeicherte Aufgaben";
+"chapter_generation_resume" = "Fortsetzen";
+"chapter_generation_discard_job" = "Diese Aufgabe und ihren Fortschritt löschen?";

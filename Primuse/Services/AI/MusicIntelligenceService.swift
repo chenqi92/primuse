@@ -157,6 +157,15 @@ enum AIRecommendationFallbackReason: Equatable, Sendable {
         if error is URLError {
             return .network
         }
+        if error is AppleIntelligenceQuotaFailure { return .dailyLimit }
+        if let error = error as? AppleIntelligenceError {
+            switch error {
+            case .quotaReached: return .dailyLimit
+            case .unavailable, .modelNotReady: return .unavailable
+            case .permissionMissing: return .authentication
+            case .contextLimit, .refused: return .upstream
+            }
+        }
         if let relayError = error as? PrimuseAIRelayError {
             if case .requestFailed(let statusCode, let code, _) = relayError {
                 switch code {
@@ -430,7 +439,13 @@ final class MusicIntelligenceService {
             ?? LyricsTranscriptionSettingsStore(legacySettingsStore: settingsStore)
         self.regionAvailability = regionAvailability
         self.credentialStore = credentialStore
-        engine = MusicIntelligenceEngine(credentialStore: credentialStore)
+        engine = MusicIntelligenceEngine(credentialStore: credentialStore, appleCloudAuthorization: { id in
+            await MainActor.run {
+                settingsStore.hasExplicitRemoteConsent && settingsStore.providerSet.providers.contains {
+                    $0.id == id && $0.isEnabled && $0.backend == .appleOnDevice && $0.allowsPrivateCloudComputeFallback
+                }
+            }
+        })
         let builtInQuota = BuiltInAIQuotaModel()
         self.builtInQuota = builtInQuota
         let primuseRelayClient = PrimuseAIRelayClient(onQuota: { quota in
@@ -627,7 +642,7 @@ final class MusicIntelligenceService {
         if needsBuiltInConsent(for: .lyricsTranslation), !ownProviders {
             return .needsBuiltInConsent
         }
-        guard settingsStore.hasExplicitRemoteConsent else { return .needsRemoteConsent }
+        guard settingsStore.hasExplicitRemoteConsent || hasOnDeviceProvider(for: .lyricsTranslation) else { return .needsRemoteConsent }
         if isPrimuseRelayAvailable(for: .lyricsTranslation) || ownProviders { return .ready }
         return .noService
     }
@@ -643,7 +658,7 @@ final class MusicIntelligenceService {
         if needsBuiltInConsent(for: .lyricsRomanization), !ownProviders {
             return .needsBuiltInConsent
         }
-        guard settingsStore.hasExplicitRemoteConsent else { return .needsRemoteConsent }
+        guard settingsStore.hasExplicitRemoteConsent || hasOnDeviceProvider(for: .lyricsRomanization) else { return .needsRemoteConsent }
         if isPrimuseRelayAvailable(for: .lyricsRomanization) || ownProviders { return .ready }
         return .noService
     }
@@ -667,7 +682,7 @@ final class MusicIntelligenceService {
         if isPrimuseRelayAvailable(for: .lyricsRomanization), !isBuiltInRomanizationUnsupported {
             return "ai.builtin"
         }
-        guard let configuration = settingsStore.providerSet.routedProviders(for: .lyricsRomanization)
+        guard let configuration = routedProviders(for: .lyricsRomanization)
             .first(where: { !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
             return nil
         }
@@ -746,9 +761,9 @@ final class MusicIntelligenceService {
 
     var isSemanticSearchConfigured: Bool {
         let decision = regionAvailability.remoteProviderDecision
-        guard settingsStore.semanticSearchEnabled,
-              settingsStore.hasExplicitRemoteConsent else { return false }
-        let hasCustomProvider = settingsStore.providerSet.routedProviders(for: .semanticSearch).contains {
+        guard settingsStore.semanticSearchEnabled else { return false }
+        if hasOnDeviceProvider(for: .semanticSearch) { return true }
+        let hasCustomProvider = routedProviders(for: .semanticSearch).contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && AIProviderRegionPolicy.allows(
                         configuration: $0,
@@ -765,7 +780,7 @@ final class MusicIntelligenceService {
         let decision = regionAvailability.remoteProviderDecision
         guard settingsStore.recommendationsEnabled,
               settingsStore.hasExplicitListeningContextConsent else { return false }
-        let hasCustomProvider = settingsStore.providerSet.routedProviders(for: .recommendations).contains {
+        let hasCustomProvider = routedProviders(for: .recommendations).contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && AIProviderRegionPolicy.allows(
                         configuration: $0,
@@ -913,7 +928,7 @@ final class MusicIntelligenceService {
             }
         }
 
-        let providers = settingsStore.providerSet.routedProviders(for: .semanticSearch).filter {
+        let providers = routedProviders(for: .semanticSearch).filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,
@@ -1007,7 +1022,7 @@ final class MusicIntelligenceService {
     ) async -> AILyricsTranslationExecution? {
         let regionSnapshot = regionAvailability.snapshot
         let consent = settingsStore.hasExplicitRemoteConsent
-        guard consent, !candidates.isEmpty else { return nil }
+        guard consent || hasOnDeviceProvider(for: .lyricsTranslation), !candidates.isEmpty else { return nil }
 
         var customFallbackOffset = 0
         if isPrimuseRelayAvailable(for: .lyricsTranslation) {
@@ -1074,7 +1089,7 @@ final class MusicIntelligenceService {
         )
         guard decision.isAllowed else { return nil }
 
-        for (fallbackDepth, configuration) in settingsStore.providerSet.routedProviders(for: .lyricsTranslation).enumerated() {
+        for (fallbackDepth, configuration) in routedProviders(for: .lyricsTranslation).enumerated() {
             let effectiveFallbackDepth = fallbackDepth + customFallbackOffset
             guard !configuration.generationModel
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1143,7 +1158,7 @@ final class MusicIntelligenceService {
     func romanizeLyrics(_ texts: [String], languageCode: String) async -> AILyricsRomanizationExecution? {
         let regionSnapshot = regionAvailability.snapshot
         let consent = settingsStore.hasExplicitRemoteConsent
-        guard consent, !texts.isEmpty else { return nil }
+        guard consent || hasOnDeviceProvider(for: .lyricsRomanization), !texts.isEmpty else { return nil }
         var seen = Set<String>()
         let unique = texts.filter { seen.insert($0).inserted }
         var romanized: [String: String] = [:]
@@ -1208,7 +1223,7 @@ final class MusicIntelligenceService {
             regionContext: regionSnapshot.context
         )
         guard decision.isAllowed else { return nil }
-        for configuration in settingsStore.providerSet.routedProviders(for: .lyricsRomanization) {
+        for configuration in routedProviders(for: .lyricsRomanization) {
             guard !configuration.generationModel
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   AIRegionRequestPolicy.canSendRemoteRequest(
@@ -1252,6 +1267,7 @@ final class MusicIntelligenceService {
     /// A library-content feature (tag cleanup, discovery, intros, "for you"
     /// intents) has the service its route names, or a fallback, to ask.
     private func isLibraryContentAvailable(for feature: AIFeature) -> Bool {
+        if hasOnDeviceProvider(for: feature) { return true }
         guard settingsStore.hasExplicitRemoteConsent else { return false }
         if isPrimuseRelayAvailable(for: feature) { return true }
         return canUseOwnProviders(for: feature, regionContext: regionAvailability.snapshot.context)
@@ -1259,6 +1275,7 @@ final class MusicIntelligenceService {
 
     /// 有服务可问,只差一项同意:发送内容的授权,或者(只有内置 AI 可问时)内置 AI 的同意页。
     private func libraryContentNeedsRemoteConsent(for feature: AIFeature) -> Bool {
+        if hasOnDeviceProvider(for: feature) { return false }
         let ownProviders = canUseOwnProviders(
             for: feature,
             regionContext: regionAvailability.snapshot.context
@@ -1331,12 +1348,24 @@ final class MusicIntelligenceService {
         )
     }
 
+    func routedProviders(for feature: AIFeature) -> [AIRemoteProviderConfiguration] {
+        settingsStore.providerSet.routedProviders(for: feature).filter {
+            AppleIntelligenceRuntime.supportsOnCurrentPlatform($0.backend)
+        }
+    }
+
+    private func hasOnDeviceProvider(for feature: AIFeature) -> Bool {
+        routedProviders(for: feature).contains {
+            $0.backend == .appleOnDevice && !$0.generationModel.isEmpty
+        }
+    }
+
     private func canUseOwnProviders(for feature: AIFeature, regionContext: AIRegionContext) -> Bool {
         guard AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
             regionContext: regionContext
         ).isAllowed else { return false }
-        return settingsStore.providerSet.routedProviders(for: feature).contains {
+        return routedProviders(for: feature).contains {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
@@ -1399,7 +1428,7 @@ final class MusicIntelligenceService {
             }
 
             if !answered, canUseOwnProviders(for: .tagCleanup, regionContext: regionSnapshot.context) {
-                for configuration in settingsStore.providerSet.routedProviders(for: .tagCleanup) {
+                for configuration in routedProviders(for: .tagCleanup) {
                     guard !configuration.generationModel
                         .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                           AIRegionRequestPolicy.canSendRemoteRequest(
@@ -1501,7 +1530,22 @@ final class MusicIntelligenceService {
         }
     }
 
+    var spokenChapterLimits: SpokenChapterGeneration.Limits {
+        hasOnDeviceProvider(for: .spokenChapters) ? .onDevice : .standard
+    }
+
+    var spokenChapterCheckpointNamespace: String {
+        let providers = routedProviders(for: .spokenChapters).map {
+            [$0.id.uuidString, $0.backend.rawValue, $0.baseURL, $0.apiStyle.rawValue,
+             $0.apiPathMode.rawValue, $0.generationModel, String($0.allowsPrivateCloudComputeFallback)]
+        }
+        return (try? SpokenChapterGenerator.fingerprint(
+            [[String(isPrimuseRelaySelected(for: .spokenChapters))]] + providers
+        )) ?? "unavailable"
+    }
+
     var isSpokenChaptersAvailable: Bool { isLibraryContentAvailable(for: .spokenChapters) }
+    var spokenChaptersNeedsRemoteConsent: Bool { libraryContentNeedsRemoteConsent(for: .spokenChapters) }
 
     func spokenChapters(_ request: SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer {
         try Task.checkCancellation()
@@ -1558,7 +1602,7 @@ final class MusicIntelligenceService {
             for: .libraryInsight,
             regionContext: regionAvailability.snapshot.context
         ) else { return nil }
-        return settingsStore.providerSet.routedProviders(for: .libraryInsight).first {
+        return routedProviders(for: .libraryInsight).first {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }?.displayName
     }
@@ -1609,7 +1653,7 @@ final class MusicIntelligenceService {
         let hasService = isPrimuseRelayAvailable(for: .listeningMood)
             || canUseOwnProviders(for: .listeningMood, regionContext: regionAvailability.snapshot.context)
         return hasService
-            && (!settingsStore.hasExplicitRemoteConsent || !settingsStore.hasExplicitListeningContextConsent)
+            && (libraryContentNeedsRemoteConsent(for: .listeningMood) || !settingsStore.hasExplicitListeningContextConsent)
     }
 
     /// 状态卡上的「开启」：只补上这项功能要的两项授权，其余设置原样保留。
@@ -1671,7 +1715,7 @@ final class MusicIntelligenceService {
         relay: () async throws -> Value,
         custom: (AIRemoteProviderConfiguration, AIRegionSnapshot, Bool) async throws -> Value
     ) async -> LibraryContentRun<Value> {
-        guard settingsStore.hasExplicitRemoteConsent,
+        guard settingsStore.hasExplicitRemoteConsent || hasOnDeviceProvider(for: feature),
               !libraryContentNeedsRemoteConsent(for: feature) else {
             return .failure(
                 libraryContentNeedsRemoteConsent(for: feature) ? .needsConsent : .notConfigured,
@@ -1709,7 +1753,7 @@ final class MusicIntelligenceService {
         }
 
         if canUseOwnProviders(for: feature, regionContext: regionSnapshot.context) {
-            for configuration in settingsStore.providerSet.routedProviders(for: feature) {
+            for configuration in routedProviders(for: feature) {
                 guard !configuration.generationModel
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       AIRegionRequestPolicy.canSendRemoteRequest(
@@ -1735,7 +1779,8 @@ final class MusicIntelligenceService {
         }
 
         if let customError {
-            return .failure(.failed(AIRecommendationFallbackReason.classify(customError)), retryAt: nil)
+            return .failure(.failed(AIRecommendationFallbackReason.classify(customError)),
+                            retryAt: (customError as? AppleIntelligenceQuotaFailure)?.resetDate)
         }
         if let relayError {
             if Self.primuseRelayDoesNotOfferFeature(relayError) {
@@ -1771,7 +1816,7 @@ final class MusicIntelligenceService {
     /// listener's own services. Any failure is the cue to keep the device's
     /// own intents, never an error to show.
     func curateListeningIntents(_ request: ListeningIntentAIExchange.Request) async -> AIListeningIntentOutcome {
-        guard settingsStore.hasExplicitRemoteConsent else { return .unavailable() }
+        guard settingsStore.hasExplicitRemoteConsent || hasOnDeviceProvider(for: .listeningIntents) else { return .unavailable() }
         let consent = settingsStore.hasExplicitRemoteConsent
         let regionSnapshot = regionAvailability.snapshot
         var relayRetryAt: Date?
@@ -1801,7 +1846,7 @@ final class MusicIntelligenceService {
         }
 
         if canUseOwnProviders(for: .listeningIntents, regionContext: regionSnapshot.context) {
-            for configuration in settingsStore.providerSet.routedProviders(for: .listeningIntents) {
+            for configuration in routedProviders(for: .listeningIntents) {
                 guard !configuration.generationModel
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       AIRegionRequestPolicy.canSendRemoteRequest(
@@ -2016,7 +2061,7 @@ final class MusicIntelligenceService {
             }
         }
 
-        let providers = settingsStore.providerSet.routedProviders(for: .recommendations).filter {
+        let providers = routedProviders(for: .recommendations).filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,
@@ -2213,7 +2258,7 @@ final class MusicIntelligenceService {
                 ))
             }
         }
-        let providers = settingsStore.providerSet.routedProviders(for: .recommendations).filter {
+        let providers = routedProviders(for: .recommendations).filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,
@@ -2670,7 +2715,7 @@ final class MusicIntelligenceService {
 
         _ = await resolvedLyricsTranscriptionConfiguration()
         var hasDedicatedCredential = false
-        if let apiKey,
+        if configuration.backend.requiresAPIKey, let apiKey,
            !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = try await credentialStore.saveAPIKey(apiKey, configuration: normalized)
             hasDedicatedCredential = true
@@ -2761,6 +2806,7 @@ final class MusicIntelligenceService {
     }
 
     func hasStoredAPIKey(configuration: AIRemoteProviderConfiguration) async -> Bool {
+        guard configuration.backend.requiresAPIKey else { return false }
         if case .ready = await credentialStore.lookupAPIKey(configuration: configuration) {
             return true
         }
@@ -2780,8 +2826,8 @@ final class MusicIntelligenceService {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
         await prepareLyricsTranscriptionCredentialMigration()
-        _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: configuration)
-        if let apiKey,
+        try configuration.validateGenerationConfiguration()
+        if configuration.backend.requiresAPIKey, let apiKey,
            !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = try await credentialStore.saveAPIKey(apiKey, configuration: configuration)
         }
@@ -2814,9 +2860,9 @@ final class MusicIntelligenceService {
         await prepareLyricsTranscriptionCredentialMigration()
         let normalized = providerSet.normalized()
         for provider in normalized.providers where provider.isEnabled {
-            _ = try AIRemoteEndpointPolicy.generationEndpoint(configuration: provider)
+            try provider.validateGenerationConfiguration()
         }
-        for provider in normalized.providers {
+        for provider in normalized.providers where provider.backend.requiresAPIKey {
             guard let apiKey = apiKeys[provider.id],
                   !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
@@ -2845,6 +2891,7 @@ final class MusicIntelligenceService {
     }
 
     func deleteAPIKey(configuration: AIRemoteProviderConfiguration) async throws {
+        guard configuration.backend.requiresAPIKey else { return }
         _ = lyricsTranscriptionSettingsStore.adoptLegacySettingsIfNeeded(
             from: settingsStore
         )
@@ -2875,10 +2922,7 @@ final class MusicIntelligenceService {
         guard decision.isAllowed else {
             throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
-        _ = try AIRemoteEndpointPolicy.validatedBaseURL(
-            configuration.baseURL,
-            allowInsecureLocalHTTP: configuration.allowInsecureLocalHTTP
-        )
+        try configuration.validateGenerationConfiguration()
         let models = try await engine.listModels(
             configuration: configuration,
             apiKeyOverride: apiKey,
@@ -2918,10 +2962,7 @@ final class MusicIntelligenceService {
         }
         var enabledConfiguration = configuration
         enabledConfiguration.isEnabled = true
-        _ = try AIRemoteEndpointPolicy.validatedBaseURL(
-            enabledConfiguration.baseURL,
-            allowInsecureLocalHTTP: enabledConfiguration.allowInsecureLocalHTTP
-        )
+        try enabledConfiguration.validateGenerationConfiguration()
         // Connection diagnostics send only this built-in phrase. They never
         // include a search term, lyrics, library metadata, or listening
         // history, so they are independent from content-sharing consent.
@@ -3675,8 +3716,11 @@ extension AIRecommendationScene {
 private actor MusicIntelligenceEngine {
     private let credentialStore: any AICredentialStoring
 
-    init(credentialStore: any AICredentialStoring) {
+    private let appleCloudAuthorization: @Sendable (UUID) async -> Bool
+
+    init(credentialStore: any AICredentialStoring, appleCloudAuthorization: @escaping @Sendable (UUID) async -> Bool) {
         self.credentialStore = credentialStore
+        self.appleCloudAuthorization = appleCloudAuthorization
     }
 
     func interpretSearch(
@@ -3705,7 +3749,8 @@ private actor MusicIntelligenceEngine {
             configuration: configuration,
             credentialStore: credentialStore,
             apiKeyOverride: apiKeyOverride,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -3728,7 +3773,8 @@ private actor MusicIntelligenceEngine {
             configuration: configuration,
             credentialStore: credentialStore,
             apiKeyOverride: apiKeyOverride,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.listModels()
@@ -3761,7 +3807,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -3803,7 +3850,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -3844,7 +3892,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -3889,7 +3938,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -3928,7 +3978,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -3966,7 +4017,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -4002,7 +4054,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -4039,7 +4092,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:
@@ -4077,7 +4131,8 @@ private actor MusicIntelligenceEngine {
         let provider = OpenAICompatibleProvider(
             configuration: configuration,
             credentialStore: credentialStore,
-            requestAuthorization: requestAuthorization
+            requestAuthorization: requestAuthorization,
+            appleCloudAuthorization: { [appleCloudAuthorization] in await appleCloudAuthorization(configuration.id) }
         )
         switch await provider.runtimeAvailability() {
         case .available:

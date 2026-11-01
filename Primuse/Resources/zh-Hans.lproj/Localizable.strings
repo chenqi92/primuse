@@ -7195,3 +7195,20 @@
 "player_activity_scraping" = "正在刮削";
 
 "artist_name_settings_merge_collaborative_albums" = "合并同名合作专辑";
+
+"ai_apple_unavailable" = "此设备或当前地区暂不可用 Apple Intelligence。";
+"ai_apple_not_ready" = "Apple Intelligence 尚未准备好，请在系统设置中开启并等待准备完成。";
+"ai_apple_permission_missing" = "此版本尚未获得 Private Cloud Compute 权限，请安装已包含获批权限签名的版本。";
+"ai_apple_quota_reached" = "Private Cloud Compute 今日额度已用完，请等待额度重置或选择其他服务。";
+"ai_apple_context_limit" = "内容超出模型上下文限制，请使用 Private Cloud Compute 或其他服务处理较长内容。";
+"ai_apple_refused" = "Apple Intelligence 无法完成此请求。";
+"ai_apple_tv_unavailable" = "Apple TV 不支持";
+"ai_apple_tv_unavailable_detail" = "Apple TV 暂不支持 Apple 本地模型和 Private Cloud Compute。请选择其他 AI 服务，或开启备用服务以使用可用的服务。";
+"ai_apple_cloud_fallback" = "需要时使用 Private Cloud Compute";
+"chapter_generation_save_failed" = "无法保存进度，请检查存储空间后重试。";
+"chapter_generation_settings_changed" = "AI 设置已变更。请恢复原设置后继续，或删除此任务后重新生成。";
+"chapter_generation_missing_items" = "此任务的部分内容已不可用，请恢复后继续。";
+"chapter_generation_pause" = "暂停";
+"chapter_generation_saved_jobs" = "已保存的任务";
+"chapter_generation_resume" = "继续";
+"chapter_generation_discard_job" = "删除此任务及已保存的进度？";

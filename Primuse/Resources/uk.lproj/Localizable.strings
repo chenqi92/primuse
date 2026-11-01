@@ -7008,3 +7008,20 @@
 "player_activity_scraping" = "Отримання метаданих";
 
 "artist_name_settings_merge_collaborative_albums" = "Об’єднувати спільні альбоми з однаковою назвою";
+
+"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
+"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
+"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
+"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
+"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
+"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_tv_unavailable" = "Не підтримується на Apple TV";
+"ai_apple_tv_unavailable_detail" = "Локальні моделі Apple та Private Cloud Compute недоступні на Apple TV. Виберіть інший сервіс ШІ або ввімкніть резервний сервіс.";
+"ai_apple_cloud_fallback" = "Використовувати Private Cloud Compute за потреби";
+"chapter_generation_save_failed" = "Не вдалося зберегти прогрес. Звільніть місце та спробуйте знову.";
+"chapter_generation_settings_changed" = "Налаштування ШІ змінено. Відновіть їх для продовження або видаліть завдання й почніть заново.";
+"chapter_generation_missing_items" = "Деякі елементи завдання недоступні. Відновіть їх перед продовженням.";
+"chapter_generation_pause" = "Призупинити";
+"chapter_generation_saved_jobs" = "Збережені завдання";
+"chapter_generation_resume" = "Продовжити";
+"chapter_generation_discard_job" = "Видалити це завдання та збережений прогрес?";
