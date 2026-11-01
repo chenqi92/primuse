@@ -433,7 +433,10 @@ private final class SongLocationEvidenceFixture {
     let library: MusicLibrary
     let player: AudioPlayerService
     var playlist: Playlist?
-    var targetID: String { Self.showsContentTags ? "location-0" : "location-3990" }
+    var targetID: String {
+        let index = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_TARGET"] ?? "3990"
+        return Self.showsContentTags ? "location-0" : "location-\(index)"
+    }
 
     init() {
         library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
@@ -482,11 +485,31 @@ private final class SongLocationEvidenceFixture {
                 }
             }
         }
+        if ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_COVER_WALL"] == "1",
+           let data = UIImage(systemName: "music.note")?.pngData() {
+            var references: [String] = []
+            for index in 0..<8 {
+                let id = "song-location-wall-\(index)"
+                if await MetadataAssetStore.shared.cacheCover(data, forSongID: id) {
+                    references.append(MetadataAssetStore.shared.expectedCoverFileName(for: id))
+                }
+            }
+            if !references.isEmpty {
+                for index in songs.indices {
+                    songs[index].coverArtFileName = references[index % references.count]
+                    songs[index].albumTitle = "Location Album \(index)"
+                    songs[index].albumID = "location-album-\(index)"
+                }
+            }
+        }
         library.addSongs(songs, affectedSourceIDs: ["location-fixture"])
         await library.waitForPendingIndex()
         playlist = library.playlists.first(where: { $0.name == "Location Playlist" })
             ?? library.createPlaylist(name: "Location Playlist")
         if let playlist { library.add(songIDs: songs.map(\.id), toPlaylist: playlist.id) }
+        if ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_PAGE"] == "liked" {
+            library.likeSongs(songs.reversed().map(\.id))
+        }
         library.saveSmartPlaylist(SmartPlaylist(id: "location-smart", name: "Location Smart",
                                                sortField: .title, sortDirection: .ascending))
         player.currentSong = library.song(id: targetID)
@@ -536,6 +559,10 @@ struct SongLocationEvidenceHost: View {
     @ViewBuilder
     private var pageContent: some View {
         switch page {
+        case "liked":
+            if let playlist = fixture.library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID }) {
+                PlaylistDetailView(playlist: playlist)
+            }
         case "playlist":
             if let playlist = fixture.playlist { PlaylistDetailView(playlist: playlist) }
         case "smart":

@@ -361,9 +361,41 @@ final class SongLocationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["选择"].firstMatch.waitForExistence(timeout: 5))
     }
 
-    func testPlaylistFilterRequiresConfirmationAndPreservesItOnCancel() {
-        let app = launch("playlist")
+    func testPlaylistLocatesDistantSongAndRepeatsAfterScrollingAway() {
+        assertPlaylistLocation("playlist")
+    }
+
+    func testLikedSongsLocatesDistantSongAndRepeatsAfterScrollingAway() {
+        assertPlaylistLocation("liked")
+    }
+
+    func testPlaylistCoverWallDoesNotCaptureSongLocation() {
+        assertPlaylistLocation("playlist", coverWall: true)
+    }
+
+    func testLikedSongsCoverWallDoesNotCaptureSongLocation() {
+        assertPlaylistLocation("liked", coverWall: true)
+    }
+
+    private func assertPlaylistLocation(_ page: String, coverWall: Bool = false) {
+        let app = launch(page, coverWall: coverWall)
         defer { app.terminate() }
+        dismissStoredSourceAuthenticationAlerts(in: app)
+        locateAndVerify(app)
+        let originalFrame = targetRow(app).frame
+        locateAndVerify(app)
+        XCTAssertEqual(targetRow(app).frame.midY, originalFrame.midY, accuracy: 1,
+                       "Locating a visible song must not move the list")
+        app.scrollViews.firstMatch.swipeDown(velocity: .fast)
+        app.scrollViews.firstMatch.swipeDown(velocity: .fast)
+        locateAndVerify(app)
+        attach(app, "song-location-\(page)")
+    }
+
+    func testPlaylistFilterRequiresConfirmationAndPreservesItOnCancel() {
+        let app = launch("playlist", coverWall: true)
+        defer { app.terminate() }
+        dismissStoredSourceAuthenticationAlerts(in: app)
         let find = app.buttons["playlistDetail.find"]
         XCTAssertTrue(find.waitForExistence(timeout: 30))
         find.tap()
@@ -393,6 +425,7 @@ final class SongLocationUITests: XCTestCase {
     func testSmartPlaylistLocatesDistantTrack() {
         let app = launch("smart")
         defer { app.terminate() }
+        dismissStoredSourceAuthenticationAlerts(in: app)
         locateAndVerify(app)
         attach(app, "song-location-smart-playlist")
     }
@@ -437,15 +470,21 @@ final class SongLocationUITests: XCTestCase {
         attach(app, "song-location-full-player-menu")
     }
 
-    private func launch(_ page: String, appearance: String? = "list", colorScheme: String = "dark") -> XCUIApplication {
+    private func launch(_ page: String, appearance: String? = "list", colorScheme: String = "dark",
+                        coverWall: Bool = false) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
         app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "songLocation"
         app.launchEnvironment["PRIMUSE_LOCATION_PAGE"] = page
+        if coverWall {
+            app.launchEnvironment["PRIMUSE_LOCATION_COVER_WALL"] = "1"
+            app.launchEnvironment["PRIMUSE_LOCATION_TARGET"] = "1990"
+        }
         app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
         app.launchArguments = [
             "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
             "-library.songBrowseMode", "flat",
             "-library.songFilter.v1", "all",
+            "-primuse.library.playlistCoverWall.v1", coverWall ? "YES" : "NO",
             "-primuse.navigation.mode.v1", "standard",
             "-primuse.hasSeenOnboarding", "YES",
             "-primuse.launch.consecutiveAborts", "0",
@@ -463,7 +502,8 @@ final class SongLocationUITests: XCTestCase {
     }
 
     private func targetRow(_ app: XCUIApplication) -> XCUIElement {
-        app.scrollViews.staticTexts["Track 3990"].firstMatch
+        let index = app.launchEnvironment["PRIMUSE_LOCATION_TARGET"] ?? "3990"
+        return app.scrollViews.staticTexts["Track \(index)"].firstMatch
     }
 
     private func locateAndVerify(_ app: XCUIApplication) {
@@ -478,7 +518,8 @@ final class SongLocationUITests: XCTestCase {
         let target = targetRow(app)
         let visibleExpectation = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: target)
         wait(for: [visibleExpectation], timeout: 15)
-        let labels = app.scrollViews.staticTexts.matching(identifier: "Track 3990")
+        let index = app.launchEnvironment["PRIMUSE_LOCATION_TARGET"] ?? "3990"
+        let labels = app.scrollViews.staticTexts.matching(identifier: "Track \(index)")
         let visible = labels.allElementsBoundByIndex.contains { label in
             label.isHittable && label.frame.midY > app.frame.minY + 100
                 && label.frame.midY < app.frame.maxY - 130

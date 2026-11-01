@@ -176,6 +176,11 @@ private struct SongLocationRowModifier: ViewModifier {
     }
 }
 
+// 封面墙也以歌曲 ID 标识封面；滚动目标用独立类型，避免定位到顶部头图。
+private struct SongLocationScrollID: Hashable {
+    let songID: String
+}
+
 private struct SongLocationReader: ViewModifier {
     let location: SongListLocation
     let revision: AnyHashable
@@ -199,7 +204,7 @@ private struct SongLocationReader: ViewModifier {
                     await Task.yield()
                     guard !Task.isCancelled, location.request?.id == request.id,
                           location.needsScroll else { return }
-                    proxy.scrollTo(request.songID, anchor: .center)
+                    proxy.scrollTo(SongLocationScrollID(songID: request.songID), anchor: .center)
                 }
         }
     }
@@ -210,7 +215,8 @@ extension View {
     func songLocationRow(_ songID: String, assignsScrollID: Bool = true,
                          appearance: SongListAppearance = .list, ordinal: Int = 1) -> some View {
         if assignsScrollID {
-            modifier(SongLocationRowModifier(songID: songID, appearance: appearance, ordinal: ordinal)).id(songID)
+            modifier(SongLocationRowModifier(songID: songID, appearance: appearance, ordinal: ordinal))
+                .id(SongLocationScrollID(songID: songID))
         } else {
             modifier(SongLocationRowModifier(songID: songID, appearance: appearance, ordinal: ordinal))
         }
