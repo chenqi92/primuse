@@ -294,6 +294,11 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  "Primuse/Services/AppIconService.swift" => [/displayName: "咸鱼吃Sushi"/],
+  "Primuse/Views/Library/LibraryDetailEvidence.swift" => [
+    /"Laura Shigihara", "Ludvig Forssell", "Christopher Larkin", "陈致逸"/,
+    /"Hans Zimmer", "Tom Odell", "Addison Rae", "Addison Rae", "天门"/
+  ],
   # Genre aliases and decade words in an AI playlist prompt ("摇滚", "八十年代")
   # matched to library tags and year ranges; matching vocabulary, never shown.
   "PrimuseKit/Sources/PrimuseKit/AIPlaylistCandidatePool.swift" => [
@@ -426,6 +431,7 @@ HAN_LITERAL_ALLOWLIST = {
     /"猿"/
   ],
   "Primuse/Views/Mac/Theme/PrimuseTheme.swift" => [
+    /id: "AppIconGroove", previewAsset: "AppIconGroovePreview", nameKey: "咸鱼吃Sushi"/,
     /与设计稿/
   ],
   "PrimuseTV/Model/TVStore.swift" => [

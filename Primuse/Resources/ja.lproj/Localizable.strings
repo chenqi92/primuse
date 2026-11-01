@@ -7106,12 +7106,12 @@
 
 "artist_name_settings_merge_collaborative_albums" = "同名のコラボアルバムを統合";
 
-"ai_apple_unavailable" = "Apple Intelligence is unavailable on this device or in its current region.";
-"ai_apple_not_ready" = "Apple Intelligence is not ready. Enable it in system settings and wait for setup to finish.";
-"ai_apple_permission_missing" = "This build does not have Private Cloud Compute access. Install a build signed with the approved capability.";
-"ai_apple_quota_reached" = "The daily Private Cloud Compute limit has been reached. Try again after the quota resets or choose another service.";
-"ai_apple_context_limit" = "This request exceeds the model’s context limit. Use Private Cloud Compute or another service for longer content.";
-"ai_apple_refused" = "Apple Intelligence could not fulfill this request.";
+"ai_apple_unavailable" = "このデバイスまたは現在の地域では Apple Intelligence を利用できません。";
+"ai_apple_not_ready" = "Apple Intelligence の準備ができていません。システム設定で有効にし、設定が完了するまでお待ちください。";
+"ai_apple_permission_missing" = "このバージョンには Private Cloud Compute の利用権限がありません。承認済みの機能で署名されたバージョンをインストールしてください。";
+"ai_apple_quota_reached" = "Private Cloud Compute の1日の利用上限に達しました。上限がリセットされてから再試行するか、別のサービスを選択してください。";
+"ai_apple_context_limit" = "このリクエストはモデルのコンテキスト上限を超えています。長いコンテンツには Private Cloud Compute または別のサービスを使用してください。";
+"ai_apple_refused" = "Apple Intelligence はこのリクエストを処理できませんでした。";
 "ai_apple_tv_unavailable" = "Apple TVでは非対応";
 "ai_apple_tv_unavailable_detail" = "Apple TVではAppleのオンデバイスモデルとPrivate Cloud Computeを利用できません。別のAIサービスを選ぶか、代替サービスを有効にしてください。";
 "ai_apple_cloud_fallback" = "必要に応じてPrivate Cloud Computeを使用";
@@ -7122,3 +7122,4 @@
 "chapter_generation_saved_jobs" = "保存済みのタスク";
 "chapter_generation_resume" = "再開";
 "chapter_generation_discard_job" = "このタスクと保存済みの進捗を削除しますか？";
+"Song" = "曲";

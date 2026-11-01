@@ -6882,3 +6882,4 @@
 "chapter_generation_saved_jobs" = "Saved tasks";
 "chapter_generation_resume" = "Resume";
 "chapter_generation_discard_job" = "Delete this saved task and its progress?";
+"Song" = "Song";

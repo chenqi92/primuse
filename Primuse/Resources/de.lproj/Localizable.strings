@@ -7121,3 +7121,4 @@
 "chapter_generation_saved_jobs" = "Gespeicherte Aufgaben";
 "chapter_generation_resume" = "Fortsetzen";
 "chapter_generation_discard_job" = "Diese Aufgabe und ihren Fortschritt löschen?";
+"Song" = "Titel";

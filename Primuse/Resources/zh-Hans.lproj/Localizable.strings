@@ -7214,3 +7214,4 @@
 "chapter_generation_saved_jobs" = "已保存的任务";
 "chapter_generation_resume" = "继续";
 "chapter_generation_discard_job" = "删除此任务及已保存的进度？";
+"Song" = "歌曲";
