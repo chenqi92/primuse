@@ -1288,12 +1288,20 @@ extension LibraryPortableArtworkTests {
             if let url = try installHeroTestArtwork(data, library: library, owner: owner) { cleanup.append(url) }
         }
         try upload(.white)
+        let appearance = HeroAppearanceProbe()
         let view = ZStack(alignment: .top) {
             Color(uiColor: UIColor(white: 0.08, alpha: 1))
-            ArtistHeroArtworkView(artist: artist, size: CGSize(width: 320, height: 400), onImageChange: { _ in })
-                // The actual photograph retains 400pt of layout space; the
+            ArtistHeroArtworkView(
+                artist: artist, size: CGSize(width: 320, height: 400), onImageChange: { _ in },
+                onAppearanceChange: { color, _ in
+                    guard let color else { return }
+                    appearance.color = UIColor(color)
+                    appearance.count += 1
+                }
+            )
+                // The actual square photograph retains 320pt of layout space; the
                 // field must still paint below it, as in the detail header.
-                .frame(width: 320, height: 400, alignment: .top)
+                .frame(width: 320, height: 320, alignment: .top)
         }
         .frame(width: 320, height: 760)
         .ignoresSafeArea()
@@ -1307,16 +1315,20 @@ extension LibraryPortableArtworkTests {
             try await Task.sleep(for: .milliseconds(100))
             let snapshot = try heroTestSnapshot(host.view)
             let sharp = try rgb(snapshot, x: 160, y: 80)
-            let continued = try rgb(snapshot, x: 160, y: 408)
+            let field = try rgb(snapshot, x: 160, y: 224)
+            let continued = try rgb(snapshot, x: 160, y: 328)
             let body = try rgb(snapshot, x: 160, y: 700)
-            if min(sharp.0, sharp.1, sharp.2) > 240, continued.0 > body.0 + 20 {
+            if min(sharp.0, sharp.1, sharp.2) > 240 {
+                XCTAssertGreaterThan(appearance.count, 0, "A visible sharp source must already have a prepared appearance")
+                XCTAssertGreaterThan(field.0, body.0 + 100, "The first visible photograph must include its matching field")
+                XCTAssertGreaterThan(continued.0, body.0 + 1, "A subtle field tail must continue below the photograph")
                 whiteSnapshot = snapshot
                 break
             }
         }
         let white = try XCTUnwrap(whiteSnapshot, "The sharp portrait and its continued field must both appear")
         let body = try rgb(white, x: 160, y: 700)
-        let finished = try rgb(white, x: 160, y: 530)
+        let finished = try rgb(white, x: 160, y: 430)
         XCTAssertLessThan(abs(finished.0 - body.0) + abs(finished.1 - body.1) + abs(finished.2 - body.2), 6,
                           "The field must fade out before the page-body color, rather than tint the whole page")
 
@@ -1326,8 +1338,14 @@ extension LibraryPortableArtworkTests {
             try await Task.sleep(for: .milliseconds(100))
             let snapshot = try heroTestSnapshot(host.view)
             let sharp = try rgb(snapshot, x: 160, y: 80)
-            let continued = try rgb(snapshot, x: 160, y: 408)
-            if sharp.2 > 220, sharp.0 < 35, continued.2 > continued.0 + 20 {
+            let field = try rgb(snapshot, x: 160, y: 224)
+            if sharp.2 > 220, sharp.0 < 35 {
+                XCTAssertGreaterThanOrEqual(appearance.count, 2)
+                XCTAssertGreaterThan(field.2, field.0 + 60, "The newly visible source must not retain the previous white field")
+                let color = try XCTUnwrap(appearance.color)
+                var red: CGFloat = 0, blue: CGFloat = 0
+                color.getRed(&red, green: nil, blue: &blue, alpha: nil)
+                XCTAssertGreaterThan(blue, red + 0.7, "Page color and artwork must change in the same prepared appearance")
                 blueSnapshot = snapshot
                 break
             }
@@ -1338,6 +1356,20 @@ extension LibraryPortableArtworkTests {
     }
 
     func testLongArtistTitleKeepsContrastOnWhiteArtworkAtLargeTypeSizes() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (library, artist) = try await heroTestArtist(in: root)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let data = try XCTUnwrap(UIGraphicsImageRenderer(
+            size: CGSize(width: 600, height: 800), format: format
+        ).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 600, height: 800))
+        }.pngData())
+        let file = try installHeroTestArtwork(data, library: library,
+            owner: LibraryArtworkOwner(kind: .artist, id: artist.id))
+        defer { if let file { try? FileManager.default.removeItem(at: file) } }
         let cases: [(String, String, DynamicTypeSize)] = [
             ("long-default", "A Very Long Artist Name With Multiple Collaborators", .large),
             ("long-accessibility2", "A Very Long Artist Name With Multiple Collaborators", .accessibility2),
@@ -1345,63 +1377,129 @@ extension LibraryPortableArtworkTests {
         ]
         for (caseName, name, dynamicType) in cases {
             let probe = HeroTitleBoundsProbe()
-            let coordinateSpace = UUID()
-            let view = ZStack(alignment: .bottom) {
-                Color.white
-                ArtistHeroTitleBlock(
-                    name: name,
-                    summary: "120 monthly plays · 12 songs · 2 albums"
-                )
-                .onGeometryChange(for: CGRect.self) { geometry in
-                    geometry.frame(in: .named(coordinateSpace))
-                } action: { probe.frame = $0 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 12)
-            }
-            .frame(width: 390, height: 500)
-            .coordinateSpace(name: coordinateSpace)
-            .dynamicTypeSize(dynamicType)
-            .ignoresSafeArea()
-            let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 390, height: 500))
+            let view = ArtistHeroReadabilityFixture(artist: artist, name: name, probe: probe)
+                .dynamicTypeSize(dynamicType)
+                .environment(library)
+                .environment(SourceManager(sourcesProvider: { [] }))
+                .environment(\.scenePhase, .inactive)
+            let size = CGSize(width: 390, height: 760)
+            let (window, host, original) = try hostHeroTestView(view, size: size)
             defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
             var rendered: CGImage?
-            for _ in 0..<20 {
+            for _ in 0..<40 {
                 try await Task.sleep(for: .milliseconds(100))
                 let snapshot = try heroTestSnapshot(host.view)
-                if probe.frame.width > 0, probe.frame.height > 30 { rendered = snapshot; break }
+                let sharp = try rgb(snapshot, x: 195, y: 80)
+                if probe.ready, probe.frame.height > 30, min(sharp.0, sharp.1, sharp.2) > 240 {
+                    rendered = snapshot
+                    break
+                }
             }
-            let snapshot = try XCTUnwrap(rendered, "The actual title must finish layout")
+            let snapshot = try XCTUnwrap(rendered, "The actual photograph, field and page color must finish preparing")
             let attachment = XCTAttachment(image: UIImage(cgImage: snapshot))
-            attachment.name = "Artist title white fixture - \(caseName)"
+            attachment.name = "Actual artist hero white fixture - \(caseName)"
             attachment.lifetime = .keepAlways
             add(attachment)
             let frame = probe.frame
             XCTAssertGreaterThan(frame.height, caseName == "short-default" ? 30 : 65)
-            // Immediately outside the measured text bounds, but inside the local
-            // feather's plateau: no assumptions about line heights or title Y.
-            let x = max(0, Int(floor(frame.minX)) - 2)
+            // Sample the real photograph+field+page composition outside glyphs.
+            // No separate title plate may be used to make a white-only test pass.
             for y in [frame.minY + 2, frame.midY, frame.maxY - 2] {
-                let background = try rgb(snapshot, x: x, y: Int(y))
+                let background = try rgb(snapshot, x: 3, y: Int(y))
                 XCTAssertGreaterThanOrEqual(whiteContrast(on: background), 3,
-                    "Actual title background must follow \(dynamicType), including its first line")
+                    "Actual title contrast for \(caseName) at y=\(y)")
             }
-            let untouched = try rgb(snapshot, x: 195, y: 40)
-            XCTAssertGreaterThan(min(untouched.0, untouched.1, untouched.2), 245,
-                                 "A title contrast field must not become a whole-photo dark overlay")
+            let baselineProbe = HeroTitleBoundsProbe()
+            let baseline = ArtistHeroReadabilityFixture(artist: artist, name: nil, probe: baselineProbe)
+                .dynamicTypeSize(dynamicType)
+                .environment(library)
+                .environment(SourceManager(sourcesProvider: { [] }))
+                .environment(\.scenePhase, .inactive)
+            let baselineHost = UIHostingController(rootView: baseline)
+            baselineHost.safeAreaRegions = []
+            window.rootViewController = baselineHost
+            baselineHost.view.frame = window.bounds
+            for _ in 0..<40 {
+                try await Task.sleep(for: .milliseconds(100))
+                if baselineProbe.ready { break }
+            }
+            XCTAssertTrue(baselineProbe.ready)
+            let noTitle = try heroTestSnapshot(baselineHost.view)
+            for y in [frame.minY + 2, frame.midY, frame.maxY - 2] {
+                let actual = try rgb(snapshot, x: 3, y: Int(y))
+                let expected = try rgb(noTitle, x: 3, y: Int(y))
+                XCTAssertLessThan(abs(actual.0 - expected.0) + abs(actual.1 - expected.1) + abs(actual.2 - expected.2), 9,
+                                  "The title must not add a full-width local dark band")
+            }
+            let untouched = try rgb(snapshot, x: 195, y: 80)
+            XCTAssertGreaterThan(min(untouched.0, untouched.1, untouched.2), 240,
+                                 "The sharp top photograph must remain un-darkened")
         }
+    }
+
+    private final class HeroAppearanceProbe {
+        var count = 0
+        var color: UIColor?
     }
 
     private final class HeroTitleBoundsProbe {
         var frame = CGRect.zero
+        var ready = false
     }
 
-    private func whiteContrast(on pixel: (Int, Int, Int)) -> Double {
-        func linear(_ channel: Int) -> Double {
-            let value = Double(channel) / 255
-            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+    /// Same portrait composition as ArtistDetailView: prepared artwork over its
+    /// actual sampled page color, with the real title anchored to the photo bottom.
+    private struct ArtistHeroReadabilityFixture: View {
+        let artist: Artist
+        let name: String?
+        let probe: HeroTitleBoundsProbe
+        @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+        @State private var tint: Color?
+        @State private var palette: [LiquidBackdropColor] = []
+        private let coordinates = UUID()
+
+        var body: some View {
+            let layout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 0))
+                : AnyLayout(ZStackLayout(alignment: .bottom))
+            return ZStack(alignment: .top) {
+                LibraryDetailTintStyle.artworkBackground(tint, palette: palette,
+                    ambientStyle: .classic, colorScheme: .dark).background
+                layout {
+                    Color.clear.frame(width: 390, height: 410).background(alignment: .top) {
+                        ArtistHeroArtworkView(artist: artist, size: CGSize(width: 390, height: 410),
+                            onImageChange: { _ in }, onAppearanceChange: { color, colors in
+                                guard let color else { return }
+                                tint = color
+                                palette = colors
+                                probe.ready = true
+                            })
+                    }
+                    if let name {
+                        ArtistHeroTitleBlock(name: name)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(coordinates)) }
+                            action: { probe.frame = $0 }
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 12)
+                    }
+                }
+                .frame(width: 390)
+            }
+            .frame(width: 390, height: 760)
+            .coordinateSpace(name: coordinates)
+            .ignoresSafeArea()
         }
-        let luminance = 0.2126 * linear(pixel.0) + 0.7152 * linear(pixel.1) + 0.0722 * linear(pixel.2)
-        return 1.05 / (luminance + 0.05)
+    }
+
+    private func whiteContrast(on pixel: (Int, Int, Int), foregroundRGB: (Int, Int, Int) = (255, 255, 255)) -> Double {
+        func luminance(_ pixel: (Int, Int, Int)) -> Double {
+            func linear(_ channel: Int) -> Double {
+                let value = Double(channel) / 255
+                return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * linear(pixel.0) + 0.7152 * linear(pixel.1) + 0.0722 * linear(pixel.2)
+        }
+        return (luminance(foregroundRGB) + 0.05) / (luminance(pixel) + 0.05)
     }
 
     private func heroTestArtist(in root: URL) async throws -> (MusicLibrary, Artist) {

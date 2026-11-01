@@ -4,7 +4,7 @@ public enum ArtistAppearancePreferences {
     public static let colorStyleKey = "primuse.library.artistColorStyle.v1"
     public static let softensEdgesKey = "primuse.library.artistSoftensEdges.v1"
     public static let defaultColorStyle = PlayerAmbientStyle.mesh
-    public static let defaultSoftensEdges = false
+    public static let defaultSoftensEdges = true
 }
 
 /// 详情页底色的一段颜色，HSB 三个分量都在 0...1。
@@ -96,15 +96,64 @@ public enum LibraryDetailTintPolicy {
         )
     }
 
-    /// 艺人照片的底色保留原来的灰度与明暗，只在白字对比度不足时压暗。
+    /// 艺人场景底色只在白字对比度不足时压暗，不套用专辑的饱和度区间。
+    /// RGB 三通道减去同一数值，保留照片里细微的通道差，而非等比缩小它们。
     public static func backgroundTint(hue: Double, saturation: Double, brightness: Double) -> LibraryDetailTint {
-        let hue = normalizedHue(hue)
-        let saturation = clamp01(saturation)
-        let brightness = readableBrightness(hue: hue, saturation: saturation, preferred: clamp01(brightness))
-        return LibraryDetailTint(
-            top: LibraryDetailTintStop(hue: hue, saturation: saturation, brightness: brightness),
-            bottom: LibraryDetailTintStop(hue: hue, saturation: saturation, brightness: brightness * bottomBrightnessFactor)
-        )
+        let source = rgbComponents(of: LibraryDetailTintStop(
+            hue: hue, saturation: saturation, brightness: brightness))
+        return backgroundTint(red: source.red, green: source.green, blue: source.blue)
+    }
+
+    /// Direct sRGB entry point for photographic samples and verified metadata.
+    public static func backgroundTint(red: Double, green: Double, blue: Double) -> LibraryDetailTint {
+        let source = (red: clamp01(red), green: clamp01(green), blue: clamp01(blue))
+        let minimumChannel = min(source.red, source.green, source.blue)
+        let paleAmount = clamp01((minimumChannel - 0.85) / 0.13)
+        let paleWeight = paleAmount * paleAmount * (3 - 2 * paleAmount)
+        // The RGB-shift rule follows the Android reference; the luminance
+        // floor is calibrated against clean iPhone Apple Music body margins.
+        // It also leaves room for the photograph's small remaining opacity.
+        let requiredContrast = 5.75 + 0.6 * paleWeight
+
+        func adjusted(_ reduction: Double) -> LibraryDetailTintStop {
+            stop(red: max(0, source.red - reduction), green: max(0, source.green - reduction),
+                 blue: max(0, source.blue - reduction))
+        }
+        var color = adjusted(0)
+        if contrastRatioAgainstWhite(color) < requiredContrast {
+            var insufficient = 0.0
+            var readable = max(source.red, source.green, source.blue)
+            for _ in 0..<32 {
+                let reduction = (insufficient + readable) / 2
+                if contrastRatioAgainstWhite(adjusted(reduction)) >= requiredContrast {
+                    readable = reduction
+                } else {
+                    insufficient = reduction
+                }
+            }
+            color = adjusted(readable)
+        }
+        // The artist photo already supplies the vertical transition. A second
+        // page-wide gradient would drift away from that scene color below it.
+        return LibraryDetailTint(top: color, bottom: color)
+    }
+
+    private static func stop(red: Double, green: Double, blue: Double) -> LibraryDetailTintStop {
+        let maximum = max(red, green, blue)
+        let difference = maximum - min(red, green, blue)
+        guard difference > 0 else {
+            return LibraryDetailTintStop(hue: 0, saturation: 0, brightness: maximum)
+        }
+        let sector: Double
+        if maximum == red {
+            sector = (green - blue) / difference
+        } else if maximum == green {
+            sector = 2 + (blue - red) / difference
+        } else {
+            sector = 4 + (red - green) / difference
+        }
+        return LibraryDetailTintStop(hue: normalizedHue(sector / 6),
+                                     saturation: difference / maximum, brightness: maximum)
     }
 
     private static func tint(
@@ -142,14 +191,15 @@ public enum LibraryDetailTintPolicy {
     private static func readableBrightness(
         hue: Double,
         saturation: Double,
-        preferred: Double
+        preferred: Double,
+        minimumContrast: Double = minimumContrastRatio
     ) -> Double {
         let candidate = LibraryDetailTintStop(
             hue: hue,
             saturation: saturation,
             brightness: preferred
         )
-        if contrastRatioAgainstWhite(candidate) >= minimumContrastRatio {
+        if contrastRatioAgainstWhite(candidate) >= minimumContrast {
             return preferred
         }
 
@@ -158,7 +208,7 @@ public enum LibraryDetailTintPolicy {
         for _ in 0..<24 {
             let mid = (low + high) / 2
             let stop = LibraryDetailTintStop(hue: hue, saturation: saturation, brightness: mid)
-            if contrastRatioAgainstWhite(stop) >= minimumContrastRatio {
+            if contrastRatioAgainstWhite(stop) >= minimumContrast {
                 low = mid
             } else {
                 high = mid

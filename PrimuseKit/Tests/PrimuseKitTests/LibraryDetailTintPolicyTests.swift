@@ -27,21 +27,94 @@ private func sweepTints(
 
 @Suite("详情页底色")
 struct LibraryDetailTintPolicyTests {
-    @Test("艺人照片底色只压暗到白字可读，不增艳或提亮暗图")
+    @Test("直接RGB入口与原HSB入口输出同一艺人底色")
+    func photographicRGBEntryPointAgrees() {
+        for entry in sweepTints(appearance: .light) {
+            let input = entry.input
+            let rgb = LibraryDetailTintPolicy.rgbComponents(of: LibraryDetailTintStop(
+                hue: input.hue, saturation: input.saturation, brightness: input.brightness))
+            let direct = LibraryDetailTintPolicy.backgroundTint(red: rgb.red, green: rgb.green, blue: rgb.blue)
+            #expect(direct == LibraryDetailTintPolicy.backgroundTint(
+                hue: input.hue, saturation: input.saturation, brightness: input.brightness))
+        }
+    }
+
+    @Test("艺人页不透明浅色正文在真实底色上仍可读")
+    func artistSummaryContrast() {
+        for entry in sweepTints(appearance: .light) {
+            let input = entry.input
+            let tint = LibraryDetailTintPolicy.backgroundTint(
+                hue: input.hue, saturation: input.saturation, brightness: input.brightness
+            )
+            for stop in [tint.top, tint.bottom] {
+                #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(stop) >= 5)
+            }
+        }
+    }
+
+    @Test("艺人照片底色以共同RGB减量压暗，不提亮暗图或另造页尾渐变")
     func backgroundPreservesSourceColorAndContrast() {
         for entry in sweepTints(appearance: .light) {
             let input = entry.input
             let tint = LibraryDetailTintPolicy.backgroundTint(
                 hue: input.hue, saturation: input.saturation, brightness: input.brightness
             )
-            #expect(tint.top.saturation == input.saturation)
+            let source = LibraryDetailTintPolicy.rgbComponents(of: LibraryDetailTintStop(
+                hue: input.hue, saturation: input.saturation, brightness: input.brightness))
+            let result = LibraryDetailTintPolicy.rgbComponents(of: tint.top)
+            #expect(result.red <= source.red + 1e-9)
+            #expect(result.green <= source.green + 1e-9)
+            #expect(result.blue <= source.blue + 1e-9)
+            // Before a channel reaches zero, all original channel differences
+            // survive, including the small green cast of a neutral scene.
+            if min(result.red, result.green, result.blue) > 1e-6 {
+                #expect(abs((result.red - result.green) - (source.red - source.green)) < 1e-8)
+                #expect(abs((result.green - result.blue) - (source.green - source.blue)) < 1e-8)
+            }
             #expect(tint.top.brightness <= input.brightness)
-            #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(tint.top) >= 4.5)
-            #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(tint.bottom) >= 4.5)
+            #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(tint.top) >= 5)
+            #expect(tint.bottom == tint.top)
         }
         let black = LibraryDetailTintPolicy.backgroundTint(hue: 0, saturation: 0, brightness: 0)
         #expect(black.top.brightness == 0)
         #expect(black.bottom.brightness == 0)
+    }
+
+    @Test("原本可读的暗场景保留原色，极浅场景连续增加白字分离度")
+    func photographicContrastAdaptsToSource() {
+        let dark = LibraryDetailTintPolicy.backgroundTint(hue: 0.38, saturation: 0.2, brightness: 0.25)
+        #expect(abs(dark.top.hue - 0.38) < 1e-9)
+        #expect(abs(dark.top.saturation - 0.2) < 1e-9)
+        #expect(abs(dark.top.brightness - 0.25) < 1e-9)
+
+        let mid = LibraryDetailTintPolicy.backgroundTint(hue: 0, saturation: 0, brightness: 0.7)
+        let pale = LibraryDetailTintPolicy.backgroundTint(hue: 0, saturation: 0, brightness: 0.99)
+        #expect(abs(LibraryDetailTintPolicy.contrastRatioAgainstWhite(mid.top) - 5.75) < 1e-7)
+        #expect(abs(LibraryDetailTintPolicy.contrastRatioAgainstWhite(pale.top) - 6.35) < 1e-7)
+
+        // No threshold jump between an ordinary grey scene and a pale one.
+        var previous = LibraryDetailTintPolicy.backgroundTint(hue: 0, saturation: 0, brightness: 0.84).top
+        for value in 841...990 {
+            let current = LibraryDetailTintPolicy.backgroundTint(hue: 0, saturation: 0,
+                                                                  brightness: Double(value) / 1_000).top
+            #expect(abs(current.brightness - previous.brightness) < 0.002)
+            previous = current
+        }
+    }
+
+    @Test("官方灰绿照片背景接近iPhone实测正文，而非衣服色或页尾压暗色")
+    func iPhoneBodyReference() {
+        // Verified public photo metadata #d6dbd7; clean iPhone screenshot body
+        // margins measured #626763. This is a reference sample, not a runtime
+        // artist-name override; the same continuous rule applies to all scenes.
+        let tint = LibraryDetailTintPolicy.backgroundTint(
+            hue: 0.36666666666666664, saturation: 5.0 / 219, brightness: 219.0 / 255
+        )
+        let color = LibraryDetailTintPolicy.rgbComponents(of: tint.top)
+        #expect(abs(color.red * 255 - 98) <= 2)
+        #expect(abs(color.green * 255 - 103) <= 2)
+        #expect(abs(color.blue * 255 - 99) <= 2)
+        #expect(tint.bottom == tint.top)
     }
 
     @Test("任何封面色算出的底色都够白字读", arguments: [
