@@ -359,7 +359,7 @@ actor ConnectorScanner {
                        ) {
                         var refreshed = old
                         refreshed.filePath = item.path
-                        refreshed.lastModified = item.modifiedDate ?? old.lastModified
+                        refreshed.lastModified = old.lastModified ?? item.modifiedDate
                         applySidecarHints(from: item, to: &refreshed)
                         refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                         songsByID[old.id] = refreshed
@@ -430,7 +430,7 @@ actor ConnectorScanner {
                     if !Self.fileIdentityChanged(existing: old, item: item) {
                         old.filePath = item.path
                         old.fileSize = item.size
-                        old.lastModified = item.modifiedDate ?? old.lastModified
+                        old.lastModified = old.lastModified ?? item.modifiedDate
                         old.revision = item.revision ?? old.revision
                         applySidecarHints(from: item, to: &old)
                         refreshSuspiciousSourceTitle(in: &old, from: item)
@@ -979,7 +979,7 @@ actor ConnectorScanner {
                                             if let idx = allSongIndexByID[songID] {
                                                 var refreshed = existing
                                                 refreshed.filePath = item.path
-                                                refreshed.lastModified = item.modifiedDate ?? existing.lastModified
+                                                refreshed.lastModified = existing.lastModified ?? item.modifiedDate
                                                 applySidecarHints(from: item, to: &refreshed)
                                                 refreshSuspiciousSourceTitle(in: &refreshed, from: item)
                                                 allSongs[idx] = refreshed
@@ -1022,7 +1022,7 @@ actor ConnectorScanner {
                                             } else if let idx = allSongIndexByID[songID] {
                                                 var refreshed = existing
                                                 refreshed.filePath = descriptorSong.filePath
-                                                refreshed.lastModified = descriptorSong.lastModified ?? existing.lastModified
+                                                refreshed.lastModified = existing.lastModified ?? descriptorSong.lastModified
                                                 applySidecarHints(from: item, to: &refreshed)
                                                 allSongs[idx] = refreshed
                                                 recordRow(refreshed, for: songID)
@@ -1102,7 +1102,8 @@ actor ConnectorScanner {
                                                 var refreshed = existing
                                                 refreshed.filePath = item.path
                                                 if item.size > 0 { refreshed.fileSize = item.size }
-                                                refreshed.lastModified = item.modifiedDate ?? existing.lastModified
+                                                // Keep persisted precision so a cold rescan does not republish every unchanged row.
+                                                refreshed.lastModified = existing.lastModified ?? item.modifiedDate
                                                 refreshed.revision = item.revision ?? existing.revision
                                                 applySidecarHints(from: item, to: &refreshed)
                                                 refreshSuspiciousSourceTitle(in: &refreshed, from: item)
@@ -1617,7 +1618,7 @@ actor ConnectorScanner {
         var refreshed = existing
         refreshed.filePath = cueSong.filePath
         refreshed.fileSize = cueSong.fileSize
-        refreshed.lastModified = cueSong.lastModified ?? existing.lastModified
+        refreshed.lastModified = existing.lastModified ?? cueSong.lastModified
         refreshed.revision = cueSong.revision ?? existing.revision
         applySidecarHints(from: cueImage, to: &refreshed)
         // 整轨的提示只带整张专辑的同名歌词;每一轨按自己挑出的分轨歌词对账。
@@ -1634,32 +1635,27 @@ actor ConnectorScanner {
     }
 
     /// Whether the file at a stored row's path was replaced: its size,
-    /// modification time or provider revision differ, or the listing reports
-    /// one of the latter two for the first time. The tags read into the row
-    /// never count — a bare row built from the file name never matches them.
+    /// modification time or provider revision differ. Newly available identity
+    /// fields are adopted by the unchanged-row path without discarding tags.
     private static func fileIdentityChanged(existing: Song, item: RemoteFileItem) -> Bool {
         let sizeChanged = item.size > 0 && existing.fileSize > 0 && item.size != existing.fileSize
-        let mtimeChanged: Bool = {
-            guard let a = item.modifiedDate, let b = existing.lastModified else { return false }
-            return a != b
-        }()
+        let mtimeChanged = ServerSongCatalogMergePolicy.modificationTimeChanged(
+            existing: existing.lastModified, incoming: item.modifiedDate
+        )
         let revisionChanged: Bool = {
             guard let a = item.revision, let b = existing.revision else { return false }
             return a != b
         }()
-        let revisionAdded = item.revision != nil && existing.revision == nil
-        let mtimeAdded = item.modifiedDate != nil && existing.lastModified == nil
-        return sizeChanged || mtimeChanged || revisionChanged || revisionAdded || mtimeAdded
+        return sizeChanged || mtimeChanged || revisionChanged
     }
 
     private func songContentChanged(existing: Song, incoming: Song) -> Bool {
         let sizeChanged = incoming.fileSize > 0
             && existing.fileSize > 0
             && incoming.fileSize != existing.fileSize
-        let mtimeChanged: Bool = {
-            guard let a = incoming.lastModified, let b = existing.lastModified else { return false }
-            return a != b
-        }()
+        let mtimeChanged = ServerSongCatalogMergePolicy.modificationTimeChanged(
+            existing: existing.lastModified, incoming: incoming.lastModified
+        )
         let revisionChanged: Bool = {
             guard let a = incoming.revision, let b = existing.revision else { return false }
             return a != b
@@ -2247,7 +2243,7 @@ actor ConnectorScanner {
         }
         guard indexed.size == item.size else { return false }
         if let lhs = indexed.modifiedDate, let rhs = item.modifiedDate {
-            return lhs == rhs
+            return !ServerSongCatalogMergePolicy.modificationTimeChanged(existing: lhs, incoming: rhs)
         }
         return indexed.revision == nil && item.revision == nil
             && indexed.modifiedDate == nil && item.modifiedDate == nil

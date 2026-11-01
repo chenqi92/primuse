@@ -8,6 +8,113 @@ import XCTest
 
 final class DirectoryScanCooldownTests: XCTestCase {
     @MainActor
+    func testGoogleDriveAddingSongsKeepsCompletedTagsAfterWarmAndColdRescan() async throws {
+        for storedIdentity in ["warm", "persisted", "missing"] {
+            for incremental in [false, true] {
+                let fixture = GoogleDriveRescanFixture()
+                GoogleDriveRescanProtocol.fixtures.insert(fixture)
+                defer { GoogleDriveRescanProtocol.fixtures.remove(fixture.id) }
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [GoogleDriveRescanProtocol.self]
+                configuration.httpAdditionalHeaders = ["X-Fixture-ID": fixture.id]
+                let session = URLSession(configuration: configuration)
+                defer { session.invalidateAndCancel() }
+                let connector = GoogleDriveSource(sourceID: fixture.id, session: session,
+                    tokenProvider: { "fixture-token" }, requests: CloudRequestScheduler())
+                let scanner = ConnectorScanner(connector: connector, sourceID: fixture.id)
+                var mutationCount = 0
+                func scan(_ existing: [Song]) async throws -> [Song] {
+                    var songs: [Song] = []
+                    for try await update in await scanner.scan(directories: ["folder-id"], existingSongs: existing) {
+                        if update.carriesFullSnapshot { songs = update.songs }
+                        mutationCount = update.mutationCount
+                    }
+                    return songs
+                }
+                let initial = try await scan([])
+                XCTAssertEqual(initial.count, 100)
+                let index = await scanner.syncIndexSnapshot()
+                var completed = initial.map { song -> Song in
+                    var song = song
+                    song.title = "Embedded \(song.filePath)"
+                    song.artistName = "Embedded artist"
+                    song.duration = 180
+                    song.bitRate = 192
+                    song.coverArtFileName = "existing-cover.jpg"
+                    song.audioCodec = song.fileFormat == .m4a ? .aac : song.fileFormat
+                    song.contentMetadata = .init(isFileInspectionComplete: true)
+                    return song
+                }
+                if storedIdentity == "persisted" {
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    completed = try decoder.decode([Song].self, from: encoder.encode(completed))
+                } else if storedIdentity == "missing" {
+                    for index in completed.indices {
+                        completed[index].lastModified = nil
+                        completed[index].revision = nil
+                    }
+                }
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent(fixture.id)
+                defer { try? FileManager.default.removeItem(at: root) }
+                let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+                library.addSongs(completed)
+                let state = root.appendingPathComponent("state")
+                try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+                try JSONEncoder().encode(completed.map(\.id))
+                    .write(to: state.appendingPathComponent("backfill-title-checked.json"))
+                let sourceID = fixture.id
+                let backfill = MetadataBackfillService(library: library,
+                    sourceManager: SourceManager(sourcesProvider: { [] }),
+                    backfillableSourceIDs: { [sourceID] }, storageDirectory: state)
+                backfill.automaticWorkIsAllowed = { false }
+                defer { backfill.stop() }
+                backfill.refreshStatusSnapshot()
+                XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 0)
+
+                fixture.addSongs()
+                let rescanned: [Song]
+                if incremental {
+                    let result = try await scanner.reconcileChangedDirectories(["folder-id"],
+                        deletedStableKeys: [], existingSongs: library.songs, existingIndex: index,
+                        scanEpoch: 2, requiresCompleteListings: true)
+                    rescanned = result.songs
+                } else {
+                    rescanned = try await scan(library.songs)
+                    XCTAssertEqual(mutationCount, storedIdentity == "missing" ? 103 : 3,
+                        "Only new rows or newly available identity fields should be published")
+                }
+                library.addSongs(rescanned)
+                backfill.refreshStatusSnapshot()
+                let context = "identity=\(storedIdentity), incremental=\(incremental)"
+                XCTAssertEqual(library.songs.count, 103, context)
+                XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 3, context)
+                for original in completed {
+                    let retained = try XCTUnwrap(library.song(id: original.id))
+                    XCTAssertEqual(retained.title, original.title, context)
+                    XCTAssertEqual(retained.duration, original.duration, context)
+                    XCTAssertEqual(retained.artistName, original.artistName, context)
+                    XCTAssertEqual(retained.coverArtFileName, original.coverArtFileName, context)
+                    XCTAssertNotNil(retained.lastModified, context)
+                    XCTAssertEqual(retained.revision, "content-\(retained.filePath.replacingOccurrences(of: "track-id-", with: ""))", context)
+                    XCTAssertFalse(backfill.needsPlaybackTagRead(songID: original.id,
+                        expectedSourceID: sourceID), context)
+                }
+                XCTAssertEqual(fixture.unexpectedRequests, 0, "Rescans must not open unchanged audio files")
+
+                fixture.replaceFirstSong()
+                library.addSongs(try await scan(library.songs))
+                backfill.refreshStatusSnapshot()
+                XCTAssertEqual(backfill.remainingCount(forSource: sourceID), 4,
+                    "A same-size replacement must still reread its tags: \(context)")
+                XCTAssertEqual(library.songs.first { $0.filePath == "track-id-0" }?.duration, 0)
+            }
+        }
+    }
+
+    @MainActor
     func testUnchangedFileTreeKeepsTagsWithoutRepublishingButAppliesRealChanges() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -323,6 +430,60 @@ final class DirectoryScanCooldownTests: XCTestCase {
             XCTAssertEqual(last?.resumeState?.pendingDirectories, ["/Music/B"])
         }
     }
+}
+
+private final class GoogleDriveRescanFixture: @unchecked Sendable {
+    let id = UUID().uuidString
+    private let lock = NSLock()
+    private var count = 100
+    private var replaced = false
+    private var unexpected = 0
+    var unexpectedRequests: Int { lock.withLock { unexpected } }
+    func addSongs() { lock.withLock { count = 103 } }
+    func replaceFirstSong() { lock.withLock { replaced = true } }
+    func response(to request: URLRequest) throws -> Data {
+        try lock.withLock {
+            guard request.url?.path == "/drive/v3/files" else {
+                unexpected += 1
+                throw URLError(.unsupportedURL)
+            }
+            let files: [[String: String]] = (0..<count).map { index in
+                ["id": "track-id-\(index)", "name": "Track \(index).\(["mp3", "flac", "m4a"][index % 3])",
+                 "mimeType": ["audio/mpeg", "audio/flac", "audio/mp4"][index % 3], "size": "4320000",
+                 "modifiedTime": "2026-10-30T10:20:30.123Z",
+                 "md5Checksum": "content-\(index)\(index == 0 && replaced ? "-replaced" : "")"]
+            }
+            return try JSONSerialization.data(withJSONObject: ["files": files])
+        }
+    }
+}
+
+private final class GoogleDriveRescanFixtures: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: GoogleDriveRescanFixture] = [:]
+    func insert(_ fixture: GoogleDriveRescanFixture) { lock.withLock { values[fixture.id] = fixture } }
+    func remove(_ id: String) { _ = lock.withLock { values.removeValue(forKey: id) } }
+    func get(_ id: String) -> GoogleDriveRescanFixture? { lock.withLock { values[id] } }
+}
+
+private final class GoogleDriveRescanProtocol: URLProtocol, @unchecked Sendable {
+    static let fixtures = GoogleDriveRescanFixtures()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        do {
+            guard let id = request.value(forHTTPHeaderField: "X-Fixture-ID"),
+                  let fixture = Self.fixtures.get(id), let url = request.url else {
+                throw URLError(.unsupportedURL)
+            }
+            let data = try fixture.response(to: request)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() {}
 }
 
 private actor DirectoryCooldownConnector: MusicSourceConnector {

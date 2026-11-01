@@ -222,6 +222,33 @@ struct ServerSongCatalogMergePolicyTests {
         #expect(ServerSongCatalogMergePolicy.contentChanged(existing: existing, incoming: incoming))
     }
 
+    @Test func preciseSubsecondEditsAreStillContentChanges() {
+        var existing = song(revision: "r1")
+        existing.revision = nil
+        existing.lastModified = Date(timeIntervalSince1970: 1_714_566_896.789)
+        for timestamp in [1_714_566_896.125, 1_714_566_896.999, 1_714_566_897.0, 1_714_566_897.001] {
+            var incoming = existing
+            incoming.lastModified = Date(timeIntervalSince1970: timestamp)
+            #expect(ServerSongCatalogMergePolicy.contentChanged(existing: existing, incoming: incoming))
+            #expect(ServerSongCatalogMergePolicy.contentChanged(existing: incoming, incoming: existing))
+        }
+    }
+
+    @Test func lostTimestampPrecisionDoesNotHideSizeOrRevisionChanges() throws {
+        var incoming = song(revision: "r1")
+        incoming.lastModified = Date(timeIntervalSince1970: 1_714_566_896.789)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let existing = try decoder.decode(Song.self, from: encoder.encode(incoming))
+        incoming.revision = "r2"
+        #expect(ServerSongCatalogMergePolicy.contentChanged(existing: existing, incoming: incoming))
+        incoming.revision = existing.revision
+        incoming.fileSize += 1
+        #expect(ServerSongCatalogMergePolicy.contentChanged(existing: existing, incoming: incoming))
+    }
+
     @Test func newlyAvailableFingerprintsDoNotEraseDeviceEnrichment() {
         var existing = song(revision: "placeholder")
         existing.revision = nil

@@ -380,22 +380,26 @@ public enum ServerSongCatalogMergePolicy {
         return incoming
     }
 
-    /// 资料库存盘用 `.iso8601` 日期格式，不带小数秒；Navidrome 等服务端的
-    /// `created` 带小数秒。精确比较时，每次冷启动读回来的歌都和服务端差不到一秒，
-    /// 整个服务端源被判成「内容变了」：离线缓存被删、整行被服务端版本覆盖，
-    /// 主线程还要逐首清缓存。真正换过的文件时间差远大于这个值。
-    public static let modificationTimeTolerance: TimeInterval = 1
+    /// Legacy `.iso8601` song/checkpoint payloads discard fractional seconds.
+    /// Only a whole-second value within the same second can be that persisted
+    /// representation; two precise values or a crossed second still differ.
+    public static func modificationTimeChanged(existing: Date?, incoming: Date?) -> Bool {
+        guard let existing, let incoming, existing != incoming else { return false }
+        let stored = existing.timeIntervalSince1970
+        let listed = incoming.timeIntervalSince1970
+        let storedSecond = floor(stored)
+        let listedSecond = floor(listed)
+        return storedSecond != listedSecond
+            || (stored != storedSecond && listed != listedSecond)
+    }
 
     public static func contentChanged(existing: Song, incoming: Song) -> Bool {
         let sizeChanged = incoming.fileSize > 0
             && existing.fileSize > 0
             && incoming.fileSize != existing.fileSize
-        let modifiedChanged: Bool = {
-            guard let incomingDate = incoming.lastModified,
-                  let existingDate = existing.lastModified else { return false }
-            return abs(incomingDate.timeIntervalSince(existingDate))
-                >= modificationTimeTolerance
-        }()
+        let modifiedChanged = modificationTimeChanged(
+            existing: existing.lastModified, incoming: incoming.lastModified
+        )
         let revisionChanged: Bool = {
             guard let incomingRevision = incoming.revision,
                   let existingRevision = existing.revision else { return false }
