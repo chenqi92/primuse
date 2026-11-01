@@ -726,7 +726,7 @@ final class RadioStationsStore {
             }
         }
         if let index = existingIndex {
-            guard allStations[index].modifiedAt <= normalized.modifiedAt else { return nil }
+            guard allStations[index].modifiedAt.timeIntervalSinceReferenceDate <= normalized.modifiedAt.timeIntervalSinceReferenceDate else { return nil }
             var merged = normalized
             merged.lastPlayedAt = allStations[index].lastPlayedAt
             // 拉回来的与本机完全相同(全量重拉时的常态)就不算改动, 不写盘。

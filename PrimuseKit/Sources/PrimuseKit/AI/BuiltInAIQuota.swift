@@ -332,7 +332,7 @@ public struct BuiltInAIQuotaOverview: Equatable, Sendable {
     /// 过了重置时间,今天的数字已经不作数,要重新问。
     public func isStale(now: Date) -> Bool {
         let resets = today?.resetsAt ?? features.compactMap(\.today.resetsAt).min()
-        return resets.map { now >= $0 } ?? false
+        return resets.map { now.timeIntervalSinceReferenceDate >= $0.timeIntervalSinceReferenceDate } ?? false
     }
 
     /// 按 App 认识的顺序排,认不出的(自定义接口)排在后面、按名字排。

@@ -51,7 +51,7 @@ public enum SpokenWordBookFollowPolicy {
         var newest: (record: Record, index: Int)?
         for record in records {
             guard let index = order[record.itemID] else { continue }
-            if let anchor, record.updatedAt <= anchor { continue }
+            if let anchor, record.updatedAt.timeIntervalSinceReferenceDate <= anchor.timeIntervalSinceReferenceDate { continue }
             if let best = newest {
                 // 同一时刻(Audiobookshelf 整本书一个时间戳)取书里靠后的那条。
                 if record.updatedAt < best.record.updatedAt { continue }

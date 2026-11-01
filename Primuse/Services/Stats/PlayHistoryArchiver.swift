@@ -154,7 +154,7 @@ enum PlayHistoryArchiver {
         var indices: [String: Int] = [:]
         var result: [PlayHistoryStore.Entry] = []
         result.reserveCapacity(live.count + archived.count)
-        for entry in live + archived where entry.playedAt >= cutoff {
+        for entry in live + archived where entry.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate {
             if let index = indices[entry.id] {
                 if result[index].content == nil { result[index].content = entry.content }
             } else {

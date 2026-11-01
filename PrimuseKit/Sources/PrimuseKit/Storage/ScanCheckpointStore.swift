@@ -128,7 +128,7 @@ public struct ScanCheckpoint: Codable, Equatable, Sendable {
     }
 
     public func canAutomaticallyResume(at date: Date = Date()) -> Bool {
-        !isPausedByUser && (automaticResumeAfter.map { $0 <= date } ?? true)
+        !isPausedByUser && (automaticResumeAfter.map { $0.timeIntervalSinceReferenceDate <= date.timeIntervalSinceReferenceDate } ?? true)
     }
 
     public func recordingAutomaticResumeFailure(at date: Date = Date()) -> Self {

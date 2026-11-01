@@ -23,7 +23,7 @@ actor CloudTokenManager {
 
         var isExpired: Bool {
             guard let expiresAt else { return false }
-            return Date() >= expiresAt.addingTimeInterval(-300)  // 5 min before expiry
+            return Date().timeIntervalSinceReferenceDate >= expiresAt.addingTimeInterval(-300).timeIntervalSinceReferenceDate  // 5 min before expiry
         }
     }
 

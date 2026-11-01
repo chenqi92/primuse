@@ -334,7 +334,7 @@ public enum ServerListeningStatsPresentationBuilder {
     ) -> ServerListeningStatsPresentation {
         let start = range.startDate(relativeTo: now, calendar: calendar)
         let events = payload.events.filter { event in
-            event.playedAt <= now && (start == nil || event.playedAt >= start!)
+            event.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate && (start == nil || event.playedAt.timeIntervalSinceReferenceDate >= start!.timeIntervalSinceReferenceDate)
         }
         let days = Dictionary(grouping: events) { calendar.startOfDay(for: $0.playedAt) }
         let dailyCounts = days.map {

@@ -28,13 +28,13 @@ public struct ListeningActivityTimeline: Sendable {
     public let trendUsesMonths: Bool
 
     public init(events: [Event], selectedStart: Date?, displayYear: Int?, now: Date, calendar: Calendar) {
-        let validEvents = events.filter { $0.date <= now }
+        let validEvents = events.filter { $0.date.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate }
         let today = calendar.startOfDay(for: now)
         let firstDate = validEvents.map(\.date).min() ?? now
         let start = calendar.startOfDay(for: selectedStart ?? firstDate)
         self.selectedStart = start
         let buckets = Dictionary(grouping: validEvents) { calendar.startOfDay(for: $0.date) }
-        let selected = validEvents.filter { $0.date >= start }
+        let selected = validEvents.filter { $0.date.timeIntervalSinceReferenceDate >= start.timeIntervalSinceReferenceDate }
         var hours = [Int](repeating: 0, count: 24)
         for event in selected {
             hours[calendar.component(.hour, from: event.date)] += 1
@@ -44,7 +44,7 @@ public struct ListeningActivityTimeline: Sendable {
         func days(from start: Date, through end: Date) -> [Day] {
             var result: [Day] = []
             var cursor = start
-            while cursor <= end {
+            while cursor.timeIntervalSinceReferenceDate <= end.timeIntervalSinceReferenceDate {
                 let events = buckets[cursor] ?? []
                 result.append(Day(date: cursor, count: events.count, totalSec: events.reduce(0) {
                     $0 + ($1.seconds.isFinite ? max(0, $1.seconds) : 0)
@@ -103,7 +103,7 @@ public struct ListeningActivityCalendar: Sendable {
     public init(counts: [(date: Date, count: Int)], now: Date, calendar: Calendar) {
         self.calendar = calendar
         today = calendar.startOfDay(for: now)
-        self.counts = Dictionary(counts.filter { $0.date <= now }.map {
+        self.counts = Dictionary(counts.filter { $0.date.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate }.map {
             (calendar.startOfDay(for: $0.date), max(0, $0.count))
         }, uniquingKeysWith: +)
         let currentYear = calendar.component(.year, from: now)

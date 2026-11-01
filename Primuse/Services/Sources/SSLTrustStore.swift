@@ -769,7 +769,7 @@ final class SSLTrustStore {
         if lhsHasPin != rhsHasPin {
             return lhsHasPin ? lhs : rhs
         }
-        return lhs.trustedAt >= rhs.trustedAt ? lhs : rhs
+        return lhs.trustedAt.timeIntervalSinceReferenceDate >= rhs.trustedAt.timeIntervalSinceReferenceDate ? lhs : rhs
     }
 
     nonisolated private static func normalizeDomain(_ domain: String) -> String {

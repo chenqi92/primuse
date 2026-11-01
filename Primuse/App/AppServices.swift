@@ -2680,7 +2680,7 @@ final class AppServices {
                     intent.tombstone.modifiedAt,
                     intent.tombstone.deletedAt ?? .distantPast
                 )
-                var merged = incomingClock >= currentClock ? intent : current
+                var merged = incomingClock.timeIntervalSinceReferenceDate >= currentClock.timeIntervalSinceReferenceDate ? intent : current
                 merged.needsMusicSourceTombstoneUpload = current.needsMusicSourceTombstoneUpload
                     || intent.needsMusicSourceTombstoneUpload
                 merged.needsSourceSnapshotUpload = current.needsSourceSnapshotUpload

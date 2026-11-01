@@ -568,7 +568,7 @@ final class PodcastStore {
         updateDefinition(episode.showID) {
             $0.playedThrough = max(published.addingTimeInterval(-1), $0.playedThrough ?? .distantPast)
             $0.reopenedEpisodeIDs = $0.reopenedEpisodeIDs.filter { id in
-                self.episode(id: id)?.episode.publishedAt.map { $0 >= published } ?? false
+                self.episode(id: id)?.episode.publishedAt.map { $0.timeIntervalSinceReferenceDate >= published.timeIntervalSinceReferenceDate } ?? false
             }
         }
     }

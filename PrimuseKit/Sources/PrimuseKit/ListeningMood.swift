@@ -259,7 +259,7 @@ public enum ListeningMoodRefreshPolicy {
         now: Date
     ) -> Date? {
         let latest = [reading?.generatedAt, lastAttemptAt].compactMap { $0 }.max()
-        guard let latest, latest <= now.addingTimeInterval(5 * 60) else { return nil }
+        guard let latest, latest.timeIntervalSinceReferenceDate <= now.addingTimeInterval(5 * 60).timeIntervalSinceReferenceDate else { return nil }
         let next = latest.addingTimeInterval(manualInterval)
         return next > now ? next : nil
     }

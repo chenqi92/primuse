@@ -268,7 +268,9 @@ struct PlaybackProgress {
             // currentTime 是 referenceDate 时刻的播放位置, 反推开播锚点。
             let start = referenceDate.addingTimeInterval(-elapsed)
             let end = start.addingTimeInterval(duration)
-            self.timerRange = start <= end ? start...end : nil
+            // 避免调用 27.2 SDK 新增、部分 27.2 beta 尚未提供的 Date.<= 符号。
+            self.timerRange = start.timeIntervalSinceReferenceDate <= end.timeIntervalSinceReferenceDate
+                ? start...end : nil
         } else {
             self.timerRange = nil
         }

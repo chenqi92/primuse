@@ -241,8 +241,10 @@ final class FileLogger: @unchecked Sendable {
 
     /// 只在初始化或写入队列上调用；最晚每小时检查，临近七天期限时提前检查。
     private func removeExpiredLogsIfNeeded(now: Date = Date(), force: Bool = false) {
+        // Date 的 >= / <= 在 27.2 SDK 中依赖部分 27.2 beta 缺失的符号；直接比较时间戳。
         if !force, let lastRetentionCheck, let nextRetentionCheck,
-           now >= lastRetentionCheck, now < nextRetentionCheck { return }
+           now.timeIntervalSinceReferenceDate >= lastRetentionCheck.timeIntervalSinceReferenceDate,
+           now < nextRetentionCheck { return }
         lastRetentionCheck = now
         var nextCheck = now.addingTimeInterval(3600)
         defer { nextRetentionCheck = nextCheck }

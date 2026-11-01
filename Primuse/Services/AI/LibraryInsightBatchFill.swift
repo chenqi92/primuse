@@ -316,7 +316,7 @@ final class LibraryInsightBatchFill {
         while !Task.isCancelled, isRunning {
             let now = Date()
             let start = max(nextStartAt, resumeAt)
-            if start <= now {
+            if start.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate {
                 nextStartAt = now.addingTimeInterval(spacing)
                 if progress?.waitingUntil != nil { progress?.waitingUntil = nil }
                 return

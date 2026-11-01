@@ -14,7 +14,7 @@ public enum OneOffSourceDownloadPolicy {
         startedAt: Date,
         connectorCacheDirectories: [String]
     ) -> Bool {
-        guard let creationDate, creationDate >= startedAt else { return false }
+        guard let creationDate, creationDate.timeIntervalSinceReferenceDate >= startedAt.timeIntervalSinceReferenceDate else { return false }
         return connectorCacheDirectories.contains { directory in
             guard !directory.isEmpty else { return false }
             let prefix = directory.hasSuffix("/") ? directory : directory + "/"

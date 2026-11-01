@@ -837,7 +837,7 @@ struct ServerListeningStatsView: View {
 
         var result: [HeatmapDay] = []
         var day = calendar.startOfDay(for: start)
-        while day <= today {
+        while day.timeIntervalSinceReferenceDate <= today.timeIntervalSinceReferenceDate {
             result.append(HeatmapDay(
                 date: day,
                 playCount: counts[day] ?? 0

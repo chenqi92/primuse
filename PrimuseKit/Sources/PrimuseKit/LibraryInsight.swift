@@ -335,7 +335,7 @@ public enum LibraryInsightEditing {
 
     /// 新版本时间一定晚于上一版,哪怕两台设备的钟不太准。
     static func nextVersion(after previous: LibraryInsightRecord?, now: Date) -> Date {
-        guard let previous, previous.updatedAt >= now else { return now }
+        guard let previous, previous.updatedAt.timeIntervalSinceReferenceDate >= now.timeIntervalSinceReferenceDate else { return now }
         return previous.updatedAt.addingTimeInterval(0.001)
     }
 }

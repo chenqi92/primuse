@@ -28,16 +28,16 @@ public struct MetadataReadingRate: Sendable {
             checkpoints.append(Checkpoint(date: now, completed: completed))
         }
         let cutoff = now.addingTimeInterval(-Self.window)
-        while checkpoints.count > 1, checkpoints[1].date <= cutoff {
+        while checkpoints.count > 1, checkpoints[1].date.timeIntervalSinceReferenceDate <= cutoff.timeIntervalSinceReferenceDate {
             checkpoints.removeFirst()
         }
     }
 
     public func songsPerMinute(at now: Date) -> Double? {
-        guard let lastCompletedAt, now >= lastCompletedAt,
+        guard let lastCompletedAt, now.timeIntervalSinceReferenceDate >= lastCompletedAt.timeIntervalSinceReferenceDate,
               now.timeIntervalSince(lastCompletedAt) < Self.window else { return nil }
         let cutoff = now.addingTimeInterval(-Self.window)
-        let baseline = checkpoints.last { $0.date <= cutoff } ?? checkpoints[0]
+        let baseline = checkpoints.last { $0.date.timeIntervalSinceReferenceDate <= cutoff.timeIntervalSinceReferenceDate } ?? checkpoints[0]
         let elapsed = now.timeIntervalSince(baseline.date)
         let count = completed - baseline.completed
         guard elapsed >= 2, count >= 2 else { return nil }

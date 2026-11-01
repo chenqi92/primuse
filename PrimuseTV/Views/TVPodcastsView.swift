@@ -667,7 +667,7 @@ actor TVPodcastArtworkLoader {
         // 卡片取消时下载照常做完:进了缓存,下次打开直接命中。
         if let running = inFlight[key] { return await running.value }
         if let until = blockedUntil[key] {
-            guard Date() >= until else { return nil }
+            guard Date().timeIntervalSinceReferenceDate >= until.timeIntervalSinceReferenceDate else { return nil }
             blockedUntil[key] = nil
         }
         let task = Task { await self.download(url, key: key) }

@@ -576,7 +576,7 @@ actor MetadataAssetStore {
 
     nonisolated private func freshSourceData(cacheID: String, sourceID: String?, checksAge: Bool = true) -> Data? {
         guard let date = coverCacheDate(forSongID: cacheID),
-              date >= artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID)),
+              date.timeIntervalSinceReferenceDate >= artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID)).timeIntervalSinceReferenceDate,
               !checksAge || Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { return nil }
         return readCoverData(named: expectedCoverFileName(for: cacheID))
     }
@@ -597,7 +597,7 @@ actor MetadataAssetStore {
         for pixels in maximumPixels <= 480 ? [1536, 480] : [1536] {
             guard let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: pixels),
                   let date = coverCacheDate(forSongID: key),
-                  date >= artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID)),
+                  date.timeIntervalSinceReferenceDate >= artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID)).timeIntervalSinceReferenceDate,
                   !checksAge || Date().timeIntervalSince(date) < SourceArtworkPolicy.maximumAge else { continue }
             let name = expectedCoverFileName(for: key)
             if hasReadableCoverFile(named: name) { return name }
@@ -1506,7 +1506,7 @@ actor MetadataAssetStore {
             let v = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             let size = Int64(v?.fileSize ?? 0)
             let mtime = v?.contentModificationDate ?? .distantPast
-            let isProtected = mtime >= cutoff || (references[sha]?.contains {
+            let isProtected = mtime.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate || (references[sha]?.contains {
                 protectedRefs.contains($0.lastPathComponent)
             } ?? false)
             entries.append(Entry(url: url, sha: sha, size: size, mtime: mtime, isProtected: isProtected))

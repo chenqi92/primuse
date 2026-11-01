@@ -223,7 +223,7 @@ public enum ListeningRecapBuilder {
         if let previousInterval {
             var plays = 0
             var seconds: TimeInterval = 0
-            for event in events where previousInterval.start <= event.playedAt && event.playedAt < previousInterval.end {
+            for event in events where previousInterval.start.timeIntervalSinceReferenceDate <= event.playedAt.timeIntervalSinceReferenceDate && event.playedAt < previousInterval.end {
                 plays += 1
                 seconds += event.seconds
             }
@@ -401,11 +401,11 @@ public enum ListeningRecapBuilder {
         var firstPlay: [String: Date] = [:]
         for event in events {
             let key = songKeys[event.songID] ?? event.songID
-            if let known = firstPlay[key], known <= event.playedAt { continue }
+            if let known = firstPlay[key], known.timeIntervalSinceReferenceDate <= event.playedAt.timeIntervalSinceReferenceDate { continue }
             firstPlay[key] = event.playedAt
         }
         return Set(scoped.map { songKeys[$0.songID] ?? $0.songID }).filter { key in
-            (firstPlay[key] ?? .distantPast) >= interval.start
+            (firstPlay[key] ?? .distantPast).timeIntervalSinceReferenceDate >= interval.start.timeIntervalSinceReferenceDate
         }.count
     }
 

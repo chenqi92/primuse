@@ -281,8 +281,8 @@ public enum HomeListeningRanking {
         // 同一个名字会出现成百上千次,判一次就记下。
         var placeholderArtists: [String: Bool] = [:]
         for event in events {
-            guard event.playedAt >= interval.start,
-                  includesEnd ? event.playedAt <= interval.end : event.playedAt < interval.end else { continue }
+            guard event.playedAt.timeIntervalSinceReferenceDate >= interval.start.timeIntervalSinceReferenceDate,
+                  includesEnd ? event.playedAt.timeIntervalSinceReferenceDate <= interval.end.timeIntervalSinceReferenceDate : event.playedAt < interval.end else { continue }
             let song = songs[event.songID]
             let artist = event.artistName ?? song?.artistName ?? ""
             let album = event.albumTitle ?? song?.albumTitle ?? ""
@@ -516,7 +516,7 @@ public enum ListeningSongIdentity {
     static func groupKeys(plays: [Play], songs: [String: Song]) -> [String: String] {
         var latest: [String: Play] = [:]
         for play in plays {
-            if let known = latest[play.songID], known.playedAt >= play.playedAt { continue }
+            if let known = latest[play.songID], known.playedAt.timeIntervalSinceReferenceDate >= play.playedAt.timeIntervalSinceReferenceDate { continue }
             latest[play.songID] = play
         }
         let members = latest.values.map { play -> Member in

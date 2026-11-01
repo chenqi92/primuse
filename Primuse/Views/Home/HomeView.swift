@@ -4254,7 +4254,7 @@ struct HomeView: View {
         let cutoff = now.addingTimeInterval(-Double(HomeHeroCarouselSelection.rediscoveryWindowDays) * 86_400)
         var keys = Set<String>()
         var seenSongIDs = Set<String>()
-        for entry in PlayHistoryStore.shared.entries where entry.playedAt >= cutoff {
+        for entry in PlayHistoryStore.shared.entries where entry.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate {
             guard seenSongIDs.insert(entry.songID).inserted,
                   let song = library.unobservedVisibleSong(id: entry.songID),
                   let key = Self.heroAlbumKey(song) else { continue }

@@ -185,7 +185,7 @@ public final class SourceMaintenanceQueue {
         defer { driver = nil }
         while !Task.isCancelled, !jobs.isEmpty {
             guard !isPaused,
-                  let sourceID = order.first(where: { jobs[$0].map { $0.retryAfter <= Date() } == true }),
+                  let sourceID = order.first(where: { jobs[$0].map { $0.retryAfter.timeIntervalSinceReferenceDate <= Date().timeIntervalSinceReferenceDate } == true }),
                   let job = jobs[sourceID] else {
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
                 continue

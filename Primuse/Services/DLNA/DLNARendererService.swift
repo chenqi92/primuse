@@ -3274,7 +3274,7 @@ final class DLNAMediaServer {
         guard let token = segments.first, let entry = entries[token] else {
             respondStatus(404, on: conn); return
         }
-        if entry.expiresAt <= Date() {
+        if entry.expiresAt.timeIntervalSinceReferenceDate <= Date().timeIntervalSinceReferenceDate {
             entries.removeValue(forKey: token)
             respondStatus(410, on: conn); return
         }

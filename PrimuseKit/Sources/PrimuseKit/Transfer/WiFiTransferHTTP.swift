@@ -51,7 +51,7 @@ struct WiFiTransferAuthorization {
     init(code: String) { self.code = code }
 
     mutating func validate(_ supplied: String?, now: Date = Date()) throws {
-        guard now >= blockedUntil else { throw WiFiTransferError.tooManyAttempts }
+        guard now.timeIntervalSinceReferenceDate >= blockedUntil.timeIntervalSinceReferenceDate else { throw WiFiTransferError.tooManyAttempts }
         guard supplied == code else {
             failures += 1
             if failures >= 5 {

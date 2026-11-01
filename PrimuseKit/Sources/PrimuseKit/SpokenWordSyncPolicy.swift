@@ -354,7 +354,7 @@ public enum SpokenWordSyncPolicy {
         var result = state
         for (songID, finished) in state.finished where finished.value == true {
             guard let position = state.positions[songID], position.value != nil,
-                  finished.stamp >= position.stamp else { continue }
+                  finished.stamp.timeIntervalSinceReferenceDate >= position.stamp.timeIntervalSinceReferenceDate else { continue }
             result.positions[songID] = SpokenWordSyncRegister(value: nil, stamp: finished.stamp)
         }
         return result
@@ -422,7 +422,7 @@ public enum SpokenWordSyncPolicy {
         _ registers: [String: SpokenWordSyncRegister<Value>],
         cutoff: Date
     ) -> [String: SpokenWordSyncRegister<Value>] {
-        registers.filter { !$0.value.isTombstone || $0.value.stamp >= cutoff }
+        registers.filter { !$0.value.isTombstone || $0.value.stamp.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate }
     }
 
     /// Keeps the `limit` newest registers; ties by key so every device keeps

@@ -343,7 +343,7 @@ enum SmartPlaylistEngine {
            let threshold = parseDate(rule.value) {
             switch rule.op {
             case .equals, .greaterThan:
-                return value >= threshold
+                return value.timeIntervalSinceReferenceDate >= threshold.timeIntervalSinceReferenceDate
             case .notEquals, .lessThan:
                 return value < threshold
             default:
@@ -369,7 +369,7 @@ enum SmartPlaylistEngine {
             guard parts.count == 2,
                   let lo = parseDate(String(parts[0])),
                   let hi = parseDate(String(parts[1])) else { return false }
-            return value >= lo && value <= hi
+            return value.timeIntervalSinceReferenceDate >= lo.timeIntervalSinceReferenceDate && value.timeIntervalSinceReferenceDate <= hi.timeIntervalSinceReferenceDate
         default: return false
         }
     }

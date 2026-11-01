@@ -694,7 +694,7 @@ final class FTPActiveListener: @unchecked Sendable {
                             continuation.resume(throwing: FTPClientError.dataConnectionFailed("poll \(errno)"))
                             return
                         }
-                        if Date() >= deadline {
+                        if Date().timeIntervalSinceReferenceDate >= deadline.timeIntervalSinceReferenceDate {
                             self.close()
                             continuation.resume(throwing: FTPClientError.timedOut("data accept"))
                             return

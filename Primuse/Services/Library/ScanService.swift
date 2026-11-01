@@ -1880,7 +1880,7 @@ final class ScanService {
         let now = Date()
         for source in sourceStore.sources {
             guard activeTasks[source.id] == nil,
-                  let next = nextPeriodicSyncDate(for: source), next <= now else {
+                  let next = nextPeriodicSyncDate(for: source), next.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate else {
                 continue
             }
             scanSource(
@@ -1894,7 +1894,7 @@ final class ScanService {
                 automaticRefreshIsAllowed: { [weak self] in
                     guard let self, let current = sourceStore.source(id: source.id),
                           let next = self.nextPeriodicSyncDate(for: current) else { return false }
-                    return next <= Date()
+                    return next.timeIntervalSinceReferenceDate <= Date().timeIntervalSinceReferenceDate
                 }
             )
         }

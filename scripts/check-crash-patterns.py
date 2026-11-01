@@ -12,6 +12,7 @@
     scripts/check-crash-patterns.py FILE...      只扫这些文件
     scripts/check-crash-patterns.py --list       列出规则
     scripts/check-crash-patterns.py --self-test  用内置样例自检规则
+    scripts/check-crash-patterns.py --binary PATH... 检查 Mach-O 的已知不兼容导入
 
 编译机的排队编译(primuse-ci)每次编译前跑一遍;仓库里没有这个脚本的老提交跳过。
 """
@@ -224,6 +225,39 @@ def run(paths):
     return 0
 
 
+# 27.2 SDK 的 back-deployment thunk 按系统版本选择新符号；部分 27.2 beta
+# 没有这些符号，weak import 解析为 0。源代码检查无法可靠区分 Date 和数值。
+INCOMPATIBLE_IMPORTS = {
+    "$s10Foundation4DateV2leoiySbAC_ACtFZ": "Foundation.Date.<=",
+    "$s10Foundation4DateV2geoiySbAC_ACtFZ": "Foundation.Date.>=",
+}
+
+
+def incompatible_imports(output):
+    symbols = set(re.findall(r"\$s[\w]+", output))
+    return sorted(symbols.intersection(INCOMPATIBLE_IMPORTS))
+
+
+def check_binaries(paths):
+    if not paths:
+        print("--binary 需要至少一个 Mach-O 路径", file=sys.stderr)
+        return 2
+    failures = 0
+    for path in paths:
+        try:
+            result = subprocess.run(["xcrun", "dyld_info", "-imports", path],
+                                    capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError) as error:
+            print("读取 Mach-O 导入失败 %s: %s" % (path, error), file=sys.stderr)
+            return 2
+        for symbol in incompatible_imports(result.stdout):
+            failures += 1
+            print("%s: [date-comparison-backdeployment] %s 在部分 27.2 beta 缺失；改为比较 timeIntervalSinceReferenceDate"
+                  % (path, INCOMPATIBLE_IMPORTS[symbol]))
+    print("check-crash-patterns: %d 个二进制, %d 个不兼容导入" % (len(paths), failures))
+    return 1 if failures else 0
+
+
 SELF_TEST = [
     ("filehandle-legacy", "let data = handle.readData(ofLength: 4096)", True),
     ("filehandle-legacy", "let data = try handle.read(upToCount: 4096) ?? Data()", False),
@@ -273,7 +307,19 @@ def self_test():
         if bool(hits) != expected:
             failures += 1
             print("自检失败 [%s] 期望%s命中:\n%s\n" % (rule_id, "" if expected else "不", snippet))
-    print("自检 %d 条,失败 %d 条" % (len(SELF_TEST), failures))
+    import_cases = [
+        ("0x0001 _$s10Foundation4DateV2leoiySbAC_ACtFZ (from Foundation) [weak-import]",
+         ["$s10Foundation4DateV2leoiySbAC_ACtFZ"]),
+        ("0x0002 _$s10Foundation4DateV2geoiySbAC_ACtFZ (from Foundation)",
+         ["$s10Foundation4DateV2geoiySbAC_ACtFZ"]),
+        ("0x0003 _$s10Foundation4DateV026timeIntervalSinceReferenceB0Sdvg (from Foundation)\n"
+         "0x0004 _$sSL2leoiySbx_xtFZTj (from libswiftCore)", []),
+    ]
+    for output, expected in import_cases:
+        if incompatible_imports(output) != expected:
+            failures += 1
+            print("自检失败 [date-comparison-backdeployment]: %s" % output)
+    print("自检 %d 条,失败 %d 条" % (len(SELF_TEST) + len(import_cases), failures))
     return 1 if failures else 0
 
 
@@ -284,6 +330,8 @@ def main(argv):
         return 0
     if argv[:1] == ["--self-test"]:
         return self_test()
+    if argv[:1] == ["--binary"]:
+        return check_binaries(argv[1:])
     return run(argv or tracked_swift_files())
 
 

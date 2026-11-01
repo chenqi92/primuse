@@ -2404,7 +2404,7 @@ final class CloudKitSyncService {
             // Atomic records keep their existing last-writer-wins behavior.
             let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
             let serverUpdated = (record["updatedAt"] as? Date) ?? .distantPast
-            if serverUpdated >= localUpdated {
+            if serverUpdated.timeIntervalSinceReferenceDate >= localUpdated.timeIntervalSinceReferenceDate {
                 applyRemoteRecord(record)
                 syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(record.recordID)])
             }
@@ -3705,7 +3705,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             // Remaining payload-based atomic types use LWW on updatedAt.
             let localUpdated = (local["updatedAt"] as? Date) ?? .distantPast
             let serverUpdated = (server["updatedAt"] as? Date) ?? .distantPast
-            if serverUpdated >= localUpdated {
+            if serverUpdated.timeIntervalSinceReferenceDate >= localUpdated.timeIntervalSinceReferenceDate {
                 applyRemoteRecord(server)
                 syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(local.recordID)])
                 return  // local save dropped

@@ -141,7 +141,7 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
     /// 这一集是不是被「标为已播」的水位线盖住了(单集自己的听完记录另算)。
     public func isMarkedPlayed(_ episode: PodcastEpisode) -> Bool {
         guard let playedThrough, let published = episode.publishedAt else { return false }
-        return published <= playedThrough && !reopenedEpisodeIDs.contains(episode.id)
+        return published.timeIntervalSinceReferenceDate <= playedThrough.timeIntervalSinceReferenceDate && !reopenedEpisodeIDs.contains(episode.id)
     }
 
     /// 单集列表实际用的顺序:用户选过就用选的,否则连载从旧到新、其余从新到旧。

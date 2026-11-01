@@ -1837,7 +1837,7 @@ public enum MusicSourceLifecyclePolicy {
         guard current.id == incoming.id else { return incoming }
         let deletedAt = max(current.deletedAt, incoming.deletedAt)
         var tombstone: MusicSource?
-        if incoming.deletedAt >= current.deletedAt {
+        if incoming.deletedAt.timeIntervalSinceReferenceDate >= current.deletedAt.timeIntervalSinceReferenceDate {
             tombstone = incoming.tombstone ?? current.tombstone
         } else {
             tombstone = current.tombstone ?? incoming.tombstone

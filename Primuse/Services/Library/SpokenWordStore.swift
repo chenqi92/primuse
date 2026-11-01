@@ -801,7 +801,7 @@ final class SpokenWordStore {
         isFinished: Bool,
         updatedAt: Date
     ) -> Bool {
-        if let newest = lastChange(forSongID: songID), newest >= updatedAt { return false }
+        if let newest = lastChange(forSongID: songID), newest.timeIntervalSinceReferenceDate >= updatedAt.timeIntervalSinceReferenceDate { return false }
         var changed = false
         if isFinished {
             // Only a newly finished item ends its position; one already

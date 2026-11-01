@@ -3569,7 +3569,7 @@ final class AIRecommendationViewModel {
     }
 
     func finishRetryCooldown() {
-        if let retryAvailableAt, retryAvailableAt <= Date() {
+        if let retryAvailableAt, retryAvailableAt.timeIntervalSinceReferenceDate <= Date().timeIntervalSinceReferenceDate {
             self.retryAvailableAt = nil
         }
     }

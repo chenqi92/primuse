@@ -38,7 +38,7 @@ public struct ListeningIntentUsage: Codable, Equatable, Sendable {
         let since = now.addingTimeInterval(-Double(Self.keptDays) * 86_400)
         starts = starts.compactMapValues { list in
             // Only age drops a start; a clock set back must not wipe recent ones.
-            let kept = list.filter { $0.at >= since }
+            let kept = list.filter { $0.at.timeIntervalSinceReferenceDate >= since.timeIntervalSinceReferenceDate }
             return kept.isEmpty ? nil : kept
         }
     }
@@ -186,7 +186,7 @@ public enum ListeningIntentRankingPolicy {
         let since = now.addingTimeInterval(-Double(ListeningIntentUsage.keptDays) * 86_400)
         var weighted = 0.0
         var justPlayed = false
-        for start in starts where start.at >= since && start.at <= now {
+        for start in starts where start.at.timeIntervalSinceReferenceDate >= since.timeIntervalSinceReferenceDate && start.at.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate {
             // A start from a week ago counts half as much as one today.
             let ageDays = now.timeIntervalSince(start.at) / 86_400
             let decay = pow(0.5, ageDays / 7)

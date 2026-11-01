@@ -464,7 +464,7 @@ public enum SourcePeriodicSyncPolicy {
         now: Date = Date()
     ) -> Bool {
         guard let next = nextSyncDate(for: state, interval: interval, now: now) else { return false }
-        return next <= now
+        return next.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate
     }
 }
 

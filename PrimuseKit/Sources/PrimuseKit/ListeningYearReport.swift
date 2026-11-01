@@ -27,7 +27,7 @@ public enum ListeningYearReportPolicy {
     public static func interval(year: Int, now: Date, calendar: Calendar) -> DateInterval? {
         guard let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
               let next = calendar.date(byAdding: .year, value: 1, to: start),
-              start <= now else { return nil }
+              start.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate else { return nil }
         return DateInterval(start: start, end: min(next, now))
     }
 

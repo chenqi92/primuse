@@ -271,7 +271,7 @@ extension ListeningProfile {
                 break
             }
             if plays >= ListeningProfile.rotationMinimumPlays,
-               let last = history.lastPlayedAt[song.id], last >= rotationSince {
+               let last = history.lastPlayedAt[song.id], last.timeIntervalSinceReferenceDate >= rotationSince.timeIntervalSinceReferenceDate {
                 rotation.append((song.id, plays))
             }
 

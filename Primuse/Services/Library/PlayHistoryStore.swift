@@ -250,7 +250,7 @@ final class PlayHistoryStore {
         let context = classification
         let cutoff = range.statisticsStartDate(now: now, calendar: calendar)
         return Self.listenedSeconds(entries.filter {
-            $0.playedAt >= cutoff && $0.playedAt <= now && context.space(for: $0) == .spokenWord
+            $0.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate && $0.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate && context.space(for: $0) == .spokenWord
         })
     }
 
@@ -383,13 +383,13 @@ final class PlayHistoryStore {
             clearedAt = remoteClearedAt
         }
         let cutoff = clearedAt ?? .distantPast
-        let survivingRemote = remoteEntries.filter { $0.playedAt >= cutoff }
-        let survivingLocal = entries.filter { $0.playedAt >= cutoff }
+        let survivingRemote = remoteEntries.filter { $0.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate }
+        let survivingLocal = entries.filter { $0.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate }
         guard !survivingRemote.isEmpty || survivingLocal.count != entries.count else { return }
         let previous = entries
         var mergedByID = Dictionary(
             survivingLocal.map { ($0.id, $0) },
-            uniquingKeysWith: { lhs, rhs in lhs.playedAt >= rhs.playedAt ? lhs : rhs }
+            uniquingKeysWith: { lhs, rhs in lhs.playedAt.timeIntervalSinceReferenceDate >= rhs.playedAt.timeIntervalSinceReferenceDate ? lhs : rhs }
         )
         let context = classification.recoveringLegacyEntries(survivingRemote)
         for var entry in survivingRemote {
@@ -462,12 +462,12 @@ final class PlayHistoryStore {
     // statistics must not make yesterday's songs stale when a new month starts.
     func entries(in range: Range, now: Date = Date()) -> [Entry] {
         let cutoff = range.startDate(now: now)
-        return entries.filter { $0.playedAt >= cutoff && $0.playedAt <= now }
+        return entries.filter { $0.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate && $0.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate }
     }
 
     func statisticsEntries(in range: Range, now: Date = Date(), calendar: Calendar = ListeningCalendar.current) -> [Entry] {
         let cutoff = range.statisticsStartDate(now: now, calendar: calendar)
-        return entries.filter { $0.playedAt >= cutoff && $0.playedAt <= now }
+        return entries.filter { $0.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate && $0.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate }
     }
 
     struct SongPlaybackStats: Equatable, Sendable {
@@ -579,7 +579,7 @@ final class PlayHistoryStore {
         }.mapValues(\.count)
         var result: [(Date, Int)] = []
         var cursor = start
-        while cursor <= end {
+        while cursor.timeIntervalSinceReferenceDate <= end.timeIntervalSinceReferenceDate {
             result.append((cursor, bucketed[cursor] ?? 0))
             cursor = cal.date(byAdding: .day, value: 1, to: cursor) ?? cursor.addingTimeInterval(86400)
         }

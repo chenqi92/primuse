@@ -779,7 +779,7 @@ struct ServerMediaShareSheet: View {
         didFailCreation = false
         defer { isCreating = false }
         do {
-            if includesExpiration, expirationDate <= Date() {
+            if includesExpiration, expirationDate.timeIntervalSinceReferenceDate <= Date().timeIntervalSinceReferenceDate {
                 throw ServerMediaSharingError.invalidExpiration
             }
             let share = try await sourceManager.createServerMediaShare(
@@ -2041,7 +2041,7 @@ struct MediaRelayShareSheet: View {
             let requestedExpiration: Date?
             if publicLinkStyle == .shortCode {
                 guard expirationDate > Date(),
-                      expirationDate <= shortCodeMaximumExpirationDate else {
+                      expirationDate.timeIntervalSinceReferenceDate <= shortCodeMaximumExpirationDate.timeIntervalSinceReferenceDate else {
                     throw ServerMediaSharingError.invalidExpiration
                 }
                 requestedExpiration = expirationDate

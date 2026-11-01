@@ -637,14 +637,14 @@ public struct ListeningHistoryIndex: Sendable {
         let recentSince = now.addingTimeInterval(-Double(Self.recentWindowDays) * 86_400)
         var total = 0
         var recent = 0
-        for event in events where event.playedAt <= now {
+        for event in events where event.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate {
             total += 1
             playCounts[event.songID, default: 0] += 1
-            if event.playedAt >= recentSince {
+            if event.playedAt.timeIntervalSinceReferenceDate >= recentSince.timeIntervalSinceReferenceDate {
                 recent += 1
                 recentPlayCounts[event.songID, default: 0] += 1
             }
-            if let last = lastPlayedAt[event.songID], last >= event.playedAt { continue }
+            if let last = lastPlayedAt[event.songID], last.timeIntervalSinceReferenceDate >= event.playedAt.timeIntervalSinceReferenceDate { continue }
             lastPlayedAt[event.songID] = event.playedAt
         }
         totalPlays = total

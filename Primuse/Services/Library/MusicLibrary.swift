@@ -2246,7 +2246,7 @@ enum MusicDiscoveryEngine {
         func makeInput() -> RecommendationInput {
             func entries(in range: PlayHistoryStore.Range) -> [PlayHistoryStore.Entry] {
                 let cutoff = range.startDate(now: now)
-                return historyEntries.filter { $0.playedAt >= cutoff && $0.playedAt <= now }
+                return historyEntries.filter { $0.playedAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate && $0.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate }
             }
             let monthEntries = entries(in: .month)
             // 种子不必先认同一首歌（几处在主线程上取），两份各当一个种子也无妨。
@@ -11282,7 +11282,7 @@ final class MusicLibrary {
     func pendingSongIdentities(forPlaylist playlistID: String) -> [SongIdentity] {
         let cutoff = Date().addingTimeInterval(-Self.pendingIdentityTTL)
         return (pendingPlaylistIdentities[playlistID] ?? [])
-            .filter { $0.firstSeenAt >= cutoff }
+            .filter { $0.firstSeenAt.timeIntervalSinceReferenceDate >= cutoff.timeIntervalSinceReferenceDate }
             .map(\.identity)
     }
 
@@ -11829,7 +11829,7 @@ final class MusicLibrary {
         let cutoff = now.addingTimeInterval(-Self.pendingIdentityTTL)
         let existingByIdentity = Dictionary(
             existing.map { ($0.identity, $0) },
-            uniquingKeysWith: { lhs, rhs in lhs.firstSeenAt <= rhs.firstSeenAt ? lhs : rhs }
+            uniquingKeysWith: { lhs, rhs in lhs.firstSeenAt.timeIntervalSinceReferenceDate <= rhs.firstSeenAt.timeIntervalSinceReferenceDate ? lhs : rhs }
         )
         var result: [PendingSongIdentity] = []
         var seen = Set<SongIdentity>()

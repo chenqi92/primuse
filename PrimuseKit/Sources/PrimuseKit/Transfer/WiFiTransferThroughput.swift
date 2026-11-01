@@ -25,7 +25,7 @@ public struct WiFiTransferThroughput: Sendable, Equatable {
         samples.append(Sample(time: time, bytes: bytes))
         let cutoff = time.addingTimeInterval(-Self.window)
         // Keep the newest sample at or before the cutoff so the span stays close to the window.
-        while samples.count > 2, samples[1].time <= cutoff { samples.removeFirst() }
+        while samples.count > 2, samples[1].time.timeIntervalSinceReferenceDate <= cutoff.timeIntervalSinceReferenceDate { samples.removeFirst() }
         guard let first = samples.first else { return nil }
         let span = time.timeIntervalSince(first.time)
         guard span >= Self.minimumSpan else { return nil }

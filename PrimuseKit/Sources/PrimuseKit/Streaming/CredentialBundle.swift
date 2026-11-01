@@ -308,7 +308,7 @@ public enum SourceCloudCleanupPolicy {
         }
 
         var result = current
-        if sourceClock(tombstone) >= sourceClock(current.tombstone) {
+        if sourceClock(tombstone).timeIntervalSinceReferenceDate >= sourceClock(current.tombstone).timeIntervalSinceReferenceDate {
             result.tombstone = tombstone
         }
         result.needsMusicSourceTombstoneUpload = true

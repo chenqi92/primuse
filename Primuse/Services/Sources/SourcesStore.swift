@@ -1130,7 +1130,7 @@ final class SourcesStore {
     /// for sources — same LWW + soft-delete-respect rules.
     func upsertAccountFromRemote(_ remote: CloudAccount) {
         if let existing = allAccounts.first(where: { $0.id == remote.id }) {
-            if existing.isDeleted, existing.modifiedAt >= remote.modifiedAt { return }
+            if existing.isDeleted, existing.modifiedAt.timeIntervalSinceReferenceDate >= remote.modifiedAt.timeIntervalSinceReferenceDate { return }
             if existing.modifiedAt > remote.modifiedAt { return }
             if let index = allAccounts.firstIndex(where: { $0.id == remote.id }) {
                 allAccounts[index] = remote

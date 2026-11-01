@@ -499,7 +499,7 @@ public enum AlbumRecommender {
         var artistPlays90: [String: Int] = [:]
         var artistPlays7: [String: Int] = [:]
         var recentAlbumIDs: [String] = []
-        let sortedEvents = context.events.filter { $0.playedAt <= now }.sorted { $0.playedAt > $1.playedAt }
+        let sortedEvents = context.events.filter { $0.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate }.sorted { $0.playedAt > $1.playedAt }
         for event in sortedEvents {
             let age = now.timeIntervalSince(event.playedAt)
             if let albumID = event.albumID {

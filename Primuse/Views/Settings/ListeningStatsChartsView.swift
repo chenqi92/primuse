@@ -801,14 +801,14 @@ struct ListeningStatsChartsView: View {
         formatter.dateStyle = .long
         formatter.timeStyle = .none
         let cells = timeline.calendarDays.map { day in
-            let selected = day.date >= timeline.selectedStart && day.date <= today
+            let selected = day.date.timeIntervalSinceReferenceDate >= timeline.selectedStart.timeIntervalSinceReferenceDate && day.date.timeIntervalSinceReferenceDate <= today.timeIntervalSinceReferenceDate
             let dateLabel = formatter.string(from: day.date)
             let plays = String(format: String(localized: "stats_play_count_format"), day.count)
             return MacHeatmapCell(
                 date: day.date,
                 count: day.count,
                 isFuture: day.date > today,
-                isInDisplayRange: day.date >= timeline.yearInterval.start && day.date < timeline.yearInterval.end,
+                isInDisplayRange: day.date.timeIntervalSinceReferenceDate >= timeline.yearInterval.start.timeIntervalSinceReferenceDate && day.date < timeline.yearInterval.end,
                 isSelected: selected,
                 isOutlined: selected && (range == .week || range == .month),
                 tooltip: day.date > today ? "\(dateLabel)\n—" : "\(dateLabel)\n\(plays) · \(formattedHours(day.totalSec))"
@@ -1032,16 +1032,16 @@ struct ListeningStatsChartsView: View {
         var spokenWordSec: TimeInterval = 0
         let context = classification ?? PlayHistoryStore.Classification(legacySpokenWordIDs: spokenWordSongIDs)
         for entry in allEntries where context.space(for: entry) == .spokenWord
-            && entry.playedAt >= currentStart && entry.playedAt <= now {
+            && entry.playedAt.timeIntervalSinceReferenceDate >= currentStart.timeIntervalSinceReferenceDate && entry.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate {
             spokenWordSec += entry.listenedSec.isFinite ? max(0, entry.listenedSec) : 0
         }
         let entries = PlayHistoryStore.musicEntries(allEntries, classification: context)
         var scopedEntries: [PlayHistoryStore.Entry] = []
         var previousPlayCount = 0
         for entry in entries {
-            if entry.playedAt >= currentStart, entry.playedAt <= now {
+            if entry.playedAt.timeIntervalSinceReferenceDate >= currentStart.timeIntervalSinceReferenceDate, entry.playedAt.timeIntervalSinceReferenceDate <= now.timeIntervalSinceReferenceDate {
                 scopedEntries.append(entry)
-            } else if let previousInterval, entry.playedAt >= previousInterval.start, entry.playedAt < previousInterval.end {
+            } else if let previousInterval, entry.playedAt.timeIntervalSinceReferenceDate >= previousInterval.start.timeIntervalSinceReferenceDate, entry.playedAt < previousInterval.end {
                 previousPlayCount += 1
             }
         }

@@ -191,7 +191,7 @@ public enum PodcastSubscriptionSync {
             removed[id] = date
         }
         let remoteByID = Dictionary(remote.subscriptions.map { ($0.id, $0) }, uniquingKeysWith: { lhs, rhs in
-            lhs.modifiedAt >= rhs.modifiedAt ? lhs : rhs
+            lhs.modifiedAt.timeIntervalSinceReferenceDate >= rhs.modifiedAt.timeIntervalSinceReferenceDate ? lhs : rhs
         })
 
         var result: [PodcastShow] = []
@@ -212,7 +212,7 @@ public enum PodcastSubscriptionSync {
                 // 时间相同时不比节目名和封面:那是各自刷新 feed 得来的,两台设备一时不一致很正常,
                 // 拿它判断「要推」会让两边轮流把自己的版本推上去。
                 result.append(show)
-            } else if let removedAt = removed[show.id], removedAt >= show.definitionModifiedAt {
+            } else if let removedAt = removed[show.id], removedAt.timeIntervalSinceReferenceDate >= show.definitionModifiedAt.timeIntervalSinceReferenceDate {
                 removedIDs.append(show.id)
             } else {
                 // 本机订了、云端还没有。
@@ -224,7 +224,7 @@ public enum PodcastSubscriptionSync {
         var added: [String] = []
         for record in remote.subscriptions.sorted(by: { $0.subscribedAt < $1.subscribedAt }) where !seen.contains(record.id) {
             seen.insert(record.id)
-            if let removedAt = removed[record.id], removedAt >= record.modifiedAt {
+            if let removedAt = removed[record.id], removedAt.timeIntervalSinceReferenceDate >= record.modifiedAt.timeIntervalSinceReferenceDate {
                 // 本机后来退订了,云端那条是旧的。
                 needsPush = true
                 continue
@@ -289,7 +289,7 @@ public struct PodcastLikeDocument: Codable, Hashable, Sendable {
     @discardableResult
     public mutating func set(_ isLiked: Bool, episodeID: String, at date: Date) -> Bool {
         let latest = max(liked[episodeID] ?? .distantPast, unliked[episodeID] ?? .distantPast)
-        guard date >= latest, isLiked != self.isLiked(episodeID) else { return false }
+        guard date.timeIntervalSinceReferenceDate >= latest.timeIntervalSinceReferenceDate, isLiked != self.isLiked(episodeID) else { return false }
         if isLiked {
             liked[episodeID] = date
             unliked.removeValue(forKey: episodeID)
