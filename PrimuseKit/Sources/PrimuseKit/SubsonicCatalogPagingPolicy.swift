@@ -48,18 +48,32 @@ public struct SubsonicCatalogResumeState: Codable, Equatable, Sendable {
 
     public func isUsable(stagedSongCount actualStagedSongCount: Int) -> Bool {
         schemaVersion == Self.currentSchemaVersion
-            && pageSize == SubsonicCatalogPagingPolicy.pageSize
+            && SubsonicCatalogPagingPolicy.supportedSongPageSizes.contains(pageSize)
             && stageSessionID?.isEmpty == false
             && catalogRevision?.isEmpty == false
             && completedPageCount > 0
             && stagedSongCount == actualStagedSongCount
             && (stagedItemCount ?? -1) >= stagedSongCount
-            && (nextOffset.map { $0 > 0 && $0.isMultiple(of: pageSize) } ?? true)
+            && (nextOffset.map { $0 > 0 } ?? true)
     }
 }
 
 public enum SubsonicCatalogPagingPolicy {
+    /// The legacy album-list endpoint has a 500-item protocol limit.
     public static let pageSize = 500
+    public static let navidromeSongPageSize = 2_000
+    public static let supportedSongPageSizes: Set<Int> = [pageSize, navidromeSongPageSize]
+
+    public static func songPageSize(serverType: String?) -> Int {
+        serverType?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("navidrome") == .orderedSame
+            ? navidromeSongPageSize : pageSize
+    }
+
+    public static func resumedPageSize(saved: Int?, preferred: Int) -> Int {
+        if let saved, supportedSongPageSizes.contains(saved), saved <= preferred { return saved }
+        return supportedSongPageSizes.contains(preferred) ? preferred : pageSize
+    }
     public static let legacyAlbumConcurrency = 6
     public static let maximumAlbumCount = 100_000
     public static let maximumSongCount = 10_000_000
@@ -88,7 +102,8 @@ public enum SubsonicCatalogPagingPolicy {
     public static func search3QueryItems(
         songOffset: Int,
         musicFolderID: String? = nil,
-        musicFolderIDs: [String] = []
+        musicFolderIDs: [String] = [],
+        pageSize: Int = pageSize
     ) -> [URLQueryItem] {
         var items = [
             URLQueryItem(name: "query", value: ""),
@@ -105,8 +120,14 @@ public enum SubsonicCatalogPagingPolicy {
         return items
     }
 
-    public static func nextOffset(currentOffset: Int, receivedCount: Int) -> Int? {
-        guard receivedCount >= pageSize else { return nil }
+    public static func nextOffset(
+        currentOffset: Int,
+        receivedCount: Int,
+        pageSize: Int = pageSize,
+        continuesAfterShortPage: Bool = false
+    ) -> Int? {
+        guard receivedCount > 0,
+              continuesAfterShortPage || receivedCount >= pageSize else { return nil }
         return currentOffset + receivedCount
     }
 

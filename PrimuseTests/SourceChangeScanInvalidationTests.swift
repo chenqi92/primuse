@@ -287,6 +287,19 @@ private actor PausableScanConnector: MusicSourceConnector {
 /// 删除证词按它去重，之后每次完整走查都算同一份证词，提示「下一次扫描再次确认」却永远确认不了。
 @MainActor
 final class ServerCatalogDeletionScanTests: XCTestCase {
+    func testLargeAndCappedPagesCommitTheCompleteCatalog() async throws {
+        for cap in [nil, 500] as [Int?] {
+            let fixture = try makeFixture(songCount: 2_501)
+            await fixture.connector.configurePaging(preferred: 2_000, cap: cap)
+            try await fixture.scanOnce()
+            XCTAssertEqual(fixture.songIDs().count, 2_501)
+            let requests = await fixture.connector.pageRequests
+            XCTAssertTrue(requests.allSatisfy { $0.size == 2_000 })
+            XCTAssertTrue(requests.contains { $0.offset == 2_501 })
+            XCTAssertEqual(requests.filter { $0.offset == 0 }.count, 2)
+        }
+    }
+
     func testLaterCompleteWalkUnderTheSameScanMarkerRemovesTheDeletedSong() async throws {
         let fixture = try makeFixture(songCount: 3)
         try await fixture.scanOnce()
@@ -413,6 +426,15 @@ final class ServerCatalogDeletionScanTests: XCTestCase {
 private actor StillScanMarkerCatalogConnector: ResumablePagedSongCatalogConnector {
     let sourceID: String
     private var songIDs: [String]
+    private var preferredWidth = 500
+    private var responseCap: Int?
+    private(set) var pageRequests: [(offset: Int, size: Int)] = []
+
+    func configurePaging(preferred: Int, cap: Int?) {
+        preferredWidth = preferred
+        responseCap = cap
+    }
+    func preferredSongCatalogPageSize() async throws -> Int { preferredWidth }
 
     init(sourceID: String, songIDs: [String]) {
         self.sourceID = sourceID
@@ -438,10 +460,15 @@ private actor StillScanMarkerCatalogConnector: ResumablePagedSongCatalogConnecto
     func expectedSongCatalogCount() async throws -> Int? { songIDs.count }
 
     func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
+        try await songCatalogPage(from: path, offset: offset, pageSize: preferredWidth)
+    }
+
+    func songCatalogPage(from path: String, offset: Int, pageSize: Int) async throws -> PagedSongCatalogPage {
+        pageRequests.append((offset, pageSize))
         guard offset < songIDs.count else {
             return PagedSongCatalogPage(songs: [], itemIDs: [], nextOffset: nil)
         }
-        let window = Array(songIDs[offset..<min(offset + SubsonicCatalogPagingPolicy.pageSize, songIDs.count)])
+        let window = Array(songIDs[offset..<min(offset + min(pageSize, responseCap ?? pageSize), songIDs.count)])
         let songs = window.map { id -> ConnectorScannedSong in
             let song = Song(id: id, title: "Song \(id)", fileFormat: .flac,
                             filePath: "/fixture/\(id).flac", sourceID: sourceID)
@@ -450,7 +477,10 @@ private actor StillScanMarkerCatalogConnector: ResumablePagedSongCatalogConnecto
         return PagedSongCatalogPage(
             songs: songs,
             itemIDs: window,
-            nextOffset: SubsonicCatalogPagingPolicy.nextOffset(currentOffset: offset, receivedCount: window.count)
+            nextOffset: SubsonicCatalogPagingPolicy.nextOffset(
+                currentOffset: offset, receivedCount: window.count, pageSize: pageSize,
+                continuesAfterShortPage: preferredWidth > 500
+            )
         )
     }
 }

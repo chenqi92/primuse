@@ -2114,6 +2114,8 @@ protocol ServerChapterProvidingConnector: MusicSourceConnector {
 protocol ResumablePagedSongCatalogConnector: MusicSourceConnector {
     func stableSongCatalogRevision() async throws -> String?
     func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage
+    func songCatalogPage(from path: String, offset: Int, pageSize: Int) async throws -> PagedSongCatalogPage
+    func preferredSongCatalogPageSize() async throws -> Int
     /// Rows the flattened catalogue is expected to yield, when the provider
     /// reports a total. It turns the scan card from an open-ended counter into
     /// real progress, which is the difference between "1106" and "1106 / 70234"
@@ -2123,6 +2125,10 @@ protocol ResumablePagedSongCatalogConnector: MusicSourceConnector {
 
 extension ResumablePagedSongCatalogConnector {
     func expectedSongCatalogCount() async throws -> Int? { nil }
+    func preferredSongCatalogPageSize() async throws -> Int { SubsonicCatalogPagingPolicy.pageSize }
+    func songCatalogPage(from path: String, offset: Int, pageSize: Int) async throws -> PagedSongCatalogPage {
+        try await songCatalogPage(from: path, offset: offset)
+    }
 }
 
 /// What one incremental pass over a server catalogue found.

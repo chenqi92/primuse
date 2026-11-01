@@ -598,7 +598,10 @@ final class SubsonicServerScanTests: XCTestCase {
         XCTAssertEqual(final.itemIDs, ["song-500"])
         XCTAssertEqual(final.songs.map(\.song.filePath), ["/songs/song-500.mp3"])
         XCTAssertEqual(final.songs.map(\.song.serverPlayCount), [500])
-        XCTAssertNil(final.nextOffset)
+        XCTAssertEqual(final.nextOffset, 501)
+        let end = try await source.songCatalogPage(from: "/", offset: 501)
+        XCTAssertTrue(end.itemIDs.isEmpty)
+        XCTAssertNil(end.nextOffset)
 
         let offsets: [String] = SubsonicServerScanURLProtocol.requests(host: host).compactMap { request -> String? in
             guard let url = request.url, url.path == "/rest/search3.view" else { return nil }
@@ -607,7 +610,64 @@ final class SubsonicServerScanTests: XCTestCase {
                 .first(where: { $0.name == "songOffset" })?
                 .value
         }
-        XCTAssertEqual(offsets, ["0", "500"])
+        XCTAssertEqual(offsets, ["0", "500", "501"])
+        let sizes = SubsonicServerScanURLProtocol.requests(host: host).compactMap { request in
+            guard let url = request.url, url.path == "/rest/search3.view" else { return nil as String? }
+            return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "songCount" }?.value
+        }
+        XCTAssertEqual(sizes, ["2000", "2000", "2000"])
+    }
+
+    func testPagedCatalogHonorsLegacyCheckpointWidth() async throws {
+        let host = "server-paged-resume.invalid"
+        SubsonicServerScanURLProtocol.configure(host: host, mode: .pagedCatalog)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let preferred = try await source.preferredSongCatalogPageSize()
+        XCTAssertEqual(preferred, 2_000)
+        _ = try await source.songCatalogPage(from: "/", offset: 0, pageSize: 500)
+        let request = try XCTUnwrap(SubsonicServerScanURLProtocol.requests(host: host).last {
+            $0.url?.path == "/rest/search3.view"
+        })
+        XCTAssertEqual(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "songCount" }?.value, "500")
+    }
+
+    func testNavidromeLargePagesCoverEverySong() async throws {
+        let host = "server-wide-pages.invalid"
+        SubsonicServerScanURLProtocol.configure(host: host, mode: .widePagedCatalog)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+        var offset = 0
+        var ids: [String] = []
+        var sizes: [Int] = []
+        while true {
+            let page = try await source.songCatalogPage(from: "/", offset: offset)
+            sizes.append(page.itemIDs.count)
+            ids += page.itemIDs
+            guard let next = page.nextOffset else { break }
+            offset = next
+            XCTAssertLessThan(sizes.count, 5)
+        }
+        XCTAssertEqual(sizes, [2_000, 2_000, 501, 0])
+        XCTAssertEqual(ids, (0..<4_501).map { "song-\($0)" })
+    }
+
+    func testRepeatedShortPagesCannotLoopForever() async throws {
+        let host = "server-repeated-short-page.invalid"
+        SubsonicServerScanURLProtocol.configure(host: host, mode: .repeatedCatalog)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+        do {
+            for try await _ in try await source.scanSongs(from: "/") {}
+            XCTFail("A server ignoring offsets cannot finish an authoritative scan")
+        } catch SourceError.connectionFailed(let message) {
+            XCTAssertTrue(message.contains("changed repeatedly"))
+        }
+        let calls = SubsonicServerScanURLProtocol.requests(host: host).filter { $0.url?.path == "/rest/search3.view" }.count
+        XCTAssertGreaterThanOrEqual(calls, 5)
+        XCTAssertLessThanOrEqual(calls, 12)
     }
 
     func testFailedServerScanCannotAuthorizeCatalogSnapshot() async throws {
@@ -655,6 +715,8 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
         case applicationAuthenticationFailure
         case applicationUnsupported
         case pagedCatalog
+        case widePagedCatalog
+        case repeatedCatalog
         case failedScanStatus
         case httpStatus(Int)
         case urlError(URLError.Code)
@@ -708,7 +770,7 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
         }
         if url.path == "/rest/getScanStatus.view" {
             switch state.mode {
-            case .pagedCatalog:
+            case .pagedCatalog, .widePagedCatalog, .repeatedCatalog:
                 respond(json: #"{"subsonic-response":{"status":"ok","scanStatus":{"scanning":false,"count":501,"lastScan":"2026-08-31T04:00:00Z"}}}"#)
                 return
             case .failedScanStatus:
@@ -722,13 +784,16 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             respond(statusCode: status, json: "{}")
             return
         }
-        if url.path == "/rest/search3.view", state.mode == .pagedCatalog {
-            let offset = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?
+        if url.path == "/rest/search3.view", [.pagedCatalog, .widePagedCatalog, .repeatedCatalog].contains(state.mode) {
+            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+            let offset = items?
                 .first(where: { $0.name == "songOffset" })?
                 .value
                 .flatMap(Int.init) ?? 0
-            let range = offset == 0 ? 0..<500 : 500..<501
+            let requested = items?.first { $0.name == "songCount" }?.value.flatMap(Int.init) ?? 500
+            let total = state.mode == .widePagedCatalog ? 4_501 : 501
+            let limit = state.mode == .widePagedCatalog ? requested : 500
+            let range = state.mode == .repeatedCatalog ? 0..<2 : min(offset, total)..<min(offset + limit, total)
             let songs = range.map { index in
                 #"{"id":"song-\#(index)","title":"Song \#(index)","suffix":"mp3","path":"Artist/Album/Song \#(index).mp3","size":1024,"duration":180,"playCount":\#(index)}"#
             }.joined(separator: ",")
@@ -748,7 +813,7 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             respond(json: failedResponse(code: 40, message: "Wrong credentials"))
         case .applicationUnsupported:
             respond(json: failedResponse(code: 0, message: "Unknown method startScan"))
-        case .pagedCatalog, .failedScanStatus:
+        case .pagedCatalog, .widePagedCatalog, .repeatedCatalog, .failedScanStatus:
             fail(.unsupportedURL)
         case .httpStatus(let statusCode):
             respond(statusCode: statusCode, json: "{}")

@@ -178,7 +178,20 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
+        let pageSize = try await preferredSongCatalogPageSize()
+        return try await songCatalogPage(from: path, offset: offset, pageSize: pageSize)
+    }
+
+    func preferredSongCatalogPageSize() async throws -> Int {
         try await connect()
+        return SubsonicCatalogPagingPolicy.songPageSize(serverType: serverType)
+    }
+
+    func songCatalogPage(from path: String, offset: Int, pageSize: Int) async throws -> PagedSongCatalogPage {
+        try await connect()
+        guard offset >= 0, SubsonicCatalogPagingPolicy.supportedSongPageSizes.contains(pageSize) else {
+            throw PagedSongCatalogError.snapshotChangedDuringPagination
+        }
         guard SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
             isOpenSubsonic: isOpenSubsonic,
             serverType: serverType
@@ -191,7 +204,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         try await prepareServerAlbumArtists(refreshing: offset == 0)
         let children: [SubsonicChild]
         do {
-            children = try await search3SongPage(offset: offset, path: path)
+            children = try await search3SongPage(offset: offset, path: path, pageSize: pageSize)
         } catch SubsonicCompatibilityError.directCatalogUnavailable {
             throw PagedSongCatalogError.unavailable
         }
@@ -210,7 +223,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             itemIDs: children.map(\.id),
             nextOffset: SubsonicCatalogPagingPolicy.nextOffset(
                 currentOffset: offset,
-                receivedCount: children.count
+                receivedCount: children.count,
+                pageSize: pageSize,
+                continuesAfterShortPage: true
             )
         )
     }
@@ -251,7 +266,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             self.session = session
         } else {
             let configuration = URLSessionConfiguration.default
-            // Matches WebDAV / Synology / S3: a catalogue page is 500 songs of JSON
+            // Matches WebDAV / Synology / S3: catalogue pages contain bounded JSON
             // and a full walk is one request per page, which needs more than a
             // LAN-sized budget over the public internet.
             configuration.timeoutIntervalForRequest = 60
@@ -393,7 +408,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     // OpenSubsonic defines an empty search3 query as the direct
                     // full-media enumeration path for offline sync. Navidrome
                     // implements it, reducing an N+1 album walk to one request
-                    // per 500 songs. Each duplicate-free page becomes a safe,
+                    // per song page. Each duplicate-free page becomes a safe,
                     // merge-only preview; only the fully validated walk can
                     // complete the source snapshot.
                     if SubsonicCatalogPagingPolicy.shouldUseDirectSongSearch(
@@ -721,7 +736,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return catalog
     }
 
-    private func search3SongPage(offset: Int, path: String) async throws -> [SubsonicChild] {
+    private func search3SongPage(offset: Int, path: String, pageSize: Int? = nil) async throws -> [SubsonicChild] {
         let includedLibraryIDs = libraryScope?.includedLibraryIDs
         if includedLibraryIDs?.isEmpty == true { return [] }
         do {
@@ -730,7 +745,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 query: SubsonicCatalogPagingPolicy.search3QueryItems(
                     songOffset: offset,
                     musicFolderID: musicFolderID(from: path),
-                    musicFolderIDs: includedLibraryIDs ?? []
+                    musicFolderIDs: includedLibraryIDs ?? [],
+                    pageSize: pageSize ?? SubsonicCatalogPagingPolicy.songPageSize(serverType: serverType)
                 )
             )
             guard let result = container.searchResult3 else {
@@ -827,11 +843,13 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         var page = firstPage
         var seenResultIDs = Set<String>()
         var catalog: [SubsonicChild] = []
+        var pagesWithoutNewItems = 0
 
         while true {
             try Task.checkCancellation()
             var visiblePage: [SubsonicChild] = []
             visiblePage.reserveCapacity(page.count)
+            let previousItemCount = seenResultIDs.count
             for child in page {
                 try Task.checkCancellation()
                 guard seenResultIDs.insert(child.id).inserted else {
@@ -849,10 +867,17 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             guard SubsonicCatalogPagingPolicy.isWithinSongLimit(seenResultIDs.count) else {
                 throw SourceError.connectionFailed("Subsonic song catalog exceeded the safety limit")
             }
+            pagesWithoutNewItems = !page.isEmpty && seenResultIDs.count == previousItemCount
+                ? pagesWithoutNewItems + 1 : 0
+            guard pagesWithoutNewItems < 3 else {
+                throw SubsonicCompatibilityError.catalogChangedDuringPagination
+            }
             try onValidatedPage(visiblePage)
             guard let nextOffset = SubsonicCatalogPagingPolicy.nextOffset(
                 currentOffset: offset,
-                receivedCount: page.count
+                receivedCount: page.count,
+                pageSize: SubsonicCatalogPagingPolicy.songPageSize(serverType: serverType),
+                continuesAfterShortPage: true
             ) else { return catalog }
             offset = nextOffset
             page = try await search3SongPage(offset: offset, path: path)

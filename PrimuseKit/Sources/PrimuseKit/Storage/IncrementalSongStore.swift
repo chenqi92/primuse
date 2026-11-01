@@ -348,6 +348,130 @@ public struct IncrementalSongStoreStartupState: Equatable, Sendable {
     }
 }
 
+public enum IncrementalSongPageError: Error, Equatable {
+    case unavailable
+    case invalidRange
+    case snapshotChanged
+}
+
+/// An independent read-only connection lets browsing proceed while launch
+/// preparation streams the canonical store on its own connection.
+public final class IncrementalSongPageReader: @unchecked Sendable {
+    public static let pageSize = 200
+    public let count: Int
+    public let revision: Int64
+    public let completedMigrationVersion: Int
+    private let database: DatabaseQueue
+    private let predicate: String
+    private let arguments: StatementArguments
+
+    public init(path: String, sourceIDs: Set<String>? = nil) throws {
+        var configuration = Configuration()
+        configuration.readonly = true
+        configuration.label = "Primuse song pages"
+        database = try DatabaseQueue(path: path, configuration: configuration)
+        let ids = sourceIDs?.sorted() ?? []
+        let scopedPredicate = ids.isEmpty ? " WHERE 0" : " WHERE sourceID IN (\(ids.map { _ in "?" }.joined(separator: ",")))"
+        let scopedArguments = StatementArguments(ids)
+        let state = try database.read { db -> (Int, Int, Int64, Int) in
+            guard try String.fetchOne(db, sql: "SELECT value FROM libraryStoreMetadata WHERE key = 'songs-authoritative'") == "1" else {
+                throw IncrementalSongPageError.unavailable
+            }
+            let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM librarySongRecords") ?? 0
+            let visible = sourceIDs == nil ? total : try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM librarySongRecords" + scopedPredicate,
+                arguments: scopedArguments
+            ) ?? 0
+            let revision = try Self.contentRevision(db)
+            let migration = try Int.fetchOne(db, sql: "SELECT CAST(value AS INTEGER) FROM libraryStoreMetadata WHERE key = 'songs-migration-version'") ?? 0
+            return (total, visible, revision, migration)
+        }
+        // With all sources enabled, omit the redundant source predicate so
+        // SQLite can skip a deep offset using only the ordering index.
+        if state.0 != state.1 {
+            predicate = scopedPredicate
+            arguments = scopedArguments
+        } else {
+            predicate = ""
+            arguments = []
+        }
+        count = state.1
+        revision = state.2
+        completedMigrationVersion = state.3
+    }
+
+    public func page(at index: Int) throws -> [Song] {
+        guard index >= 0, index <= Int.max / Self.pageSize else { throw IncrementalSongPageError.invalidRange }
+        try Task.checkCancellation()
+        let songs = try database.read { db -> [Song] in
+            guard try Self.contentRevision(db) == revision else { throw IncrementalSongPageError.snapshotChanged }
+            // Skip rows through the ordering index; only this page's payloads
+            // are read and decoded, including when jumping deep into a library.
+            let payloads = try Data.fetchAll(
+                db,
+                sql: Self.pageSQL(predicate: predicate),
+                arguments: arguments + [Self.pageSize, index * Self.pageSize]
+            )
+            var songs = try IncrementalSongStore.decodeSongs(payloads)
+            var interner = SongStringInterner()
+            for index in songs.indices { interner.intern(&songs[index]) }
+            return songs
+        }
+        try Task.checkCancellation()
+        return songs
+    }
+
+    private static func contentRevision(_ db: Database) throws -> Int64 {
+        try Int64.fetchOne(db, sql: "SELECT CAST(value AS INTEGER) FROM libraryStoreMetadata WHERE key = 'songs-content-revision'") ?? 0
+    }
+
+    private static func pageSQL(predicate: String) -> String {
+        "SELECT payload FROM librarySongRecords INDEXED BY librarySongRecords_on_orderKey_id"
+            + predicate + " ORDER BY orderKey ASC, id ASC LIMIT ? OFFSET ?"
+    }
+
+    func queryPlan() throws -> [String] {
+        try database.read { db in
+            try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + Self.pageSQL(predicate: predicate),
+                             arguments: arguments + [Self.pageSize, 0]).map { $0["detail"] as String }
+        }
+    }
+}
+
+/// Retains only the visible page and its two neighbors, even after browsing
+/// the entire library. A new reader/revision starts with a new window.
+public struct SongPageWindow: Sendable {
+    private var pages: [Int: [Song]] = [:]
+    public private(set) var centerPage = 0
+    public var cachedSongCount: Int { pages.values.reduce(0) { $0 + $1.count } }
+
+    public init() {}
+
+    public mutating func move(toRow row: Int) {
+        centerPage = max(0, row) / IncrementalSongPageReader.pageSize
+        pages = pages.filter { abs($0.key - centerPage) <= 1 }
+    }
+
+    public func missingPages(totalCount: Int) -> [Int] {
+        guard totalCount > 0 else { return [] }
+        let last = (totalCount - 1) / IncrementalSongPageReader.pageSize
+        return [centerPage, centerPage + 1, centerPage - 1].filter {
+            $0 >= 0 && $0 <= last && pages[$0] == nil
+        }
+    }
+
+    public mutating func insert(_ songs: [Song], at page: Int) {
+        guard page >= 0, abs(page - centerPage) <= 1 else { return }
+        pages[page] = Array(songs.prefix(IncrementalSongPageReader.pageSize))
+    }
+
+    public func song(at row: Int) -> Song? {
+        guard row >= 0, let page = pages[row / IncrementalSongPageReader.pageSize] else { return nil }
+        let index = row % IncrementalSongPageReader.pageSize
+        return page.indices.contains(index) ? page[index] : nil
+    }
+}
+
 /// Songs of one album or artist repeat the same strings: album and artist
 /// IDs and names, the source ID, genre, artwork file names, pinyin. Decoded
 /// one row at a time, every song carries its own heap copy of each. Sharing

@@ -4409,6 +4409,40 @@ final class MusicLibrary {
     /// 因此当前行为与历史版本完全一致(init 返回前库已就绪)。
     private(set) var readiness: LibraryReadiness = .preparing
     var isReady: Bool { readiness == .ready }
+
+    func prepareStartupSongPages(sourceIDs: Set<String>) async -> LibraryStartupSongPages? {
+        guard !isReady else { return nil }
+        let directory = snapshotURL.deletingLastPathComponent()
+        let enabledIDs = sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs)
+        let worker = Task.detached(priority: .userInitiated) { () -> (IncrementalSongPageReader, [Song])? in
+            do {
+                try Task.checkCancellation()
+                let exclusionURL = directory.appendingPathComponent("library-device-local-excluded-songs.json")
+                if FileManager.default.fileExists(atPath: exclusionURL.path) {
+                    let ledger = try JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: Data(contentsOf: exclusionURL))
+                    // Old/imported stores may still contain excluded rows. The
+                    // normal preparation reconciles their identity keys first.
+                    guard ledger.identities.isEmpty else { return nil }
+                }
+                let reader = try IncrementalSongPageReader(
+                    path: directory.appendingPathComponent("library-songs.sqlite").path,
+                    sourceIDs: enabledIDs
+                )
+                guard reader.completedMigrationVersion >= Self.loadedSongMigrationVersion,
+                      reader.count > 0 else { return nil }
+                return (reader, try reader.page(at: 0))
+            } catch {
+                return nil
+            }
+        }
+        let result = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard !Task.isCancelled, !isReady, let (reader, songs) = result else { return nil }
+        return LibraryStartupSongPages(reader: reader, firstPage: songs)
+    }
     @ObservationIgnored private var readinessContinuations: [CheckedContinuation<Void, Never>] = []
     /// `whenReady(timeout:)` 的等待者。按 id 登记, 这样超时的一方能只摘掉
     /// 自己那一条, 不影响其它等待者。
@@ -17117,5 +17151,48 @@ final class ArtworkInvalidationBatch: Sendable {
     /// 歌曲 ID 或封面引用, 两种都认。
     func contains(_ token: String) -> Bool {
         songIDs.contains(token) || references.contains(token)
+    }
+}
+
+@MainActor
+@Observable
+final class LibraryStartupSongPages {
+    let id = UUID()
+    let count: Int
+    private(set) var window = SongPageWindow()
+    private(set) var isUnavailable = false
+    @ObservationIgnored private let reader: IncrementalSongPageReader
+    @ObservationIgnored private var generation = 0
+
+    init(reader: IncrementalSongPageReader, firstPage: [Song]) {
+        self.reader = reader
+        count = reader.count
+        window.insert(firstPage, at: 0)
+    }
+
+    func load(around row: Int) async {
+        generation &+= 1
+        let requestGeneration = generation
+        window.move(toRow: row)
+        let missing = window.missingPages(totalCount: count)
+        guard !missing.isEmpty, !isUnavailable else { return }
+        let reader = reader
+        let worker = Task.detached(priority: .userInitiated) {
+            try missing.map { (index: $0, songs: try reader.page(at: $0)) }
+        }
+        do {
+            let pages = try await withTaskCancellationHandler {
+                try await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, requestGeneration == generation else { return }
+            for page in pages { window.insert(page.songs, at: page.index) }
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled, requestGeneration == generation else { return }
+            window = SongPageWindow()
+            isUnavailable = true
+        }
     }
 }

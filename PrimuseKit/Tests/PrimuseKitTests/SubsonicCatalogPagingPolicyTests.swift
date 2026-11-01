@@ -3,6 +3,39 @@ import Testing
 @testable import PrimuseKit
 
 struct SubsonicCatalogPagingPolicyTests {
+    @Test func largeSongPagesDoNotChangeLegacyAlbumLimitsOrExistingCheckpoints() {
+        #expect(SubsonicCatalogPagingPolicy.pageSize == 500)
+        #expect(SubsonicCatalogPagingPolicy.songPageSize(serverType: " Navidrome ") == 2_000)
+        for type in [nil, "gonic", "airsonic", "unknown"] {
+            #expect(SubsonicCatalogPagingPolicy.songPageSize(serverType: type) == 500)
+        }
+        #expect(SubsonicCatalogPagingPolicy.resumedPageSize(saved: 500, preferred: 2_000) == 500)
+        #expect(SubsonicCatalogPagingPolicy.resumedPageSize(saved: nil, preferred: 2_000) == 2_000)
+        #expect(SubsonicCatalogPagingPolicy.resumedPageSize(saved: 2_000, preferred: 500) == 500)
+        let query = SubsonicCatalogPagingPolicy.search3QueryItems(songOffset: 4_000, pageSize: 2_000)
+        #expect(query.first { $0.name == "songCount" }?.value == "2000")
+    }
+
+    @Test func cappedSongPagesContinueAtTheActualOffsetUntilEmpty() {
+        var offsets: [Int] = []
+        var offset = 0
+        for received in [500, 500, 37, 0] {
+            offsets.append(offset)
+            guard let next = SubsonicCatalogPagingPolicy.nextOffset(
+                currentOffset: offset, receivedCount: received,
+                pageSize: 2_000, continuesAfterShortPage: true
+            ) else { break }
+            offset = next
+        }
+        #expect(offsets == [0, 500, 1_000, 1_037])
+        let checkpoint = SubsonicCatalogResumeState(
+            pageSize: 2_000, stageSessionID: "capped", catalogRevision: "stable",
+            nextOffset: 1_037, completedPageCount: 3, stagedSongCount: 1_037,
+            stagedItemCount: 1_037,
+            firstPageItemIDs: ["first"]
+        )
+        #expect(checkpoint.isUsable(stagedSongCount: 1_037))
+    }
     @Test func everySubsonicFamilyMemberUsesTheSharedPagedRoute() {
         #expect(MusicSourceType.subsonic.isSubsonicFamily)
         #expect(MusicSourceType.navidrome.isSubsonicFamily)

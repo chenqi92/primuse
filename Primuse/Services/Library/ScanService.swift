@@ -3968,6 +3968,7 @@ final class ScanService {
         checkpoint: ScanCheckpoint?
     ) async -> Bool {
         let catalogPath = directories.first ?? "/"
+        var pageSize = SubsonicCatalogPagingPolicy.pageSize
         let existingByID = await Task.detached(priority: .utility) {
             IndexedSongSnapshot(existingSongs)
         }.value
@@ -4022,6 +4023,7 @@ final class ScanService {
                     index: [:]
                 ),
                 subsonicCatalogState: SubsonicCatalogResumeState(
+                    pageSize: pageSize,
                     stageSessionID: snapshot.stageSessionID,
                     catalogRevision: snapshot.catalogRevision,
                     nextOffset: snapshot.nextOffset,
@@ -4054,6 +4056,11 @@ final class ScanService {
                 }
 
                 let initialRevision = try await connector.stableSongCatalogRevision()
+                let preferredPageSize = try await connector.preferredSongCatalogPageSize()
+                pageSize = SubsonicCatalogPagingPolicy.resumedPageSize(
+                    saved: resumeCheckpoint?.subsonicCatalogState?.pageSize,
+                    preferred: preferredPageSize
+                )
                 let expectedCatalogCount = try await connector.expectedSongCatalogCount() ?? 0
                 try checkScanCommitFence(
                     sourceID: source.id,
@@ -4079,7 +4086,7 @@ final class ScanService {
                           initialRevision?.isEmpty == false,
                           persistedState.schemaVersion
                             == SubsonicCatalogResumeState.currentSchemaVersion,
-                          persistedState.pageSize == SubsonicCatalogPagingPolicy.pageSize,
+                          persistedState.pageSize == pageSize,
                           persistedState.stageSessionID == storedSnapshot.stageSessionID,
                           persistedState.catalogRevision == storedSnapshot.catalogRevision,
                           storedSnapshot.scopeFingerprint == scopeFingerprint,
@@ -4131,7 +4138,8 @@ final class ScanService {
                 } else if canResume, let storedSnapshot {
                     let verificationPage = try await connector.songCatalogPage(
                         from: catalogPath,
-                        offset: 0
+                        offset: 0,
+                        pageSize: pageSize
                     )
                     let confirmedRevision = try await connector.stableSongCatalogRevision()
                     try checkScanCommitFence(
@@ -4181,6 +4189,7 @@ final class ScanService {
                     ? stageSnapshot.stagedItemCount
                     : nil
                 var observedEmptyTerminalOffset: Int?
+                var pagesWithoutNewItems = 0
                 while let offset = stageSnapshot.nextOffset {
                     try checkScanCommitFence(
                         sourceID: source.id,
@@ -4204,7 +4213,8 @@ final class ScanService {
 
                     var page = try await connector.songCatalogPage(
                         from: catalogPath,
-                        offset: offset
+                        offset: offset,
+                        pageSize: pageSize
                     )
                     try checkScanCommitFence(
                         sourceID: source.id,
@@ -4220,11 +4230,11 @@ final class ScanService {
                         // a genuinely empty library without pruning live data.
                         throw PagedSongCatalogError.unavailable
                     }
-                    guard page.itemIDs.count <= SubsonicCatalogPagingPolicy.pageSize else {
+                    guard page.itemIDs.count <= pageSize else {
                         throw PagedSongCatalogError.snapshotChangedDuringPagination
                     }
                     if let expectedNextOffset = page.nextOffset {
-                        guard page.itemIDs.count >= SubsonicCatalogPagingPolicy.pageSize,
+                        guard !page.itemIDs.isEmpty,
                               expectedNextOffset == offset + page.itemIDs.count else {
                             throw PagedSongCatalogError.snapshotChangedDuringPagination
                         }
@@ -4278,6 +4288,11 @@ final class ScanService {
                     if skippedRowCount > 0 {
                         catalogDriftObserved = true
                         plog("↻ \(source.name): \(skippedRowCount) row(s) at offset \(offset) were already staged; skipped")
+                    }
+                    pagesWithoutNewItems = receivedItemCount > 0 && page.itemIDs.isEmpty
+                        ? pagesWithoutNewItems + 1 : 0
+                    guard pagesWithoutNewItems < 3 else {
+                        throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
                     }
                     let inspectedSongIDs = Set(pageSongs.compactMap { scannedSong in
                         scannedSong.titleMetadataInspected ? scannedSong.song.id : nil
@@ -4378,7 +4393,8 @@ final class ScanService {
                 ), let terminalProbeOffset {
                     let terminalProbe = try await connector.songCatalogPage(
                         from: catalogPath,
-                        offset: terminalProbeOffset
+                        offset: terminalProbeOffset,
+                        pageSize: pageSize
                     )
                     guard terminalProbe.itemIDs.isEmpty,
                           terminalProbe.songs.isEmpty else {
@@ -4387,11 +4403,9 @@ final class ScanService {
                         // silently truncate search3 while keeping a stable
                         // scan revision.
                         if toleratesCatalogDrift {
-                            // The catalogue grew past the end. Reopen the walk
-                            // at the page holding the old end; rows read
-                            // twice are skipped.
-                            let pageSize = SubsonicCatalogPagingPolicy.pageSize
-                            let reopenedOffset = terminalProbeOffset / pageSize * pageSize
+                            // The provider may cap a page below our requested
+                            // width. Resume at the actual end, not a rounded offset.
+                            let reopenedOffset = terminalProbeOffset
                             let reopenedSessionID = stageSnapshot.stageSessionID
                             stageSnapshot = try await Task.detached(priority: .utility) {
                                 try stagingStore.reanchor(
@@ -4413,7 +4427,8 @@ final class ScanService {
                 }
                 let finalFirstPage = try await connector.songCatalogPage(
                     from: catalogPath,
-                    offset: 0
+                    offset: 0,
+                    pageSize: pageSize
                 )
                 let finalRevisionAfterPage = try await connector.stableSongCatalogRevision()
                 if finalRevisionBeforePage != initialRevision

@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import PrimuseKit
 
@@ -224,6 +225,76 @@ struct IncrementalSongStoreTests {
         }
         let store = try IncrementalSongStore(path: url.path)
         try body(store)
+    }
+
+    @Test("Pages keep canonical order across sources and never decode outside the requested page")
+    func boundedPages() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("songs.sqlite").path
+        let store = try IncrementalSongStore(path: path)
+        let songs = (0..<1_003).map { index -> Song in
+            var song = makeSong(id: "song-\(index)", path: "/\(index).mp3", title: "Song \(index)")
+            song.sourceID = index.isMultiple(of: 2) ? "a" : "b"
+            return song
+        }
+        try store.replaceAll(with: songs)
+        let all = try IncrementalSongPageReader(path: path)
+        #expect(all.count == songs.count)
+        #expect(try all.page(at: 0) == Array(songs.prefix(200)))
+        #expect(try all.page(at: 5) == Array(songs.suffix(3)))
+        #expect(try all.page(at: 6).isEmpty)
+        #expect(throws: IncrementalSongPageError.invalidRange) { try all.page(at: -1) }
+        #expect(throws: IncrementalSongPageError.invalidRange) { try all.page(at: Int.max) }
+        let filtered = try IncrementalSongPageReader(path: path, sourceIDs: ["b"])
+        let expected = songs.filter { $0.sourceID == "b" }
+        #expect(filtered.count == expected.count)
+        #expect(try filtered.page(at: 1) == Array(expected[200..<400]))
+        #expect(try IncrementalSongPageReader(path: path, sourceIDs: []).count == 0)
+        #expect(try all.queryPlan().allSatisfy { !$0.contains("TEMP B-TREE") })
+        #expect(try filtered.queryPlan().allSatisfy { !$0.contains("TEMP B-TREE") })
+
+        let raw = try DatabaseQueue(path: path)
+        try raw.write { db in
+            try db.execute(sql: "UPDATE librarySongRecords SET payload = ? WHERE id = ?",
+                           arguments: [Data("broken".utf8), "song-1002"])
+        }
+        #expect(try all.page(at: 0).count == 200)
+        #expect(throws: (any Error).self) { try all.page(at: 5) }
+    }
+
+    @Test("A changed canonical revision cannot mix two page snapshots")
+    func changedPageSnapshot() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("songs.sqlite").path
+        let store = try IncrementalSongStore(path: path)
+        #expect(throws: IncrementalSongPageError.unavailable) { try IncrementalSongPageReader(path: path) }
+        var song = makeSong(id: "one", path: "/one.mp3", title: "Old")
+        try store.replaceAll(with: [song])
+        let reader = try IncrementalSongPageReader(path: path)
+        song.title = "New"
+        try store.apply(upserts: [song])
+        #expect(throws: IncrementalSongPageError.snapshotChanged) { try reader.page(at: 0) }
+        #expect(try IncrementalSongPageReader(path: path).page(at: 0) == [song])
+    }
+
+    @Test("Browsing and late page arrivals retain at most three pages")
+    func boundedPageWindow() {
+        let page = (0..<200).map { makeSong(id: "\($0)", path: "/\($0)", title: "\($0)") }
+        var window = SongPageWindow()
+        for center in [0, 1, 2, 100, 3_499, 20, 0] {
+            window.move(toRow: center * 200)
+            for index in window.missingPages(totalCount: 700_000) { window.insert(page, at: index) }
+            #expect(window.cachedSongCount <= 600)
+            #expect(window.song(at: center * 200) == page.first)
+        }
+        window.insert(page, at: 3_499)
+        #expect(window.song(at: 3_499 * 200) == nil)
+        #expect(window.song(at: -1) == nil)
+        #expect(window.missingPages(totalCount: 0).isEmpty)
     }
 
     private func makeSong(id: String, path: String, title: String) -> Song {

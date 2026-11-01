@@ -34,6 +34,53 @@ private final class PersistenceBarrierRecorder {
 @MainActor
 final class LibraryStartupPreparationTests: XCTestCase {
 
+    func testStartupPagesBrowseEnabledSourcesBeforeFullReadiness() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        let songs = (0..<1_203).map {
+            Self.makeSong(id: "\($0)", sourceID: $0.isMultiple(of: 2) ? "enabled" : "disabled")
+        }
+        try store.replaceAll(with: songs)
+        try store.markMigrationCompleted(version: 10)
+        let revision = try store.startupState().contentRevision
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, disabledSourceIDs: ["disabled"])
+        let result = await library.prepareStartupSongPages(sourceIDs: ["enabled", "disabled"])
+        let pages = try XCTUnwrap(result)
+        XCTAssertFalse(library.isReady)
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertEqual(pages.count, 602)
+        XCTAssertEqual(pages.window.song(at: 0)?.id, "0")
+        await pages.load(around: 400)
+        XCTAssertEqual(pages.window.song(at: 400)?.id, "800")
+        XCTAssertLessThanOrEqual(pages.window.cachedSongCount, 600)
+        XCTAssertEqual(try store.startupState().contentRevision, revision)
+
+        try store.apply(upserts: [], deletingIDs: ["800"])
+        await pages.load(around: 0)
+        XCTAssertTrue(pages.isUnavailable)
+        XCTAssertEqual(pages.window.cachedSongCount, 0)
+    }
+
+    func testStartupPagingWaitsForMigrationsAndLocalExclusionReconciliation() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        let song = Self.makeSong(id: "one", sourceID: "source")
+        try store.replaceAll(with: [song])
+        let persistedSongs = try store.loadSongs()
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let old = await library.prepareStartupSongPages(sourceIDs: ["source"])
+        XCTAssertNil(old)
+        try store.markMigrationCompleted(version: 10)
+        let ledger = SongLocalRemovalLedger(identities: ["source:\(song.filePath)"])
+        try JSONEncoder().encode(ledger).write(to: directory.appendingPathComponent("library-device-local-excluded-songs.json"))
+        let excluded = await library.prepareStartupSongPages(sourceIDs: ["source"])
+        XCTAssertNil(excluded)
+        XCTAssertFalse(library.isReady)
+        XCTAssertEqual(try store.loadSongs(), persistedSongs)
+    }
+
     // MARK: - Fixtures
 
     private static func makeStorageDirectory() throws -> URL {

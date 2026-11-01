@@ -2386,6 +2386,24 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
         }
     }
 
+    func preferredSongCatalogPageSize() async throws -> Int {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.preferredSongCatalogPageSize()
+        }
+    }
+
+    func songCatalogPage(from path: String, offset: Int, pageSize: Int) async throws -> PagedSongCatalogPage {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.songCatalogPage(from: path, offset: offset, pageSize: pageSize)
+        }
+    }
+
     func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
         try await routing.withRead { connector in
             guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
@@ -3078,6 +3096,24 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
                 throw PagedSongCatalogError.unavailable
             }
             return try await scanner.stableSongCatalogRevision()
+        }
+    }
+
+    func preferredSongCatalogPageSize() async throws -> Int {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.preferredSongCatalogPageSize()
+        }
+    }
+
+    func songCatalogPage(from path: String, offset: Int, pageSize: Int) async throws -> PagedSongCatalogPage {
+        try await routing.withRead { connector in
+            guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
+                throw PagedSongCatalogError.unavailable
+            }
+            return try await scanner.songCatalogPage(from: path, offset: offset, pageSize: pageSize)
         }
     }
 

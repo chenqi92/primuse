@@ -922,17 +922,40 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     }
 }
 
-/// 资料库发布前的内容占位；主导航已可使用，这里不读取尚未发布的曲库。
+/// Reads bounded pages from the canonical store while derived indexes prepare.
 private struct LibraryPreparingView: View {
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(AudioPlayerService.self) private var player
+    @State private var pages: LibraryStartupSongPages?
+    @State private var firstVisibleRow = 0
+    @State private var viewportHeight: CGFloat = 720
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 72
     /// 资料库多数时候一两百毫秒就装好。一出来就转圈的话，每次冷启动都会闪一下
     /// 「准备资料库」；先只铺底色，真慢的时候再把进度亮出来。
     @State private var showsProgress = false
+
+    private var sourceIDs: Set<String> {
+        Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+    }
+
+    private struct PageRequest: Equatable {
+        let readerID: UUID?
+        let page: Int
+    }
+
+    private struct Viewport: Equatable {
+        let firstRow: Int
+        let height: Int
+    }
 
     var body: some View {
         ZStack {
             Color(.systemBackground)
                 .ignoresSafeArea()
-            if showsProgress {
+            if let pages, !pages.isUnavailable {
+                songPages(pages)
+            } else if showsProgress {
                 VStack(spacing: 16) {
                     ProgressView()
                         .controlSize(.large)
@@ -947,6 +970,73 @@ private struct LibraryPreparingView: View {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             showsProgress = true
+        }
+        .task(id: sourceIDs) {
+            pages = nil
+            firstVisibleRow = 0
+            pages = await library.prepareStartupSongPages(sourceIDs: sourceIDs)
+        }
+        .task(id: PageRequest(readerID: pages?.id, page: firstVisibleRow / IncrementalSongPageReader.pageSize)) {
+            await pages?.load(around: firstVisibleRow)
+        }
+    }
+
+    private func songPages(_ pages: LibraryStartupSongPages) -> some View {
+        let range = SongListScrollWindow.range(
+            totalCount: pages.count, firstVisibleRow: firstVisibleRow,
+            viewportHeight: Double(viewportHeight), rowHeight: Double(rowHeight)
+        )
+        return ScrollView {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: CGFloat(range.lowerBound) * rowHeight)
+                    .accessibilityHidden(true)
+                ForEach(range, id: \.self) { position in
+                    Group {
+                        if let song = pages.window.song(at: position) {
+                            Button {
+                                Task { await player.play(queue: [song], startingAt: 0) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    CachedArtworkView(
+                                        coverRef: song.coverArtFileName, songID: song.id,
+                                        size: 48, cornerRadius: 6, sourceID: song.sourceID,
+                                        filePath: song.filePath, fileFormat: song.fileFormat
+                                    )
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(song.title).font(.body).foregroundStyle(.primary)
+                                        if let artist = song.artistName {
+                                            Text(artist).font(.subheadline).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                    if player.currentSong?.id == song.id {
+                                        Image(systemName: "speaker.wave.2.fill").foregroundStyle(.tint)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!song.isPlayable)
+                            .accessibilityIdentifier("library.startup.song.\(song.id)")
+                        } else {
+                            ProgressView().frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: rowHeight)
+                }
+                Color.clear.frame(height: CGFloat(pages.count - range.upperBound) * rowHeight)
+                    .accessibilityHidden(true)
+            }
+        }
+        .onScrollGeometryChange(for: Viewport.self) { geometry in
+            let row = Int(max(0, geometry.visibleRect.minY) / max(1, rowHeight))
+            return Viewport(firstRow: row / SongListScrollWindow.rowStride * SongListScrollWindow.rowStride,
+                            height: Int(geometry.containerSize.height))
+        } action: { _, viewport in
+            firstVisibleRow = viewport.firstRow
+            viewportHeight = CGFloat(viewport.height)
         }
     }
 }
