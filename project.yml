@@ -754,6 +754,8 @@ targets:
       # 的在线歌词都走与 iOS / macOS 同一份实现(纯 Foundation + PrimuseKit)。
       - path: Primuse/Services/Metadata/ScraperManager.swift
       - path: Primuse/Services/Metadata/AutomaticOnlineLyricsLedger.swift
+      - path: Primuse/Services/Metadata/PlaybackWordLyricsDiscovery.swift
+      - path: Primuse/Views/Components/PlayerActivityBar.swift
       - path: Primuse/Services/Metadata/Scrapers
       - path: Primuse/Services/Metadata/ArtworkFetchService.swift
       # 矢量台标(SVG)栅格化成位图,与 iOS / macOS 同一份实现。

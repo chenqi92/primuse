@@ -9,11 +9,17 @@ struct LyricsSettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
+    @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
+    private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
     @State private var cacheCount: Int = 0
     @State private var showClearConfirm = false
 
     var body: some View {
         Form {
+            Section {
+                Toggle("explore_word_lyrics", isOn: $exploresWordLyrics)
+                    .settingsAnchor("lyrics.exploreWordTiming")
+            }
             Section {
                 Toggle(isOn: $settings.isEnabled) {
                     SettingsInfoLabel("lyrics_translation_enabled") {

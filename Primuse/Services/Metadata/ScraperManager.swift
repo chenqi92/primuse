@@ -101,7 +101,9 @@ actor ScraperManager {
         album: String?,
         duration: TimeInterval?,
         needs: ScrapeNeeds,
-        settings: ScraperSettings
+        settings: ScraperSettings,
+        requiresWordTiming: Bool = false,
+        lyricsProgress: (@Sendable (String, Int, Int) async -> Void)? = nil
     ) async -> ScrapeResult {
         var result = ScrapeResult(errors: [])
         let enabledSources = settings.enabledSources
@@ -289,12 +291,15 @@ actor ScraperManager {
         if needs.lyrics {
             plog("🎤 Lyrics tier: needs.lyrics=true, enabled sources w/ supportsLyrics: \(enabledSources.filter { $0.type.supportsLyrics }.map { $0.type.displayName })")
             var pick = OnlineLyricsTimingPick<[LyricLine]>()
-            for config in enabledSources where config.type.supportsLyrics {
-                guard pick.wantsNextSource else { break }
+            let lyricsSources = enabledSources.filter { $0.type.supportsLyrics }
+            for (index, config) in lyricsSources.enumerated() {
+                guard !Task.isCancelled else { return result }
+                guard requiresWordTiming ? pick.level != .word : pick.wantsNextSource else { break }
                 if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🎤 Skipping \(config.type.displayName) lyrics — temporarily unavailable")
                     continue
                 }
+                await lyricsProgress?(config.displayName, index, lyricsSources.count)
                 var sourceLyrics: [LyricLine]?
                 do {
                     let scraper = getScraper(for: config)
@@ -381,7 +386,7 @@ actor ScraperManager {
                 }
                 // `result.lyrics` 跟着选中的那份走，后面的源被取消时提前返回也带着它。
                 if pick.record(sourceLyrics) {
-                    result.lyrics = pick.lyrics
+                    result.lyrics = requiresWordTiming && pick.level != .word ? nil : pick.lyrics
                     let level = pick.level.map { "\($0)" } ?? "-"
                     plog("🎤 [\(config.type.displayName)] picked \(level)-timed lyrics\(pick.extraSourcesAsked > 0 ? " over the earlier source" : "")")
                 }

@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "मानक";
 "player_track_thickness_thick" = "मोटा";
 "player_track_thickness_extraThick" = "बहुत मोटा";
+
+"explore_word_lyrics" = "शब्द-सिंक बोल खोजें";
+"player_activity_status" = "कार्य स्थिति";
+"word_lyrics_searching" = "शब्द-सिंक बोल खोजे जा रहे हैं";
+"word_lyrics_source_format" = "%@ से शब्द-सिंक बोल प्राप्त किए जा रहे हैं";
+"word_lyrics_not_found" = "शब्द-सिंक बोल नहीं मिले";
+"word_lyrics_unavailable" = "शब्द-सिंक बोल अभी उपलब्ध नहीं हैं";
+"word_lyrics_downloaded" = "शब्द-सिंक बोल डाउनलोड हो गए";
+"player_activity_lyrics" = "बोल प्राप्त किए जा रहे हैं";
+"player_activity_artwork" = "कवर प्राप्त किए जा रहे हैं";
+"player_activity_scraping" = "मेटाडेटा प्राप्त किया जा रहा है";

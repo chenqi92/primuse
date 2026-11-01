@@ -306,6 +306,7 @@ final class TVPlaybackCoordinator {
     private var appleMusicContinuationTask: Task<Void, Never>?
     private let registry = StreamResolverRegistry.shared
     private var lyricsTask: Task<Void, Never>?
+    private var wordLyricsDiscovery: PlaybackWordLyricsDiscovery?
     /// 最近一次为 CUE 分轨找歌词列过的目录。一张专辑接着往下放,每一轨都
     /// 复用这一次列目录和整理出的曲目表,不再重复访问源。
     private var cueTrackLyricsDirectory: CueTrackLyricsDirectory?
@@ -361,6 +362,28 @@ final class TVPlaybackCoordinator {
         self.store = store
         self.engine = engine
         self.publishesPresentation = publishesPresentation
+        if publishesPresentation {
+            Task { @MainActor [weak self, weak store] in
+                guard let self, let store else { return }
+                self.wordLyricsDiscovery = PlaybackWordLyricsDiscovery(
+                    playback: { [weak store] in
+                        guard let store else { return .init(isPlaying: false, isSpokenWord: false) }
+                        return .init(
+                            song: store.isLiveRadio ? nil : store.currentSongID.flatMap { store.library.song(id: $0) },
+                            isPlaying: store.isPlaying, isSpokenWord: store.currentItemIsSpokenWord
+                        )
+                    },
+                    load: { [weak self] song in
+                        await self?.lyricsTask?.value
+                        return await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? []
+                    },
+                    didInstall: { [weak self, weak store] song, lines in
+                        guard let self, let store, store.currentSongID == song.id else { return }
+                        self.applyLoadedLyrics(lines, duration: song.duration, forSongID: song.id, store: store)
+                    }
+                )
+            }
+        }
     }
 
     func resolveRadioStream(

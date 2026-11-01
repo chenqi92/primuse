@@ -56,6 +56,10 @@ private var tvDebugShowsScraperSettings: Bool {
 }
 
 struct TVSettingsView: View {
+    @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
+    private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
+    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
+    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
     @Environment(TVStore.self) private var store
     @Environment(TVAppearanceState.self) private var appearanceState
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -528,6 +532,16 @@ struct TVSettingsView: View {
     @ViewBuilder
     private var lyricsSection: some View {
         settingsSection(String(localized: "Lyrics")) {
+            toggleRow("text.magnifyingglass", String(localized: "explore_word_lyrics"), isOn: Binding(
+                get: { exploresWordLyrics },
+                set: { exploresWordLyrics = $0; CloudKVSSync.shared.markChanged(key: WordLyricsDiscoveryPreferences.enabledKey) }
+            ))
+            settingDivider
+            toggleRow("ellipsis.rectangle", String(localized: "player_activity_status"), isOn: Binding(
+                get: { showsActivity },
+                set: { showsActivity = $0; CloudKVSSync.shared.markChanged(key: WordLyricsDiscoveryPreferences.showsActivityKey) }
+            ))
+            settingDivider
             toggleRow(
                 "ellipsis",
                 String(localized: "player_lyrics_interlude_dots"),

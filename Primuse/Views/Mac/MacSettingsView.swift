@@ -5602,6 +5602,8 @@ private final class ScraperReorderHandleNSView: NSView {
 // MARK: - ST-05 Lyrics Translation
 
 private struct MacSTLyricsView: View {
+    @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
+    private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var settings = LyricsTranslationSettingsStore.shared
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
@@ -5647,6 +5649,14 @@ private struct MacSTLyricsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            MacSTSection(String(localized: "Lyrics")) {
+                MacSTGroup {
+                    MacSTRow(String(localized: "explore_word_lyrics"), divider: false) {
+                        MacSTToggle(isOn: $exploresWordLyrics)
+                    }
+                    .settingsAnchor("lyrics.exploreWordTiming")
+                }
+            }
             MacSTSection(String(localized: "lyrics_translation_section")) {
                 MacSTGroup {
                     MacSTRow(String(localized: "lyrics_translation_enabled"), divider: false) {
@@ -7388,6 +7398,8 @@ private struct MacSTThemeView: View {
     private var kineticSceneRawValue = ImmersiveKineticScenePreference.automaticValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
+    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
     @AppStorage(PlayerAppearancePreferences.showsAlbumInSubtitleKey)
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
@@ -7728,6 +7740,10 @@ private struct MacSTThemeView: View {
                         .accessibilityHint(Text("player_volume_bar_description"))
                 }
                 .settingsAnchor("appearance.volumeBar")
+                MacSTRow(String(localized: "player_activity_status")) {
+                    MacSTToggle(isOn: $showsActivity)
+                }
+                .settingsAnchor("appearance.activityStatus")
                 MacSTRow(
                     String(localized: "player_album_in_subtitle")
                 ) {

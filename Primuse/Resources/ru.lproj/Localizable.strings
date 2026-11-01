@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "Стандартная";
 "player_track_thickness_thick" = "Толстая";
 "player_track_thickness_extraThick" = "Очень толстая";
+
+"explore_word_lyrics" = "Искать тексты с пословной синхронизацией";
+"player_activity_status" = "Статус задач";
+"word_lyrics_searching" = "Поиск текстов с пословной синхронизацией";
+"word_lyrics_source_format" = "Загрузка синхронизированных текстов из %@";
+"word_lyrics_not_found" = "Тексты с пословной синхронизацией не найдены";
+"word_lyrics_unavailable" = "Синхронизированные тексты временно недоступны";
+"word_lyrics_downloaded" = "Синхронизированные тексты загружены";
+"player_activity_lyrics" = "Загрузка текстов";
+"player_activity_artwork" = "Загрузка обложек";
+"player_activity_scraping" = "Получение метаданных";

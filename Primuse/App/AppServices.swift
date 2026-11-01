@@ -1081,6 +1081,7 @@ final class AppServices {
     let playerService: AudioPlayerService
     let scraperSettingsStore: ScraperSettingsStore
     let scraperService: MusicScraperService
+    private var wordLyricsDiscovery: PlaybackWordLyricsDiscovery?
     let musicLibrary: MusicLibrary
     let playbackSettingsStore: PlaybackSettingsStore
     let cloudSync: CloudKitSyncService
@@ -1823,6 +1824,26 @@ final class AppServices {
             (startupFinishedAt - playbackRestoreFinishedAt) * 1_000
         ))
 
+        Task { @MainActor [weak self, weak player, weak manager] in
+            guard let self, let player, let manager else { return }
+            self.wordLyricsDiscovery = PlaybackWordLyricsDiscovery(
+                playback: { [weak player] in
+                    .init(
+                        song: player?.isLiveRadio == false ? player?.currentSong : nil,
+                        isPlaying: player?.isPlaying ?? false,
+                        isSpokenWord: player?.currentItemIsSpokenWord ?? true,
+                        allowsNetwork: NetworkMonitor.shared.allowsAutomaticInternetRequests
+                    )
+                },
+                load: { [weak manager] song in
+                    guard let manager else { return [] }
+                    return await LyricsLoader.load(
+                        for: song, sourceManager: manager, allowsAutomaticOnlineLyrics: false
+                    )
+                }
+            )
+        }
+
         // 发布步骤。必须是 init 的最后一件事, 并且只依赖准备任务本身 ——
         // 任何会 await `persistNowAndWait()` / `whenReady()` 的调用都要等这里
         // 先跑完, 放进来就是死锁。
@@ -1837,6 +1858,7 @@ final class AppServices {
                 ))
             }
         }
+
     }
 
     /// Runs after SwiftUI has had a chance to present the first frame. Queue

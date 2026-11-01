@@ -289,6 +289,12 @@ struct ImmersivePlayerView: View {
                     )
                 }
             }
+            .overlay(alignment: .bottom) {
+                if !presentsOnExternalDisplay && !showsEffectPicker {
+                    PlayerActivityBar(songID: player.currentSong?.id)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom + 4)
+                }
+            }
             .onChange(of: geometry.size) { _, _ in discPosition.endDrag() }
             .onChange(of: discStyle) { _, _ in discPosition.endDrag() }
             .animation(.easeInOut(duration: 0.26), value: showsChrome)

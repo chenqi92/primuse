@@ -210,25 +210,51 @@ final class MusicScraperService {
         }
     }
 
-    private(set) var isScraping = false
+    private(set) var isScraping = false { didSet { publishBatchActivity() } }
     private(set) var isBackgroundEnriching = false
     private(set) var currentSongTitle = ""
-    private(set) var processedCount = 0
+    private(set) var processedCount = 0 { didSet { publishBatchActivity() } }
     private(set) var totalCount = 0
     private(set) var updatedCount = 0
     private(set) var skippedCount = 0
     private(set) var failedCount = 0
-    private(set) var batchPhase: BatchScrapePhase = .songs
+    private(set) var batchPhase: BatchScrapePhase = .songs { didSet { publishBatchActivity() } }
     private(set) var songTotalCount = 0
     private(set) var artworkTotalCount = 0
-    private(set) var artworkProcessedCount = 0
+    private(set) var artworkProcessedCount = 0 { didSet { publishBatchActivity() } }
     private(set) var artworkAvailableCount = 0
     private(set) var artworkUnavailableCount = 0
     private(set) var lastCompletion: BatchScrapeCompletion?
     private(set) var completionRevision: UInt = 0
     private(set) var activeRunID: UUID?
     private(set) var activeOriginPlaylistID: String?
-    private(set) var activeSingleScrape: SingleSongScrapeActivity?
+    private(set) var activeSingleScrape: SingleSongScrapeActivity? {
+        didSet {
+            if let oldValue { PlayerActivityStore.shared.remove(oldValue.runID) }
+            if let activeSingleScrape {
+                PlayerActivityStore.shared.publish(.init(
+                    id: activeSingleScrape.runID, songID: activeSingleScrape.key.songID,
+                    title: String(localized: activeSingleScrape.key.purpose.requestedParts == .lyrics
+                        ? "player_activity_lyrics" : "player_activity_scraping"), progress: nil
+                ))
+            }
+        }
+    }
+    private let batchActivityID = UUID()
+
+    private func publishBatchActivity() {
+        guard isScraping else {
+            PlayerActivityStore.shared.remove(batchActivityID)
+            return
+        }
+        PlayerActivityStore.shared.publish(.init(
+            id: batchActivityID, songID: nil,
+            title: String(localized: batchPhase == .artwork || scrapeCheckpoint?.parts == .cover
+                ? "player_activity_artwork"
+                : (scrapeCheckpoint?.parts == .lyrics ? "player_activity_lyrics" : "player_activity_scraping")),
+            progress: phaseTotalCount > 0 ? phaseProgress : nil
+        ))
+    }
     private(set) var singleScrapeCompletionRevision: UInt = 0
     private var pendingPlaylistCompletions: [String: BatchScrapeCompletion] = [:]
     private var artworkTargetIDs: [String] = []

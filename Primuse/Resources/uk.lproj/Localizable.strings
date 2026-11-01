@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "Стандартна";
 "player_track_thickness_thick" = "Товста";
 "player_track_thickness_extraThick" = "Дуже товста";
+
+"explore_word_lyrics" = "Шукати тексти з послівною синхронізацією";
+"player_activity_status" = "Стан завдань";
+"word_lyrics_searching" = "Пошук текстів із послівною синхронізацією";
+"word_lyrics_source_format" = "Завантаження синхронізованих текстів із %@";
+"word_lyrics_not_found" = "Тексти з послівною синхронізацією не знайдено";
+"word_lyrics_unavailable" = "Синхронізовані тексти тимчасово недоступні";
+"word_lyrics_downloaded" = "Синхронізовані тексти завантажено";
+"player_activity_lyrics" = "Завантаження текстів";
+"player_activity_artwork" = "Завантаження обкладинок";
+"player_activity_scraping" = "Отримання метаданих";

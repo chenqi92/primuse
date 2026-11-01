@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import SwiftUI
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -672,6 +674,151 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertEqual([first1, failing1, same1, word1], [1, 1, 1, 0])
     }
 
+    func testWordDiscoveryContinuesPastLineTimedFallbackLimit() async {
+        let line = StubDirectLyricsScraper(.success("[00:01.00]Hello"))
+        let word = StubDirectLyricsScraper(.success("[00:01.00]<00:01.00>Hel<00:01.50>lo"))
+        let manager = ScraperManager(scraperFactory: { config in config.id == "word" ? word : line })
+        let sources = (0..<4).map { index in
+            ScraperSourceConfig(id: "line-\(index)", type: .lrclib, isEnabled: true, priority: index)
+        } + [ScraperSourceConfig(id: "word", type: .lrclib, isEnabled: true, priority: 4)]
+        let result = await manager.scrapeMetadata(
+            title: "Song", artist: "Artist", album: nil, duration: nil,
+            needs: .init(metadata: false, cover: false, lyrics: true),
+            settings: .init(sources: sources), requiresWordTiming: true
+        )
+        XCTAssertEqual(result.lyrics.map { LyricsTimingLevel(lines: $0) }, .word)
+        let lineCount = await line.requestCount
+        let wordCount = await word.requestCount
+        XCTAssertEqual(lineCount, 4)
+        XCTAssertEqual(wordCount, 1)
+    }
+
+    func testWordDiscoveryDoesNotReturnLineTimedLyricsAsSuccess() async {
+        let line = StubDirectLyricsScraper(.success("[00:01.00]Hello"))
+        let manager = ScraperManager(scraperFactory: { _ in line })
+        let result = await manager.scrapeMetadata(
+            title: "Song", artist: "Artist", album: nil, duration: nil,
+            needs: .init(metadata: false, cover: false, lyrics: true),
+            settings: .init(sources: [.init(id: "line", type: .lrclib, isEnabled: true, priority: 0)]),
+            requiresWordTiming: true
+        )
+        XCTAssertNil(result.lyrics)
+        XCTAssertTrue(result.errors.isEmpty)
+    }
+
+    @MainActor
+    func testPlayerActivitiesStayWithTheirSongAndKeepOtherTasksVisible() async throws {
+        let store = PlayerActivityStore()
+        let first = UUID(), second = UUID(), batch = UUID()
+        store.publish(.init(id: first, songID: "a", title: "lyrics", progress: nil))
+        store.publish(.init(id: second, songID: "b", title: "cover", progress: nil))
+        XCTAssertEqual(store.status(for: "a")?.id, first)
+        XCTAssertEqual(store.status(for: "b")?.id, second)
+        XCTAssertNil(store.status(for: "c"))
+        XCTAssertNil(store.status(for: nil))
+        store.publish(.init(id: batch, songID: nil, title: "batch", progress: 0.5))
+        store.remove(first)
+        XCTAssertEqual(store.status(for: "a")?.id, batch)
+        store.remove(batch)
+        XCTAssertEqual(store.status(for: "b")?.id, second)
+        let preview = VStack(spacing: 20) {
+            PlayerActivityStatusView(status: .init(
+                id: UUID(), songID: "a", title: "正在从 AMLL 获取逐字歌词", progress: 0.5
+            ))
+            PlayerActivityStatusView(status: .init(
+                id: UUID(), songID: "a", title: "逐字歌词已下载", progress: nil, isRunning: false
+            ))
+            PlayerActivityStatusView(status: .init(
+                id: UUID(), songID: nil, title: "正在获取封面", progress: 0.75
+            ))
+        }
+        .padding(24)
+        .frame(width: 390)
+        .background(Color(white: 0.12))
+        .environment(\.colorScheme, .dark)
+        let host = UIHostingController(rootView: preview)
+        host.safeAreaRegions = []
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 184)
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(150))
+        let image = UIGraphicsImageRenderer(size: host.view.bounds.size).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "player-activity-status"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testPlaybackDiscoveryInstallsLyricsWithoutALyricsView() async throws {
+        let fixture = try DiscoveryFixture()
+        defer { fixture.close() }
+        LyricsDocumentPinStore.shared.setAutomaticPick("song.lrc", forSongID: fixture.song.id)
+        let completed = expectation(description: "installed")
+        fixture.start { _, _ in completed.fulfill() }
+        await fulfillment(of: [completed], timeout: 3)
+        let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: fixture.song.id)
+        XCTAssertEqual(cached.map { LyricsTimingLevel(lines: $0) }, .word)
+        XCTAssertEqual(fixture.state.song?.id, fixture.song.id)
+    }
+
+    @MainActor
+    func testPlaybackDiscoveryPreservesConcurrentEdits() async throws {
+        let fixture = try DiscoveryFixture(delay: .milliseconds(200))
+        defer { fixture.close() }
+        fixture.start()
+        await fixture.waitForRequest()
+        var edited = [LyricLine(timestamp: 1, text: "Edited by user")]
+        edited[0].documentIsLocalOverride = true
+        _ = await MetadataAssetStore.shared.cacheLyrics(edited, forSongID: fixture.song.id, force: true)
+        try await Task.sleep(for: .milliseconds(300))
+        let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: fixture.song.id)
+        XCTAssertEqual(cached?.first?.text, "Edited by user")
+        XCTAssertEqual(cached?.first?.documentIsLocalOverride, true)
+    }
+
+    @MainActor
+    func testPlaybackDiscoveryCancelsOnSongChangeAndCanRetry() async throws {
+        let fixture = try DiscoveryFixture(delay: .milliseconds(200))
+        defer { fixture.close() }
+        fixture.start()
+        await fixture.waitForRequest()
+        fixture.state.song = nil
+        try await Task.sleep(for: .milliseconds(40))
+        let cancelledCache = await MetadataAssetStore.shared.cachedLyrics(forSongID: fixture.song.id)
+        XCTAssertNil(cancelledCache)
+        XCTAssertNil(PlayerActivityStore.shared.status(for: fixture.song.id))
+        let completed = expectation(description: "retry installed")
+        fixture.installed = { _, _ in completed.fulfill() }
+        fixture.state.song = fixture.song
+        await fulfillment(of: [completed], timeout: 3)
+        let requests = await fixture.stub.requestCount
+        XCTAssertEqual(requests, 2)
+    }
+
+    @MainActor
+    func testPlaybackDiscoveryTurningOffCancelsPendingResult() async throws {
+        let fixture = try DiscoveryFixture(delay: .milliseconds(200))
+        defer { fixture.close() }
+        fixture.start()
+        await fixture.waitForRequest()
+        fixture.defaults.set(false, forKey: WordLyricsDiscoveryPreferences.enabledKey)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: fixture.defaults)
+        try await Task.sleep(for: .milliseconds(300))
+        let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: fixture.song.id)
+        XCTAssertNil(cached)
+        XCTAssertNil(PlayerActivityStore.shared.status(for: fixture.song.id))
+    }
+
     func testExistingSettingsGainAMLLRightBeforeLRCLIB() throws {
         let suite = "amll-settings-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -837,10 +984,12 @@ private final class ScraperTestClock: @unchecked Sendable {
 private actor StubDirectLyricsScraper: MusicScraper, DirectLyricsLookup {
     let type = MusicScraperType.lrclib
     private let reply: Result<String?, any Error>
+    private let delay: Duration
     private(set) var requestCount = 0
 
-    init(_ reply: Result<String?, any Error>) {
+    init(_ reply: Result<String?, any Error>, delay: Duration = .zero) {
         self.reply = reply
+        self.delay = delay
     }
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
@@ -860,6 +1009,7 @@ private actor StubDirectLyricsScraper: MusicScraper, DirectLyricsLookup {
         duration: TimeInterval?
     ) async throws -> ScraperLyricsResult? {
         requestCount += 1
+        try? await Task.sleep(for: delay)
         return try reply.get().map { ScraperLyricsResult(source: .lrclib, lrcContent: $0) }
     }
 }
@@ -906,5 +1056,65 @@ final class ScraperTitleOnlyMatchTests: XCTestCase {
             item("The Final Countdown (&TEAM ver.)", artist: "&TEAM"), title: cleaned, artist: "&TEAM",
             durationMs: nil, writtenTitle: written
         ))
+    }
+}
+
+
+@MainActor @Observable
+private final class DiscoveryPlaybackState {
+    var song: Song?
+}
+
+@MainActor
+private final class DiscoveryFixture {
+    let suite = "word-discovery-tests-\(UUID().uuidString)"
+    let defaults: UserDefaults
+    let song: Song
+    let state = DiscoveryPlaybackState()
+    let stub: StubDirectLyricsScraper
+    var coordinator: PlaybackWordLyricsDiscovery?
+    var installed: (Song, [LyricLine]) -> Void = { _, _ in }
+
+    init(delay: Duration = .zero) throws {
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(true, forKey: WordLyricsDiscoveryPreferences.enabledKey)
+        song = Song(id: UUID().uuidString, title: "Song", fileFormat: .mp3, filePath: "song.mp3", sourceID: "test")
+        state.song = song
+        stub = StubDirectLyricsScraper(.success("[00:01.00]<00:01.00>Hel<00:01.50>lo"), delay: delay)
+    }
+
+    func start(installed: @escaping (Song, [LyricLine]) -> Void = { _, _ in }) {
+        self.installed = installed
+        let state = state
+        let stub = stub
+        coordinator = PlaybackWordLyricsDiscovery(
+            playback: { .init(song: state.song, isPlaying: state.song != nil, isSpokenWord: false) },
+            load: { _ in [] },
+            didInstall: { [weak self] song, lines in self?.installed(song, lines) },
+            scraper: ScraperManager(scraperFactory: { _ in stub }),
+            defaults: defaults,
+            settings: { .init(sources: [.init(id: "test", type: .lrclib, isEnabled: true, priority: 0)]) },
+            debounce: .zero
+        )
+    }
+
+    func waitForRequest() async {
+        for _ in 0..<200 {
+            if await stub.requestCount > 0 { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("Discovery did not request lyrics")
+    }
+
+    func close() {
+        state.song = nil
+        coordinator = nil
+        defaults.removePersistentDomain(forName: suite)
+        let songID = song.id
+        LyricsDocumentPinStore.shared.forgetFile(named: "song.lrc", forSongID: songID)
+        if let status = PlayerActivityStore.shared.status(for: songID) {
+            PlayerActivityStore.shared.remove(status.id)
+        }
+        Task { _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID) }
     }
 }

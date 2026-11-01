@@ -3681,6 +3681,11 @@ struct NowPlayingView: View {
                 #endif
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !isFullscreenPlayerPresented {
+                PlayerActivityBar(songID: player.currentSong?.id)
+            }
+        }
         // 进度条从这里读按住快退 / 快进的预览位置；只有进度条观察它，按住期间整页不跟着重画。
         .environment(transportHoldScrub)
         .onAppear { FullscreenPlayerEffectSync.shared.install() }

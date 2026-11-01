@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "Standardowy";
 "player_track_thickness_thick" = "Gruby";
 "player_track_thickness_extraThick" = "Bardzo gruby";
+
+"explore_word_lyrics" = "Szukaj tekstów synchronizowanych słowo po słowie";
+"player_activity_status" = "Stan zadań";
+"word_lyrics_searching" = "Wyszukiwanie tekstów synchronizowanych słowo po słowie";
+"word_lyrics_source_format" = "Pobieranie tekstów synchronizowanych z %@";
+"word_lyrics_not_found" = "Nie znaleziono tekstów synchronizowanych słowo po słowie";
+"word_lyrics_unavailable" = "Teksty synchronizowane są chwilowo niedostępne";
+"word_lyrics_downloaded" = "Pobrano teksty synchronizowane";
+"player_activity_lyrics" = "Pobieranie tekstów";
+"player_activity_artwork" = "Pobieranie okładek";
+"player_activity_scraping" = "Pobieranie metadanych";

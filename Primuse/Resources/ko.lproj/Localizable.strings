@@ -7086,3 +7086,14 @@
 "player_track_thickness_standard" = "표준";
 "player_track_thickness_thick" = "굵게";
 "player_track_thickness_extraThick" = "매우 굵게";
+
+"explore_word_lyrics" = "단어별 동기화 가사 찾기";
+"player_activity_status" = "작업 상태";
+"word_lyrics_searching" = "단어별 동기화 가사 검색 중";
+"word_lyrics_source_format" = "%@에서 단어별 동기화 가사 가져오는 중";
+"word_lyrics_not_found" = "단어별 동기화 가사를 찾지 못함";
+"word_lyrics_unavailable" = "단어별 동기화 가사를 일시적으로 가져올 수 없음";
+"word_lyrics_downloaded" = "단어별 동기화 가사 다운로드 완료";
+"player_activity_lyrics" = "가사 가져오는 중";
+"player_activity_artwork" = "앨범 아트 가져오는 중";
+"player_activity_scraping" = "메타데이터 가져오는 중";

@@ -370,6 +370,9 @@ struct TVImmersivePlayerView: View {
             )
         }
         .ignoresSafeArea()
+        .overlay(alignment: .bottom) {
+            PlayerActivityBar(songID: store.currentSongID).padding(.bottom, 16)
+        }
         .modifier(TVImmersiveScreenWakeLeaseModifier(
             isMounted: presentationActivity.isMounted,
             systemIdleAllowed: !ImmersiveIdlePowerPolicy.holdsScreenAwake(

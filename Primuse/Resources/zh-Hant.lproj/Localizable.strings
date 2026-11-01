@@ -7063,3 +7063,14 @@
 "player_track_thickness_standard" = "標準";
 "player_track_thickness_thick" = "粗";
 "player_track_thickness_extraThick" = "特粗";
+
+"explore_word_lyrics" = "探索逐字歌詞";
+"player_activity_status" = "工作狀態";
+"word_lyrics_searching" = "正在探索逐字歌詞";
+"word_lyrics_source_format" = "正在從 %@ 取得逐字歌詞";
+"word_lyrics_not_found" = "暫未找到逐字歌詞";
+"word_lyrics_unavailable" = "暫時無法取得逐字歌詞";
+"word_lyrics_downloaded" = "逐字歌詞已下載";
+"player_activity_lyrics" = "正在擷取歌詞";
+"player_activity_artwork" = "正在取得封面";
+"player_activity_scraping" = "正在擷取資料";

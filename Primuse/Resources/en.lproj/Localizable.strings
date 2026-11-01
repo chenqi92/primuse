@@ -6847,3 +6847,14 @@
 "player_track_thickness_standard" = "Standard";
 "player_track_thickness_thick" = "Thick";
 "player_track_thickness_extraThick" = "Extra thick";
+
+"explore_word_lyrics" = "Explore Word-Synced Lyrics";
+"player_activity_status" = "Task Status";
+"word_lyrics_searching" = "Finding word-synced lyrics";
+"word_lyrics_source_format" = "Fetching word-synced lyrics from %@";
+"word_lyrics_not_found" = "No word-synced lyrics found";
+"word_lyrics_unavailable" = "Word-synced lyrics temporarily unavailable";
+"word_lyrics_downloaded" = "Word-synced lyrics downloaded";
+"player_activity_lyrics" = "Fetching lyrics";
+"player_activity_artwork" = "Fetching artwork";
+"player_activity_scraping" = "Scraping metadata";

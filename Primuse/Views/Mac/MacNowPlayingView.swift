@@ -211,6 +211,9 @@ struct MacNowPlayingView: View {
                 .coordinateSpace(.named(Self.surfaceSpace))
                 .pmLogFrame("nowPlaying")
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PlayerActivityBar(songID: player.currentSong?.id)
+        }
         // Translation lives here rather than on the lyrics pane, which is
         // removed while the immersive stage is showing.
         .lyricsTranslationTaskIfAvailable(

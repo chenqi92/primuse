@@ -7086,3 +7086,14 @@
 "player_track_thickness_standard" = "Standard";
 "player_track_thickness_thick" = "Épaisse";
 "player_track_thickness_extraThick" = "Très épaisse";
+
+"explore_word_lyrics" = "Rechercher des paroles synchronisées mot à mot";
+"player_activity_status" = "État des tâches";
+"word_lyrics_searching" = "Recherche de paroles synchronisées mot à mot";
+"word_lyrics_source_format" = "Récupération des paroles synchronisées depuis %@";
+"word_lyrics_not_found" = "Aucune parole synchronisée mot à mot trouvée";
+"word_lyrics_unavailable" = "Paroles synchronisées temporairement indisponibles";
+"word_lyrics_downloaded" = "Paroles synchronisées téléchargées";
+"player_activity_lyrics" = "Récupération des paroles";
+"player_activity_artwork" = "Récupération des pochettes";
+"player_activity_scraping" = "Récupération des métadonnées";

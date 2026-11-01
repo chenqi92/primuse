@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "Estándar";
 "player_track_thickness_thick" = "Grueso";
 "player_track_thickness_extraThick" = "Muy grueso";
+
+"explore_word_lyrics" = "Explorar letras sincronizadas por palabra";
+"player_activity_status" = "Estado de tareas";
+"word_lyrics_searching" = "Buscando letras sincronizadas por palabra";
+"word_lyrics_source_format" = "Obteniendo letras sincronizadas de %@";
+"word_lyrics_not_found" = "No se encontraron letras sincronizadas por palabra";
+"word_lyrics_unavailable" = "Letras sincronizadas no disponibles temporalmente";
+"word_lyrics_downloaded" = "Letras sincronizadas descargadas";
+"player_activity_lyrics" = "Obteniendo letras";
+"player_activity_artwork" = "Obteniendo portadas";
+"player_activity_scraping" = "Obteniendo metadatos";

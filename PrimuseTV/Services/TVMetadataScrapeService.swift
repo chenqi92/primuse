@@ -250,6 +250,11 @@ final class TVMetadataScrapeService {
     /// 取选中候选的详情、封面和歌词。歌词不看候选来自哪个源(iTunes、MusicBrainz 本身
     /// 不给歌词),与 iPhone 一样按候选的标题/歌手走启用的歌词源。
     func preview(_ candidate: TVScrapeCandidate, for song: Song) async throws -> TVScrapePreview {
+        let activityID = UUID()
+        PlayerActivityStore.shared.publish(.init(
+            id: activityID, songID: song.id, title: String(localized: "player_activity_scraping"), progress: nil
+        ))
+        defer { PlayerActivityStore.shared.remove(activityID) }
         if let lyrics = candidate.lyrics {
             // 只带歌词的候选:标签照旧,没有封面。
             return TVScrapePreview(
@@ -303,6 +308,9 @@ final class TVMetadataScrapeService {
 
         var coverData: Data?
         if let coverURL {
+            PlayerActivityStore.shared.publish(.init(
+                id: activityID, songID: song.id, title: String(localized: "player_activity_artwork"), progress: nil
+            ))
             coverData = try? await ConfigurableScraper.downloadResource(
                 from: coverURL,
                 sourceConfig: candidate.sourceConfig,
@@ -312,6 +320,9 @@ final class TVMetadataScrapeService {
         }
         try Task.checkCancellation()
 
+        PlayerActivityStore.shared.publish(.init(
+            id: activityID, songID: song.id, title: String(localized: "player_activity_lyrics"), progress: nil
+        ))
         let lyricsDuration = durationMs.map { TimeInterval($0) / 1000 } ?? song.duration
         let lyricsResult = await scraperManager.scrapeMetadata(
             title: title,
@@ -405,11 +416,19 @@ final class TVMetadataScrapeService {
             result.noEnabledSource = true
             return result
         }
+        let activityID = UUID()
+        defer { PlayerActivityStore.shared.remove(activityID) }
         for (index, original) in songs.enumerated() {
             guard !Task.isCancelled else {
                 result.cancelled = true
                 break
             }
+            PlayerActivityStore.shared.publish(.init(
+                id: activityID, songID: nil,
+                title: String(localized: parts == .lyrics ? "player_activity_lyrics"
+                    : (parts == .cover ? "player_activity_artwork" : "player_activity_scraping")),
+                progress: Double(index) / Double(max(songs.count, 1))
+            ))
             progress(TVAlbumScrapeProgress(index: index + 1, total: songs.count, songTitle: original.title))
             // 前面几首改了专辑名的话专辑会重新分组,这里按 id 取最新的一行。
             guard let song = store.library.song(id: original.id) else {

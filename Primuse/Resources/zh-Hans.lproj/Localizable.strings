@@ -7179,3 +7179,14 @@
 "player_track_thickness_standard" = "标准";
 "player_track_thickness_thick" = "粗";
 "player_track_thickness_extraThick" = "特粗";
+
+"explore_word_lyrics" = "探索逐字歌词";
+"player_activity_status" = "任务状态";
+"word_lyrics_searching" = "正在探索逐字歌词";
+"word_lyrics_source_format" = "正在从 %@ 获取逐字歌词";
+"word_lyrics_not_found" = "暂未找到逐字歌词";
+"word_lyrics_unavailable" = "逐字歌词暂时无法获取";
+"word_lyrics_downloaded" = "逐字歌词已下载";
+"player_activity_lyrics" = "正在刮削歌词";
+"player_activity_artwork" = "正在获取封面";
+"player_activity_scraping" = "正在刮削";

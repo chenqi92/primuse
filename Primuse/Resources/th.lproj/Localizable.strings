@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "มาตรฐาน";
 "player_track_thickness_thick" = "หนา";
 "player_track_thickness_extraThick" = "หนาพิเศษ";
+
+"explore_word_lyrics" = "ค้นหาเนื้อเพลงที่ซิงค์รายคำ";
+"player_activity_status" = "สถานะงาน";
+"word_lyrics_searching" = "กำลังค้นหาเนื้อเพลงที่ซิงค์รายคำ";
+"word_lyrics_source_format" = "กำลังดึงเนื้อเพลงที่ซิงค์รายคำจาก %@";
+"word_lyrics_not_found" = "ไม่พบเนื้อเพลงที่ซิงค์รายคำ";
+"word_lyrics_unavailable" = "ไม่สามารถดึงเนื้อเพลงที่ซิงค์รายคำได้ชั่วคราว";
+"word_lyrics_downloaded" = "ดาวน์โหลดเนื้อเพลงที่ซิงค์รายคำแล้ว";
+"player_activity_lyrics" = "กำลังดึงเนื้อเพลง";
+"player_activity_artwork" = "กำลังดึงภาพปก";
+"player_activity_scraping" = "กำลังดึงข้อมูลเมตา";

@@ -7087,3 +7087,14 @@
 "player_track_thickness_standard" = "標準";
 "player_track_thickness_thick" = "太い";
 "player_track_thickness_extraThick" = "極太";
+
+"explore_word_lyrics" = "単語同期の歌詞を探す";
+"player_activity_status" = "タスクの状態";
+"word_lyrics_searching" = "単語同期の歌詞を検索中";
+"word_lyrics_source_format" = "%@ から単語同期の歌詞を取得中";
+"word_lyrics_not_found" = "単語同期の歌詞が見つかりませんでした";
+"word_lyrics_unavailable" = "単語同期の歌詞を現在取得できません";
+"word_lyrics_downloaded" = "単語同期の歌詞をダウンロードしました";
+"player_activity_lyrics" = "歌詞を取得中";
+"player_activity_artwork" = "アートワークを取得中";
+"player_activity_scraping" = "メタデータを取得中";

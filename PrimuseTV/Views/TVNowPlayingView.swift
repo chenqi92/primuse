@@ -161,6 +161,9 @@ struct TVNowPlayingView: View {
         ZStack {
             if store.hasNowPlaying { player } else { emptyState }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            PlayerActivityBar(songID: store.currentSongID)
+        }
         .onExitCommand {
             if showShelf {
                 if !shelfReleasesFocus { closeShelf(startedPlayback: false) }

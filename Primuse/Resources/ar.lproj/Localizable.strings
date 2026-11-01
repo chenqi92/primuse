@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "قياسي";
 "player_track_thickness_thick" = "سميك";
 "player_track_thickness_extraThick" = "سميك جدًا";
+
+"explore_word_lyrics" = "استكشاف كلمات متزامنة كلمة بكلمة";
+"player_activity_status" = "حالة المهام";
+"word_lyrics_searching" = "جارٍ البحث عن كلمات متزامنة كلمة بكلمة";
+"word_lyrics_source_format" = "جارٍ جلب الكلمات المتزامنة من %@";
+"word_lyrics_not_found" = "لم يتم العثور على كلمات متزامنة كلمة بكلمة";
+"word_lyrics_unavailable" = "الكلمات المتزامنة غير متاحة مؤقتًا";
+"word_lyrics_downloaded" = "تم تنزيل الكلمات المتزامنة";
+"player_activity_lyrics" = "جارٍ جلب الكلمات";
+"player_activity_artwork" = "جارٍ جلب الغلاف";
+"player_activity_scraping" = "جارٍ جلب البيانات";

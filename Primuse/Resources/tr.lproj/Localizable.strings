@@ -6992,3 +6992,14 @@
 "player_track_thickness_standard" = "Standart";
 "player_track_thickness_thick" = "Kalın";
 "player_track_thickness_extraThick" = "Çok kalın";
+
+"explore_word_lyrics" = "Kelime Eşzamanlı Şarkı Sözlerini Ara";
+"player_activity_status" = "Görev Durumu";
+"word_lyrics_searching" = "Kelime eşzamanlı şarkı sözleri aranıyor";
+"word_lyrics_source_format" = "%@ kaynağından eşzamanlı şarkı sözleri alınıyor";
+"word_lyrics_not_found" = "Kelime eşzamanlı şarkı sözü bulunamadı";
+"word_lyrics_unavailable" = "Eşzamanlı şarkı sözleri geçici olarak kullanılamıyor";
+"word_lyrics_downloaded" = "Eşzamanlı şarkı sözleri indirildi";
+"player_activity_lyrics" = "Şarkı sözleri alınıyor";
+"player_activity_artwork" = "Kapaklar alınıyor";
+"player_activity_scraping" = "Meta veriler alınıyor";

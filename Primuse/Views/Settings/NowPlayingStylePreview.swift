@@ -154,6 +154,8 @@ struct NowPlayingStylePreview: View {
     var animatesStage = false
     var onSelect: (NowPlayingPreviewSlot) -> Void = { _ in }
 
+    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
+    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var alwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
@@ -174,6 +176,15 @@ struct NowPlayingStylePreview: View {
             )
             screen(context)
                 .frame(width: canvas.size.width, height: canvas.size.height)
+                .overlay(alignment: .bottom) {
+                    if showsActivity {
+                        PlayerActivityStatusView(status: .init(
+                            id: Self.previewActivityID, songID: nil,
+                            title: String(localized: "player_activity_lyrics"), progress: 0.5
+                        ))
+                        .padding(.bottom, canvas.bottomSafeArea + 4)
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: canvas.cornerRadius, style: .continuous))
                 // 全屏效果页本来就固定深色;其余按「播放页始终用深色」。
                 .environment(\.colorScheme, surface == .effect || alwaysDark ? .dark : systemColorScheme)
@@ -183,6 +194,8 @@ struct NowPlayingStylePreview: View {
         .aspectRatio(canvas.size, contentMode: .fit)
         .accessibilityElement(children: .contain)
     }
+
+    private static let previewActivityID = UUID()
 
     @ViewBuilder
     private func screen(_ context: NowPlayingPreviewContext) -> some View {

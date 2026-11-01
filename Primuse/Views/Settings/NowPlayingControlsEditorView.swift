@@ -695,6 +695,8 @@ private struct MusicArtworkStyleSections: View {
 
 /// 几种播放页共用的样子:进度条、音量条、控件颜色与深色、背景(在「全局」那一页)。
 private struct PlayerSharedLookSettingsSections: View {
+    @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
+    private var showsActivity = WordLyricsDiscoveryPreferences.showsActivityByDefault
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
     private var progressThickness = PlayerTrackThickness.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.volumeThicknessKey)
@@ -750,6 +752,8 @@ private struct PlayerSharedLookSettingsSections: View {
         }
 
         Section {
+            Toggle("player_activity_status", isOn: $showsActivity)
+                .settingsAnchor("appearance.activityStatus")
             Toggle(isOn: $showsVolumeBar) {
                 SettingsInfoLabel("player_volume_bar") {
                     Text("player_volume_bar_description")
@@ -2597,6 +2601,7 @@ enum NowPlayingStylePreset: String, CaseIterable, Identifiable {
         PlayerAppearancePreferences.playButtonStyleKey: .string(NowPlayingPlayButtonStyle.filledCircle.rawValue),
         PlayerAppearancePreferences.skipButtonStyleKey: .string(NowPlayingSkipButtonStyle.standard.rawValue),
         PlayerAppearancePreferences.showsAlbumInSubtitleKey: .bool(PlayerAppearancePreferences.showsAlbumInSubtitleByDefault),
+        WordLyricsDiscoveryPreferences.showsActivityKey: .bool(WordLyricsDiscoveryPreferences.showsActivityByDefault),
         PlayerAppearancePreferences.showsVolumeBarKey: .bool(PlayerAppearancePreferences.showsVolumeBarByDefault),
         PlayerAppearancePreferences.volumeBarStyleKey: .string(NowPlayingVolumeBarStyle.system.rawValue),
         PlayerAppearancePreferences.progressStyleKey: .string(NowPlayingProgressStyle.standard.rawValue),
