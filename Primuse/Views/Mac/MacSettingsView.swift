@@ -2829,6 +2829,7 @@ private struct MacSTInfoText: View {
 // MARK: - ST-01 Playback
 
 private struct MacSTPlaybackView: View {
+    @AppStorage(PlaybackSessionRestoreLifecycle.launchAutoplayKey) private var autoplayOnLaunch = false
     // 接真 Store, 拖滑块/切 toggle 会立即写回 PlaybackSettingsStore 并 persist。
     @Environment(PlaybackSettingsStore.self) private var store
     @Environment(SourceManager.self) private var sourceManager
@@ -2868,6 +2869,16 @@ private struct MacSTPlaybackView: View {
 
     var body: some View {
         @Bindable var s = store
+
+        MacSTSection(String(localized: "playback_settings")) {
+            MacSTGroup {
+                MacSTRow(String(localized: "playback_autoplay_on_launch"), divider: false) {
+                    MacSTToggle(isOn: $autoplayOnLaunch)
+                }
+                .settingsAnchor("playback.autoplayOnLaunch")
+                .accessibilityIdentifier("playback.autoplayOnLaunch")
+            }
+        }
 
         MacSTSection(Lz("Audio Output")) {
             MacSTGroup {

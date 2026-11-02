@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "Композицій: %d";
 "artist_merge_write_notice" = "Оновлює виконавця композиції та альбому, зберігаючи інших учасників. Якщо запис у джерело неможливий, зміни зберігаються локально.";
 "artist_merge_result_format" = "Оновлено композицій: %d. Лише локальні зміни є у %d.";
+
+"playback_autoplay_on_launch" = "Автовідтворення під час запуску";
+"listening_scene_new" = "Новий сценарій";
+"listening_scene_edit" = "Редагувати сценарій";
+"listening_scene_customize" = "Змінити запит";
+"listening_scene_templates" = "Готові сценарії";
+"listening_scene_intent_prompt" = "Добери пісні для: %@.";
+"listening_scene_proposal" = "Освідчення";
+"listening_scene_romance" = "Щасливе кохання";
+"listening_scene_heartbreak" = "Розбите серце";
+"listening_scene_running" = "Біг";
+"listening_scene_studying" = "Навчання";
+"listening_scene_proposal_prompt" = "Ніжні романтичні пісні для освідчення про вірне кохання. Без розставань, зради та жалю.";
+"listening_scene_romance_prompt" = "Теплі й радісні пісні про взаємне кохання та близькість. Без нещасливого кохання й розставань.";
+"listening_scene_heartbreak_prompt" = "Сумні пісні для усамітнення після розставання: втрата, прощання та звільнення від минулого.";
+"listening_scene_running_prompt" = "Енергійні пісні для бігу з рівним ритмом. Без повільних пісень і довгих тихих уривків.";
+"listening_scene_studying_prompt" = "Спокійна інструментальна музика для навчання, мінімум вокалу та різких змін, щоб зосередитися.";

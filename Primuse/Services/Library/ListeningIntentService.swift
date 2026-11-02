@@ -267,7 +267,10 @@ final class ListeningIntentService {
             smartPlaylistCountsKey = nil
             return
         }
-        let key = "\(availability?.libraryGeneration ?? 0)|" + pinned.joined(separator: ",")
+        let revisions = library.smartPlaylists.filter { pinned.contains($0.id) }.map {
+            "\($0.id):\($0.updatedAt.timeIntervalSince1970)"
+        }.joined(separator: ",")
+        let key = "\(availability?.libraryGeneration ?? 0)|" + pinned.joined(separator: ",") + "|" + revisions
         guard key != smartPlaylistCountsKey else { return }
         let playlists = Dictionary(
             library.smartPlaylists.map { ($0.id, $0) },
@@ -503,6 +506,7 @@ final class ListeningIntentService {
 
     /// 智能歌单「钉为意图」/「取消钉选」。
     func setSmartPlaylistPinned(_ pinned: Bool, playlistID: String) {
+        guard isSmartPlaylistPinned(playlistID) != pinned else { return }
         setPinned(pinned, intentID: ListeningIntent.smartPlaylistIntentID(playlistID))
     }
 

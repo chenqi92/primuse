@@ -1,10 +1,91 @@
 import Foundation
 import PrimuseKit
 import XCTest
+import SwiftUI
+import UIKit
 @testable import Primuse
 
 @MainActor
 final class AISmartPlaylistEngineTests: XCTestCase {
+    func testEditingPinnedSceneRefreshesItsTitleAndSongsWithoutMovingThePin() async throws {
+        let suite = "ListeningSceneTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        library.addSongs([song(id: "one", title: "One", path: "/one.flac"), song(id: "two", title: "Two", path: "/two.flac")])
+        for _ in 0..<100 where library.musicSongs.count != 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        var scene = SmartPlaylist(name: "Old scene", kind: .ai, aiConfiguration:
+            AISmartPlaylistConfiguration().replacingScene(prompt: "sad", selections: [
+                selection(songID: "one", title: "One", path: "/one.flac")
+            ]))
+        library.saveSmartPlaylist(scene)
+        let service = ListeningIntentService(defaults: defaults)
+        service.setAICurationEnabled(false)
+        service.refresh(library: library)
+        service.setSmartPlaylistPinned(true, playlistID: scene.id)
+        service.setPinned(true, intentID: "builtin:pop")
+        let pins = service.configuration.pinnedIDs
+        let intentID = ListeningIntent.smartPlaylistIntentID(scene.id)
+        XCTAssertEqual(service.smartPlaylistCounts[intentID], 1)
+        scene.name = "New scene"
+        scene.aiConfiguration = scene.aiConfiguration?.replacingScene(prompt: "sweet", selections: [
+            selection(songID: "one", title: "One", path: "/one.flac"),
+            selection(songID: "two", title: "Two", path: "/two.flac")
+        ])
+        library.saveSmartPlaylist(scene)
+        service.refresh(library: library)
+        service.setSmartPlaylistPinned(true, playlistID: scene.id)
+        XCTAssertEqual(service.smartPlaylistCounts[intentID], 2)
+        XCTAssertEqual(service.smartPlaylistNames[intentID], "New scene")
+        XCTAssertEqual(service.configuration.pinnedIDs, pins)
+    }
+
+    func testSceneEditorRestoresSavedPrompt() async throws {
+        let suite = "ListeningSceneEditorTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory)
+        let intelligence = MusicIntelligenceService(
+            settingsStore: AISettingsStore(defaults: defaults, syncsThroughICloud: false),
+            recommendationReuseDefaults: defaults
+        )
+        let prompt = "适合求婚的温柔情歌，排除分手和遗憾主题。"
+        let playlist = SmartPlaylist(name: "求婚", kind: .ai, aiConfiguration:
+            AISmartPlaylistConfiguration().replacingScene(prompt: prompt, selections: []))
+        let host = UIHostingController(rootView: AIPlaylistEditorView(existing: playlist)
+            .environment(library).environment(intelligence)
+            .environment(\.locale, Locale(identifier: "zh-Hans")))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await Task.sleep(for: .milliseconds(500))
+        func textViews(_ view: UIView) -> [UITextView] {
+            (view as? UITextView).map { [$0] } ?? view.subviews.flatMap(textViews)
+        }
+        XCTAssertTrue(textViews(host.view).contains { $0.text == prompt })
+        let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "listening-scene-editor"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testAIPlaylistResolvesPortableIdentitiesInGeneratedOrder() async throws {
         let storageDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PrimuseAISmartPlaylistTests-\(UUID().uuidString)", isDirectory: true)

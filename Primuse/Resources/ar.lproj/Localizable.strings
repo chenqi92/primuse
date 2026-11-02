@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "%d أغنية";
 "artist_merge_write_notice" = "يحدّث وسوم فنان الأغنية والألبوم مع الاحتفاظ بالمشاركين الآخرين. إذا تعذّر تحديث المصدر، تُحفظ التغييرات محليًا.";
 "artist_merge_result_format" = "تم تحديث %d أغنية. تتضمن %d منها تغييرات محفوظة محليًا فقط.";
+
+"playback_autoplay_on_launch" = "التشغيل تلقائيًا عند فتح التطبيق";
+"listening_scene_new" = "مشهد جديد";
+"listening_scene_edit" = "تعديل المشهد";
+"listening_scene_customize" = "تخصيص الطلب";
+"listening_scene_templates" = "مشاهد جاهزة";
+"listening_scene_intent_prompt" = "اختر أغانٍ مناسبة لـ %@.";
+"listening_scene_proposal" = "طلب زواج";
+"listening_scene_romance" = "حب سعيد";
+"listening_scene_heartbreak" = "فراق";
+"listening_scene_running" = "الجري";
+"listening_scene_studying" = "الدراسة";
+"listening_scene_proposal_prompt" = "أغانٍ رومانسية هادئة لطلب الزواج، تعبّر عن حب دائم. استبعد الفراق والخيانة والندم.";
+"listening_scene_romance_prompt" = "أغانٍ دافئة ومبهجة عن الحب المتبادل والرفقة. تجنّب الحب التعيس والفراق.";
+"listening_scene_heartbreak_prompt" = "أغانٍ حزينة للاستماع منفردًا بعد الفراق، عن الفقد والوداع والتجاوز.";
+"listening_scene_running_prompt" = "أغانٍ حماسية للجري بإيقاع ثابت. تجنّب الأغاني البطيئة والمقاطع الهادئة الطويلة.";
+"listening_scene_studying_prompt" = "موسيقى هادئة بلا كلمات للدراسة، بقليل من الغناء والتغيّرات المفاجئة، للمساعدة على التركيز.";

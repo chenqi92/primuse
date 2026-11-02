@@ -4,6 +4,25 @@ import Testing
 
 @Suite("AI smart playlist persistence")
 struct SmartPlaylistAITests {
+    @Test func editingSceneReplacesSongsAndRoundTripsThePrompt() throws {
+        let old = selection(songID: "old", filePath: "/old.flac")
+        let new = selection(songID: "new", filePath: "/new.flac")
+        let initial = AISmartPlaylistConfiguration().appending(prompt: "sad", selections: [old])
+        let scene = initial.replacingScene(prompt: "  sweet\nromantic music  ", selections: [new, new])
+        let restored = try JSONDecoder().decode(AISmartPlaylistConfiguration.self, from: JSONEncoder().encode(scene))
+        #expect(restored.isListeningScene == true)
+        #expect(restored.lastPrompt == "sweet romantic music")
+        #expect(restored.selections.map(\.identity.songID) == ["new"])
+        #expect(initial.selections.map(\.identity.songID) == ["old"])
+    }
+
+    @Test func olderAIPlaylistsRemainOrdinaryPlaylists() throws {
+        let data = Data(#"{"prompts":[],"selections":[]}"#.utf8)
+        let restored = try JSONDecoder().decode(AISmartPlaylistConfiguration.self, from: data)
+        #expect(restored.isListeningScene == nil)
+        #expect(restored.appending(prompt: "more", selections: []).isListeningScene == nil)
+    }
+
     @Test func legacyPlaylistWithoutKindDecodesAsRuleBased() throws {
         let legacy = SmartPlaylist(
             id: "legacy",

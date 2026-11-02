@@ -18,8 +18,8 @@ import WidgetKit
 extension AudioPlayerService {
     // MARK: - Shared Playback State
 
-    /// Restores only queue/navigation context. Relaunching never starts audio
-    /// on its own; a later Play command rebuilds the decoder at the saved time.
+    /// Restores queue/navigation context paused. The foreground launch policy
+    /// may subsequently resume it if the listener explicitly enabled autoplay.
     func restorePlaybackSessionIfAvailable() async {
         let restoreStartedAt = ProcessInfo.processInfo.systemUptime
         guard let restoreToken = playbackSessionRestoreLifecycle.begin() else { return }
@@ -167,6 +167,24 @@ extension AudioPlayerService {
         // 进度同步可能比恢复先到:恢复出来的这本书在别的设备上已经听到了另一章,就停到那一章。
         // 等这次恢复收尾(`isRestoringPlaybackSession` 复位)再看。
         Task { @MainActor [weak self] in self?.followSpokenWordBookIfPaused() }
+    }
+
+    func autoplayRestoredSessionIfEnabled() {
+        #if os(iOS)
+        guard !LaunchDiagnostics.isSafeModeActive else { return }
+        let isForeground = UIApplication.shared.applicationState == .active
+        let otherAudio = AVAudioSession.sharedInstance().isOtherAudioPlaying
+        #else
+        let isForeground = NSApplication.shared.isActive
+        let otherAudio = false
+        #endif
+        guard playbackSessionRestoreLifecycle.takeLaunchAutoplayDecision(
+            enabled: UserDefaults.standard.bool(forKey: PlaybackSessionRestoreLifecycle.launchAutoplayKey),
+            isForeground: isForeground,
+            canResume: currentSong != nil && !isPlaying && !isLoading && !isAtTrackEnd,
+            otherAudioIsPlaying: otherAudio
+        ) else { return }
+        resume()
     }
 
     /// Installs a Handoff selection without starting any audio pipeline. The

@@ -266,6 +266,9 @@ private enum AIPlaylistCandidateFinder {
 
 struct AIPlaylistEditorView: View {
     let existing: SmartPlaylist?
+    var createsListeningScene = false
+    var initialName = ""
+    var initialPrompt = ""
 
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicIntelligenceService.self) private var intelligence
@@ -286,9 +289,12 @@ struct AIPlaylistEditorView: View {
     private static let songsPerGeneration = 25
 
     private var isEditing: Bool { existing != nil }
+    private var isListeningScene: Bool {
+        createsListeningScene || existing?.aiConfiguration?.isListeningScene == true
+    }
 
     private var normalizedPrompt: String {
-        prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        AISmartPlaylistPrompt(text: prompt).text
     }
 
     private var generatedSongs: [Song] {
@@ -308,11 +314,13 @@ struct AIPlaylistEditorView: View {
 
     private var canSave: Bool {
         !isGenerating
-            && !generatedSongs.isEmpty
-            && normalizedPrompt == generatedPrompt
+            && ((!generatedSongs.isEmpty && normalizedPrompt == generatedPrompt)
+                || (generatedSongs.isEmpty && isListeningScene && isEditing && !normalizedPrompt.isEmpty
+                    && normalizedPrompt == existing?.aiConfiguration?.lastPrompt))
     }
 
     private var commitTitle: String {
+        if isListeningScene { return String(localized: "save") }
         if isEditing {
             return String(
                 format: String(localized: "ai_playlist_add_count_format"),
@@ -335,7 +343,7 @@ struct AIPlaylistEditorView: View {
                         .accessibilityIdentifier("aiPlaylistNameField")
                 }
 
-                if isEditing {
+                if isEditing && !isListeningScene {
                     Section("ai_playlist_current_section") {
                         LabeledContent(
                             "songs_count",
@@ -356,6 +364,9 @@ struct AIPlaylistEditorView: View {
                         TextEditor(text: $prompt)
                             .frame(minHeight: 104)
                             .accessibilityIdentifier("aiPlaylistPromptEditor")
+                            .onChange(of: prompt) { _, value in
+                                if value.count > 160 { prompt = String(value.prefix(160)) }
+                            }
                     }
 
                     Button(action: generate) {
@@ -420,7 +431,9 @@ struct AIPlaylistEditorView: View {
                 }
             }
             .floatingInputPanelClearance()
-            .navigationTitle(isEditing ? "ai_playlist_add_songs" : "ai_playlist_new")
+            .navigationTitle(LocalizedStringKey(isListeningScene
+                ? (isEditing ? "listening_scene_edit" : "listening_scene_new")
+                : (isEditing ? "ai_playlist_add_songs" : "ai_playlist_new")))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -491,7 +504,10 @@ struct AIPlaylistEditorView: View {
     private func loadInitialState() {
         guard !didLoadInitialState else { return }
         didLoadInitialState = true
-        name = existing?.name ?? ""
+        name = existing?.name ?? initialName
+        if isListeningScene {
+            prompt = existing?.aiConfiguration?.lastPrompt ?? initialPrompt
+        }
     }
 
     private func generate() {
@@ -509,10 +525,10 @@ struct AIPlaylistEditorView: View {
         isGenerating = true
 
         // 只在音乐里挑:有声书章节、播客单集不进歌单候选。
-        let songsSnapshot = library.musicSongs
+        let songsSnapshot = library.musicSongsExcludingDisliked
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
         let excludedIDs: Set<String>
-        if let selections = existing?.aiConfiguration?.selections {
+        if !isListeningScene, let selections = existing?.aiConfiguration?.selections {
             excludedIDs = Set(
                 library.visibleSongs(matching: selections.map(\.identity)).map(\.id)
             )
@@ -584,14 +600,18 @@ struct AIPlaylistEditorView: View {
             )
         }
         var configuration = existing?.aiConfiguration ?? AISmartPlaylistConfiguration()
-        configuration = configuration.appending(
-            prompt: generatedPrompt,
-            selections: additions
-        )
+        if isListeningScene {
+            configuration.isListeningScene = true
+            if !additions.isEmpty {
+                configuration = configuration.replacingScene(prompt: generatedPrompt, selections: additions)
+            }
+        } else {
+            configuration = configuration.appending(prompt: generatedPrompt, selections: additions)
+        }
 
         var smart = existing ?? SmartPlaylist(name: "")
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        smart.name = trimmedName.isEmpty ? defaultName(from: generatedPrompt) : trimmedName
+        smart.name = trimmedName.isEmpty ? defaultName(from: normalizedPrompt) : trimmedName
         smart.kind = .ai
         smart.aiConfiguration = configuration
         // Older app versions ignore the AI payload and interpret an empty rule
@@ -610,6 +630,10 @@ struct AIPlaylistEditorView: View {
         smart.groupCombinator = nil
         smart.limit = nil
         library.saveSmartPlaylist(smart)
+        if isListeningScene {
+            ListeningIntentService.shared.refresh(library: library)
+            ListeningIntentService.shared.setSmartPlaylistPinned(true, playlistID: smart.id)
+        }
         dismiss()
     }
 

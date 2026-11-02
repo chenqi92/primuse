@@ -7235,3 +7235,20 @@
 "artist_merge_song_count_format" = "涉及 %d 首歌曲";
 "artist_merge_write_notice" = "将修改歌曲歌手和专辑歌手标签，保留其他参与者。源文件无法写入时，修改保存在本地。";
 "artist_merge_result_format" = "已更新 %d 首歌曲，其中 %d 首有修改仅保存在本地。";
+
+"playback_autoplay_on_launch" = "打开 App 自动播放";
+"listening_scene_new" = "新建场景";
+"listening_scene_edit" = "编辑场景";
+"listening_scene_customize" = "自定义提示词";
+"listening_scene_templates" = "场景预设";
+"listening_scene_intent_prompt" = "挑选适合「%@」的歌曲。";
+"listening_scene_proposal" = "求婚";
+"listening_scene_romance" = "甜蜜恋爱";
+"listening_scene_heartbreak" = "失恋";
+"listening_scene_running" = "跑步";
+"listening_scene_studying" = "学习";
+"listening_scene_proposal_prompt" = "适合求婚的温柔浪漫情歌，歌词表达坚定的爱，排除分手、背叛和遗憾主题。";
+"listening_scene_romance_prompt" = "适合甜蜜恋爱的温暖轻快情歌，表达相爱与陪伴，避免苦恋和分手主题。";
+"listening_scene_heartbreak_prompt" = "适合分手后独处的悲伤歌曲，表达失落、告别与释怀。";
+"listening_scene_running_prompt" = "适合跑步的节奏稳定、充满活力的歌曲，避免缓慢和大段安静的段落。";
+"listening_scene_studying_prompt" = "适合学习的舒缓纯音乐，少人声、少突变，不分散注意力。";

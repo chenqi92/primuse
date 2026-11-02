@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "Композиций: %d";
 "artist_merge_write_notice" = "Обновляет исполнителя композиции и альбома, сохраняя других участников. Если запись в источник невозможна, изменения сохраняются локально.";
 "artist_merge_result_format" = "Обновлено композиций: %d. Только локальные изменения есть у %d.";
+
+"playback_autoplay_on_launch" = "Автовоспроизведение при запуске";
+"listening_scene_new" = "Новый сценарий";
+"listening_scene_edit" = "Изменить сценарий";
+"listening_scene_customize" = "Изменить запрос";
+"listening_scene_templates" = "Готовые сценарии";
+"listening_scene_intent_prompt" = "Подбери песни для: %@.";
+"listening_scene_proposal" = "Предложение руки и сердца";
+"listening_scene_romance" = "Счастливая любовь";
+"listening_scene_heartbreak" = "Разбитое сердце";
+"listening_scene_running" = "Бег";
+"listening_scene_studying" = "Учёба";
+"listening_scene_proposal_prompt" = "Нежные романтические песни для предложения руки и сердца о верной любви. Без расставаний, измен и сожалений.";
+"listening_scene_romance_prompt" = "Тёплые, радостные песни о взаимной любви и близости. Без несчастной любви и расставаний.";
+"listening_scene_heartbreak_prompt" = "Грустные песни для одиночества после расставания: утрата, прощание и освобождение от прошлого.";
+"listening_scene_running_prompt" = "Энергичные песни для бега с ровным ритмом. Без медленных песен и долгих тихих отрывков.";
+"listening_scene_studying_prompt" = "Спокойная инструментальная музыка для учёбы, минимум вокала и резких переходов, чтобы сосредоточиться.";

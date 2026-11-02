@@ -65,6 +65,7 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
 /// proof that the user stopped playback until the initial restore has either
 /// completed or been explicitly superseded.
 public struct PlaybackSessionRestoreLifecycle: Equatable, Sendable {
+    public static let launchAutoplayKey = "primuse.playback.autoplayOnLaunch"
     public enum Phase: Equatable, Sendable {
         case pending
         case restoring
@@ -74,6 +75,8 @@ public struct PlaybackSessionRestoreLifecycle: Equatable, Sendable {
 
     public private(set) var phase: Phase = .pending
     private var generation: UInt64 = 0
+    private var receivedTransportIntent = false
+    private var decidedLaunchAutoplay = false
 
     public init() {}
 
@@ -107,6 +110,7 @@ public struct PlaybackSessionRestoreLifecycle: Equatable, Sendable {
     /// retained until the replacement has actually been persisted. If the new
     /// transport fails early, the next launch can still recover the old state.
     public mutating func supersedeForPlaybackIntent() {
+        receivedTransportIntent = true
         guard phase == .pending || phase == .restoring else { return }
         generation &+= 1
         phase = .superseded
@@ -121,8 +125,22 @@ public struct PlaybackSessionRestoreLifecycle: Equatable, Sendable {
     /// Pause/stop is explicit user intent. It invalidates an in-flight restore
     /// and allows the caller to remove the stored snapshot when no item exists.
     public mutating func completeForPauseOrStopIntent() {
+        receivedTransportIntent = true
         generation &+= 1
         phase = .completed
+    }
+
+    /// Wait for the first foreground restore, then decide exactly once. A
+    /// manual transport command always wins, including one issued during I/O.
+    public mutating func takeLaunchAutoplayDecision(
+        enabled: Bool,
+        isForeground: Bool,
+        canResume: Bool,
+        otherAudioIsPlaying: Bool = false
+    ) -> Bool {
+        guard phase == .completed, isForeground, !decidedLaunchAutoplay else { return false }
+        decidedLaunchAutoplay = true
+        return enabled && !receivedTransportIntent && canResume && !otherAudioIsPlaying
     }
 }
 

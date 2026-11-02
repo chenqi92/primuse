@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "%d गाने";
 "artist_merge_write_notice" = "अन्य प्रतिभागियों को बनाए रखते हुए गाने और एल्बम के कलाकार टैग अपडेट करता है। स्रोत अपडेट न हो पाने पर बदलाव स्थानीय रूप से सहेजे जाते हैं।";
 "artist_merge_result_format" = "%d गाने अपडेट हुए। %d में कुछ बदलाव केवल स्थानीय रूप से सहेजे गए हैं।";
+
+"playback_autoplay_on_launch" = "ऐप खोलने पर अपने आप चलाएँ";
+"listening_scene_new" = "नया माहौल";
+"listening_scene_edit" = "माहौल बदलें";
+"listening_scene_customize" = "प्रॉम्प्ट बदलें";
+"listening_scene_templates" = "तैयार माहौल";
+"listening_scene_intent_prompt" = "%@ के लिए उपयुक्त गाने चुनें।";
+"listening_scene_proposal" = "शादी का प्रस्ताव";
+"listening_scene_romance" = "मीठा प्यार";
+"listening_scene_heartbreak" = "दिल टूटना";
+"listening_scene_running" = "दौड़ना";
+"listening_scene_studying" = "पढ़ाई";
+"listening_scene_proposal_prompt" = "शादी के प्रस्ताव के लिए कोमल रोमांटिक गाने, सच्चे और स्थायी प्यार के बारे में। जुदाई, धोखे और पछतावे वाले गाने न चुनें।";
+"listening_scene_romance_prompt" = "आपसी प्यार और साथ के बारे में गर्मजोशी भरे, खुशनुमा गाने। दुखी प्यार और जुदाई से बचें।";
+"listening_scene_heartbreak_prompt" = "जुदाई के बाद अकेले सुनने के लिए उदास गाने, बिछड़ने, विदाई और आगे बढ़ने के बारे में।";
+"listening_scene_running_prompt" = "दौड़ने के लिए स्थिर ताल वाले ऊर्जावान गाने। धीमे गाने और लंबे शांत हिस्से न चुनें।";
+"listening_scene_studying_prompt" = "पढ़ाई के लिए शांत वाद्य संगीत, कम गायन और अचानक बदलाव के बिना, ताकि ध्यान बना रहे।";

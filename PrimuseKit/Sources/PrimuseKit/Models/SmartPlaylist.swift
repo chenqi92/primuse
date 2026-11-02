@@ -150,13 +150,16 @@ public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
 
     public var prompts: [AISmartPlaylistPrompt]
     public var selections: [AISmartPlaylistSelection]
+    public var isListeningScene: Bool?
 
     public init(
         prompts: [AISmartPlaylistPrompt] = [],
-        selections: [AISmartPlaylistSelection] = []
+        selections: [AISmartPlaylistSelection] = [],
+        isListeningScene: Bool? = nil
     ) {
         self.prompts = Array(prompts.suffix(Self.maximumPromptCount))
         self.selections = Self.uniqueSelections(selections)
+        self.isListeningScene = isListeningScene
     }
 
     public var lastPrompt: String? {
@@ -175,7 +178,20 @@ public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
         }
         return AISmartPlaylistConfiguration(
             prompts: nextPrompts,
-            selections: selections + additions
+            selections: selections + additions,
+            isListeningScene: isListeningScene
+        )
+    }
+
+    public func replacingScene(
+        prompt: String,
+        selections: [AISmartPlaylistSelection],
+        at date: Date = Date()
+    ) -> AISmartPlaylistConfiguration {
+        AISmartPlaylistConfiguration(
+            prompts: [AISmartPlaylistPrompt(text: prompt, createdAt: date)],
+            selections: selections,
+            isListeningScene: true
         )
     }
 
@@ -202,6 +218,24 @@ public struct AISmartPlaylistConfiguration: Codable, Hashable, Sendable {
             return "song:\(identity.songID)"
         }
         return "metadata:\(identity.title)\u{1F}\(identity.artistName ?? "")\u{1F}\(identity.duration)"
+    }
+}
+
+public enum ListeningSceneTemplate: String, CaseIterable, Identifiable, Sendable {
+    case proposal, romance, heartbreak, running, studying
+
+    public var id: String { rawValue }
+    public var titleKey: String { "listening_scene_" + rawValue }
+    public var promptKey: String { titleKey + "_prompt" }
+
+    public var symbolName: String {
+        switch self {
+        case .proposal: "heart.circle"
+        case .romance: "heart.fill"
+        case .heartbreak: "cloud.rain"
+        case .running: "figure.run"
+        case .studying: "book"
+        }
     }
 }
 

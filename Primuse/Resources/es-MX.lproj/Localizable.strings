@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "%d canciones";
 "artist_merge_write_notice" = "Actualiza los artistas de las canciones y álbumes conservando a los demás participantes. Si no se puede modificar el origen, los cambios se guardan localmente.";
 "artist_merge_result_format" = "Se actualizaron %d canciones. En %d hay cambios guardados solo localmente.";
+
+"playback_autoplay_on_launch" = "Reproducir al abrir la app";
+"listening_scene_new" = "Nueva escena";
+"listening_scene_edit" = "Editar escena";
+"listening_scene_customize" = "Personalizar indicación";
+"listening_scene_templates" = "Escenas predefinidas";
+"listening_scene_intent_prompt" = "Elige canciones adecuadas para %@.";
+"listening_scene_proposal" = "Propuesta de matrimonio";
+"listening_scene_romance" = "Amor dulce";
+"listening_scene_heartbreak" = "Desamor";
+"listening_scene_running" = "Correr";
+"listening_scene_studying" = "Estudiar";
+"listening_scene_proposal_prompt" = "Canciones suaves y románticas para pedir matrimonio, sobre un amor duradero. Excluir rupturas, traición y arrepentimiento.";
+"listening_scene_romance_prompt" = "Canciones cálidas y alegres sobre amor mutuo y compañía. Evitar amores infelices y rupturas.";
+"listening_scene_heartbreak_prompt" = "Canciones tristes para estar a solas tras una ruptura, sobre pérdida, despedida y dejar ir.";
+"listening_scene_running_prompt" = "Canciones enérgicas para correr con ritmo constante. Evitar canciones lentas y pasajes largos de calma.";
+"listening_scene_studying_prompt" = "Música instrumental tranquila para estudiar, con pocas voces y sin cambios bruscos, para concentrarse.";

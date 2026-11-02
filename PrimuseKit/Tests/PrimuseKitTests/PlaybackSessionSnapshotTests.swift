@@ -172,6 +172,44 @@ struct PlaybackSessionSnapshotTests {
         #expect(lifecycle.permitsEmptySessionClear)
     }
 
+    @Test("Launch autoplay waits for foreground restoration and runs only once")
+    func launchAutoplayWaitsForForegroundRestoreAndOnlyRunsOnce() throws {
+        var lifecycle = PlaybackSessionRestoreLifecycle()
+        let decision1 = lifecycle.takeLaunchAutoplayDecision(enabled: true, isForeground: true, canResume: true)
+        #expect(!decision1)
+        let started = lifecycle.begin()
+        let token = try #require(started)
+        let decision2 = lifecycle.takeLaunchAutoplayDecision(enabled: true, isForeground: true, canResume: true)
+        #expect(!decision2)
+        lifecycle.complete(token: token)
+        let decision3 = lifecycle.takeLaunchAutoplayDecision(enabled: true, isForeground: false, canResume: true)
+        #expect(!decision3)
+        let decision4 = lifecycle.takeLaunchAutoplayDecision(enabled: true, isForeground: true, canResume: true)
+        #expect(decision4)
+        let decision5 = lifecycle.takeLaunchAutoplayDecision(enabled: true, isForeground: true, canResume: true)
+        #expect(!decision5)
+    }
+
+    @Test(arguments: ["disabled", "empty", "otherAudio", "pauseDuringRestore", "pauseAfterRestore", "playDuringRestore", "playAfterRestore"])
+    func launchAutoplayRespectsPreferencesAndTransport(_ reason: String) throws {
+        var lifecycle = PlaybackSessionRestoreLifecycle()
+        let started = lifecycle.begin()
+        let token = try #require(started)
+        if reason == "pauseDuringRestore" { lifecycle.completeForPauseOrStopIntent() }
+        if reason == "playDuringRestore" { lifecycle.supersedeForPlaybackIntent() }
+        lifecycle.complete(token: token)
+        if reason == "pauseAfterRestore" { lifecycle.completeForPauseOrStopIntent() }
+        if reason == "playAfterRestore" { lifecycle.supersedeForPlaybackIntent() }
+        if reason.hasPrefix("play") { lifecycle.didPersistCurrentSession() }
+        let decision6 = lifecycle.takeLaunchAutoplayDecision(
+            enabled: reason != "disabled", isForeground: true,
+            canResume: reason != "empty", otherAudioIsPlaying: reason == "otherAudio"
+        )
+        #expect(!decision6)
+        let decision7 = lifecycle.takeLaunchAutoplayDecision(enabled: true, isForeground: true, canResume: true)
+        #expect(!decision7)
+    }
+
     @Test("Invalid shuffle bookkeeping falls back to the selected occurrence")
     func repairsInvalidShuffleOrder() throws {
         var snapshot = makeSnapshot()

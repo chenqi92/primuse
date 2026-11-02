@@ -7142,3 +7142,20 @@
 "artist_merge_song_count_format" = "%d morceaux";
 "artist_merge_write_notice" = "Met à jour les artistes des morceaux et des albums en conservant les autres participants. Si la source ne peut pas être modifiée, les changements sont enregistrés localement.";
 "artist_merge_result_format" = "%d morceaux mis à jour. Pour %d, des changements sont enregistrés uniquement localement.";
+
+"playback_autoplay_on_launch" = "Lecture automatique au lancement";
+"listening_scene_new" = "Nouvelle ambiance";
+"listening_scene_edit" = "Modifier l’ambiance";
+"listening_scene_customize" = "Personnaliser la consigne";
+"listening_scene_templates" = "Ambiances prédéfinies";
+"listening_scene_intent_prompt" = "Choisis des chansons adaptées à %@.";
+"listening_scene_proposal" = "Demande en mariage";
+"listening_scene_romance" = "Amour heureux";
+"listening_scene_heartbreak" = "Chagrin d’amour";
+"listening_scene_running" = "Course à pied";
+"listening_scene_studying" = "Études";
+"listening_scene_proposal_prompt" = "Chansons douces et romantiques pour une demande en mariage, sur un amour durable. Exclure ruptures, trahisons et regrets.";
+"listening_scene_romance_prompt" = "Chansons chaleureuses et joyeuses sur un amour partagé et la complicité. Éviter les amours malheureuses et les ruptures.";
+"listening_scene_heartbreak_prompt" = "Chansons tristes pour être seul après une rupture, évoquant la perte, les adieux et le lâcher-prise.";
+"listening_scene_running_prompt" = "Chansons énergiques au rythme régulier pour courir. Éviter les morceaux lents et les longues plages calmes.";
+"listening_scene_studying_prompt" = "Musique instrumentale douce pour étudier, peu de voix et de changements brusques, pour rester concentré.";

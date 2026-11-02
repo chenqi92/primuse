@@ -7142,3 +7142,20 @@
 "artist_merge_song_count_format" = "%d Titel";
 "artist_merge_write_notice" = "Aktualisiert Titel- und Albumkünstler; andere Mitwirkende bleiben erhalten. Ist die Quelle nicht beschreibbar, werden Änderungen lokal gespeichert.";
 "artist_merge_result_format" = "%d Titel aktualisiert. Bei %d Titeln wurden Änderungen nur lokal gespeichert.";
+
+"playback_autoplay_on_launch" = "Beim Start automatisch abspielen";
+"listening_scene_new" = "Neue Szene";
+"listening_scene_edit" = "Szene bearbeiten";
+"listening_scene_customize" = "Prompt anpassen";
+"listening_scene_templates" = "Szenenvorlagen";
+"listening_scene_intent_prompt" = "Wähle passende Lieder für %@.";
+"listening_scene_proposal" = "Heiratsantrag";
+"listening_scene_romance" = "Frisch verliebt";
+"listening_scene_heartbreak" = "Liebeskummer";
+"listening_scene_running" = "Laufen";
+"listening_scene_studying" = "Lernen";
+"listening_scene_proposal_prompt" = "Sanfte romantische Lieder für einen Heiratsantrag, über beständige Liebe. Keine Trennung, Untreue oder Reue.";
+"listening_scene_romance_prompt" = "Warme, fröhliche Liebeslieder über gegenseitige Liebe und Nähe. Keine unglückliche Liebe oder Trennungen.";
+"listening_scene_heartbreak_prompt" = "Traurige Lieder für die Zeit allein nach einer Trennung, über Verlust, Abschied und Loslassen.";
+"listening_scene_running_prompt" = "Energiegeladene Lieder zum Laufen mit gleichmäßigem Rhythmus. Keine langsamen Lieder oder langen ruhigen Passagen.";
+"listening_scene_studying_prompt" = "Ruhige Instrumentalmusik zum Lernen, wenig Gesang und keine plötzlichen Wechsel, für mehr Konzentration.";

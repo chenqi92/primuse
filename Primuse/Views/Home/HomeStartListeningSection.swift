@@ -1,6 +1,48 @@
 import SwiftUI
 import PrimuseKit
 
+private struct ListeningSceneEditorRequest: Identifiable {
+    let id = UUID()
+    var existing: SmartPlaylist?
+    var name = ""
+    var prompt = ""
+
+    init() {}
+
+    init(template: ListeningSceneTemplate) {
+        name = String(localized: String.LocalizationValue(template.titleKey))
+        prompt = String(localized: String.LocalizationValue(template.promptKey))
+    }
+
+    @MainActor
+    init(intent: ListeningIntent, library: MusicLibrary) {
+        if case .smartPlaylist(let playlistID) = intent.source,
+           let playlist = library.smartPlaylists.first(where: { $0.id == playlistID }),
+           playlist.effectiveKind == .ai {
+            existing = playlist
+        }
+        name = ListeningIntentService.shared.title(for: intent)
+        prompt = existing?.aiConfiguration?.lastPrompt
+            ?? String(format: String(localized: "listening_scene_intent_prompt"), name)
+    }
+
+    @MainActor var editor: some View {
+        AIPlaylistEditorView(existing: existing, createsListeningScene: true, initialName: name, initialPrompt: prompt)
+    }
+}
+
+private extension ListeningSceneTemplate {
+    var tint: Color {
+        switch self {
+        case .proposal: Color(red: 0.68, green: 0.31, blue: 0.40)
+        case .romance: Color(red: 0.76, green: 0.35, blue: 0.48)
+        case .heartbreak: Color(red: 0.36, green: 0.40, blue: 0.61)
+        case .running: Color(red: 0.80, green: 0.37, blue: 0.20)
+        case .studying: Color(red: 0.18, green: 0.49, blue: 0.48)
+        }
+    }
+}
+
 /// 「开始听」:经典首页的区块、Mac 首页主卡下面、极简导航「歌曲」页顶上共用。
 ///
 /// 第一张固定是「接着上次」(有能接着放的音乐队列时)或「随便听听」,然后是钉选的,
@@ -34,6 +76,7 @@ struct StartListeningShelf: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showsAllIntents = false
     @State private var songsIntent: ListeningIntent?
+    @State private var sceneEditor: ListeningSceneEditorRequest?
     /// 点下去到队列装好之间,那张卡片转个圈。
     @State private var startingIntentID: String?
     /// 网格那一块的宽度,定列数用;量到之前按两列排。
@@ -85,6 +128,9 @@ struct StartListeningShelf: View {
         .navigationDestination(item: $songsIntent) { intent in
             ListeningIntentSongsView(intent: intent)
         }
+        .sheet(item: $sceneEditor, onDismiss: { service.refresh(library: library) }) { request in
+            request.editor
+        }
     }
 
     /// 横排放多少张就取多少张;网格要知道一共有多少张,才说得出「展开」还藏着几张。
@@ -102,6 +148,14 @@ struct StartListeningShelf: View {
             sectionTitle
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
+            Button {
+                sceneEditor = ListeningSceneEditorRequest()
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("listening_scene_new")
+            .accessibilityIdentifier("home.startListening.createScene")
             Button(action: openAll) {
                 viewAllLabel
             }
@@ -365,7 +419,8 @@ struct StartListeningShelf: View {
                 item: item,
                 showsArrangement: item.role != .lead,
                 play: { start(item.intent) },
-                showSongs: { openSongs(item.intent) }
+                showSongs: { openSongs(item.intent) },
+                customize: { sceneEditor = .init(intent: item.intent, library: library) }
             )
         }
     }
@@ -493,6 +548,7 @@ struct ListeningIntentMenuItems: View {
     var showsMoveActions = false
     let play: () -> Void
     let showSongs: () -> Void
+    var customize: (() -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
@@ -500,6 +556,11 @@ struct ListeningIntentMenuItems: View {
     private var service: ListeningIntentService { .shared }
 
     var body: some View {
+        if let customize {
+            Button(action: customize) {
+                Label("listening_scene_customize", systemImage: "sparkles")
+            }
+        }
         if item.songCount > 0 {
             Button(action: play) {
                 Label("play", systemImage: "play.fill")
@@ -1084,6 +1145,7 @@ struct ListeningIntentsPage: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @State private var songsIntent: ListeningIntent?
+    @State private var sceneEditor: ListeningSceneEditorRequest?
     @State private var startingIntentID: String?
 
     private var service: ListeningIntentService { .shared }
@@ -1106,6 +1168,7 @@ struct ListeningIntentsPage: View {
                 #if os(macOS)
                 if let onBack { macHeader(onBack: onBack) }
                 #endif
+                sceneTemplates
                 let sections = service.pageSections
                 let hasPersonal = sections.contains { $0.kind == .personal }
                 if !hasPersonal, !sections.contains(where: { $0.kind == .pinned }) {
@@ -1150,6 +1213,42 @@ struct ListeningIntentsPage: View {
         #endif
         .navigationDestination(item: $songsIntent) { intent in
             ListeningIntentSongsView(intent: intent)
+        }
+        .sheet(item: $sceneEditor, onDismiss: { service.refresh(library: library) }) { request in
+            request.editor
+        }
+    }
+
+    private var sceneTemplates: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("listening_scene_templates").font(.headline)
+                Spacer()
+                Button {
+                    sceneEditor = ListeningSceneEditorRequest()
+                } label: {
+                    Label("listening_scene_new", systemImage: "plus")
+                }
+                .accessibilityIdentifier("listeningIntents.createScene")
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.tileSpacing), count: columns), spacing: Self.tileSpacing) {
+                ForEach(ListeningSceneTemplate.allCases) { template in
+                    Button {
+                        sceneEditor = ListeningSceneEditorRequest(template: template)
+                    } label: {
+                        ListeningIntentCard(
+                            title: String(localized: String.LocalizationValue(template.titleKey)),
+                            symbolName: template.symbolName,
+                            detail: nil,
+                            tint: template.tint,
+                            badgeSymbol: "sparkles",
+                            fillsWidth: true
+                        )
+                    }
+                    .buttonStyle(.pmPressable)
+                    .accessibilityIdentifier("listeningIntents.template." + template.id)
+                }
+            }
         }
     }
 
@@ -1223,7 +1322,8 @@ struct ListeningIntentsPage: View {
                 item: item,
                 showsMoveActions: inPinned,
                 play: { start(item) },
-                showSongs: { openSongs(item.intent) }
+                showSongs: { openSongs(item.intent) },
+                customize: { sceneEditor = .init(intent: item.intent, library: library) }
             )
         }
         .accessibilityLabel(Text(verbatim: "\(title), \(detail)"))

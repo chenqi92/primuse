@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "%d şarkı";
 "artist_merge_write_notice" = "Diğer katılımcıları koruyarak şarkı ve albüm sanatçısı etiketlerini günceller. Kaynak güncellenemezse değişiklikler yerel olarak kaydedilir.";
 "artist_merge_result_format" = "%d şarkı güncellendi. %d şarkıda yalnızca yerel olarak kaydedilen değişiklikler var.";
+
+"playback_autoplay_on_launch" = "Açılışta otomatik çal";
+"listening_scene_new" = "Yeni ortam";
+"listening_scene_edit" = "Ortamı düzenle";
+"listening_scene_customize" = "İstemi özelleştir";
+"listening_scene_templates" = "Hazır ortamlar";
+"listening_scene_intent_prompt" = "%@ için uygun şarkılar seç.";
+"listening_scene_proposal" = "Evlilik teklifi";
+"listening_scene_romance" = "Mutlu aşk";
+"listening_scene_heartbreak" = "Ayrılık";
+"listening_scene_running" = "Koşu";
+"listening_scene_studying" = "Ders çalışma";
+"listening_scene_proposal_prompt" = "Evlilik teklifi için kalıcı aşkı anlatan yumuşak, romantik şarkılar. Ayrılık, ihanet ve pişmanlık olmasın.";
+"listening_scene_romance_prompt" = "Karşılıklı aşk ve birlikteliği anlatan sıcak, neşeli şarkılar. Mutsuz aşk ve ayrılık olmasın.";
+"listening_scene_heartbreak_prompt" = "Ayrılık sonrası yalnız dinlemek için kayıp, veda ve kabullenmeyi anlatan hüzünlü şarkılar.";
+"listening_scene_running_prompt" = "Koşu için düzenli ritimli, enerjik şarkılar. Yavaş şarkılar ve uzun sakin bölümler olmasın.";
+"listening_scene_studying_prompt" = "Ders çalışmak için sakin enstrümantal müzik, az vokal ve ani değişimler olmadan, odaklanmaya yardımcı olsun.";

@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "%d músicas";
 "artist_merge_write_notice" = "Atualiza os artistas das músicas e dos álbuns, preservando outros participantes. Se a origem não puder ser alterada, as mudanças serão salvas localmente.";
 "artist_merge_result_format" = "%d músicas atualizadas. Em %d, há mudanças salvas apenas localmente.";
+
+"playback_autoplay_on_launch" = "Reproduzir ao abrir o app";
+"listening_scene_new" = "Nova cena";
+"listening_scene_edit" = "Editar cena";
+"listening_scene_customize" = "Personalizar instrução";
+"listening_scene_templates" = "Cenas predefinidas";
+"listening_scene_intent_prompt" = "Escolha músicas adequadas para %@.";
+"listening_scene_proposal" = "Pedido de casamento";
+"listening_scene_romance" = "Romance feliz";
+"listening_scene_heartbreak" = "Coração partido";
+"listening_scene_running" = "Corrida";
+"listening_scene_studying" = "Estudo";
+"listening_scene_proposal_prompt" = "Músicas suaves e românticas para um pedido de casamento, sobre amor duradouro. Excluir separação, traição e arrependimento.";
+"listening_scene_romance_prompt" = "Canções calorosas e alegres sobre amor mútuo e companheirismo. Evitar amores infelizes e separações.";
+"listening_scene_heartbreak_prompt" = "Músicas tristes para ficar a sós após uma separação, sobre perda, despedida e desapego.";
+"listening_scene_running_prompt" = "Músicas animadas para correr, com ritmo constante. Evitar faixas lentas e longos trechos calmos.";
+"listening_scene_studying_prompt" = "Música instrumental calma para estudar, com poucas vozes e sem mudanças bruscas, para manter a concentração.";

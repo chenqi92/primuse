@@ -6903,3 +6903,20 @@
 "artist_merge_song_count_format" = "%d songs";
 "artist_merge_write_notice" = "Updates song and album artist tags while keeping other contributors. If the source cannot be updated, changes are saved locally.";
 "artist_merge_result_format" = "Updated %d songs. %d include changes saved only locally.";
+
+"playback_autoplay_on_launch" = "Play automatically on launch";
+"listening_scene_new" = "New scene";
+"listening_scene_edit" = "Edit scene";
+"listening_scene_customize" = "Customize prompt";
+"listening_scene_templates" = "Scene presets";
+"listening_scene_intent_prompt" = "Choose songs suitable for %@.";
+"listening_scene_proposal" = "Proposal";
+"listening_scene_romance" = "Sweet romance";
+"listening_scene_heartbreak" = "Heartbreak";
+"listening_scene_running" = "Running";
+"listening_scene_studying" = "Studying";
+"listening_scene_proposal_prompt" = "Gentle romantic songs for a marriage proposal, with lyrics about lasting love. Exclude breakups, betrayal and regret.";
+"listening_scene_romance_prompt" = "Warm, upbeat love songs about mutual love and companionship. Avoid unhappy love and breakups.";
+"listening_scene_heartbreak_prompt" = "Sad songs for time alone after a breakup, about loss, farewell and letting go.";
+"listening_scene_running_prompt" = "Energetic songs for running with a steady rhythm. Avoid slow songs and long quiet passages.";
+"listening_scene_studying_prompt" = "Calm instrumental music for studying, with little singing or sudden changes, to help concentration.";

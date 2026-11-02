@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "%d เพลง";
 "artist_merge_write_notice" = "อัปเดตแท็กศิลปินของเพลงและอัลบั้มโดยคงผู้ร่วมงานคนอื่นไว้ หากเขียนลงแหล่งที่มาไม่ได้ จะบันทึกการเปลี่ยนแปลงไว้ในเครื่อง";
 "artist_merge_result_format" = "อัปเดต %d เพลงแล้ว มี %d เพลงที่บันทึกการเปลี่ยนแปลงบางส่วนไว้ในเครื่องเท่านั้น";
+
+"playback_autoplay_on_launch" = "เล่นอัตโนมัติเมื่อเปิดแอป";
+"listening_scene_new" = "สร้างบรรยากาศ";
+"listening_scene_edit" = "แก้ไขบรรยากาศ";
+"listening_scene_customize" = "ปรับคำสั่ง";
+"listening_scene_templates" = "บรรยากาศสำเร็จรูป";
+"listening_scene_intent_prompt" = "เลือกเพลงที่เหมาะกับ %@";
+"listening_scene_proposal" = "ขอแต่งงาน";
+"listening_scene_romance" = "รักหวานชื่น";
+"listening_scene_heartbreak" = "อกหัก";
+"listening_scene_running" = "วิ่ง";
+"listening_scene_studying" = "อ่านหนังสือ";
+"listening_scene_proposal_prompt" = "เพลงรักนุ่มนวลโรแมนติกสำหรับขอแต่งงาน สื่อถึงรักมั่นคง ไม่เอาเรื่องเลิกรา นอกใจ หรือเสียดาย";
+"listening_scene_romance_prompt" = "เพลงรักอบอุ่นสดใสเกี่ยวกับความรักที่มีให้กันและการอยู่เคียงข้าง หลีกเลี่ยงรักเศร้าและการเลิกรา";
+"listening_scene_heartbreak_prompt" = "เพลงเศร้าสำหรับฟังคนเดียวหลังเลิกรา เกี่ยวกับการสูญเสีย การบอกลา และการปล่อยวาง";
+"listening_scene_running_prompt" = "เพลงมีพลังสำหรับวิ่ง จังหวะสม่ำเสมอ หลีกเลี่ยงเพลงช้าและช่วงเงียบนาน";
+"listening_scene_studying_prompt" = "ดนตรีบรรเลงสงบสำหรับอ่านหนังสือ เสียงร้องน้อย ไม่เปลี่ยนอารมณ์ฉับพลัน ช่วยให้มีสมาธิ";

@@ -1825,6 +1825,7 @@ struct PrimuseApp: App {
                         dlnaRenderer.start()
                     }
                     await AppServices.shared.completeDeferredStartup()
+                    playerService.autoplayRestoredSessionIfEnabled()
                     // This task keeps the `scenePhase` copy captured when the
                     // scene was first built, which can still be `.inactive`
                     // from the launch transition even though the app became
@@ -2287,6 +2288,7 @@ struct PrimuseApp: App {
                             )
                         }
                         playerService.handleAppDidBecomeActive()
+                        playerService.autoplayRestoredSessionIfEnabled()
                         // 回到前台顺手对一次服务端歌单 /「喜欢」/ 电台, 自带冷却。
                         AppServices.shared.serverMirrorRefresh.applicationDidBecomeActive()
                         Task {

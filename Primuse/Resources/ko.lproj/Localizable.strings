@@ -7142,3 +7142,20 @@
 "artist_merge_song_count_format" = "%d곡";
 "artist_merge_write_notice" = "다른 참여자는 유지하고 곡 및 앨범 아티스트 태그를 수정합니다. 원본에 기록할 수 없으면 변경 사항을 로컬에 저장합니다.";
 "artist_merge_result_format" = "%d곡을 업데이트했습니다. %d곡에는 로컬에만 저장된 변경 사항이 있습니다.";
+
+"playback_autoplay_on_launch" = "앱 실행 시 자동 재생";
+"listening_scene_new" = "새 상황";
+"listening_scene_edit" = "상황 편집";
+"listening_scene_customize" = "프롬프트 맞춤 설정";
+"listening_scene_templates" = "상황 프리셋";
+"listening_scene_intent_prompt" = "%@에 어울리는 노래를 골라 주세요.";
+"listening_scene_proposal" = "프러포즈";
+"listening_scene_romance" = "달콤한 사랑";
+"listening_scene_heartbreak" = "이별";
+"listening_scene_running" = "달리기";
+"listening_scene_studying" = "공부";
+"listening_scene_proposal_prompt" = "프러포즈에 어울리는 부드럽고 로맨틱한 노래. 변함없는 사랑을 담고 이별, 배신, 후회는 제외해 주세요.";
+"listening_scene_romance_prompt" = "서로의 사랑과 함께함을 노래하는 따뜻하고 경쾌한 곡. 슬픈 사랑과 이별은 피해주세요.";
+"listening_scene_heartbreak_prompt" = "이별 후 혼자 들을 슬픈 노래. 상실, 작별, 마음 정리를 담은 곡으로 골라 주세요.";
+"listening_scene_running_prompt" = "달리기에 어울리는 일정한 리듬의 활기찬 곡. 느린 곡과 긴 조용한 구간은 피해 주세요.";
+"listening_scene_studying_prompt" = "공부에 집중할 수 있는 차분한 연주곡. 보컬과 급격한 변화가 적은 음악으로 골라 주세요.";

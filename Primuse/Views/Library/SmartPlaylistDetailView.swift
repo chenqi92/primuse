@@ -226,7 +226,7 @@ struct SmartPlaylistDetailView: View {
                             showEditor = true
                         } label: {
                             PMToolbarItemLabel(
-                                smart.effectiveKind == .ai ? "ai_playlist_add_songs" : "smart_playlist_edit",
+                                smart.aiConfiguration?.isListeningScene == true ? "listening_scene_edit" : (smart.effectiveKind == .ai ? "ai_playlist_add_songs" : "smart_playlist_edit"),
                                 systemImage: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
                                 titled: verticalBarEdge != nil
                             )
@@ -260,7 +260,7 @@ struct SmartPlaylistDetailView: View {
             Button {
                 showEditor = true
             } label: {
-                Label("ai_playlist_add_songs", systemImage: "sparkles")
+                Label(smart.aiConfiguration?.isListeningScene == true ? "listening_scene_edit" : "ai_playlist_add_songs", systemImage: "sparkles")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -596,7 +596,7 @@ struct SmartPlaylistDetailView: View {
     private func smartMoreMenu(_ smart: SmartPlaylist, matched: [Song]) -> AnyView {
         let playable = matched.filteredPlayable()
         let editTitle = smart.effectiveKind == .ai
-            ? String(localized: "ai_playlist_add_songs")
+            ? String(localized: smart.aiConfiguration?.isListeningScene == true ? "listening_scene_edit" : "ai_playlist_add_songs")
             : String(localized: "smart_edit_rules")
         var actions: [MacHeaderMoreMenu.Item] = [
             .init(
@@ -678,7 +678,7 @@ struct SmartPlaylistDetailView: View {
                 showEditor = true
             } label: {
                 Text(LocalizedStringKey(
-                    isAI ? "ai_playlist_add_songs" : "smart_edit_rules"
+                    smart.aiConfiguration?.isListeningScene == true ? "listening_scene_edit" : (isAI ? "ai_playlist_add_songs" : "smart_edit_rules")
                 ))
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.text)

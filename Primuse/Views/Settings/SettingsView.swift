@@ -2282,6 +2282,7 @@ private extension Array {
 }
 
 struct PlaybackSettingsView: View {
+    @AppStorage(PlaybackSessionRestoreLifecycle.launchAutoplayKey) private var autoplayOnLaunch = false
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @State private var highFidelityConfirmShown = false
     /// 串烧开始前的流量提醒里选「不再提醒」写的就是这个键。
@@ -2315,6 +2316,11 @@ struct PlaybackSettingsView: View {
         @Bindable var settings = playbackSettings
 
         Form {
+            Section {
+                Toggle("playback_autoplay_on_launch", isOn: $autoplayOnLaunch)
+                    .settingsAnchor("playback.autoplayOnLaunch")
+                    .accessibilityIdentifier("playback.autoplayOnLaunch")
+            }
             Section {
                 Picker("audio_output_mode", selection: outputModeSelection) {
                     ForEach(AudioOutputMode.allCases, id: \.self) { mode in

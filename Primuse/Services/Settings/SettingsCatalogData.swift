@@ -3,6 +3,7 @@ import PrimuseKit
 
 enum SettingsCatalogData {
     static let items: [SettingDefinition] = [
+        SettingDefinition(id: "playback.autoplayOnLaunch", titleKey: "playback_autoplay_on_launch", iosPage: .playback, macPage: .playback, keywords: ["autoplay", "launch", "启动", "打开", "自动播放"]),
         SettingDefinition(id: "playback.outputMode", titleKey: "audio_output_mode", iosPage: .playback, macPage: .playback, keywords: ["bit perfect", "DAC", "高保真", "直通", "音质", "无损", "DSP", "Output Mode"]),
         SettingDefinition(id: "playback.dsdMode", titleKey: "dsd_playback_mode", iosPage: .playback, macPage: .playback, keywords: ["DSD Playback"]),
         SettingDefinition(id: "playback.matchSampleRate", titleKey: "output_sr_matching", iosPage: .playback, macPage: .playback, keywords: ["Match Hardware Sample Rate"]),

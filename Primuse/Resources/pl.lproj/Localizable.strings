@@ -7048,3 +7048,20 @@
 "artist_merge_song_count_format" = "Utwory: %d";
 "artist_merge_write_notice" = "Aktualizuje wykonawcę utworu i albumu, zachowując innych uczestników. Jeśli zapis do źródła jest niemożliwy, zmiany są zapisywane lokalnie.";
 "artist_merge_result_format" = "Zaktualizowano %d utworów. W %d utworach część zmian zapisano tylko lokalnie.";
+
+"playback_autoplay_on_launch" = "Odtwarzaj po uruchomieniu";
+"listening_scene_new" = "Nowy nastrój";
+"listening_scene_edit" = "Edytuj nastrój";
+"listening_scene_customize" = "Dostosuj polecenie";
+"listening_scene_templates" = "Gotowe nastroje";
+"listening_scene_intent_prompt" = "Wybierz utwory pasujące do: %@.";
+"listening_scene_proposal" = "Oświadczyny";
+"listening_scene_romance" = "Szczęśliwa miłość";
+"listening_scene_heartbreak" = "Złamane serce";
+"listening_scene_running" = "Bieganie";
+"listening_scene_studying" = "Nauka";
+"listening_scene_proposal_prompt" = "Łagodne, romantyczne piosenki na oświadczyny, o trwałej miłości. Bez rozstań, zdrady i żalu.";
+"listening_scene_romance_prompt" = "Ciepłe, radosne piosenki o wzajemnej miłości i bliskości. Bez nieszczęśliwej miłości i rozstań.";
+"listening_scene_heartbreak_prompt" = "Smutne piosenki do słuchania w samotności po rozstaniu, o stracie, pożegnaniu i pogodzeniu się z losem.";
+"listening_scene_running_prompt" = "Energiczne piosenki do biegania, o równym rytmie. Bez wolnych utworów i długich cichych fragmentów.";
+"listening_scene_studying_prompt" = "Spokojna muzyka instrumentalna do nauki, mało śpiewu i nagłych zmian, sprzyjająca skupieniu.";

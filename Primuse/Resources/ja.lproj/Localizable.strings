@@ -7143,3 +7143,20 @@
 "artist_merge_song_count_format" = "%d曲";
 "artist_merge_write_notice" = "他の参加者を保持して、曲とアルバムのアーティストタグを更新します。元のファイルに書き込めない場合は、変更をローカルに保存します。";
 "artist_merge_result_format" = "%d曲を更新しました。うち%d曲にはローカルのみに保存された変更があります。";
+
+"playback_autoplay_on_launch" = "起動時に自動再生";
+"listening_scene_new" = "新しいシーン";
+"listening_scene_edit" = "シーンを編集";
+"listening_scene_customize" = "プロンプトを編集";
+"listening_scene_templates" = "シーンのプリセット";
+"listening_scene_intent_prompt" = "%@に合う曲を選んでください。";
+"listening_scene_proposal" = "プロポーズ";
+"listening_scene_romance" = "幸せな恋";
+"listening_scene_heartbreak" = "失恋";
+"listening_scene_running" = "ランニング";
+"listening_scene_studying" = "勉強";
+"listening_scene_proposal_prompt" = "プロポーズに合う優しくロマンチックな曲。変わらない愛を歌う曲を選び、別れ、裏切り、後悔の曲は除いてください。";
+"listening_scene_romance_prompt" = "両思いの愛や寄り添う気持ちを歌う、温かく明るい曲。悲しい恋や別れの曲は避けてください。";
+"listening_scene_heartbreak_prompt" = "失恋後に一人で聴く悲しい曲。喪失、別れ、気持ちの整理をテーマに選んでください。";
+"listening_scene_running_prompt" = "ランニングに合う一定のリズムで元気な曲。ゆっくりした曲や長い静かな部分は避けてください。";
+"listening_scene_studying_prompt" = "勉強に集中できる穏やかなインスト曲。歌声や急な変化の少ない曲を選んでください。";
