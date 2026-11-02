@@ -1387,46 +1387,11 @@ actor LibrarySearchIndex {
                         if offset.isMultiple(of: 32), Task.isCancelled {
                             throw CancellationError()
                         }
-                        let document = Self.makeMetadataDocument(change.song)
-                        let stateID: Int64
-                        if let existingID = change.stateID {
-                            stateID = existingID
-                            try db.execute(
-                                sql: "UPDATE metadataSearchState SET fingerprint = ? WHERE id = ?",
-                                arguments: [change.fingerprint, existingID]
-                            )
-                            try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [existingID])
-                            try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [existingID])
-                            try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [existingID])
-                            try db.execute(sql: "DELETE FROM metadataPathFts WHERE rowid = ?", arguments: [existingID])
-                        } else {
-                            try db.execute(
-                                sql: "INSERT INTO metadataSearchState (songID, fingerprint) VALUES (?, ?)",
-                                arguments: [change.song.id, change.fingerprint]
-                            )
-                            stateID = db.lastInsertedRowID
-                        }
-                        try db.execute(
-                            sql: "INSERT INTO metadataLexicalFts (rowid, title, artist, album, genre) VALUES (?, ?, ?, ?, ?)",
-                            arguments: [stateID, change.song.title, librarySearchableArtistText(change.song), change.song.albumTitle ?? "", change.song.genre ?? ""]
-                        )
-                        try db.execute(
-                            sql: "INSERT INTO metadataPinyinFts (rowid, title, artist, album, initials, compact) VALUES (?, ?, ?, ?, ?, ?)",
-                            arguments: [stateID, document.title, document.artist, document.album, document.initials, document.compact]
-                        )
-                        try db.execute(
-                            sql: "INSERT INTO metadataPinyinSubstringFts (rowid, compact, initials) VALUES (?, ?, ?)",
-                            arguments: [stateID, document.compact, document.initials]
-                        )
-                        try db.execute(
-                            sql: "INSERT INTO metadataPathFts (rowid, path) VALUES (?, ?)",
-                            arguments: [
-                                stateID,
-                                SongPathPresentationPolicy.displayPath(
-                                    filePath: change.song.filePath,
-                                    sourceID: change.song.sourceID
-                                ) ?? "",
-                            ]
+                        try Self.writeMetadataChange(
+                            song: change.song,
+                            fingerprint: change.fingerprint,
+                            stateID: change.stateID,
+                            in: db
                         )
                     }
                 }
@@ -1497,71 +1462,11 @@ actor LibrarySearchIndex {
                         if offset.isMultiple(of: 32), Task.isCancelled {
                             throw CancellationError()
                         }
-                        let document = Self.makeMetadataDocument(change.song)
-                        let stateID: Int64
-                        if let existingID = change.stateID {
-                            stateID = existingID
-                            try db.execute(
-                                sql: "UPDATE metadataSearchState SET fingerprint = ? WHERE id = ?",
-                                arguments: [change.fingerprint, existingID]
-                            )
-                            try db.execute(
-                                sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?",
-                                arguments: [existingID]
-                            )
-                            try db.execute(
-                                sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?",
-                                arguments: [existingID]
-                            )
-                            try db.execute(
-                                sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?",
-                                arguments: [existingID]
-                            )
-                            try db.execute(
-                                sql: "DELETE FROM metadataPathFts WHERE rowid = ?",
-                                arguments: [existingID]
-                            )
-                        } else {
-                            try db.execute(
-                                sql: "INSERT INTO metadataSearchState (songID, fingerprint) VALUES (?, ?)",
-                                arguments: [change.song.id, change.fingerprint]
-                            )
-                            stateID = db.lastInsertedRowID
-                        }
-                        try db.execute(
-                            sql: "INSERT INTO metadataLexicalFts (rowid, title, artist, album, genre) VALUES (?, ?, ?, ?, ?)",
-                            arguments: [
-                                stateID,
-                                change.song.title,
-                                librarySearchableArtistText(change.song),
-                                change.song.albumTitle ?? "",
-                                change.song.genre ?? "",
-                            ]
-                        )
-                        try db.execute(
-                            sql: "INSERT INTO metadataPinyinFts (rowid, title, artist, album, initials, compact) VALUES (?, ?, ?, ?, ?, ?)",
-                            arguments: [
-                                stateID,
-                                document.title,
-                                document.artist,
-                                document.album,
-                                document.initials,
-                                document.compact,
-                            ]
-                        )
-                        try db.execute(
-                            sql: "INSERT INTO metadataPinyinSubstringFts (rowid, compact, initials) VALUES (?, ?, ?)",
-                            arguments: [stateID, document.compact, document.initials]
-                        )
-                        try db.execute(
-                            sql: "INSERT INTO metadataPathFts (rowid, path) VALUES (?, ?)",
-                            arguments: [
-                                stateID,
-                                SongPathPresentationPolicy.displayPath(
-                                    filePath: change.song.filePath,
-                                    sourceID: change.song.sourceID
-                                ) ?? "",
-                            ]
+                        try Self.writeMetadataChange(
+                            song: change.song,
+                            fingerprint: change.fingerprint,
+                            stateID: change.stateID,
+                            in: db
                         )
                     }
                 }
@@ -1574,6 +1479,49 @@ actor LibrarySearchIndex {
             plog("🔎 Metadata index delta failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    private nonisolated static func writeMetadataChange(
+        song: Song,
+        fingerprint: String,
+        stateID: Int64?,
+        in db: Database
+    ) throws {
+        let document = makeMetadataDocument(song)
+        let id: Int64
+        if let stateID {
+            id = stateID
+            try db.execute(
+                sql: "UPDATE metadataSearchState SET fingerprint = ? WHERE id = ?",
+                arguments: [fingerprint, id]
+            )
+        } else {
+            try db.execute(
+                sql: "INSERT INTO metadataSearchState (songID, fingerprint) VALUES (?, ?)",
+                arguments: [song.id, fingerprint]
+            )
+            id = db.lastInsertedRowID
+        }
+        try LibrarySearchDocumentWriter.update(
+            table: "metadataLexicalFts", columns: ["title", "artist", "album", "genre"],
+            values: [song.title, librarySearchableArtistText(song), song.albumTitle ?? "", song.genre ?? ""],
+            rowID: id, isNew: stateID == nil, in: db
+        )
+        try LibrarySearchDocumentWriter.update(
+            table: "metadataPinyinFts", columns: ["title", "artist", "album", "initials", "compact"],
+            values: [document.title, document.artist, document.album, document.initials, document.compact],
+            rowID: id, isNew: stateID == nil, in: db
+        )
+        try LibrarySearchDocumentWriter.update(
+            table: "metadataPinyinSubstringFts", columns: ["compact", "initials"],
+            values: [document.compact, document.initials],
+            rowID: id, isNew: stateID == nil, in: db
+        )
+        try LibrarySearchDocumentWriter.update(
+            table: "metadataPathFts", columns: ["path"],
+            values: [SongPathPresentationPolicy.displayPath(filePath: song.filePath, sourceID: song.sourceID) ?? ""],
+            rowID: id, isNew: stateID == nil, in: db
+        )
     }
 
     private func synchronizeLyrics(songs: [Song]) async -> Bool {
@@ -5302,13 +5250,11 @@ final class MusicLibrary {
     }
 
     private func enqueueSearchIndexChanges(
-        upserts: [Song],
-        deletingIDs: Set<String>,
-        generation: Int,
+        batch: PendingSongPersistenceBatch,
         after durableWrite: Task<Int64?, Never>?
     ) {
         let previous = searchIndexUpdateTask
-        searchIndexUpdateTask = Task.detached(priority: .utility) {
+        searchIndexUpdateTask = Task.detached(priority: .utility) { [weak self] in
             _ = await previous?.value
             if let durableWrite, await durableWrite.value == nil {
                 // Keep the synchronously-persisted dirty generation. A later
@@ -5316,10 +5262,17 @@ final class MusicLibrary {
                 // successfully committed song-store snapshot.
                 return
             }
+            let changes = await MainActor.run {
+                let changes = batch.seal()
+                if self?.pendingSongPersistenceBatch === batch {
+                    self?.pendingSongPersistenceBatch = nil
+                }
+                return changes
+            }
             await LibrarySearchIndex.shared.applyChanges(
-                upserts: upserts,
-                deletingIDs: deletingIDs,
-                generation: generation
+                upserts: changes.upserts,
+                deletingIDs: changes.deletingIDs.subtracting(changes.upserts.map(\.id)),
+                generation: batch.generation
             )
         }
     }
@@ -5334,6 +5287,7 @@ final class MusicLibrary {
         // 把搜索索引标成"已经准备好的空索引"。标记留着, 下一次机会再跑。
         guard isReady else { return }
         guard LibrarySearchIndex.hasPendingPreparation(defaults: searchIndexDefaults) else { return }
+        pendingSongPersistenceBatch?.seal()
         let snapshot = songs
         let generation = LibrarySearchIndex.pendingPreparationGeneration(
             defaults: searchIndexDefaults
@@ -5371,6 +5325,7 @@ final class MusicLibrary {
         fallbackText: String?,
         generation: Int
     ) {
+        pendingSongPersistenceBatch?.seal()
         if let lyricsSearchIndexRefresh {
             lyricsSearchIndexRefresh(songID, fallbackText, generation)
             return
@@ -13385,6 +13340,7 @@ final class MusicLibrary {
 
     /// tvOS 下载到新快照后重新从磁盘加载整库(songs/playlists 等)。
     func reloadFromDisk(preferExternalSnapshot: Bool = true) {
+        pendingSongPersistenceBatch?.seal()
         loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
     }
 
@@ -14700,6 +14656,48 @@ final class MusicLibrary {
     /// Incremental SQLite writes are serialized independently from the JSON
     /// compatibility snapshot. Scan cursor commits await this chain.
     private var songStoreWriteTask: Task<Int64?, Never>?
+    @ObservationIgnored private var pendingSongPersistenceBatch: PendingSongPersistenceBatch?
+
+    @MainActor
+    private final class PendingSongPersistenceBatch {
+        nonisolated let generation: Int
+        private var songs: [String: Song] = [:]
+        private var order: [String] = []
+        private var deletingIDs: Set<String> = []
+        private var sealedChanges: (upserts: [Song], deletingIDs: Set<String>)?
+        var isSealed: Bool { sealedChanges != nil }
+
+        init(generation: Int) { self.generation = generation }
+
+        func merge(upserts: [Song], deletingIDs ids: Set<String>) {
+            precondition(!isSealed)
+            // Keep a deletion even when the same ID is added again: SQLite
+            // must append that row in its new position, not retain its old one.
+            deletingIDs.formUnion(ids)
+            if !ids.isEmpty {
+                order.removeAll { ids.contains($0) }
+                for id in ids { songs.removeValue(forKey: id) }
+            }
+            for song in upserts {
+                if songs[song.id] == nil { order.append(song.id) }
+                songs[song.id] = song
+            }
+            // Bound a backlog while the preceding transaction is busy. There
+            // is no timer: the writer seals and commits as soon as it can run.
+            if songs.count + deletingIDs.count >= 512 { seal() }
+        }
+
+        @discardableResult
+        func seal() -> (upserts: [Song], deletingIDs: Set<String>) {
+            if let sealedChanges { return sealedChanges }
+            let changes = (upserts: order.compactMap { songs[$0] }, deletingIDs: deletingIDs)
+            sealedChanges = changes
+            songs.removeAll()
+            order.removeAll()
+            deletingIDs.removeAll()
+            return changes
+        }
+    }
     @ObservationIgnored private var songStoreRequiresReplacement = false
     @ObservationIgnored private var pendingSnapshotImportID: String?
     @ObservationIgnored private var songStoreSnapshotWriter: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64 = {
@@ -14823,41 +14821,51 @@ final class MusicLibrary {
         // Persist the dirty generation before the song-store transaction can
         // start. A process exit can therefore leave extra recovery work, but
         // can never commit new songs while leaving the old index marked clean.
-        let searchIndexGeneration = LibrarySearchIndex.persistLibraryChangePending(
-            defaults: searchIndexDefaults
-        )
+        if let batch = pendingSongPersistenceBatch, !batch.isSealed {
+            batch.merge(upserts: upserts, deletingIDs: deletingIDs)
+            if needsPromptCompatibilitySnapshot { batch.seal() }
+        } else {
+            let batch = PendingSongPersistenceBatch(
+                generation: LibrarySearchIndex.persistLibraryChangePending(defaults: searchIndexDefaults)
+            )
+            batch.merge(upserts: upserts, deletingIDs: deletingIDs)
+            pendingSongPersistenceBatch = batch
+            if needsPromptCompatibilitySnapshot { batch.seal() }
 
-        if let songStore {
-            let previous = songStoreWriteTask
-            songStoreWriteTask = Task.detached(priority: .utility) { [weak self] in
-                let previousSucceeded = await previous?.value != nil
-                // A failed earlier delta may have left unknown rows stale, so
-                // this delta must not commit a cursor over that gap. Hand the
-                // gap to `flushIncrementalSongStore()` instead of freezing a
-                // full `[Song]` copy per queued write: the chain is serial, so
-                // an eager capture keeps one complete library buffer alive for
-                // every queued delta, and recovering from a snapshot taken at
-                // enqueue time would also roll back everything that landed
-                // between the failure and the recovery.
-                guard previous == nil || previousSucceeded else {
-                    await MainActor.run { self?.songStoreRequiresReplacement = true }
-                    return nil
-                }
-                do {
-                    return try songStore.apply(upserts: upserts, deletingIDs: deletingIDs)
-                } catch {
-                    plog("⛔ Incremental song persistence failed: \(error.localizedDescription)")
-                    return nil
+            if let songStore {
+                let previous = songStoreWriteTask
+                songStoreWriteTask = Task.detached(priority: .utility) { [weak self] in
+                    let previousSucceeded = await previous?.value != nil
+                    let changes = await MainActor.run {
+                        let changes = batch.seal()
+                        if self?.pendingSongPersistenceBatch === batch {
+                            self?.pendingSongPersistenceBatch = nil
+                        }
+                        return changes
+                    }
+                    // A failed earlier delta may have left unknown rows stale, so
+                    // this delta must not commit a cursor over that gap. Hand the
+                    // gap to `flushIncrementalSongStore()` instead of freezing a
+                    // full `[Song]` copy per queued write: the chain is serial, so
+                    // an eager capture keeps one complete library buffer alive for
+                    // every queued delta, and recovering from a snapshot taken at
+                    // enqueue time would also roll back everything that landed
+                    // between the failure and the recovery.
+                    guard previous == nil || previousSucceeded else {
+                        await MainActor.run { self?.songStoreRequiresReplacement = true }
+                        return nil
+                    }
+                    do {
+                        return try songStore.apply(upserts: changes.upserts, deletingIDs: changes.deletingIDs)
+                    } catch {
+                        plog("⛔ Incremental song persistence failed: \(error.localizedDescription)")
+                        return nil
+                    }
                 }
             }
-        }
 
-        enqueueSearchIndexChanges(
-            upserts: upserts,
-            deletingIDs: deletingIDs,
-            generation: searchIndexGeneration,
-            after: songStoreWriteTask
-        )
+            enqueueSearchIndexChanges(batch: batch, after: songStoreWriteTask)
+        }
 
         // The SQLite transaction is the durable local commit. Keep producing
         // the existing portable JSON for iCloud/TV, but coalesce ordinary
@@ -14983,6 +14991,7 @@ final class MusicLibrary {
            let persistWriteTask {
             return persistWriteTask
         }
+        pendingSongPersistenceBatch?.seal()
         let includesSongs = writesSongsIntoPortableSnapshot
         let snapshot = makeSnapshot(includingSongs: includesSongs)
         let fallbackSongs: [Song]? = !includesSongs && songFallbackIsDue() ? songs : nil
@@ -15320,6 +15329,7 @@ final class MusicLibrary {
     }
 
     private func flushIncrementalSongStore() async -> Bool {
+        pendingSongPersistenceBatch?.seal()
         let pendingSucceeded: Bool
         if let songStoreWriteTask { pendingSucceeded = await songStoreWriteTask.value != nil }
         else { pendingSucceeded = true }

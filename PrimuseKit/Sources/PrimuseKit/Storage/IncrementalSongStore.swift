@@ -19,10 +19,17 @@ public final class IncrementalSongStore: @unchecked Sendable {
     public init(path: String) throws {
         var configuration = Configuration()
         configuration.label = "Primuse incremental song store"
+        configuration.journalMode = .wal
         database = try DatabaseQueue(path: path, configuration: configuration)
+        // GRDB defaults WAL connections to NORMAL. Cursor commits must remain
+        // durable even after a power loss, just as they were in rollback mode.
+        try database.writeWithoutTransaction { db in
+            try db.execute(sql: "PRAGMA synchronous = FULL")
+        }
 
         encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .sortedKeys
 
         try migrate()
         // 装载按 orderKey 顺序读整库, 增量写入要取 MAX(orderKey)。没有这条索引时
@@ -235,6 +242,7 @@ public final class IncrementalSongStore: @unchecked Sendable {
         }
 
         return try database.write { db in
+            var changed = false
             if !deletingIDs.isEmpty {
                 let ids = Array(deletingIDs)
                 for chunkStart in stride(from: 0, to: ids.count, by: 500) {
@@ -244,20 +252,40 @@ public final class IncrementalSongStore: @unchecked Sendable {
                         sql: "DELETE FROM librarySongRecords WHERE id IN (\(placeholders))",
                         arguments: StatementArguments(chunk)
                     )
+                    changed = changed || db.changesCount > 0
                 }
             }
 
-            var nextOrderKey = (try Int64.fetchOne(
-                db,
-                sql: "SELECT MAX(orderKey) FROM librarySongRecords"
-            ) ?? -1) + 1
+            var nextOrderKey: Int64?
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
 
             for row in encoded {
-                let alreadyExists = try Bool.fetchOne(
+                let existing = try Row.fetchOne(
                     db,
-                    sql: "SELECT EXISTS(SELECT 1 FROM librarySongRecords WHERE id = ?)",
+                    sql: "SELECT sourceID, orderKey, payload FROM librarySongRecords WHERE id = ?",
                     arguments: [row.0]
-                ) ?? false
+                )
+                if let existing, existing["sourceID"] as String == row.1 {
+                    let payload: Data = existing["payload"]
+                    if payload == row.2 { continue }
+                    // Older rows used unordered JSON keys. Compare their
+                    // persisted values without rewriting the library on upgrade.
+                    if let song = try? decoder.decode(Song.self, from: payload),
+                       try encoder.encode(song) == row.2 { continue }
+                }
+                let orderKey: Int64
+                if let existing {
+                    orderKey = existing["orderKey"]
+                } else {
+                    if nextOrderKey == nil {
+                        nextOrderKey = (try Int64.fetchOne(
+                            db, sql: "SELECT MAX(orderKey) FROM librarySongRecords"
+                        ) ?? -1) + 1
+                    }
+                    orderKey = nextOrderKey!
+                    nextOrderKey = orderKey + 1
+                }
                 try db.execute(
                     sql: """
                         INSERT INTO librarySongRecords (id, sourceID, orderKey, payload)
@@ -266,13 +294,18 @@ public final class IncrementalSongStore: @unchecked Sendable {
                             sourceID = excluded.sourceID,
                             payload = excluded.payload
                     """,
-                    arguments: [row.0, row.1, nextOrderKey, row.2]
+                    arguments: [row.0, row.1, orderKey, row.2]
                 )
-                if !alreadyExists {
-                    nextOrderKey += 1
-                }
+                changed = true
             }
-            try Self.markAuthoritative(in: db)
+            if try Self.metadataValue(forKey: Self.authoritativeKey, in: db) != "1" {
+                try Self.markAuthoritative(in: db)
+                changed = true
+            }
+            guard changed else {
+                return try Self.metadataValue(forKey: Self.contentRevisionKey, in: db)
+                    .flatMap(Int64.init) ?? 0
+            }
             return try Self.bumpContentRevision(in: db)
         }
     }
@@ -521,5 +554,34 @@ public struct SongStringInterner {
         guard var string = value else { return }
         share(&string)
         value = string
+    }
+}
+
+/// Updates one FTS document only when its indexed values change.
+public enum LibrarySearchDocumentWriter {
+    // Table and column names come only from the caller's fixed search schema.
+    public static func update(
+        table: String,
+        columns: [String],
+        values: [String],
+        rowID: Int64,
+        isNew: Bool,
+        in db: Database
+    ) throws {
+        if !isNew {
+            let row = try Row.fetchOne(
+                db, sql: "SELECT \(columns.joined(separator: ", ")) FROM \(table) WHERE rowid = ?",
+                arguments: [rowID]
+            )
+            if let row, values.enumerated().allSatisfy({ (row[$0.offset] as String?) == $0.element }) {
+                return
+            }
+            try db.execute(sql: "DELETE FROM \(table) WHERE rowid = ?", arguments: [rowID])
+        }
+        let placeholders = Array(repeating: "?", count: values.count + 1).joined(separator: ", ")
+        try db.execute(
+            sql: "INSERT INTO \(table) (rowid, \(columns.joined(separator: ", "))) VALUES (\(placeholders))",
+            arguments: StatementArguments([rowID]) + StatementArguments(values)
+        )
     }
 }

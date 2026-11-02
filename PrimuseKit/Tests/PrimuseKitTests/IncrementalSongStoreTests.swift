@@ -5,6 +5,42 @@ import Testing
 
 @Suite("Incremental song persistence")
 struct IncrementalSongStoreTests {
+    @Test("Unchanged search documents do not rewrite FTS pages; edited terms replace old terms")
+    func searchDocumentWriteElision() throws {
+        let database = try DatabaseQueue()
+        try database.write { db in
+            try db.execute(sql: "CREATE VIRTUAL TABLE documents USING fts5(title, artist)")
+            try LibrarySearchDocumentWriter.update(
+                table: "documents", columns: ["title", "artist"], values: ["Original", "Artist"],
+                rowID: 1, isNew: true, in: db
+            )
+        }
+        let before = try database.read { try Int.fetchOne($0, sql: "SELECT total_changes()") }
+        try database.write { db in
+            for _ in 0..<20 {
+                try LibrarySearchDocumentWriter.update(
+                    table: "documents", columns: ["title", "artist"], values: ["Original", "Artist"],
+                    rowID: 1, isNew: false, in: db
+                )
+            }
+        }
+        #expect(try database.read { try Int.fetchOne($0, sql: "SELECT total_changes()") } == before)
+        try database.write { db in
+            try LibrarySearchDocumentWriter.update(
+                table: "documents", columns: ["title", "artist"], values: ["Updated", "Artist"],
+                rowID: 1, isNew: false, in: db
+            )
+        }
+        let matches = try database.read { db in
+            [
+                try Int.fetchOne(db, sql: "SELECT count(*) FROM documents WHERE documents MATCH 'Original'"),
+                try Int.fetchOne(db, sql: "SELECT rowid FROM documents WHERE documents MATCH 'Updated'"),
+                try Int.fetchOne(db, sql: "SELECT rowid FROM documents WHERE documents MATCH 'Artist'"),
+            ]
+        }
+        #expect(matches == [0, 1, 1])
+    }
+
     @Test("Stream descriptor fast rejection preserves path extension semantics")
     func streamDescriptorPaths() {
         for path in ["/Music/song.mp3", "/Music/song.STRM", "/Music/song.strm/", "/Music/.strm", "/Music/STRM", "", "/中文/歌曲.strm", "/Music/song.strm?x=1", "/Music/song.strm.flac", "/Music/song.strm.", "/Music/song.strm "] {
@@ -82,6 +118,77 @@ struct IncrementalSongStoreTests {
             #expect(state.contentRevision == 2)
             #expect(state.completedMigrationVersion == 2)
         }
+    }
+
+    @Test("Repeated unchanged batches neither write pages nor advance the durable revision")
+    func unchangedBatchesDoNotWrite() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("songs.sqlite").path
+        let store = try IncrementalSongStore(path: path)
+        let songs = (0..<100).map { makeSong(id: "song-\($0)", path: "/\($0).flac", title: "Song \($0)") }
+        let revision = try store.replaceAll(with: songs)
+        let observer = try DatabaseQueue(path: path)
+        let before = try observer.read { db in
+            #expect(try String.fetchOne(db, sql: "PRAGMA journal_mode") == "wal")
+            return try Int.fetchOne(db, sql: "PRAGMA data_version")
+        }
+        for _ in 0..<10 {
+            #expect(try store.apply(upserts: songs, deletingIDs: ["absent"]) == revision)
+        }
+        let reopened = try IncrementalSongStore(path: path)
+        #expect(try reopened.apply(upserts: songs) == revision)
+        #expect(try observer.read { try Int.fetchOne($0, sql: "PRAGMA data_version") } == before)
+        #expect(try reopened.loadSongs() == songs)
+    }
+
+    @Test("Legacy JSON key ordering does not force a library rewrite")
+    func legacyPayloadDoesNotWrite() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("songs.sqlite").path
+        let store = try IncrementalSongStore(path: path)
+        let song = makeSong(id: "legacy", path: "/legacy.flac", title: "Legacy")
+        let revision = try store.replaceAll(with: [song])
+        let observer = try DatabaseQueue(path: path)
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.dateEncodingStrategy = .iso8601
+        legacyEncoder.outputFormatting = .prettyPrinted
+        let legacy = try legacyEncoder.encode(song)
+        try observer.write { db in
+            try db.execute(sql: "UPDATE librarySongRecords SET payload = ? WHERE id = ?", arguments: [legacy, song.id])
+        }
+        #expect(try store.apply(upserts: [song]) == revision)
+        #expect(try observer.read { try Data.fetchOne($0, sql: "SELECT payload FROM librarySongRecords") } == legacy)
+        var changed = song
+        changed.title = "Edited"
+        #expect(try store.apply(upserts: [changed]) == revision + 1)
+        #expect(try store.loadSongs().first?.title == "Edited")
+    }
+
+    @Test("A failed SQL transaction rolls back deletes and updates together")
+    func sqlFailureIsAtomic() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("songs.sqlite").path
+        let store = try IncrementalSongStore(path: path)
+        let song = makeSong(id: "original", path: "/original.flac", title: "Original")
+        let revision = try store.replaceAll(with: [song])
+        let connection = try DatabaseQueue(path: path)
+        try connection.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_insert BEFORE INSERT ON librarySongRecords
+                BEGIN SELECT RAISE(ABORT, 'test write failure'); END
+                """)
+        }
+        #expect(throws: (any Error).self) {
+            try store.apply(upserts: [makeSong(id: "new", path: "/new.flac", title: "New")], deletingIDs: [song.id])
+        }
+        #expect(try store.loadSongs() == [song])
+        #expect(try store.startupState().contentRevision == revision)
     }
 
     @Test("Encoding failure leaves the previous transaction intact")

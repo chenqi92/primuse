@@ -1740,6 +1740,50 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
 
 @MainActor
 final class MusicLibraryPersistenceSchedulingTests: XCTestCase {
+    func testQueuedMetadataUpdatesCommitOnlyTheLatestValueOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([makeSong(id: "song", path: "/music/song.mp3")], affectedSourceIDs: ["source-1"])
+        try await library.persistNowAndWait().get()
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        let before = try store.startupState().contentRevision
+        var song = try XCTUnwrap(library.song(id: "song"))
+        for index in 1...100 {
+            song.duration = Double(index)
+            library.replaceSong(song)
+        }
+        try await library.persistIncrementalNowAndWait().get()
+        XCTAssertEqual(try store.startupState().contentRevision, before + 1)
+        XCTAssertEqual(try store.loadSongs().first?.duration, 100)
+        try await library.persistNowAndWait().get()
+        let restored = MusicLibrary(storageDirectory: directory)
+        XCTAssertEqual(restored.song(id: "song")?.duration, 100)
+    }
+
+    func testDeletionAndReadditionKeepTheLatestRowAndOrder() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([
+            makeSong(id: "first", path: "/music/first.mp3"),
+            makeSong(id: "second", path: "/music/second.mp3"),
+        ], affectedSourceIDs: ["source-1"])
+        try await library.persistNowAndWait().get()
+        var first = try XCTUnwrap(library.song(id: "first"))
+        first.duration = 99
+        library.replaceSong(first)
+        _ = library.deleteSong(first)
+        library.restoreDeletedSong(first)
+        first.title = "Readded"
+        library.addSongs([first], affectedSourceIDs: ["source-1"], pruneMissingSongs: false)
+        try await library.persistIncrementalNowAndWait().get()
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        XCTAssertEqual(try store.loadSongs().map(\.id), library.songs.map(\.id))
+        XCTAssertEqual(try store.loadSongs().first(where: { $0.id == "first" })?.title, "Readded")
+        try await library.persistNowAndWait().get()
+    }
+
     /// backfill 的 30s 合并写不能把已经武装好的 2s 用户操作落盘顶掉。
     func testCoalescedBackfillFlushDoesNotStarvePromptUserMutation() async throws {
         let directory = FileManager.default.temporaryDirectory

@@ -41,6 +41,44 @@ private final class LyricsSearchOrderRecorder {
 final class LibraryLyricsSearchSeamTests: XCTestCase {
     private static let generationKey = "primuse.librarySearchIndex.preparationGeneration.v1"
 
+    func testLyricsRefreshSeparatesSurroundingSongWriteGenerations() async throws {
+        let directory = try makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "primuse.tests.songBatch.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recorder = LyricsSearchOrderRecorder()
+        let library = MusicLibrary(
+            storageDirectory: directory,
+            searchIndexDefaults: defaults,
+            lyricsSearchIndexRefresh: { songID, text, generation in
+                recorder.record(songID: songID, fallbackText: text, generation: generation,
+                                storedGeneration: defaults.integer(forKey: Self.generationKey))
+            }
+        )
+        var song = Song(id: "batch", title: "Batch", fileFormat: .mp3,
+                        filePath: "/batch.mp3", sourceID: "source")
+        library.addSongs([song], affectedSourceIDs: ["source"])
+        try await library.persistNowAndWait().get()
+        let start = defaults.integer(forKey: Self.generationKey)
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        let revision = try store.startupState().contentRevision
+        song = try XCTUnwrap(library.song(id: song.id))
+        song.duration = 1
+        library.replaceSong(song)
+        NotificationCenter.default.post(name: .primuseLyricsDidCache, object: nil,
+                                        userInfo: ["songID": song.id, "lyricsText": "new lyrics"])
+        song.duration = 2
+        library.replaceSong(song)
+        XCTAssertEqual(recorder.events.map(\.generation), [start + 2])
+        XCTAssertEqual(defaults.integer(forKey: Self.generationKey), start + 3)
+        try await library.persistIncrementalNowAndWait().get()
+        XCTAssertEqual(try store.startupState().contentRevision, revision + 2)
+        XCTAssertEqual(try store.loadSongs().first?.duration, 2)
+        try await library.persistNowAndWait().get()
+    }
+
+
     private func makeStorageDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PrimuseLyricsSeamTests-\(UUID().uuidString)", isDirectory: true)
