@@ -60,7 +60,7 @@ actor ArtistHeroBackgroundResolver {
            let data = try? Data(contentsOf: file),
            let stored = try? JSONDecoder().decode([StoredColor].self, from: data) {
             for entry in stored.suffix(48) where entry.expires > Date()
-                && entry.expires <= Date().addingTimeInterval(7 * 86_400 + 60)
+                && entry.expires.timeIntervalSinceReferenceDate <= Date().addingTimeInterval(7 * 86_400 + 60).timeIntervalSinceReferenceDate
                 && entry.key.utf8.count == 64 && entry.key.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) })
                 && [entry.red, entry.green, entry.blue].allSatisfy({ $0.isFinite && (0...1).contains($0) }) {
                 let logo = Self.restoreNameArtwork(entry, indexFile: file)
@@ -402,7 +402,7 @@ actor ArtistHeroBackgroundResolver {
                 )
                 recordPreviewDiagnostic(&diagnostic, stage: stage, result: "response",
                                         status: (response as? HTTPURLResponse)?.statusCode, requestStartedAt: requestStartedAt)
-                guard !Task.isCancelled, Date() <= deadline,
+                guard !Task.isCancelled, Date().timeIntervalSinceReferenceDate <= deadline.timeIntervalSinceReferenceDate,
                       let http = response as? HTTPURLResponse,
                       response.url?.host?.lowercased() == host, data.count <= maximumBytes else { return nil }
                 if [301, 302, 303, 307, 308].contains(http.statusCode), hop < 2,
