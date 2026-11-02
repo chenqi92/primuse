@@ -5549,6 +5549,33 @@ final class SourceManager {
         acquirePlaybackCacheLease: Bool = true,
         transcodePlanOverride: SourceTranscodePlan? = nil
     ) async throws -> URL {
+        if song.isSACDTrack {
+            let sources = try await sourcesProvider()
+            guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+                throw SourceError.fileNotFound(song.filePath)
+            }
+            let expectedScope = Self.audioCacheScopeSignature(for: source)
+            let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
+            try await ensureCurrentPlaybackResolutionScope(sourceID: source.id, expectedScope: expectedScope, streamEpoch: streamEpoch)
+            if let cached = SACDTrackCache.cachedURL(song: song) { return cached }
+            let conn = connector(for: source)
+            let result: URL
+            if let image = cachedURL(for: song) {
+                let file = try FileHandle(forReadingFrom: image)
+                defer { try? file.close() }
+                result = try await SACDTrackCache.shared.materialize(song: song) { offset, length in
+                    try file.seek(toOffset: UInt64(offset))
+                    return try file.read(upToCount: Int(length)) ?? Data()
+                }
+            } else {
+                try await conn.connect()
+                result = try await SACDTrackCache.shared.materialize(song: song) { offset, length in
+                    try await conn.fetchRange(path: song.filePath, offset: offset, length: length)
+                }
+            }
+            try await ensureCurrentPlaybackResolutionScope(sourceID: source.id, expectedScope: expectedScope, streamEpoch: streamEpoch)
+            return result
+        }
         // 本机源的音频本来就是本地文件，从不进音频缓存（`backgroundAudioCacheTask`
         // 对 .local 直接返回），所以跳过缓存范围校验与缓存租约：冷启动后第一次取
         // 租约要先把整个缓存目录走一遍，那段等待对本机歌毫无意义（#170）。读不到源
@@ -5732,6 +5759,7 @@ final class SourceManager {
     /// transport context. Only a genuinely external STRM target may remain an
     /// HTTP(S) URL; configured source paths are materialized by their connector.
     func resolveFullDownloadSourceURL(for song: Song) async throws -> URL {
+        if song.isSACDTrack { return try await resolveURL(for: song) }
         if let cached = await cachedURLWithPlaybackLease(for: song) {
             return cached
         }
@@ -7445,6 +7473,7 @@ final class SourceManager {
     /// 按离线缓存音质转出来的精简副本。读标签、读内嵌歌词、拖动时整曲物化这些
     /// 要原文件字节的地方继续用 `cachedURL(for:)`。
     func cachedPlaybackURL(for song: Song) -> URL? {
+        if song.isSACDTrack { return SACDTrackCache.cachedURL(song: song) }
         if let original = cachedURL(for: song) { return original }
         return cachedCompactURL(for: song)
     }
@@ -12425,7 +12454,7 @@ final class SourceManager {
         prefersCompleteFile: Bool = false,
         queueRank: Int? = nil
     ) -> Task<Void, Never>? {
-        guard cacheEnabled,
+        guard !song.isSACDTrack, cacheEnabled,
               automaticAudioCachingEnabled,
               audioCacheReadsAreAllowed(for: song.sourceID),
               cachedPlaybackURL(for: song) == nil,

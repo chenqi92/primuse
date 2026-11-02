@@ -65,7 +65,7 @@ public enum PreparedPlaybackStartPolicy {
         // A remote WAV is probed for DTS before it is decoded; DSD has its own
         // output negotiation.
         switch format {
-        case .wav, .dsf, .dff:
+        case .wav, .dsf, .dff, .sacdISO:
             return false
         default:
             return true

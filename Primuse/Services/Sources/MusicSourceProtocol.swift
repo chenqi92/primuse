@@ -1292,25 +1292,31 @@ enum LyricsSidecarTargetPolicy {
         items: [RemoteFileItem],
         using connector: any MusicSourceConnector
     ) async throws -> LyricsSidecarTarget? {
-        guard let trackNumber = song.trackNumber,
+        guard let trackNumber = song.sacdTrackNumber ?? song.trackNumber,
               let cuePath = song.cueSheetPath,
               let sheet = items.first(where: { !$0.isDirectory && $0.path == cuePath }) else {
             return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
         }
-        let data: Data
+        let cue: CueSheet?
         do {
-            data = try await connector.fetchMetadataRange(
-                path: sheet.path,
-                offset: 0,
-                length: min(max(sheet.size, 64 * 1024), Int64(1024 * 1024))
-            )
+            if song.isSACDTrack {
+                cue = try await SACDISOReader.sheet(fileName: sheet.name, size: sheet.size) { offset, length in
+                    try await connector.fetchMetadataRange(path: sheet.path, offset: offset, length: length)
+                }
+            } else {
+                let data = try await connector.fetchMetadataRange(
+                    path: sheet.path, offset: 0,
+                    length: min(max(sheet.size, 64 * 1024), Int64(1024 * 1024))
+                )
+                cue = CueSheetParser.parse(data: data)
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
         }
         let audioName = (song.filePath as NSString).lastPathComponent
-        guard let cue = CueSheetParser.parse(data: data),
+        guard let cue,
               let cueFile = cue.files.first(where: {
                   (($0.name.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent)
                       .caseInsensitiveCompare(audioName) == .orderedSame
@@ -1338,7 +1344,7 @@ enum LyricsSidecarTargetPolicy {
         let candidates = CueTrackLyricsSidecarPolicy.candidateIndices(in: files.map(\.name))
             .map { files[$0] }
         let cueSheetCount = files.filter {
-            PrimuseConstants.supportedCueSheetExtensions.contains(
+            PrimuseConstants.supportedVirtualTrackExtensions.contains(
                 ($0.name as NSString).pathExtension.lowercased()
             )
         }.count

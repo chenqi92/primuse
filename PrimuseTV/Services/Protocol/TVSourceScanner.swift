@@ -1880,6 +1880,7 @@ final class TVSourceScanner {
                     }
                     let ext = (entry.name as NSString).pathExtension.lowercased()
                     var candidates: [Song] = []
+                    if ext == "iso", cueLoad.tracksByAudioPath[entry.path]?.isEmpty != false { continue }
                     if PrimuseConstants.supportedAudioExtensions.contains(ext)
                         || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                         if let descriptors = cueLoad.tracksByAudioPath[entry.path],
@@ -3145,6 +3146,8 @@ final class TVSourceScanner {
                 filePath: entry.path,
                 sourceID: source.id,
                 fileSize: entry.size,
+                sampleRate: descriptor.format == .sacdISO ? 2_822_400 : nil,
+                bitDepth: descriptor.format == .sacdISO ? 1 : nil,
                 genre: descriptor.genre,
                 year: descriptor.year,
                 lastModified: entry.modifiedDate,
@@ -3155,6 +3158,7 @@ final class TVSourceScanner {
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,
                 cueEndTime: end,
+                sacdTrackNumber: descriptor.format == .sacdISO ? descriptor.track.number : nil,
                 revision: Self.revision(for: entry, source: source)
             )
         }
@@ -3177,44 +3181,53 @@ final class TVSourceScanner {
         var result: [String: [CueTrackDescriptor]] = [:]
         var failureMessage: String?
         for cueItem in siblings where !cueItem.isDir
-            && PrimuseConstants.supportedCueSheetExtensions.contains(
+            && PrimuseConstants.supportedVirtualTrackExtensions.contains(
                 (cueItem.name as NSString).pathExtension.lowercased()
             ) {
             do {
                 try Task.checkCancellation()
-                guard cueItem.size <= 0 || cueItem.size <= 1024 * 1024 else {
-                    throw CocoaError(.fileReadTooLarge)
-                }
-                // 没变过的 .cue 用上一轮读到的原文,不再下载。
-                let version = CueSheetScanCache.FileVersion(
-                    size: cueItem.size,
-                    modifiedDate: cueItem.modifiedDate,
-                    revision: cueItem.revision
-                )
-                let data: Data
-                if let cached = await cache.sheet(path: cueItem.path, version: version) {
-                    data = cached
+                let cue: CueSheet
+                if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
+                    guard let parsed = try await SACDISOReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { offset, length in
+                        try await readerPool.read(path: cueItem.path, size: cueItem.size, offset: offset, length: length)
+                    }) else { continue }
+                    cue = parsed
                 } else {
-                    let requestedLength = min(
-                        max(cueItem.size, 64 * 1024),
-                        Int64(CueSheetScanCache.maximumSheetBytes)
-                    )
-                    data = try await readerPool.read(
-                        path: cueItem.path,
+                    guard cueItem.size <= 0 || cueItem.size <= 1024 * 1024 else {
+                        throw CocoaError(.fileReadTooLarge)
+                    }
+                    // 没变过的 .cue 用上一轮读到的原文,不再下载。
+                    let version = CueSheetScanCache.FileVersion(
                         size: cueItem.size,
-                        offset: 0,
-                        length: requestedLength
+                        modifiedDate: cueItem.modifiedDate,
+                        revision: cueItem.revision
                     )
-                    await cache.storeSheet(
-                        data,
-                        path: cueItem.path,
-                        version: version,
-                        requestedLength: requestedLength
-                    )
-                }
-                try Task.checkCancellation()
-                guard let cue = CueSheetParser.parse(data: data) else {
-                    throw URLError(.cannotDecodeContentData)
+                    let data: Data
+                    if let cached = await cache.sheet(path: cueItem.path, version: version) {
+                        data = cached
+                    } else {
+                        let requestedLength = min(
+                            max(cueItem.size, 64 * 1024),
+                            Int64(CueSheetScanCache.maximumSheetBytes)
+                        )
+                        data = try await readerPool.read(
+                            path: cueItem.path,
+                            size: cueItem.size,
+                            offset: 0,
+                            length: requestedLength
+                        )
+                        await cache.storeSheet(
+                            data,
+                            path: cueItem.path,
+                            version: version,
+                            requestedLength: requestedLength
+                        )
+                    }
+                    try Task.checkCancellation()
+                    guard let parsed = CueSheetParser.parse(data: data) else {
+                        throw URLError(.cannotDecodeContentData)
+                    }
+                    cue = parsed
                 }
                 for cueFile in cue.files {
                     let referencedName = (

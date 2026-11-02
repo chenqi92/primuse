@@ -187,6 +187,7 @@ public enum TVScanPipelinePolicy {
             result.cueSheetPath = candidate.cueSheetPath
             result.cueStartTime = candidate.cueStartTime
             result.cueEndTime = candidate.cueEndTime
+            result.sacdTrackNumber = candidate.sacdTrackNumber
             if let video = candidate.mvPath { result.mvPath = video }
         }
         result.dateAdded = existing.dateAdded

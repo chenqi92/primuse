@@ -5296,6 +5296,25 @@ final class MetadataBackfillService {
         if request.containerCodecOnly {
             return try await Self.probeContainerCodec(for: song, stored: request.storedSong, fetch: fetchRange)
         }
+        if song.isSACDTrack, let number = song.sacdTrackNumber {
+            let disc = try await SACDISOReader.open(size: song.fileSize) { offset, length in
+                try await reader.fetch(offset: offset, length: length, intent: rangeReadIntent)
+            }
+            guard let track = disc.tracks.first(where: { $0.number == number }) else {
+                throw SACDISOReader.Failure.missingTrack
+            }
+            var metadata = MetadataService.SongMetadata(
+                title: track.title ?? song.title, artist: track.performer ?? disc.performer,
+                albumTitle: disc.title, albumArtist: disc.performer, trackNumber: number, year: disc.year,
+                duration: track.duration, sampleRate: 2_822_400, bitDepth: 1
+            )
+            metadata.hasTechnicalProperties = true
+            let merged = mergeSong(bare: song, metadata: metadata)
+            return BackfillOutcome(
+                song: merged, markFailed: false, completionKind: .embeddedTags,
+                titleInspected: true, artistInspected: true, artworkGivenUp: true
+            )
+        }
         let fetchStarted = Date()
         // 不用顺带取封面的歌只读一小段: 标签本身几 KB 就够, 整段读会白拉两百多
         // KB。需要封面时仍然整段读 —— 封面多半就在里面, 一次取回比小段加补读
@@ -6240,6 +6259,7 @@ final class MetadataBackfillService {
             cueSheetPath: bare.cueSheetPath,
             cueStartTime: bare.cueStartTime,
             cueEndTime: bare.cueEndTime,
+            sacdTrackNumber: bare.sacdTrackNumber,
             revision: bare.revision,
             titlePinyin: mergedTitle == bare.title ? bare.titlePinyin : nil,
             artistPinyin: mergedArtist == bare.artistName ? bare.artistPinyin : nil,

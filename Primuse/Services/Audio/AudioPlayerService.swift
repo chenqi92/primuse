@@ -7497,8 +7497,8 @@ final class AudioPlayerService {
         guard let next else { return .seamless }
 
         let isHighFidelity = outputMode(for: next) == .highFidelity
-        let currentIsDSD = currentSong.map { $0.fileFormat == .dsf || $0.fileFormat == .dff } ?? false
-        let nextIsDSD = next.fileFormat == .dsf || next.fileFormat == .dff
+        let currentIsDSD = currentSong.map { $0.audioQuality == .dsd } ?? false
+        let nextIsDSD = next.audioQuality == .dsd
         let nextRate = nextSourceSampleRate ?? next.sampleRate.map(Double.init)
         let isSameAlbum = currentSong.map {
             ContinuousTransitionSampleRatePolicy.isSameAlbum(Self.albumKey($0), Self.albumKey(next))

@@ -61,7 +61,7 @@ extension Song {
     /// - 有损 (MP3/AAC/Opus 等) → .standard
     /// M4A 按 `codecFormat` 判：装的是 ALAC 才算无损。位深按 `qualityBitDepth`。
     public var audioQuality: AudioQuality {
-        if fileFormat == .dsf || fileFormat == .dff {
+        if fileFormat == .dsf || fileFormat == .dff || fileFormat == .sacdISO {
             return .dsd
         }
         guard codecFormat.isLossless else {

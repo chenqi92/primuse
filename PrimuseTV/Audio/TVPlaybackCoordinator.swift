@@ -1675,7 +1675,7 @@ final class TVPlaybackCoordinator {
         let temporaryDirectory = fileManager.temporaryDirectory
         let tmp = TVDecodedTemporaryFilePolicy.makeURL(
             in: temporaryDirectory,
-            fileExtension: ext
+            fileExtension: song.isSACDTrack ? "dff" : ext
         )
         var shouldKeepFile = false
         defer {
@@ -1692,6 +1692,31 @@ final class TVPlaybackCoordinator {
                 try ensureCurrent(requestID, store: store)
             } else {
                 try Task.checkCancellation()
+            }
+        }
+        if song.isSACDTrack, let number = song.sacdTrackNumber {
+            let pool = TVMetadataReaderPool(source: source, credential: credential)
+            do {
+                let reader = try await pool.reader(path: song.filePath, size: song.fileSize)
+                let size = try await reader.contentLength()
+                let disc = try await SACDISOReader.open(size: size) { offset, length in
+                    try await reader.read(offset: offset, length: length)
+                }
+                guard let track = disc.tracks.first(where: { $0.number == number }) else {
+                    throw SACDISOReader.Failure.missingTrack
+                }
+                let budget = await Self.decodedDownloadBudget(in: temporaryDirectory)
+                try Self.validateDownloadSize(Int64(track.sectorCount) * 2048 + Int64(track.frameCount) * 24 + 1024, budget: budget)
+                try await SACDISOReader.extract(disc: disc, trackNumber: number, to: tmp) { offset, length in
+                    try await reader.read(offset: offset, length: length)
+                }
+                await pool.closeAll()
+                try ensureWanted()
+                shouldKeepFile = true
+                return tmp
+            } catch {
+                await pool.closeAll()
+                throw error
             }
         }
         // 上一首播放时已经把这首整份取好了:直接接过来,不再下载。
@@ -1972,7 +1997,7 @@ final class TVPlaybackCoordinator {
             }
             // 本机接收的文件本来就在电视上。FTP 每首预取用自己的一条控制连接,预取完就关。
             guard source.type != .local,
-                  !song.isStreamDescriptor else { continue }
+                  !song.isStreamDescriptor, !song.isSACDTrack else { continue }
             let asset = playbackAsset(for: song, preferMusicVideo: store.isMusicVideoModeEnabled)
             guard !asset.isVideo, asset.directStream == nil else { continue }
             let format = AudioFormat.from(fileExtension: asset.fileExtension) ?? song.fileFormat

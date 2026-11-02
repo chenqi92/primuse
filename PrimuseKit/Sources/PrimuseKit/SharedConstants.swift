@@ -1688,7 +1688,7 @@ public enum PrimuseConstants {
     /// extension that is already proven on all three platforms.
     public static let supportedAudioExtensions: Set<String> = [
         "mp3", "aac", "m4a", "m4b", "flac", "wav", "wave", "aiff", "aif", "au", "snd", "caf", "alac",
-        "ape", "dsf", "dff", "ogg", "oga", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
+        "ape", "dsf", "dff", "iso", "ogg", "oga", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
         "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb",
         "atrac", "oma", "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa",
         "m4r", "aifc", "bwf", "mka", "weba", "mp2", "mpa", "mp1", "m2a",
@@ -1700,6 +1700,7 @@ public enum PrimuseConstants {
     /// scanners enumerate them separately and expand their INDEX 01 entries
     /// into virtual Song rows that all point at the referenced audio image.
     public static let supportedCueSheetExtensions: Set<String> = ["cue"]
+    public static let supportedVirtualTrackExtensions: Set<String> = ["cue", "iso"]
 
     /// 歌旁边的那些文件(歌词、封面、CUE、说明文字)的扩展名。有声书服务器的章节路径只是
     /// 「书 id + 章节 id」加一个类型提示,按同目录规则拼出来的 `<章节>.lrc` 一类路径

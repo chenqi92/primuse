@@ -306,6 +306,7 @@ public enum MediaRelaySourcePolicy {
         case .ape: return "audio/ape"
         case .dsf: return "audio/dsf"
         case .dff: return "audio/dff"
+        case .sacdISO: return "application/x-iso9660-image"
         case .ogg: return "audio/ogg"
         case .opus: return "audio/opus"
         case .wma: return "audio/x-ms-wma"

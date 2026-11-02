@@ -226,7 +226,7 @@ actor SynologyScanner {
         let languageTaggedLyrics = LanguageTaggedLyricsIndex(
             fileNames: items.filter { !$0.isDirectory }.map(\.name)
         )
-        let cueTracksByAudioPath = await loadCueTracks(from: items)
+        let cueTracksByAudioPath = try await loadCueTracks(from: items)
         // CUE 分轨按曲目分开放的歌词:只有这个目录真有 CUE 镜像时才分析文件名。
         let cueTrackLyricCandidates: [SynologyAPI.FileItem]
         if cueTracksByAudioPath.isEmpty {
@@ -339,6 +339,7 @@ actor SynologyScanner {
                     ))
                     continue
                 }
+                if ext == "iso" { continue }
                 let songID = generateID(sourceID: sourceID, path: item.path)
                 encounteredSongIDs.insert(songID)
                 recordSyncItem(
@@ -588,7 +589,7 @@ actor SynologyScanner {
 
     private func loadCueTracks(
         from items: [SynologyAPI.FileItem]
-    ) async -> [String: [CueTrackDescriptor]] {
+    ) async throws -> [String: [CueTrackDescriptor]] {
         var result: [String: [CueTrackDescriptor]] = [:]
         let filesByName = Dictionary(
             items.filter { !$0.isDirectory }.map { ($0.name.lowercased(), $0) },
@@ -596,11 +597,17 @@ actor SynologyScanner {
         )
 
         for cueItem in items where !cueItem.isDirectory
-            && (cueItem.name as NSString).pathExtension.caseInsensitiveCompare("cue") == .orderedSame {
-            guard let data = await cueSheetData(for: cueItem),
-                  let cue = CueSheetParser.parse(data: data) else {
-                plog("⚠️ Synology CUE: unable to parse \(cueItem.name)")
-                continue
+            && PrimuseConstants.supportedVirtualTrackExtensions.contains((cueItem.name as NSString).pathExtension.lowercased()) {
+            let cue: CueSheet
+            if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
+                guard let parsed = try await SACDISOReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [api] offset, length in
+                    try await api.downloadFileRange(path: cueItem.path, offset: offset, length: Int(length))
+                }) else { continue }
+                cue = parsed
+            } else {
+                guard let data = await cueSheetData(for: cueItem),
+                      let parsed = CueSheetParser.parse(data: data) else { continue }
+                cue = parsed
             }
 
             for cueFile in cue.files {
@@ -684,10 +691,20 @@ actor SynologyScanner {
         lyricCandidates: [SynologyAPI.FileItem],
         cueImageCount: Int
     ) async -> [Song] {
-        var physical = await extractSongMetadata(
-            item: item,
-            ext: (item.name as NSString).pathExtension.lowercased()
-        )
+        var physical: Song
+        if descriptors.first?.format == .sacdISO {
+            physical = Song(
+                id: generateID(sourceID: sourceID, path: item.path), title: item.name,
+                duration: 0, fileFormat: .sacdISO, filePath: item.path,
+                sourceID: sourceID, fileSize: item.size, sampleRate: 2_822_400, bitDepth: 1,
+                lastModified: item.modifiedTime,
+                revision: SynologyFileRevisionPolicy.revision(size: item.size, modifiedDate: item.modifiedTime)
+            )
+        } else {
+            physical = await extractSongMetadata(
+                item: item, ext: (item.name as NSString).pathExtension.lowercased()
+            )
+        }
         // 每一轨先认自己的分轨歌词;没有时才沿用整轨读出来的(内嵌)歌词。
         let audioBasename = (item.name as NSString).deletingPathExtension
         var trackLyricsBySheet: [String: [Int: String]] = [:]
@@ -750,11 +767,16 @@ actor SynologyScanner {
             song.trackNumber = descriptor.track.number
             song.duration = end.map { max(0, $0 - start) } ?? 0
             song.fileFormat = descriptor.format
+            if descriptor.format == .sacdISO {
+                song.sampleRate = 2_822_400
+                song.bitDepth = 1
+            }
             song.genre = descriptor.genre ?? physical.genre
             song.year = descriptor.year ?? physical.year
             song.cueSheetPath = descriptor.cuePath
             song.cueStartTime = start
             song.cueEndTime = end
+            song.sacdTrackNumber = descriptor.format == .sacdISO ? descriptor.track.number : nil
             if let trackLyrics = trackLyricsBySheet[descriptor.cuePath]?[descriptor.track.number] {
                 song.lyricsFileName = trackLyrics
             }

@@ -49,7 +49,7 @@ enum FileFormatRouter {
     /// the first sample and reopens it on every backward seek; modules are
     /// small, so fetching them once beats thousands of one-byte range reads.
     static func requiresCompleteLocalFile(_ format: AudioFormat) -> Bool {
-        format == .dsf || format == .dff || format.isTrackerModule
+        format == .dsf || format == .dff || format == .sacdISO || format.isTrackerModule
             || decoder(for: format) is FFmpegAudioDecoder
     }
 }

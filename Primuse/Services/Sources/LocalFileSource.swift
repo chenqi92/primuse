@@ -620,6 +620,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                             continue
                         }
 
+                        if ext == "iso" { continue }
                         if let existing = existingByID[physicalID],
                            Self.fingerprintMatches(existing: existing, item: item) {
                             if shouldRepairFileNameTitles,
@@ -717,7 +718,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 revision: Self.localRevision(size: size, modifiedDate: values.contentModificationDate)
             )
             filesByParent[parentPath, default: []].append(item)
-            if PrimuseConstants.supportedCueSheetExtensions.contains(url.pathExtension.lowercased()) {
+            if PrimuseConstants.supportedVirtualTrackExtensions.contains(url.pathExtension.lowercased()) {
                 cueURLsByPath[item.path] = url
             }
         }
@@ -772,7 +773,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 .inheriting(folderCover: Self.albumFolderCover(aboveDiscFolder: parentPath, in: filesByParent))
             if let first = siblings.first,
                siblings.contains(where: {
-                   PrimuseConstants.supportedCueSheetExtensions.contains(
+                   PrimuseConstants.supportedVirtualTrackExtensions.contains(
                        ($0.name as NSString).pathExtension.lowercased()
                    )
                }) {
@@ -943,15 +944,18 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
         for cueURL in cueURLs {
             try Task.checkCancellation()
-            guard cueURL.pathExtension.caseInsensitiveCompare("cue") == .orderedSame,
-                  let values = try? cueURL.resourceValues(
-                      forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
-                  ),
-                  values.isRegularFile == true,
-                  (values.fileSize ?? 0) <= 1024 * 1024,
-                  let data = try? Data(contentsOf: cueURL, options: .mappedIfSafe),
-                  let cue = CueSheetParser.parse(data: data) else {
-                continue
+            guard let values = try? cueURL.resourceValues(
+                forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+            ), values.isRegularFile == true else { continue }
+            let cue: CueSheet
+            if cueURL.pathExtension.lowercased() == "iso" {
+                guard let parsed = try await SACDISOReader.localSheet(url: cueURL) else { continue }
+                cue = parsed
+            } else {
+                guard (values.fileSize ?? 0) <= 1024 * 1024,
+                      let data = try? Data(contentsOf: cueURL, options: .mappedIfSafe),
+                      let parsed = CueSheetParser.parse(data: data) else { continue }
+                cue = parsed
             }
 
             for cueFile in cue.files {
@@ -1035,7 +1039,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let fileURL = try await localURL(for: item.path)
         let physicalID = Self.generateID(sourceID: sourceID, path: item.path)
         let fallbackTitle = ((item.name as NSString).lastPathComponent as NSString).deletingPathExtension
-        let metadata = await metadataService.loadMetadata(
+        let metadata = fileURL.pathExtension.lowercased() == "iso"
+            ? MetadataService.SongMetadata(title: fallbackTitle, sampleRate: 2_822_400, bitDepth: 1)
+            : await metadataService.loadMetadata(
             for: fileURL,
             cacheKey: physicalID,
             allowOnlineFetch: false,
@@ -1107,6 +1113,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,
                 cueEndTime: end,
+                sacdTrackNumber: descriptor.format == .sacdISO ? descriptor.track.number : nil,
                 revision: combinedRevision,
                 audioCodec: ContainerAudioCodecPolicy.storedCodec(
                     metadata.audioCodec, container: descriptor.format

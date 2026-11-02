@@ -718,6 +718,15 @@ final class TVMetadataScrapeService {
         let sheet: CueSheet
         if let cached = sheets[cuePath] {
             sheet = cached
+        } else if song.isSACDTrack {
+            guard let parsed = try? await SACDISOReader.sheet(
+                fileName: (song.filePath as NSString).lastPathComponent, size: song.fileSize,
+                read: { offset, length in
+                    try await readerPool.read(path: song.filePath, size: song.fileSize, offset: offset, length: length)
+                }
+            ) else { return nil }
+            sheets[cuePath] = parsed
+            sheet = parsed
         } else {
             // 与扫描时一样最多读 1MB。按 ID 寻址的网盘列不了目录,不知道大小时先读 64KB。
             let size = entries.first(where: { !$0.isDir && $0.path == cuePath })?.size ?? 0
@@ -734,8 +743,8 @@ final class TVMetadataScrapeService {
         }
         guard let track = sheet.track(
             audioFileName: (song.filePath as NSString).lastPathComponent,
-            startTime: song.cueStartTime,
-            number: song.trackNumber
+            startTime: song.isSACDTrack ? nil : song.cueStartTime,
+            number: song.sacdTrackNumber ?? song.trackNumber
         ) else { return nil }
         let identity = CueTrackIdentity(sheet: sheet, track: track)
         var restored = song

@@ -343,6 +343,7 @@ actor ConnectorScanner {
                 let oldEntry = reconciliationBaseline[stableKey]
                 let ext = (item.name as NSString).pathExtension.lowercased()
 
+                if ext == "iso", cueTracks[item.path]?.isEmpty != false { continue }
                 if PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                     let preferredID = oldEntry?.songIDs.count == 1
                         ? oldEntry?.songIDs.first
@@ -919,6 +920,8 @@ actor ConnectorScanner {
                                         rawItem,
                                         index: sidecarIndex
                                     ) else { continue }
+                                    if (item.name as NSString).pathExtension.lowercased() == "iso",
+                                       cueTracksByAudioPath[item.path]?.isEmpty != false { continue }
                                     try Task.checkCancellation()
 
                                     if Date().timeIntervalSince(lastProgressYieldAt) >= Self.progressHeartbeatInterval {
@@ -1408,13 +1411,19 @@ actor ConnectorScanner {
     private func loadCueTracks(from siblings: [RemoteFileItem]) async throws -> [String: [CueTrackDescriptor]] {
         var result: [String: [CueTrackDescriptor]] = [:]
         for cueItem in siblings where !cueItem.isDirectory
-            && PrimuseConstants.supportedCueSheetExtensions.contains(
+            && PrimuseConstants.supportedVirtualTrackExtensions.contains(
                 (cueItem.name as NSString).pathExtension.lowercased()
             ) {
-            let data = try await cueSheetData(for: cueItem)
-            guard let cue = CueSheetParser.parse(data: data) else {
-                plog("⚠️ CUE: unable to parse \(cueItem.name)")
-                continue
+            let cue: CueSheet
+            if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
+                guard let parsed = try await SACDISOReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [connector] offset, length in
+                    try await connector.fetchMetadataRange(path: cueItem.path, offset: offset, length: length)
+                }) else { continue }
+                cue = parsed
+            } else {
+                let data = try await cueSheetData(for: cueItem)
+                guard let parsed = CueSheetParser.parse(data: data) else { continue }
+                cue = parsed
             }
             for cueFile in cue.files {
                 let referencedName = (cueFile.name.replacingOccurrences(of: "\\", with: "/") as NSString)
@@ -1561,6 +1570,8 @@ actor ConnectorScanner {
                 filePath: item.path,
                 sourceID: sourceID,
                 fileSize: item.size,
+                sampleRate: descriptor.format == .sacdISO ? 2_822_400 : nil,
+                bitDepth: descriptor.format == .sacdISO ? 1 : nil,
                 genre: descriptor.genre,
                 year: descriptor.year,
                 lastModified: item.modifiedDate,
@@ -1571,6 +1582,7 @@ actor ConnectorScanner {
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,
                 cueEndTime: end,
+                sacdTrackNumber: descriptor.format == .sacdISO ? descriptor.track.number : nil,
                 revision: item.revision
             )
         }
@@ -1594,9 +1606,9 @@ actor ConnectorScanner {
         existingSong: (String) -> Song?
     ) {
         let priorSongs = priorSongIDs.compactMap(existingSong)
-        let grouped = Dictionary(grouping: priorSongs) { $0.trackNumber }
+        let grouped = Dictionary(grouping: priorSongs) { $0.sacdTrackNumber ?? $0.trackNumber }
         for index in incoming.indices {
-            guard let trackNumber = incoming[index].trackNumber,
+            guard let trackNumber = incoming[index].sacdTrackNumber ?? incoming[index].trackNumber,
                   let matches = grouped[trackNumber],
                   matches.count == 1,
                   let existing = matches.first else { continue }
@@ -1631,6 +1643,7 @@ actor ConnectorScanner {
         refreshed.cueSheetPath = cueSong.cueSheetPath
         refreshed.cueStartTime = cueSong.cueStartTime
         refreshed.cueEndTime = cueSong.cueEndTime
+        refreshed.sacdTrackNumber = cueSong.sacdTrackNumber
         return refreshed
     }
 

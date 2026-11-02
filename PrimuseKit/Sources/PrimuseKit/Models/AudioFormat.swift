@@ -24,6 +24,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     case ape
     case dsf
     case dff
+    case sacdISO = "iso"
     case ogg
     case opus
     case wma
@@ -92,7 +93,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         switch self {
         case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf, .pcm:
             return false
-        case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
+        case .ape, .dsf, .dff, .sacdISO, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
              .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra,
              .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669,
@@ -115,7 +116,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
              .mka, .webm, .mp2, .w64, .rf64, .ra, .wmaLossless:
             return true
         case .mp3, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf,
-             .ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex,
+             .ape, .dsf, .dff, .sacdISO, .ogg, .opus, .wv, .mpc, .shn, .speex,
              .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669,
              .pcm, .wavpackHybrid:
             return false
@@ -139,6 +140,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .ape: return "APE"
         case .dsf: return "DSD (DSF)"
         case .dff: return "DSD (DFF)"
+        case .sacdISO: return "SACD ISO"
         case .ogg: return "OGG Vorbis"
         case .opus: return "Opus"
         case .wma: return "WMA"
@@ -179,7 +181,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
 
     public var isLossless: Bool {
         switch self {
-        case .flac, .alac, .wav, .aiff, .aif, .au, .caf, .ape, .dsf, .dff,
+        case .flac, .alac, .wav, .aiff, .aif, .au, .caf, .ape, .dsf, .dff, .sacdISO,
              .wv, .mlp, .truehd, .tak, .tta, .shn, .w64, .rf64, .pcm, .wmaLossless:
             return true
         // Matroska is a container: FLAC inside `.mka` is lossless, Opus is
@@ -255,7 +257,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .aiff, .aif: return "public.aiff-audio"
         case .au: return "public.au-audio"
         case .caf: return "com.apple.coreaudio-format"
-        case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
+        case .ape, .dsf, .dff, .sacdISO, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
              .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra,
              .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669,
