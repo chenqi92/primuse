@@ -73,4 +73,41 @@ final class SubsonicArtworkPolicyTests: XCTestCase {
         XCTAssertEqual(query?.first(where: { $0.name == "tag" })?.value, "v1")
     }
 
+    func testAudiobookReferencesHavePersistentSourceScopedCacheKeys() throws {
+        let references = [
+            TingReaderAPIProtocol.coverReference(bookID: "book", libraryID: "library", coverPath: "/covers/book.jpg"),
+            AudiobookshelfAPIProtocol.coverReference(itemID: "book", updatedAt: nil),
+        ]
+        for reference in references {
+            let key = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: "server", reference: reference, maximumPixels: 480))
+            XCTAssertEqual(key, SourceArtworkPolicy.cacheID(sourceID: "server", reference: reference, maximumPixels: 192))
+            XCTAssertNotEqual(key, SourceArtworkPolicy.cacheID(sourceID: "other", reference: reference, maximumPixels: 480))
+            XCTAssertNotEqual(key, SourceArtworkPolicy.cacheID(sourceID: "server", reference: reference, maximumPixels: 1536))
+            XCTAssertNil(SourceArtworkPolicy.cacheID(sourceID: nil, reference: reference, maximumPixels: 480))
+            XCTAssertFalse(StoredArtworkOrigin.preservesLocalChoice(reference))
+        }
+    }
+
+    func testAudiobookCoverChangesReplaceServerCacheButPreserveUserSelection() throws {
+        let pairs = [
+            (TingReaderAPIProtocol.coverReference(bookID: "book", libraryID: "library", coverPath: "/old.jpg"),
+             TingReaderAPIProtocol.coverReference(bookID: "book", libraryID: "library", coverPath: "/new.jpg")),
+            (AudiobookshelfAPIProtocol.coverReference(itemID: "book", updatedAt: nil),
+             AudiobookshelfAPIProtocol.coverReference(itemID: "book", updatedAt: Date(timeIntervalSince1970: 100))),
+        ]
+        for (old, new) in pairs {
+            let oldKey = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: "server", reference: old, maximumPixels: 480))
+            XCTAssertNotEqual(oldKey, SourceArtworkPolicy.cacheID(sourceID: "server", reference: new, maximumPixels: 480))
+            var existing = Song(id: "chapter", title: "Book", fileFormat: .mp3, filePath: "/chapter.mp3",
+                                sourceID: "server", coverArtFileName: old)
+            var incoming = existing
+            incoming.coverArtFileName = new
+            XCTAssertEqual(ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming).coverArtFileName, new)
+            existing.coverArtFileName = "selected-" + String(repeating: "a", count: 64) + ".jpg"
+            XCTAssertEqual(ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming).coverArtFileName, existing.coverArtFileName)
+            XCTAssertTrue(SourceArtworkPolicy.shouldAdoptServerReference(existing: old, incoming: new))
+            XCTAssertFalse(SourceArtworkPolicy.shouldAdoptServerReference(existing: existing.coverArtFileName, incoming: new))
+        }
+    }
+
 }

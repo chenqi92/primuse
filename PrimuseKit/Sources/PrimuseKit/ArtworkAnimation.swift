@@ -552,16 +552,27 @@ public enum StoredArtworkOrigin: String, CaseIterable, Sendable {
         guard let reference, !reference.isEmpty else { return false }
         if let origin = resolve(reference) { return origin == .selected }
         return !reference.contains("/") && !reference.contains("://")
+            && !SourceArtworkPolicy.isOpaqueCoverReference(reference)
     }
 }
 
 public enum SourceArtworkPolicy {
     public static let maximumAge: TimeInterval = 24 * 60 * 60
 
+    public static func isOpaqueCoverReference(_ reference: String) -> Bool {
+        TingReaderAPIProtocol.coverReference(from: reference) != nil
+            || AudiobookshelfAPIProtocol.coverItemID(fromReference: reference) != nil
+    }
+
     public static func cacheID(sourceID: String?, reference: String?, maximumPixels: Int) -> String? {
-        guard let reference, !reference.isEmpty, reference.contains("/") else { return nil }
+        guard let reference, !reference.isEmpty else { return nil }
+        let isOpaque = isOpaqueCoverReference(reference)
+        guard isOpaque || reference.contains("/") else { return nil }
         let identity: String
-        if let coverID = SubsonicArtworkPolicy.coverArtID(reference: reference) {
+        if isOpaque {
+            guard sourceID?.isEmpty == false else { return nil }
+            identity = reference
+        } else if let coverID = SubsonicArtworkPolicy.coverArtID(reference: reference) {
             guard sourceID?.isEmpty == false else { return nil }
             identity = "subsonic-cover/" + coverID
         } else if var url = URLComponents(string: reference), url.scheme != nil {
@@ -583,7 +594,7 @@ public enum SourceArtworkPolicy {
     }
 
     public static func shouldAdoptServerReference(existing: String?, incoming: String?) -> Bool {
-        guard incoming?.contains("/") == true else { return false }
+        guard let incoming, incoming.contains("/") || isOpaqueCoverReference(incoming) else { return false }
         return !StoredArtworkOrigin.preservesLocalChoice(existing)
     }
 

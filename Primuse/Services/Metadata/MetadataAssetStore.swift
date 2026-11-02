@@ -610,7 +610,10 @@ actor MetadataAssetStore {
     }
 
     nonisolated func displayCoverIdentity(songID: String?, reference: String?) -> String? {
-        if let reference, !reference.isEmpty, !reference.contains("/") { return coverContentIdentifier(named: reference) }
+        if let reference, !reference.isEmpty, !reference.contains("/"),
+           !SourceArtworkPolicy.isOpaqueCoverReference(reference) {
+            return coverContentIdentifier(named: reference)
+        }
         guard let songID else { return nil }
         if let reference, !reference.isEmpty {
             guard let data = try? Data(contentsOf: mirrorURL(songID)),
@@ -624,7 +627,8 @@ actor MetadataAssetStore {
     /// Read-only consumers use the chosen reference, not whichever writer most
     /// recently populated the historical song mirror.
     nonisolated func displayCoverData(songID: String?, reference: String?, allowsStale: Bool = true) -> Data? {
-        if let reference, !reference.isEmpty, !reference.contains("/") {
+        if let reference, !reference.isEmpty, !reference.contains("/"),
+           !SourceArtworkPolicy.isOpaqueCoverReference(reference) {
             return readCoverData(named: reference)
         }
         guard let songID else { return nil }

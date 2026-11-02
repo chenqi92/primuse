@@ -631,6 +631,120 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertEqual(mirror, full)
     }
 
+    func testAudiobookSourceCoverSurvivesStoreRestart() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let bytes = try image()
+        let references = [
+            TingReaderAPIProtocol.coverReference(bookID: "book", libraryID: "library", coverPath: "/cover.jpg"),
+            AudiobookshelfAPIProtocol.coverReference(itemID: "book", updatedAt: nil),
+        ]
+        for reference in references {
+            let stored = await assets.cacheSourceCover(bytes, songID: reference, sourceID: "server",
+                                                       reference: reference, maximumPixels: 1536)
+            XCTAssertTrue(stored)
+        }
+        let restored = MetadataAssetStore(storageDirectory: root)
+        for reference in references {
+            XCTAssertEqual(restored.cachedSourceCover(sourceID: "server", reference: reference,
+                                                     maximumPixels: 480, checksAge: false), bytes)
+            XCTAssertEqual(restored.displayCoverData(songID: reference, reference: reference, allowsStale: false), bytes)
+            XCTAssertNotNil(restored.displayCoverIdentity(songID: reference, reference: reference))
+            XCTAssertNil(restored.cachedSourceCover(sourceID: "other", reference: reference, maximumPixels: 480))
+        }
+    }
+
+    func testTingReaderCoverDoesNotRefetchAfterMemoryPurgeOrChapterChange() async throws {
+        let sourceID = UUID().uuidString
+        let songIDs = [UUID().uuidString, UUID().uuidString]
+        let reference = TingReaderAPIProtocol.coverReference(bookID: "book", libraryID: "library", coverPath: "/cover.jpg")
+        let source = MusicSource(id: sourceID, name: "Ting Reader fixture", type: .tingReader, host: "artwork.invalid")
+        let connector = ServerCoverFixtureConnector(sourceID: sourceID)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        defer {
+            for songID in songIDs { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: songID) }
+            for size in [480, 1536] {
+                if let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: size) {
+                    MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: key)
+                }
+            }
+            CachedArtworkView.purgeDecodedImageCache()
+        }
+        await connector.setArtwork(try image(width: 1024))
+        for songID in [songIDs[0], songIDs[0], songIDs[1]] {
+            CachedArtworkView.purgeDecodedImageCache()
+            let cover = await CachedArtworkView.resolveImage(coverRef: reference, songID: songID, size: 512,
+                sourceID: sourceID, filePath: "/tingreader/books/book/chapters/\(songID).mp3", fileFormat: .mp3,
+                sourceManager: manager)
+            XCTAssertNotNil(cover)
+        }
+        let purposes = await connector.purposes
+        XCTAssertEqual(purposes.count, 1, "A cold decoded cache and another chapter must reuse the book's disk cover")
+    }
+
+    func testLiveTingReaderCoversRemainAvailableWithoutNetworkAfterMemoryPurge() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let address = environment["PRIMUSE_QA_TING_URL"], let url = URL(string: address),
+              let host = url.host,
+              let username = environment["PRIMUSE_QA_TING_USER"],
+              let password = environment["PRIMUSE_QA_TING_PASSWORD"] else {
+            throw XCTSkip("Requires the isolated Ting Reader test server")
+        }
+        let sourceID = environment["PRIMUSE_QA_TING_SOURCE_ID"] ?? UUID().uuidString
+        let reusesDiskCache = environment["PRIMUSE_QA_TING_REUSE_CACHE"] == "1"
+        let retainsDiskCache = environment["PRIMUSE_QA_TING_RETAIN_CACHE"] == "1"
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let requests = TingReaderArtworkRequestProbe()
+        let connector = TingReaderSource(sourceID: sourceID, host: host, port: url.port,
+            useSSL: url.scheme == "https", basePath: url.path, username: username, password: password,
+            transport: TingReaderRequestTransport(data: { request in
+                try await requests.record(request)
+                return try await session.data(for: request)
+            }, download: { request in
+                try await requests.record(request)
+                return try await session.download(for: request)
+            }))
+        let source = MusicSource(id: sourceID, name: "Ting Reader live fixture", type: .tingReader, host: host)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        var songs: [Song] = []
+        for try await scanned in try await connector.scanSongs(from: "/") {
+            if scanned.song.coverArtFileName != nil { songs.append(scanned.song) }
+        }
+        let references = Set(songs.compactMap(\.coverArtFileName))
+        XCTAssertGreaterThanOrEqual(references.count, 2)
+        XCTAssertGreaterThan(songs.count, references.count, "The fixture must include chapters sharing a book cover")
+        defer {
+            if !retainsDiskCache {
+                for song in songs { MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id) }
+                for reference in references {
+                    for size in [480, 1536] {
+                        if let key = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: size) {
+                            MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: key)
+                        }
+                    }
+                }
+            }
+            CachedArtworkView.purgeDecodedImageCache()
+        }
+        if reusesDiskCache { await requests.blockNetwork() }
+        for offline in [false, true] {
+            if offline { await requests.blockNetwork() }
+            for song in songs {
+                CachedArtworkView.purgeDecodedImageCache()
+                let cover = await CachedArtworkView.resolveImage(coverRef: song.coverArtFileName,
+                    songID: song.id, size: 512, sourceID: sourceID, filePath: song.filePath,
+                    fileFormat: song.fileFormat, sourceManager: manager)
+                XCTAssertNotNil(cover, "A cached book cover must remain readable with network blocked: \(offline)")
+            }
+        }
+        let counts = await requests.counts
+        XCTAssertEqual(counts.covers, reusesDiskCache ? 0 : references.count, "Each book should download its cover only once across launches")
+        XCTAssertEqual(counts.blocked, 0, "Reading disk covers must not attempt a network request")
+        print("Ting Reader live cache: books=\(references.count), chapters=\(songs.count), coverDownloads=\(counts.covers), offlineRequests=\(counts.blocked)")
+    }
+
     func testScanRevalidatesUnchangedCoverReferenceAndKeepsOfflineCopy() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1123,6 +1237,21 @@ final class LibraryPortableArtworkTests: XCTestCase {
         task.cancel()
         let result = await task.value
         XCTAssertNil(result)
+    }
+}
+
+private actor TingReaderArtworkRequestProbe {
+    private var isOffline = false
+    private(set) var counts = (covers: 0, blocked: 0)
+
+    func blockNetwork() { isOffline = true }
+
+    func record(_ request: URLRequest) throws {
+        if isOffline {
+            counts.blocked += 1
+            throw URLError(.notConnectedToInternet)
+        }
+        if request.url?.path.hasSuffix("/api/proxy/cover") == true { counts.covers += 1 }
     }
 }
 
