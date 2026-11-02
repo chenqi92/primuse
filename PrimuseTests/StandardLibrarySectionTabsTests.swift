@@ -94,6 +94,72 @@ final class StandardLibrarySectionTabsTests: XCTestCase {
         XCTAssertEqual(probe.selection, .albums)
     }
 
+    @MainActor
+    func testLibraryNavigationKeepsTabsAboveScrollingContent() async throws {
+        let suite = "LibrarySectionBarTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        defaults.set(true, forKey: HomeFilterBarConfiguration.showsLibrarySectionsKey)
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        library.addSongs((0..<24).map { index in
+            Song(id: "section-bar-\(index)", title: "歌曲 \(index)",
+                 albumTitle: "专辑 \(index)", artistName: "艺术家", duration: 180,
+                 fileFormat: .flac, filePath: "/section-bar/\(index).flac", sourceID: "section-bar")
+        })
+        for _ in 0..<100 where library.visibleSongs.count != 24 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.visibleSongs.count, 24)
+        let radio = RadioStationsStore(storeURL: directory.appendingPathComponent("radio.json"))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(rootView: LibraryView()
+            .environment(library)
+            .environment(AppServices.shared.playerService)
+            .environment(radio)
+            .environment(AppServices.shared.sourceManager)
+            .environment(ThemeService())
+            .environment(\.appNavigationMode, .standard)
+            .environment(\.locale, Locale(identifier: "zh-Hans"))
+            .defaultAppStorage(defaults))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            ((view as? UIScrollView).map { [$0] } ?? []) + view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = style
+            try await Task.sleep(for: .milliseconds(400))
+            let scrolls = scrollViews(in: window)
+            let tabs = try XCTUnwrap(scrolls.first {
+                $0.contentSize.width > $0.bounds.width + 1
+            })
+            let content = try XCTUnwrap(scrolls.max { $0.bounds.height < $1.bounds.height })
+            XCTAssertGreaterThan(content.contentSize.height + content.adjustedContentInset.top
+                                 + content.adjustedContentInset.bottom, content.bounds.height)
+            content.setContentOffset(CGPoint(x: 0, y: -content.adjustedContentInset.top), animated: false)
+            try await Task.sleep(for: .milliseconds(250))
+            let tabFrame = tabs.convert(tabs.bounds, to: window)
+            XCTAssertGreaterThan(tabFrame.maxY, window.safeAreaInsets.top)
+            let appearance = style == .dark ? "dark" : "light"
+            attach(window, name: "library-category-bar-\(appearance)-top")
+
+            content.setContentOffset(CGPoint(x: 0, y: 180), animated: false)
+            try await Task.sleep(for: .milliseconds(300))
+            let scrolledTabFrame = tabs.convert(tabs.bounds, to: window)
+            XCTAssertEqual(scrolledTabFrame.minY, tabFrame.minY, accuracy: 1)
+            attach(window, name: "library-category-bar-\(appearance)-scrolled")
+        }
+    }
+
     private func withDefaults(_ operation: (UserDefaults) -> Void) {
         let suite = "StandardLibrarySectionTabsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -106,8 +172,8 @@ final class StandardLibrarySectionTabsTests: XCTestCase {
         window.layoutIfNeeded()
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { context in
-            window.layer.render(in: context.cgContext)
+        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         let attachment = XCTAttachment(image: image)
         attachment.name = name

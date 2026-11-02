@@ -577,7 +577,7 @@ struct LibraryView: View {
         NavigationStack(path: $navigationPath) {
             rootContent
             #if os(iOS)
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .minimalSafeAreaBar(edge: .top) {
                 standardSectionTabs(selection: rootSection)
             }
             #endif
@@ -698,7 +698,7 @@ struct LibraryView: View {
     private func sectionDestination(_ section: LibrarySection) -> some View {
         destination(for: section)
             #if os(iOS)
-            .safeAreaInset(edge: .top, spacing: 0) {
+            .minimalSafeAreaBar(edge: .top) {
                 standardSectionTabs(selection: section)
             }
             #endif
@@ -725,7 +725,6 @@ struct LibraryView: View {
                 openLibraryDestination?(.section(section))
             }
         }
-        .background(.bar)
     }
     #endif
 
