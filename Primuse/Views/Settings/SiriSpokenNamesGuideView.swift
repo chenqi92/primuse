@@ -45,6 +45,9 @@ struct SpotlightArtworkToggle: View {
         }
         .onChange(of: showsArtwork) { _, _ in
             AppServices.shared.spotlightIndex.artworkPreferenceChanged(library: library)
+            #if os(iOS)
+            AppServices.shared.refreshSiriCatalog(force: true)
+            #endif
         }
         .settingsAnchor("siri.spotlightArtwork")
     }

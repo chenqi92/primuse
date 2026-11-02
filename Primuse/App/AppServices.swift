@@ -2445,9 +2445,19 @@ final class AppServices {
             #if os(iOS)
             let limit = self.siriSongShortcutLimit(bookCount: books.count)
             guard await self.refreshSiriSongs(limit: limit), !Task.isCancelled else { return }
-            signature += self.siriShortcutSongs.map {
-                "s\($0.id)\u{1F}\($0.title)\u{1F}\(self.musicLibrary.artistDisplayName(for: $0) ?? "")\u{1F}\($0.albumTitle ?? "")"
+            let songInputs = self.siriShortcutSongs.map {
+                ($0, self.musicLibrary.artistDisplayName(for: $0) ?? "")
             }
+            let showsArtwork = SpotlightIndexService.showsArtwork
+            signature += await Task.detached(priority: .utility) {
+                songInputs.map { song, artist in
+                    let cover = showsArtwork ? MetadataAssetStore.shared.displayCoverIdentity(
+                        songID: song.id, reference: song.coverArtFileName
+                    ) : nil
+                    return "s\(song.id)\u{1F}\(song.title)\u{1F}\(artist)\u{1F}\(song.albumTitle ?? "")\u{1F}\(song.duration)\u{1F}\(cover ?? "")\u{1F}\(showsArtwork)"
+                }
+            }.value
+            guard !Task.isCancelled else { return }
             #endif
             guard self.siriCatalogForcePending || signature != self.siriRadioCatalogSignature else { return }
             self.siriCatalogForcePending = false
@@ -2553,6 +2563,18 @@ final class AppServices {
             sourceLifecycleObserverTokens.append(
                 center.addObserver(forName: name, object: nil, queue: .main) { _ in
                     Task { @MainActor in refresh() }
+                }
+            )
+        }
+        for name in [Notification.Name.primuseArtworkDidCache, .primuseArtworkDidInvalidate, .primuseArtworkContentEvicted] {
+            sourceLifecycleObserverTokens.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                    let songID = note.object as? String
+                    Task { @MainActor [weak self] in
+                        guard let self, SpotlightIndexService.showsArtwork,
+                              songID == nil || self.siriShortcutSongs.contains(where: { $0.id == songID }) else { return }
+                        self.refreshSiriCatalog(force: true)
+                    }
                 }
             )
         }

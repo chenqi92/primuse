@@ -1,11 +1,50 @@
 #if os(iOS)
 import Intents
+import AppIntents
+import PrimuseKit
 import UIKit
 import XCTest
 @testable import Primuse
 
 @MainActor
 final class SiriRadioIntentRoutingTests: XCTestCase {
+    func testSongShortcutKeepsSearchTitleAndBoundsArtwork() async throws {
+        let started = ProcessInfo.processInfo.systemUptime
+        let song = Song(id: "shortcut-presentation", title: "绿光", albumTitle: "风筝",
+                        artistName: "孙燕姿", duration: 245, fileFormat: .flac, filePath: "fixture.flac", sourceID: "fixture")
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let cover = UIGraphicsImageRenderer(size: CGSize(width: 1024, height: 512), format: format).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
+        }.pngData()
+        let entity = PrimuseLibrarySongEntity(song, artistDisplayName: "孙燕姿", coverData: cover, showsArtwork: true)
+        XCTAssertEqual(entity.id, song.id)
+        XCTAssertEqual(entity.title, "绿光")
+        XCTAssertEqual(entity.subtitle, "孙燕姿 — 风筝 · 4:05")
+        let thumbnail = try XCTUnwrap(entity.artworkData.flatMap { UIImage(data: $0) })
+        XCTAssertEqual(thumbnail.size, CGSize(width: 128, height: 64))
+        XCTAssertNotEqual(entity.displayRepresentation.image, DisplayRepresentation.Image(systemName: "music.note"))
+
+        let hidden = PrimuseLibrarySongEntity(song, artistDisplayName: "孙燕姿", coverData: cover, showsArtwork: false)
+        XCTAssertNil(hidden.artworkData)
+        XCTAssertEqual(hidden.displayRepresentation.image, DisplayRepresentation.Image(systemName: "music.note"))
+        // Let the hosted app clear its startup sentinel before XCTest exits.
+        let remaining = 9 - (ProcessInfo.processInfo.systemUptime - started)
+        if remaining > 0 { try await Task.sleep(for: .seconds(remaining)) }
+    }
+
+    func testSongShortcutHandlesMissingDetailsAndInvalidArtwork() {
+        let song = Song(id: "shortcut-incomplete", title: "晴天", duration: .nan,
+                        fileFormat: .flac, filePath: "fixture.flac", sourceID: "fixture")
+        let entity = PrimuseLibrarySongEntity(song, artistDisplayName: nil, coverData: Data("bad image".utf8), showsArtwork: true)
+        XCTAssertEqual(entity.title, "晴天")
+        XCTAssertTrue(entity.subtitle.isEmpty)
+        XCTAssertNil(entity.artworkData)
+        XCTAssertNil(entity.displayRepresentation.subtitle)
+        XCTAssertEqual(entity.displayRepresentation.image, DisplayRepresentation.Image(systemName: "music.note"))
+    }
+
     func testPhysicalDeviceAcceptsPlaybackDonation() async throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("Siri donation acceptance requires a physical device")
