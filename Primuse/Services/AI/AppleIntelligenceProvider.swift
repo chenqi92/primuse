@@ -32,10 +32,12 @@ struct AppleIntelligenceQuotaFailure: Error, LocalizedError {
 struct AppleIntelligenceClient: Sendable {
     var availability: @Sendable (AIProviderBackend) async -> AIProviderRuntimeAvailability
     var generate: @Sendable (AIProviderBackend, String, String, Int) async throws -> String
+    var generateChapters: (@Sendable (AIProviderBackend, SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer)? = nil
 
     static let live = Self(
         availability: { AppleIntelligenceRuntime.availability(for: $0) },
-        generate: { try await AppleIntelligenceRuntime.generate(backend: $0, instructions: $1, input: $2, maximumTokens: $3) }
+        generate: { try await AppleIntelligenceRuntime.generate(backend: $0, instructions: $1, input: $2, maximumTokens: $3) },
+        generateChapters: { try await AppleIntelligenceRuntime.generateChapters(backend: $0, request: $1) }
     )
 }
 
@@ -86,8 +88,41 @@ enum AppleIntelligenceRuntime {
         #endif
     }
 
+    static func generateChapters(backend: AIProviderBackend, request: SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer {
+        let input = String(decoding: try JSONEncoder().encode(request), as: UTF8.self)
+        let output = try await generate(backend: backend, instructions: SpokenChapterGeneration.instructions + "\nKeep the summary under 200 characters and each title under 60 characters.",
+                                        input: input, maximumTokens: 4_000, chapterRequest: request)
+        return try SpokenChapterGeneration.decode(output, for: request)
+    }
+
+    static func responseBudget(contextSize: Int, inputTokens: Int, instructionTokens: Int,
+                               schemaTokens: Int, maximumTokens: Int, minimumTokens: Int) throws -> Int {
+        let remaining = contextSize - inputTokens - instructionTokens - schemaTokens - 256
+        guard remaining >= minimumTokens else { throw AppleIntelligenceError.contextLimit }
+        return min(maximumTokens, remaining)
+    }
+
+    #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+    @available(iOS 26, macOS 26, visionOS 26, *)
+    static func chapterSchema(for request: SpokenChapterGeneration.Request) throws -> GenerationSchema {
+        let ids = request.stage == .curate ? request.candidates.map(\.lineID) : request.lines.map(\.id)
+        guard !ids.isEmpty else { throw SpokenChapterGeneration.Failure.invalidResponse }
+        let boundary = DynamicGenerationSchema(name: "ChapterBoundary", anyOf: Array(Set(ids)).sorted())
+        let chapter = DynamicGenerationSchema(name: "Chapter", properties: [
+            .init(name: "lineID", schema: boundary),
+            .init(name: "title", description: "Short descriptive title, under 60 characters", schema: .init(type: String.self))
+        ])
+        let answer = DynamicGenerationSchema(name: "Chapters", properties: [
+            .init(name: "summary", description: "Brief factual summary, under 200 characters", schema: .init(type: String.self)),
+            .init(name: "chapters", schema: .init(arrayOf: chapter,
+                minimumElements: request.stage == .curate ? 1 : 0, maximumElements: min(ids.count, 40)))
+        ])
+        return try GenerationSchema(root: answer, dependencies: [])
+    }
+    #endif
+
     static func generate(backend: AIProviderBackend, instructions: String, input: String,
-                         maximumTokens: Int) async throws -> String {
+                         maximumTokens: Int, chapterRequest: SpokenChapterGeneration.Request? = nil) async throws -> String {
         try Task.checkCancellation()
         switch availability(for: backend) {
         case .available: break
@@ -97,6 +132,7 @@ enum AppleIntelligenceRuntime {
         }
         #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
         if #available(iOS 26, macOS 26, visionOS 26, *) {
+            let schema = try chapterRequest.map { try chapterSchema(for: $0) }
             let session: LanguageModelSession
             var responseTokens = min(maximumTokens, 4_000)
             if backend == .applePrivateCloudCompute {
@@ -112,15 +148,24 @@ enum AppleIntelligenceRuntime {
                 if #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
                     let inputTokens = try await model.tokenCount(for: input)
                     let instructionTokens = try await model.tokenCount(for: Instructions(instructions))
-                    let remaining = model.contextSize - inputTokens - instructionTokens - 256
-                    guard remaining >= 512 else { throw AppleIntelligenceError.contextLimit }
-                    responseTokens = min(responseTokens, remaining)
+                    let schemaTokens: Int
+                    if let schema { schemaTokens = try await model.tokenCount(for: schema) }
+                    else { schemaTokens = 0 }
+                    responseTokens = try responseBudget(contextSize: model.contextSize, inputTokens: inputTokens,
+                        instructionTokens: instructionTokens, schemaTokens: schemaTokens,
+                        maximumTokens: responseTokens, minimumTokens: schema == nil ? 512 : 1_024)
                 } else {
                     responseTokens = min(responseTokens, 1_024)
                 }
                 session = LanguageModelSession(model: model, instructions: instructions)
             }
             do {
+                if let schema {
+                    let response = try await session.respond(to: input, schema: schema,
+                        options: GenerationOptions(temperature: 0.2, maximumResponseTokens: responseTokens))
+                    try Task.checkCancellation()
+                    return response.content.jsonString
+                }
                 let response = try await session.respond(
                     to: input,
                     options: GenerationOptions(temperature: 0.2, maximumResponseTokens: responseTokens)
@@ -142,6 +187,9 @@ enum AppleIntelligenceRuntime {
                 }
                 if case LanguageModelSession.GenerationError.guardrailViolation = error {
                     throw AppleIntelligenceError.refused
+                }
+                if chapterRequest != nil, case LanguageModelSession.GenerationError.decodingFailure = error {
+                    throw SpokenChapterGeneration.Failure.invalidResponse
                 }
                 throw error
             }

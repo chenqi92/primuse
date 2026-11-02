@@ -154,7 +154,7 @@ public enum SpokenChapterGeneration {
     }
 
     public static func generate(
-        title: String, language: String, lines: [Line], limits: Limits = .standard,
+        title: String, language: String, lines: [Line], duration: TimeInterval = 0, limits: Limits = .standard,
         ask: @Sendable (Request) async throws -> Answer,
         progress: @Sendable (Int, Int) async -> Void = { _, _ in }
     ) async throws -> [MediaChapter] {
@@ -178,9 +178,7 @@ public enum SpokenChapterGeneration {
             drafts.insert(Draft(lineID: first.id, title: String((title.isEmpty ? allLines.first!.text : title).prefix(100))), at: 0)
         }
         guard !drafts.isEmpty else { throw Failure.invalidResponse }
-        // Deduplicate split cues and overlapping speakers at the same timestamp.
-        var times = Set<TimeInterval>()
-        drafts = drafts.filter { byID[$0.lineID].map { times.insert($0.start).inserted } ?? false }
+        drafts = navigationDrafts(drafts, lines: allLines, duration: duration)
         var curated: [Draft] = []
         // Carry the last accepted boundary into the next pass so topics spanning batches can merge.
         var curationSummaries: [String] = []
@@ -204,9 +202,78 @@ public enum SpokenChapterGeneration {
             curationSummaries.append(String(answer.summary.prefix(limits.summaryCharacters)))
             await progress(curationCount + batch + 1, curationCount * 2)
         }
-        return curated.compactMap { draft in
+        return navigationDrafts(curated, lines: allLines, duration: duration).compactMap { draft in
             byID[draft.lineID].map { MediaChapter(startTime: $0.start, title: draft.title) }
         }
+    }
+
+    private static func navigationDrafts(_ drafts: [Draft], lines: [Line], duration: TimeInterval) -> [Draft] {
+        let byID = Dictionary(lines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let announcements = lines.filter { isChapterAnnouncement($0.text) }
+        let required = Set(announcements.map(\.id)).union(lines.first.map { [$0.id] } ?? [])
+        var selected = Dictionary(drafts.map { ($0.lineID, $0) }, uniquingKeysWith: { first, _ in first })
+        // A spoken chapter heading is a source boundary even if the model omits it during curation.
+        for line in announcements where selected[line.id] == nil {
+            selected[line.id] = Draft(lineID: line.id, title: String(line.text.prefix(100)))
+        }
+        var times = Set<TimeInterval>()
+        let ordered = lines.compactMap { line -> Draft? in
+            guard let draft = selected[line.id], times.insert(line.start).inserted else { return nil }
+            return draft
+        }
+        guard duration.isFinite, duration > 0 else { return ordered }
+
+        // Processing windows follow token budgets; navigation spacing follows the complete episode.
+        // Explicit headings can be closer together than this target.
+        let minimumSpacing = max(3 * 60, min(30 * 60, duration / 48)) * 0.6
+        let requiredTimes = announcements.map(\.start)
+        let gapIDs = supportedGapIDs(lines)
+        var nextRequired = 0
+        var result: [Draft] = []
+        for draft in ordered {
+            guard let line = byID[draft.lineID] else { continue }
+            while nextRequired < requiredTimes.count && requiredTimes[nextRequired] <= line.start { nextRequired += 1 }
+            if required.contains(draft.lineID) {
+                while let last = result.last, !required.contains(last.lineID),
+                      line.start - (byID[last.lineID]?.start ?? 0) < minimumSpacing { result.removeLast() }
+                result.append(draft)
+                continue
+            }
+            if nextRequired < requiredTimes.count, requiredTimes[nextRequired] - line.start < minimumSpacing { continue }
+            if let last = result.last, line.start - (byID[last.lineID]?.start ?? 0) < minimumSpacing {
+                if gapIDs.contains(line.id), !required.contains(last.lineID), result.count > 1,
+                   line.start - (byID[result[result.count - 2].lineID]?.start ?? 0) >= minimumSpacing {
+                    result[result.count - 1] = draft
+                }
+            } else { result.append(draft) }
+        }
+        if let last = result.last, result.count > 1, !required.contains(last.lineID),
+           duration - (byID[last.lineID]?.start ?? 0) < minimumSpacing { result.removeLast() }
+        return result
+    }
+
+    private static func isChapterAnnouncement(_ text: String) -> Bool {
+        let heading = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard heading.count <= 180 else { return false }
+        let number = "(?:[0-9]+[a-z]?|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)"
+        let pattern = "(?i)^(?:(?:chapter|part|book|volume|chapitre|partie|kapitel|teil|capítulo|capitolo)\\s+" + number
+            + "(?=[\\s:.,;–—-]|$)|第[0-9０-９一二三四五六七八九十百千万零〇两壹贰叁肆伍陆柒捌玖拾佰仟]+[章节部卷篇回])"
+        return heading.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private static func supportedGapIDs(_ lines: [Line]) -> Set<String> {
+        var gaps: [(id: String, seconds: TimeInterval)] = []
+        var latestEnd: TimeInterval = 0
+        for index in lines.indices {
+            if index > 0, lines[index - 1].end != nil {
+                gaps.append((lines[index].id, max(0, lines[index].start - latestEnd)))
+            }
+            latestEnd = max(latestEnd, lines[index].end ?? lines[index].start)
+        }
+        let sorted = gaps.map(\.seconds).sorted()
+        let typicalGap = sorted.count >= 3 ? sorted[(sorted.count - 1) / 2] : 0
+        let threshold = max(8, typicalGap * 4)
+        return Set(gaps.filter { $0.seconds >= threshold }.map(\.id))
     }
 }
 

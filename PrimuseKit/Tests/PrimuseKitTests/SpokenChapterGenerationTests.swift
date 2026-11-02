@@ -130,6 +130,86 @@ struct SpokenChapterGenerationTests {
         #expect(chapters.count == 1)
     }
 
+    @Test func longEpisodesMergeShortTopicsWithoutSkippingTranscriptWindows() async throws {
+        actor Coverage {
+            var ids = Set<String>()
+            func add(_ lines: [G.Line]) { ids.formUnion(lines.map(\.id)) }
+        }
+        let coverage = Coverage()
+        let duration = 11.0 * 3_600
+        let lines = (0..<330).map { G.Line(id: String($0), start: Double($0) * 120, text: "Scene \($0)") }
+        let chapters = try await G.generate(title: "Long story", language: "en", lines: lines, duration: duration) { request in
+            if request.stage == .analyze { await coverage.add(request.lines) }
+            return .init(summary: "Story", chapters: request.stage == .curate ? request.candidates
+                : request.lines.map { .init(lineID: $0.id, title: $0.text) })
+        }
+        #expect(await coverage.ids == Set(lines.map(\.id)))
+        #expect(chapters.first?.startTime == 0)
+        #expect(chapters.count > 30 && chapters.count < 90)
+        #expect(chapters.last!.startTime > 10 * 3_600)
+        #expect(zip(chapters, chapters.dropFirst()).allSatisfy { $1.startTime - $0.startTime >= 5 * 60 })
+        #expect(duration - chapters.last!.startTime >= 5 * 60)
+    }
+
+    @Test func shortEpisodesRetainUsefulTwoMinuteTopics() async throws {
+        let lines = (0..<10).map { G.Line(id: String($0), start: Double($0) * 120, text: "Topic \($0)") }
+        let chapters = try await G.generate(title: "Short episode", language: "en", lines: lines, duration: 1_200) { request in
+            .init(summary: "Topics", chapters: request.stage == .curate ? request.candidates
+                : request.lines.map { .init(lineID: $0.id, title: $0.text) })
+        }
+        #expect(chapters.map(\.startTime) == lines.map(\.start))
+    }
+
+    @Test func spokenHeadingsSurviveModelOmissionAndShortSpacing() async throws {
+        let lines: [G.Line] = [
+            .init(id: "0", start: 0, text: "Opening"),
+            .init(id: "1", start: 180, text: "Chapter 21: An unexpected visitor"),
+            .init(id: "2", start: 240, text: "He remembered chapter 33 of the book."),
+            .init(id: "3", start: 300, text: "Part IV — The return"),
+            .init(id: "4", start: 420, text: "Chapter Twenty-One: The journey"),
+            .init(id: "5", start: 510, text: "第二十二章 归途"),
+            .init(id: "6", start: 600, text: "part of the story remains unexplained")
+        ]
+        let chapters = try await G.generate(title: "Book", language: "en", lines: lines, duration: 39_600) { request in
+            // The model proposes no boundaries, then tries to merge all headings into the opening.
+            .init(summary: "Story", chapters: request.stage == .curate ? Array(request.candidates.prefix(1)) : [])
+        }
+        #expect(chapters.map(\.startTime) == [0, 180, 300, 420, 510])
+        #expect(chapters[1].title == "Chapter 21: An unexpected visitor")
+    }
+
+    @Test func explicitGapsSupportNearbyModelBoundariesButStartTimesAloneDoNot() async throws {
+        func generate(withEnds: Bool, proposeGap: Bool) async throws -> [MediaChapter] {
+            let lines: [G.Line] = [
+                .init(id: "0", start: 0, end: withEnds ? 600 : nil, text: "Opening"),
+                .init(id: "1", start: 600, end: withEnds ? 610 : nil, text: "Same scene"),
+                .init(id: "2", start: 720, end: withEnds ? 1_440 : nil, text: "New scene"),
+                .init(id: "3", start: 1_440, end: withEnds ? 1_500 : nil, text: "Next scene"),
+                .init(id: "4", start: 1_500, end: withEnds ? 1_600 : nil, text: "Continuation")
+            ]
+            return try await G.generate(title: "Long book", language: "en", lines: lines, duration: 39_600) { request in
+                .init(summary: "Scenes", chapters: request.stage == .curate ? request.candidates
+                    : request.lines.filter { proposeGap || $0.id != "2" }.map { .init(lineID: $0.id, title: $0.text) })
+            }
+        }
+        #expect(try await generate(withEnds: true, proposeGap: true).map(\.startTime) == [0, 720, 1_440])
+        #expect(try await generate(withEnds: false, proposeGap: true).map(\.startTime) == [0, 600, 1_440])
+        #expect(try await generate(withEnds: true, proposeGap: false).map(\.startTime) == [0, 600, 1_440])
+    }
+
+    @Test func overlappingSpeechDoesNotEstablishSilence() async throws {
+        let lines: [G.Line] = [
+            .init(id: "0", start: 0, end: 1_000, text: "Long simultaneous narration"),
+            .init(id: "1", start: 600, end: 610, text: "An interruption"),
+            .init(id: "2", start: 720, end: 800, text: "Same conversation")
+        ]
+        let chapters = try await G.generate(title: "Conversation", language: "en", lines: lines, duration: 39_600) { request in
+            .init(summary: "Conversation", chapters: request.stage == .curate ? request.candidates
+                : request.lines.map { .init(lineID: $0.id, title: $0.text) })
+        }
+        #expect(chapters.map(\.startTime) == [0, 600])
+    }
+
     @Test func cancellationStopsBeforeCuration() async {
         let task = Task {
             try await G.generate(title: "Book", language: "en", lines: [.init(id: "0", start: 0, text: "Hello")]) { _ in

@@ -185,7 +185,7 @@ final class SpokenChapterGenerator {
                         record = saved
                     } else {
                         let chapters = try await SpokenChapterGeneration.generate(
-                            title: song.title, language: language, lines: lines, limits: limits,
+                            title: song.title, language: language, lines: lines, duration: song.duration, limits: limits,
                             ask: { [self] request in try await self.ask(request, jobID: id, provider: requestProvider) },
                             progress: { [self] done, total in
                                 await self.setProgress(Double(done) / Double(max(1, total)))

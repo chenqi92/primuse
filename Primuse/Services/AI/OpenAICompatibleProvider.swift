@@ -589,6 +589,27 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     }
 
     func spokenChapters(_ request: SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer {
+        if configuration.backend != .remote {
+            return try await generateApple(allowsInvalidChapterFallback: true) { backend in
+                do {
+                    let answer: SpokenChapterGeneration.Answer
+                    if let generate = appleIntelligence.generateChapters {
+                        answer = try await generate(backend, request)
+                    } else {
+                        let input = String(decoding: try JSONEncoder().encode(request), as: UTF8.self)
+                        let output = try await appleIntelligence.generate(backend, SpokenChapterGeneration.instructions, input, 4_000)
+                        answer = try SpokenChapterGeneration.decode(output, for: request)
+                    }
+                    return try SpokenChapterGeneration.validate(answer, for: request)
+                } catch {
+                    let reason = (error as? AppleIntelligenceError).map { String(describing: $0) }
+                        ?? (error as? SpokenChapterGeneration.Failure).map { String(describing: $0) }
+                        ?? String(reflecting: type(of: error))
+                    plog("AI chapters: backend=\(backend.rawValue) stage=\(request.stage.rawValue) lines=\(request.lines.count) failure=\(reason)")
+                    throw error
+                }
+            }
+        }
         let input = String(decoding: try JSONEncoder().encode(request), as: UTF8.self)
         let output = try await generateText(
             instructions: SpokenChapterGeneration.instructions, input: input, maximumTokens: 4_000
@@ -1001,29 +1022,9 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         maximumTokens: Int
     ) async throws -> String {
         if configuration.backend != .remote {
-            guard await requestAuthorization() else {
-                throw MusicIntelligenceError.unavailable(.regionRestricted)
+            return try await generateApple { backend in
+                try await appleIntelligence.generate(backend, instructions, input, maximumTokens)
             }
-            try Task.checkCancellation()
-            let output: String
-            do {
-                output = try await appleIntelligence.generate(configuration.backend, instructions, input, maximumTokens)
-            } catch {
-                try Task.checkCancellation()
-                let canEscalate = [AppleIntelligenceError.contextLimit, .modelNotReady, .unavailable]
-                    .contains { $0 == error as? AppleIntelligenceError }
-                guard configuration.backend == .appleOnDevice,
-                      configuration.allowsPrivateCloudComputeFallback, canEscalate,
-                      await requestAuthorization(), await appleCloudAuthorization() else { throw error }
-                plog("AI: escalating Apple on-device request to Private Cloud Compute")
-                output = try await appleIntelligence.generate(.applePrivateCloudCompute, instructions, input, maximumTokens)
-                guard await appleCloudAuthorization() else { throw CancellationError() }
-            }
-            try Task.checkCancellation()
-            guard await requestAuthorization() else {
-                throw MusicIntelligenceError.unavailable(.regionRestricted)
-            }
-            return output
         }
         let model = configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else {
@@ -1048,6 +1049,36 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         )
         guard let output = Self.extractText(from: data, style: configuration.apiStyle) else {
             throw OpenAICompatibleProviderError.invalidResponse
+        }
+        return output
+    }
+
+    private func generateApple<Value>(allowsInvalidChapterFallback: Bool = false,
+                                     operation: (AIProviderBackend) async throws -> Value) async throws -> Value {
+        guard await requestAuthorization() else {
+            throw MusicIntelligenceError.unavailable(.regionRestricted)
+        }
+        try Task.checkCancellation()
+        let output: Value
+        do {
+            output = try await operation(configuration.backend)
+        } catch {
+            if error is CancellationError { throw error }
+            try Task.checkCancellation()
+            let canEscalate = [AppleIntelligenceError.contextLimit, .modelNotReady, .unavailable]
+                .contains { $0 == error as? AppleIntelligenceError }
+                || (allowsInvalidChapterFallback && error as? SpokenChapterGeneration.Failure == .invalidResponse)
+            guard configuration.backend == .appleOnDevice,
+                  configuration.allowsPrivateCloudComputeFallback, canEscalate,
+                  await requestAuthorization(), await appleCloudAuthorization() else { throw error }
+            try Task.checkCancellation()
+            plog("AI: escalating Apple on-device request to Private Cloud Compute")
+            output = try await operation(.applePrivateCloudCompute)
+            guard await appleCloudAuthorization() else { throw CancellationError() }
+        }
+        try Task.checkCancellation()
+        guard await requestAuthorization() else {
+            throw MusicIntelligenceError.unavailable(.regionRestricted)
         }
         return output
     }

@@ -1,6 +1,9 @@
 import Foundation
 import PrimuseKit
 import XCTest
+#if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+import FoundationModels
+#endif
 #if os(tvOS)
 @testable import PrimuseTV
 #else
@@ -287,6 +290,186 @@ final class AppleIntelligenceProviderTests: XCTestCase {
                 lines: [.init(id: "0", start: 0, text: "Opening")]))
             XCTFail("Unknown boundaries must never become seek positions")
         } catch { XCTAssertEqual(error as? SpokenChapterGeneration.Failure, .invalidResponse) }
+    }
+
+    func testChaptersUseStructuredGenerationAndPreserveOriginalBoundaries() async throws {
+        let credentials = AppleTestCredentials()
+        let recorder = AppleRequestRecorder()
+        let provider = OpenAICompatibleProvider(
+            configuration: AIProviderPreset.appleOnDevice.applying(to: .init(isEnabled: true)),
+            credentialStore: credentials,
+            appleIntelligence: .init(availability: { _ in .available }, generate: { _, _, _, _ in
+                XCTFail("Chapters must use guided generation when available")
+                return ""
+            }, generateChapters: { backend, request in
+                await recorder.record([backend.rawValue, request.stage.rawValue])
+                return .init(summary: "Story", chapters: request.stage == .curate ? request.candidates
+                    : request.lines.map { .init(lineID: $0.id, title: "Chapter \($0.id)") })
+            }))
+        let chapters = try await SpokenChapterGeneration.generate(title: "Book", language: "en",
+            lines: [.init(id: "a", start: 17, text: "Opening"), .init(id: "b", start: 720, text: "Next topic")],
+            ask: { try await provider.spokenChapters($0) })
+        XCTAssertEqual(chapters.map(\.startTime), [17, 720])
+        let calls = await recorder.requests
+        XCTAssertEqual(calls, [["appleOnDevice", "analyze"], ["appleOnDevice", "curate"]])
+        let accesses = await credentials.accesses
+        XCTAssertEqual(accesses, 0)
+    }
+
+    func testInvalidChapterJSONFallsBackOnlyWithBothOptInAndConsent() async throws {
+        for enabled in [false, true] {
+            for consent in [false, true] {
+                let recorder = AppleRequestRecorder()
+                var configuration = AIProviderPreset.appleOnDevice.applying(to: .init(isEnabled: true))
+                configuration.allowsPrivateCloudComputeFallback = enabled
+                let provider = OpenAICompatibleProvider(configuration: configuration, credentialStore: AppleTestCredentials(),
+                    appleIntelligence: .init(availability: { _ in .available }, generate: { backend, _, _, _ in
+                        await recorder.record([backend.rawValue])
+                        if backend == .appleOnDevice { return #"{"summary":"Story","chapters":["# }
+                        return #"{"summary":"Story","chapters":[{"lineID":"0","title":"Opening"}]}"#
+                    }), appleCloudAuthorization: { consent })
+                do {
+                    let answer = try await provider.spokenChapters(chapterRequest)
+                    XCTAssertTrue(enabled && consent)
+                    XCTAssertEqual(answer.chapters.map(\.lineID), ["0"])
+                } catch {
+                    XCTAssertFalse(enabled && consent)
+                    XCTAssertEqual(error as? SpokenChapterGeneration.Failure, .invalidResponse)
+                }
+                let calls = await recorder.requests
+                XCTAssertEqual(calls.count, enabled && consent ? 2 : 1)
+                XCTAssertEqual(calls.last?.first, enabled && consent ? "applePrivateCloudCompute" : "appleOnDevice")
+            }
+        }
+    }
+
+    func testGuidedChapterOutputStillValidatesIDsOrderAndCurationAnchorBeforeFallback() async throws {
+        let request = SpokenChapterGeneration.Request(title: "Book", language: "en", stage: .curate,
+            lines: [.init(id: "0", start: 0, text: "Opening"), .init(id: "1", start: 600, text: "Next topic")],
+            candidates: [.init(lineID: "0", title: "Opening"), .init(lineID: "1", title: "Next")])
+        for ids in [["invented"], ["1", "0"], ["0", "0"], ["1"]] {
+            let recorder = AppleRequestRecorder()
+            let provider = chapterProvider(recorder: recorder) { backend, request in
+                .init(summary: "Story", chapters: backend == .appleOnDevice
+                    ? ids.map { .init(lineID: $0, title: "Topic") } : request.candidates)
+            }
+            let result = try await provider.spokenChapters(request)
+            XCTAssertEqual(result.chapters, request.candidates)
+            let calls = await recorder.requests
+            XCTAssertEqual(calls.flatMap { $0 }, ["appleOnDevice", "applePrivateCloudCompute"])
+        }
+    }
+
+    func testChapterFallbackDoesNotReplayCloudFailureOrLoseQuotaResetDate() async throws {
+        let reset = Date(timeIntervalSince1970: 2_000_000_000)
+        for quota in [false, true] {
+            let recorder = AppleRequestRecorder()
+            let provider = chapterProvider(recorder: recorder) { backend, _ in
+                if backend == .applePrivateCloudCompute && quota { throw AppleIntelligenceQuotaFailure(resetDate: reset) }
+                throw SpokenChapterGeneration.Failure.invalidResponse
+            }
+            do { _ = try await provider.spokenChapters(chapterRequest); XCTFail("Expected failure") }
+            catch {
+                if quota { XCTAssertEqual((error as? AppleIntelligenceQuotaFailure)?.resetDate, reset) }
+                else { XCTAssertEqual(error as? SpokenChapterGeneration.Failure, .invalidResponse) }
+            }
+            let calls = await recorder.requests
+            XCTAssertEqual(calls.flatMap { $0 }, ["appleOnDevice", "applePrivateCloudCompute"])
+        }
+    }
+
+    func testChapterRefusalQuotaNetworkAndCancellationDoNotEscalate() async throws {
+        let errors: [any Error] = [AppleIntelligenceError.refused, AppleIntelligenceQuotaFailure(resetDate: nil),
+                                  URLError(.notConnectedToInternet), CancellationError()]
+        for error in errors {
+            let recorder = AppleRequestRecorder()
+            let provider = chapterProvider(recorder: recorder) { _, _ in throw error }
+            do { _ = try await provider.spokenChapters(chapterRequest); XCTFail("Expected failure") }
+            catch { }
+            let calls = await recorder.requests
+            XCTAssertEqual(calls.flatMap { $0 }, ["appleOnDevice"])
+        }
+    }
+
+    func testChapterValidationFallbackRechecksCloudConsent() async throws {
+        for revokeDuringCloud in [false, true] {
+            let consent = AppleCloudConsent()
+            let recorder = AppleRequestRecorder()
+            let provider = chapterProvider(recorder: recorder, consent: { await consent.allowed }) { backend, _ in
+                if backend == .appleOnDevice {
+                    if !revokeDuringCloud { await consent.revoke() }
+                    throw SpokenChapterGeneration.Failure.invalidResponse
+                }
+                await consent.revoke()
+                return .init(summary: "Story", chapters: [.init(lineID: "0", title: "Opening")])
+            }
+            do { _ = try await provider.spokenChapters(chapterRequest); XCTFail("Revoked consent must stop the result") }
+            catch { }
+            let calls = await recorder.requests
+            XCTAssertEqual(calls.count, revokeDuringCloud ? 2 : 1)
+        }
+    }
+
+    func testDirectPCCChapterValidationFailureIsNotRetried() async throws {
+        let recorder = AppleRequestRecorder()
+        let provider = provider(.applePrivateCloudCompute) { backend, _, _, _ in
+            await recorder.record([backend.rawValue])
+            return "not JSON"
+        }
+        do { _ = try await provider.spokenChapters(chapterRequest); XCTFail("Expected invalid response") }
+        catch { XCTAssertEqual(error as? SpokenChapterGeneration.Failure, .invalidResponse) }
+        let calls = await recorder.requests
+        XCTAssertEqual(calls.count, 1)
+    }
+
+    func testStructuredResponseBudgetCountsSchemaAndReservesOutputSpace() throws {
+        XCTAssertEqual(try AppleIntelligenceRuntime.responseBudget(contextSize: 4_096, inputTokens: 1_000,
+            instructionTokens: 500, schemaTokens: 400, maximumTokens: 4_000, minimumTokens: 1_024), 1_940)
+        XCTAssertEqual(try AppleIntelligenceRuntime.responseBudget(contextSize: 8_192, inputTokens: 1_000,
+            instructionTokens: 500, schemaTokens: 400, maximumTokens: 4_000, minimumTokens: 1_024), 4_000)
+        XCTAssertThrowsError(try AppleIntelligenceRuntime.responseBudget(contextSize: 4_096, inputTokens: 2_000,
+            instructionTokens: 500, schemaTokens: 400, maximumTokens: 4_000, minimumTokens: 1_024)) {
+            XCTAssertEqual($0 as? AppleIntelligenceError, .contextLimit)
+        }
+    }
+
+    #if canImport(FoundationModels) && !os(tvOS) && !os(watchOS)
+    func testNativeChapterSchemaSupportsAnalysisAndCurationWithSplitCueIDs() throws {
+        guard #available(iOS 26, macOS 26, visionOS 26, *) else { throw XCTSkip("Requires Foundation Models") }
+        var request = chapterRequest
+        request.lines.append(.init(id: "1.2", start: 600, text: "Split cue"))
+        let analyze = try AppleIntelligenceRuntime.chapterSchema(for: request)
+        request.stage = .curate
+        request.candidates = [.init(lineID: "1.2", title: "Topic")]
+        let curate = try AppleIntelligenceRuntime.chapterSchema(for: request)
+        func enumValues(_ value: Any) -> [String] {
+            if let object = value as? [String: Any] {
+                return (object["enum"] as? [String] ?? []) + object.filter { $0.key != "enum" }.values.flatMap(enumValues)
+            }
+            return (value as? [Any] ?? []).flatMap(enumValues)
+        }
+        XCTAssertEqual(Set(enumValues(try JSONSerialization.jsonObject(with: JSONEncoder().encode(analyze)))), ["0", "1.2"])
+        XCTAssertEqual(Set(enumValues(try JSONSerialization.jsonObject(with: JSONEncoder().encode(curate)))), ["1.2"])
+    }
+    #endif
+
+    private var chapterRequest: SpokenChapterGeneration.Request {
+        .init(title: "Book", language: "en", lines: [.init(id: "0", start: 0, text: "Opening")])
+    }
+
+    private func chapterProvider(recorder: AppleRequestRecorder,
+        consent: @escaping @Sendable () async -> Bool = { true },
+        generate: @escaping @Sendable (AIProviderBackend, SpokenChapterGeneration.Request) async throws -> SpokenChapterGeneration.Answer
+    ) -> OpenAICompatibleProvider {
+        var configuration = AIProviderPreset.appleOnDevice.applying(to: .init(isEnabled: true))
+        configuration.allowsPrivateCloudComputeFallback = true
+        return OpenAICompatibleProvider(configuration: configuration, credentialStore: AppleTestCredentials(),
+            appleIntelligence: .init(availability: { _ in .available }, generate: { _, _, _, _ in
+                XCTFail("Expected structured generation"); return ""
+            }, generateChapters: { backend, request in
+                await recorder.record([backend.rawValue])
+                return try await generate(backend, request)
+            }), appleCloudAuthorization: consent)
     }
 
     private func provider(_ preset: AIProviderPreset, credentials: AppleTestCredentials = .init(),

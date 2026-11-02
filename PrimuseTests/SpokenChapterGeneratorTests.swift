@@ -140,7 +140,9 @@ final class SpokenChapterGeneratorTests: XCTestCase {
         XCTAssertNil(resumed.failure)
         XCTAssertEqual(analyzed, ["1001", "1002", "1003", "1004"])
         XCTAssertEqual(resumed.previews.first?.record.chapters.first?.startTime, 0)
-        XCTAssertEqual(resumed.previews.first?.record.chapters.last?.startTime, Double(1_004 * 39))
+        let chapters = try XCTUnwrap(resumed.previews.first?.record.chapters)
+        XCTAssertLessThan(chapters.count, 100)
+        XCTAssertGreaterThan(try XCTUnwrap(chapters.last?.startTime), 10 * 3_600)
     }
 
     func testApplyingAnotherJobPreservesPausedJobAndEditedPreviewSurvivesRestart() async throws {
