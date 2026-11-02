@@ -5,6 +5,20 @@ import Testing
 
 @Suite("Artwork animation disk cache")
 struct ArtworkAnimationDiskCacheTests {
+    @Test func videoFileAccessRejectsExpiredOrReplacedGeneration() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = ArtworkAnimationDiskCache(directory: directory)
+        let now = Date()
+        let generation = try await cache.storeAsset(Data([1, 2, 3]), forKey: "video", expiresAt: now.addingTimeInterval(30))
+        let url = try #require(try await cache.assetFileURL(forKey: "video", generation: generation, now: now))
+        #expect(try Data(contentsOf: url) == Data([1, 2, 3]))
+        #expect(try await cache.assetFileURL(forKey: "video", generation: generation, now: now.addingTimeInterval(31)) == nil)
+        let replacement = try await cache.storeAsset(Data([4, 5, 6]), forKey: "video")
+        #expect(try await cache.assetFileURL(forKey: "video", generation: generation) == nil)
+        #expect(try await cache.assetFileURL(forKey: "video", generation: replacement) != nil)
+    }
+
     @Test("Positive assets persist as raw bytes under a SHA-256 key")
     func positiveAssetPersistenceAndAccessTime() async throws {
         let directory = try temporaryDirectory()

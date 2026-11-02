@@ -97,7 +97,7 @@
 "app_name" = "Primuse";
 "stats_active_days" = "Aktif Günler";
 "radio_flac_error_convert" = "Canlı FLAC ses dönüştürülemiyor.";
-"motion_artwork_service_description" = "Varsayılan olarak kapalıdır. Apple'ın genel API'leri Apple Music Motion Artwork varlıklarını açığa çıkarmaz. Etkinleştirildiğinde Primuse, albüm sanatçısını, başlığı, yılı, parça sayısını ve mevcut genel katalog tanımlayıcılarını yapılandırılmış üçüncü taraf uç noktanıza gönderir. Animasyonlu görseller 32 MB ile sınırlıdır ve ağ, hareket, güç ve termal ayarlara bağlı olarak yalnızca görünür büyük sanat eserleri için talep edilir.";
+"motion_artwork_service_description" = "Hareketli kapakları bulmak için albüm adı, sanatçı ve kullanılabilir albüm kimlikleri gibi bilgileri seçilen hizmete gönderir.";
 "hide_desktop_lyrics" = "Masaüstü şarkı sözlerini gizle";
 "share_link_method" = "Yöntem";
 "ai_provider_preset_zhipu" = "Zhipu GLM";
@@ -2377,7 +2377,7 @@
 "lyrics_translation_mode" = "Çeviri Yöntemi";
 "update_banner_title_format" = "Primuse %@ çıktı";
 "Master Toggle" = "Ana Geçiş";
-"motion_artwork_service_enabled" = "Özel hareketli kapak hizmeti";
+"motion_artwork_service_enabled" = "Çevrimiçi hareketli kapaklar";
 "ugreen_rsa_fallback_failed_format" = "%1$@; RSA oturum açma başlatma işlemi başarısız oldu: %2$@";
 "C-07 · Newly Written Credentials" = "C-07 · Yeni Yazılmış Kimlik Bilgileri";
 "fnmusic_account_hint" = "Feiniu Music'te oturum açabilen ve arşiv erişimi olan bir hesap kullanın.";
@@ -3090,7 +3090,7 @@
 "artist_name_settings_separators" = "Bölmeli Ayırıcılar";
 "library_recommendations_theme" = "Öneri Odağı";
 "share_choose_primuse_relay_hint" = "Yalnızca yöntemi değiştirir; henüz yükleme yapmıyor veya izinleri değiştirmiyor";
-"player_animated_artwork_unmetered_only_description" = "Yalnızca kaynak kalitesinde dinamik çizimleri Wi-Fi veya Ethernet üzerinden indirin. Önbelleğe alınan animasyon çevrimdışı olarak kullanılabilir durumda kalır.";
+"player_animated_artwork_unmetered_only_description" = "Hareketli kapakları yalnızca Wi-Fi veya Ethernet üzerinden indir. Önbellekteki animasyonlar çevrimdışı oynatılabilir.";
 "radio_batch_directory_placeholder" = "İstasyon adı";
 "ai_audio_transcription_model_detail" = "Google'nin mevcut model listesinden desteklenen bir ses transkripsiyon modeli seçin. Genel akıllı hizmetler kendi sağlayıcılarını ve modellerini korur.";
 "lyrics_audio_tools_section" = "Sesten şarkı sözleri";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "%d şarkı";
 "artist_merge_write_notice" = "Diğer katılımcıları koruyarak şarkı ve albüm sanatçısı etiketlerini günceller. Kaynak güncellenemezse değişiklikler yerel olarak kaydedilir.";
 "artist_merge_result_format" = "%d şarkı güncellendi. %d şarkıda yalnızca yerel olarak kaydedilen değişiklikler var.";
+
+"motion_artwork_service_source" = "Kapak kaynağı";
+
+"motion_artwork_source_custom" = "Özel hizmet";
 
 "playback_autoplay_on_launch" = "Açılışta otomatik çal";
 "listening_scene_new" = "Yeni ortam";

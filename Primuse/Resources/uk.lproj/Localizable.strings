@@ -97,7 +97,7 @@
 "app_name" = "Primuse";
 "stats_active_days" = "Активні дні";
 "radio_flac_error_convert" = "Неможливо конвертувати живе аудіо FLAC.";
-"motion_artwork_service_description" = "Вимкнено за умовчанням. Загальнодоступні API Apple не розкривають ресурси Apple Music Motion Artwork. Якщо ввімкнено, Primuse надсилає виконавця альбому, назву, рік, кількість композицій та доступні ідентифікатори загальнодоступного каталогу до вашої налаштованої сторонньої кінцевої точки. Розмір анімованих зображень обмежено 32 МБ і вимагається лише для видимих ​​великих ілюстрацій, залежно від налаштувань мережі, руху, живлення та температури.";
+"motion_artwork_service_description" = "Для пошуку анімованих обкладинок вибраному сервісу надсилаються назва альбому, виконавець і доступні ідентифікатори.";
 "hide_desktop_lyrics" = "Сховати тексти пісень на робочому столі";
 "share_link_method" = "Метод";
 "ai_provider_preset_zhipu" = "Zhipu GLM";
@@ -2377,7 +2377,7 @@
 "lyrics_translation_mode" = "Метод перекладу";
 "update_banner_title_format" = "Primuse %@ вийшов";
 "Master Toggle" = "Головний перемикач";
-"motion_artwork_service_enabled" = "Власний сервіс анімованих обкладинок";
+"motion_artwork_service_enabled" = "Анімовані обкладинки онлайн";
 "ugreen_rsa_fallback_failed_format" = "%1$@; Помилка ініціалізації входу RSA: %2$@";
 "C-07 · Newly Written Credentials" = "C-07 · Нові облікові дані";
 "fnmusic_account_hint" = "Використовуйте обліковий запис, який може входити в Feiniu Music і має доступ до медіатеки.";
@@ -3090,7 +3090,7 @@
 "artist_name_settings_separators" = "Спліт-роздільники";
 "library_recommendations_theme" = "Рекомендація Фокус";
 "share_choose_primuse_relay_hint" = "Змінює лише метод; він ще не завантажує та не змінює дозволи";
-"player_animated_artwork_unmetered_only_description" = "Завантажуйте лише вихідну якість динамічної ілюстрації на Wi-Fi або Ethernet. Кешована анімація залишається доступною офлайн.";
+"player_animated_artwork_unmetered_only_description" = "Завантажувати анімовані обкладинки лише через Wi-Fi або Ethernet. Збережені анімації доступні без мережі.";
 "radio_batch_directory_placeholder" = "Назва станції";
 "ai_audio_transcription_model_detail" = "Виберіть підтримувану модель аудіотранскрипції з поточного списку моделей Google. Загальні інтелектуальні служби мають власного провайдера та модель.";
 "lyrics_audio_tools_section" = "Розпізнавання тексту з аудіо";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "Композицій: %d";
 "artist_merge_write_notice" = "Оновлює виконавця композиції та альбому, зберігаючи інших учасників. Якщо запис у джерело неможливий, зміни зберігаються локально.";
 "artist_merge_result_format" = "Оновлено композицій: %d. Лише локальні зміни є у %d.";
+
+"motion_artwork_service_source" = "Джерело обкладинок";
+
+"motion_artwork_source_custom" = "Власний сервіс";
 
 "playback_autoplay_on_launch" = "Автовідтворення під час запуску";
 "listening_scene_new" = "Новий сценарій";

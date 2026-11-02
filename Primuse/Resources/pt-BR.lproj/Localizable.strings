@@ -2394,8 +2394,8 @@
 "minutes" = "minutos";
 "modify_directories" = "Modificar diretórios";
 "more" = "Mais";
-"motion_artwork_service_description" = "Desligado por padrão. As APIs públicas do Apple não expõem os ativos do Apple Music Motion Artwork. Quando ativado, o Primuse envia o artista do álbum, título, ano, contagem de faixas e identificadores de catálogo público disponíveis para o endpoint de terceiros configurado. As imagens animadas são limitadas a 32 MB e solicitadas apenas para obras de arte grandes e visíveis, sujeitas a configurações de rede, movimento, energia e térmicas.";
-"motion_artwork_service_enabled" = "Serviço de arte em movimento personalizado";
+"motion_artwork_service_description" = "Envia informações do álbum, incluindo título, artista e identificadores disponíveis, ao serviço escolhido para buscar capas animadas.";
+"motion_artwork_service_enabled" = "Capas animadas online";
 "motion_artwork_service_endpoint" = "Ponto final de serviço";
 "music_video_badge" = "Vídeo musical";
 "navigation_mode_title" = "Navegação";
@@ -2604,7 +2604,7 @@
 "player_animated_artwork" = "Capa animada";
 "player_animated_artwork_description" = "Reproduza GIF fornecido pela fonte, APNG e arte animada de WebP nos detalhes do álbum e na arte do player principal. As listas sempre usam um primeiro quadro estático e as configurações de movimento e energia do sistema são respeitadas.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi apenas para arte original";
-"player_animated_artwork_unmetered_only_description" = "Baixe apenas arte dinâmica com qualidade original em Wi-Fi ou Ethernet. A animação em cache permanece disponível offline.";
+"player_animated_artwork_unmetered_only_description" = "Baixe capas animadas apenas por Wi-Fi ou Ethernet. Animações em cache podem ser reproduzidas offline.";
 "player_appearance_title" = "Reprodutor";
 "player_blur_inactive_lyrics" = "Desfocar linhas inativas";
 "player_blur_inactive_lyrics_description" = "Desfoque levemente as letras sincronizadas além da linha atual para enfatizar o que está tocando.";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "%d músicas";
 "artist_merge_write_notice" = "Atualiza os artistas das músicas e dos álbuns, preservando outros participantes. Se a origem não puder ser alterada, as mudanças serão salvas localmente.";
 "artist_merge_result_format" = "%d músicas atualizadas. Em %d, há mudanças salvas apenas localmente.";
+
+"motion_artwork_service_source" = "Fonte das capas";
+
+"motion_artwork_source_custom" = "Serviço personalizado";
 
 "playback_autoplay_on_launch" = "Reproduzir ao abrir o app";
 "listening_scene_new" = "Nova cena";

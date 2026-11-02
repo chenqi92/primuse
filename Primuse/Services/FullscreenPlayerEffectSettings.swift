@@ -22,6 +22,7 @@ final class AnimatedArtworkPreferences {
     private(set) var animatedArtworkUnmeteredOnly: Bool
     private(set) var motionArtworkServiceEnabled: Bool
     private(set) var motionArtworkServiceEndpoint: String
+    private(set) var motionArtworkServiceSource: String
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var observer: NSObjectProtocol?
 
@@ -45,6 +46,7 @@ final class AnimatedArtworkPreferences {
         motionArtworkServiceEndpoint = defaults.string(
             forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey
         ) ?? PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+        motionArtworkServiceSource = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey) ?? ""
         observer = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -81,6 +83,8 @@ final class AnimatedArtworkPreferences {
         let endpoint = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
             ?? PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
         if motionArtworkServiceEndpoint != endpoint { motionArtworkServiceEndpoint = endpoint }
+        let source = defaults.string(forKey: PlayerAppearancePreferences.motionArtworkServiceSourceKey) ?? ""
+        if motionArtworkServiceSource != source { motionArtworkServiceSource = source }
     }
 
     private static func bool(_ key: String, default value: Bool, in defaults: UserDefaults) -> Bool {
@@ -169,6 +173,7 @@ enum PlayerAppearancePreferences {
     static let animatedArtworkUnmeteredOnlyByDefault = true
     static let motionArtworkServiceEnabledKey = "primuse.player.motionArtworkServiceEnabled"
     static let motionArtworkServiceEnabledByDefault = false
+    static let motionArtworkServiceSourceKey = "motionArtworkServiceSource"
     static let motionArtworkServiceEndpointKey = "primuse.player.motionArtworkServiceEndpoint"
     static let motionArtworkServiceEndpointByDefault = ""
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"

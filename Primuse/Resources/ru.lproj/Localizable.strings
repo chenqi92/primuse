@@ -97,7 +97,7 @@
 "app_name" = "Primuse";
 "stats_active_days" = "Активные дни";
 "radio_flac_error_convert" = "Невозможно конвертировать живой звук FLAC.";
-"motion_artwork_service_description" = "По умолчанию выключено. Публичные API Apple не предоставляют ресурсы Motion Art Apple Music. Если этот параметр включен, Primuse отправляет исполнителя альбома, название, год, количество треков и доступные идентификаторы общедоступного каталога на настроенную вами стороннюю конечную точку. Размер анимированных изображений ограничен 32 МБ и запрашивается только для видимых крупных изображений с учетом настроек сети, движения, питания и температуры.";
+"motion_artwork_service_description" = "Для поиска анимированных обложек выбранному сервису передаются сведения об альбоме: название, исполнитель и доступные идентификаторы.";
 "hide_desktop_lyrics" = "Скрыть тексты песен на рабочем столе";
 "share_link_method" = "Метод";
 "ai_provider_preset_zhipu" = "Zhipu GLM";
@@ -2377,7 +2377,7 @@
 "lyrics_translation_mode" = "Метод перевода";
 "update_banner_title_format" = "Primuse %@ отсутствует";
 "Master Toggle" = "Главный переключатель";
-"motion_artwork_service_enabled" = "Свой сервис анимированных обложек";
+"motion_artwork_service_enabled" = "Анимированные обложки онлайн";
 "ugreen_rsa_fallback_failed_format" = "%1$@; Ошибка инициализации входа в систему RSA: %2$@";
 "C-07 · Newly Written Credentials" = "C-07 · Недавно выписанные полномочия";
 "fnmusic_account_hint" = "Используйте учетную запись, которая позволяет войти в Feiniu Music и имеет доступ к медиатеке.";
@@ -3090,7 +3090,7 @@
 "artist_name_settings_separators" = "Разделительные разделители";
 "library_recommendations_theme" = "Рекомендации в фокусе";
 "share_choose_primuse_relay_hint" = "Изменяет только метод; он еще не загружает и не меняет разрешения";
-"player_animated_artwork_unmetered_only_description" = "Загружайте динамические изображения исходного качества только на Wi-Fi или Ethernet. Кэшированная анимация остается доступной в автономном режиме.";
+"player_animated_artwork_unmetered_only_description" = "Загружать анимированные обложки только по Wi-Fi или Ethernet. Сохранённые анимации доступны без сети.";
 "radio_batch_directory_placeholder" = "Название станции";
 "ai_audio_transcription_model_detail" = "Выберите поддерживаемую модель транскрипции звука из текущего списка моделей Google. Общие интеллектуальные сервисы сохраняют своего собственного поставщика и модель.";
 "lyrics_audio_tools_section" = "Распознавание текста из аудио";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "Композиций: %d";
 "artist_merge_write_notice" = "Обновляет исполнителя композиции и альбома, сохраняя других участников. Если запись в источник невозможна, изменения сохраняются локально.";
 "artist_merge_result_format" = "Обновлено композиций: %d. Только локальные изменения есть у %d.";
+
+"motion_artwork_service_source" = "Источник обложек";
+
+"motion_artwork_source_custom" = "Свой сервис";
 
 "playback_autoplay_on_launch" = "Автовоспроизведение при запуске";
 "listening_scene_new" = "Новый сценарий";

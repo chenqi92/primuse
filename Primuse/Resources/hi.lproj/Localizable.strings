@@ -2394,8 +2394,8 @@
 "minutes" = "मि";
 "modify_directories" = "निर्देशिकाएँ संशोधित करें";
 "more" = "और";
-"motion_artwork_service_description" = "डिफ़ॉल्ट रूप से बंद। Apple के सार्वजनिक एपीआई Apple Music मोशन आर्टवर्क संपत्तियों को उजागर नहीं करते हैं। सक्षम होने पर, Primuse एल्बम कलाकार, शीर्षक, वर्ष, ट्रैक गिनती और उपलब्ध सार्वजनिक कैटलॉग पहचानकर्ताओं को आपके कॉन्फ़िगर किए गए तृतीय-पक्ष एंडपॉइंट पर भेजता है। एनिमेटेड छवियां 32 एमबी तक सीमित हैं और केवल दृश्यमान बड़ी कलाकृति के लिए अनुरोध की जाती हैं, जो नेटवर्क, गति, शक्ति और थर्मल सेटिंग्स के अधीन है।";
-"motion_artwork_service_enabled" = "कस्टम मोशन आर्टवर्क सेवा";
+"motion_artwork_service_description" = "एनिमेटेड आर्टवर्क खोजने के लिए शीर्षक, कलाकार और उपलब्ध एल्बम पहचानकर्ताओं सहित एल्बम की जानकारी चुनी गई सेवा को भेजें।";
+"motion_artwork_service_enabled" = "ऑनलाइन एनिमेटेड आर्टवर्क";
 "motion_artwork_service_endpoint" = "सेवा समापन बिंदु";
 "music_video_badge" = "संगीत वीडियो";
 "navigation_mode_title" = "नेविगेशन";
@@ -2604,7 +2604,7 @@
 "player_animated_artwork" = "गतिशील कलाकृति";
 "player_animated_artwork_description" = "एल्बम विवरण और प्राथमिक प्लेयर आर्टवर्क पर स्रोत-प्रदत्त जीआईएफ, एपीएनजी और एनिमेटेड वेबपी आर्टवर्क चलाएं। सूचियाँ हमेशा एक स्थिर प्रथम फ्रेम का उपयोग करती हैं, और सिस्टम गति और पावर सेटिंग्स का सम्मान किया जाता है।";
 "player_animated_artwork_unmetered_only" = "Wi-Fi केवल मूल कलाकृति के लिए";
-"player_animated_artwork_unmetered_only_description" = "केवल Wi-Fi या ईथरनेट पर स्रोत-गुणवत्ता वाली गतिशील कलाकृति डाउनलोड करें। कैश्ड एनीमेशन ऑफ़लाइन उपलब्ध रहता है।";
+"player_animated_artwork_unmetered_only_description" = "एनिमेटेड आर्टवर्क केवल Wi-Fi या ईथरनेट पर डाउनलोड करें। कैश किए गए एनिमेशन ऑफ़लाइन चल सकते हैं।";
 "player_appearance_title" = "प्लेयर";
 "player_blur_inactive_lyrics" = "धुंधला निष्क्रिय गीत के बोल";
 "player_blur_inactive_lyrics_description" = "जो चल रहा है उस पर जोर देने के लिए वर्तमान पंक्ति के अलावा सिंक्रनाइज़ किए गए गीत के बोल को थोड़ा धुंधला करें।";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "%d गाने";
 "artist_merge_write_notice" = "अन्य प्रतिभागियों को बनाए रखते हुए गाने और एल्बम के कलाकार टैग अपडेट करता है। स्रोत अपडेट न हो पाने पर बदलाव स्थानीय रूप से सहेजे जाते हैं।";
 "artist_merge_result_format" = "%d गाने अपडेट हुए। %d में कुछ बदलाव केवल स्थानीय रूप से सहेजे गए हैं।";
+
+"motion_artwork_service_source" = "आर्टवर्क स्रोत";
+
+"motion_artwork_source_custom" = "कस्टम सेवा";
 
 "playback_autoplay_on_launch" = "ऐप खोलने पर अपने आप चलाएँ";
 "listening_scene_new" = "नया माहौल";

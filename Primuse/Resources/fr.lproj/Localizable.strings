@@ -3354,10 +3354,10 @@
 "player_animated_artwork" = "Pochette dynamique";
 "player_animated_artwork_description" = "Lit les pochettes GIF, APNG et WebP animées fournies par la source dans les détails de l’album et sur la pochette principale du lecteur. Les listes affichent toujours la première image statique et respectent les réglages système et d’énergie.";
 "player_animated_artwork_unmetered_only" = "Pochette originale via Wi-Fi uniquement";
-"player_animated_artwork_unmetered_only_description" = "Télécharge les pochettes dynamiques originales uniquement via Wi-Fi ou Ethernet. Les animations en cache restent disponibles hors ligne.";
-"motion_artwork_service_enabled" = "Service personnalisé de pochettes animées";
+"player_animated_artwork_unmetered_only_description" = "Télécharger les pochettes animées uniquement en Wi-Fi ou Ethernet. Les animations en cache sont disponibles hors ligne.";
+"motion_artwork_service_enabled" = "Pochettes animées en ligne";
 "motion_artwork_service_endpoint" = "Point de terminaison du service";
-"motion_artwork_service_description" = "Désactivé par défaut. Les API publiques d’Apple ne donnent pas accès aux ressources Apple Music Motion Artwork. Une fois activé, Primuse envoie l’artiste, le titre, l’année, le nombre de pistes et les identifiants de catalogue publics disponibles au point de terminaison tiers configuré. Les images animées sont limitées à 32 Mo et demandées uniquement pour les grandes pochettes visibles, selon les réglages de réseau, d’animation, d’énergie et de température.";
+"motion_artwork_service_description" = "Envoyez les informations de l’album, dont le titre, l’artiste et les identifiants disponibles, au service choisi pour trouver une pochette animée.";
 "player_lyrics_section" = "Paroles";
 "player_lyrics_alignment" = "Alignement des paroles";
 "player_lyrics_alignment_left" = "À gauche";
@@ -7142,6 +7142,10 @@
 "artist_merge_song_count_format" = "%d morceaux";
 "artist_merge_write_notice" = "Met à jour les artistes des morceaux et des albums en conservant les autres participants. Si la source ne peut pas être modifiée, les changements sont enregistrés localement.";
 "artist_merge_result_format" = "%d morceaux mis à jour. Pour %d, des changements sont enregistrés uniquement localement.";
+
+"motion_artwork_service_source" = "Source des pochettes";
+
+"motion_artwork_source_custom" = "Service personnalisé";
 
 "playback_autoplay_on_launch" = "Lecture automatique au lancement";
 "listening_scene_new" = "Nouvelle ambiance";

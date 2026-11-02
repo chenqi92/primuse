@@ -748,6 +748,7 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.alwaysDarkKey,
         PlayerAppearancePreferences.animatedArtworkEnabledKey,
         PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
+        PlayerAppearancePreferences.motionArtworkServiceSourceKey,
         PlayerAppearancePreferences.motionArtworkServiceEndpointKey,
         // 歌词外观(字号 `lyricsFontScale` 早已单独同步): 当前行颜色、对齐、字体、模糊、
         // 轻点跳转、定位标尺、间奏三个点(连同没轮到时显不显示)。

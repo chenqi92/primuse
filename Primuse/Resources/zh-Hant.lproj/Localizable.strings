@@ -3340,10 +3340,10 @@
 "player_animated_artwork" = "動態專輯封面";
 "player_animated_artwork_description" = "在專輯詳細資訊和播放器主封面中播放來源提供的 GIF、APNG 與動態 WebP。列表一律顯示靜態首格，並遵循系統動態效果與電量設定。";
 "player_animated_artwork_unmetered_only" = "僅透過 Wi-Fi 下載原始封面";
-"player_animated_artwork_unmetered_only_description" = "僅在 Wi-Fi 或有線網路下載來源原始動態封面；已快取的動畫可離線播放。";
-"motion_artwork_service_enabled" = "自訂動態封面服務";
+"player_animated_artwork_unmetered_only_description" = "僅在 Wi-Fi 或有線網路下載動態封面；已快取的動畫可離線播放。";
+"motion_artwork_service_enabled" = "線上動態封面";
 "motion_artwork_service_endpoint" = "服務端點";
-"motion_artwork_service_description" = "預設關閉。Apple 公開 API 不提供 Apple Music Motion Artwork 資源。啟用後，Primuse 會向你設定的第三方端點傳送專輯藝人、標題、年份、曲目數和可用的公開目錄識別碼。只為目前可見的大封面請求不超過 32 MB 的動態影像，並遵循網路、動態效果、電量和溫度設定。";
+"motion_artwork_service_description" = "開啟後，會向所選服務傳送專輯名稱、藝人及可用的專輯識別碼等資訊，以尋找動態封面。";
 "player_lyrics_section" = "歌詞";
 "player_lyrics_alignment" = "歌詞對齊";
 "player_lyrics_alignment_left" = "靠左對齊";
@@ -7119,6 +7119,10 @@
 "artist_merge_song_count_format" = "涉及 %d 首歌曲";
 "artist_merge_write_notice" = "將修改歌曲歌手和專輯歌手標籤，保留其他參與者。來源檔案無法寫入時，修改儲存在本機。";
 "artist_merge_result_format" = "已更新 %d 首歌曲，其中 %d 首有修改僅儲存在本機。";
+
+"motion_artwork_service_source" = "封面來源";
+
+"motion_artwork_source_custom" = "自訂服務";
 
 "playback_autoplay_on_launch" = "開啟 App 自動播放";
 "listening_scene_new" = "新增情境";

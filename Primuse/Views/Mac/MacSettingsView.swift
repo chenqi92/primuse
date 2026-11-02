@@ -7438,6 +7438,8 @@ private struct MacSTThemeView: View {
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
+    private var motionArtworkServiceSource = ""
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
@@ -7739,19 +7741,25 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $motionArtworkServiceEnabled)
                 }
                 .settingsAnchor("appearance.motionArtworkService")
-                MacSTRow(
-                    String(localized: "motion_artwork_service_endpoint"),
-                    divider: false,
-                    block: true
-                ) {
-                    MacSTTextField(
-                        text: $motionArtworkServiceEndpoint,
-                        prompt: "https://artwork.example.com/v1/lookup",
-                        width: 520
-                    )
+                MacSTRow(String(localized: "motion_artwork_service_source")) {
+                    Picker("motion_artwork_service_source", selection: Binding(
+                        get: { MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) },
+                        set: { motionArtworkServiceSource = $0.rawValue }
+                    )) {
+                        Text(verbatim: "m8tec").tag(MotionArtworkServiceSource.m8tec)
+                        Text("motion_artwork_source_custom").tag(MotionArtworkServiceSource.custom)
+                    }
+                    .labelsHidden()
                     .disabled(!motionArtworkServiceEnabled)
                 }
-                .settingsAnchor("appearance.motionArtworkEndpoint")
+                .settingsAnchor("appearance.motionArtworkSource")
+                if MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) == .custom {
+                    MacSTRow(String(localized: "motion_artwork_service_endpoint"), divider: false, block: true) {
+                        MacSTTextField(text: $motionArtworkServiceEndpoint, prompt: "https://artwork.example.com/v1/lookup", width: 520)
+                            .disabled(!motionArtworkServiceEnabled)
+                    }
+                    .settingsAnchor("appearance.motionArtworkEndpoint")
+                }
                 MacSTRow(
                     String(localized: "player_volume_bar")
                 ) {

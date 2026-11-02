@@ -2394,8 +2394,8 @@
 "minutes" = "mín.";
 "modify_directories" = "Modificar Directorios";
 "more" = "Más";
-"motion_artwork_service_description" = "Desactivado de forma predeterminada. Las API públicas de Apple no exponen los activos de Apple Music Motion Artwork. Cuando está habilitado, Primuse envía el artista del álbum, el título, el año, el recuento de pistas y los identificadores del catálogo público disponible a su punto final de terceros configurado. Las imágenes animadas están limitadas a 32 MB y se solicitan solo para portadas grandes visibles, sujetas a la red, el movimiento, la energía y la configuración térmica.";
-"motion_artwork_service_enabled" = "Servicio de portadas en movimiento personalizadas";
+"motion_artwork_service_description" = "Envía la información del álbum, como título, artista e identificadores disponibles, al servicio elegido para buscar portadas animadas.";
+"motion_artwork_service_enabled" = "Portadas animadas en línea";
 "motion_artwork_service_endpoint" = "Punto final de servicio";
 "music_video_badge" = "Vídeo musical";
 "navigation_mode_title" = "Navegación";
@@ -2604,7 +2604,7 @@
 "player_animated_artwork" = "Portada animada";
 "player_animated_artwork_description" = "Reproduzca portadas GIF, APNG y WebP animadas proporcionadas por el origen en los detalles del álbum y las portadas del reproductor principal. Las listas siempre utilizan un primer fotograma estático y se respetan los ajustes de energía y movimiento del sistema.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi solo para portadas originales";
-"player_animated_artwork_unmetered_only_description" = "Descargue únicamente portadas dinámicas con calidad de origen en Wi-Fi o Ethernet. La animación en caché permanece disponible sin conexión.";
+"player_animated_artwork_unmetered_only_description" = "Descarga portadas animadas solo por Wi-Fi o Ethernet. Las animaciones en caché pueden reproducirse sin conexión.";
 "player_appearance_title" = "Reproductor";
 "player_blur_inactive_lyrics" = "Difuminar líneas inactivas";
 "player_blur_inactive_lyrics_description" = "Desenfoque ligeramente las letras sincronizadas que no sean la línea actual para enfatizar lo que se está reproduciendo.";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "%d canciones";
 "artist_merge_write_notice" = "Actualiza los artistas de las canciones y álbumes conservando a los demás participantes. Si no se puede modificar el origen, los cambios se guardan localmente.";
 "artist_merge_result_format" = "Se actualizaron %d canciones. En %d hay cambios guardados solo localmente.";
+
+"motion_artwork_service_source" = "Fuente de portadas";
+
+"motion_artwork_source_custom" = "Servicio personalizado";
 
 "playback_autoplay_on_launch" = "Reproducir al abrir la app";
 "listening_scene_new" = "Nueva escena";

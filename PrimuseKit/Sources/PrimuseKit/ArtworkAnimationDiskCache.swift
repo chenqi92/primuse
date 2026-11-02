@@ -140,6 +140,17 @@ public actor ArtworkAnimationDiskCache {
         try lookupDetailed(forKey: key, now: now)
     }
 
+    /// Only returns the file matching the payload the caller just validated.
+    /// The generation check prevents a concurrent replacement from being played.
+    public func assetFileURL(forKey key: String, generation: String, now: Date = Date()) throws -> URL? {
+        let digest = try digest(forKey: key)
+        guard let metadata = try validAssetMetadata(digest: digest),
+              metadata.generation == generation,
+              metadata.expiresAt.map({ $0 > now }) ?? true,
+              try isAcceptableAsset(at: assetURL(forDigest: digest)) else { return nil }
+        return assetURL(forDigest: digest)
+    }
+
     private func lookupDetailed(
         forKey key: String,
         now: Date

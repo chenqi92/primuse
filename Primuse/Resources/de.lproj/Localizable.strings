@@ -3354,10 +3354,10 @@
 "player_animated_artwork" = "Dynamisches Cover";
 "player_animated_artwork_description" = "Spielt vom Anbieter bereitgestellte GIF-, APNG- und animierte WebP-Cover in Albumdetails und auf dem Hauptcover des Players ab. Listen zeigen immer das statische erste Bild; System- und Energiespareinstellungen werden berücksichtigt.";
 "player_animated_artwork_unmetered_only" = "Originalcover nur über WLAN";
-"player_animated_artwork_unmetered_only_description" = "Lädt dynamische Originalcover nur über WLAN oder Ethernet. Bereits zwischengespeicherte Animationen bleiben offline verfügbar.";
-"motion_artwork_service_enabled" = "Eigener Dienst für animierte Cover";
+"player_animated_artwork_unmetered_only_description" = "Animierte Cover nur über WLAN oder Ethernet laden. Gespeicherte Animationen können offline abgespielt werden.";
+"motion_artwork_service_enabled" = "Animierte Cover online";
 "motion_artwork_service_endpoint" = "Dienst-Endpunkt";
-"motion_artwork_service_description" = "Standardmäßig deaktiviert. Apples öffentliche APIs stellen Apple Music Motion Artwork nicht bereit. Nach der Aktivierung sendet Primuse Albuminterpret, Titel, Jahr, Titelanzahl und verfügbare öffentliche Katalogkennungen an den konfigurierten Drittanbieter-Endpunkt. Animierte Bilder sind auf 32 MB begrenzt und werden nur für sichtbare große Cover gemäß Netzwerk-, Bewegungs-, Energie- und Temperatureinstellungen angefordert.";
+"motion_artwork_service_description" = "Albuminformationen wie Titel, Interpret und verfügbare Albumkennungen werden an den gewählten Dienst gesendet, um animierte Cover zu finden.";
 "player_lyrics_section" = "Liedtext";
 "player_lyrics_alignment" = "Liedtextausrichtung";
 "player_lyrics_alignment_left" = "Links";
@@ -7142,6 +7142,10 @@
 "artist_merge_song_count_format" = "%d Titel";
 "artist_merge_write_notice" = "Aktualisiert Titel- und Albumkünstler; andere Mitwirkende bleiben erhalten. Ist die Quelle nicht beschreibbar, werden Änderungen lokal gespeichert.";
 "artist_merge_result_format" = "%d Titel aktualisiert. Bei %d Titeln wurden Änderungen nur lokal gespeichert.";
+
+"motion_artwork_service_source" = "Coverquelle";
+
+"motion_artwork_source_custom" = "Eigener Dienst";
 
 "playback_autoplay_on_launch" = "Beim Start automatisch abspielen";
 "listening_scene_new" = "Neue Szene";

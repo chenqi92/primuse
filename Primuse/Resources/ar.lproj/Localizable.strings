@@ -2394,8 +2394,8 @@
 "minutes" = "دقيقة";
 "modify_directories" = "تعديل الدلائل";
 "more" = "المزيد";
-"motion_artwork_service_description" = "معطل افتراضيا. لا تكشف واجهات برمجة التطبيقات العامة Apple عن أصول Apple Music Motion Artwork. عند التمكين، يرسل Primuse فنان الألبوم والعنوان والسنة وعدد الأغاني ومعرفات الكتالوج العام المتاحة إلى نقطة نهاية الطرف الثالث التي تم تكوينها. يقتصر حجم الصور المتحركة على 32 ميجابايت، وهي مطلوبة فقط للأعمال الفنية الكبيرة المرئية، والتي تخضع لإعدادات الشبكة والحركة والطاقة والحرارة.";
-"motion_artwork_service_enabled" = "خدمة الأعمال الفنية المتحركة المخصصة";
+"motion_artwork_service_description" = "إرسال معلومات الألبوم، بما فيها العنوان والفنان ومعرّفات الألبوم المتاحة، إلى الخدمة المحددة للعثور على أغلفة متحركة.";
+"motion_artwork_service_enabled" = "أغلفة متحركة عبر الإنترنت";
 "motion_artwork_service_endpoint" = "نقطة نهاية الخدمة";
 "music_video_badge" = "فيديو موسيقي";
 "navigation_mode_title" = "الملاحة";
@@ -2604,7 +2604,7 @@
 "player_animated_artwork" = "العمل الفني الديناميكي";
 "player_animated_artwork_description" = "تشغيل أعمال GIF وAPNG وWebP المتحركة المقدمة من المصدر على تفاصيل الألبوم والأعمال الفنية للمشغل الأساسي. تستخدم القوائم دائمًا إطارًا أوليًا ثابتًا، ويتم احترام إعدادات حركة النظام والطاقة.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi فقط للأعمال الفنية الأصلية";
-"player_animated_artwork_unmetered_only_description" = "قم فقط بتنزيل العمل الفني الديناميكي عالي الجودة على Wi-Fi أو Ethernet. تظل الرسوم المتحركة المخزنة مؤقتًا متاحة في وضع عدم الاتصال.";
+"player_animated_artwork_unmetered_only_description" = "تنزيل الأغلفة المتحركة عبر Wi-Fi أو Ethernet فقط. يمكن تشغيل الرسوم المخزنة مؤقتًا دون اتصال.";
 "player_appearance_title" = "المشغّل";
 "player_blur_inactive_lyrics" = "طمس كلمات غير نشطة";
 "player_blur_inactive_lyrics_description" = "قم بطمس الكلمات المتزامنة قليلاً بخلاف السطر الحالي للتأكيد على ما يتم تشغيله.";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "%d أغنية";
 "artist_merge_write_notice" = "يحدّث وسوم فنان الأغنية والألبوم مع الاحتفاظ بالمشاركين الآخرين. إذا تعذّر تحديث المصدر، تُحفظ التغييرات محليًا.";
 "artist_merge_result_format" = "تم تحديث %d أغنية. تتضمن %d منها تغييرات محفوظة محليًا فقط.";
+
+"motion_artwork_service_source" = "مصدر الأغلفة";
+
+"motion_artwork_source_custom" = "خدمة مخصصة";
 
 "playback_autoplay_on_launch" = "التشغيل تلقائيًا عند فتح التطبيق";
 "listening_scene_new" = "مشهد جديد";

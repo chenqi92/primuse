@@ -3125,10 +3125,10 @@
 "player_animated_artwork" = "Dynamic Artwork";
 "player_animated_artwork_description" = "Play source-provided GIF, APNG, and animated WebP artwork on album details and primary player artwork. Lists always use a static first frame, and system motion and power settings are respected.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Only for Original Artwork";
-"player_animated_artwork_unmetered_only_description" = "Only download source-quality dynamic artwork on Wi-Fi or Ethernet. Cached animation remains available offline.";
-"motion_artwork_service_enabled" = "Custom Motion Artwork Service";
+"player_animated_artwork_unmetered_only_description" = "Download animated artwork only over Wi-Fi or Ethernet. Cached animations can play offline.";
+"motion_artwork_service_enabled" = "Online Animated Artwork";
 "motion_artwork_service_endpoint" = "Service Endpoint";
-"motion_artwork_service_description" = "Off by default. Apple’s public APIs do not expose Apple Music Motion Artwork assets. When enabled, Primuse sends album artist, title, year, track count, and available public catalog identifiers to your configured third-party endpoint. Animated images are limited to 32 MB and requested only for visible large artwork, subject to network, motion, power, and thermal settings.";
+"motion_artwork_service_description" = "Send album information, including the title, artist and available album identifiers, to the selected service to find animated artwork.";
 "player_lyrics_section" = "Lyrics";
 "player_lyrics_alignment" = "Lyrics Alignment";
 "player_lyrics_alignment_left" = "Left";
@@ -6903,6 +6903,10 @@
 "artist_merge_song_count_format" = "%d songs";
 "artist_merge_write_notice" = "Updates song and album artist tags while keeping other contributors. If the source cannot be updated, changes are saved locally.";
 "artist_merge_result_format" = "Updated %d songs. %d include changes saved only locally.";
+
+"motion_artwork_service_source" = "Artwork Source";
+
+"motion_artwork_source_custom" = "Custom Service";
 
 "playback_autoplay_on_launch" = "Play automatically on launch";
 "listening_scene_new" = "New scene";

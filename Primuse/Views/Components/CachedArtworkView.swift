@@ -132,6 +132,7 @@ struct CachedArtworkView: View {
         var image: PlatformImage?
     }
     @State private var isArtworkVisible = true
+    @State private var motionArtworkVideoURL: URL?
     @State private var animatedArtworkData: Data?
     @State private var animatedArtworkDescriptor: ArtworkDescriptor?
     @State private var animatedArtworkIdentity: String?
@@ -489,7 +490,11 @@ struct CachedArtworkView: View {
             // 用 GeometryReader 拿到容器真实边长再喂给它, 让 Apple Music 封面
             // 跟其它来源的封面一样填满 cell。ArtworkImage 自身按 display scale
             // 解码, 所以传点数即可, 不用再乘 scale。
-            if let animatedArtworkData, let animatedArtworkDescriptor {
+            if let motionArtworkVideoURL {
+                MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate) {
+                    appleMusicArtworkView(artwork)
+                }
+            } else if let animatedArtworkData, let animatedArtworkDescriptor {
                 AnimatedArtworkDataView(
                     data: animatedArtworkData,
                     descriptor: animatedArtworkDescriptor,
@@ -525,6 +530,10 @@ struct CachedArtworkView: View {
     private func decodedArtwork(_ image: PlatformImage) -> some View {
         if fitsWholeArtwork {
             wholeArtwork(image)
+        } else if let motionArtworkVideoURL {
+            MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate) {
+                Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
+            }
         } else if let animatedArtworkData, let animatedArtworkDescriptor {
             AnimatedArtworkDataView(
                 data: animatedArtworkData,
@@ -824,7 +833,12 @@ struct CachedArtworkView: View {
     }
 
     private var normalizedMotionArtworkServiceEndpoint: String {
-        motionArtworkServiceEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = MotionArtworkServiceSource.resolved(
+            AnimatedArtworkPreferences.shared.motionArtworkServiceSource,
+            customEndpoint: motionArtworkServiceEndpoint
+        )
+        return source == .m8tec ? M8tecMotionArtwork.endpoint.absoluteString
+            : motionArtworkServiceEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var motionArtworkDiskKey: String {
@@ -913,6 +927,7 @@ struct CachedArtworkView: View {
               !animationCacheMaintenancePending,
               loadedIdentity == loadIdentity,
               animationPlaybackPolicy.shouldAnimate else {
+            motionArtworkVideoURL = nil
             animatedArtworkData = nil
             animatedArtworkDescriptor = nil
             animatedArtworkIdentity = nil
@@ -930,6 +945,7 @@ struct CachedArtworkView: View {
            animatedArtworkDescriptor != nil {
             return
         }
+        motionArtworkVideoURL = nil
         animatedArtworkData = nil
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil
@@ -1139,6 +1155,15 @@ struct CachedArtworkView: View {
             switch cached {
             case .asset(let record):
                 let data = record.data
+                if endpoint == M8tecMotionArtwork.endpoint, M8tecMotionArtwork.isMP4(data),
+                   let url = try? await Self.animationDiskCache.assetFileURL(forKey: diskKey, generation: record.generation) {
+                    guard !Task.isCancelled, animationLoadIdentity == identity else { return }
+                    motionArtworkVideoURL = url
+                    animatedArtworkIdentity = diskKey
+                    animatedArtworkExpiresAt = record.expiresAt
+                    animatedArtworkGeneration = record.generation
+                    return
+                }
                 if let inspection = await Self.animatedInspection(
                     for: data,
                     cacheKey: diskKey
@@ -1188,6 +1213,15 @@ struct CachedArtworkView: View {
             )
             guard !Task.isCancelled, animationLoadIdentity == identity else { return }
             switch resolution {
+            case .video(let data):
+                let expiration = Date().addingTimeInterval(Self.configuredMotionArtworkMaximumPositiveTTL)
+                let generation = try await Self.animationDiskCache.storeAsset(data, forKey: diskKey, expiresAt: expiration)
+                guard let url = try await Self.animationDiskCache.assetFileURL(forKey: diskKey, generation: generation),
+                      !Task.isCancelled, animationLoadIdentity == identity else { return }
+                motionArtworkVideoURL = url
+                animatedArtworkIdentity = diskKey
+                animatedArtworkExpiresAt = expiration
+                animatedArtworkGeneration = generation
             case .downloaded(let payload):
                 let expiration = Self.configuredMotionArtworkExpiration(
                     providerExpiration: payload.asset.expiresAt,
@@ -1309,6 +1343,7 @@ struct CachedArtworkView: View {
                 forKey: animatedArtworkContentKey as NSString
             )
         }
+        motionArtworkVideoURL = nil
         animatedArtworkData = nil
         animatedArtworkDescriptor = nil
         animatedArtworkIdentity = nil

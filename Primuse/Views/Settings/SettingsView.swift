@@ -673,6 +673,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
+    @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
+    private var motionArtworkServiceSource = ""
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
@@ -752,15 +754,23 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.motionArtworkService")
-                TextField(
-                    "motion_artwork_service_endpoint",
-                    text: $motionArtworkServiceEndpoint
-                )
-                .settingsAnchor("appearance.motionArtworkEndpoint")
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
+                Picker("motion_artwork_service_source", selection: Binding(
+                    get: { MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) },
+                    set: { motionArtworkServiceSource = $0.rawValue }
+                )) {
+                    Text(verbatim: "m8tec").tag(MotionArtworkServiceSource.m8tec)
+                    Text("motion_artwork_source_custom").tag(MotionArtworkServiceSource.custom)
+                }
+                .settingsAnchor("appearance.motionArtworkSource")
                 .disabled(!motionArtworkServiceEnabled)
+                if MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) == .custom {
+                    TextField("motion_artwork_service_endpoint", text: $motionArtworkServiceEndpoint)
+                        .settingsAnchor("appearance.motionArtworkEndpoint")
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .disabled(!motionArtworkServiceEnabled)
+                }
             }
 
             Section {

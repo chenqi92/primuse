@@ -1,8 +1,159 @@
 import CoreGraphics
+import AVFoundation
 import Foundation
 import ImageIO
 import PrimuseKit
 import SwiftUI
+
+struct MotionArtworkVideoView<Fallback: View>: View {
+    let url: URL
+    let shouldAnimate: Bool
+    @ViewBuilder let fallback: () -> Fallback
+    @State private var playback: MotionArtworkVideoPlayback?
+
+    var body: some View {
+        fallback()
+            .overlay {
+                if shouldAnimate, let playback {
+                    MotionArtworkVideoLayer(player: playback.player)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .task(id: "\(url.path)|\(shouldAnimate)") {
+                playback?.stop()
+                playback = nil
+                guard shouldAnimate else { return }
+                do {
+                    let prepared = try await MotionArtworkVideoPlayback.prepare(url: url)
+                    guard !Task.isCancelled else { prepared.stop(); return }
+                    playback = prepared
+                    prepared.player.play()
+                } catch {
+                    // The static cover remains visible if the rendition cannot be decoded.
+                }
+            }
+            .onDisappear {
+                playback?.stop()
+                playback = nil
+            }
+    }
+}
+
+@MainActor
+final class MotionArtworkVideoPlayback {
+    let player: AVQueuePlayer
+    private let looper: AVPlayerLooper
+
+    private init(composition: AVComposition) {
+        player = AVQueuePlayer()
+        player.isMuted = true
+        player.volume = 0
+        player.allowsExternalPlayback = false
+        player.audiovisualBackgroundPlaybackPolicy = .pauses
+        looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(asset: composition))
+    }
+
+    static func prepare(url: URL) async throws -> MotionArtworkVideoPlayback {
+        guard url.isFileURL else { throw URLError(.unsupportedURL) }
+        let asset = AVURLAsset(url: url, options: [
+            AVURLAssetOverrideMIMETypeKey: "video/mp4",
+            AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue,
+            AVURLAssetAllowsCellularAccessKey: false,
+            AVURLAssetAllowsExpensiveNetworkAccessKey: false,
+            AVURLAssetAllowsConstrainedNetworkAccessKey: false,
+        ])
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        let (range, size, transform) = try await track.load(.timeRange, .naturalSize, .preferredTransform)
+        guard range.duration.seconds.isFinite, range.duration.seconds > 0, range.duration.seconds <= 60,
+              size.width > 0, size.height > 0, max(size.width, size.height) <= 1080 else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        // Artwork may start at a nonzero timestamp. A video-only composition
+        // removes that initial gap and ensures it never competes with the song's audio.
+        let composition = AVMutableComposition()
+        guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        try video.insertTimeRange(range, of: track, at: .zero)
+        video.preferredTransform = transform
+        try Task.checkCancellation()
+        return MotionArtworkVideoPlayback(composition: composition)
+    }
+
+    func stop() {
+        player.pause()
+        looper.disableLooping()
+        player.removeAllItems()
+    }
+}
+
+#if os(macOS)
+private struct MotionArtworkVideoLayer: NSViewRepresentable {
+    let player: AVPlayer
+    func makeNSView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface(player: player) }
+    func updateNSView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayer(player) }
+    static func dismantleNSView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayer(nil) }
+}
+private typealias MotionArtworkVideoSurfaceBase = NSView
+#else
+private struct MotionArtworkVideoLayer: UIViewRepresentable {
+    let player: AVPlayer
+    func makeUIView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface(player: player) }
+    func updateUIView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayer(player) }
+    static func dismantleUIView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayer(nil) }
+}
+private typealias MotionArtworkVideoSurfaceBase = UIView
+#endif
+
+private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
+    private let videoLayer = AVPlayerLayer()
+    private var readiness: NSKeyValueObservation?
+
+    init(player: AVPlayer) {
+        super.init(frame: .zero)
+        #if os(macOS)
+        wantsLayer = true
+        layer?.addSublayer(videoLayer)
+        #else
+        backgroundColor = .clear
+        isOpaque = false
+        layer.addSublayer(videoLayer)
+        #endif
+        videoLayer.videoGravity = .resizeAspectFill
+        videoLayer.isHidden = true
+        readiness = videoLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.videoLayer.isHidden = !self.videoLayer.isReadyForDisplay
+            }
+        }
+        setPlayer(player)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func setPlayer(_ player: AVPlayer?) {
+        guard videoLayer.player !== player else { return }
+        videoLayer.isHidden = true
+        videoLayer.player = player
+    }
+
+    #if os(macOS)
+    override func layout() { super.layout(); layoutVideo() }
+    #else
+    override func layoutSubviews() { super.layoutSubviews(); layoutVideo() }
+    #endif
+
+    private func layoutVideo() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        videoLayer.frame = bounds
+        CATransaction.commit()
+    }
+}
 
 nonisolated(unsafe) private let animatedArtworkFrameCache: NSCache<NSString, CGImage> = {
     let cache = NSCache<NSString, CGImage>()

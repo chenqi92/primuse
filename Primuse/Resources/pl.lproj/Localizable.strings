@@ -2394,8 +2394,8 @@
 "minutes" = "min";
 "modify_directories" = "Modyfikuj katalogi";
 "more" = "Więcej";
-"motion_artwork_service_description" = "Domyślnie wyłączone. Publiczne interfejsy API Apple nie ujawniają zasobów grafiki ruchomej Apple Music. Po włączeniu Primuse wysyła wykonawcę albumu, tytuł, rok, liczbę utworów i dostępne identyfikatory katalogu publicznego do skonfigurowanego punktu końcowego innej firmy. Animowane obrazy są ograniczone do 32 MB i wymagane tylko w przypadku widocznych dużych dzieł sztuki, w zależności od ustawień sieci, ruchu, zasilania i temperatury.";
-"motion_artwork_service_enabled" = "Usługa niestandardowej grafiki ruchomej";
+"motion_artwork_service_description" = "Wysyłaj dane albumu, w tym tytuł, wykonawcę i dostępne identyfikatory, do wybranej usługi w celu wyszukania animowanych okładek.";
+"motion_artwork_service_enabled" = "Animowane okładki online";
 "motion_artwork_service_endpoint" = "Punkt końcowy usługi";
 "music_video_badge" = "Teledysk";
 "navigation_mode_title" = "Nawigacja";
@@ -2604,7 +2604,7 @@
 "player_animated_artwork" = "Animowana okładka";
 "player_animated_artwork_description" = "Odtwarzaj dostarczone przez źródło pliki GIF, APNG i animowane grafiki WebP na szczegółach albumu i grafice głównego odtwarzacza. Na listach zawsze używana jest statyczna pierwsza klatka, przy czym przestrzegane są systemowe ustawienia ruchu i zasilania.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Tylko dla oryginalnej grafiki";
-"player_animated_artwork_unmetered_only_description" = "Pobieraj dynamiczną grafikę o jakości źródłowej wyłącznie na Wi-Fi lub Ethernet. Animacja w pamięci podręcznej pozostaje dostępna w trybie offline.";
+"player_animated_artwork_unmetered_only_description" = "Pobieraj animowane okładki tylko przez Wi-Fi lub Ethernet. Zapisane animacje można odtwarzać offline.";
 "player_appearance_title" = "Odtwarzacz";
 "player_blur_inactive_lyrics" = "Rozmywaj nieaktywne wersy";
 "player_blur_inactive_lyrics_description" = "Nieznacznie rozmyj zsynchronizowany tekst inny niż bieżący wiersz, aby podkreślić to, co jest odtwarzane.";
@@ -7048,6 +7048,10 @@
 "artist_merge_song_count_format" = "Utwory: %d";
 "artist_merge_write_notice" = "Aktualizuje wykonawcę utworu i albumu, zachowując innych uczestników. Jeśli zapis do źródła jest niemożliwy, zmiany są zapisywane lokalnie.";
 "artist_merge_result_format" = "Zaktualizowano %d utworów. W %d utworach część zmian zapisano tylko lokalnie.";
+
+"motion_artwork_service_source" = "Źródło okładek";
+
+"motion_artwork_source_custom" = "Własna usługa";
 
 "playback_autoplay_on_launch" = "Odtwarzaj po uruchomieniu";
 "listening_scene_new" = "Nowy nastrój";
