@@ -1,13 +1,14 @@
 import Foundation
+import Observation
 import PrimuseKit
 
 /// Applies a reviewed set of tag changes to many songs at once.
 ///
 /// Every song goes through the same write path as the single-song tag editor
 /// (`SourceManager.writeTagMetadata`), so embedded files, media-server APIs
-/// and sidecars behave exactly as they do one at a time. The library is
-/// published once at the end: a publish costs as much as the whole library,
-/// whether it carries one song or five hundred.
+/// and sidecars behave exactly as they do one at a time. Long-running merges
+/// publish completed writes in batches so closing the sheet does not defer
+/// every local change until the last remote file finishes.
 enum BatchTagEditService {
     struct Outcome {
         /// Library rows as they are now, for the songs that were changed.
@@ -20,6 +21,7 @@ enum BatchTagEditService {
         var notices: [String] = []
         var coverChanged = false
         var localOnlySongIDs: Set<String> = []
+        var wasCancelled = false
     }
 
     /// One successful write: the row as it is now, a note from the source,
@@ -50,40 +52,84 @@ enum BatchTagEditService {
         library: MusicLibrary,
         player: AudioPlayerService,
         keepsLocalEditsOnWriteFailure: Bool = false,
+        publishesIncrementally: Bool = false,
+        shouldCancel: @escaping @MainActor () -> Bool = { false },
         onProgress: @escaping @MainActor (Int, Int) -> Void
     ) async -> Outcome {
         var outcome = Outcome()
-        let pending = changes.filter {
-            coverData != nil || SongUserMetadataPolicy.editableFieldsChanged(from: $0.original, to: $0.updated)
+        let pending = await Task.detached(priority: .utility) {
+            changes.filter {
+                coverData != nil || SongUserMetadataPolicy.editableFieldsChanged(from: $0.original, to: $0.updated)
+            }
+        }.value
+        guard !pending.isEmpty else {
+            outcome.wasCancelled = shouldCancel() || Task.isCancelled
+            return outcome
         }
-        guard !pending.isEmpty else { return outcome }
         onProgress(0, pending.count)
 
-        var results: [Int: Result<Written, Failure>] = [:]
-        var done = 0
-        // Chunks of `concurrency` songs in flight. Each write is main-actor
-        // work that spends its time awaiting the network, so the chunk
-        // overlaps those waits without a task group.
-        var start = 0
-        while start < pending.count {
-            let end = min(start + concurrency, pending.count)
-            var inFlight: [(index: Int, task: Task<Result<Written, Failure>, Never>)] = []
-            for index in start..<end {
+        // A stop request drains the writes already in flight. Cancelling a
+        // replacement halfway through could leave its remote state uncertain.
+        await withTaskGroup(of: (Int, Result<Written, Failure>).self) { group in
+            var nextIndex = 0
+            var done = 0
+            var results: [Int: Result<Written, Failure>] = [:]
+            var lastPublish = ContinuousClock.now
+
+            while nextIndex < min(concurrency, pending.count), !shouldCancel(), !Task.isCancelled {
+                let index = nextIndex
                 let change = pending[index]
-                inFlight.append((index, Task { @MainActor in
-                    await write(change, coverData: coverData, sourceManager: sourceManager, keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure)
-                }))
+                group.addTask {
+                    (index, await write(change, coverData: coverData, sourceManager: sourceManager,
+                                        keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure))
+                }
+                nextIndex += 1
             }
-            for item in inFlight {
-                results[item.index] = await item.task.value
+            while let (index, result) = await group.next() {
+                results[index] = result
                 done += 1
                 onProgress(done, pending.count)
+                if nextIndex < pending.count, !shouldCancel(), !Task.isCancelled {
+                    let index = nextIndex
+                    let change = pending[index]
+                    group.addTask {
+                        (index, await write(change, coverData: coverData, sourceManager: sourceManager,
+                                            keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure))
+                    }
+                    nextIndex += 1
+                }
+                if publishesIncrementally,
+                   results.count >= 24 || lastPublish.duration(to: .now) >= .seconds(3) {
+                    await publish(results, pending: pending, coverData: coverData,
+                                  keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure,
+                                  library: library, player: player, maintenance: .deferredIncremental, outcome: &outcome)
+                    results.removeAll(keepingCapacity: true)
+                    lastPublish = .now
+                }
             }
-            start = end
+            await publish(results, pending: pending, coverData: coverData,
+                          keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure,
+                          library: library, player: player, maintenance: .immediate, outcome: &outcome)
+            outcome.wasCancelled = nextIndex < pending.count || shouldCancel() || Task.isCancelled
         }
+        if publishesIncrementally { library.flushDeferredLibraryMaintenance(force: true) }
+        return outcome
+    }
 
+    @MainActor
+    private static func publish(
+        _ results: [Int: Result<Written, Failure>],
+        pending: [(original: Song, updated: Song)],
+        coverData: Data?,
+        keepsLocalEditsOnWriteFailure: Bool,
+        library: MusicLibrary,
+        player: AudioPlayerService,
+        maintenance: LibraryMaintenanceDisposition,
+        outcome: inout Outcome
+    ) async {
         var published: [Song] = []
-        for index in pending.indices {
+        let originalsStart = outcome.originals.count
+        for index in results.keys.sorted() {
             switch results[index] {
             case .success(let written)?:
                 var song = written.song
@@ -116,7 +162,7 @@ enum BatchTagEditService {
                 break
             }
         }
-        guard !published.isEmpty else { return outcome }
+        guard !published.isEmpty else { return }
 
         if let coverData {
             outcome.coverChanged = true
@@ -128,7 +174,7 @@ enum BatchTagEditService {
             }
         }
 
-        library.replaceSongs(published)
+        library.replaceSongs(published, maintenance: maintenance)
         if coverData != nil {
             SongTagEditStore.shared.recordUserChosenCovers(songIDs: published.map(\.id))
         }
@@ -136,7 +182,7 @@ enum BatchTagEditService {
             player.syncSongMetadata(song)
         }
         if outcome.coverChanged {
-            for (original, song) in zip(outcome.originals, published) {
+            for (original, song) in zip(outcome.originals.dropFirst(originalsStart), published) {
                 CachedArtworkView.invalidateCache(for: song.id)
                 if let oldRef = original.coverArtFileName {
                     CachedArtworkView.invalidateCache(for: oldRef)
@@ -147,8 +193,7 @@ enum BatchTagEditService {
             }
             player.forceRefreshNowPlayingArtwork()
         }
-        outcome.applied = published
-        return outcome
+        outcome.applied.append(contentsOf: published)
     }
 
     @MainActor
@@ -271,5 +316,65 @@ enum BatchTagEditService {
             discNumber: song.discNumber,
             fileName: song.filePath
         )
+    }
+}
+
+
+@MainActor
+@Observable
+final class ArtistMergeService {
+    static let shared = ArtistMergeService()
+
+    private(set) var isRunning = false
+    private(set) var cancellationRequested = false
+    private(set) var canonicalName = ""
+    private(set) var progress = (done: 0, total: 0)
+    private(set) var outcome: BatchTagEditService.Outcome?
+    @ObservationIgnored private var task: Task<Void, Never>?
+
+    @discardableResult
+    func start(
+        songIDs: [String], names: Set<String>, canonicalName: String,
+        library: MusicLibrary, sourceManager: SourceManager, player: AudioPlayerService
+    ) -> Bool {
+        guard !isRunning else { return false }
+        isRunning = true
+        cancellationRequested = false
+        outcome = nil
+        self.canonicalName = canonicalName
+        progress = (0, songIDs.count)
+        let songs = songIDs.compactMap { library.song(id: $0) }
+        let configuration = library.artistNameConfiguration
+        plog("Artist merge started songs=\(songs.count)")
+        task = Task {
+            let changes = await Task.detached(priority: .utility) {
+                songs.map { original in
+                    (original: original, updated: ArtistMergePolicy.applying(
+                        to: original, names: names, canonicalName: canonicalName, configuration: configuration))
+                }
+            }.value
+            outcome = await BatchTagEditService.apply(
+                changes, coverData: nil, sourceManager: sourceManager, library: library, player: player,
+                keepsLocalEditsOnWriteFailure: true, publishesIncrementally: true,
+                shouldCancel: { self.cancellationRequested }
+            ) { done, total in
+                self.progress = (done, total)
+            }
+            plog("Artist merge finished applied=\(outcome?.applied.count ?? 0) localOnly=\(outcome?.localOnlySongIDs.count ?? 0) cancelled=\(outcome?.wasCancelled ?? false)")
+            isRunning = false
+            task = nil
+        }
+        return true
+    }
+
+    func cancel() {
+        guard isRunning else { return }
+        cancellationRequested = true
+        plog("Artist merge stop requested done=\(progress.done) total=\(progress.total)")
+    }
+
+    func clearResult() {
+        guard !isRunning else { return }
+        outcome = nil
     }
 }

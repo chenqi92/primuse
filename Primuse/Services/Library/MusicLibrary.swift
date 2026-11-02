@@ -4114,6 +4114,31 @@ final class MusicLibrary {
     /// 每换上一份 `visibleAlbums` 加一。要把整库专辑筛一遍的视图拿它当缓存键,
     /// 一次重绘里问好几回也只筛一遍。
     private(set) var visibleAlbumsRevision = 0
+    @ObservationIgnored private var releaseMetadataIndex = AlbumReleaseMetadataIndex()
+    private(set) var releaseCategoryRevision: UInt64 = 0
+    private(set) var releaseCategoryMembershipRevision: UInt64 = 0
+
+    func automaticReleaseCategories(for album: Album) -> Set<AlbumReleaseCategory> {
+        _ = releaseCategoryRevision
+        return releaseMetadataIndex.categories(albumID: album.id)
+    }
+
+    func resolvedReleaseOverrides(_ snapshot: AlbumReleaseCategoryStore.Snapshot) async -> [String: Set<AlbumReleaseCategory>]? {
+        let songs = visibleSongsLookupReference.value
+        let positions = visibleSongIndexByID
+        let worker = Task.detached(priority: .utility) {
+            snapshot.resolved(albumIDForSong: { id in
+                guard let position = positions[id], songs.indices.contains(position) else { return nil }
+                return songs[position].albumID
+            }, isCancelled: { Task.isCancelled })
+        }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+    }
+
+    private func patchReleaseCategories(previous: Song, updated: Song) {
+        if releaseMetadataIndex.replace(previous, with: updated) { releaseCategoryRevision &+= 1 }
+        if previous.albumID != updated.albumID { releaseCategoryMembershipRevision &+= 1 }
+    }
     private var visibleArtistsReference = LibraryArrayReference<Artist>()
     private(set) var visibleArtists: [Artist] {
         get { visibleArtistsReference.value }
@@ -4256,6 +4281,7 @@ final class MusicLibrary {
         let albums: [Album]
         let artists: [Artist]
         let albumArtistIndex: AlbumArtistIndex
+        let releaseMetadataIndex: AlbumReleaseMetadataIndex
         let albumArtistByID: [String: Artist]
         let genres: [LibraryGenre]
         let allSongIndexByID: [String: Int]
@@ -4796,6 +4822,7 @@ final class MusicLibrary {
             songCountBySourceID,
             preferredArtworkSongIDByAlbumID,
             preferredArtworkSongIDByArtistID,
+            releaseMetadataIndex,
         ])
         // Album/artist artwork surfaces only care about the fallback song
         // lookups. A regroup that leaves both untouched (the common case
@@ -4885,6 +4912,9 @@ final class MusicLibrary {
         if unchanged.genres.map({ $0 !== visibleGenresReference }) ?? true {
             visibleGenres = prepared.genres
         }
+        releaseMetadataIndex = prepared.releaseMetadataIndex
+        releaseCategoryRevision &+= 1
+        releaseCategoryMembershipRevision &+= 1
         songIndexByID = prepared.allSongIndexByID
         visibleSongIndexByID = prepared.songIndexByID
         visibleAlbumByID = prepared.albumByID
@@ -5030,6 +5060,8 @@ final class MusicLibrary {
         let podcastBookIDs = podcastSongs.isEmpty
             ? [:]
             : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) })
+        var releaseMetadataIndex = lookups.releaseMetadataIndex
+        releaseMetadataIndex.prepare(albums: nextVisibleAlbums)
         return PreparedVisibleCache(
             spokenWordClassification: spokenWordClassification,
             songs: nextVisibleSongs,
@@ -5045,6 +5077,7 @@ final class MusicLibrary {
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
             albumArtistIndex: albumArtistIndex,
+            releaseMetadataIndex: releaseMetadataIndex,
             albumArtistByID: Dictionary(
                 albumArtistIndex.artists.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -5093,7 +5126,8 @@ final class MusicLibrary {
         spokenWordSongIDs: Set<String>,
         podcastSongIDs: Set<String>,
         collectionOnlySongIDs: Set<String>,
-        musicArtistIDs: Set<String>
+        musicArtistIDs: Set<String>,
+        releaseMetadataIndex: AlbumReleaseMetadataIndex
     ) {
         var indexByID: [String: Int] = [:]
         var songIDsByArtistID: [String: [String]] = [:]
@@ -5120,8 +5154,10 @@ final class MusicLibrary {
         // 解析都要做带区域设置的分隔符检索、折叠和哈希, 这一趟按字段记一次。
         var artistIDsByFields: [ArtistResolutionFields: [String]] = [:]
         var spokenWordGenreVerdicts: [String: ListeningContentKind] = [:]
+        var releaseMetadataIndex = AlbumReleaseMetadataIndex()
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
+            releaseMetadataIndex.include(song)
             let isCollectionOnly = collectionOnlyCandidates.contains(song.id)
             let kind: ListeningContentKind
             if isCollectionOnly {
@@ -5178,7 +5214,8 @@ final class MusicLibrary {
             spokenWordSongIDs,
             podcastSongIDs,
             collectionOnlySongIDs,
-            musicArtistIDs
+            musicArtistIDs,
+            releaseMetadataIndex
         )
     }
 
@@ -6603,6 +6640,11 @@ final class MusicLibrary {
         let removedVisibleIDs = removedIDs.filter { visibleSongIndexByID[$0] != nil }
         guard !removedVisibleIDs.isEmpty else { return }
 
+        for id in removedVisibleIDs {
+            if let song = lookupVisibleSong(id) { releaseMetadataIndex.remove(song) }
+        }
+        releaseCategoryRevision &+= 1
+        releaseCategoryMembershipRevision &+= 1
         let displacedIndexByID = visibleSongIndexByID
         let retainedCount = max(visibleSongs.count - removedVisibleIDs.count, 0)
         var nextVisibleSongs: [Song] = []
@@ -12693,6 +12735,9 @@ final class MusicLibrary {
         }
         plog("📚 replaceSongsPreparedOffMain: requested=\(prepared.appliedIDs.count + prepared.missedIDs.count) applied=\(prepared.appliedIDs.count) missed=\(prepared.missedIDs.count) librarySongs=\(prepared.nextSongs.count) missedSampleID=\(prepared.missedIDs.first ?? "-") sampleLibID=\(prepared.nextSongs.first?.id ?? "-")")
 
+        for update in prepared.visibleUpdates {
+            patchReleaseCategories(previous: visibleSongsLookupReference.value[update.index], updated: update.song)
+        }
         songs = prepared.nextSongs
         visibleSongs = prepared.nextVisibleSongs
         carryPlaylistCleanupVerification(playlistCleanupWasVerified)
@@ -12787,6 +12832,9 @@ final class MusicLibrary {
             }
             nextVisibleSongs = patched
         }
+        for update in visibleUpdates {
+            patchReleaseCategories(previous: visibleSongsLookupReference.value[update.visibleIndex], updated: update.song)
+        }
         songs = nextSongs
         visibleSongs = nextVisibleSongs
         patchSourceAssetReferences(
@@ -12824,6 +12872,9 @@ final class MusicLibrary {
             } else if visibleSongIndexByID[newSong.id] != nil {
                 return false
             }
+        }
+        for update in visibleUpdates {
+            patchReleaseCategories(previous: visibleSongsLookupReference.value[update.visibleIndex], updated: update.song)
         }
         var nextSongs: [Song] = []
         let visibleShared = takeLibrarySongsForPatching(into: &nextSongs)

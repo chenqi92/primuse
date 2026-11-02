@@ -1,27 +1,65 @@
 import SwiftUI
+import Observation
 import PrimuseKit
 
-@MainActor
+@MainActor @Observable
 final class LibraryReleaseCategoryIndex {
     static let shared = LibraryReleaseCategoryIndex()
-    private weak var library: MusicLibrary?
-    private var version: MusicLibrary.VisibleSongsVersion?
-    private var albumsRevision: Int?
-    private var overrideRevision = -1
-    private var categories: [String: Set<AlbumReleaseCategory>] = [:]
-
-    func categories(for album: Album, in library: MusicLibrary) -> Set<AlbumReleaseCategory> {
-        let store = AlbumReleaseCategoryStore.shared
-        if self.library !== library || version != library.visibleSongsVersion
-            || albumsRevision != library.visibleAlbumsRevision || overrideRevision != store.revision {
-            categories = store.classifications(albums: library.visibleAlbums, songs: library.visibleSongs)
-            self.library = library
-            version = library.visibleSongsVersion
-            albumsRevision = library.visibleAlbumsRevision
-            overrideRevision = store.revision
-        }
-        return categories[album.id] ?? [.album]
+    private struct Request: Equatable {
+        let library: ObjectIdentifier
+        let store: ObjectIdentifier
+        let membershipRevision: UInt64
+        let overrideRevision: Int
     }
+    @ObservationIgnored private var requested: Request?
+    @ObservationIgnored private var completed: Request?
+    @ObservationIgnored private var overrides: [String: Set<AlbumReleaseCategory>] = [:]
+    @ObservationIgnored private var task: Task<Void, Never>?
+    private var revision = 0
+
+    func categories(
+        for album: Album,
+        in library: MusicLibrary,
+        store: AlbumReleaseCategoryStore = .shared
+    ) -> Set<AlbumReleaseCategory> {
+        _ = revision
+        let automatic = library.automaticReleaseCategories(for: album)
+        let snapshot = store.snapshot
+        guard !snapshot.isEmpty else {
+            task?.cancel()
+            task = nil
+            requested = nil
+            return automatic
+        }
+        let request = Request(
+            library: ObjectIdentifier(library),
+            store: ObjectIdentifier(store),
+            membershipRevision: library.releaseCategoryMembershipRevision,
+            overrideRevision: store.revision
+        )
+        if requested != request {
+            task?.cancel()
+            requested = request
+            task = Task { [weak self, weak library] in
+                guard let library else { return }
+                guard let result = await library.resolvedReleaseOverrides(snapshot),
+                      !Task.isCancelled, self?.requested == request,
+                      library.releaseCategoryMembershipRevision == request.membershipRevision,
+                      store.revision == request.overrideRevision else { return }
+                guard let self else { return }
+                let previous = self.overrides
+                self.overrides = result
+                self.completed = request
+                self.revision &+= 1
+                self.task = nil
+                Task.detached(priority: .utility) { withExtendedLifetime(previous) {} }
+            }
+        }
+        if completed == request { return overrides[album.id] ?? automatic }
+        return store.override(albumID: album.id) ?? automatic
+    }
+
+    func waitForPendingResolution() async { await task?.value }
 }
 
 struct AlbumReleaseCategoryPicker: View {
@@ -33,7 +71,10 @@ struct AlbumReleaseCategoryPicker: View {
                 Text(LocalizedStringKey(category.titleKey)).tag(category.rawValue)
             }
         }
-        .pickerStyle(.segmented)
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .menuIndicator(.visible)
+        .fixedSize()
         .accessibilityIdentifier("albums.releaseCategory")
     }
 }
@@ -44,23 +85,25 @@ struct AlbumReleaseCategoryMenu: View {
     private let store = AlbumReleaseCategoryStore.shared
 
     var body: some View {
-        let songs = library.songs(forAlbum: album.id)
-        let categories = store.categories(album: album, songs: songs)
+        let categories = LibraryReleaseCategoryIndex.shared.categories(for: album, in: library)
         Menu {
             ForEach(AlbumReleaseCategory.allCases) { category in
                 Toggle(LocalizedStringKey(category.titleKey), isOn: Binding(
                     get: { categories.contains(category) },
                     set: { selected in
-                        var updated = categories
+                        let songs = library.songs(forAlbum: album.id)
+                        var updated = store.categories(album: album, songs: songs)
                         if selected { updated.insert(category) } else { updated.remove(category) }
-                        if !updated.isEmpty { store.set(updated, albumID: album.id, songIDs: songs.map(\.id)) }
+                        if !updated.isEmpty {
+                            store.set(updated, albumID: album.id, songIDs: songs.map(\.id))
+                        }
                     }
                 ))
                 .disabled(categories == [category])
             }
             Divider()
             Button("release_category_automatic") {
-                store.set(nil, albumID: album.id, songIDs: songs.map(\.id))
+                store.set(nil, albumID: album.id, songIDs: library.songs(forAlbum: album.id).map(\.id))
             }
         } label: {
             Label("release_category", systemImage: "square.grid.2x2")
@@ -80,8 +123,8 @@ struct ArtistMergeView: View {
     @State private var isReviewing = false
     @State private var isPreparing = false
     @State private var reviewedSongIDs: [String] = []
-    @State private var progress: (Int, Int)?
-    @State private var outcome: BatchTagEditService.Outcome?
+    @State private var preparationTask: Task<Void, Never>?
+    private var mergeService: ArtistMergeService { .shared }
 
     private var artistNames: [String] {
         Set((library.visibleArtists + library.visibleAlbumArtists).map(\.name))
@@ -95,8 +138,23 @@ struct ArtistMergeView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let outcome {
+                if mergeService.isRunning {
                     Section {
+                        Text(mergeService.canonicalName)
+                        ProgressView(value: Double(mergeService.progress.done), total: Double(max(1, mergeService.progress.total)))
+                        Text("\(mergeService.progress.done)/\(mergeService.progress.total)").monospacedDigit()
+                        if mergeService.cancellationRequested {
+                            Text("local_import_progress_cancelling")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Button("cancel", role: .destructive) { mergeService.cancel() }
+                                .accessibilityIdentifier("artistMerge.cancel")
+                        }
+                    }
+                } else if let outcome = mergeService.outcome {
+                    Section {
+                        if outcome.wasCancelled { Text("source_address_probe_cancelled") }
+
                         Text(String(format: String(localized: "artist_merge_result_format"), outcome.applied.count, outcome.localOnlySongIDs.count))
                     }
                 } else if isReviewing {
@@ -114,10 +172,6 @@ struct ArtistMergeView: View {
                     Section {
                         if isPreparing { ProgressView() }
                         else { Text(String(format: String(localized: "artist_merge_song_count_format"), reviewedSongIDs.count)) }
-                        if let progress {
-                            ProgressView(value: Double(progress.0), total: Double(max(1, progress.1)))
-                            Text("\(progress.0)/\(progress.1)").monospacedDigit()
-                        }
                     } footer: {
                         Text("artist_merge_write_notice")
                     }
@@ -143,26 +197,28 @@ struct ArtistMergeView: View {
             .navigationTitle("artist_merge_title")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(outcome == nil ? "cancel" : "done") { dismiss() }
-                        .disabled(progress != nil)
+                    Button(mergeService.isRunning ? "dup_mac_continue_background" : (mergeService.outcome == nil ? "cancel" : "done")) {
+                        if !mergeService.isRunning { mergeService.clearResult() }
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("artistMerge.dismiss")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if outcome == nil {
+                    if !mergeService.isRunning && mergeService.outcome == nil {
                         Button(isReviewing ? "artist_merge_confirm" : "batch_edit_review") {
                             if isReviewing { merge() } else { prepareReview() }
                         }
-                        .disabled(selected.count < 2 || isPreparing || progress != nil || (isReviewing && (!validName || reviewedSongIDs.isEmpty)))
+                        .disabled(selected.count < 2 || isPreparing || (isReviewing && (!validName || reviewedSongIDs.isEmpty)))
                     }
                 }
             }
-            .disabled(progress != nil)
-            .interactiveDismissDisabled(progress != nil)
             .onAppear {
-                if !initialNames.isEmpty && selected.isEmpty {
+                if !mergeService.isRunning && mergeService.outcome == nil && !initialNames.isEmpty && selected.isEmpty {
                     selected = initialNames
                     prepareReview()
                 }
             }
+            .onDisappear { preparationTask?.cancel() }
         }
         #if os(macOS)
         .frame(minWidth: 440, idealWidth: 520, minHeight: 480)
@@ -176,8 +232,9 @@ struct ArtistMergeView: View {
         let songs = library.visibleSongs
         let names = selected
         let configuration = library.artistNameConfiguration
-        Task {
-            let ids = await Task.detached(priority: .userInitiated) {
+        preparationTask?.cancel()
+        preparationTask = Task {
+            let ids = await Task.detached(priority: .utility) {
                 let keys = Set(names.map(ArtistIdentityPolicy.groupingKey))
                 return songs.filter { song in
                     let contributors = ArtistNameParser.names(rawName: song.artistName, sourceNames: song.sourceArtistNames, configuration: configuration)
@@ -185,25 +242,18 @@ struct ArtistMergeView: View {
                     return contributors.contains { keys.contains(ArtistIdentityPolicy.groupingKey($0)) }
                 }.map(\.id)
             }.value
+            guard !Task.isCancelled else { return }
             reviewedSongIDs = ids
             isPreparing = false
+            preparationTask = nil
         }
     }
 
     private func merge() {
-        let changes = reviewedSongIDs.compactMap { id -> (original: Song, updated: Song)? in
-            guard let original = library.song(id: id) else { return nil }
-            let updated = ArtistMergePolicy.applying(to: original, names: selected, canonicalName: canonicalName, configuration: library.artistNameConfiguration)
-            return (original, updated)
-        }
-        progress = (0, changes.count)
-        Task {
-            outcome = await BatchTagEditService.apply(changes, coverData: nil, sourceManager: sourceManager, library: library, player: player, keepsLocalEditsOnWriteFailure: true) { done, total in
-                progress = (done, total)
-            }
-            progress = nil
-        }
+        mergeService.start(songIDs: reviewedSongIDs, names: selected, canonicalName: canonicalName,
+                           library: library, sourceManager: sourceManager, player: player)
     }
+
 }
 
 struct ArtistMergeSuggestionsView: View {

@@ -108,3 +108,98 @@ struct LibraryOrganizationTests {
         #expect(ArtistMergePolicy.suggestions(names: ["中文A（English B）", "English B"], dismissed: Set(suggestions.map(\.id))).isEmpty)
     }
 }
+
+@Suite("Incremental release classification")
+struct AlbumReleaseMetadataIndexTests {
+    private func track(_ id: String, album: String = "a", title: String = "Show - EP", type: String? = nil) -> Song {
+        var song = Song(id: id, title: id, albumTitle: title, fileFormat: .flac, filePath: id, sourceID: "s")
+        song.albumID = album
+        song.contentMetadata = type.map { SongContentMetadata(releaseType: $0) }
+        return song
+    }
+
+    @Test func patchesAndRemovalsPreserveOtherTracksAndTitleFallback() {
+        var index = AlbumReleaseMetadataIndex()
+        let first = track("1", type: "album; live")
+        let second = track("2", type: "LIVE")
+        index.include(first)
+        index.include(second)
+        index.prepare(albums: [Album(id: "a", title: "Show - EP")])
+        #expect(index.categories(albumID: "a") == [.album, .live])
+        let untagged = track("1")
+        let changed = index.replace(first, with: untagged)
+        #expect(changed)
+        #expect(index.categories(albumID: "a") == [.live])
+        index.remove(second)
+        #expect(index.categories(albumID: "a") == [.singleEP])
+        var lyricEdit = untagged
+        lyricEdit.lyricsText = "new lyrics"
+        lyricEdit.coverArtFileName = "new.jpg"
+        let unrelatedChanged = index.replace(untagged, with: lyricEdit)
+        #expect(!unrelatedChanged)
+    }
+
+    @Test func removingExplicitTypeKeepsTheNormalizedAlbumTitle() {
+        var index = AlbumReleaseMetadataIndex()
+        let tagged = track("1", title: "单曲  ", type: "album")
+        index.include(tagged)
+        index.prepare(albums: [Album(id: "a", title: "单曲")])
+        index.replace(tagged, with: track("1", title: "单曲  "))
+        #expect(index.categories(albumID: "a") == [.singleEP])
+    }
+
+    @Test func albumMoveUpdatesOnlyItsTwoAggregates() {
+        var index = AlbumReleaseMetadataIndex()
+        let original = track("1", type: "live")
+        let sibling = track("2", type: "album")
+        index.include(original)
+        index.include(sibling)
+        index.prepare(albums: [Album(id: "a", title: "Show - EP"), Album(id: "b", title: "Other")])
+        let moved = track("1", album: "b", title: "Other", type: "live")
+        index.replace(original, with: moved)
+        #expect(index.categories(albumID: "a") == [.album])
+        #expect(index.categories(albumID: "b") == [.live])
+    }
+
+    @Test func millionTracksUseAlbumAggregatesAndAllowSingleTrackUpdates() {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let albumCount = 100_000
+        var index = AlbumReleaseMetadataIndex()
+        for album in 0..<albumCount {
+            let albumID = "a\(album)"
+            for number in 0..<10 {
+                index.include(track("\(album)-\(number)", album: albumID, title: "Release", type: number == 0 ? "ep" : nil))
+            }
+        }
+        index.prepare(albums: (0..<albumCount).map { Album(id: "a\($0)", title: "Release") })
+        let buildTime = start.duration(to: clock.now)
+        #expect(index.albumCount == albumCount)
+        let updateStart = clock.now
+        let previous = track("99999-0", album: "a99999", title: "Release", type: "ep")
+        let updated = track("99999-0", album: "a99999", title: "Release", type: "album; live")
+        index.replace(previous, with: updated)
+        #expect(index.categories(albumID: "a99999") == [.album, .live])
+        #expect(index.categories(albumID: "a0") == [.singleEP])
+        #expect(index.categories(albumID: "a50000") == [.singleEP])
+        print("Release index: 1,000,000 tracks / 100,000 albums build=\(buildTime), single update=\(updateStart.duration(to: clock.now))")
+    }
+
+    @Test @MainActor func manualSnapshotResolvesOnlyOverridesAndKeepsLatestChoiceAfterMerge() throws {
+        let suite = "ReleaseOverrideIndex-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AlbumReleaseCategoryStore(defaults: defaults)
+        var lookups = 0
+        #expect(store.snapshot.resolved(albumIDForSong: { _ in lookups += 1; return nil }) == [:])
+        #expect(lookups == 0)
+        store.set([.live], albumID: "old", songIDs: ["1"])
+        store.set([.singleEP], albumID: "new", songIDs: ["2"])
+        let result = store.snapshot.resolved(albumIDForSong: { _ in lookups += 1; return "merged" })
+        #expect(lookups == 2)
+        #expect(result?["merged"] == [.singleEP])
+        #expect(store.snapshot.resolved(albumIDForSong: { _ in "merged" }, isCancelled: { true }) == nil)
+        store.set(nil, albumID: "merged", songIDs: ["1", "2"])
+        #expect(store.snapshot.isEmpty)
+    }
+}

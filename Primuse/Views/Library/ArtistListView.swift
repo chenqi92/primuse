@@ -48,6 +48,7 @@ struct ArtistListView: View {
     @State private var searchText: String = ""
     @State private var showsMerge = false
     @State private var showsMergeSuggestions = false
+    private var mergeService: ArtistMergeService { .shared }
 
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(MusicLibrary.self) private var library
@@ -162,6 +163,31 @@ struct ArtistListView: View {
                 }
             #endif
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if mergeService.isRunning || mergeService.outcome != nil {
+                Button { showsMerge = true } label: {
+                    HStack {
+                        if mergeService.isRunning {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: mergeService.outcome?.wasCancelled == true ? "stop.circle" : "checkmark.circle")
+                        }
+                        Text("artist_merge_title")
+                        Text(mergeService.canonicalName).lineLimit(1).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(mergeService.progress.done)/\(mergeService.progress.total)").monospacedDigit()
+                        Image(systemName: "chevron.right").font(.caption)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(.bar)
+                .accessibilityIdentifier("artistMerge.status")
+            }
+        }
         .sheet(isPresented: $showsMerge) { ArtistMergeView() }
         .sheet(isPresented: $showsMergeSuggestions) {
             NavigationStack {
@@ -176,8 +202,16 @@ struct ArtistListView: View {
 
     private var mergeMenu: some View {
         Menu {
-            Button("artist_merge_select") { showsMerge = true }
-            Button("artist_merge_suggestions") { showsMergeSuggestions = true }
+            if mergeService.isRunning || mergeService.outcome != nil {
+                Button("artist_merge_title") { showsMerge = true }
+                if mergeService.isRunning {
+                    Button("cancel", role: .destructive) { mergeService.cancel() }
+                        .disabled(mergeService.cancellationRequested)
+                }
+            } else {
+                Button("artist_merge_select") { showsMerge = true }
+                Button("artist_merge_suggestions") { showsMergeSuggestions = true }
+            }
         } label: { Label("artist_merge_title", systemImage: "person.2") }
     }
 

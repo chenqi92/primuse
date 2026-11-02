@@ -131,17 +131,17 @@ struct AlbumGridView: View {
             #else
             iosGrid(filteredAlbums, isPreparing: sortedAlbums == nil)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    VStack(spacing: 0) {
-                        AlbumReleaseCategoryPicker(selection: $releaseCategory).padding(.horizontal).padding(.vertical, 8)
-                        LibraryInsightBatchStatusCard(
-                            kind: .album,
-                            outerPadding: EdgeInsets(top: 6, leading: 16, bottom: 4, trailing: 16)
-                        )
-                    }
+                    LibraryInsightBatchStatusCard(
+                        kind: .album,
+                        outerPadding: EdgeInsets(top: 6, leading: 16, bottom: 4, trailing: 16)
+                    )
                 }
                 .pmExtendsUnderVerticalBar()
                 .libraryPageFind(text: $albumFilter, prompt: "filter_albums_placeholder")
                 .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AlbumReleaseCategoryPicker(selection: $releaseCategory)
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         AlbumGridDisplayMenu(
                             order: albumOrderBinding,
@@ -161,6 +161,7 @@ struct AlbumGridView: View {
                         Spacer(minLength: 8)
                         MinimalHeaderActions {
                             MinimalPageFindButton()
+                            AlbumReleaseCategoryPicker(selection: $releaseCategory)
                             AlbumGridDisplayMenu(
                                 order: albumOrderBinding,
                                 showsLikedOnly: $showsLikedOnly,
@@ -266,8 +267,6 @@ struct AlbumGridView: View {
             VStack(spacing: 18) {
                 albumsHeader(displayedCount: albums.count)
                     .padding(.top, 24)
-                AlbumReleaseCategoryPicker(selection: $releaseCategory)
-                    .padding(.horizontal, PMSpace.xxxl)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 18) {
                         LibraryInsightBatchStatusCard(
@@ -362,6 +361,8 @@ struct AlbumGridView: View {
                     LibraryInsightBatchMacButton { requestsIntroFill = true }
                 }
                 albumViewSwitcher
+                AlbumReleaseCategoryPicker(selection: $releaseCategory)
+                    .controlSize(.small)
                 albumSortMenu
             }
         }

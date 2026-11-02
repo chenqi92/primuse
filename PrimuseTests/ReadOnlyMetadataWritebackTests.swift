@@ -1,6 +1,10 @@
 import Foundation
 import PrimuseKit
 import XCTest
+#if canImport(UIKit)
+import SwiftUI
+import UIKit
+#endif
 @testable import Citadel
 @testable import Primuse
 
@@ -391,4 +395,355 @@ private final class ReadOnlyDAVURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+@MainActor
+final class ArtistMergeBackgroundTests: XCTestCase {
+    private struct Fixture {
+        let directory: URL
+        let defaults: UserDefaults
+        let suite: String
+        let library: MusicLibrary
+        let player: AudioPlayerService
+        let manager: SourceManager
+        let connector: GatedArtistMergeConnector
+        let songs: [Song]
+        let started: [XCTestExpectation]
+
+        var changes: [(original: Song, updated: Song)] {
+            songs.map { ($0, ArtistMergePolicy.applying(to: $0, names: ["Before", "After"], canonicalName: "After")) }
+        }
+
+        func cleanUp() {
+            defaults.removePersistentDomain(forName: suite)
+        }
+    }
+
+    private func fixture(count: Int, automaticallyCompletes: Set<String> = []) throws -> Fixture {
+        let suite = "ArtistMergeBackground-\(UUID())"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let player = AudioPlayerService(library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Merging must not start playback") })
+        addTeardownBlock { [weak library] in
+            // SQLite must release its live WAL before removing the fixture.
+            if library == nil { try? FileManager.default.removeItem(at: directory) }
+        }
+        let source = MusicSource(id: UUID().uuidString, name: "Fixture", type: .webdav, host: "merge.invalid")
+        let songs = (0..<count).map { index in
+            var song = Song(id: "\(suite)-\(index)", title: "Song \(index)", fileFormat: .flac,
+                            filePath: "\(index)", sourceID: source.id)
+            song.artistName = "Before; Guest"
+            song.albumArtistName = "Before"
+            return song
+        }
+        library.addSongs(songs)
+        let started = (0..<count).map { expectation(description: "Write \($0) started") }
+        let connector = GatedArtistMergeConnector(started: started, automaticallyCompletes: automaticallyCompletes)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        return Fixture(directory: directory, defaults: defaults, suite: suite, library: library,
+                       player: player, manager: manager, connector: connector, songs: songs, started: started)
+    }
+
+    func testCancelBeforeStartingDoesNotWriteOrApplyLocalFallback() async throws {
+        let f = try fixture(count: 5)
+        defer { f.cleanUp() }
+        f.started.forEach { $0.isInverted = true }
+        let result = await BatchTagEditService.apply(f.changes, coverData: nil,
+            sourceManager: f.manager, library: f.library, player: f.player,
+            keepsLocalEditsOnWriteFailure: true, shouldCancel: { true }) { _, _ in }
+        XCTAssertTrue(result.wasCancelled)
+        XCTAssertTrue(result.applied.isEmpty)
+        XCTAssertTrue(result.localOnlySongIDs.isEmpty)
+        XCTAssertTrue(f.library.songs.allSatisfy { $0.artistName == "Before; Guest" })
+        let starts = await f.connector.startedPaths
+        XCTAssertTrue(starts.isEmpty)
+        await fulfillment(of: f.started, timeout: 0.01)
+    }
+
+    func testSlowFirstFileDoesNotBlockProgressOrIncrementalSaving() async throws {
+        let f = try fixture(count: 30, automaticallyCompletes: Set((1..<30).map(String.init)))
+        defer { f.cleanUp() }
+        let othersDone = expectation(description: "Other files finish while first is pending")
+        var progress: [Int] = []
+        let run = Task {
+            await BatchTagEditService.apply(f.changes, coverData: nil,
+                sourceManager: f.manager, library: f.library, player: f.player,
+                keepsLocalEditsOnWriteFailure: true, publishesIncrementally: true) { done, _ in
+                    progress.append(done)
+                    if done == 29 { othersDone.fulfill() }
+                }
+        }
+        await fulfillment(of: [othersDone], timeout: 5)
+        XCTAssertGreaterThanOrEqual(f.library.songs.filter { $0.albumArtistName == "After" }.count, 24)
+        XCTAssertEqual(f.library.song(id: f.songs[0].id)?.albumArtistName, "Before")
+        await f.connector.release("0")
+        let result = await run.value
+        XCTAssertFalse(result.wasCancelled)
+        XCTAssertEqual(result.applied.count, 30)
+        XCTAssertEqual(progress, Array(0...30))
+        XCTAssertEqual(result.applied.map(\.id), result.originals.map(\.id))
+        let maximum = await f.connector.maximumInFlight
+        XCTAssertLessThanOrEqual(maximum, BatchTagEditService.concurrency)
+        await fulfillment(of: f.started, timeout: 1)
+    }
+
+    func testCancelStopsNewWritesAndKeepsCompletedFilesAndConcurrentEdits() async throws {
+        let f = try fixture(count: 8)
+        defer { f.cleanUp() }
+        f.started.dropFirst(3).forEach { $0.isInverted = true }
+        let stopped = expectation(description: "Stop requested on first completion")
+        var cancel = false
+        let run = Task {
+            await BatchTagEditService.apply(f.changes, coverData: nil,
+                sourceManager: f.manager, library: f.library, player: f.player,
+                keepsLocalEditsOnWriteFailure: true, publishesIncrementally: true,
+                shouldCancel: { cancel }) { done, _ in
+                    if done == 1 {
+                        cancel = true
+                        stopped.fulfill()
+                    }
+                }
+        }
+        await fulfillment(of: Array(f.started.prefix(3)), timeout: 5)
+        await f.connector.release("1")
+        await fulfillment(of: [stopped], timeout: 5)
+        var changedElsewhere = f.songs[0]
+        changedElsewhere.title = "Edited while merging"
+        f.library.replaceSongs([changedElsewhere])
+        await f.connector.releaseAll()
+        let result = await run.value
+        XCTAssertTrue(result.wasCancelled)
+        XCTAssertEqual(Set(result.applied.map(\.id)), Set(f.songs.prefix(3).map(\.id)))
+        XCTAssertTrue(result.localOnlySongIDs.isEmpty)
+        XCTAssertEqual(f.library.song(id: f.songs[0].id)?.title, "Edited while merging")
+        XCTAssertEqual(f.library.song(id: f.songs[0].id)?.sourceArtistNames, ["After", "Guest"])
+        for song in f.songs.dropFirst(3) {
+            XCTAssertEqual(f.library.song(id: song.id)?.artistName, song.artistName)
+            XCTAssertNil(f.library.song(id: song.id)?.userMetadataEditedAt)
+        }
+        let starts = await f.connector.startedPaths
+        XCTAssertEqual(starts, Set(["0", "1", "2"]))
+        await fulfillment(of: Array(f.started.dropFirst(3)), timeout: 0.01)
+        guard case .success = await f.library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+        let restored = MusicLibrary(storageDirectory: f.directory, deferredMaintenanceAllowed: { false })
+        await restored.whenReady()
+        XCTAssertEqual(restored.song(id: f.songs[0].id)?.artistName, "After; Guest")
+        XCTAssertEqual(restored.song(id: f.songs[3].id)?.artistName, "Before; Guest")
+    }
+
+    func testServiceOwnsRunAfterCallerLeavesAndRejectsOverlappingMerge() async throws {
+        let f = try fixture(count: 5)
+        defer { f.cleanUp() }
+        f.started.dropFirst(3).forEach { $0.isInverted = true }
+        let service = ArtistMergeService.shared
+        let caller = Task {
+            service.start(songIDs: f.songs.map(\.id), names: ["Before", "After"], canonicalName: "After",
+                          library: f.library, sourceManager: f.manager, player: f.player)
+        }
+        let accepted = await caller.value
+        XCTAssertTrue(accepted)
+        caller.cancel()
+        await fulfillment(of: Array(f.started.prefix(3)), timeout: 5)
+        XCTAssertTrue(service.isRunning)
+        #if canImport(UIKit)
+        try await renderAndCloseMergeSheet(f)
+        XCTAssertTrue(service.isRunning, "Closing the sheet must leave the service running")
+        #endif
+        XCTAssertFalse(service.start(songIDs: f.songs.map(\.id), names: ["Before", "Other"], canonicalName: "Other",
+                                     library: f.library, sourceManager: f.manager, player: f.player))
+        service.cancel()
+        service.clearResult()
+        XCTAssertTrue(service.isRunning, "Do not start another merge until remote writes have drained")
+        await f.connector.releaseAll()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while service.isRunning && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(service.isRunning)
+        XCTAssertTrue(service.outcome?.wasCancelled == true)
+        XCTAssertEqual(service.outcome?.applied.count, 3)
+        XCTAssertEqual(service.progress.done, 3)
+        XCTAssertEqual(service.canonicalName, "After")
+        await fulfillment(of: Array(f.started.dropFirst(3)), timeout: 0.01)
+        service.clearResult()
+        XCTAssertNil(service.outcome)
+    }
+
+    #if canImport(UIKit)
+    private func renderAndCloseMergeSheet(_ f: Fixture) async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: ArtistMergeView()
+            .environment(f.library).environment(f.manager).environment(f.player)
+            .environment(\.locale, Locale(identifier: "zh-Hans")))
+        window.rootViewController = host
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await Task.sleep(for: .milliseconds(250))
+        window.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "artist-merge-background-controls"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+    #endif
+
+}
+
+private actor GatedArtistMergeConnector: EmbeddedMetadataWritebackAdapter {
+    nonisolated let sourceID = "merge-fixture"
+    let started: [XCTestExpectation]
+    let automaticallyCompletes: Set<String>
+    private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
+    private(set) var startedPaths: Set<String> = []
+    private(set) var maximumInFlight = 0
+    private var inFlight = 0
+    private var allReleased = false
+
+    init(started: [XCTestExpectation], automaticallyCompletes: Set<String>) {
+        self.started = started
+        self.automaticallyCompletes = automaticallyCompletes
+    }
+
+    func release(_ path: String) { waiting.removeValue(forKey: path)?.resume() }
+    func releaseAll() {
+        allReleased = true
+        let continuations = Array(waiting.values)
+        waiting.removeAll()
+        for continuation in continuations { continuation.resume() }
+    }
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data { Data() }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState { throw SourceError.fileNotFound(path) }
+    func replaceMetadataFile(at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState) async throws { throw SourceError.fileNotFound(path) }
+
+    func writeEmbeddedMetadata(original: Song, updated: Song, coverData: Data?, lyrics: EmbeddedLyricsEdit,
+                               writesTextTags: Bool) async throws -> EmbeddedMetadataWritebackResult {
+        let path = original.filePath
+        startedPaths.insert(path)
+        inFlight += 1
+        maximumInFlight = max(maximumInFlight, inFlight)
+        defer { inFlight -= 1 }
+        if allReleased || automaticallyCompletes.contains(path) {
+            started[Int(path)!].fulfill()
+        } else {
+            await withCheckedContinuation { continuation in
+                waiting[path] = continuation
+                started[Int(path)!].fulfill()
+            }
+        }
+        return EmbeddedMetadataWritebackResult(fileSize: 100, modifiedDate: Date(), revision: "edited-\(path)",
+            fileSHA256: "fixture", verification: EmbeddedMetadataVerification(
+                title: updated.title, artist: updated.artistName, albumTitle: updated.albumTitle,
+                genre: updated.genre, year: updated.year, trackNumber: updated.trackNumber,
+                discNumber: updated.discNumber, coverData: nil, albumArtist: updated.albumArtistName))
+    }
+}
+
+@MainActor
+final class LibraryReleaseCategoryIndexTests: XCTestCase {
+    private func fixture() async throws -> MusicLibrary {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReleaseIndex-\(UUID())")
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        addTeardownBlock { [weak library] in
+            if library == nil { try? FileManager.default.removeItem(at: directory) }
+        }
+        let songs = (0..<3).map { number in
+            var song = Song(id: "release-\(number)", title: "Track \(number)",
+                            albumTitle: number < 2 ? "Show - EP" : "Other", artistName: "Artist",
+                            albumArtistName: "Artist", fileFormat: .flac, filePath: "\(number).flac",
+                            sourceID: number == 1 ? "secondary" : "primary")
+            if number == 0 { song.contentMetadata = SongContentMetadata(releaseType: "album") }
+            if number == 1 { song.contentMetadata = SongContentMetadata(releaseType: "live") }
+            return song
+        }
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        return library
+    }
+
+    private func album(_ library: MusicLibrary, songID: String = "release-0") throws -> Album {
+        let id = try XCTUnwrap(library.song(id: songID)?.albumID)
+        return try XCTUnwrap(library.visibleAlbum(id: id))
+    }
+
+    func testReleaseTagChangesPatchAllThreeMetadataWritePaths() async throws {
+        let library = try await fixture()
+        let album = try album(library)
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.album, .live])
+        var first = try XCTUnwrap(library.song(id: "release-0"))
+        first.contentMetadata = nil
+        library.replaceSong(first)
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.live])
+        var second = try XCTUnwrap(library.song(id: "release-1"))
+        second.contentMetadata = nil
+        library.replaceSongs([second], maintenance: .deferred)
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.singleEP])
+        first.contentMetadata = SongContentMetadata(releaseType: "album")
+        await library.replaceSongsPreparedOffMain([first], maintenance: .deferred)
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.album])
+        let revision = library.releaseCategoryRevision
+        let membership = library.releaseCategoryMembershipRevision
+        library.updateLyricsText([first.id: "Unrelated lyrics"])
+        first = try XCTUnwrap(library.song(id: first.id))
+        first.sampleRate = 48_000
+        library.replaceSongs([first], maintenance: .deferred)
+        XCTAssertEqual(library.releaseCategoryRevision, revision)
+        XCTAssertEqual(library.releaseCategoryMembershipRevision, membership)
+    }
+
+    func testHiddenAndRemovedSourcesDoNotContributeReleaseTypes() async throws {
+        let library = try await fixture()
+        let album = try album(library)
+        await library.updateDisabledSourceIDsInBackground(["secondary"])
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.album])
+        await library.updateDisabledSourceIDsInBackground([])
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.album, .live])
+        await library.removeSongsForSource("primary")
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.live])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.automaticReleaseCategories(for: album), [.live])
+    }
+
+    func testManualChoiceFollowsRenamedAlbumAndResetRejectsPendingResult() async throws {
+        let library = try await fixture()
+        let suite = "ReleaseIndexOverrides-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AlbumReleaseCategoryStore(defaults: defaults)
+        let index = LibraryReleaseCategoryIndex()
+        let original = try album(library)
+        store.set([.singleEP], albumID: original.id, songIDs: ["release-0", "release-1"])
+        let renamed = library.songs(forAlbum: original.id).map { value in
+            var song = value
+            song.albumTitle = "Renamed"
+            return song
+        }
+        library.replaceSongs(renamed)
+        await library.waitForPendingIndex()
+        let current = try album(library)
+        XCTAssertNotEqual(current.id, original.id)
+        _ = index.categories(for: current, in: library, store: store)
+        await index.waitForPendingResolution()
+        XCTAssertEqual(index.categories(for: current, in: library, store: store), [.singleEP])
+        store.set([.live], albumID: current.id, songIDs: renamed.map(\.id))
+        _ = index.categories(for: current, in: library, store: store)
+        store.set(nil, albumID: current.id, songIDs: renamed.map(\.id))
+        _ = index.categories(for: current, in: library, store: store)
+        await index.waitForPendingResolution()
+        XCTAssertEqual(index.categories(for: current, in: library, store: store), [.album, .live])
+    }
 }
