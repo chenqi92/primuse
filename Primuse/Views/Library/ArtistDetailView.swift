@@ -9,6 +9,11 @@ private struct ArtistListeningSnapshot {
     var revision = 0
 }
 
+private struct ArtistCompactTintRequest: Hashable {
+    let imageID: ObjectIdentifier?
+    let isCompact: Bool
+}
+
 /// 艺人页一次重绘要问好几遍「这位艺人的歌」(计数、是否为空、分享、排行、货架),
 /// 每问一遍都要从库里逐首查出、整份拷贝; 排行还要整份排序。按可见歌曲的版本记住。
 private final class ArtistSongsCache {
@@ -82,6 +87,7 @@ struct ArtistDetailView: View {
     @State private var displayedArtwork: PlatformImage?
     @State private var artworkTint: Color?
     @State private var artworkPalette: [LiquidBackdropColor] = []
+    @State private var artistNameArtwork: PlatformImage?
     @AppStorage(ArtistAppearancePreferences.colorStyleKey)
     private var colorStyle = ArtistAppearancePreferences.defaultColorStyle
     @AppStorage(ArtistAppearancePreferences.softensEdgesKey)
@@ -285,7 +291,12 @@ struct ArtistDetailView: View {
         #if os(iOS)
         .environment(\.libraryDetailTint, tint)
         .pmAnimation(.ambient, value: tint)
-        .task(id: displayedArtwork.map(ObjectIdentifier.init)) {
+        .task(id: ArtistCompactTintRequest(
+            imageID: displayedArtwork.map(ObjectIdentifier.init), isCompact: heightClass.isCompact
+        )) {
+            // Portrait colors belong to the same prepared scene as its field.
+            // A landscape extraction must not overwrite them after rotation.
+            guard heightClass.isCompact else { return }
             guard let displayedArtwork else {
                 artworkTint = nil
                 artworkPalette = []
@@ -295,7 +306,7 @@ struct ArtistDetailView: View {
                 (ThemeService.extractBackgroundColor(from: displayedArtwork),
                  ThemeService.extractLiquidPalette(from: displayedArtwork))
             }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, heightClass.isCompact else { return }
             artworkTint = color
             artworkPalette = palette
         }
@@ -441,6 +452,10 @@ struct ArtistDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
                 } else {
+                    if let latestRelease = releaseAlbums.first {
+                        ArtistFeaturedReleaseCard(album: latestRelease)
+                            .padding(.horizontal, 20)
+                    }
                     if !topSongs.isEmpty { iosTopSongs }
                     if !mostPlayedAlbums.isEmpty {
                         iosAlbumShelf(
@@ -459,15 +474,25 @@ struct ArtistDetailView: View {
                         allSongsLink.padding(.horizontal, 20)
                     }
                 }
+
+                if !heightClass.isCompact {
+                    LibraryInsightSynopsis(
+                        subject: insightIdentity,
+                        details: insightDetails,
+                        songs: { songs },
+                        compact: false
+                    )
+                    .padding(.horizontal, 20)
+                }
             }
-            .padding(.top, 26)
+            .padding(.top, heightClass.isCompact ? 26 : 14)
             .padding(.bottom, 16)
         }
     }
 
     /// 竖屏:人像海报铺满上半屏,名字压在海报下沿居中,海报往下渐隐进整页底色(2.0 经典版式的艺人头图)。
     /// 手机横屏只剩三百多点高,海报会把热门单曲挤出首屏,还是一条矮的信息带:头像、名字、首数。
-    /// 横竖切换只换上半截;按钮与简介(挂着菜单和弹页)的位置不变。简介照影片介绍页放在播放键下面。
+    /// 竖屏把最新发行接在播放键后面;简介保留在正文下方,不把发行卡片挤出首屏。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = heightClass.isCompact
         return VStack(alignment: .leading, spacing: 0) {
@@ -489,18 +514,20 @@ struct ArtistDetailView: View {
                     favorite: artistFavorite
                 )
 
-                LibraryInsightSynopsis(
-                    subject: insightIdentity,
-                    details: insightDetails,
-                    songs: { songs },
-                    compact: compact
-                )
+                if compact {
+                    LibraryInsightSynopsis(
+                        subject: insightIdentity,
+                        details: insightDetails,
+                        songs: { songs },
+                        compact: true
+                    )
+                }
             }
             // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
             .padding(.leading, insets.leading + 20)
             .padding(.trailing, insets.trailing + 20)
             .padding(.top, compact ? 12 : 6)
-            .padding(.bottom, compact ? 14 : 24)
+            .padding(.bottom, compact ? 14 : 12)
         }
         .frame(maxWidth: .infinity)
         .background {
@@ -509,18 +536,20 @@ struct ArtistDetailView: View {
         .if(compact) { $0.clipped() }
     }
 
-    /// 海报高度:去掉顶部安全区后取首屏的六成多,夹在 260–440 之间,再把顶部安全区加回来 ——
+    /// 海报高度:去掉顶部安全区后取半屏,夹在 260–350 之间,再把顶部安全区加回来 ——
     /// 名字和操作行在 SE 这样的矮屏上也留在首屏里。
     private static func posterHeight(containerHeight: CGFloat, topInset: CGFloat) -> CGFloat {
-        topInset + min(max((containerHeight - topInset) * 0.62, 260), 440)
-    }
-
-    private var artistSummaryText: String {
-        "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
+        topInset + min(max((containerHeight - topInset) * 0.50, 260), 350)
     }
 
     private func posterIdentity(insets: ImmersiveLibraryDetailInsets) -> some View {
-        ZStack(alignment: .bottom) {
+        // Large accessibility text follows the photograph instead of growing
+        // upward into its sharp, potentially white region. Keep the regular
+        // poster overlay unchanged; both layouts share the same continued field.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 0))
+            : AnyLayout(ZStackLayout(alignment: .bottom))
+        return layout {
             Color.clear
                 .frame(maxWidth: .infinity)
                 .containerRelativeFrame(.vertical) { height, _ in
@@ -531,7 +560,18 @@ struct ArtistDetailView: View {
                         ArtistHeroArtworkView(
                             artist: artist,
                             size: geometry.size,
-                            onImageChange: { displayedArtwork = $0 }
+                            onImageChange: { _ in },
+                            onAppearanceChange: { color, palette in
+                                artworkTint = color
+                                artworkPalette = palette
+                            },
+                            onNameArtworkChange: { artistNameArtwork = $0 },
+                            // This is an on-demand artist resource, not a bulk
+                            // background import. Honor denied/Low Data paths
+                            // without mistaking a tunnel for Wi-Fi-only denial.
+                            allowsMetadataNetwork: NetworkMonitor.shared.allowsAutomaticInternetRequests
+                                && !NetworkMonitor.shared.isConstrained,
+                            metadataNetworkGeneration: NetworkMonitor.shared.pathGeneration
                         )
                     }
                     .overlay {
@@ -550,9 +590,7 @@ struct ArtistDetailView: View {
 
             ArtistHeroTitleBlock(
                 name: displayArtistName,
-                summary: "\(monthlyListenText) · \(artistSummaryText)",
-                leadingBleed: insets.leading + 24,
-                trailingBleed: insets.trailing + 24
+                nameArtwork: artistNameArtwork
             )
             .padding(.leading, insets.leading + 24)
             .padding(.trailing, insets.trailing + 24)
@@ -561,7 +599,7 @@ struct ArtistDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// 手机横屏的矮信息带:头像在左, 名字与首数在右; 无障碍字号下排不下就上下排。
+    /// 手机横屏的矮信息带:头像在左、名字在右; 无障碍字号下排不下就上下排。
     private var compactIdentity: some View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
@@ -580,13 +618,6 @@ struct ArtistDetailView: View {
                     .minimumScaleFactor(0.82)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(verbatim: artistSummaryText)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.78))
-
-                Text(verbatim: monthlyListenText)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.68))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1112,16 +1143,15 @@ struct ArtistDetailView: View {
 }
 
 #if os(iOS)
-/// The real title layer owns its local contrast field, including long names and Dynamic Type.
-/// A background never changes the existing title layout or darkens the whole photograph.
+/// The artist name and optional official wordmark share one stable layout,
+/// including long names and Dynamic Type.
 struct ArtistHeroTitleBlock: View {
     let name: String
-    let summary: String
-    var leadingBleed: CGFloat = 24
-    var trailingBleed: CGFloat = 24
+    var nameArtwork: PlatformImage? = nil
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
             Text(verbatim: name)
                 .font(.largeTitle.weight(.heavy))
                 .foregroundStyle(.white)
@@ -1129,51 +1159,87 @@ struct ArtistHeroTitleBlock: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.7)
                 .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
-            Text(verbatim: summary)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.78))
-                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .opacity(showsNameArtwork ? 0 : 1)
+                .overlay(alignment: .bottom) {
+                    if let nameArtwork, showsNameArtwork {
+                        GeometryReader { geometry in
+                            let width = min(320, geometry.size.width * 0.73)
+                            let aspect = nameArtwork.size.width / max(1, nameArtwork.size.height)
+                            let height = min(80, width / max(0.01, aspect))
+                            Image(uiImage: nameArtwork)
+                                .renderingMode(.original)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: width, height: height)
+                                .position(x: geometry.size.width / 2, y: geometry.size.height - height / 2)
+                        }
+                    }
+                }
+                // The invisible text remains a layout ruler. A graphic never
+                // adds a second name or shifts the playback controls.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(name)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(showsNameArtwork ? "artistDetail.nameArtwork" : "artistDetail.artistName")
         }
         .frame(maxWidth: .infinity)
-        .background {
-            GeometryReader { geometry in
-                // Reach the photograph's edges, even for a short name. The
-                // vertical feather follows the text, avoiding a rectangular card.
-                let feather: CGFloat = 40
-                let width = max(1, geometry.size.width) + leadingBleed + trailingBleed
-                let height = max(1, geometry.size.height) + feather * 2
-                Rectangle()
-                    .fill(.black.opacity(0.56))
-                    .frame(width: width, height: height)
-                    .mask {
-                        LinearGradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: feather / height),
-                            .init(color: .black, location: 1 - feather / height),
-                            .init(color: .clear, location: 1),
-                        ], startPoint: .top, endPoint: .bottom)
-                    }
-                    .offset(x: -leadingBleed, y: -feather)
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        }
+    }
+
+    private var showsNameArtwork: Bool {
+        nameArtwork != nil && !dynamicTypeSize.isAccessibilitySize
     }
 }
 
 private struct ArtistScrollEdgeEffectModifier: ViewModifier {
     let softensEdges: Bool
+    @State private var hasScrolledPhoto = false
+    @State private var scrollState = ArtistScrollEdgeState()
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content
                 .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-                .scrollEdgeEffectHidden(!softensEdges, for: [.top, .bottom])
+                // A stationary edge wash would blur hair/forehead before the
+                // portrait itself has scrolled behind the navigation controls.
+                .scrollEdgeEffectHidden(!softensEdges || !hasScrolledPhoto, for: .top)
+                .scrollEdgeEffectHidden(!softensEdges, for: .bottom)
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top
+                } action: { _, offset in
+                    scrollState.offset = offset
+                    if !scrollState.userHasInteracted {
+                        // Safe-area/header measurements can adjust the initial
+                        // offset after the image loads. They are not a gesture.
+                        scrollState.restingOffset = offset
+                    }
+                    let scrolled = scrollState.userHasInteracted
+                        && offset - scrollState.restingOffset > 8
+                    if hasScrolledPhoto != scrolled {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            hasScrolledPhoto = scrolled
+                        }
+                    }
+                }
+                .onScrollPhaseChange { _, phase in
+                    if !scrollState.userHasInteracted,
+                       phase == .tracking || phase == .interacting {
+                        scrollState.restingOffset = scrollState.offset
+                        scrollState.userHasInteracted = true
+                    }
+                }
         } else {
             content
         }
     }
+}
+
+/// Non-observed bookkeeping: per-frame offset updates must not redraw the page.
+private final class ArtistScrollEdgeState {
+    var offset: CGFloat = 0
+    var restingOffset: CGFloat = 0
+    var userHasInteracted = false
 }
 #endif
 
