@@ -371,7 +371,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
             XCTFail("Expected horizontal color variation: \(expected), difference: \(difference)", file: file, line: line)
         }
 
-        func assertSoftensEdges(_ expected: Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+        func assertSoftensEdges(top: Bool, bottom: Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
             guard #available(iOS 26.0, *) else { return }
             func scrollViews(in view: UIView) -> [UIScrollView] {
                 (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
@@ -380,31 +380,33 @@ final class LibraryPortableArtworkTests: XCTestCase {
                 try await Task.sleep(for: .milliseconds(100))
                 host.view.layoutIfNeeded()
                 if let scroll = scrollViews(in: host.view).first(where: { $0.bounds.height > 600 }),
-                   scroll.topEdgeEffect.isHidden == !expected,
-                   scroll.bottomEdgeEffect.isHidden == !expected {
+                   scroll.topEdgeEffect.isHidden == !top,
+                   scroll.bottomEdgeEffect.isHidden == !bottom {
                     return
                 }
             }
-            XCTFail("Expected artist scroll edge softening: \(expected)", file: file, line: line)
+            XCTFail("Expected artist scroll edge softening: top=\(top), bottom=\(bottom)", file: file, line: line)
         }
 
         // Wait for the initial song/portrait race to settle before accepting a neutral loading state.
         try await Task.sleep(for: .milliseconds(700))
         if checksMeshSwitch {
             try await assertBackgroundVariation(true)
-            try await assertSoftensEdges(false)
+            try await assertSoftensEdges(top: false, bottom: true)
             defaults.set(PlayerAmbientStyle.classic.rawValue, forKey: ArtistAppearancePreferences.colorStyleKey)
             backdrop.update { $0.ambientStyle = .mesh }
             try await assertBackgroundVariation(false)
-            try await assertBackground(.green)
+            try await assertBackground(.blue)
+            defaults.set(false, forKey: ArtistAppearancePreferences.softensEdgesKey)
+            try await assertSoftensEdges(top: false, bottom: false)
             defaults.set(true, forKey: ArtistAppearancePreferences.softensEdgesKey)
-            try await assertSoftensEdges(true)
+            try await assertSoftensEdges(top: false, bottom: true)
             defaults.set(PlayerAmbientStyle.mesh.rawValue, forKey: ArtistAppearancePreferences.colorStyleKey)
             backdrop.update { $0.ambientStyle = .classic }
             try await assertBackgroundVariation(true)
-            try await assertSoftensEdges(true)
+            try await assertSoftensEdges(top: false, bottom: true)
             defaults.set(false, forKey: ArtistAppearancePreferences.softensEdgesKey)
-            try await assertSoftensEdges(false)
+            try await assertSoftensEdges(top: false, bottom: false)
             let restoredDefaults = try XCTUnwrap(UserDefaults(suiteName: name))
             XCTAssertEqual(restoredDefaults.string(forKey: ArtistAppearancePreferences.colorStyleKey), "mesh")
             XCTAssertEqual(restoredDefaults.object(forKey: ArtistAppearancePreferences.softensEdgesKey) as? Bool, false)
@@ -1371,10 +1373,11 @@ extension LibraryPortableArtworkTests {
             owner: LibraryArtworkOwner(kind: .artist, id: artist.id))
         defer { if let file { try? FileManager.default.removeItem(at: file) } }
         let cases: [(String, String, DynamicTypeSize)] = [
+            ("short-default", "Adele", .large),
             ("long-default", "A Very Long Artist Name With Multiple Collaborators", .large),
             ("long-accessibility2", "A Very Long Artist Name With Multiple Collaborators", .accessibility2),
-            ("short-default", "Adele", .large),
         ]
+        var titleHeights: [String: CGFloat] = [:]
         for (caseName, name, dynamicType) in cases {
             let probe = HeroTitleBoundsProbe()
             let view = ArtistHeroReadabilityFixture(artist: artist, name: name, probe: probe)
@@ -1401,7 +1404,16 @@ extension LibraryPortableArtworkTests {
             attachment.lifetime = .keepAlways
             add(attachment)
             let frame = probe.frame
-            XCTAssertGreaterThan(frame.height, caseName == "short-default" ? 30 : 65)
+            titleHeights[caseName] = frame.height
+            XCTAssertGreaterThan(frame.height, 0)
+            if caseName != "short-default" {
+                XCTAssertGreaterThan(frame.height, try XCTUnwrap(titleHeights["short-default"]),
+                                     "A long name must wrap beyond the single-line title")
+            }
+            if dynamicType.isAccessibilitySize {
+                XCTAssertGreaterThan(frame.height, try XCTUnwrap(titleHeights["long-default"]),
+                                     "Accessibility text must grow beyond the default title")
+            }
             // Sample the real photograph+field+page composition outside glyphs.
             // No separate title plate may be used to make a white-only test pass.
             for y in [frame.minY + 2, frame.midY, frame.maxY - 2] {
@@ -1500,6 +1512,62 @@ extension LibraryPortableArtworkTests {
             return 0.2126 * linear(pixel.0) + 0.7152 * linear(pixel.1) + 0.0722 * linear(pixel.2)
         }
         return (luminance(foregroundRGB) + 0.05) / (luminance(pixel) + 0.05)
+    }
+
+    func testArtistHeroClearsRemovedUploadedArtworkAndPreparedAppearance() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (library, artist) = try await heroTestArtist(in: root)
+        let owner = LibraryArtworkOwner(kind: .artist, id: artist.id)
+        let file = try installHeroTestArtwork(try image(color: .red, width: 127),
+                                             library: library, owner: owner)
+        defer { if let file { try? FileManager.default.removeItem(at: file) } }
+        var plainImage: UIImage?
+        var heroImage: UIImage?
+        var appearanceColor: Color?
+        var appearancePalette: [LiquidBackdropColor] = []
+        let view = VStack(spacing: 0) {
+            ArtistHeroArtworkView(
+                artist: artist, size: CGSize(width: 320, height: 400),
+                onImageChange: { heroImage = $0 },
+                onAppearanceChange: { color, palette in
+                    appearanceColor = color
+                    appearancePalette = palette
+                }
+            )
+            .frame(width: 320, height: 400, alignment: .top)
+            ArtistArtworkView(artist: artist, size: 64,
+                              onImageChange: { plainImage = $0 })
+                .frame(width: 64, height: 64)
+        }
+        .frame(width: 320, height: 500, alignment: .top)
+        .background(.black)
+        .ignoresSafeArea()
+        .environment(library)
+        .environment(SourceManager(sourcesProvider: { [] }))
+        .environment(\.scenePhase, .inactive)
+        let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 320, height: 500))
+        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+        for _ in 0..<40 {
+            if plainImage != nil, heroImage != nil, appearanceColor != nil { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        _ = try XCTUnwrap(plainImage, "The normal artwork view must load the uploaded portrait")
+        _ = try XCTUnwrap(heroImage, "The hero must load the uploaded portrait")
+        XCTAssertNotNil(appearanceColor)
+        XCTAssertFalse(appearancePalette.isEmpty)
+        XCTAssertTrue(library.setAutomaticArtwork(for: owner))
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(100))
+            if plainImage == nil, heroImage == nil, appearanceColor == nil { break }
+        }
+        XCTAssertNil(plainImage, "Restoring automatic artwork has no replacement image in this fixture")
+        XCTAssertNil(heroImage, "The hero must clear an uploaded image after it has been removed")
+        XCTAssertNil(appearanceColor)
+        XCTAssertTrue(appearancePalette.isEmpty)
+        let pixel = try rgb(heroTestSnapshot(host.view), x: 160, y: 80)
+        XCTAssertLessThan(pixel.0, pixel.1 + 60,
+                          "The removed red portrait is still visible: \(pixel)")
     }
 
     private func heroTestArtist(in root: URL) async throws -> (MusicLibrary, Artist) {

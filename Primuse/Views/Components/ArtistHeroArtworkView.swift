@@ -38,6 +38,7 @@ struct ArtistHeroArtworkView: View {
         let source: PlatformImage
         let image: CGImage
         let captionColor: ArtistHeroArtworkColor?
+        let palette: [LiquidBackdropColor]
     }
 
     private var geometry: ArtistHeroArtworkGeometry? {
@@ -95,7 +96,7 @@ struct ArtistHeroArtworkView: View {
                     if let image {
                         previewRecord("image_received", flags: ["hasCGImage": image.cgImage != nil])
                         source = LoadedSource(artistID: artist.id, image: image)
-                    } else if prepared?.request.artistID != artist.id {
+                    } else {
                         source = nil
                     }
                 }
@@ -129,13 +130,11 @@ struct ArtistHeroArtworkView: View {
         .task(id: request) {
             previewRecord("task_started")
             guard let request, let geometry, let image else {
-                if prepared?.request.artistID != artist.id {
-                    prepared = nil
-                    captionWeight = 1
-                    onImageChange(nil)
-                    onAppearanceChange(nil, [])
-                    onNameArtworkChange(nil)
-                }
+                prepared = nil
+                captionWeight = 1
+                onImageChange(nil)
+                onAppearanceChange(nil, [])
+                onNameArtworkChange(nil)
                 return
             }
             guard let cgImage = image.cgImage else {
@@ -145,11 +144,12 @@ struct ArtistHeroArtworkView: View {
             }
             let orientation = Self.exifOrientation(image.imageOrientation)
             let rendering = Task.detached(priority: .utility) {
-                ArtistHeroArtworkField.prepare(
+                let field = ArtistHeroArtworkField.prepare(
                     image: cgImage, geometry: geometry, exifOrientation: orientation
                 )
+                return (field, ThemeService.extractLiquidPalette(from: image))
             }
-            let result = await withTaskCancellationHandler {
+            let (result, palette) = await withTaskCancellationHandler {
                 await rendering.value
             } onCancel: {
                 rendering.cancel()
@@ -174,7 +174,7 @@ struct ArtistHeroArtworkView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 prepared = PreparedField(request: request, source: image, image: result.image,
-                                         captionColor: result.captionColor)
+                                         captionColor: result.captionColor, palette: palette)
                 unprocessedArtistID = nil
                 onImageChange(image)
                 applyBackground(cachedBackground ?? result.sourceBackground ?? result.edgeColor)
@@ -248,9 +248,9 @@ struct ArtistHeroArtworkView: View {
         }
         let tint = Color(.sRGB, red: color.red, green: color.green, blue: color.blue)
         let sample = LiquidBackdropColor(red: color.red, green: color.green, blue: color.blue)
-        // The continuation retains clothing detail; the page uses the scene
-        // background. Do not reintroduce a sleeve color via mesh control points.
-        onAppearanceChange(tint, [sample, sample, sample])
+        // Classic uses the scene color; Mesh retains the matching portrait's palette.
+        let palette = prepared?.palette ?? []
+        onAppearanceChange(tint, palette.isEmpty ? [sample] : palette)
     }
 
     private func showUnprocessedArtwork() {
