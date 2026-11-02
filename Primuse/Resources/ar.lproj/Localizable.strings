@@ -7028,3 +7028,23 @@
 "chapter_generation_resume" = "متابعة";
 "chapter_generation_discard_job" = "هل تريد حذف هذه المهمة والتقدم المحفوظ؟";
 "Song" = "أغنية";
+
+"release_category" = "نوع الإصدار";
+"release_category_all" = "الكل";
+"release_category_album" = "الألبومات";
+"release_category_single_ep" = "الأغاني المنفردة وEP";
+"release_category_live" = "مباشر";
+"release_category_automatic" = "تصنيف تلقائي";
+"artist_merge_title" = "دمج الفنانين";
+"artist_merge_select" = "اختيار الفنانين";
+"artist_merge_suggestions" = "فنانون يحتمل تكرارهم";
+"artist_merge_same_artist" = "تأكيد أنهم الفنان نفسه";
+"artist_merge_name" = "اسم الفنان";
+"artist_merge_use_name" = "استخدام اسم موجود";
+"artist_merge_confirm" = "تأكيد الدمج";
+"artist_merge_review" = "مراجعة الدمج";
+"artist_merge_different" = "فنانون مختلفون";
+"artist_merge_no_suggestions" = "لم يُعثر على تكرارات محتملة.";
+"artist_merge_song_count_format" = "%d أغنية";
+"artist_merge_write_notice" = "يحدّث وسوم فنان الأغنية والألبوم مع الاحتفاظ بالمشاركين الآخرين. إذا تعذّر تحديث المصدر، تُحفظ التغييرات محليًا.";
+"artist_merge_result_format" = "تم تحديث %d أغنية. تتضمن %d منها تغييرات محفوظة محليًا فقط.";

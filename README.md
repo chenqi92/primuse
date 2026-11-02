@@ -3,7 +3,7 @@
 # Primuse（猿音）
 
 <p align="center">
-  <a href="https://testflight.apple.com/join/AjbPukaF">
+  <a href="https://g2.al/palveni">
     <img src="https://img.shields.io/badge/TestFlight-加入公测-0D96F6?logo=apple&logoColor=white&style=for-the-badge" alt="加入 Primuse TestFlight 公测"/>
   </a>
   <a href="https://apps.apple.com/cn/app/%E7%8C%BF%E9%9F%B3/id6761675450">
@@ -11,7 +11,7 @@
   </a>
 </p>
 
-> **体验最新版本：** [加入 TestFlight 公测](https://testflight.apple.com/join/AjbPukaF)
+> **体验最新版本：** [加入 TestFlight 公测](https://g2.al/palveni)
 
 Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文件、NAS、媒体服务器、云盘、网络电台和 Apple Music 汇入同一资料库与播放队列，并提供高保真解码、CUE 分轨、逐字歌词、智能推荐、跨设备同步以及完整的系统播放控制。
 

@@ -3293,7 +3293,7 @@ extension SubsonicSource {
                 case .genre: matches = (readback.genre ?? "") == values.genre
                 case .year: matches = readback.year == values.year
                 case .trackNumber: matches = readback.track == values.track
-                case .discNumber, .cover: matches = false
+                case .albumArtist, .discNumber, .cover: matches = false
                 }
                 let detail = String(localized: "metadata_writeback_media_readback_mismatch")
                 result.fieldResults.append(TagMetadataFieldWritebackResult(field: field, disposition: matches ? .written : .failed(detail)))

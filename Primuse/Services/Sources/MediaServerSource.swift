@@ -3521,6 +3521,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         expected: Song
     ) -> Bool {
         switch field {
+        case .albumArtist: return false
         case .title:
             return normalizedMetadataText(item.name) == normalizedMetadataText(expected.title)
         case .artist:
@@ -3798,6 +3799,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         expected: Song
     ) -> Bool {
         switch field {
+        case .albumArtist: return false
         case .title:
             return normalizedMetadataText(item.title) == normalizedMetadataText(expected.title)
         case .artist:

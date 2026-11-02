@@ -7122,3 +7122,23 @@
 "chapter_generation_resume" = "Fortsetzen";
 "chapter_generation_discard_job" = "Diese Aufgabe und ihren Fortschritt löschen?";
 "Song" = "Titel";
+
+"release_category" = "Veröffentlichungstyp";
+"release_category_all" = "Alle";
+"release_category_album" = "Alben";
+"release_category_single_ep" = "Singles & EPs";
+"release_category_live" = "Live";
+"release_category_automatic" = "Automatisch zuordnen";
+"artist_merge_title" = "Künstler zusammenführen";
+"artist_merge_select" = "Künstler auswählen";
+"artist_merge_suggestions" = "Möglicherweise gleiche Künstler";
+"artist_merge_same_artist" = "Bestätigen, dass dies derselbe Künstler ist";
+"artist_merge_name" = "Künstlername";
+"artist_merge_use_name" = "Vorhandenen Namen verwenden";
+"artist_merge_confirm" = "Zusammenführen bestätigen";
+"artist_merge_review" = "Zusammenführung prüfen";
+"artist_merge_different" = "Verschiedene Künstler";
+"artist_merge_no_suggestions" = "Keine möglichen Duplikate gefunden.";
+"artist_merge_song_count_format" = "%d Titel";
+"artist_merge_write_notice" = "Aktualisiert Titel- und Albumkünstler; andere Mitwirkende bleiben erhalten. Ist die Quelle nicht beschreibbar, werden Änderungen lokal gespeichert.";
+"artist_merge_result_format" = "%d Titel aktualisiert. Bei %d Titeln wurden Änderungen nur lokal gespeichert.";

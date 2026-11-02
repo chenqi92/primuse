@@ -76,7 +76,12 @@ public enum ISOBaseMediaLyricsParser {
                 let children = atoms(in: data, range: (metadata.payload.lowerBound + 4)..<metadata.payload.upperBound)
                 for list in children where list.type == AtomType.ilst {
                     for item in atoms(in: data, range: list.payload) {
-                        if item.type == 0x63707274 {
+                        if item.type == AtomType.freeform,
+                           let name = freeformName(in: data, item: item),
+                           let value = decodedItem(in: data, item: item),
+                           let releaseType = EmbeddedTagMetadataParser.metadata(fromTagValues: [name: [value]]).releaseType {
+                            result.releaseType = [result.releaseType, releaseType].compactMap { $0 }.joined(separator: "; ")
+                        } else if item.type == 0x63707274 {
                             result.copyright = result.copyright ?? decodedItem(in: data, item: item)
                         } else if item.type == 0x72746E67 {
                             for value in atoms(in: data, range: item.payload) where value.type == AtomType.data {

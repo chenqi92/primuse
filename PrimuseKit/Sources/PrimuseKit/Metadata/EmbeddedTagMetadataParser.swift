@@ -8,6 +8,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
     public var artist: String?
     public var artists: [String]?
     public var albumTitle: String?
+    public var releaseType: String?
     public var albumArtist: String?
     public var trackNumber: Int?
     public var discNumber: Int?
@@ -30,6 +31,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         artist: String? = nil,
         artists: [String]? = nil,
         albumTitle: String? = nil,
+        releaseType: String? = nil,
         albumArtist: String? = nil,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
@@ -51,6 +53,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         self.artist = artist
         self.artists = artists
         self.albumTitle = albumTitle
+        self.releaseType = releaseType
         self.albumArtist = albumArtist
         self.trackNumber = trackNumber
         self.discNumber = discNumber
@@ -73,6 +76,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         title == nil
             && artist == nil
             && albumTitle == nil
+            && releaseType == nil
             && albumArtist == nil
             && trackNumber == nil
             && discNumber == nil
@@ -94,6 +98,7 @@ public struct EmbeddedTagMetadata: Equatable, Sendable {
         artist = artist ?? fallback.artist
         artists = artists ?? fallback.artists
         albumTitle = albumTitle ?? fallback.albumTitle
+        releaseType = releaseType ?? fallback.releaseType
         albumArtist = albumArtist ?? fallback.albumArtist
         trackNumber = trackNumber ?? fallback.trackNumber
         discNumber = discNumber ?? fallback.discNumber
@@ -955,6 +960,7 @@ public enum EmbeddedTagMetadataParser {
             artist: artists?.joined(separator: "; "),
             artists: artists,
             albumTitle: first("ALBUM", "ALBUMTITLE", "WM/ALBUMTITLE", "IPRD"),
+            releaseType: all("RELEASETYPE", "RELEASE TYPE", "MUSICBRAINZ_ALBUMTYPE", "MusicBrainz Album Type", "ALBUMTYPE")?.joined(separator: "; "),
             albumArtist: albumArtists?.joined(separator: "; "),
             trackNumber: track.flatMap(leadingInteger),
             discNumber: disc.flatMap(leadingInteger),

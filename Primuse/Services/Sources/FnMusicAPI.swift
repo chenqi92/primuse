@@ -888,25 +888,26 @@ extension FnMusicAPI {
             }
             body["genreGUIDs"] = genreIDs
         }
+        let updatedArtistNames = (updated.sourceArtistNames
+            ?? updated.artistName.map { [$0] } ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         if fields.contains(.artist) {
-            let name = (updated.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if name.isEmpty { body["artistGUIDs"] = [String]() }
-            else {
-                let artists = try await metadataEntities(path: "/artist/list-all")
-                let artistID: String
-                if let existing = try uniqueEntity(named: name, in: artists) { artistID = existing }
-                else {
-                    // Creation is not idempotent. A lost reply must not cause
-                    // an automatic replay through another FN Connect route.
+            let artists = updatedArtistNames.isEmpty ? [] : try await metadataEntities(path: "/artist/list-all")
+            var artistIDs: [String] = []
+            for name in updatedArtistNames {
+                if let existing = try uniqueEntity(named: name, in: current["artists"] as? [[String: Any]] ?? [])
+                    ?? uniqueEntity(named: name, in: artists) {
+                    artistIDs.append(existing)
+                } else {
                     let created = try await requestJSONOnce(method: "POST", path: "/artist/create", queryItems: [],
                         body: ["name": name, "coverId": NSNull()], includeCookie: true, cookieToken: nil)
                     guard let entity = created as? [String: Any], let id = stringValue(entity["guid"]), !id.isEmpty else {
                         throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
                     }
-                    artistID = id
+                    artistIDs.append(id)
                 }
-                body["artistGUIDs"] = [artistID]
             }
+            body["artistGUIDs"] = artistIDs
         }
         if uploadedCoverID != nil { writable.insert(.cover) }
         guard !writable.isEmpty else { return result }
@@ -917,10 +918,11 @@ extension FnMusicAPI {
         for field in writable {
             let matches: Bool
             switch field {
+            case .albumArtist: matches = false
             case .title: matches = stringValue(readback["title"]) == body["title"] as? String
             case .artist:
                 matches = Set(try entityIDs(readback["artists"])) == Set(body["artistGUIDs"] as? [String] ?? [])
-                    && entityNames(readback["artists"]) == [(updated.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
+                    && entityNames(readback["artists"]) == updatedArtistNames
             case .album:
                 matches = (stringValue(readbackAlbum?["name"]) ?? "") == (body["album"] as? String ?? "")
             case .genre:

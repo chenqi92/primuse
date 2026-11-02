@@ -285,7 +285,8 @@ enum EmbeddedMetadataWritebackCoordinator {
                     genre: updated.genre,
                     year: updated.year,
                     trackNumber: updated.trackNumber,
-                    discNumber: updated.discNumber
+                    discNumber: updated.discNumber,
+                    albumArtist: updated.albumArtistName
                 )
                 : nil,
             coverData: coverData,

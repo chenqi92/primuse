@@ -1134,6 +1134,11 @@ enum FileMetadataReader {
     }
 
     private static func apply(_ parsed: EmbeddedTagMetadata, to metadata: inout Metadata) {
+        if let type = parsed.releaseType {
+            var content = metadata.contentMetadata ?? SongContentMetadata()
+            content.releaseType = content.releaseType ?? type
+            metadata.contentMetadata = content
+        }
         metadata.title = preferredMetadataText(current: metadata.title, rawID3: parsed.title)
         if let artists = parsed.artists, !artists.isEmpty {
             metadata.sourceArtistNames = artists.count > 1 ? artists : nil
@@ -1247,6 +1252,11 @@ enum FileMetadataReader {
         metadata.discNumber = metadata.discNumber ?? text?.discNumber
         metadata.year = metadata.year ?? text?.year
         metadata.genre = metadata.genre ?? text?.genre
+        if let type = text?.releaseType {
+            var content = metadata.contentMetadata ?? SongContentMetadata()
+            content.releaseType = content.releaseType ?? type
+            metadata.contentMetadata = content
+        }
         metadata.coverArtData = metadata.coverArtData ?? artwork?.coverArtData
         if metadata.lyricsText == nil {
             metadata.lyricsText = artwork?.lyricsText
@@ -1789,6 +1799,11 @@ enum FileMetadataReader {
         }
         metadata.albumTitle = metadata.albumTitle ?? flac.albumTitle
         metadata.albumArtist = metadata.albumArtist ?? flac.albumArtist
+        if let type = flac.releaseType {
+            var content = metadata.contentMetadata ?? SongContentMetadata()
+            content.releaseType = content.releaseType ?? type
+            metadata.contentMetadata = content
+        }
         metadata.trackNumber = metadata.trackNumber ?? flac.trackNumber
         metadata.discNumber = metadata.discNumber ?? flac.discNumber
         metadata.year = metadata.year ?? flac.year
@@ -1911,6 +1926,7 @@ enum FileMetadataReader {
     }
 
     private struct FLACNativeMetadata {
+        var releaseType: String?
         var title: String?
         var artist: String?
         var sourceArtistNames: [String]?
@@ -2058,6 +2074,7 @@ enum FileMetadataReader {
             guard let value else { continue }
             comments[field.key.uppercased(), default: []].append(value)
         }
+        result.releaseType = EmbeddedTagMetadataParser.metadata(fromTagValues: comments).releaseType
 
         func first(_ keys: String...) -> String? {
             for key in keys {

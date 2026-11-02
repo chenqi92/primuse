@@ -51,6 +51,25 @@ final class M4ATagWritebackTests: XCTestCase {
         return values
     }
 
+    func testAlbumArtistMergeWritesBothFieldsAndKeepsUnchangedTags() async throws {
+        let url = try makeFixture()
+        var before = tags(title: "Song", album: "Album")
+        before.albumArtist = "English B"
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            .init(tags: before, coverData: nil, lyrics: .keep), to: url)
+        let after = EmbeddedMetadataEdits.Tags(title: "Ignored", artist: "中文A; Guest", albumTitle: "Ignored",
+            genre: nil, year: nil, trackNumber: nil, discNumber: nil, albumArtist: "中文A")
+        _ = try await EmbeddedMetadataWriter.writeAndVerify(
+            .init(tags: after, coverData: nil, lyrics: .keep, changedFields: [.artist, .albumArtist]), to: url)
+        let written = try EmbeddedMetadataWriter.currentTags(at: url)
+        XCTAssertEqual(written.artist, "中文A; Guest")
+        XCTAssertEqual(written.albumArtist, "中文A")
+        XCTAssertEqual(written.title, "Song")
+        XCTAssertEqual(written.albumTitle, "Album")
+        let read = await FileMetadataReader.read(from: url)
+        XCTAssertEqual(read.albumArtist, "中文A")
+    }
+
     func testAllTagsSurviveAndStayReadableByAVFoundation() async throws {
         let url = try makeFixture()
         _ = try await EmbeddedMetadataWriter.writeAndVerify(

@@ -4,6 +4,7 @@ import PrimuseKit
 enum TagMetadataWritebackField: String, CaseIterable, Sendable, Hashable {
     case title
     case artist
+    case albumArtist
     case album
     case genre
     case year
@@ -14,6 +15,7 @@ enum TagMetadataWritebackField: String, CaseIterable, Sendable, Hashable {
     var localizedName: String {
         switch self {
         case .title: return String(localized: "tag_editor_title")
+        case .albumArtist: return String(localized: "album_metadata_album_artist")
         case .artist: return String(localized: "tag_editor_artist")
         case .album: return String(localized: "tag_editor_album")
         case .genre: return String(localized: "tag_editor_genre")
@@ -31,7 +33,8 @@ enum TagMetadataWritebackField: String, CaseIterable, Sendable, Hashable {
     ) -> Set<Self> {
         var fields: Set<Self> = []
         if original.title != updated.title { fields.insert(.title) }
-        if original.artistName != updated.artistName { fields.insert(.artist) }
+        if original.artistName != updated.artistName || original.sourceArtistNames != updated.sourceArtistNames { fields.insert(.artist) }
+        if original.albumArtistName != updated.albumArtistName { fields.insert(.albumArtist) }
         if original.albumTitle != updated.albumTitle { fields.insert(.album) }
         if original.genre != updated.genre { fields.insert(.genre) }
         if original.year != updated.year { fields.insert(.year) }

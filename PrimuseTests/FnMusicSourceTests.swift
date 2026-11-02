@@ -1924,6 +1924,21 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
         XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
     }
 
+    func testArtistMergeRetainsSeparateCollaboratorEntities() async {
+        let fixture = FnMusicTagHTTPFixture(mode: .existingEntities)
+        let source = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        var original = song(fixture)
+        original.artistName = "Artist A; Artist B"
+        original.sourceArtistNames = ["Artist A", "Artist B"]
+        let updated = ArtistMergePolicy.applying(to: original, names: ["Artist A"], canonicalName: "New artist")
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+        XCTAssertTrue(result.errors.isEmpty, result.errors.description)
+        XCTAssertEqual(fixture.written["artistGUIDs"] as? [String], ["new-artist", "artist-b"])
+        XCTAssertEqual(fixture.artistCreations, 0)
+        XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+    }
+
     func testArtistAndAlbumNamesResolveWithoutReusingOldAlbumIdentity() async {
         for existing in [false, true] {
             let fixture = FnMusicTagHTTPFixture(mode: existing ? .existingEntities : .success)

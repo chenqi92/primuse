@@ -7028,3 +7028,23 @@
 "chapter_generation_resume" = "Devam et";
 "chapter_generation_discard_job" = "Bu görev ve kaydedilen ilerleme silinsin mi?";
 "Song" = "Şarkı";
+
+"release_category" = "Yayın türü";
+"release_category_all" = "Tümü";
+"release_category_album" = "Albümler";
+"release_category_single_ep" = "Single ve EP";
+"release_category_live" = "Canlı";
+"release_category_automatic" = "Otomatik sınıflandırma";
+"artist_merge_title" = "Sanatçıları birleştir";
+"artist_merge_select" = "Sanatçı seç";
+"artist_merge_suggestions" = "Olası yinelenen sanatçılar";
+"artist_merge_same_artist" = "Bunların aynı sanatçı olduğunu doğrulayın";
+"artist_merge_name" = "Sanatçı adı";
+"artist_merge_use_name" = "Mevcut bir adı kullan";
+"artist_merge_confirm" = "Birleştirmeyi onayla";
+"artist_merge_review" = "Birleştirmeyi incele";
+"artist_merge_different" = "Farklı sanatçılar";
+"artist_merge_no_suggestions" = "Olası yinelenen sanatçı bulunamadı.";
+"artist_merge_song_count_format" = "%d şarkı";
+"artist_merge_write_notice" = "Diğer katılımcıları koruyarak şarkı ve albüm sanatçısı etiketlerini günceller. Kaynak güncellenemezse değişiklikler yerel olarak kaydedilir.";
+"artist_merge_result_format" = "%d şarkı güncellendi. %d şarkıda yalnızca yerel olarak kaydedilen değişiklikler var.";

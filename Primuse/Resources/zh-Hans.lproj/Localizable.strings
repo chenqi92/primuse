@@ -7215,3 +7215,23 @@
 "chapter_generation_resume" = "继续";
 "chapter_generation_discard_job" = "删除此任务及已保存的进度？";
 "Song" = "歌曲";
+
+"release_category" = "发行分类";
+"release_category_all" = "全部";
+"release_category_album" = "专辑";
+"release_category_single_ep" = "单曲与 EP";
+"release_category_live" = "Live";
+"release_category_automatic" = "自动分类";
+"artist_merge_title" = "合并歌手";
+"artist_merge_select" = "选择歌手";
+"artist_merge_suggestions" = "疑似同一歌手";
+"artist_merge_same_artist" = "确认这些是同一位歌手";
+"artist_merge_name" = "统一歌手名";
+"artist_merge_use_name" = "使用已有名字";
+"artist_merge_confirm" = "确认合并";
+"artist_merge_review" = "查看并合并";
+"artist_merge_different" = "不是同一歌手";
+"artist_merge_no_suggestions" = "未发现疑似重复歌手。";
+"artist_merge_song_count_format" = "涉及 %d 首歌曲";
+"artist_merge_write_notice" = "将修改歌曲歌手和专辑歌手标签，保留其他参与者。源文件无法写入时，修改保存在本地。";
+"artist_merge_result_format" = "已更新 %d 首歌曲，其中 %d 首有修改仅保存在本地。";

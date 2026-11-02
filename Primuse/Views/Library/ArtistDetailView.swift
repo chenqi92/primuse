@@ -177,6 +177,10 @@ struct ArtistDetailView: View {
     }
 
     private var releaseAlbums: [Album] { albumShelves.release }
+
+    private func releases(in category: AlbumReleaseCategory) -> [Album] {
+        releaseAlbums.filter { LibraryReleaseCategoryIndex.shared.categories(for: $0, in: library).contains(category) }
+    }
     private var appearsOnAlbums: [Album] { albumShelves.appearsOn }
 
     private var mostPlayedAlbums: [Album] {
@@ -464,8 +468,11 @@ struct ArtistDetailView: View {
                             showsPlayCount: true
                         )
                     }
-                    if !releaseAlbums.isEmpty {
-                        iosAlbumShelf(title: "artist_releases", albums: releaseAlbums, collection: .releases)
+                    ForEach(AlbumReleaseCategory.allCases) { category in
+                        let albums = releases(in: category)
+                        if !albums.isEmpty {
+                            iosAlbumShelf(title: LocalizedStringKey(category.titleKey), albums: albums, collection: category == .album ? .releases : (category == .singleEP ? .singleEP : .live))
+                        }
                     }
                     if !appearsOnAlbums.isEmpty {
                         iosAlbumShelf(title: "artist_appears_on", albums: appearsOnAlbums, collection: .appearsOn)
@@ -736,6 +743,7 @@ struct ArtistDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .mediaZoomSource(.album, id: album.id)
+                            .contextMenu { AlbumReleaseCategoryMenu(album: album) }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -814,11 +822,11 @@ struct ArtistDetailView: View {
                                 showsPlayCount: true
                             )
                         }
-                        if !releaseAlbums.isEmpty {
-                            macAlbumSection(
-                                title: String(localized: "artist_releases"),
-                                albums: releaseAlbums
-                            )
+                        ForEach(AlbumReleaseCategory.allCases) { category in
+                            let albums = releases(in: category)
+                            if !albums.isEmpty {
+                                macAlbumSection(title: NSLocalizedString(category.titleKey, comment: ""), albums: albums)
+                            }
                         }
                         if !appearsOnAlbums.isEmpty {
                             macAlbumSection(
@@ -929,6 +937,7 @@ struct ArtistDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .pmHoverLift()
+                    .contextMenu { AlbumReleaseCategoryMenu(album: album) }
                 }
             }
         }
@@ -1244,7 +1253,7 @@ private final class ArtistScrollEdgeState {
 #endif
 
 private enum ArtistAlbumCollection: String, Hashable {
-    case releases, appearsOn
+    case releases, singleEP, live, appearsOn
 }
 
 struct ArtistAlbumsGrid: View {
@@ -1261,6 +1270,7 @@ struct ArtistAlbumsGrid: View {
                     .mediaZoomSource(.album, id: album.id)
                     .accessibilityIdentifier("artist.album.\(album.id)")
                     .contextMenu {
+                        AlbumReleaseCategoryMenu(album: album)
                         LibraryCollectionMenuItems(
                             isLiked: LibraryFavoritesStore.shared.isLiked(album),
                             toggleLike: { LibraryFavoritesStore.shared.toggle(album) },

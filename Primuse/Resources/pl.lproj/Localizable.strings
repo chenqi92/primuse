@@ -7028,3 +7028,23 @@
 "chapter_generation_resume" = "Wznów";
 "chapter_generation_discard_job" = "Usunąć to zadanie i jego postęp?";
 "Song" = "Utwór";
+
+"release_category" = "Typ wydania";
+"release_category_all" = "Wszystkie";
+"release_category_album" = "Albumy";
+"release_category_single_ep" = "Single i EP";
+"release_category_live" = "Na żywo";
+"release_category_automatic" = "Klasyfikacja automatyczna";
+"artist_merge_title" = "Scal wykonawców";
+"artist_merge_select" = "Wybierz wykonawców";
+"artist_merge_suggestions" = "Możliwi zduplikowani wykonawcy";
+"artist_merge_same_artist" = "Potwierdź, że to ten sam wykonawca";
+"artist_merge_name" = "Nazwa wykonawcy";
+"artist_merge_use_name" = "Użyj istniejącej nazwy";
+"artist_merge_confirm" = "Potwierdź scalanie";
+"artist_merge_review" = "Sprawdź scalanie";
+"artist_merge_different" = "Różni wykonawcy";
+"artist_merge_no_suggestions" = "Nie znaleziono możliwych duplikatów.";
+"artist_merge_song_count_format" = "Utwory: %d";
+"artist_merge_write_notice" = "Aktualizuje wykonawcę utworu i albumu, zachowując innych uczestników. Jeśli zapis do źródła jest niemożliwy, zmiany są zapisywane lokalnie.";
+"artist_merge_result_format" = "Zaktualizowano %d utworów. W %d utworach część zmian zapisano tylko lokalnie.";

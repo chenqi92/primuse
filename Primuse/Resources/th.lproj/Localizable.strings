@@ -7028,3 +7028,23 @@
 "chapter_generation_resume" = "ดำเนินการต่อ";
 "chapter_generation_discard_job" = "ลบงานนี้และความคืบหน้าที่บันทึกไว้หรือไม่?";
 "Song" = "เพลง";
+
+"release_category" = "ประเภทการเผยแพร่";
+"release_category_all" = "ทั้งหมด";
+"release_category_album" = "อัลบั้ม";
+"release_category_single_ep" = "ซิงเกิลและ EP";
+"release_category_live" = "แสดงสด";
+"release_category_automatic" = "จัดประเภทอัตโนมัติ";
+"artist_merge_title" = "รวมศิลปิน";
+"artist_merge_select" = "เลือกศิลปิน";
+"artist_merge_suggestions" = "ศิลปินที่อาจซ้ำกัน";
+"artist_merge_same_artist" = "ยืนยันว่าเป็นศิลปินคนเดียวกัน";
+"artist_merge_name" = "ชื่อศิลปิน";
+"artist_merge_use_name" = "ใช้ชื่อที่มีอยู่";
+"artist_merge_confirm" = "ยืนยันการรวม";
+"artist_merge_review" = "ตรวจสอบการรวม";
+"artist_merge_different" = "คนละศิลปิน";
+"artist_merge_no_suggestions" = "ไม่พบศิลปินที่อาจซ้ำกัน";
+"artist_merge_song_count_format" = "%d เพลง";
+"artist_merge_write_notice" = "อัปเดตแท็กศิลปินของเพลงและอัลบั้มโดยคงผู้ร่วมงานคนอื่นไว้ หากเขียนลงแหล่งที่มาไม่ได้ จะบันทึกการเปลี่ยนแปลงไว้ในเครื่อง";
+"artist_merge_result_format" = "อัปเดต %d เพลงแล้ว มี %d เพลงที่บันทึกการเปลี่ยนแปลงบางส่วนไว้ในเครื่องเท่านั้น";

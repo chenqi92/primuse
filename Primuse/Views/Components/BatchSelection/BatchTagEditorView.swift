@@ -325,6 +325,10 @@ struct TagTidyView: View {
                 }
 
                 Section {
+                    NavigationLink("artist_merge_suggestions") { ArtistMergeSuggestionsView() }
+                }
+
+                Section {
                     if intelligence.isTagCleanupAvailable {
                         if let aiProgress {
                             HStack(spacing: 10) {

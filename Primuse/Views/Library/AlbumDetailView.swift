@@ -407,6 +407,7 @@ struct AlbumDetailView: View {
     /// 收藏在头图那一行的心上，播放与随机也在那里。
     @ViewBuilder
     private var albumMoreMenuContent: some View {
+        AlbumReleaseCategoryMenu(album: album)
         let playable = albumSongs.filteredPlayable()
         let downloads = downloadableSongs
         PMMenuQuickActions {

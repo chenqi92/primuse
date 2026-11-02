@@ -7099,3 +7099,23 @@
 "chapter_generation_resume" = "繼續";
 "chapter_generation_discard_job" = "刪除此任務及已儲存的進度？";
 "Song" = "歌曲";
+
+"release_category" = "發行分類";
+"release_category_all" = "全部";
+"release_category_album" = "專輯";
+"release_category_single_ep" = "單曲與 EP";
+"release_category_live" = "Live";
+"release_category_automatic" = "自動分類";
+"artist_merge_title" = "合併歌手";
+"artist_merge_select" = "選擇歌手";
+"artist_merge_suggestions" = "疑似同一歌手";
+"artist_merge_same_artist" = "確認這些是同一位歌手";
+"artist_merge_name" = "統一歌手名";
+"artist_merge_use_name" = "使用現有名字";
+"artist_merge_confirm" = "確認合併";
+"artist_merge_review" = "檢視並合併";
+"artist_merge_different" = "不是同一歌手";
+"artist_merge_no_suggestions" = "未發現疑似重複歌手。";
+"artist_merge_song_count_format" = "涉及 %d 首歌曲";
+"artist_merge_write_notice" = "將修改歌曲歌手和專輯歌手標籤，保留其他參與者。來源檔案無法寫入時，修改儲存在本機。";
+"artist_merge_result_format" = "已更新 %d 首歌曲，其中 %d 首有修改僅儲存在本機。";

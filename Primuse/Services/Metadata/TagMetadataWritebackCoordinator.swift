@@ -142,6 +142,10 @@ enum TagMetadataWritebackCoordinator {
                 lyricsContent: nil
             )
             for field in changed {
+                if field == .albumArtist {
+                    report.setDisposition(.unsupported(String(localized: "metadata_writeback_error_unsupported")), for: [field])
+                    continue
+                }
                 if let fieldResult = result.fieldResults.last(where: { $0.field == field }) {
                     report.setDisposition(fieldResult.disposition, for: [field])
                     continue

@@ -9,6 +9,7 @@ public struct ID3TextMetadata: Equatable, Sendable {
     public var artist: String?
     public var artists: [String]?
     public var albumTitle: String?
+    public var releaseType: String?
     public var albumArtist: String?
     public var albumArtists: [String]?
     public var trackNumber: Int?
@@ -21,6 +22,7 @@ public struct ID3TextMetadata: Equatable, Sendable {
         artist: String? = nil,
         artists: [String]? = nil,
         albumTitle: String? = nil,
+        releaseType: String? = nil,
         albumArtist: String? = nil,
         albumArtists: [String]? = nil,
         trackNumber: Int? = nil,
@@ -32,6 +34,7 @@ public struct ID3TextMetadata: Equatable, Sendable {
         self.artist = artist
         self.artists = artists
         self.albumTitle = albumTitle
+        self.releaseType = releaseType
         self.albumArtist = albumArtist
         self.albumArtists = albumArtists
         self.trackNumber = trackNumber
@@ -44,6 +47,7 @@ public struct ID3TextMetadata: Equatable, Sendable {
         title == nil
             && artist == nil
             && albumTitle == nil
+            && releaseType == nil
             && albumArtist == nil
             && trackNumber == nil
             && discNumber == nil
@@ -147,10 +151,10 @@ public enum ID3TextMetadataParser {
 
         // TPE2/TP2 remains authoritative regardless of frame order. Custom
         // Album Artist fields are a fallback for files using tagger mappings.
-        if result.albumArtist == nil, !userTextValues.isEmpty {
-            result.albumArtist = EmbeddedTagMetadataParser.metadata(
-                fromTagValues: userTextValues
-            ).albumArtist
+        if !userTextValues.isEmpty {
+            let custom = EmbeddedTagMetadataParser.metadata(fromTagValues: userTextValues)
+            result.albumArtist = result.albumArtist ?? custom.albumArtist
+            result.releaseType = custom.releaseType
         }
         if let trailingMetadata {
             fillMissing(in: &result, from: trailingMetadata)
@@ -196,6 +200,7 @@ public enum ID3TextMetadataParser {
         metadata.artist = metadata.artist ?? fallback.artist
         metadata.artists = metadata.artists ?? fallback.artists
         metadata.albumTitle = metadata.albumTitle ?? fallback.albumTitle
+        metadata.releaseType = metadata.releaseType ?? fallback.releaseType
         metadata.albumArtist = metadata.albumArtist ?? fallback.albumArtist
         metadata.albumArtists = metadata.albumArtists ?? fallback.albumArtists
         metadata.trackNumber = metadata.trackNumber ?? fallback.trackNumber
@@ -395,7 +400,9 @@ public enum ID3TextMetadataParser {
                 payload.subdata(in: 1..<cursor), encodingByte: encoding
               ) else { return nil }
         let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard ["ALBUMARTIST", "ALBUM ARTIST", "ALBUM_ARTIST"].contains(normalizedKey) else {
+        guard ["ALBUMARTIST", "ALBUM ARTIST", "ALBUM_ARTIST",
+               "RELEASETYPE", "RELEASE TYPE", "MUSICBRAINZ_ALBUMTYPE",
+               "MUSICBRAINZ ALBUM TYPE", "ALBUMTYPE"].contains(normalizedKey) else {
             return nil
         }
         var valueData = payload.subdata(in: valueStart..<payload.count)

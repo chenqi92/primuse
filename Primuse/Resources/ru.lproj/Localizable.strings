@@ -7028,3 +7028,23 @@
 "chapter_generation_resume" = "Продолжить";
 "chapter_generation_discard_job" = "Удалить эту задачу и сохранённый прогресс?";
 "Song" = "Песня";
+
+"release_category" = "Тип релиза";
+"release_category_all" = "Все";
+"release_category_album" = "Альбомы";
+"release_category_single_ep" = "Синглы и EP";
+"release_category_live" = "Концертные";
+"release_category_automatic" = "Автоматическая классификация";
+"artist_merge_title" = "Объединить исполнителей";
+"artist_merge_select" = "Выбрать исполнителей";
+"artist_merge_suggestions" = "Возможные дубликаты исполнителей";
+"artist_merge_same_artist" = "Подтвердите, что это один исполнитель";
+"artist_merge_name" = "Имя исполнителя";
+"artist_merge_use_name" = "Использовать существующее имя";
+"artist_merge_confirm" = "Подтвердить объединение";
+"artist_merge_review" = "Проверить объединение";
+"artist_merge_different" = "Разные исполнители";
+"artist_merge_no_suggestions" = "Возможные дубликаты не найдены.";
+"artist_merge_song_count_format" = "Композиций: %d";
+"artist_merge_write_notice" = "Обновляет исполнителя композиции и альбома, сохраняя других участников. Если запись в источник невозможна, изменения сохраняются локально.";
+"artist_merge_result_format" = "Обновлено композиций: %d. Только локальные изменения есть у %d.";

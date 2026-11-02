@@ -29,6 +29,7 @@ struct EmbeddedMetadataEdits: Sendable, Equatable {
         let year: Int?
         let trackNumber: Int?
         let discNumber: Int?
+        var albumArtist: String? = nil
     }
 
     /// `nil` leaves the file's text tags alone, for saves that only touch lyrics.
@@ -59,6 +60,7 @@ struct EmbeddedMetadataVerification: Sendable, Equatable {
     let trackNumber: Int?
     let discNumber: Int?
     let coverData: Data?
+    var albumArtist: String? = nil
 }
 
 enum EmbeddedMetadataWriterError: LocalizedError {
@@ -101,6 +103,7 @@ enum EmbeddedMetadataWriter {
         if let tags = edits.tags {
             if edits.writes(.title) { metadata.title = tags.title }
             if edits.writes(.artist) { metadata.artist = tags.artist }
+            if edits.writes(.albumArtist) { metadata.albumArtist = tags.albumArtist }
             if edits.writes(.album) { metadata.albumTitle = tags.albumTitle }
             if edits.writes(.genre) { metadata.genre = tags.genre }
             // SFBAudioEngine validates MP3 TDRC values through
@@ -224,6 +227,9 @@ enum EmbeddedMetadataWriter {
             }
             if edits.writes(.artist) {
                 try require(normalized(verified.artist) == normalized(tags.artist), field: "artist")
+            }
+            if edits.writes(.albumArtist) {
+                try require(normalized(verified.albumArtist) == normalized(tags.albumArtist), field: "album artist")
             }
             if edits.writes(.album) {
                 try require(normalized(verified.albumTitle) == normalized(tags.albumTitle), field: "album")
@@ -527,7 +533,8 @@ enum EmbeddedMetadataWriter {
             },
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,
-            coverData: frontCover ?? anyCover
+            coverData: frontCover ?? anyCover,
+            albumArtist: normalized(metadata.albumArtist)
         )
     }
 

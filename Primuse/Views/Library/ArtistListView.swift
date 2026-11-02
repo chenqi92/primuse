@@ -46,6 +46,8 @@ struct ArtistListView: View {
     private let suppliedArtists: [Artist]?
     private let intelligentRecommendationIDs: Set<String>
     @State private var searchText: String = ""
+    @State private var showsMerge = false
+    @State private var showsMergeSuggestions = false
 
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(MusicLibrary.self) private var library
@@ -134,30 +136,49 @@ struct ArtistListView: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        macBody
-            .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
-                guard let artist = note.object as? Artist else { return }
-                if !artists.contains(where: { $0.id == artist.id }) {
-                    // 只在合辑、feat. 里出现的人不在「专辑艺术家」里，反过来「群星」只在那里:
-                    // 换到列着他的那一种再选中。
-                    guard browsesLibrary else { return }
-                    let other: ArtistBrowseMode = browseMode == .allArtists ? .albumArtists : .allArtists
-                    guard library.browsableArtists(other).contains(where: { $0.id == artist.id }) else { return }
-                    browseModeRaw = other.rawValue
+        Group {
+            #if os(macOS)
+            macBody
+                .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
+                    guard let artist = note.object as? Artist else { return }
+                    if !artists.contains(where: { $0.id == artist.id }) {
+                        // 只在合辑、feat. 里出现的人不在「专辑艺术家」里，反过来「群星」只在那里:
+                        // 换到列着他的那一种再选中。
+                        guard browsesLibrary else { return }
+                        let other: ArtistBrowseMode = browseMode == .allArtists ? .albumArtists : .allArtists
+                        guard library.browsableArtists(other).contains(where: { $0.id == artist.id }) else { return }
+                        browseModeRaw = other.rawValue
+                    }
+                    searchText = ""
+                    selectedArtistID = artist.id
                 }
-                searchText = ""
-                selectedArtistID = artist.id
+                .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
+                    filteredArtists.map(LibraryInsightBatchItem.artist)
+                }
+            #else
+            iosBody
+                .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
+                    filteredArtists.map(LibraryInsightBatchItem.artist)
+                }
+            #endif
+        }
+        .sheet(isPresented: $showsMerge) { ArtistMergeView() }
+        .sheet(isPresented: $showsMergeSuggestions) {
+            NavigationStack {
+                ArtistMergeSuggestionsView()
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("done") { showsMergeSuggestions = false } } }
             }
-            .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
-                filteredArtists.map(LibraryInsightBatchItem.artist)
-            }
-        #else
-        iosBody
-            .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
-                filteredArtists.map(LibraryInsightBatchItem.artist)
-            }
-        #endif
+            #if os(macOS)
+            .frame(minWidth: 480, minHeight: 420)
+            #endif
+        }
+    }
+
+    private var mergeMenu: some View {
+        Menu {
+            Button("artist_merge_select") { showsMerge = true }
+            Button("artist_merge_suggestions") { showsMergeSuggestions = true }
+        } label: { Label("artist_merge_title", systemImage: "person.2") }
     }
 
     @ViewBuilder
@@ -202,6 +223,7 @@ struct ArtistListView: View {
             #if os(iOS)
             .libraryPageFind(text: $searchText, prompt: "filter_artists_placeholder")
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { mergeMenu }
                 ToolbarItem(placement: .topBarTrailing) {
                     ArtistDisplayMenu(
                         modeRaw: $browseModeRaw,
@@ -223,6 +245,7 @@ struct ArtistListView: View {
                     Spacer(minLength: 8)
                     MinimalHeaderActions {
                         MinimalPageFindButton()
+                        mergeMenu
                         ArtistDisplayMenu(
                             modeRaw: $browseModeRaw,
                             offersBrowseModes: browsesLibrary,
@@ -371,6 +394,7 @@ struct ArtistListView: View {
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                     Spacer(minLength: 0)
+                    mergeMenu.labelStyle(.iconOnly)
                     if offersIntroFill {
                         LibraryInsightBatchMacButton { requestsIntroFill = true }
                     }

@@ -7122,3 +7122,23 @@
 "chapter_generation_resume" = "Reprendre";
 "chapter_generation_discard_job" = "Supprimer cette tâche et sa progression ?";
 "Song" = "Morceau";
+
+"release_category" = "Type de sortie";
+"release_category_all" = "Tout";
+"release_category_album" = "Albums";
+"release_category_single_ep" = "Singles et EP";
+"release_category_live" = "Live";
+"release_category_automatic" = "Classement automatique";
+"artist_merge_title" = "Fusionner des artistes";
+"artist_merge_select" = "Choisir des artistes";
+"artist_merge_suggestions" = "Artistes potentiellement identiques";
+"artist_merge_same_artist" = "Confirmer qu’il s’agit du même artiste";
+"artist_merge_name" = "Nom de l’artiste";
+"artist_merge_use_name" = "Utiliser un nom existant";
+"artist_merge_confirm" = "Confirmer la fusion";
+"artist_merge_review" = "Examiner la fusion";
+"artist_merge_different" = "Artistes différents";
+"artist_merge_no_suggestions" = "Aucun doublon potentiel trouvé.";
+"artist_merge_song_count_format" = "%d morceaux";
+"artist_merge_write_notice" = "Met à jour les artistes des morceaux et des albums en conservant les autres participants. Si la source ne peut pas être modifiée, les changements sont enregistrés localement.";
+"artist_merge_result_format" = "%d morceaux mis à jour. Pour %d, des changements sont enregistrés uniquement localement.";

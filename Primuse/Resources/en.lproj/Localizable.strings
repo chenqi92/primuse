@@ -6883,3 +6883,23 @@
 "chapter_generation_resume" = "Resume";
 "chapter_generation_discard_job" = "Delete this saved task and its progress?";
 "Song" = "Song";
+
+"release_category" = "Release category";
+"release_category_all" = "All";
+"release_category_album" = "Albums";
+"release_category_single_ep" = "Singles & EPs";
+"release_category_live" = "Live";
+"release_category_automatic" = "Automatic classification";
+"artist_merge_title" = "Merge artists";
+"artist_merge_select" = "Select artists";
+"artist_merge_suggestions" = "Possible duplicate artists";
+"artist_merge_same_artist" = "Confirm these are the same artist";
+"artist_merge_name" = "Artist name";
+"artist_merge_use_name" = "Use an existing name";
+"artist_merge_confirm" = "Confirm merge";
+"artist_merge_review" = "Review merge";
+"artist_merge_different" = "Different artists";
+"artist_merge_no_suggestions" = "No possible duplicates found.";
+"artist_merge_song_count_format" = "%d songs";
+"artist_merge_write_notice" = "Updates song and album artist tags while keeping other contributors. If the source cannot be updated, changes are saved locally.";
+"artist_merge_result_format" = "Updated %d songs. %d include changes saved only locally.";

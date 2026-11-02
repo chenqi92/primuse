@@ -1198,6 +1198,8 @@ public enum SongUserMetadataPolicy {
     public static func editableFieldsChanged(from original: Song, to updated: Song) -> Bool {
         original.title != updated.title
             || original.artistName != updated.artistName
+            || original.sourceArtistNames != updated.sourceArtistNames
+            || original.albumArtistName != updated.albumArtistName
             || original.albumTitle != updated.albumTitle
             || original.trackNumber != updated.trackNumber
             || original.discNumber != updated.discNumber
@@ -1293,11 +1295,13 @@ public extension Sequence where Element == Song {
 
 /// A completed file inspection can carry no tags; partial reads remain eligible for backfill.
 public struct SongContentMetadata: Codable, Hashable, Sendable {
+    public var releaseType: String?
     public var iTunesAdvisory: Int?
     public var copyright: String?
     public var isFileInspectionComplete: Bool
 
-    public init(iTunesAdvisory: Int? = nil, copyright: String? = nil, isFileInspectionComplete: Bool = false) {
+    public init(iTunesAdvisory: Int? = nil, copyright: String? = nil, isFileInspectionComplete: Bool = false, releaseType: String? = nil) {
+        self.releaseType = releaseType
         self.isFileInspectionComplete = isFileInspectionComplete
         self.iTunesAdvisory = iTunesAdvisory
         let text = copyright?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1305,12 +1309,13 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
     }
 
     public var isExplicit: Bool { iTunesAdvisory == 1 || iTunesAdvisory == 4 }
-    public var hasValues: Bool { iTunesAdvisory != nil || copyright != nil }
+    public var hasValues: Bool { iTunesAdvisory != nil || copyright != nil || releaseType != nil }
 
     public func fillingMissing(from fallback: Self?) -> Self {
         Self(iTunesAdvisory: iTunesAdvisory ?? fallback?.iTunesAdvisory,
              copyright: copyright ?? fallback?.copyright,
-             isFileInspectionComplete: isFileInspectionComplete || fallback?.isFileInspectionComplete == true)
+             isFileInspectionComplete: isFileInspectionComplete || fallback?.isFileInspectionComplete == true,
+             releaseType: releaseType ?? fallback?.releaseType)
     }
 
     public static func merging(previous: Self?, incoming: Self?) -> Self? {

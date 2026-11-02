@@ -19,6 +19,7 @@ enum BatchTagEditService {
         /// store, a partial media-server write).
         var notices: [String] = []
         var coverChanged = false
+        var localOnlySongIDs: Set<String> = []
     }
 
     /// One successful write: the row as it is now, a note from the source,
@@ -27,6 +28,7 @@ enum BatchTagEditService {
         let song: Song
         let notice: String?
         let previousFileTags: EmbeddedMetadataVerification?
+        var isLocalOnly = false
     }
 
     struct Failure: Identifiable, Error, Sendable {
@@ -47,6 +49,7 @@ enum BatchTagEditService {
         sourceManager: SourceManager,
         library: MusicLibrary,
         player: AudioPlayerService,
+        keepsLocalEditsOnWriteFailure: Bool = false,
         onProgress: @escaping @MainActor (Int, Int) -> Void
     ) async -> Outcome {
         var outcome = Outcome()
@@ -68,7 +71,7 @@ enum BatchTagEditService {
             for index in start..<end {
                 let change = pending[index]
                 inFlight.append((index, Task { @MainActor in
-                    await write(change, coverData: coverData, sourceManager: sourceManager)
+                    await write(change, coverData: coverData, sourceManager: sourceManager, keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure)
                 }))
             }
             for item in inFlight {
@@ -83,7 +86,24 @@ enum BatchTagEditService {
         for index in pending.indices {
             switch results[index] {
             case .success(let written)?:
-                published.append(written.song)
+                var song = written.song
+                if keepsLocalEditsOnWriteFailure {
+                    guard var current = library.song(id: song.id) else { continue }
+                    let original = pending[index].original
+                    if original.artistName != song.artistName || original.sourceArtistNames != song.sourceArtistNames {
+                        current.artistName = song.artistName
+                        current.sourceArtistNames = song.sourceArtistNames
+                    }
+                    if original.albumArtistName != song.albumArtistName { current.albumArtistName = song.albumArtistName }
+                    current.userMetadataEditedAt = song.userMetadataEditedAt
+                    if song.filePath != original.filePath { current.filePath = song.filePath }
+                    if song.revision != original.revision { current.revision = song.revision }
+                    if song.fileSize != original.fileSize { current.fileSize = song.fileSize }
+                    if song.lastModified != original.lastModified { current.lastModified = song.lastModified }
+                    song = current
+                }
+                published.append(song)
+                if written.isLocalOnly { outcome.localOnlySongIDs.insert(song.id) }
                 outcome.originals.append(Self.undoTarget(
                     original: pending[index].original,
                     updated: pending[index].updated,
@@ -135,7 +155,8 @@ enum BatchTagEditService {
     private static func write(
         _ change: (original: Song, updated: Song),
         coverData: Data?,
-        sourceManager: SourceManager
+        sourceManager: SourceManager,
+        keepsLocalEditsOnWriteFailure: Bool
     ) async -> Result<Written, Failure> {
         var updated = change.updated
         updated.userMetadataEditedAt = Date()
@@ -145,19 +166,36 @@ enum BatchTagEditService {
                 updated: updated,
                 coverData: coverData
             )
-            if report.shouldAbortLocalSave {
+            if report.shouldAbortLocalSave && !keepsLocalEditsOnWriteFailure {
                 return .failure(Failure(
                     title: change.original.title,
                     message: report.issueMessage
                         ?? String(localized: "metadata_writeback_error_invalid_state")
                 ))
             }
+            var saved = report.updatedSong
+            if keepsLocalEditsOnWriteFailure, let relocated = report.replacementAfterFailedVerification {
+                saved.filePath = relocated.filePath
+                saved.fileSize = relocated.fileSize
+                saved.revision = relocated.revision
+                saved.lastModified = relocated.lastModified
+            }
+            let onlyLocal = report.fields.contains {
+                switch $0.disposition {
+                case .localOnly, .failed, .unsupported: true
+                case .unchanged, .written: false
+                }
+            }
             return .success(Written(
-                song: report.updatedSong,
+                song: saved,
                 notice: report.issueMessage,
-                previousFileTags: report.previousFileTags
+                previousFileTags: report.previousFileTags,
+                isLocalOnly: onlyLocal
             ))
         } catch {
+            if keepsLocalEditsOnWriteFailure {
+                return .success(Written(song: updated, notice: error.localizedDescription, previousFileTags: nil, isLocalOnly: true))
+            }
             return .failure(Failure(title: change.original.title, message: error.localizedDescription))
         }
     }
@@ -176,6 +214,7 @@ enum BatchTagEditService {
         let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: false)
         if changed.contains(.title), let title = before.title { target.title = title }
         if changed.contains(.artist) { target.artistName = before.artist }
+        if changed.contains(.albumArtist) { target.albumArtistName = before.albumArtist }
         if changed.contains(.album) { target.albumTitle = before.albumTitle }
         if changed.contains(.genre) { target.genre = before.genre }
         if changed.contains(.year) { target.year = before.year }

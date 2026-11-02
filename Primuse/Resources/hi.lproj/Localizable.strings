@@ -7028,3 +7028,23 @@
 "chapter_generation_resume" = "जारी रखें";
 "chapter_generation_discard_job" = "यह कार्य और सहेजी गई प्रगति हटाएँ?";
 "Song" = "गीत";
+
+"release_category" = "रिलीज़ श्रेणी";
+"release_category_all" = "सभी";
+"release_category_album" = "एल्बम";
+"release_category_single_ep" = "सिंगल और EP";
+"release_category_live" = "लाइव";
+"release_category_automatic" = "स्वचालित वर्गीकरण";
+"artist_merge_title" = "कलाकारों को मिलाएँ";
+"artist_merge_select" = "कलाकार चुनें";
+"artist_merge_suggestions" = "संभावित दोहरे कलाकार";
+"artist_merge_same_artist" = "पुष्टि करें कि ये एक ही कलाकार हैं";
+"artist_merge_name" = "कलाकार का नाम";
+"artist_merge_use_name" = "मौजूदा नाम इस्तेमाल करें";
+"artist_merge_confirm" = "मिलाने की पुष्टि करें";
+"artist_merge_review" = "मिलाने की समीक्षा करें";
+"artist_merge_different" = "अलग कलाकार";
+"artist_merge_no_suggestions" = "कोई संभावित दोहरा कलाकार नहीं मिला।";
+"artist_merge_song_count_format" = "%d गाने";
+"artist_merge_write_notice" = "अन्य प्रतिभागियों को बनाए रखते हुए गाने और एल्बम के कलाकार टैग अपडेट करता है। स्रोत अपडेट न हो पाने पर बदलाव स्थानीय रूप से सहेजे जाते हैं।";
+"artist_merge_result_format" = "%d गाने अपडेट हुए। %d में कुछ बदलाव केवल स्थानीय रूप से सहेजे गए हैं।";

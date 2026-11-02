@@ -251,6 +251,44 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
     }
 
     @MainActor
+    func testArtistMergeKeepsCollaboratorsAndPersistsWhenSourceFails() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ArtistMerge-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "ArtistMerge-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let player = AudioPlayerService(library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Merging must not start playback") })
+        var original = song()
+        original.artistName = "English B; Guest"
+        original.albumArtistName = "English B"
+        original.albumTitle = "Album"
+        original.duration = 180
+        library.addSongs([original])
+        let source = MusicSource(id: original.sourceID, name: "Fixture", type: .webdav, host: "readonly.invalid")
+        let connector = DeniedMetadataConnector(error: URLError(.timedOut))
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let updated = ArtistMergePolicy.applying(to: original, names: ["English B", "中文A"], canonicalName: "中文A")
+        let outcome = await BatchTagEditService.apply([(original, updated)], coverData: nil,
+            sourceManager: manager, library: library, player: player,
+            keepsLocalEditsOnWriteFailure: true) { _, _ in }
+        XCTAssertEqual(outcome.applied.count, 1)
+        XCTAssertEqual(outcome.localOnlySongIDs, [original.id])
+        XCTAssertTrue(outcome.failures.isEmpty)
+        let stored = try XCTUnwrap(library.song(id: original.id))
+        XCTAssertEqual(stored.sourceArtistNames, ["中文A", "Guest"])
+        XCTAssertEqual(stored.albumArtistName, "中文A")
+        XCTAssertNotNil(stored.userMetadataEditedAt)
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+        let restored = MusicLibrary(storageDirectory: directory)
+        XCTAssertEqual(restored.song(id: original.id)?.artistName, "中文A; Guest")
+        XCTAssertEqual(SongUserMetadataPolicy.preservingUserEdits(from: stored, in: original).albumArtistName, "中文A")
+    }
+
+    @MainActor
     func testLyricsEditFallsBackToDurableLocalOverrideOnlyOnWriteDenial() async throws {
         let cases: [(failure: (any Error)?, saves: Bool)] = [
             (SourceFileMutationError.permissionDenied, true),

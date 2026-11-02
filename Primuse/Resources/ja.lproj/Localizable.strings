@@ -7123,3 +7123,23 @@
 "chapter_generation_resume" = "再開";
 "chapter_generation_discard_job" = "このタスクと保存済みの進捗を削除しますか？";
 "Song" = "曲";
+
+"release_category" = "リリース分類";
+"release_category_all" = "すべて";
+"release_category_album" = "アルバム";
+"release_category_single_ep" = "シングルとEP";
+"release_category_live" = "ライブ";
+"release_category_automatic" = "自動分類";
+"artist_merge_title" = "アーティストを統合";
+"artist_merge_select" = "アーティストを選択";
+"artist_merge_suggestions" = "同一の可能性があるアーティスト";
+"artist_merge_same_artist" = "同じアーティストであることを確認";
+"artist_merge_name" = "アーティスト名";
+"artist_merge_use_name" = "既存の名前を使用";
+"artist_merge_confirm" = "統合を確定";
+"artist_merge_review" = "統合内容を確認";
+"artist_merge_different" = "別のアーティスト";
+"artist_merge_no_suggestions" = "重複の候補はありません。";
+"artist_merge_song_count_format" = "%d曲";
+"artist_merge_write_notice" = "他の参加者を保持して、曲とアルバムのアーティストタグを更新します。元のファイルに書き込めない場合は、変更をローカルに保存します。";
+"artist_merge_result_format" = "%d曲を更新しました。うち%d曲にはローカルのみに保存された変更があります。";

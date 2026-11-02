@@ -6,6 +6,7 @@ struct AlbumGridView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var albumFilter = ""
+    @AppStorage("library.albumReleaseFilter") private var releaseCategory = ""
     /// 右上角菜单里点了「补全缺少的简介」。
     @State private var requestsIntroFill = false
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
@@ -30,7 +31,9 @@ struct AlbumGridView: View {
         Binding(get: { albumOrder }, set: { albumOrderRawValue = $0.rawValue })
     }
 
+    @ViewBuilder
     private func albumMenu(_ album: Album) -> some View {
+        AlbumReleaseCategoryMenu(album: album)
         LibraryCollectionMenuItems(
             isLiked: favorites.isLiked(album),
             toggleLike: { favorites.toggle(album) },
@@ -55,6 +58,9 @@ struct AlbumGridView: View {
     /// 排好的顺序里筛出喜欢的 / 匹配筛选词的，顺序保持。
     private var filteredAlbums: [Album] {
         var albums = sortedAlbums ?? []
+        if let category = AlbumReleaseCategory(rawValue: releaseCategory) {
+            albums = albums.filter { LibraryReleaseCategoryIndex.shared.categories(for: $0, in: library).contains(category) }
+        }
         if showsLikedOnly {
             albums = albums.filter { favorites.isLiked($0) }
         }
@@ -125,10 +131,13 @@ struct AlbumGridView: View {
             #else
             iosGrid(filteredAlbums, isPreparing: sortedAlbums == nil)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    LibraryInsightBatchStatusCard(
-                        kind: .album,
-                        outerPadding: EdgeInsets(top: 6, leading: 16, bottom: 4, trailing: 16)
-                    )
+                    VStack(spacing: 0) {
+                        AlbumReleaseCategoryPicker(selection: $releaseCategory).padding(.horizontal).padding(.vertical, 8)
+                        LibraryInsightBatchStatusCard(
+                            kind: .album,
+                            outerPadding: EdgeInsets(top: 6, leading: 16, bottom: 4, trailing: 16)
+                        )
+                    }
                 }
                 .pmExtendsUnderVerticalBar()
                 .libraryPageFind(text: $albumFilter, prompt: "filter_albums_placeholder")
@@ -257,6 +266,8 @@ struct AlbumGridView: View {
             VStack(spacing: 18) {
                 albumsHeader(displayedCount: albums.count)
                     .padding(.top, 24)
+                AlbumReleaseCategoryPicker(selection: $releaseCategory)
+                    .padding(.horizontal, PMSpace.xxxl)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 18) {
                         LibraryInsightBatchStatusCard(

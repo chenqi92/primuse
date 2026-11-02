@@ -7122,3 +7122,23 @@
 "chapter_generation_resume" = "계속";
 "chapter_generation_discard_job" = "이 작업과 저장된 진행 상황을 삭제할까요?";
 "Song" = "노래";
+
+"release_category" = "발매 유형";
+"release_category_all" = "전체";
+"release_category_album" = "앨범";
+"release_category_single_ep" = "싱글 및 EP";
+"release_category_live" = "라이브";
+"release_category_automatic" = "자동 분류";
+"artist_merge_title" = "아티스트 병합";
+"artist_merge_select" = "아티스트 선택";
+"artist_merge_suggestions" = "중복 의심 아티스트";
+"artist_merge_same_artist" = "같은 아티스트인지 확인";
+"artist_merge_name" = "아티스트 이름";
+"artist_merge_use_name" = "기존 이름 사용";
+"artist_merge_confirm" = "병합 확인";
+"artist_merge_review" = "병합 검토";
+"artist_merge_different" = "다른 아티스트";
+"artist_merge_no_suggestions" = "중복 의심 아티스트가 없습니다.";
+"artist_merge_song_count_format" = "%d곡";
+"artist_merge_write_notice" = "다른 참여자는 유지하고 곡 및 앨범 아티스트 태그를 수정합니다. 원본에 기록할 수 없으면 변경 사항을 로컬에 저장합니다.";
+"artist_merge_result_format" = "%d곡을 업데이트했습니다. %d곡에는 로컬에만 저장된 변경 사항이 있습니다.";
