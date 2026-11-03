@@ -7091,3 +7091,8 @@
 "home_subtabs_double_tap" = "الضغط مرتين على الرئيسية";
 "home_subtabs_trigger_footer" = "تظهر دائمًا عند عدم تحديد إيماءة. عند تحديد إيماءة، تكون مخفية في البداية.";
 "home_subtabs_empty" = "لا توجد عناصر في هذه الفئة";
+
+"lyrics_font_language" = "اللغة";
+"lyrics_font_default" = "الخط الافتراضي";
+"lyrics_font_language_latin" = "الإنجليزية والأحرف اللاتينية";
+"lyrics_font_follow_default" = "استخدام الخط الافتراضي";

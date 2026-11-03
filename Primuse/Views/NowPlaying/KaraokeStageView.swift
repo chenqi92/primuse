@@ -327,8 +327,7 @@ struct KaraokeLyricsStage: View {
                     glowsSungSyllables: true
                 )
             case .previous, .next:
-                Text(line.text)
-                    .font(lyricsTypeface.font(size: fontSize, weight: .semibold))
+                lyricsTypeface.text(line.text, size: fontSize, weight: .semibold)
                     .foregroundStyle(.white.opacity(role == .next ? 0.5 : 0.25))
                     .multilineTextAlignment(side.text)
                     .fixedSize(horizontal: false, vertical: true)

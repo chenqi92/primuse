@@ -19,6 +19,9 @@ struct TVOptionsView: View {
     /// 歌词字体(#332),和 iPhone、Mac 同一份(经 iCloud 同步)。
     @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
     private var lyricsFontRawValue = PlayerTextFont.system.rawValue
+    @AppStorage(LyricsFontLanguage.preferencesKey) private var languageFontsRawValue = ""
+    @State private var fontLanguage: LyricsFontLanguage?
+
     @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
     private var lyricsWeightRawValue = PlayerLyricsWeight.automatic.rawValue
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
@@ -112,15 +115,36 @@ struct TVOptionsView: View {
                 label: String(format: String(localized: "tv_lyrics_font_size_format"), level.title),
                 run: { lyricsFontLevelRawValue = level.next.rawValue }
             ))
-            // 歌词字体:同样就地轮换,只在这台 Apple TV 上装着的几种里转(电视上没有下载字体的入口)。
-            let font = PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
+            song.append(.init(
+                id: "lyricsFontLanguage", icon: "character.bubble",
+                label: String(localized: "lyrics_font_language") + " · " + (fontLanguage?.title ?? String(localized: "lyrics_font_default")),
+                run: {
+                    let scopes: [LyricsFontLanguage?] = [nil] + LyricsFontLanguage.allCases.map(Optional.some)
+                    let index = scopes.firstIndex(of: fontLanguage) ?? 0
+                    fontLanguage = scopes[(index + 1) % scopes.count]
+                }
+            ))
+            let preferences = LyricsLanguageFontPreferences(rawValue: languageFontsRawValue)
+            let selected: String? = fontLanguage == nil ? lyricsFontRawValue : preferences[fontLanguage!]
+            let font = PlayerTextFont(rawValue: selected ?? lyricsFontRawValue) ?? .system
             song.append(.init(
                 id: "lyricsFont", icon: "textformat",
-                label: String(format: String(localized: "tv_lyrics_font_format"), font.localizedTitle),
+                label: String(format: String(localized: "tv_lyrics_font_format"),
+                              selected == nil ? String(localized: "lyrics_font_follow_default") : font.localizedTitle),
                 run: {
-                    let next = Self.nextLyricsFont(after: font, in: PlayerTextFontLibrary.shared.installedFonts())
-                    lyricsFontRawValue = next.rawValue
-                    CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsFontKey)
+                    let installed = PlayerTextFontLibrary.shared.installedFonts()
+                    if let fontLanguage {
+                        var updated = LyricsLanguageFontPreferences(rawValue: languageFontsRawValue)
+                        let choices = [""] + installed.map(\.rawValue)
+                        let index = choices.firstIndex(of: updated[fontLanguage] ?? "") ?? 0
+                        let next = choices[(index + 1) % choices.count]
+                        updated[fontLanguage] = next.isEmpty ? nil : next
+                        languageFontsRawValue = updated.rawValue
+                        CloudKVSSync.shared.markChanged(key: LyricsFontLanguage.preferencesKey)
+                    } else {
+                        lyricsFontRawValue = Self.nextLyricsFont(after: font, in: installed).rawValue
+                        CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsFontKey)
+                    }
                 }
             ))
         }

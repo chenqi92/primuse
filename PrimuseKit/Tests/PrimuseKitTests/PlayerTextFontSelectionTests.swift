@@ -2,6 +2,62 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
+@Suite("Lyrics fonts by language")
+struct LyricsLanguageFontTests {
+    @Test func mixedScriptsKeepEveryCharacter() {
+        let text = "你好 Hello, café! 한국어 👨‍👩‍👧‍👦"
+        let runs = LyricsFontLanguage.runs(in: text)
+        #expect(runs.map(\.text).joined() == text)
+        #expect(runs.map(\.language) == [.korean, .latin, .korean])
+        #expect(LyricsFontLanguage.runs(in: "你好 Hello").map(\.language) == [.chinese, .latin])
+    }
+
+    @Test func japaneseKanjiUsesWholeLineContext() {
+        let context = LyricsFontLanguage.cjkLanguage(in: "世界のどこかで Hello")
+        #expect(context == .japanese)
+        #expect(LyricsFontLanguage.runs(in: "世界", cjkLanguage: context).first?.language == .japanese)
+        #expect(LyricsFontLanguage.runs(in: "Hello", cjkLanguage: context).first?.language == .latin)
+        #expect(LyricsFontLanguage.cjkLanguage(in: "世界 ﾊﾛｰ") == .japanese)
+        #expect(LyricsFontLanguage.runs(in: "時々ハロー").map(\.language) == [.japanese])
+    }
+
+    @Test func chineseVariantsAndExtendedLatin() {
+        #expect(LyricsFontLanguage.runs(in: "简体 繁體 𠮷").map(\.language) == [.chinese])
+        #expect(LyricsFontLanguage.runs(in: "café Tiếng Việt e\u{301}").map(\.language) == [.latin])
+        #expect(LyricsFontLanguage.runs(in: "한글 한").map(\.language) == [.korean])
+    }
+
+    @Test func unsupportedScriptsAndEmptyTextUseDefault() {
+        #expect(LyricsFontLanguage.runs(in: "").isEmpty)
+        #expect(LyricsFontLanguage.runs(in: "مرحبا Привет ไทย").allSatisfy { $0.language == nil })
+        #expect(LyricsFontLanguage.runs(in: "123 🎵").first?.language == nil)
+    }
+
+    @Test func preferencesRoundTripAndResetIndependently() {
+        var preferences = LyricsLanguageFontPreferences()
+        #expect(LyricsFontLanguage.allCases.allSatisfy { preferences[$0] == nil })
+        preferences[.chinese] = "kaiti"
+        preferences[.latin] = "georgia"
+        preferences[.japanese] = "imported:MyJapaneseFont"
+        let restored = LyricsLanguageFontPreferences(rawValue: preferences.rawValue)
+        #expect(restored == preferences)
+        preferences[.chinese] = nil
+        #expect(preferences[.chinese] == nil)
+        #expect(preferences[.latin] == "georgia")
+        #expect(preferences[.japanese] == "imported:MyJapaneseFont")
+    }
+
+    @Test func malformedPreferencesAndRemovedImports() {
+        #expect(LyricsLanguageFontPreferences(rawValue: "broken")[.chinese] == nil)
+        var preferences = LyricsLanguageFontPreferences(rawValue: #"{"chinese":"imported:","latin":"georgia","japanese":"imported:Removed","korean":"imported:Kept"}"#)
+        #expect(preferences[.chinese] == nil)
+        preferences.removeImportedFonts(named: ["Removed"])
+        #expect(preferences[.japanese] == nil)
+        #expect(preferences[.korean] == "imported:Kept")
+        #expect(preferences[.latin] == "georgia")
+    }
+}
+
 @Suite("Player text font selection")
 struct PlayerTextFontSelectionTests {
     @Test("Built-in names stored before imports existed still parse as built-in fonts")

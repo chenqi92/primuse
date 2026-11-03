@@ -210,6 +210,7 @@ struct PrimuseTVApp: App {
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.showsAlbumInSubtitleKey) { }
                     // 歌词字体也跟着 iPhone / Mac 选的走;在电视上换了也推回去,几台设备同一份。
                     CloudKVSSync.shared.register(key: PlayerAppearancePreferences.lyricsFontKey) { }
+                    CloudKVSSync.shared.register(key: LyricsFontLanguage.preferencesKey) { }
                     _ = ArtistNameSettingsStore.shared
                     // 歌词 API 服务的地址列表要有 store 登记才会跟 iCloud 键值同步,扫码直传来的
                     // 也靠它重新载入;电视上以前从没建过它,地址列表一直到不了。

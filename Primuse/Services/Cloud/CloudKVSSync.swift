@@ -761,6 +761,7 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.gradientLyricsEndColorHexKey,
         PlayerAppearancePreferences.lyricsAlignmentKey,
         PlayerAppearancePreferences.lyricsFontKey,
+        LyricsFontLanguage.preferencesKey,
         PlayerAppearancePreferences.lyricsWeightKey,
         PlayerAppearancePreferences.blursInactiveLyricsKey,
         PlayerAppearancePreferences.lyricsMotionKey,

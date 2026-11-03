@@ -1506,7 +1506,7 @@ struct TVNowPlayingView: View {
                 }
             } else {
                 // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
-                Text(ln.text).font(lyricsTypeface.font(size: size, weight: isCur ? .bold : .semibold))
+                lyricsTypeface.text(ln.text, size: size, weight: isCur ? .bold : .semibold)
                     .foregroundStyle(TVColor.text)
                     .modifier(TVLyricGlow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2))
                     .multilineTextAlignment(textAlignment)
@@ -1530,20 +1530,18 @@ struct TVNowPlayingView: View {
                     }
                     .opacity(0.72)
                 } else {
-                    Text(background.text)
-                        .font(lyricsTypeface.font(size: size * 0.7, weight: .semibold))
+                    lyricsTypeface.text(background.text, size: size * 0.7, weight: .semibold)
                         .foregroundStyle(TVColor.text.opacity(0.62))
                         .multilineTextAlignment(textAlignment)
                 }
             }
             if !ln.romanization.isEmpty {
-                Text(ln.romanization).modifier(TVLyricCompanionFont(size: companionSize))
+                TVLyricCompanionText(text: ln.romanization, size: companionSize)
                     .foregroundStyle(TVColor.textFaint)
                     .multilineTextAlignment(textAlignment)
             }
             if !ln.translation.isEmpty {
-                Text(LyricCompanionTextPolicy.displayText(ln.translation))
-                    .modifier(TVLyricCompanionFont(size: companionSize)).italic()
+                TVLyricCompanionText(text: LyricCompanionTextPolicy.displayText(ln.translation), size: companionSize, italic: true)
                     .foregroundStyle(TVColor.textFaint)
                     .multilineTextAlignment(textAlignment)
             }
@@ -1640,6 +1638,7 @@ struct TVKaraokeLine: View {
                 deactivationTime: handoverTime,
                 at: currentTime
             )
+        let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: units.map(\.w).joined())
         TVSyllableFlowLayout(layoutDirection: lyricLayoutDirection, alignment: alignment) {
             ForEach(Array(units.enumerated()), id: \.offset) { i, s in
                 let active = i < state.index
@@ -1654,10 +1653,10 @@ struct TVKaraokeLine: View {
                         at: currentTime
                     ) * hold
                     : 0
-                Text(s.w)
+                lyricsTypeface.text(s.w, size: size, weight: .bold, cjkLanguage: cjkLanguage)
                     .foregroundStyle(TVColor.textGhost)
                     .overlay(alignment: .leading) {
-                        Text(s.w)
+                        lyricsTypeface.text(s.w, size: size, weight: .bold, cjkLanguage: cjkLanguage)
                             .foregroundStyle(TVColor.text)
                             .mask {
                                 GeometryReader { g in
@@ -1688,16 +1687,18 @@ struct TVKaraokeLine: View {
 
 /// 注音、译文的字体:选了歌词字体时跟着换(和主歌词一样按字号定死),系统字体时照旧走电视的字号档,
 /// 随系统文字尺寸缩放。
-private struct TVLyricCompanionFont: ViewModifier {
+private struct TVLyricCompanionText: View {
+    let text: String
     let size: CGFloat
-
+    var italic = false
     @Environment(\.lyricsTypeface) private var lyricsTypeface
 
-    func body(content: Content) -> some View {
-        if lyricsTypeface.drawsSystemFont {
-            content.tvFont(size: size, weight: lyricsTypeface.weightSelection.resolve(.regular), relativeTo: .caption)
+    var body: some View {
+        if lyricsTypeface.languageFonts.isEmpty, lyricsTypeface.drawsSystemFont {
+            Text(verbatim: text).italic(italic)
+                .tvFont(size: size, weight: lyricsTypeface.weightSelection.resolve(.regular), relativeTo: .caption)
         } else {
-            content.font(lyricsTypeface.font(size: size))
+            lyricsTypeface.text(text, size: size).italic(italic)
         }
     }
 }

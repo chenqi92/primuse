@@ -7278,3 +7278,8 @@
 "home_subtabs_double_tap" = "双击首页";
 "home_subtabs_trigger_footer" = "未选择触发方式时始终显示；选择后默认收起。";
 "home_subtabs_empty" = "此分类暂无内容";
+
+"lyrics_font_language" = "语言";
+"lyrics_font_default" = "默认字体";
+"lyrics_font_language_latin" = "英语及西文";
+"lyrics_font_follow_default" = "使用默认字体";

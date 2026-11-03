@@ -7162,3 +7162,8 @@
 "home_subtabs_double_tap" = "點兩下首頁";
 "home_subtabs_trigger_footer" = "未選擇觸發方式時持續顯示；選擇後預設收合。";
 "home_subtabs_empty" = "此分類尚無內容";
+
+"lyrics_font_language" = "語言";
+"lyrics_font_default" = "預設字體";
+"lyrics_font_language_latin" = "英語及西文";
+"lyrics_font_follow_default" = "使用預設字體";

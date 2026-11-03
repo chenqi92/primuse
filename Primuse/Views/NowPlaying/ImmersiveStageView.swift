@@ -1023,8 +1023,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .accessibilityHidden(!isActive)
             }
             if let active, activeTokens.isEmpty {
-                Text(active.text)
-                    .font(lyricsTypeface.font(size: kineticFontSize(for: active.text, width: width), weight: .bold))
+                lyricsTypeface.text(active.text, size: kineticFontSize(for: active.text, width: width), weight: .bold)
                     .foregroundStyle(ImmersiveStagePalette.ink)
                     .multilineTextAlignment(.center)
                     .lineLimit(kineticMaximumLines)
@@ -1358,8 +1357,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             }
 
             ForEach(line.companions.indices, id: \.self) { slot in
-                Text(line.companions[slot])
-                    .font(lyricsTypeface.font(size: fontSize * 0.42, weight: .medium))
+                lyricsTypeface.text(line.companions[slot], size: fontSize * 0.42, weight: .medium)
                     .foregroundStyle(ImmersiveStagePalette.text.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -2134,8 +2132,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 )
             }
             ForEach(line.companions.indices, id: \.self) { slot in
-                Text(line.companions[slot])
-                    .font(lyricsTypeface.font(size: fontSize * 0.55, weight: .medium))
+                lyricsTypeface.text(line.companions[slot], size: fontSize * 0.55, weight: .medium)
                     .foregroundStyle(
                         ImmersiveStagePalette.text.opacity(line.isActive ? 0.62 : 0.34)
                     )
@@ -2198,8 +2195,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     )
                 }
             } else {
-                Text(line.text)
-                    .font(lyricsTypeface.font(size: fontSize, weight: .medium))
+                lyricsTypeface.text(line.text, size: fontSize, weight: .medium)
                     .foregroundStyle(ImmersiveStagePalette.text.opacity(0.42))
                     .multilineTextAlignment(textAlignment)
                     .lineLimit(lineLimit)
@@ -2250,11 +2246,8 @@ struct ImmersiveStageView<Artwork: View>: View {
                     progress: line.fillProgress ?? 1
                 )
             } else {
-                Text(line.text)
-                    .font(lyricsTypeface.font(
-                        size: fontSize,
-                        weight: line.offset < 0 ? .regular : .medium
-                    ))
+                lyricsTypeface.text(line.text, size: fontSize,
+                                    weight: line.offset < 0 ? .regular : .medium)
                     .foregroundStyle(
                         ImmersiveStagePalette.text.opacity(line.offset < 0 ? 0.30 : 0.56)
                     )
@@ -2347,8 +2340,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     ) -> some View {
         let clampedProgress = min(1, max(0, progress))
         let lineWritingDirection = writingDirection(for: line)
-        let text = Text(line.text)
-            .font(lyricsTypeface.font(size: fontSize, weight: .bold))
+        let text = lyricsTypeface.text(line.text, size: fontSize, weight: .bold)
             .multilineTextAlignment(textAlignment)
             .lineLimit(lineLimit)
             .minimumScaleFactor(0.72)
@@ -2366,6 +2358,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     .mask {
                         ImmersiveLyricFillMask(
                             progress: clampedProgress,
+                            text: line.text,
                             fontSize: fontSize,
                             isRightToLeft: lineWritingDirection == .rightToLeft
                         )
@@ -2865,6 +2858,7 @@ private struct ImmersiveGalleryBackdrop: View {
 
 private struct ImmersiveLyricFillMask: View {
     let progress: Double
+    let text: String
     let fontSize: CGFloat
     let isRightToLeft: Bool
 
@@ -2902,9 +2896,10 @@ private struct ImmersiveLyricFillMask: View {
 
     /// 用同一字号量一行文字的高度,据此判断整段被折成了几行。
     private var rowHeightProbe: some View {
-        Text(verbatim: "M")
-            .font(lyricsTypeface.font(size: fontSize, weight: .bold))
+        let sample = lyricsTypeface.languageFonts.isEmpty ? "M" : text.replacingOccurrences(of: "\n", with: " ")
+        return lyricsTypeface.text(sample, size: fontSize, weight: .bold)
             .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: true)
             .hidden()
             .background {
                 GeometryReader { probe in

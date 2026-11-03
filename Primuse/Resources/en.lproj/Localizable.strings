@@ -6946,3 +6946,8 @@
 "home_subtabs_double_tap" = "Double-tap Home";
 "home_subtabs_trigger_footer" = "Always shown when no gesture is selected. Selecting a gesture hides them initially.";
 "home_subtabs_empty" = "No items in this category";
+
+"lyrics_font_language" = "Language";
+"lyrics_font_default" = "Default font";
+"lyrics_font_language_latin" = "English & Latin scripts";
+"lyrics_font_follow_default" = "Use default font";

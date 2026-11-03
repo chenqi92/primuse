@@ -7185,3 +7185,8 @@
 "home_subtabs_double_tap" = "Start doppelt antippen";
 "home_subtabs_trigger_footer" = "Ohne ausgewählte Geste immer sichtbar. Mit einer Geste zunächst ausgeblendet.";
 "home_subtabs_empty" = "Keine Einträge in dieser Kategorie";
+
+"lyrics_font_language" = "Sprache";
+"lyrics_font_default" = "Standardschrift";
+"lyrics_font_language_latin" = "Englisch und lateinische Schrift";
+"lyrics_font_follow_default" = "Standardschrift verwenden";

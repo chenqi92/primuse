@@ -7091,3 +7091,8 @@
 "home_subtabs_double_tap" = "Двічі торкнутися «Головна»";
 "home_subtabs_trigger_footer" = "Завжди видимі, якщо жест не вибрано. Після вибору жесту спочатку приховані.";
 "home_subtabs_empty" = "У цій категорії поки немає елементів";
+
+"lyrics_font_language" = "Мова";
+"lyrics_font_default" = "Типовий шрифт";
+"lyrics_font_language_latin" = "Англійська та латиниця";
+"lyrics_font_follow_default" = "Використовувати типовий шрифт";

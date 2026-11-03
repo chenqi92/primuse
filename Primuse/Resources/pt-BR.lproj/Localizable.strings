@@ -7091,3 +7091,8 @@
 "home_subtabs_double_tap" = "Tocar duas vezes em Início";
 "home_subtabs_trigger_footer" = "Sempre visíveis sem um gesto selecionado. Ao selecionar um, ficam ocultas inicialmente.";
 "home_subtabs_empty" = "Nenhum item nesta categoria";
+
+"lyrics_font_language" = "Idioma";
+"lyrics_font_default" = "Fonte padrão";
+"lyrics_font_language_latin" = "Inglês e alfabeto latino";
+"lyrics_font_follow_default" = "Usar fonte padrão";

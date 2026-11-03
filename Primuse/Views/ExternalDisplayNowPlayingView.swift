@@ -189,8 +189,7 @@ struct ExternalDisplayNowPlayingView: View {
                 let current = realIndex == index
                 let distance = abs(realIndex - index)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(line.text)
-                        .font(lyricsTypeface.font(size: current ? 42 : 28, weight: current ? .bold : .semibold))
+                    lyricsTypeface.text(line.text, size: current ? 42 : 28, weight: current ? .bold : .semibold)
                         .foregroundStyle(current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -202,8 +201,7 @@ struct ExternalDisplayNowPlayingView: View {
                             background,
                             at: player.currentTime
                         )
-                        Text(background.text)
-                            .font(lyricsTypeface.font(size: current ? 28 : 22, weight: .medium))
+                        lyricsTypeface.text(background.text, size: current ? 28 : 22, weight: .medium)
                             .foregroundStyle(
                                 Color.white.opacity(isBackgroundActive ? 0.82 : 0.38)
                             )

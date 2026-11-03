@@ -1386,8 +1386,7 @@ struct ImmersiveAmbientRestOverlay: View {
                     .monospacedDigit()
                     .foregroundStyle(ImmersiveStagePalette.ink)
                 if let lyric {
-                    Text(lyric)
-                        .font(lyricsTypeface.font(size: lineSize, weight: .medium))
+                    lyricsTypeface.text(lyric, size: lineSize, weight: .medium)
                         .foregroundStyle(ImmersiveStagePalette.text.opacity(0.78))
                         .lineLimit(2)
                 }

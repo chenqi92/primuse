@@ -7185,3 +7185,8 @@
 "home_subtabs_double_tap" = "Toucher deux fois Accueil";
 "home_subtabs_trigger_footer" = "Toujours affichés si aucun geste n’est sélectionné. Sinon, masqués au départ.";
 "home_subtabs_empty" = "Aucun élément dans cette catégorie";
+
+"lyrics_font_language" = "Langue";
+"lyrics_font_default" = "Police par défaut";
+"lyrics_font_language_latin" = "Anglais et alphabet latin";
+"lyrics_font_follow_default" = "Utiliser la police par défaut";

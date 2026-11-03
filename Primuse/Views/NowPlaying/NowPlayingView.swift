@@ -13546,9 +13546,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     @Binding var pitchSemitones: Int
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
-    /// 歌词字体(#332),和设置里那一排字体块同一个键。
-    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
-    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
     /// 歌词页换句时整份滚动还是层叠弹性,和设置 › 歌词里同一个键。
     @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
     private var lyricsScrollMotionRawValue = PlayerLyricsMotion.defaultValue.rawValue
@@ -13611,48 +13608,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             && lhs.immersiveChrome == rhs.immersiveChrome
             && lhs.chromeGlass == rhs.chromeGlass
             && lhs.plainLabel == rhs.plainLabel
-    }
-
-    /// 字体菜单的选中项:导入的字体一个家族列一项,选中的是同家族另一种字重时也勾在这一项上。
-    private var lyricsFontSelection: Binding<String> {
-        Binding(
-            get: {
-                PlayerTextFontLibrary.shared
-                    .pickerFont(for: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system)
-                    .rawValue
-            },
-            set: { lyricsFontRawValue = $0 }
-        )
-    }
-
-    /// 「我导入的」一组;选中的导入字体这台设备上没有(别的设备导入、随 iCloud 同步来的)时也列出来、
-    /// 标明没有,菜单里才勾得上它(说明与导入在设置的字体那一行)。
-    @ViewBuilder
-    private var importedLyricsFontSection: some View {
-        let library = PlayerTextFontLibrary.shared
-        let missingName = missingImportedLyricsFontName
-        if !library.importedFonts.isEmpty || missingName != nil {
-            Section(String(localized: "transcript_reader_font_group_imported")) {
-                ForEach(library.importedFonts) { entry in
-                    Text(verbatim: entry.title)
-                        .tag(PlayerTextFont.imported(postScriptName: entry.postScriptName).rawValue)
-                }
-                if let missingName {
-                    Text(verbatim: String(
-                        format: String(localized: "transcript_reader_font_imported_missing_short"),
-                        missingName
-                    ))
-                    .tag(PlayerTextFont.imported(postScriptName: missingName).rawValue)
-                }
-            }
-        }
-    }
-
-    private var missingImportedLyricsFontName: String? {
-        guard case let .imported(name)? = PlayerTextFont(rawValue: lyricsFontRawValue),
-              PlayerTextFontLibrary.shared.state(of: .imported(postScriptName: name)) == .unavailable
-        else { return nil }
-        return name
     }
 
     /// 文字稿时间:这一集 / 这本书往前、往后挪。iPhone 上点了菜单不收起,能连着点几下(#320)。
@@ -14159,22 +14114,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     .pickerStyle(.menu)
 
-                    // 要下载的字体选了就开始下,下好之前先用系统字体(下载进度与失败在设置的字体块上)。
-                    // 和设置里的字体块一样按组列,导入的字体单独一组(导入、删除在设置里)。
-                    Picker(selection: lyricsFontSelection) {
-                        ForEach(PlayerTextFont.Category.allCases, id: \.self) { category in
-                            Section(category.title) {
-                                ForEach(category.fonts, id: \.self) { builtin in
-                                    PlayerTextFont.builtin(builtin).title
-                                        .tag(PlayerTextFont.builtin(builtin).rawValue)
-                                }
-                            }
-                        }
-                        importedLyricsFontSection
-                    } label: {
-                        Label(String(localized: "transcript_font"), systemImage: "textformat")
-                    }
-                    .pickerStyle(.menu)
+                    LyricsLanguageFontMenu()
 
                     Picker(selection: $lyricsScrollMotionRawValue) {
                         ForEach(PlayerLyricsMotion.allCases) { motion in
@@ -14755,6 +14695,7 @@ private struct NowPlayingArtworkLyricPreview: View {
             statusTint: appearance.tertiary,
             font: lyricsTypeface.font(size: fontSize),
             emphasizedFont: lyricsTypeface.font(size: fontSize, weight: .semibold),
+            lyricFontSize: fontSize,
             lineHeight: lineHeight,
             rowCount: rowCount,
             pastOpacity: appearance.pastLyricOpacity,
@@ -14806,6 +14747,7 @@ private struct NowPlayingLyricPreview: View {
     var font: Font?
     /// 正在唱的那句用的字体(竖屏加粗);没给时和 `font` 一样。
     var emphasizedFont: Font?
+    var lyricFontSize: CGFloat?
     let lineHeight: CGFloat
     /// 几行;大于 1 时唱过的、接下来的几句按这两个浓淡调淡(和歌词页一样)。
     var rowCount = 1
@@ -14849,7 +14791,13 @@ private struct NowPlayingLyricPreview: View {
             : lyricsTypeface.font(size: calloutSize)
     }
 
-    private var lineFont: Font { emphasizedFont ?? resolvedFont }
+    private func lyricText(_ text: String) -> Text {
+        guard !lyricsTypeface.languageFonts.isEmpty else {
+            return Text(verbatim: text).font(emphasizedFont ?? resolvedFont)
+        }
+        return lyricsTypeface.text(text, size: lyricFontSize ?? calloutSize,
+                                   weight: emphasizedFont == nil ? .regular : .semibold)
+    }
 
     private var followIdentity: FollowIdentity {
         FollowIdentity(
@@ -14956,8 +14904,7 @@ private struct NowPlayingLyricPreview: View {
                     switch item.row {
                     case .line(let index, let role):
                         if lyrics.indices.contains(index) {
-                            Text(verbatim: lyrics[index].text)
-                                .font(lineFont)
+                            lyricText(lyrics[index].text)
                                 .foregroundStyle(tint)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -14996,8 +14943,7 @@ private struct NowPlayingLyricPreview: View {
             Color.clear
         case .line(let index):
             if lyrics.indices.contains(index) {
-                Text(verbatim: lyrics[index].text)
-                    .font(lineFont)
+                lyricText(lyrics[index].text)
                     .foregroundStyle(tint)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -16549,8 +16495,7 @@ struct LyricsScrollView: View {
             // medium weight, 视觉上是 secondary; 设置里可以单独调(#320)。注音和译文
             // 共用一个时间戳时两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
             ForEach(companions.indices, id: \.self) { slot in
-                Text(companions[slot])
-                    .font(lyricsTypeface.font(size: companionFontSize, weight: .medium))
+                lyricsTypeface.text(companions[slot], size: companionFontSize, weight: .medium)
                     .foregroundStyle(
                         dimmedByAmbient
                             ? appearance.secondary
@@ -16605,8 +16550,7 @@ struct LyricsScrollView: View {
 
                     let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
                     ForEach(backgroundCompanions.indices, id: \.self) { slot in
-                        Text(backgroundCompanions[slot])
-                            .font(lyricsTypeface.font(size: companionFontSize * 0.7, weight: .medium))
+                        lyricsTypeface.text(backgroundCompanions[slot], size: companionFontSize * 0.7, weight: .medium)
                             .foregroundStyle(appearance.secondary)
                             .multilineTextAlignment(rowAlignment.textAlignment)
                             .fixedSize(horizontal: false, vertical: true)
@@ -16716,8 +16660,7 @@ struct LyricsScrollView: View {
                 glowsSungSyllables: !appearance.isLight
             )
         } else {
-            Text(line.text)
-                .font(lyricsTypeface.font(size: fontSize, weight: weight))
+            lyricsTypeface.text(line.text, size: fontSize, weight: weight)
                 .foregroundStyle(lyricLineStyle(
                     isActive: isActive,
                     index: index,

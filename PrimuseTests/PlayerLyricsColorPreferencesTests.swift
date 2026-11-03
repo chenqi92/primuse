@@ -1158,6 +1158,22 @@ final class PlayerTypographyAndTrackTests: XCTestCase {
         XCTAssertEqual(bold.font(size: 26), Font.system(size: 26, weight: .bold))
     }
 
+    func testLanguageFontsPreserveDefaultAndInvalidateWordLayout() {
+        let original = LyricsTypeface(family: .builtin(.rounded))
+        var multilingual = original
+        multilingual.languageFonts = [.chinese: .builtin(.kaiti), .latin: .builtin(.georgia)]
+        XCTAssertEqual(multilingual.resolved(for: .chinese).family, .builtin(.kaiti))
+        XCTAssertEqual(multilingual.resolved(for: .latin).family, .builtin(.georgia))
+        XCTAssertEqual(multilingual.resolved(for: .japanese).family, original.family)
+        XCTAssertEqual(multilingual.resolved(for: nil).family, original.family)
+        XCTAssertNotEqual(LyricsFlowMeasurementKey(typeface: original), LyricsFlowMeasurementKey(typeface: multilingual))
+        let available = multilingual
+        multilingual.unavailableLanguageFonts = [.chinese]
+        XCTAssertEqual(multilingual.resolved(for: .chinese).font(size: 26), Font.system(size: 26, weight: .regular))
+        XCTAssertEqual(multilingual.resolved(for: .latin).font(size: 26), PlayerTextFont.builtin(.georgia).font(size: 26))
+        XCTAssertNotEqual(LyricsFlowMeasurementKey(typeface: available), LyricsFlowMeasurementKey(typeface: multilingual))
+    }
+
     func testEveryTrackStyleStillGrowsOnPressAndRetainsItsKnobAndHitTarget() {
         for appearance in NowPlayingProgressStyle.allCases {
             let base = ProgressSlider.TrackStyle.forProgressStyle(appearance)
@@ -1177,6 +1193,7 @@ final class PlayerTypographyAndTrackTests: XCTestCase {
 
     func testNewPreferencesJoinTheExistingInterfaceSyncSet() {
         for key in [PlayerAppearancePreferences.lyricsWeightKey,
+                    LyricsFontLanguage.preferencesKey,
                     PlayerAppearancePreferences.progressThicknessKey,
                     PlayerAppearancePreferences.volumeThicknessKey] {
             XCTAssertTrue(InterfaceLayoutSync.keys.contains(key))

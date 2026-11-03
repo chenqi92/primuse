@@ -42,8 +42,9 @@ struct ImmersiveKineticLyricText: View {
 
     /// 逐字拼回整句，每个字标上下标，绘制时按下标取它此刻的样子。
     private var indexedText: Text {
-        tokens.indices.reduce(Text(verbatim: "")) { text, index in
-            let token = Text(verbatim: tokens[index].text)
+        let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: tokens.map(\.text).joined())
+        return tokens.indices.reduce(Text(verbatim: "")) { text, index in
+            let token = lyricsTypeface.text(tokens[index].text, size: fontSize, weight: .bold, cjkLanguage: cjkLanguage)
                 .customAttribute(ImmersiveKineticTokenIndex(index: index))
             guard index > 0, !separator.isEmpty else { return Text("\(text)\(token)") }
             return Text("\(text)\(Text(verbatim: separator))\(token)")

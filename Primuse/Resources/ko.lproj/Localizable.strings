@@ -7185,3 +7185,8 @@
 "home_subtabs_double_tap" = "홈 두 번 탭하기";
 "home_subtabs_trigger_footer" = "동작을 선택하지 않으면 항상 표시됩니다. 동작을 선택하면 처음에는 숨겨집니다.";
 "home_subtabs_empty" = "이 카테고리에 항목이 없습니다";
+
+"lyrics_font_language" = "언어";
+"lyrics_font_default" = "기본 글꼴";
+"lyrics_font_language_latin" = "영어 및 라틴 문자";
+"lyrics_font_follow_default" = "기본 글꼴 사용";

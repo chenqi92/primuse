@@ -827,8 +827,7 @@ struct MacMiniPlayerView: View {
                 deactivationTime: line.voice == .secondary ? line.endTime : nil
             )
         } else {
-            Text(line.text)
-                .font(lyricsTypeface.font(size: fontSize, weight: weight))
+            lyricsTypeface.text(line.text, size: fontSize, weight: weight)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .opacity(isActive ? 1 : 0.55)
                 .multilineTextAlignment(.center)

@@ -996,8 +996,7 @@ struct PreviewLyricLines: View {
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     // 第二句是正在唱的,上面一句唱过了,下面几句还没到。
                     let isCurrent = index == 1
-                    Text(verbatim: line)
-                        .font(lyricsTypeface.font(size: fontSize, weight: .semibold))
+                    lyricsTypeface.text(line, size: fontSize, weight: .semibold)
                         .multilineTextAlignment(alignment.textAlignment)
                         .foregroundStyle(tint.opacity(isCurrent ? 1 : (index < 1 ? pastOpacity : futureOpacity)))
                         .padding(alignment == .trailing ? .leading : .trailing, isCurrent && alignment != .center ? squeeze : 0)
@@ -1109,8 +1108,7 @@ private struct PreviewArtworkLyricRows: View {
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(0..<count, id: \.self) { row in
                 let index = first + row
-                Text(verbatim: demo.indices.contains(index) ? demo[index] : "")
-                    .font(lyricsTypeface.font(size: fontSize, weight: .semibold))
+                lyricsTypeface.text(demo.indices.contains(index) ? demo[index] : "", size: fontSize, weight: .semibold)
                     .foregroundStyle(appearance.primary)
                     .opacity(row == anchor ? 1 : (row < anchor ? appearance.pastLyricOpacity : appearance.futureLyricOpacity))
                     .lineLimit(1)

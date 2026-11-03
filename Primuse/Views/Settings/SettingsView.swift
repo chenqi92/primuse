@@ -369,10 +369,6 @@ struct LyricsAppearanceSections: View {
     private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale: Double = 0
-    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
-    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
-    @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
-    private var lyricsWeightRawValue = PlayerLyricsWeight.automatic.rawValue
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.lyricsMotionKey)
@@ -512,14 +508,7 @@ struct LyricsAppearanceSections: View {
             // 歌词字体(#332):与 Mac 设置、播放页「更多」里同一个键(随 iCloud 同步)。
             VStack(alignment: .leading, spacing: 6) {
                 Text("transcript_font")
-                PlayerTextFontPicker(selection: $lyricsFontRawValue, sampleWeight: PlayerLyricsWeight.resolved(lyricsWeightRawValue).resolve(.semibold))
-                if let message = PlayerTextFontLibrary.shared.failureMessage(
-                    for: PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
-                ) {
-                    Text(verbatim: message)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                LyricsLanguageFontPicker()
             }
             .settingsAnchor("lyrics.font")
             LyricsWeightPicker()

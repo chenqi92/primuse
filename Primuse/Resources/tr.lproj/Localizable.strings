@@ -7091,3 +7091,8 @@
 "home_subtabs_double_tap" = "Ana Sayfa’ya çift dokun";
 "home_subtabs_trigger_footer" = "Hareket seçilmezse her zaman gösterilir. Bir hareket seçilirse başlangıçta gizlenir.";
 "home_subtabs_empty" = "Bu kategoride öğe yok";
+
+"lyrics_font_language" = "Dil";
+"lyrics_font_default" = "Varsayılan yazı tipi";
+"lyrics_font_language_latin" = "İngilizce ve Latin alfabesi";
+"lyrics_font_follow_default" = "Varsayılan yazı tipini kullan";

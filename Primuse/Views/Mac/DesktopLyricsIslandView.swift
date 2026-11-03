@@ -206,7 +206,7 @@ struct DesktopLyricsIslandView: View {
         switch compactLine {
         case .lyric(let text):
             // 按画出来的那种字体量,换了宽一些的西文字体时岛也跟着放宽,不会被截掉。
-            return Self.textWidth(text, font: lyricsTypeface.nsFont(size: lyricFontSize, weight: .semibold)) + 4
+            return lyricsTypeface.textWidth(text, size: lyricFontSize, weight: .semibold) + 4
         case .nowPlaying(let title, let artist):
             var width = Self.textWidth(title, size: 13, weight: .semibold)
             if let artist {
@@ -350,8 +350,7 @@ struct DesktopLyricsIslandView: View {
     private var compactLineView: some View {
         switch compactLine {
         case .lyric(let text):
-            Text(text)
-                .font(lyricsTypeface.font(size: lyricFontSize, weight: .semibold))
+            lyricsTypeface.text(text, size: lyricFontSize, weight: .semibold)
                 .foregroundStyle(lyricTint)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -551,8 +550,7 @@ struct DesktopLyricsIslandView: View {
             .frame(maxWidth: .infinity)
             if !player.isLiveRadio, let next = nextLyricLine,
                !next.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(next.text)
-                    .font(lyricsTypeface.font(size: 12.5, weight: .medium))
+                lyricsTypeface.text(next.text, size: 12.5, weight: .medium)
                     .foregroundStyle(.white.opacity(0.4))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -587,8 +585,7 @@ struct DesktopLyricsIslandView: View {
                 )
                 .lineLimit(2)
             } else {
-                Text(line.text)
-                    .font(lyricsTypeface.font(size: 17, weight: .semibold))
+                lyricsTypeface.text(line.text, size: 17, weight: .semibold)
                     .foregroundStyle(lyricTint)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)

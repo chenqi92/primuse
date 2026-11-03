@@ -54,8 +54,10 @@ struct ImmersiveSyllableCrestText: View {
 
     /// 逐字拼回整句（字里自带词间空格），每个字标上下标，绘制时按下标取它此刻的状态。
     private var indexedText: Text {
-        syllables.indices.reduce(Text(verbatim: "")) { text, index in
-            let syllable = Text(verbatim: syllables[index].text)
+        let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: syllables.map(\.text).joined())
+        let size = fittedFontSize
+        return syllables.indices.reduce(Text(verbatim: "")) { text, index in
+            let syllable = lyricsTypeface.text(syllables[index].text, size: size, weight: .bold, cjkLanguage: cjkLanguage)
                 .customAttribute(ImmersiveSyllableIndex(index: index))
             return Text("\(text)\(syllable)")
         }

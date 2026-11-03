@@ -7091,3 +7091,8 @@
 "home_subtabs_double_tap" = "Stuknij dwukrotnie Początek";
 "home_subtabs_trigger_footer" = "Zawsze widoczne, gdy nie wybrano gestu. Po wybraniu gestu są początkowo ukryte.";
 "home_subtabs_empty" = "Brak elementów w tej kategorii";
+
+"lyrics_font_language" = "Język";
+"lyrics_font_default" = "Czcionka domyślna";
+"lyrics_font_language_latin" = "Angielski i alfabet łaciński";
+"lyrics_font_follow_default" = "Użyj czcionki domyślnej";

@@ -1577,8 +1577,7 @@ struct MacNowPlayingView: View {
             translatedText: lyricTranslationsByLineID[line.id]
         )
         ForEach(companions.indices, id: \.self) { slot in
-            Text(LyricCompanionTextPolicy.displayText(companions[slot]))
-                .font(lyricsTypeface.font(size: fontSize * 0.62, weight: .medium))
+            lyricsTypeface.text(LyricCompanionTextPolicy.displayText(companions[slot]), size: fontSize * 0.62, weight: .medium)
                 .foregroundStyle(playerSecondaryColor)
                 .lineSpacing(1)
                 .multilineTextAlignment(textAlignment)
@@ -1614,8 +1613,7 @@ struct MacNowPlayingView: View {
             )
             .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
         } else {
-            Text(line.text)
-                .font(lyricsTypeface.font(size: fontSize, weight: weight))
+            lyricsTypeface.text(line.text, size: fontSize, weight: weight)
                 .foregroundStyle(playerPrimaryColor)
                 .lineSpacing(2)
                 .multilineTextAlignment(textAlignment)

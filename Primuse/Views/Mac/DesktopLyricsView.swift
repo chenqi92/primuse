@@ -324,8 +324,7 @@ struct DesktopLyricsView: View {
                 desktopLyricLine(active, size: activeFontSize(in: size), color: lyricsColor)
                     .multilineTextAlignment(.center)
             } else {
-                Text(placeholder)
-                    .font(lyricsTypeface.font(size: activeFontSize(in: size), weight: .semibold))
+                lyricsTypeface.text(placeholder, size: activeFontSize(in: size), weight: .semibold)
                     .foregroundStyle(lyricsColor)
                     .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                     .lineLimit(2)
@@ -338,8 +337,7 @@ struct DesktopLyricsView: View {
                     desktopLyricLine(active, size: activeFontSize(in: size), color: lyricsColor)
                         .multilineTextAlignment(.center)
                 } else {
-                    Text(placeholder)
-                        .font(lyricsTypeface.font(size: activeFontSize(in: size), weight: .semibold))
+                    lyricsTypeface.text(placeholder, size: activeFontSize(in: size), weight: .semibold)
                         .foregroundStyle(lyricsColor)
                         .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                         .lineLimit(2)
@@ -349,8 +347,7 @@ struct DesktopLyricsView: View {
                 if let next {
                     // 下一行只是提示,保持默认白 — 用户调的颜色只染当前行,
                     // 否则两行同色会让"哪句正在唱"的视觉重点丢失。
-                    Text(next.text)
-                        .font(lyricsTypeface.font(size: nextFontSize(in: size), weight: .medium))
+                    lyricsTypeface.text(next.text, size: nextFontSize(in: size), weight: .medium)
                         .foregroundStyle(.white.opacity(0.6))
                         .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
                         .lineLimit(1)
@@ -446,8 +443,7 @@ struct DesktopLyricsView: View {
             )
             .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
         } else {
-            Text(line.text)
-                .font(lyricsTypeface.font(size: size, weight: weight))
+            lyricsTypeface.text(line.text, size: size, weight: weight)
                 .foregroundStyle(color)
                 .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
                 .lineLimit(2)
@@ -501,10 +497,11 @@ struct DesktopLyricsView: View {
     /// 30 字会冲到 2640pt 把 panel 撑超出屏。
     private func verticalColumn(_ text: String, fontSize: CGFloat,
                                 weight: Font.Weight, color: Color) -> some View {
-        VStack(spacing: 0) {
+        let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: text)
+        return VStack(spacing: 0) {
             ForEach(Array(text.enumerated()), id: \.offset) { _, char in
-                Text(String(char))
-                    .font(lyricsTypeface.font(size: fontSize, weight: weight))
+                lyricsTypeface.text(String(char), size: fontSize, weight: weight,
+                                    cjkLanguage: cjkLanguage)
                     .foregroundStyle(color)
                     .shadow(color: .black.opacity(0.55), radius: 5, y: 2)
                     .frame(height: fontSize * Self.verticalLineHeightFactor)
@@ -519,12 +516,13 @@ struct DesktopLyricsView: View {
                                     inactiveColor: Color) -> some View {
         // 整句或词组只打一个时间时先拆成单字，不然一整块横着塞进这一列。
         let syllables = LyricSyllableLayoutPolicy.layoutSyllables(line.syllables ?? [])
+        let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: line.text)
         return TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
             let now = player.interpolatedTime(at: context.date)
             VStack(spacing: 0) {
                 ForEach(Array(syllables.enumerated()), id: \.offset) { _, syllable in
-                    Text(syllable.text)
-                        .font(lyricsTypeface.font(size: fontSize, weight: weight))
+                    lyricsTypeface.text(syllable.text, size: fontSize, weight: weight,
+                                        cjkLanguage: cjkLanguage)
                         .foregroundStyle(verticalSyllableColor(syllable, now: now,
                                                                active: activeColor,
                                                                inactive: inactiveColor))

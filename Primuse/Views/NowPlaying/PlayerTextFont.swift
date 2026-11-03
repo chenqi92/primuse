@@ -478,11 +478,32 @@ struct LyricsTypeface: Equatable {
     var family: PlayerTextFont = .system
     var isAvailable = true
     var weightSelection: PlayerLyricsWeight = .automatic
+    var languageFonts: [LyricsFontLanguage: PlayerTextFont] = [:]
+    var unavailableLanguageFonts: Set<LyricsFontLanguage> = []
 
     static let system = LyricsTypeface()
 
     func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
         family.font(size: size, weight: weightSelection.resolve(weight), isAvailable: isAvailable)
+    }
+
+    func resolved(for language: LyricsFontLanguage?) -> Self {
+        guard let language, let font = languageFonts[language] else { return self }
+        var result = self
+        result.family = font
+        result.isAvailable = !unavailableLanguageFonts.contains(language)
+        return result
+    }
+
+    func text(_ value: String, size: CGFloat, weight: Font.Weight = .regular,
+              cjkLanguage: LyricsFontLanguage? = nil) -> Text {
+        guard !languageFonts.isEmpty else {
+            return Text(verbatim: value).font(font(size: size, weight: weight))
+        }
+        return LyricsFontLanguage.runs(in: value, cjkLanguage: cjkLanguage).reduce(Text(verbatim: "")) { text, run in
+            let part = Text(verbatim: run.text).font(resolved(for: run.language).font(size: size, weight: weight))
+            return Text("\(text)\(part)")
+        }
     }
 
     /// 真正画出来的是不是系统字体(没选别的,或选的还没下好、这台设备没有)。
@@ -502,23 +523,42 @@ struct LyricsTypefaceProvider: ViewModifier {
     private var rawValue = PlayerTextFont.system.rawValue
     @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
     private var weightRawValue = PlayerLyricsWeight.automatic.rawValue
+    @AppStorage(LyricsFontLanguage.preferencesKey) private var languageFontsRawValue = ""
 
     func body(content: Content) -> some View {
         let family = PlayerTextFont(rawValue: rawValue) ?? .system
+        let preferences = LyricsLanguageFontPreferences(rawValue: languageFontsRawValue)
+        let languageFonts = Dictionary(uniqueKeysWithValues: LyricsFontLanguage.allCases.compactMap { language in
+            preferences[language].flatMap(PlayerTextFont.init(rawValue:)).map { (language, $0) }
+        })
+        let library = PlayerTextFontLibrary.shared
+        let fonts = [family] + LyricsFontLanguage.allCases.compactMap { languageFonts[$0] }
         content
             .environment(\.lyricsTypeface, LyricsTypeface(
                 family: family,
                 isAvailable: PlayerTextFontLibrary.shared.isAvailable(family),
-                weightSelection: .resolved(weightRawValue)
+                weightSelection: .resolved(weightRawValue),
+                languageFonts: languageFonts,
+                unavailableLanguageFonts: Set(languageFonts.compactMap { library.isAvailable($0.value) ? nil : $0.key })
             ))
-            .task(id: family) {
-                PlayerTextFontLibrary.shared.prepare(family)
+            .task(id: fonts) {
+                for font in fonts { library.prepare(font) }
             }
     }
 }
 
 #if os(macOS)
 extension LyricsTypeface {
+    @MainActor
+    func textWidth(_ text: String, size: CGFloat, weight: Font.Weight) -> CGFloat {
+        let attributed = NSMutableAttributedString(string: "")
+        for run in LyricsFontLanguage.runs(in: text) {
+            attributed.append(NSAttributedString(string: run.text, attributes: [
+                .font: resolved(for: run.language).nsFont(size: size, weight: weight)
+            ]))
+        }
+        return ceil(attributed.size().width)
+    }
     /// 和 `font(size:weight:)` 画出来的同一种字体,给要先用 AppKit 量宽度的地方(歌词岛按字宽定外形)。
     /// 要半粗以上时在家族里换粗的那一面;家族里没有(娃娃体、魏碑、Party LET 这类只有一档的)时
     /// `NSFontManager` 原样返回这一面,不会退回系统字体。
@@ -566,7 +606,129 @@ extension LyricsTypeface {
 }
 #endif
 
+extension LyricsFontLanguage {
+    var title: String {
+        switch self {
+        case .chinese: Locale.current.localizedString(forLanguageCode: "zh") ?? "Chinese"
+        case .japanese: Locale.current.localizedString(forLanguageCode: "ja") ?? "Japanese"
+        case .korean: Locale.current.localizedString(forLanguageCode: "ko") ?? "Korean"
+        case .latin: String(localized: "lyrics_font_language_latin")
+        }
+    }
+}
+
 #if os(iOS) || os(macOS)
+struct LyricsLanguageFontMenu: View {
+    @AppStorage(PlayerAppearancePreferences.lyricsFontKey) private var defaultFont = PlayerTextFont.system.rawValue
+    @AppStorage(LyricsFontLanguage.preferencesKey) private var languageFonts = ""
+
+    var body: some View {
+        Menu {
+            picker(for: nil)
+            ForEach(LyricsFontLanguage.allCases, id: \.self) { language in
+                picker(for: language)
+            }
+        } label: {
+            Label(String(localized: "transcript_font"), systemImage: "textformat")
+        }
+    }
+
+    private func picker(for language: LyricsFontLanguage?) -> some View {
+        let library = PlayerTextFontLibrary.shared
+        let rawValue = language.map { LyricsLanguageFontPreferences(rawValue: languageFonts)[$0] ?? "" } ?? defaultFont
+        let font = PlayerTextFont(rawValue: rawValue)
+        return Picker(selection: Binding(get: {
+            font.map { library.pickerFont(for: $0).rawValue } ?? ""
+        }, set: { value in
+            if let language {
+                var preferences = LyricsLanguageFontPreferences(rawValue: languageFonts)
+                preferences[language] = value.isEmpty ? nil : value
+                languageFonts = preferences.rawValue
+                CloudKVSSync.shared.markChanged(key: LyricsFontLanguage.preferencesKey)
+            } else {
+                defaultFont = value
+                CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsFontKey)
+            }
+            if let font = PlayerTextFont(rawValue: value) { library.prepare(font) }
+        })) {
+            if language != nil { Text("lyrics_font_follow_default").tag("") }
+            ForEach(PlayerTextFont.Category.allCases, id: \.self) { category in
+                Section(category.title) {
+                    ForEach(category.fonts, id: \.self) { builtin in
+                        PlayerTextFont.builtin(builtin).title.tag(builtin.rawValue)
+                    }
+                }
+            }
+            if !library.importedFonts.isEmpty {
+                Section(String(localized: "transcript_reader_font_group_imported")) {
+                    ForEach(library.importedFonts) { entry in
+                        Text(verbatim: entry.title).tag(PlayerTextFont.imported(postScriptName: entry.postScriptName).rawValue)
+                    }
+                }
+            }
+            if case let .imported(name)? = font, library.importedEntry(containing: name) == nil {
+                Text(verbatim: String(format: String(localized: "transcript_reader_font_imported_missing_short"), name))
+                    .tag(rawValue)
+            }
+        } label: {
+            Text(verbatim: language?.title ?? String(localized: "lyrics_font_default"))
+        }
+        .pickerStyle(.menu)
+    }
+}
+
+struct LyricsLanguageFontPicker: View {
+    @AppStorage(PlayerAppearancePreferences.lyricsFontKey) private var defaultFont = PlayerTextFont.system.rawValue
+    @AppStorage(LyricsFontLanguage.preferencesKey) private var languageFonts = ""
+    @AppStorage(PlayerAppearancePreferences.lyricsWeightKey) private var weight = PlayerLyricsWeight.automatic.rawValue
+    @State private var language: LyricsFontLanguage?
+
+    private var selection: Binding<String> {
+        Binding(get: {
+            guard let language else { return defaultFont }
+            return LyricsLanguageFontPreferences(rawValue: languageFonts)[language] ?? defaultFont
+        }, set: { value in
+            if let language {
+                var preferences = LyricsLanguageFontPreferences(rawValue: languageFonts)
+                preferences[language] = value
+                languageFonts = preferences.rawValue
+                CloudKVSSync.shared.markChanged(key: LyricsFontLanguage.preferencesKey)
+            } else {
+                defaultFont = value
+                CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsFontKey)
+            }
+        })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("lyrics_font_language", selection: $language) {
+                Text("lyrics_font_default").tag(nil as LyricsFontLanguage?)
+                ForEach(LyricsFontLanguage.allCases, id: \.self) { language in
+                    Text(verbatim: language.title).tag(Optional(language))
+                }
+            }
+            .pickerStyle(.menu)
+            if let language {
+                Toggle("lyrics_font_follow_default", isOn: Binding(get: {
+                    LyricsLanguageFontPreferences(rawValue: languageFonts)[language] == nil
+                }, set: { follows in
+                    var preferences = LyricsLanguageFontPreferences(rawValue: languageFonts)
+                    preferences[language] = follows ? nil : defaultFont
+                    languageFonts = preferences.rawValue
+                    CloudKVSSync.shared.markChanged(key: LyricsFontLanguage.preferencesKey)
+                }))
+            }
+            PlayerTextFontPicker(selection: selection, sampleWeight: PlayerLyricsWeight.resolved(weight).resolve(.semibold))
+            if let message = PlayerTextFontLibrary.shared.failureMessage(
+                for: PlayerTextFont(rawValue: selection.wrappedValue) ?? .system
+            ) {
+                Text(verbatim: message).font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 struct LyricsWeightPicker: View {
     @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
     private var rawValue = PlayerLyricsWeight.automatic.rawValue

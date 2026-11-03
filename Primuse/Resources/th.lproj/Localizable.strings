@@ -7091,3 +7091,8 @@
 "home_subtabs_double_tap" = "แตะหน้าหลักสองครั้ง";
 "home_subtabs_trigger_footer" = "แสดงเสมอเมื่อไม่ได้เลือกท่าทาง หากเลือกท่าทางจะซ่อนไว้ในตอนแรก";
 "home_subtabs_empty" = "ไม่มีรายการในหมวดหมู่นี้";
+
+"lyrics_font_language" = "ภาษา";
+"lyrics_font_default" = "แบบอักษรเริ่มต้น";
+"lyrics_font_language_latin" = "ภาษาอังกฤษและอักษรละติน";
+"lyrics_font_follow_default" = "ใช้แบบอักษรเริ่มต้น";

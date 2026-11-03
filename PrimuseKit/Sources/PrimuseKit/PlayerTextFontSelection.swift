@@ -1,5 +1,89 @@
 import Foundation
 
+public enum LyricsFontLanguage: String, CaseIterable, Codable, Sendable {
+    case chinese, latin, japanese, korean
+
+    public static let preferencesKey = "primuse.player.lyricsLanguageFonts"
+
+    /// 汉字与假名共存时使用日文字体；逐字歌词传整句上下文，避免汉字片段误用中文字体。
+    public static func cjkLanguage(in text: String) -> Self {
+        if text.unicodeScalars.contains(where: { script(of: $0) == .japanese }) { return .japanese }
+        if text.unicodeScalars.contains(where: { script(of: $0) == .korean }) { return .korean }
+        return .chinese
+    }
+
+    private static func script(of scalar: Unicode.Scalar) -> Self? {
+        switch scalar.value {
+        case 0x3041...0x3096, 0x309D...0x309F, 0x30A1...0x30FA, 0x30FC...0x30FF,
+             0x31F0...0x31FF, 0xFF66...0xFF9D, 0x1B000...0x1B16F: .japanese
+        case 0x1100...0x11FF, 0x3130...0x318F, 0xA960...0xA97F, 0xAC00...0xD7FF: .korean
+        case 0x3005...0x3007, 0x303B, 0x3400...0x4DBF, 0x4E00...0x9FFF,
+             0xF900...0xFAFF, 0x20000...0x323AF: .chinese
+        case 0x41...0x5A, 0x61...0x7A, 0xC0...0x2AF, 0x1E00...0x1EFF,
+             0xAB30...0xAB6F, 0xFF21...0xFF3A, 0xFF41...0xFF5A: .latin
+        default: nil
+        }
+    }
+
+    public struct Run: Equatable, Sendable {
+        public var text: String
+        public var language: LyricsFontLanguage?
+    }
+
+    public static func runs(in text: String, cjkLanguage: Self? = nil) -> [Run] {
+        let cjk = cjkLanguage ?? Self.cjkLanguage(in: text)
+        var result: [Run] = []
+        var previous: Self?
+        for character in text {
+            let scalars = character.unicodeScalars
+            let detected = scalars.compactMap(script(of:)).first
+            let language: Self?
+            if detected == .chinese {
+                language = cjk
+            } else if let detected {
+                language = detected
+            } else if scalars.contains(where: { CharacterSet.letters.contains($0) }) {
+                language = nil
+            } else {
+                language = previous
+            }
+            if !result.isEmpty, result[result.count - 1].language == language {
+                result[result.count - 1].text.append(character)
+            } else {
+                result.append(Run(text: String(character), language: language))
+            }
+            previous = language
+        }
+        return result
+    }
+}
+
+public struct LyricsLanguageFontPreferences: Equatable, Sendable {
+    private var values: [String: String]
+
+    public init(rawValue: String = "") {
+        values = (try? JSONDecoder().decode([String: String].self, from: Data(rawValue.utf8))) ?? [:]
+    }
+
+    public var rawValue: String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(values)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+
+    public subscript(language: LyricsFontLanguage) -> String? {
+        get { values[language.rawValue].flatMap { PlayerTextFontSelection(rawValue: $0)?.rawValue } }
+        set { values[language.rawValue] = newValue.flatMap { PlayerTextFontSelection(rawValue: $0)?.rawValue } }
+    }
+
+    public mutating func removeImportedFonts(named names: Set<String>) {
+        values = values.filter { _, value in
+            guard case let .imported(name)? = PlayerTextFontSelection(rawValue: value) else { return true }
+            return !names.contains(name)
+        }
+    }
+}
+
 /// 歌词与文稿字体的选中值(#332)。内置的字体存它自己的名字(和只有内置字体时存的一样,老的设置照样认);
 /// 用户导入的字体存 `imported:<PostScript 名>`。选中值随 iCloud 同步到别的设备,那台设备没导入这个字体时
 /// 照样认得出它是「导入的字体」,只是画不出来,先用系统字体。

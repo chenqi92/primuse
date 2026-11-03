@@ -5620,10 +5620,6 @@ private struct MacSTLyricsView: View {
     @State private var languageCatalog = LyricsTranslationLanguageCatalog.shared
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
     @AppStorage(CloudKVSKey.lyricsTranslationFontScale) private var lyricsTranslationFontScale = 0.0
-    @AppStorage(PlayerAppearancePreferences.lyricsFontKey)
-    private var lyricsFontRawValue = PlayerTextFont.system.rawValue
-    @AppStorage(PlayerAppearancePreferences.lyricsWeightKey)
-    private var lyricsWeightRawValue = PlayerLyricsWeight.automatic.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
@@ -5646,19 +5642,6 @@ private struct MacSTLyricsView: View {
     private var compactMenuBarWithIsland = false
     @State private var showTranscriptionSettings = false
     private var localTranslation: LocalLyricsTranslationService { .shared }
-
-    /// 选了要下载的字体时,字体那一行下面写它下到哪了;能用了就不写。导入的字体这台 Mac 上没有时
-    /// 由字体块上面那行可点的说明来讲。
-    private var lyricsFontHint: String? {
-        let font = PlayerTextFont(rawValue: lyricsFontRawValue) ?? .system
-        let library = PlayerTextFontLibrary.shared
-        switch library.state(of: font) {
-        case .available, .unavailable: return nil
-        case .needsDownload: return String(localized: "transcript_reader_font_needs_download")
-        case .downloading: return String(localized: "transcript_reader_font_downloading")
-        case .failed: return library.failureMessage(for: font)
-        }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -5831,12 +5814,11 @@ private struct MacSTLyricsView: View {
                     // 可以点「导入字体…」或把字体文件拖进来,右键删除。
                     MacSTRow(
                         String(localized: "transcript_font"),
-                        hint: lyricsFontHint,
                         hintLineLimit: 3,
                         divider: false,
                         block: true
                     ) {
-                        PlayerTextFontPicker(selection: $lyricsFontRawValue, sampleWeight: PlayerLyricsWeight.resolved(lyricsWeightRawValue).resolve(.semibold))
+                        LyricsLanguageFontPicker()
                     }
                     .settingsAnchor("lyrics.font")
                     MacSTRow(String(localized: "lyrics_weight")) {

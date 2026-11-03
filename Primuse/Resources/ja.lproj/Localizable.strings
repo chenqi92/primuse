@@ -7186,3 +7186,8 @@
 "home_subtabs_double_tap" = "ホームをダブルタップ";
 "home_subtabs_trigger_footer" = "ジェスチャーを選択しない場合は常に表示します。選択すると最初は非表示になります。";
 "home_subtabs_empty" = "このカテゴリには項目がありません";
+
+"lyrics_font_language" = "言語";
+"lyrics_font_default" = "デフォルトのフォント";
+"lyrics_font_language_latin" = "英語・ラテン文字";
+"lyrics_font_follow_default" = "デフォルトのフォントを使用";

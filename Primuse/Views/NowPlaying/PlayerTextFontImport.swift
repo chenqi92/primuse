@@ -250,6 +250,10 @@ extension PlayerTextFontLibrary {
     /// 歌词(随 iCloud 同步)与文稿(这台设备自己的)的字体正选着要删的字体时退回系统字体。
     private static func resetSelections(using removedNames: Set<String>) {
         let defaults = UserDefaults.standard
+        var preferences = LyricsLanguageFontPreferences(rawValue: defaults.string(forKey: LyricsFontLanguage.preferencesKey) ?? "")
+        preferences.removeImportedFonts(named: removedNames)
+        defaults.set(preferences.rawValue, forKey: LyricsFontLanguage.preferencesKey)
+        CloudKVSSync.shared.markChanged(key: LyricsFontLanguage.preferencesKey)
         for key in [PlayerAppearancePreferences.lyricsFontKey, SpokenWordTranscriptReaderPreferences.fontKey] {
             guard let rawValue = defaults.string(forKey: key),
                   case let .imported(name)? = PlayerTextFont(rawValue: rawValue),
