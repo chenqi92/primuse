@@ -4490,17 +4490,28 @@ final class ScanService {
                                          expectedScopeFingerprint: scopeFingerprint,
                                          expectedScopeDirectories: directories, sourceStore: sourceStore)
                 let liveSongsSnapshot = library.songs
-                let finalExistingByID = await Task.detached(priority: .utility) {
+                let snapshotWorker = Task.detached(priority: .utility) {
                     IndexedSongSnapshot(liveSongsSnapshot, sourceID: source.id)
-                }.value
-                let stagedCommit = try await Task.detached(priority: .utility) {
+                }
+                let finalExistingByID = await withTaskCancellationHandler {
+                    await snapshotWorker.value
+                } onCancel: {
+                    snapshotWorker.cancel()
+                }
+                try Task.checkCancellation()
+                let stagedCommitWorker = Task.detached(priority: .utility) {
                     let delta = try stagingStore.delta(
                         sourceID: source.id,
                         existingByID: finalExistingByID, enrichment: enrichment
                     )
                     let index = try stagingStore.loadHierarchyIndex(sourceID: source.id)
                     return (delta, index)
-                }.value
+                }
+                let stagedCommit = try await withTaskCancellationHandler {
+                    try await stagedCommitWorker.value
+                } onCancel: {
+                    stagedCommitWorker.cancel()
+                }
                 try checkScanCommitFence(
                     sourceID: source.id,
                     generation: generation,

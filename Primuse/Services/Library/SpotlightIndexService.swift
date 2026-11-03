@@ -137,6 +137,8 @@ final class SpotlightIndexService {
     private struct PreparedSnapshot: Sendable {
         let records: [SpotlightIndexRecord]
         let payloadsByIdentifier: [String: IndexPayload]
+        let exceedsSongLimit: Bool
+        let showsArtwork: Bool
     }
 
     private struct ClientStateResult {
@@ -203,7 +205,7 @@ final class SpotlightIndexService {
     private var pendingTask: Task<Void, Never>?
     private var diagnosticExportTask: Task<Void, Never>?
     private var pendingGeneration: UUID?
-    private var queuedSnapshot: LibrarySnapshot?
+    private var hasQueuedSynchronization = false
     /// 设置页核对时清单记着、系统索引里却查不到的条目,交给下一轮同步当作未确认重写。
     private var identifiersMissingFromIndex: Set<String> = []
     private var needsSynchronization = true
@@ -295,8 +297,7 @@ final class SpotlightIndexService {
     }
 
     /// Coalesces rapid library mutations. If a Core Spotlight batch is already
-    /// running, the latest snapshot is queued instead of overlapping two batch
-    /// sessions on the same named index.
+    /// running, queue a fresh read instead of retaining another full song array.
     func scheduleSynchronization(library: MusicLibrary) {
         guard !isSynchronizationSuspended else { return }
         enqueueSynchronization(library: library, delay: Self.debounceDuration)
@@ -328,17 +329,17 @@ final class SpotlightIndexService {
     }
 
     private func enqueueSynchronization(library: MusicLibrary, delay: Duration) {
+        self.library = library
         beginBackgroundTaskIfNeeded()
-        let snapshot = makeLibrarySnapshot(library: library)
 
         switch workPhase {
         case .idle:
-            beginDebouncedSynchronization(snapshot: snapshot, delay: delay)
+            beginDebouncedSynchronization(delay: delay)
         case .debouncing:
             pendingTask?.cancel()
-            beginDebouncedSynchronization(snapshot: snapshot, delay: delay)
+            beginDebouncedSynchronization(delay: delay)
         case .running:
-            queuedSnapshot = snapshot
+            hasQueuedSynchronization = true
         }
     }
 
@@ -373,7 +374,7 @@ final class SpotlightIndexService {
         defer { endBackgroundTaskIfHeld() }
         guard workPhase != .idle else { return }
         persistSynchronizationPending()
-        queuedSnapshot = nil
+        hasQueuedSynchronization = false
         pendingTask?.cancel()
 
         if workPhase == .debouncing {
@@ -702,7 +703,7 @@ final class SpotlightIndexService {
         )
     }
 
-    private func beginDebouncedSynchronization(snapshot: LibrarySnapshot, delay: Duration) {
+    private func beginDebouncedSynchronization(delay: Duration) {
         let generation = UUID()
         let synchronizationRevision = Self.synchronizationGeneration
         let manifestURL = self.manifestURL
@@ -723,15 +724,25 @@ final class SpotlightIndexService {
                   let missingFromIndex = await self?.transitionToRunning(generation: generation) else { return }
 
             let recovery = journal.request
-            var succeeded = await Self.performSynchronization(
-                snapshot: snapshot,
-                manifestURL: manifestURL,
-                thumbnailDirectoryURL: thumbnailDirectoryURL,
-                status: status,
-                missingFromIndex: missingFromIndex,
-                recovery: recovery,
-                connection: connection
-            )
+            var succeeded = false
+            if let worker = await self?.prepareSynchronizationSnapshot() {
+                let prepared = await withTaskCancellationHandler {
+                    await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                if let prepared, !Task.isCancelled {
+                    succeeded = await Self.performSynchronization(
+                        prepared: prepared,
+                        manifestURL: manifestURL,
+                        thumbnailDirectoryURL: thumbnailDirectoryURL,
+                        status: status,
+                        missingFromIndex: missingFromIndex,
+                        recovery: recovery,
+                        connection: connection
+                    )
+                }
+            }
             if succeeded, let recovery {
                 do { succeeded = try journal.complete(revision: recovery.revision) }
                 catch { spotlightError("complete system reindex", error); succeeded = false }
@@ -743,6 +754,18 @@ final class SpotlightIndexService {
                 synchronizationRevision: synchronizationRevision,
                 succeeded: succeeded
             )
+        }
+    }
+
+    /// The worker releases the full library before the long-running system
+    /// index session; its result contains only the selected song payloads.
+    private func prepareSynchronizationSnapshot() -> Task<PreparedSnapshot?, Never>? {
+        guard !isSynchronizationSuspended, Self.canPerformIndexing,
+              let library, library.isReady else { return nil }
+        let snapshot = makeLibrarySnapshot(library: library)
+        return Task.detached(priority: .background) {
+            guard !Task.isCancelled else { return nil }
+            return Self.prepareSnapshot(snapshot)
         }
     }
 
@@ -771,17 +794,16 @@ final class SpotlightIndexService {
         status.finishIndexing()
 
         if isSynchronizationSuspended {
-            queuedSnapshot = nil
+            hasQueuedSynchronization = false
             persistSynchronizationPending()
             endBackgroundTaskIfHeld()
             return
         }
 
-        if let queuedSnapshot {
-            self.queuedSnapshot = nil
+        if hasQueuedSynchronization {
+            hasQueuedSynchronization = false
             needsSynchronization = true
             beginDebouncedSynchronization(
-                snapshot: queuedSnapshot,
                 delay: Self.followUpDebounceDuration
             )
         } else {
@@ -807,7 +829,7 @@ final class SpotlightIndexService {
     }
 
     private nonisolated static func performSynchronization(
-        snapshot: LibrarySnapshot,
+        prepared: PreparedSnapshot,
         manifestURL: URL,
         thumbnailDirectoryURL: URL,
         status: SpotlightIndexStatus,
@@ -816,7 +838,7 @@ final class SpotlightIndexService {
         connection: SpotlightIndexConnection? = nil,
         querySignatures: @Sendable () async -> [String: String]? = { await indexedSignatures() }
     ) async -> Bool {
-        let exceedsSongLimit = snapshot.songs.count > maxIndexedSongs
+        let exceedsSongLimit = prepared.exceedsSongLimit
         guard canPerformIndexing, !Task.isCancelled else {
             spotlightDiagnostic("sync deferred cancelled=\(Task.isCancelled) deviceAllows=\(canPerformIndexing)")
             if !Task.isCancelled { await status.holdByDevice() }
@@ -837,7 +859,7 @@ final class SpotlightIndexService {
             return false
         }
 
-        guard let prepared = prepareSnapshot(snapshot), !Task.isCancelled else { return false }
+        guard !Task.isCancelled else { return false }
         let storedManifest = loadManifest(from: manifestURL)
         let index = connection?.index ?? CSSearchableIndex(name: kSpotlightIndexName)
         let clientStateResult = await fetchClientState(from: index)
@@ -855,7 +877,7 @@ final class SpotlightIndexService {
         let wanted = SpotlightIndexPlanner.makePlan(currentRecords: prepared.records, previousManifest: nil,
                                                      schemaVersion: schemaVersion).nextManifest
         let verification = SpotlightIndexVerification.compare(manifest: wanted, found: initiallyFound)
-        logVerification("before sync artwork=\(snapshot.showsArtwork)", wanted: wanted, found: initiallyFound, outcome: verification)
+        logVerification("before sync artwork=\(prepared.showsArtwork)", wanted: wanted, found: initiallyFound, outcome: verification)
         let requiredRewrites = recovery.map {
             $0.allItems ? Set(wanted.signaturesByIdentifier.keys) : $0.identifiers
         } ?? []
@@ -876,7 +898,7 @@ final class SpotlightIndexService {
                 identifiersToDelete: Array(Set(plan.identifiersToDelete).union(deleted)).sorted(),
                 requiresFullRebuild: false, nextManifest: plan.nextManifest)
         }
-        spotlightDiagnostic("plan desired=\(prepared.records.count) upsert=\(plan.identifiersToUpsert.count) delete=\(plan.identifiersToDelete.count) full=\(plan.requiresFullRebuild) artwork=\(snapshot.showsArtwork) clientStateMatches=\(clientStateMatches)")
+        spotlightDiagnostic("plan desired=\(prepared.records.count) upsert=\(plan.identifiersToUpsert.count) delete=\(plan.identifiersToDelete.count) full=\(plan.requiresFullRebuild) artwork=\(prepared.showsArtwork) clientStateMatches=\(clientStateMatches)")
 
         var lastReport = ContinuousClock.now
         /// 设置页上的进度:每写完一批报一次,最多半秒一次。
@@ -1323,7 +1345,11 @@ final class SpotlightIndexService {
             appendSong(song)
         }
 
-        return PreparedSnapshot(records: records, payloadsByIdentifier: payloads)
+        return PreparedSnapshot(
+            records: records, payloadsByIdentifier: payloads,
+            exceedsSongLimit: snapshot.songs.count > maxIndexedSongs,
+            showsArtwork: snapshot.showsArtwork
+        )
     }
 
     private nonisolated static func makeSearchableItem(
