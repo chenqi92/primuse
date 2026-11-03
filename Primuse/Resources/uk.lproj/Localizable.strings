@@ -4415,6 +4415,8 @@
 "lyric_poster_canvas_story" = "На весь екран";
 "lyric_poster_motion" = "Live Photo";
 "lyric_poster_motion_footer" = "Збережіть у «Фото» й натисніть і утримуйте, щоб відтворити анімацію";
+"lyric_poster_include_music" = "Додати музику";
+"lyric_poster_music_duration" = "У Live Photos зберігаються перші 3 секунди, а у відео для поширення — весь вибраний уривок.";
 "lyric_poster_show_translation" = "Показувати переклад";
 "lyric_poster_show_credit" = "Показувати підпис Primuse";
 "lyric_poster_save" = "Зберегти у «Фото»";

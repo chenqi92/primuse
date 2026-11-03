@@ -4415,6 +4415,8 @@
 "lyric_poster_canvas_story" = "เต็มหน้าจอ";
 "lyric_poster_motion" = "Live Photo";
 "lyric_poster_motion_footer" = "บันทึกลงรูปภาพ แล้วกดค้างเพื่อเล่นภาพเคลื่อนไหว";
+"lyric_poster_include_music" = "รวมเพลง";
+"lyric_poster_music_duration" = "Live Photos จะเก็บ 3 วินาทีแรก ส่วนวิดีโอที่แชร์จะเก็บช่วงที่เลือกไว้ทั้งหมด";
 "lyric_poster_show_translation" = "แสดงคำแปล";
 "lyric_poster_show_credit" = "แสดงเครดิต Primuse";
 "lyric_poster_save" = "บันทึกลงรูปภาพ";

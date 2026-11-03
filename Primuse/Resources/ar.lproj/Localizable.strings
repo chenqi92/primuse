@@ -4415,6 +4415,8 @@
 "lyric_poster_canvas_story" = "ملء الشاشة";
 "lyric_poster_motion" = "صورة حية";
 "lyric_poster_motion_footer" = "احفظها في الصور ثم اضغط مطوّلاً لتشغيل الحركة";
+"lyric_poster_include_music" = "تضمين الموسيقى";
+"lyric_poster_music_duration" = "تحتفظ الصور الحية بأول 3 ثوانٍ. وتحتفظ مقاطع الفيديو المشتركة بالمقطع المحدد كاملاً.";
 "lyric_poster_show_translation" = "إظهار الترجمة";
 "lyric_poster_show_credit" = "إظهار توقيع Primuse";
 "lyric_poster_save" = "حفظ في الصور";

@@ -7,6 +7,7 @@ enum LyricPosterPreferences {
     static let canvasKey = "primuse.lyricPoster.canvas"
     static let prefersMotionKey = "primuse.lyricPoster.prefersMotion"
     static let prefersMotionByDefault = true
+    static let includesMusicKey = "primuse.lyricPoster.includesMusic"
     static let includesTranslationKey = "primuse.lyricPoster.includesTranslation"
     static let includesTranslationByDefault = true
     static let showsCreditKey = "primuse.lyricPoster.showsCredit"
@@ -53,6 +54,7 @@ final class LyricPosterComposer: Identifiable {
         }
     }
     var prefersMotion: Bool
+    var includesMusic = false
     var includesTranslation: Bool
     var showsCredit: Bool
     /// 用户写的那段话与落款。空着就不在海报上留位置。
@@ -87,6 +89,7 @@ final class LyricPosterComposer: Identifiable {
     private(set) var exportProgress: Double = 0
 
     private let artworkRequest: ArtworkRequest?
+    private let song: Song?
 
     struct ArtworkRequest {
         let coverRef: String?
@@ -112,7 +115,8 @@ final class LyricPosterComposer: Identifiable {
         showsCredit: Bool,
         filterID: LyricPosterFilterID?,
         motionEffectID: LyricPosterMotionEffectID?,
-        noteSignature: String
+        noteSignature: String,
+        song: Song? = nil
     ) {
         self.songTitle = songTitle
         self.artistName = artistName
@@ -122,6 +126,7 @@ final class LyricPosterComposer: Identifiable {
         self.selection = selection
         self.writingDirection = writingDirection
         self.artworkRequest = artworkRequest
+        self.song = song?.withoutAppliedPlaybackRange
         self.prefersMotion = prefersMotion
         self.includesTranslation = includesTranslation
         self.showsCredit = showsCredit
@@ -179,7 +184,20 @@ final class LyricPosterComposer: Identifiable {
     var hasArtwork: Bool { artwork != nil }
 
     var motionPlan: LyricPosterMotionPlan {
-        LyricPosterMotionPolicy.plan(for: content, frameRate: Self.exportFrameRate)
+        if includesMusic, let audio = audioPlan(livePhoto: true) { return audio.motion }
+        return LyricPosterMotionPolicy.plan(for: content, frameRate: Self.exportFrameRate)
+    }
+
+    var canIncludeMusic: Bool {
+        song?.filePath.isEmpty == false && audioPlan(livePhoto: true) != nil
+    }
+
+    private func audioPlan(livePhoto: Bool) -> LyricPosterAudioPlan? {
+        guard let song else { return nil }
+        return LyricPosterAudioPlan.make(
+            content: content, allLines: lines, songDuration: song.duration,
+            livePhoto: livePhoto, frameRate: Self.exportFrameRate
+        )
     }
 
     /// 导出帧率。实况照片的原生素材就是低帧率短片, 24 帧已经很顺,
@@ -437,9 +455,10 @@ final class LyricPosterComposer: Identifiable {
     func context(
         at time: TimeInterval,
         isMotion: Bool,
-        inheritedLayoutDirection: LayoutDirection = .leftToRight
+        inheritedLayoutDirection: LayoutDirection = .leftToRight,
+        motionPlan: LyricPosterMotionPlan? = nil
     ) -> LyricPosterRenderContext {
-        let plan = motionPlan
+        let plan = motionPlan ?? self.motionPlan
         return LyricPosterRenderContext(
             content: content,
             canvas: canvas,
@@ -532,7 +551,9 @@ final class LyricPosterComposer: Identifiable {
     #if os(iOS)
     /// 实况照片。静图和视频写在同一个目录, 存相册时必须一起提交。
     func exportLivePhoto(
-        inheritedLayoutDirection: LayoutDirection
+        inheritedLayoutDirection: LayoutDirection,
+        sourceManager: SourceManager,
+        fullPassage: Bool = false
     ) async throws -> LyricPosterLivePhotoBundle {
         guard let renderer else { throw ExportError.noRenderer }
         isExporting = true
@@ -542,7 +563,21 @@ final class LyricPosterComposer: Identifiable {
             exportProgress = 0
         }
 
-        let plan = motionPlan
+        let audio = includesMusic ? audioPlan(livePhoto: !fullPassage) : nil
+        if includesMusic, audio == nil { throw AudioClipExporter.Failure.audioUnavailable }
+        let plan = audio?.motion ?? motionPlan
+        var audioURL: URL?
+        defer {
+            if let audioURL { try? FileManager.default.removeItem(at: audioURL.deletingLastPathComponent()) }
+        }
+        if let audio, let song {
+            audioURL = try await AudioClipExporter.export(
+                song: song, start: audio.sourceStart, end: audio.sourceEnd,
+                purpose: .clip, appliesFades: true, sourceManager: sourceManager,
+                onPhase: { _ in }
+            )
+        }
+        try Task.checkCancellation()
         let directory = try makeExportDirectory()
         let size = CGSize(width: canvas.pixelWidth, height: canvas.pixelHeight)
 
@@ -551,12 +586,18 @@ final class LyricPosterComposer: Identifiable {
             size: size,
             directory: directory,
             baseName: exportBaseName,
+            audioURL: audioURL,
+            stillImage: audio == nil ? nil : LyricPosterRenderer.renderCGImage(
+                style: renderer,
+                context: context(at: 0, isMotion: false, inheritedLayoutDirection: inheritedLayoutDirection)
+            ),
             frame: { [weak self] index in
                 guard let self else { return nil }
                 let frameContext = self.context(
                     at: plan.time(ofFrame: index),
                     isMotion: true,
-                    inheritedLayoutDirection: inheritedLayoutDirection
+                    inheritedLayoutDirection: inheritedLayoutDirection,
+                    motionPlan: plan
                 )
                 return LyricPosterRenderer.renderCGImage(style: renderer, context: frameContext)
             },
@@ -651,7 +692,8 @@ extension LyricPosterComposer {
             showsCredit: showsCredit,
             filterID: filterID,
             motionEffectID: motionEffectID,
-            noteSignature: noteSignature
+            noteSignature: noteSignature,
+            song: song
         )
     }
 }

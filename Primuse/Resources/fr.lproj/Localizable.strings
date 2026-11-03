@@ -4509,6 +4509,8 @@
 "lyric_poster_canvas_story" = "Plein écran";
 "lyric_poster_motion" = "Photo Live";
 "lyric_poster_motion_footer" = "Enregistrez-la dans Photos, puis maintenez pour voir l'animation";
+"lyric_poster_include_music" = "Inclure la musique";
+"lyric_poster_music_duration" = "Les Live Photos conservent les 3 premières secondes. Les vidéos partagées conservent tout le passage.";
 "lyric_poster_show_translation" = "Afficher la traduction";
 "lyric_poster_show_credit" = "Afficher la signature Primuse";
 "lyric_poster_save" = "Enregistrer dans Photos";

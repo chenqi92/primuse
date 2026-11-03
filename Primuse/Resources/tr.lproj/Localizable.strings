@@ -4415,6 +4415,8 @@
 "lyric_poster_canvas_story" = "Tam ekran";
 "lyric_poster_motion" = "Live Photo";
 "lyric_poster_motion_footer" = "Fotoğraflar'a kaydedip basılı tutarak hareketi oynatın";
+"lyric_poster_include_music" = "Müziği dahil et";
+"lyric_poster_music_duration" = "Live Photo ilk 3 saniyeyi, paylaşılan videolar ise seçilen bölümün tamamını içerir.";
 "lyric_poster_show_translation" = "Çeviriyi göster";
 "lyric_poster_show_credit" = "Primuse imzasını göster";
 "lyric_poster_save" = "Fotoğraflar'a kaydet";

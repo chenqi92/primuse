@@ -109,4 +109,79 @@ struct LyricPosterMotionPolicyTests {
         #expect(abs(plan.time(ofFrame: 24) - 1.0) < 0.0001)
         #expect(plan.frameCount == Int((plan.duration * 24).rounded()))
     }
+
+    @Test func musicKeepsOriginalTimingIncludingInstrumentalGaps() throws {
+        let passage = content(lineCount: 3, spacing: 6, dwell: 5)
+        let plan = try #require(LyricPosterAudioPlan.make(
+            content: passage, allLines: passage.lines, songDuration: 180, livePhoto: false
+        ))
+        #expect(plan.sourceStart == 60)
+        #expect(plan.sourceEnd == 77)
+        #expect(plan.motion.windows.map(\.start) == [0, 6, 12])
+        #expect(plan.motion.windows.map(\.end) == [5, 11, 17])
+        #expect(plan.motion.activeProgress(at: 2.5) == 0.5)
+    }
+
+    @Test func liveMusicClipsTheExcerptWithoutSpeedingUpTheLyrics() throws {
+        let passage = content(lineCount: 3, spacing: 6, dwell: 5)
+        let plan = try #require(LyricPosterAudioPlan.make(
+            content: passage, allLines: passage.lines, songDuration: 180, livePhoto: true
+        ))
+        #expect(plan.sourceStart == 60)
+        #expect(plan.sourceEnd == 63)
+        #expect(plan.motion.duration == 3)
+        #expect(plan.motion.activeProgress(at: 2.5) == 0.5)
+        #expect(plan.motion.reveal(ofLineAt: 1, at: 3) == 0)
+        #expect(plan.motion.stillFrameIndex < plan.motion.frameCount - 1)
+    }
+
+    @Test func musicUsesTheNextUnselectedLineAsAnUntimedLineEnd() throws {
+        let first = LyricPosterLine(id: "a", text: "one", timestamp: 12, isSynchronized: true)
+        let next = LyricPosterLine(id: "b", text: "two", timestamp: 18, isSynchronized: true)
+        let plan = try #require(LyricPosterAudioPlan.make(
+            content: LyricPosterContent(songTitle: "Song", lines: [first]),
+            allLines: [first, next], songDuration: 100, livePhoto: false
+        ))
+        #expect(plan.sourceEnd == 18)
+        #expect(plan.motion.windows[0].duration == 6)
+    }
+
+    @Test func musicAtTheSongEndStaysInBoundsAndKeepsTheLineOffset() throws {
+        let passage = LyricPosterContent(songTitle: "Song", lines: [
+            LyricPosterLine(id: "end", text: "end", timestamp: 119, endTimestamp: 124, isSynchronized: true)
+        ])
+        for livePhoto in [false, true] {
+            let plan = try #require(LyricPosterAudioPlan.make(
+                content: passage, allLines: passage.lines, songDuration: 120, livePhoto: livePhoto
+            ))
+            #expect(plan.sourceStart == 118)
+            #expect(plan.sourceEnd == 120)
+            #expect(plan.motion.windows[0].start == 1)
+            #expect(plan.motion.windows[0].end == 2)
+        }
+    }
+
+    @Test func musicAndVideoEndOnTheSameFrameBoundary() throws {
+        let passage = content(lineCount: 1, dwell: 2.79)
+        let plan = try #require(LyricPosterAudioPlan.make(
+            content: passage, allLines: passage.lines, songDuration: 180, livePhoto: false, frameRate: 24
+        ))
+        #expect(abs(plan.sourceEnd - plan.sourceStart - Double(plan.motion.frameCount) / 24) < 0.000001)
+        #expect(plan.sourceEnd <= 62.79)
+        #expect(62.79 - plan.sourceEnd < 1.0 / 24)
+    }
+
+    @Test func musicRejectsMissingOrInvalidTiming() {
+        #expect(LyricPosterAudioPlan.make(
+            content: content(lineCount: 2, synchronized: false), allLines: [], songDuration: 180, livePhoto: true
+        ) == nil)
+        for timestamp in [Double.nan, .infinity, -1, 180] {
+            let passage = LyricPosterContent(songTitle: "Song", lines: [
+                LyricPosterLine(id: "bad", text: "bad", timestamp: timestamp, isSynchronized: true)
+            ])
+            #expect(LyricPosterAudioPlan.make(
+                content: passage, allLines: [], songDuration: 180, livePhoto: true
+            ) == nil)
+        }
+    }
 }

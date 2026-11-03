@@ -19,6 +19,7 @@ struct LyricPosterShareSheet: View {
     @AppStorage(LyricPosterPreferences.canvasKey) private var storedCanvas = ""
     @AppStorage(LyricPosterPreferences.prefersMotionKey)
     private var storedPrefersMotion = LyricPosterPreferences.prefersMotionByDefault
+    @AppStorage(LyricPosterPreferences.includesMusicKey) private var storedIncludesMusic = false
     @AppStorage(LyricPosterPreferences.includesTranslationKey)
     private var storedIncludesTranslation = LyricPosterPreferences.includesTranslationByDefault
     @AppStorage(LyricPosterPreferences.showsCreditKey)
@@ -85,6 +86,7 @@ struct LyricPosterShareSheet: View {
             .padding(.horizontal, Self.contentMargin)
             .padding(.top, 12)
             .padding(.bottom, 24)
+            .disabled(composer.isExporting)
         }
     }
 
@@ -123,6 +125,7 @@ struct LyricPosterShareSheet: View {
     private func observing(_ content: some View) -> some View {
         content
             .task {
+                composer.includesMusic = storedIncludesMusic && composer.canIncludeMusic
                 if !hasFinishedIntro, wizardStep == nil {
                     wizardStep = .lines
                 }
@@ -141,6 +144,7 @@ struct LyricPosterShareSheet: View {
                 composer.refreshFilterThumbnails()
             }
             .onChange(of: composer.selection) { _, _ in
+                composer.includesMusic = storedIncludesMusic && composer.canIncludeMusic
                 previewEpoch = Date()
                 composer.refreshThumbnails(inheritedLayoutDirection: layoutDirection)
             }
@@ -492,6 +496,23 @@ struct LyricPosterShareSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if composer.prefersMotion {
+                #if os(iOS)
+                if composer.canIncludeMusic {
+                    Toggle("lyric_poster_include_music", isOn: Binding(
+                        get: { composer.includesMusic },
+                        set: {
+                            composer.includesMusic = $0
+                            storedIncludesMusic = $0
+                            previewEpoch = Date()
+                        }
+                    ))
+                    if composer.includesMusic {
+                        Text("lyric_poster_music_duration")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                #endif
                 sectionLabel("lyric_poster_section_effect")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -794,6 +815,7 @@ struct LyricPosterShareSheet: View {
                 } label: {
                     Label(String(localized: "lyric_poster_wizard_start"), systemImage: "list.number")
                 }
+                .disabled(composer.isExporting)
             } else {
                 Button(String(localized: "lyric_poster_wizard_skip")) {
                     finishWizard()
@@ -905,7 +927,9 @@ struct LyricPosterShareSheet: View {
         runExport { composer in
             #if os(iOS)
             if motion {
-                let bundle = try await composer.exportLivePhoto(inheritedLayoutDirection: direction)
+                let bundle = try await composer.exportLivePhoto(
+                    inheritedLayoutDirection: direction, sourceManager: sourceManager, fullPassage: true
+                )
                 return .video(bundle.videoURL)
             }
             #endif
@@ -923,7 +947,9 @@ struct LyricPosterShareSheet: View {
         didFallBackToStill = false
         runExport { composer in
             if motion {
-                let bundle = try await composer.exportLivePhoto(inheritedLayoutDirection: direction)
+                let bundle = try await composer.exportLivePhoto(
+                    inheritedLayoutDirection: direction, sourceManager: sourceManager
+                )
                 do {
                     try await LyricPosterPhotoLibrary.save(livePhoto: bundle)
                     return .image(bundle.stillURL)

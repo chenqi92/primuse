@@ -4415,6 +4415,8 @@
 "lyric_poster_canvas_story" = "फ़ुल स्क्रीन";
 "lyric_poster_motion" = "लाइव फ़ोटो";
 "lyric_poster_motion_footer" = "फ़ोटो में सहेजें, फिर मोशन चलाने के लिए दबाकर रखें";
+"lyric_poster_include_music" = "संगीत शामिल करें";
+"lyric_poster_music_duration" = "Live Photos में पहले 3 सेकंड रहते हैं। साझा किए गए वीडियो में पूरा चयनित अंश रहता है।";
 "lyric_poster_show_translation" = "अनुवाद दिखाएँ";
 "lyric_poster_show_credit" = "Primuse क्रेडिट दिखाएँ";
 "lyric_poster_save" = "फ़ोटो में सहेजें";

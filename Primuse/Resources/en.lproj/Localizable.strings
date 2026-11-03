@@ -4273,6 +4273,8 @@
 "lyric_poster_canvas_story" = "Full Screen";
 "lyric_poster_motion" = "Live Photo";
 "lyric_poster_motion_footer" = "Save to Photos, then press and hold to play the motion";
+"lyric_poster_include_music" = "Include Music";
+"lyric_poster_music_duration" = "Live Photos keep the first 3 seconds. Shared videos keep the full passage.";
 "lyric_poster_show_translation" = "Show Translation";
 "lyric_poster_show_credit" = "Show Primuse Credit";
 "lyric_poster_save" = "Save to Photos";

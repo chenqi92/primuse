@@ -4510,6 +4510,8 @@
 "lyric_poster_canvas_story" = "全画面";
 "lyric_poster_motion" = "Live Photos";
 "lyric_poster_motion_footer" = "写真に保存し、長押しすると動きを再生できます";
+"lyric_poster_include_music" = "音楽を含める";
+"lyric_poster_music_duration" = "Live Photosには最初の3秒間、共有動画には選択した部分全体が含まれます。";
 "lyric_poster_show_translation" = "翻訳を表示";
 "lyric_poster_show_credit" = "Primuse のクレジットを表示";
 "lyric_poster_save" = "写真に保存";

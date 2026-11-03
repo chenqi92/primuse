@@ -4486,6 +4486,8 @@
 "lyric_poster_canvas_story" = "全螢幕";
 "lyric_poster_motion" = "實況照片";
 "lyric_poster_motion_footer" = "存到相簿後長按即可播放動態效果";
+"lyric_poster_include_music" = "包含音樂";
+"lyric_poster_music_duration" = "原況照片保留前 3 秒，分享影片保留完整選段。";
 "lyric_poster_show_translation" = "顯示翻譯";
 "lyric_poster_show_credit" = "顯示 Primuse 署名";
 "lyric_poster_save" = "存到相簿";

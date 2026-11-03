@@ -4509,6 +4509,8 @@
 "lyric_poster_canvas_story" = "전체 화면";
 "lyric_poster_motion" = "라이브 포토";
 "lyric_poster_motion_footer" = "사진에 저장한 뒤 길게 누르면 움직입니다";
+"lyric_poster_include_music" = "음악 포함";
+"lyric_poster_music_duration" = "Live Photo에는 처음 3초가, 공유 동영상에는 선택한 구간 전체가 포함됩니다.";
 "lyric_poster_show_translation" = "번역 표시";
 "lyric_poster_show_credit" = "Primuse 크레딧 표시";
 "lyric_poster_save" = "사진에 저장";

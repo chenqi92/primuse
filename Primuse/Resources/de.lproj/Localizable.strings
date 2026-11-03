@@ -4509,6 +4509,8 @@
 "lyric_poster_canvas_story" = "Vollbild";
 "lyric_poster_motion" = "Live Photo";
 "lyric_poster_motion_footer" = "In Fotos sichern und gedrückt halten, um die Animation abzuspielen";
+"lyric_poster_include_music" = "Musik einschließen";
+"lyric_poster_music_duration" = "Live Photos enthalten die ersten 3 Sekunden. Geteilte Videos enthalten den gesamten Abschnitt.";
 "lyric_poster_show_translation" = "Übersetzung anzeigen";
 "lyric_poster_show_credit" = "Primuse-Signatur anzeigen";
 "lyric_poster_save" = "In Fotos sichern";

@@ -4602,6 +4602,8 @@
 "lyric_poster_canvas_story" = "全屏";
 "lyric_poster_motion" = "实况照片";
 "lyric_poster_motion_footer" = "存到相册后长按即可播放动效";
+"lyric_poster_include_music" = "包含音乐";
+"lyric_poster_music_duration" = "实况照片保留前 3 秒，分享视频保留完整选段。";
 "lyric_poster_show_translation" = "显示翻译";
 "lyric_poster_show_credit" = "显示 Primuse 署名";
 "lyric_poster_save" = "存到相册";

@@ -171,3 +171,54 @@ public enum LyricPosterMotionPolicy {
         }
     }
 }
+
+/// An excerpt on the song's timeline, with unscaled lyric timing for its video.
+public struct LyricPosterAudioPlan: Hashable, Sendable {
+    public let sourceStart: TimeInterval
+    public let sourceEnd: TimeInterval
+    public let motion: LyricPosterMotionPlan
+
+    public static func make(
+        content: LyricPosterContent,
+        allLines: [LyricPosterLine],
+        songDuration: TimeInterval,
+        livePhoto: Bool,
+        frameRate: Int = 24
+    ) -> Self? {
+        guard content.isSynchronized, songDuration.isFinite, songDuration >= 2,
+              let first = content.lines.first, let last = content.lines.last,
+              content.lines.allSatisfy({ $0.timestamp.isFinite && $0.timestamp >= 0 && $0.timestamp < songDuration }),
+              zip(content.lines, content.lines.dropFirst()).allSatisfy({ $0.timestamp <= $1.timestamp }) else {
+            return nil
+        }
+        func end(of line: LyricPosterLine) -> TimeInterval {
+            let next = allLines.first { $0.timestamp.isFinite && $0.timestamp > line.timestamp }?.timestamp
+            let authored = line.endTimestamp.flatMap { $0.isFinite && $0 > line.timestamp ? $0 : nil }
+            return min(authored ?? next ?? (line.timestamp + 2.4), songDuration)
+        }
+        let rate = max(frameRate, 1)
+        // Keep a complete minimum-length excerpt even when the final line starts
+        // immediately before the end of the song.
+        let start = min(first.timestamp, songDuration - 2)
+        let requestedEnd = livePhoto
+            ? min(start + LyricPosterMotionPolicy.maximumDuration, songDuration)
+            : min(max(end(of: last), start + 2), songDuration)
+        guard requestedEnd - start <= AudioClipExportPolicy.clipMaximumLength else { return nil }
+        let frames = max(1, Int(((requestedEnd - start) * Double(rate)).rounded(.down)))
+        let duration = Double(frames) / Double(rate)
+        guard duration >= 2 else { return nil }
+        let windows = content.lines.map { line in
+            LyricPosterMotionWindow(lineID: line.id, start: line.timestamp - start, end: end(of: line) - start)
+        }
+        return Self(
+            sourceStart: start,
+            sourceEnd: start + duration,
+            motion: LyricPosterMotionPlan(
+                duration: duration,
+                frameRate: rate,
+                windows: windows,
+                stillFrameIndex: max(0, frames - 2)
+            )
+        )
+    }
+}

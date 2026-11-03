@@ -4415,6 +4415,8 @@
 "lyric_poster_canvas_story" = "Tela cheia";
 "lyric_poster_motion" = "Foto Live";
 "lyric_poster_motion_footer" = "Salve em Fotos e mantenha pressionado para ver o movimento";
+"lyric_poster_include_music" = "Incluir música";
+"lyric_poster_music_duration" = "As Live Photos mantêm os primeiros 3 segundos. Os vídeos compartilhados mantêm o trecho completo.";
 "lyric_poster_show_translation" = "Mostrar tradução";
 "lyric_poster_show_credit" = "Mostrar assinatura do Primuse";
 "lyric_poster_save" = "Salvar em Fotos";

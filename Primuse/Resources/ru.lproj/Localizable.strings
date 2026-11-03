@@ -4415,6 +4415,8 @@
 "lyric_poster_canvas_story" = "Во весь экран";
 "lyric_poster_motion" = "Live Photo";
 "lyric_poster_motion_footer" = "Сохраните в «Фото» и нажмите с удержанием, чтобы увидеть анимацию";
+"lyric_poster_include_music" = "Добавить музыку";
+"lyric_poster_music_duration" = "В Live Photos сохраняются первые 3 секунды, а в видео для отправки — весь выбранный фрагмент.";
 "lyric_poster_show_translation" = "Показывать перевод";
 "lyric_poster_show_credit" = "Показывать подпись Primuse";
 "lyric_poster_save" = "Сохранить в «Фото»";

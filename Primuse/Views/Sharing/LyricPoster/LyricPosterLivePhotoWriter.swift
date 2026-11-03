@@ -49,6 +49,8 @@ enum LyricPosterLivePhotoWriter {
         size: CGSize,
         directory: URL,
         baseName: String,
+        audioURL: URL? = nil,
+        stillImage: CGImage? = nil,
         frame: @MainActor (Int) -> CGImage?,
         onProgress: @MainActor (Double) -> Void = { _ in }
     ) async throws -> LyricPosterLivePhotoBundle {
@@ -57,10 +59,16 @@ enum LyricPosterLivePhotoWriter {
         let stillURL = directory.appendingPathComponent("\(baseName).jpg")
         try? FileManager.default.removeItem(at: videoURL)
         try? FileManager.default.removeItem(at: stillURL)
+        var completed = false
+        defer {
+            if !completed {
+                try? FileManager.default.removeItem(at: videoURL)
+                try? FileManager.default.removeItem(at: stillURL)
+            }
+        }
 
-        // 静帧先渲染: 它是实况照片在相册里静止时显示的那一张, 也是导出失败
-        // 时唯一还能交付给用户的东西。
-        guard let stillImage = frame(plan.stillFrameIndex) else {
+        // 有声短片可能只唱到选段的一部分，静图仍保留用户选中的全部歌词。
+        guard let stillImage = stillImage ?? frame(plan.stillFrameIndex) else {
             throw LyricPosterLivePhotoError.renderFailed
         }
         try writeStill(stillImage, assetIdentifier: assetIdentifier, to: stillURL)
@@ -72,6 +80,19 @@ enum LyricPosterLivePhotoWriter {
             throw LyricPosterLivePhotoError.videoWriteFailed(error.localizedDescription)
         }
         writer.metadata = [contentIdentifierItem(assetIdentifier)]
+        defer { if writer.status == .writing { writer.cancelWriting() } }
+        let duration = CMTime(value: CMTimeValue(plan.frameCount), timescale: CMTimeScale(plan.frameRate))
+        let audio: AudioTrack?
+        if let audioURL {
+            audio = try await AudioTrack(url: audioURL, duration: duration)
+        } else {
+            audio = nil
+        }
+        defer { audio?.reader.cancelReading() }
+        if let audio {
+            guard writer.canAdd(audio.input) else { throw LyricPosterLivePhotoError.videoSetupFailed }
+            writer.add(audio.input)
+        }
 
         let videoInput = AVAssetWriterInput(
             mediaType: .video,
@@ -120,6 +141,8 @@ enum LyricPosterLivePhotoWriter {
             )
         }
         writer.startSession(atSourceTime: .zero)
+        let session = AudioWritingSession(audio: audio, writer: writer)
+        async let audioFinished: Void = session.append()
 
         // 静帧标记必须指向视频里的某个时刻, 否则系统只当成一段普通视频。
         // 这一段还必须完整落在视频里: 元数据轨比视频轨长的 mov, 相册在
@@ -137,7 +160,7 @@ enum LyricPosterLivePhotoWriter {
         let remaining = CMTimeSubtract(lastFrameTime, stillTime)
         let markerDuration = CMTimeMinimum(stillImageTimeWindow, CMTimeMaximum(remaining, .zero))
         while !metadataInput.isReadyForMoreMediaData {
-            try? await Task.sleep(nanoseconds: 2_000_000)
+            try await waitForWriter(writer)
         }
         guard metadataAdaptor.append(
             AVTimedMetadataGroup(
@@ -162,7 +185,7 @@ enum LyricPosterLivePhotoWriter {
                 throw LyricPosterLivePhotoError.renderFailed
             }
             while !videoInput.isReadyForMoreMediaData {
-                try? await Task.sleep(nanoseconds: 4_000_000)
+                try await waitForWriter(writer)
             }
             guard let buffer = makePixelBuffer(from: image, pool: adaptor.pixelBufferPool, size: size) else {
                 writer.cancelWriting()
@@ -184,6 +207,9 @@ enum LyricPosterLivePhotoWriter {
         }
 
         videoInput.markAsFinished()
+        try await audioFinished
+        try Task.checkCancellation()
+        writer.endSession(atSourceTime: duration)
         await finishWriting(writer)
 
         guard writer.status == .completed else {
@@ -196,12 +222,85 @@ enum LyricPosterLivePhotoWriter {
         guard fileIsUsable(stillURL), fileIsUsable(videoURL) else {
             throw LyricPosterLivePhotoError.stillWriteFailed
         }
+        try Task.checkCancellation()
+        completed = true
 
         return LyricPosterLivePhotoBundle(
             stillURL: stillURL,
             videoURL: videoURL,
             assetIdentifier: assetIdentifier
         )
+    }
+
+    @MainActor
+    private final class AudioTrack {
+        let reader: AVAssetReader
+        let output: AVAssetReaderTrackOutput
+        let input: AVAssetWriterInput
+
+        init(url: URL, duration: CMTime) async throws {
+            let asset = AVURLAsset(url: url)
+            guard let track = try await asset.loadTracks(withMediaType: .audio).first,
+                  let format = try await track.load(.formatDescriptions).first else {
+                throw AudioClipExporter.Failure.unreadableAudio
+            }
+            reader = try AVAssetReader(asset: asset)
+            reader.timeRange = CMTimeRange(start: .zero, duration: duration)
+            // AudioClipExporter already encodes AAC. Copy its samples without
+            // another lossy encode, keeping the Live Photo metadata untouched.
+            output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+            output.alwaysCopiesSampleData = false
+            guard reader.canAdd(output) else { throw AudioClipExporter.Failure.unreadableAudio }
+            reader.add(output)
+            input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: format)
+            input.expectsMediaDataInRealTime = false
+        }
+    }
+
+    @MainActor
+    private final class AudioWritingSession {
+        let audio: AudioTrack?
+        let writer: AVAssetWriter
+
+        init(audio: AudioTrack?, writer: AVAssetWriter) {
+            self.audio = audio
+            self.writer = writer
+        }
+
+        func append() async throws {
+            try await LyricPosterLivePhotoWriter.appendAudio(audio, to: writer)
+        }
+    }
+
+    private static func appendAudio(_ audio: AudioTrack?, to writer: AVAssetWriter) async throws {
+        guard let audio else { return }
+        defer { if writer.status == .writing { audio.input.markAsFinished() } }
+        do {
+            guard audio.reader.startReading() else { throw AudioClipExporter.Failure.unreadableAudio }
+            var hasSamples = false
+            while let sample = audio.output.copyNextSampleBuffer() {
+                try Task.checkCancellation()
+                while !audio.input.isReadyForMoreMediaData {
+                    try await waitForWriter(writer)
+                }
+                guard audio.input.append(sample) else { throw AudioClipExporter.Failure.unreadableAudio }
+                hasSamples = true
+            }
+            guard hasSamples, audio.reader.status == .completed else {
+                throw AudioClipExporter.Failure.unreadableAudio
+            }
+        } catch {
+            writer.cancelWriting()
+            throw error
+        }
+    }
+
+    private static func waitForWriter(_ writer: AVAssetWriter) async throws {
+        try Task.checkCancellation()
+        guard writer.status == .writing else {
+            throw LyricPosterLivePhotoError.videoWriteFailed(writer.error?.localizedDescription ?? "")
+        }
+        try await Task.sleep(for: .milliseconds(4))
     }
 
     private static func fileIsUsable(_ url: URL) -> Bool {

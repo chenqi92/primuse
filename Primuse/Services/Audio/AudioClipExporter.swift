@@ -103,7 +103,7 @@ enum AudioClipExporter {
         let length = window.end - window.start
         let fades = appliesFades ? AudioClipExportPolicy.fades(forLength: length) : .off
         let source = file.url
-        return try await Task.detached(priority: .userInitiated) {
+        let writing = Task.detached(priority: .userInitiated) {
             try await write(
                 source: source,
                 mediaStart: mediaStart,
@@ -111,7 +111,12 @@ enum AudioClipExporter {
                 fades: fades,
                 fileName: fileName
             )
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await writing.value
+        } onCancel: {
+            writing.cancel()
+        }
     }
 
     // MARK: - Writing
