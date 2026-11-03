@@ -1,6 +1,11 @@
 import Foundation
 import PrimuseKit
 import XCTest
+#if os(iOS)
+import SwiftUI
+import UIKit
+import Observation
+#endif
 @testable import Primuse
 
 @MainActor
@@ -112,6 +117,32 @@ final class LibraryFavoritesStoreTests: XCTestCase {
 
         store.removeRemote(id: id)
         XCTAssertNil(store.entry(id: id))
+    }
+
+    func testArtistQueriesKeepFollowingLocalAndRemoteChangesAfterCaching() throws {
+        let store = LibraryFavoritesStore(fileURL: nil)
+        let artist = Artist(id: "original", name: "Beyoncé")
+        let renamed = Artist(id: "normalized", name: "BEYONCE")
+        XCTAssertFalse(store.isLiked(artist))
+        XCTAssertFalse(store.isLiked(renamed))
+
+        store.toggle(artistNamed: artist.name)
+        XCTAssertTrue(store.isLiked(artist))
+        XCTAssertTrue(store.isLiked(renamed))
+        XCTAssertEqual(store.likedArtists(in: [artist]), [artist])
+
+        store.toggle(artistNamed: renamed.name)
+        XCTAssertFalse(store.isLiked(artist))
+        XCTAssertFalse(store.isLiked(renamed))
+
+        let local = try XCTUnwrap(store.entry(id: store.favoriteID(for: artist)))
+        store.applyRemote(LibraryFavorite(kind: .artist, albumTitle: "", artistName: artist.name,
+            likedAt: local.likedAt, modifiedAt: local.modifiedAt.addingTimeInterval(60)))
+        XCTAssertTrue(store.isLiked(artist))
+        XCTAssertTrue(store.isLiked(renamed))
+        store.removeRemote(id: local.id)
+        XCTAssertFalse(store.isLiked(artist))
+        XCTAssertFalse(store.isLiked(renamed))
     }
 
     func testLikedAlbumsAreNewestFirstAndSkipAlbumsNotInTheLibrary() throws {
@@ -332,3 +363,111 @@ private actor FakeCollectionFavoriteConnector: ServerCollectionFavoriteConnector
     }
 }
 
+#if os(iOS) && DEBUG
+@MainActor
+final class ArtistListNavigationPerformanceTests: XCTestCase {
+    func testListNavigationBuildsOnlyNearbyArtistRows() async throws {
+        try await verifyNavigation(layout: .list)
+    }
+
+    func testGridNavigationBuildsOnlyNearbyArtistRows() async throws {
+        try await verifyNavigation(layout: .grid)
+    }
+
+    private func verifyNavigation(layout: ArtistLayoutMode) async throws {
+        let suite = "ArtistNavigation-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(layout.rawValue, forKey: ArtistLayoutMode.storageKey)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        library.addSongs((0..<5_000).map { index in
+            Song(id: "navigation-\(index)", title: "Track \(index)", albumTitle: "Album \(index)",
+                 artistName: String(format: "Navigation Artist %05d", index), duration: 180,
+                 fileFormat: .mp3, filePath: "\(index).mp3", sourceID: suite)
+        }, indexMaintenance: .deferredIncremental)
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.visibleArtists.count, 5_000)
+        let player = AudioPlayerService(library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Browsing must not start playback") })
+        let manager = SourceManager(sourcesProvider: { [] })
+        let intelligence = MusicIntelligenceService(settingsStore: AISettingsStore(defaults: defaults),
+                                                     recommendationReuseDefaults: defaults)
+        let radio = RadioStationsStore(storeURL: directory.appendingPathComponent("radio.json"))
+        let probe = ArtistNavigationProbe()
+        var builtIDs = Set<String>()
+        var labelBuilds = 0
+        ArtistListRenderDiagnostics.didBuildLabel = { id in
+            builtIDs.insert(id)
+            labelBuilds += 1
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(rootView: ArtistNavigationHarness(probe: probe)
+            .environment(library).environment(player).environment(manager).environment(intelligence)
+            .environment(radio).environment(ThemeService())
+            .environment(\.appNavigationMode, .standard)
+            .environment(\.locale, Locale(identifier: "zh-Hans"))
+            .defaultAppStorage(defaults))
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            ArtistListRenderDiagnostics.didBuildLabel = nil
+            window.isHidden = true
+            window.rootViewController = nil
+            defaults.removePersistentDomain(forName: suite)
+        }
+        addTeardownBlock { [weak library] in
+            if library == nil { try? FileManager.default.removeItem(at: directory) }
+        }
+        try await Task.sleep(for: .milliseconds(400))
+        for visit in 1...2 {
+            builtIDs.removeAll()
+            labelBuilds = 0
+            let start = ContinuousClock.now
+            withAnimation { probe.deepLink = .section(.artists) }
+            try await waitUntil { probe.activeSection == .artists }
+            try await Task.sleep(for: .milliseconds(350))
+            print("Artist navigation \(layout.rawValue) visit=\(visit) enter unique=\(builtIDs.count) builds=\(labelBuilds) elapsed=\(start.duration(to: .now))")
+            XCTAssertGreaterThan(builtIDs.count, 0)
+            XCTAssertLessThan(builtIDs.count, 150, "Entering a 5,000-artist library must not construct every row")
+            builtIDs.removeAll()
+            labelBuilds = 0
+            withAnimation {
+                NotificationCenter.default.post(name: LibraryDebugNavigation.notification,
+                    object: LibraryDebugNavigation.Request(section: .artists, target: nil))
+            }
+            try await waitUntil { probe.activeSection == nil }
+            try await Task.sleep(for: .milliseconds(350))
+            print("Artist navigation \(layout.rawValue) visit=\(visit) return unique=\(builtIDs.count) builds=\(labelBuilds)")
+            XCTAssertLessThan(builtIDs.count, 150, "Returning to the hub must not reconstruct offscreen artist rows")
+            probe.deepLink = nil
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    private func waitUntil(_ predicate: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !predicate(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(predicate(), "Navigation did not reach the expected page")
+    }
+}
+
+@MainActor @Observable
+private final class ArtistNavigationProbe {
+    var deepLink: LibraryDeepLink?
+    var activeSection: LibrarySection?
+}
+
+private struct ArtistNavigationHarness: View {
+    @Bindable var probe: ArtistNavigationProbe
+
+    var body: some View {
+        LibraryView(deepLink: $probe.deepLink) { probe.activeSection = $0 }
+    }
+}
+#endif

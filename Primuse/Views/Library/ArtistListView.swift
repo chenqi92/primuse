@@ -1,6 +1,13 @@
 import SwiftUI
 import PrimuseKit
 
+#if DEBUG
+@MainActor
+enum ArtistListRenderDiagnostics {
+    static var didBuildLabel: ((String) -> Void)?
+}
+#endif
+
 /// iPhone / iPad 上艺术家页的版式。Mac 走 master-detail，不参与这个开关。
 enum ArtistLayoutMode: String, CaseIterable, Identifiable {
     case grid
@@ -124,7 +131,7 @@ struct ArtistListView: View {
 
     private func artistMenu(_ artist: Artist) -> some View {
         LibraryCollectionMenuItems(
-            isLiked: favorites.isLiked(artistNamed: artist.name),
+            isLiked: favorites.isLiked(artist),
             toggleLike: { favorites.toggle(artistNamed: artist.name) },
             songs: { library.songs(forArtist: artist.id) },
             player: player
@@ -132,6 +139,9 @@ struct ArtistListView: View {
     }
 
     private func displayName(for artist: Artist) -> String {
+        #if DEBUG
+        ArtistListRenderDiagnostics.didBuildLabel?(artist.id)
+        #endif
         let name = artist.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? String(localized: "unknown_artist") : name
     }
@@ -304,16 +314,18 @@ struct ArtistListView: View {
     private var artistGrid: some View {
         ScrollView {
             LazyVGrid(columns: gridColumns, spacing: heightClass.value(24, compact: 16)) {
-                ForEach(filteredArtists) { artist in
-                    NavigationLink(value: artist) {
-                        artistGridCell(artist)
+                ForEach(filteredArtists) { @Sendable artist in
+                    LazyItemCell {
+                        NavigationLink(value: artist) {
+                            artistGridCell(artist)
+                        }
+                        .buttonStyle(.pmPressable)
+                        .contextMenu { artistMenu(artist) }
+                        .accessibilityAction(named: Text(favorites.isLiked(artist) ? "library_favorite_unlike" : "library_favorite_like")) {
+                            favorites.toggle(artistNamed: artist.name)
+                        }
+                        .mediaZoomSource(.artist, id: artist.id)
                     }
-                    .buttonStyle(.pmPressable)
-                    .contextMenu { artistMenu(artist) }
-                    .accessibilityAction(named: Text(favorites.isLiked(artistNamed: artist.name) ? "library_favorite_unlike" : "library_favorite_like")) {
-                        favorites.toggle(artistNamed: artist.name)
-                    }
-                    .mediaZoomSource(.artist, id: artist.id)
                 }
             }
             .padding(.horizontal, 16)
@@ -344,28 +356,33 @@ struct ArtistListView: View {
     }
 
     private var artistList: some View {
-        List(filteredArtists) { artist in
-            NavigationLink(value: artist) {
-                HStack(spacing: 12) {
-                    ArtistArtworkView(
-                        artist: artist,
-                        size: 44,
-                        cornerRadius: 22
-                    )
-                    .searchRecommendationOverlay(isRecommended: intelligentRecommendationIDs.contains(artist.id), iconOnly: true, inset: 3)
+        List(filteredArtists) { @Sendable artist in
+            LazyItemCell {
+                // 固定每位歌手对应一行，避免条件式转场修饰符让 List 展开整表来探测行数。
+                HStack(spacing: 0) {
+                    NavigationLink(value: artist) {
+                        HStack(spacing: 12) {
+                            ArtistArtworkView(
+                                artist: artist,
+                                size: 44,
+                                cornerRadius: 22
+                            )
+                            .searchRecommendationOverlay(isRecommended: intelligentRecommendationIDs.contains(artist.id), iconOnly: true, inset: 3)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(displayName(for: artist))
-                            .font(.body)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(displayName(for: artist))
+                                    .font(.body)
 
-                        Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                                Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
+                    .contextMenu { artistMenu(artist) }
+                    .mediaZoomSource(.artist, id: artist.id)
                 }
             }
-            .contextMenu { artistMenu(artist) }
-            .mediaZoomSource(.artist, id: artist.id)
         }
         .listStyle(.plain)
     }

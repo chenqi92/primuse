@@ -92,6 +92,11 @@ final class LibraryFavoritesStore {
         return ledger.isLiked(favoriteID(for: album))
     }
 
+    func isLiked(_ artist: Artist) -> Bool {
+        _ = revision
+        return ledger.isLiked(favoriteID(for: artist))
+    }
+
     func isLiked(artistNamed name: String) -> Bool {
         _ = revision
         return ledger.isLiked(favoriteID(forArtistNamed: name))
