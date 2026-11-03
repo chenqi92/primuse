@@ -15,7 +15,7 @@ struct MotionArtworkVideoView<Fallback: View>: View {
         fallback()
             .overlay {
                 if shouldAnimate, let playback {
-                    MotionArtworkVideoLayer(player: playback.player)
+                    MotionArtworkVideoLayer(playback: playback)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -28,7 +28,7 @@ struct MotionArtworkVideoView<Fallback: View>: View {
                     let prepared = try await MotionArtworkVideoPlayback.prepare(url: url)
                     guard !Task.isCancelled else { prepared.stop(); return }
                     playback = prepared
-                    prepared.player.play()
+                    prepared.play()
                 } catch {
                     // The static cover remains visible if the rendition cannot be decoded.
                 }
@@ -42,16 +42,16 @@ struct MotionArtworkVideoView<Fallback: View>: View {
 
 @MainActor
 final class MotionArtworkVideoPlayback {
-    let player: AVQueuePlayer
-    private let looper: AVPlayerLooper
+    let videoLayer: AVSampleBufferDisplayLayer
+    private let feed: MotionArtworkVideoFeed
 
-    private init(composition: AVComposition) {
-        player = AVQueuePlayer()
-        player.isMuted = true
-        player.volume = 0
-        player.allowsExternalPlayback = false
-        player.audiovisualBackgroundPlaybackPolicy = .pauses
-        looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(asset: composition))
+    private init(asset: AVAsset, track: AVAssetTrack, range: CMTimeRange) {
+        videoLayer = AVSampleBufferDisplayLayer()
+        videoLayer.videoGravity = .resizeAspectFill
+        feed = MotionArtworkVideoFeed(
+            renderer: videoLayer.sampleBufferRenderer,
+            frames: MotionArtworkVideoFrames(asset: asset, track: track, range: range)
+        )
     }
 
     static func prepare(url: URL) async throws -> MotionArtworkVideoPlayback {
@@ -66,79 +66,219 @@ final class MotionArtworkVideoPlayback {
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw URLError(.cannotDecodeContentData)
         }
-        let (range, size, transform) = try await track.load(.timeRange, .naturalSize, .preferredTransform)
+        let (range, size) = try await track.load(.timeRange, .naturalSize)
         guard range.duration.seconds.isFinite, range.duration.seconds > 0, range.duration.seconds <= 60,
               size.width > 0, size.height > 0, max(size.width, size.height) <= 1080 else {
             throw URLError(.cannotDecodeContentData)
         }
-        // Artwork may start at a nonzero timestamp. A video-only composition
-        // removes that initial gap and ensures it never competes with the song's audio.
-        let composition = AVMutableComposition()
-        guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+        try Task.checkCancellation()
+        return MotionArtworkVideoPlayback(asset: asset, track: track, range: range)
+    }
+
+    func play() { feed.start() }
+    func stop() { feed.stop() }
+    deinit { feed.stop() }
+}
+
+/// Reads only the video track. AVPlayer can activate the app's audio session
+/// even when muted, so decorative artwork must never create an AVPlayer.
+/// This reader and its loop state are confined to the feed's serial queue.
+final class MotionArtworkVideoFrames {
+    private let asset: AVAsset
+    private let track: AVAssetTrack
+    private let range: CMTimeRange
+    private var reader: AVAssetReader?
+    private var output: AVAssetReaderTrackOutput?
+    private var loopStart = CMTime.zero
+    private var sourceOrigin = CMTime.invalid
+    private var loopDuration = CMTime.zero
+    private var samplesInLoop = 0
+
+    init(asset: AVAsset, track: AVAssetTrack, range: CMTimeRange) {
+        self.asset = asset
+        self.track = track
+        self.range = range
+    }
+
+    func next() throws -> CMSampleBuffer {
+        if reader == nil { try beginLoop() }
+        if let sample = copyNextVideoSample() { return try retimed(sample) }
+        guard reader?.status == .completed, samplesInLoop > 0, loopDuration.seconds > 0 else {
+            throw reader?.error ?? URLError(.cannotDecodeContentData)
+        }
+        loopStart = CMTimeAdd(loopStart, loopDuration)
+        try beginLoop()
+        guard let sample = copyNextVideoSample() else {
+            throw reader?.error ?? URLError(.cannotDecodeContentData)
+        }
+        return try retimed(sample)
+    }
+
+    private func copyNextVideoSample() -> CMSampleBuffer? {
+        while let sample = output?.copyNextSampleBuffer() {
+            // Fragmented MP4 can include empty edit/end markers without timing.
+            if CMSampleBufferGetNumSamples(sample) > 0 { return sample }
+        }
+        return nil
+    }
+
+    func cancel() {
+        reader?.cancelReading()
+        output = nil
+        reader = nil
+    }
+
+    private func beginLoop() throws {
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = range
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { throw URLError(.cannotDecodeContentData) }
+        reader.add(output)
+        guard reader.startReading() else { throw reader.error ?? URLError(.cannotDecodeContentData) }
+        self.reader = reader
+        self.output = output
+        samplesInLoop = 0
+        sourceOrigin = .invalid
+        loopDuration = .zero
+    }
+
+    private func retimed(_ sample: CMSampleBuffer) throws -> CMSampleBuffer {
+        var count = 0
+        guard CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count) == noErr,
+              count > 0 else { throw URLError(.cannotDecodeContentData) }
+        var timings = [CMSampleTimingInfo](repeating: .invalid, count: count)
+        guard CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: count, arrayToFill: &timings, entriesNeededOut: nil) == noErr else {
             throw URLError(.cannotDecodeContentData)
         }
-        try video.insertTimeRange(range, of: track, at: .zero)
-        video.preferredTransform = transform
-        try Task.checkCancellation()
-        return MotionArtworkVideoPlayback(composition: composition)
+        if !sourceOrigin.isValid { sourceOrigin = timings[0].presentationTimeStamp }
+        guard sourceOrigin.isNumeric else { throw URLError(.cannotDecodeContentData) }
+        let offset = CMTimeSubtract(loopStart, sourceOrigin)
+        for index in timings.indices {
+            let timing = timings[index]
+            guard timing.presentationTimeStamp.isNumeric, timing.duration.isNumeric,
+                  timing.duration.seconds > 0 else { throw URLError(.cannotDecodeContentData) }
+            let end = CMTimeSubtract(CMTimeAdd(timing.presentationTimeStamp, timing.duration), sourceOrigin)
+            guard end.seconds.isFinite, end.seconds <= 60 else { throw URLError(.cannotDecodeContentData) }
+            loopDuration = CMTimeMaximum(loopDuration, end)
+            timings[index].presentationTimeStamp = CMTimeAdd(timing.presentationTimeStamp, offset)
+            if timings[index].decodeTimeStamp.isValid {
+                timings[index].decodeTimeStamp = CMTimeAdd(timings[index].decodeTimeStamp, offset)
+            }
+        }
+        var result: CMSampleBuffer?
+        guard CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault, sampleBuffer: sample,
+            sampleTimingEntryCount: timings.count, sampleTimingArray: &timings,
+            sampleBufferOut: &result
+        ) == noErr, let result else { throw URLError(.cannotDecodeContentData) }
+        samplesInLoop += 1
+        return result
+    }
+}
+
+/// All reader, renderer and clock operations run on one queue. Only a video
+/// renderer is attached: this clock cannot acquire or interrupt audio playback.
+private final class MotionArtworkVideoFeed: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.primuse.motion-artwork", qos: .userInitiated)
+    private let renderer: AVSampleBufferVideoRenderer
+    private let synchronizer = AVSampleBufferRenderSynchronizer()
+    private let frames: MotionArtworkVideoFrames
+    private var started = false
+    private var stopped = false
+
+    init(renderer: AVSampleBufferVideoRenderer, frames: MotionArtworkVideoFrames) {
+        self.renderer = renderer
+        self.frames = frames
+    }
+
+    func start() {
+        queue.async { [self] in
+            guard !started, !stopped else { return }
+            started = true
+            synchronizer.addRenderer(renderer)
+            renderer.requestMediaDataWhenReady(on: queue) { [weak self] in self?.enqueueFrames() }
+            synchronizer.setRate(1, time: .zero)
+        }
     }
 
     func stop() {
-        player.pause()
-        looper.disableLooping()
-        player.removeAllItems()
+        queue.async { [self] in finish() }
+    }
+
+    private func enqueueFrames() {
+        do {
+            while !stopped, renderer.isReadyForMoreMediaData {
+                guard renderer.status != .failed else { finish(); return }
+                renderer.enqueue(try frames.next())
+            }
+        } catch { finish() }
+    }
+
+    private func finish() {
+        guard !stopped else { return }
+        stopped = true
+        renderer.stopRequestingMediaData()
+        synchronizer.setRate(0, time: .invalid)
+        frames.cancel()
+        renderer.flush(removingDisplayedImage: true)
     }
 }
 
 #if os(macOS)
 private struct MotionArtworkVideoLayer: NSViewRepresentable {
-    let player: AVPlayer
-    func makeNSView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface(player: player) }
-    func updateNSView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayer(player) }
-    static func dismantleNSView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayer(nil) }
+    let playback: MotionArtworkVideoPlayback
+    func makeNSView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface() }
+    func updateNSView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayback(playback) }
+    static func dismantleNSView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayback(nil) }
 }
 private typealias MotionArtworkVideoSurfaceBase = NSView
 #else
 private struct MotionArtworkVideoLayer: UIViewRepresentable {
-    let player: AVPlayer
-    func makeUIView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface(player: player) }
-    func updateUIView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayer(player) }
-    static func dismantleUIView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayer(nil) }
+    let playback: MotionArtworkVideoPlayback
+    func makeUIView(context: Context) -> MotionArtworkVideoSurface { MotionArtworkVideoSurface() }
+    func updateUIView(_ view: MotionArtworkVideoSurface, context: Context) { view.setPlayback(playback) }
+    static func dismantleUIView(_ view: MotionArtworkVideoSurface, coordinator: ()) { view.setPlayback(nil) }
 }
 private typealias MotionArtworkVideoSurfaceBase = UIView
 #endif
 
 private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
-    private let videoLayer = AVPlayerLayer()
-    private var readiness: NSKeyValueObservation?
+    private var videoLayer: AVSampleBufferDisplayLayer?
+    private var readiness: MotionArtworkReadinessObservation?
 
-    init(player: AVPlayer) {
+    init() {
         super.init(frame: .zero)
         #if os(macOS)
         wantsLayer = true
-        layer?.addSublayer(videoLayer)
         #else
         backgroundColor = .clear
         isOpaque = false
-        layer.addSublayer(videoLayer)
         #endif
-        videoLayer.videoGravity = .resizeAspectFill
-        videoLayer.isHidden = true
-        readiness = videoLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] _, _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.videoLayer.isHidden = !self.videoLayer.isReadyForDisplay
-            }
-        }
-        setPlayer(player)
     }
 
     required init?(coder: NSCoder) { nil }
 
-    func setPlayer(_ player: AVPlayer?) {
-        guard videoLayer.player !== player else { return }
+    func setPlayback(_ playback: MotionArtworkVideoPlayback?) {
+        guard videoLayer !== playback?.videoLayer else { return }
+        readiness = nil
+        videoLayer?.removeFromSuperlayer()
+        videoLayer = playback?.videoLayer
+        guard let videoLayer else { return }
         videoLayer.isHidden = true
-        videoLayer.player = player
+        #if os(macOS)
+        layer?.addSublayer(videoLayer)
+        #else
+        layer.addSublayer(videoLayer)
+        #endif
+        layoutVideo()
+        readiness = MotionArtworkReadinessObservation(layer: videoLayer) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, let videoLayer = self.videoLayer else { return }
+                videoLayer.isHidden = !videoLayer.isReadyForDisplay
+            }
+        }
+        videoLayer.isHidden = !videoLayer.isReadyForDisplay
     }
 
     #if os(macOS)
@@ -150,9 +290,24 @@ private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
     private func layoutVideo() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        videoLayer.frame = bounds
+        videoLayer?.frame = bounds
         CATransaction.commit()
     }
+}
+
+
+private final class MotionArtworkReadinessObservation {
+    private let token: NSObjectProtocol
+
+    init(layer: AVSampleBufferDisplayLayer, onChange: @escaping @Sendable () -> Void) {
+        // Sample-buffer readiness uses notifications, unlike AVPlayerLayer's KVO.
+        token = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.AVSampleBufferDisplayLayerReadyForDisplayDidChange,
+            object: layer, queue: .main
+        ) { _ in onChange() }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(token) }
 }
 
 nonisolated(unsafe) private let animatedArtworkFrameCache: NSCache<NSString, CGImage> = {

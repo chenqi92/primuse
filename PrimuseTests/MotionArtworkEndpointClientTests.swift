@@ -1,11 +1,120 @@
 #if os(iOS)
 import Foundation
+import AVFoundation
+import UIKit
+import SwiftUI
 import PrimuseKit
 import XCTest
 @testable import Primuse
 
 final class MotionArtworkEndpointClientTests: XCTestCase {
     private let fixedNow = Date(timeIntervalSince1970: 2_000_000_000)
+
+    @MainActor
+    func testVideoArtworkNormalizesTimestampsAcrossRepeatedLoops() async throws {
+        let url = try await makeArtworkVideo()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let asset = AVURLAsset(url: url)
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        let track = try XCTUnwrap(tracks.first)
+        let sourceRange = try await track.load(.timeRange)
+        let shiftedAsset = AVMutableComposition()
+        let shiftedTrack = try XCTUnwrap(shiftedAsset.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid))
+        try shiftedTrack.insertTimeRange(sourceRange, of: track, at: CMTime(seconds: 10, preferredTimescale: 600))
+        let range = try await shiftedTrack.load(.timeRange)
+        XCTAssertGreaterThan(range.duration.seconds, sourceRange.duration.seconds, "The fixture includes a leading empty edit")
+        let frames = MotionArtworkVideoFrames(asset: shiftedAsset, track: shiftedTrack, range: range)
+        defer { frames.cancel() }
+        for index in 0..<36 {
+            let sample = try frames.next()
+            XCTAssertEqual(CMFormatDescriptionGetMediaType(try XCTUnwrap(CMSampleBufferGetFormatDescription(sample))), kCMMediaType_Video)
+            XCTAssertEqual(CMSampleBufferGetPresentationTimeStamp(sample).seconds, Double(index) / 10, accuracy: 0.001)
+        }
+    }
+
+    @MainActor
+    func testVideoArtworkRendersPastLoopBoundaryAndStopsItsClock() async throws {
+        let url = try await makeArtworkVideo()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
+        let host = UIHostingController(rootView: MotionArtworkVideoView(url: url, shouldAnimate: true) { Color.clear })
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            host.rootView = MotionArtworkVideoView(url: url, shouldAnimate: false) { Color.clear }
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let deadline = Date().addingTimeInterval(8)
+        var videoLayer: AVSampleBufferDisplayLayer?
+        while Date() < deadline {
+            videoLayer = findArtworkVideoLayer(in: host.view.layer)
+            if let videoLayer, videoLayer.isReadyForDisplay, !videoLayer.isHidden,
+               CMTimebaseGetTime(videoLayer.sampleBufferRenderer.timebase).seconds > 2.5 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let layer = try XCTUnwrap(videoLayer)
+        let renderer = layer.sampleBufferRenderer
+        XCTAssertEqual(renderer.status, .rendering)
+        XCTAssertTrue(layer.isReadyForDisplay)
+        XCTAssertFalse(layer.isHidden, "The decoded cover must become visible through the native view")
+        XCTAssertGreaterThan(CMTimebaseGetTime(renderer.timebase).seconds, 2.4)
+        host.rootView = MotionArtworkVideoView(url: url, shouldAnimate: false) { Color.clear }
+        let stopDeadline = Date().addingTimeInterval(2)
+        while Date() < stopDeadline,
+              CMTimebaseGetRate(renderer.timebase) != 0 || layer.superlayer != nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(CMTimebaseGetRate(renderer.timebase), 0)
+        XCTAssertNil(layer.superlayer)
+    }
+
+    @MainActor
+    private func findArtworkVideoLayer(in layer: CALayer) -> AVSampleBufferDisplayLayer? {
+        if let video = layer as? AVSampleBufferDisplayLayer { return video }
+        for child in layer.sublayers ?? [] {
+            if let video = findArtworkVideoLayer(in: child) { return video }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func makeArtworkVideo() async throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 32, AVVideoHeightKey: 32,
+            AVVideoCompressionPropertiesKey: [AVVideoAllowFrameReorderingKey: false]
+        ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
+            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB])
+        writer.add(input)
+        XCTAssertTrue(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        var pixelBuffer: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 32, 32,
+            kCVPixelFormatType_32ARGB, nil, &pixelBuffer), kCVReturnSuccess)
+        let buffer = try XCTUnwrap(pixelBuffer)
+        for index in 0..<12 {
+            CVPixelBufferLockBaseAddress(buffer, [])
+            memset(CVPixelBufferGetBaseAddress(buffer), Int32(index * 20), CVPixelBufferGetDataSize(buffer))
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            let deadline = Date().addingTimeInterval(5)
+            while !input.isReadyForMoreMediaData, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertTrue(input.isReadyForMoreMediaData)
+            XCTAssertTrue(adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(index), timescale: 10)))
+        }
+        writer.endSession(atSourceTime: CMTime(value: 12, timescale: 10))
+        input.markAsFinished()
+        await writer.finishWriting()
+        XCTAssertEqual(writer.status, .completed)
+        return url
+    }
 
     func testPublicProviderResolvesHLSAndDownloadsOneBoundedMP4() async throws {
         let input = MotionArtworkLookupInput(albumArtist: "A&B", albumTitle: "Public Test")
