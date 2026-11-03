@@ -203,6 +203,8 @@ final class MacSongTableLayout {
 }
 
 struct MacSongTableHeader: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     let layout: MacSongTableLayout
     let ordinalWidth: CGFloat
     var isSelectionActive = false
@@ -216,7 +218,7 @@ struct MacSongTableHeader: View {
 
     var body: some View {
         HStack(spacing: MacSongTableLayout.spacing) {
-            Text(isSelectionActive ? "" : "#").frame(width: ordinalWidth, alignment: .leading)
+            Text(isSelectionActive || !showsRowNumbers ? "" : "#").frame(width: ordinalWidth, alignment: .leading)
             Color.clear.frame(width: MacSongTableLayout.artworkWidth, height: 1)
             ForEach(layout.activeColumns) { column in
                 columnHeader(column)

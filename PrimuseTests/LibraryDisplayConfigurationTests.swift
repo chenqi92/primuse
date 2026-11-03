@@ -3525,6 +3525,27 @@ final class ListeningHistoryClassificationTests: XCTestCase {
 #if os(iOS)
 @MainActor
 final class SongListAppearanceLayoutTests: XCTestCase {
+    func testLibraryRowNumbersDefaultToVisibleAndRespondToPersistedChanges() async throws {
+        let suite = "LibraryRowNumbers.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let host = UIHostingController(rootView:
+            SongRowNumberedTitle(number: 12345, title: "A Song").defaultAppStorage(defaults))
+        let constraint = CGSize(width: 1000, height: 100)
+        let visible = host.sizeThatFits(in: constraint)
+        XCTAssertNil(defaults.object(forKey: LibraryRowNumberPreferences.storageKey))
+        defaults.set(false, forKey: LibraryRowNumberPreferences.storageKey)
+        try await Task.sleep(for: .milliseconds(100))
+        let hidden = host.sizeThatFits(in: constraint)
+        XCTAssertGreaterThan(visible.width, hidden.width + 10)
+        let relaunched = UIHostingController(rootView:
+            SongRowNumberedTitle(number: 12345, title: "A Song").defaultAppStorage(defaults))
+        XCTAssertEqual(relaunched.sizeThatFits(in: constraint).width, hidden.width, accuracy: 0.5)
+        defaults.set(true, forKey: LibraryRowNumberPreferences.storageKey)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(host.sizeThatFits(in: constraint).width, visible.width, accuracy: 0.5)
+    }
+
     func testLocationVisibilityIncludesTheOverflowingCoverWithoutExpandingCompactRows() {
         let size = CGSize(width: 440, height: 72)
         for ordinal in 1...4 {

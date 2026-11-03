@@ -56,6 +56,8 @@ private var tvDebugShowsScraperSettings: Bool {
 }
 
 struct TVSettingsView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
     private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
     @AppStorage(WordLyricsDiscoveryPreferences.showsActivityKey)
@@ -336,6 +338,9 @@ struct TVSettingsView: View {
                         lyricsSection
                         lyricsRomanizationSection
                         settingsSection(PMString("ext.tv.settings.library")) {
+                            toggleRow("list.number", String(localized: "library_show_row_numbers"), isOn: $showsRowNumbers)
+                                .accessibilityIdentifier("library.showRowNumbers")
+                            settingDivider
                             toggleRow(
                                 "star.bubble",
                                 String(localized: "library_review_feature_title"),

@@ -9,7 +9,8 @@ import AppKit
 
 enum MacOrdinalColumn {
     /// 序号按等宽字体逐字算宽, 不经过排版(见 `SongListOrdinalColumn`)。
-    static func width(for largestNumber: Int, minimum: CGFloat, fontSize: CGFloat, locale: Locale) -> CGFloat {
+    static func width(for largestNumber: Int, minimum: CGFloat, fontSize: CGFloat, locale: Locale, showsNumbers: Bool = true) -> CGFloat {
+        guard showsNumbers else { return 16 }
         let label = max(1, largestNumber).formatted(.number.locale(locale))
         return CGFloat(SongListOrdinalColumn.width(
             label: label,
@@ -1103,6 +1104,8 @@ private struct SongListSortProgressIndicator: View {
 }
 
 struct SongListView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(AudioPlayerService.self) private var player
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「⋯」并进系统溢出菜单,按钮分组并标优先级。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -2129,7 +2132,7 @@ struct SongListView: View {
     ) -> some View {
         let rowHeight: CGFloat? = macViewMode == .grid ? nil : macVirtualRowHeight
         let ordinalWidth = MacOrdinalColumn.width(
-            for: rows.count, minimum: 32, fontSize: 11, locale: locale
+            for: rows.count, minimum: 32, fontSize: 11, locale: locale, showsNumbers: showsRowNumbers
         )
         return MacSongScrollSurface(
             allowsHorizontalScrolling: macViewMode == .list,
@@ -2655,6 +2658,7 @@ struct SongListView: View {
             : nil
         return MacSongRowContainer(
             content: MacSongTableRowContent(
+                showsRowNumbers: showsRowNumbers,
                 song: song,
                 ordinal: index + 1,
                 ordinalWidth: ordinalWidth,
@@ -2687,6 +2691,7 @@ struct SongListView: View {
         let isLocated = locatedSongID == song.id
         return MacSongRowContainer(
             content: MacCompactSongRowContent(
+                showsRowNumbers: showsRowNumbers,
                 song: song,
                 ordinal: index + 1,
                 ordinalWidth: ordinalWidth,
@@ -6334,6 +6339,8 @@ private struct IOSSongListRow: View {
 /// reachable while batch selection is active, but constructing them for every
 /// newly visible row made large flat lists hitch during a drag.
 private struct IOSSelectionSongRow: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(MusicLibrary.self) private var library
 
     let song: Song
@@ -6374,7 +6381,7 @@ private struct IOSSelectionSongRow: View {
         .frame(minHeight: 52)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
+        .accessibilityLabel(Text(verbatim: [showsRowNumbers ? ordinal.formatted() : nil, song.title, library.artistDisplayName(for: song)]
             .compactMap { $0 }
             .joined(separator: " — ")))
     }
@@ -6545,6 +6552,7 @@ private struct LibraryFolderMaintenanceStatus: View {
 /// Mac 歌曲表格一行里的格子。拆成可比较的独立视图: 父视图每重算一次(补读每写回一批就是
 /// 一次), 只有输入真变了的那几行重建, 窗口里其余几十行原样跳过。
 private struct MacSongTableRowContent: View, Equatable, Sendable {
+    let showsRowNumbers: Bool
     let song: Song
     let ordinal: Int
     let ordinalWidth: CGFloat
@@ -6563,7 +6571,8 @@ private struct MacSongTableRowContent: View, Equatable, Sendable {
     let locale: Locale
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.song == rhs.song
+        lhs.showsRowNumbers == rhs.showsRowNumbers
+            && lhs.song == rhs.song
             && lhs.ordinal == rhs.ordinal
             && lhs.ordinalWidth == rhs.ordinalWidth
             && lhs.isCurrent == rhs.isCurrent
@@ -6590,7 +6599,7 @@ private struct MacSongTableRowContent: View, Equatable, Sendable {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
                         .pmFadeTransition()
-                } else {
+                } else if showsRowNumbers {
                     Text(verbatim: ordinal.formatted(.number.locale(locale)))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(PMColor.textFaint)
@@ -6747,6 +6756,7 @@ private struct MacSongTableRowContent: View, Equatable, Sendable {
 #if os(macOS)
 /// 紧凑视图的一行, 同 `MacSongTableRowContent`: 输入没变就不重建。
 private struct MacCompactSongRowContent: View, Equatable, Sendable {
+    let showsRowNumbers: Bool
     let song: Song
     let ordinal: Int
     let ordinalWidth: CGFloat
@@ -6757,7 +6767,8 @@ private struct MacCompactSongRowContent: View, Equatable, Sendable {
     let locale: Locale
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.song == rhs.song
+        lhs.showsRowNumbers == rhs.showsRowNumbers
+            && lhs.song == rhs.song
             && lhs.ordinal == rhs.ordinal
             && lhs.ordinalWidth == rhs.ordinalWidth
             && lhs.isCurrent == rhs.isCurrent
@@ -6775,7 +6786,7 @@ private struct MacCompactSongRowContent: View, Equatable, Sendable {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
                         .pmFadeTransition()
-                } else {
+                } else if showsRowNumbers {
                     Text(verbatim: ordinal.formatted(.number.locale(locale)))
                         .font(.system(size: 10.5, design: .monospaced))
                         .foregroundStyle(PMColor.textFaint)
@@ -6783,7 +6794,7 @@ private struct MacCompactSongRowContent: View, Equatable, Sendable {
                         .pmFadeTransition()
                 }
             }
-            .frame(width: max(28, ordinalWidth), alignment: .leading)
+            .frame(width: showsRowNumbers ? max(28, ordinalWidth) : ordinalWidth, alignment: .leading)
             .pmAnimation(.hover, value: isCurrent)
 
             HStack(spacing: 5) {

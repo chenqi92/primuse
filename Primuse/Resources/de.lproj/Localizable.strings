@@ -6231,7 +6231,7 @@
 "player_controls_tile_label_style" = "Kachelbeschriftung";
 "player_controls_tile_label_icon_text" = "Symbol und Text";
 "player_controls_tile_label_icon_only" = "Nur Symbol";
-"player_menu_items_spoken_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“. „Gefällt mir“, die Transkripttaste, Lesezeichen und „Als Nächstes“ landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
+"player_menu_items_spoken_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“. Die Transkripttaste, Lesezeichen und „Als Nächstes“ landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
 "player_menu_group_book" = "Dieses Buch";
 "player_menu_group_episode" = "Diese Folge";
 "player_menu_group_spoken_playback" = "Wiedergabe & Transkript";
@@ -6292,7 +6292,7 @@
 "player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
 "player_menu_items_title" = "Menü „Mehr“";
 "player_menu_items_hidden_count %lld" = "%lld ausgeblendet";
-"player_menu_items_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“ des Players. Tasten auf der Seite werden im Menü ohnehin nicht wiederholt, und „Gefällt mir“, Liedtext, Warteliste, Zufall und Wiederholen landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
+"player_menu_items_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“ des Players. Tasten auf der Seite werden im Menü ohnehin nicht wiederholt, und Liedtext, Warteliste, Zufall und Wiederholen landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
 "player_menu_items_show_all" = "Alle anzeigen";
 "player_menu_group_quick" = "Obere Reihe";
 "player_menu_group_modes" = "Modi";
@@ -7165,3 +7165,5 @@
 "listening_scene_heartbreak_prompt" = "Traurige Lieder für die Zeit allein nach einer Trennung, über Verlust, Abschied und Loslassen.";
 "listening_scene_running_prompt" = "Energiegeladene Lieder zum Laufen mit gleichmäßigem Rhythmus. Keine langsamen Lieder oder langen ruhigen Passagen.";
 "listening_scene_studying_prompt" = "Ruhige Instrumentalmusik zum Lernen, wenig Gesang und keine plötzlichen Wechsel, für mehr Konzentration.";
+
+"library_show_row_numbers" = "Zeilennummern in der Mediathek anzeigen";

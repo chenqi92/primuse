@@ -8585,6 +8585,8 @@ struct NowPlayingView: View {
             ? spokenWordControlLayout.hiddenMenuItems
             : musicControlLayout.hiddenMenuItems
         let shows: (NowPlayingMenuItem) -> Bool = { !menuHidden.contains($0) }
+        var columnOverflow = columnOverflow
+        columnOverflow.like = columnOverflow.like && shows(.like)
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             isSpokenWord: isSpokenWord,

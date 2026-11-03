@@ -6231,7 +6231,7 @@
 "player_controls_tile_label_style" = "타일 표시";
 "player_controls_tile_label_icon_text" = "아이콘과 텍스트";
 "player_controls_tile_label_icon_only" = "아이콘만";
-"player_menu_items_spoken_footer" = "끈 항목은 '더 보기'에 더 이상 나타나지 않습니다. 화면에서 뺀 좋아요·스크립트 버튼·북마크·다음 곡은 계속 메뉴로 들어갑니다.";
+"player_menu_items_spoken_footer" = "끈 항목은 '더 보기'에 더 이상 나타나지 않습니다. 화면에서 뺀 스크립트 버튼·북마크·다음 곡은 계속 메뉴로 들어갑니다.";
 "player_menu_group_book" = "이 책";
 "player_menu_group_episode" = "이 에피소드";
 "player_menu_group_spoken_playback" = "재생 및 스크립트";
@@ -6292,7 +6292,7 @@
 "player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";
 "player_menu_items_title" = "'더 보기' 메뉴";
 "player_menu_items_hidden_count %lld" = "%lld개 숨김";
-"player_menu_items_footer" = "끈 항목은 재생 화면의 '더 보기'에 더 이상 나타나지 않습니다. 화면에 둔 버튼은 원래 메뉴에서 반복되지 않고, 화면에서 뺀 좋아요·가사·대기열·셔플·반복은 계속 메뉴로 들어갑니다.";
+"player_menu_items_footer" = "끈 항목은 재생 화면의 '더 보기'에 더 이상 나타나지 않습니다. 화면에 둔 버튼은 원래 메뉴에서 반복되지 않고, 화면에서 뺀 가사·대기열·셔플·반복은 계속 메뉴로 들어갑니다.";
 "player_menu_items_show_all" = "모두 표시";
 "player_menu_group_quick" = "맨 위 줄";
 "player_menu_group_modes" = "모드";
@@ -7165,3 +7165,5 @@
 "listening_scene_heartbreak_prompt" = "이별 후 혼자 들을 슬픈 노래. 상실, 작별, 마음 정리를 담은 곡으로 골라 주세요.";
 "listening_scene_running_prompt" = "달리기에 어울리는 일정한 리듬의 활기찬 곡. 느린 곡과 긴 조용한 구간은 피해 주세요.";
 "listening_scene_studying_prompt" = "공부에 집중할 수 있는 차분한 연주곡. 보컬과 급격한 변화가 적은 음악으로 골라 주세요.";
+
+"library_show_row_numbers" = "보관함 번호 표시";

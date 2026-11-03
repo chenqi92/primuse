@@ -6232,7 +6232,7 @@
 "player_controls_tile_label_style" = "タイルの表示";
 "player_controls_tile_label_icon_text" = "アイコンと文字";
 "player_controls_tile_label_icon_only" = "アイコンのみ";
-"player_menu_items_spoken_footer" = "オフにした項目は「その他」に表示されなくなります。画面から外した「好き」、文字起こしボタン、「ブックマーク」「次に再生」は引き続きメニューに入ります。";
+"player_menu_items_spoken_footer" = "オフにした項目は「その他」に表示されなくなります。画面から外した文字起こしボタン、「ブックマーク」「次に再生」は引き続きメニューに入ります。";
 "player_menu_group_book" = "この本";
 "player_menu_group_episode" = "このエピソード";
 "player_menu_group_spoken_playback" = "再生と文字起こし";
@@ -6293,7 +6293,7 @@
 "player_control_tint_footer" = "進行バーやオンになったシャッフル・リピートなど、再生画面のコントロールの色です。モノクロはダークモードで白、ライトモードで黒になり、リキッドカラーのような背景でも色がぶつかりません。オーディオブックのレイアウトは独自の配色のままです。";
 "player_menu_items_title" = "「その他」メニュー";
 "player_menu_items_hidden_count %lld" = "%lld 項目を非表示";
-"player_menu_items_footer" = "オフにした項目は再生画面の「その他」に表示されなくなります。画面に置いたボタンはもともとメニューに重複せず、画面から外した「好き」「歌詞」「キュー」「シャッフル」「リピート」は引き続きメニューに入ります。";
+"player_menu_items_footer" = "オフにした項目は再生画面の「その他」に表示されなくなります。画面に置いたボタンはもともとメニューに重複せず、画面から外した「歌詞」「キュー」「シャッフル」「リピート」は引き続きメニューに入ります。";
 "player_menu_items_show_all" = "すべて表示";
 "player_menu_group_quick" = "上段";
 "player_menu_group_modes" = "モード";
@@ -7166,3 +7166,5 @@
 "listening_scene_heartbreak_prompt" = "失恋後に一人で聴く悲しい曲。喪失、別れ、気持ちの整理をテーマに選んでください。";
 "listening_scene_running_prompt" = "ランニングに合う一定のリズムで元気な曲。ゆっくりした曲や長い静かな部分は避けてください。";
 "listening_scene_studying_prompt" = "勉強に集中できる穏やかなインスト曲。歌声や急な変化の少ない曲を選んでください。";
+
+"library_show_row_numbers" = "ライブラリの番号を表示";

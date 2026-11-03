@@ -132,9 +132,9 @@ public enum NowPlayingBarMetrics {
 }
 
 /// 音乐播放页「更多」菜单里能关掉的项(#198:串烧、卡拉OK 这类用得少的可以不出现)。
-/// rawValue 会写进配置并经 iCloud 同步,发布后不能改名。页面按钮缺了时补进菜单的那几项(喜欢、歌词、队列、
-/// 随机、循环)不在这里——那是兜底入口,不能关。
+/// rawValue 会写进配置并经 iCloud 同步,发布后不能改名。歌词、队列、随机和循环保留兜底入口。
 public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case like
     case fullScreen
     case share
     case addToPlaylist
@@ -721,7 +721,9 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     /// 页面上点不到、要补进「更多」的,按目录顺序。
     public func menuFallback(on surface: NowPlayingControlSurface) -> [NowPlayingControlAction] {
         let reachable = visibleActions(on: surface).union(surface.alwaysReachable)
-        return NowPlayingControlAction.allCases.filter { $0.needsMenuFallback && !reachable.contains($0) }
+        return NowPlayingControlAction.allCases.filter {
+            $0.needsMenuFallback && !reachable.contains($0) && ($0 != .like || showsMenuItem(.like))
+        }
     }
 
     /// 已经摆在页面上、「更多」里不再重复的。

@@ -7361,6 +7361,8 @@ private struct MacSTThemeView: View {
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(WidgetColorStyle.storageKey) private var widgetColorStyle = WidgetColorStyle.defaultValue
     @State private var preferences = MacUIPreferences.shared
@@ -8140,6 +8142,11 @@ private struct MacSTThemeView: View {
                         .accessibilityHint(Text("library_default_flat_view_description"))
                 }
                 .settingsAnchor("library.flatBrowse")
+                MacSTRow(String(localized: "library_show_row_numbers")) {
+                    MacSTToggle(isOn: $showsRowNumbers)
+                }
+                .settingsAnchor("library.showRowNumbers")
+                .accessibilityIdentifier("library.showRowNumbers")
             }
 
             MacLibraryBackupGroup()

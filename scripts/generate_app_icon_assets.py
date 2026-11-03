@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DESIGN_DIR = ROOT / "IconDesign" / "AppIcons2026"
 RAW_DIR = DESIGN_DIR / "raw"
 IOS_ASSETS = ROOT / "Primuse" / "Resources" / "Assets.xcassets"
+IOS_PRIMARY_ICON_NAME = "AppIconPrimary"
 MAC_ICONSET = IOS_ASSETS / "AppIcon-Mac.appiconset"
 WATCH_ICONSET = ROOT / "PrimuseWatch" / "Resources" / "Assets.xcassets" / "AppIcon.appiconset"
 
@@ -92,7 +93,8 @@ def save_direct_ios_assets(
     master_path = DESIGN_DIR / f"{master_stem}.png"
     any_icon.save(master_path, optimize=True)
 
-    iconset = IOS_ASSETS / f"{icon_name}.appiconset"
+    asset_name = IOS_PRIMARY_ICON_NAME if icon_name == "AppIcon" else icon_name
+    iconset = IOS_ASSETS / f"{asset_name}.appiconset"
     any_icon.save(iconset / f"{icon_name}.png", optimize=True)
     dark_icon.save(iconset / f"{icon_name}-dark.png", optimize=True)
     tinted_icon.save(iconset / f"{icon_name}-tinted.png", optimize=True)

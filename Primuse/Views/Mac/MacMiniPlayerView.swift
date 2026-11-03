@@ -638,7 +638,7 @@ struct MacMiniPlayerView: View {
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        SongRowTrackNumber(number: index + 1, largestNumber: player.queue.count)
+                        SongRowTrackNumber(number: index + 1, largestNumber: player.queue.count, respectsLibraryPreference: false)
                         Text(song.title).font(.caption).lineLimit(1)
                     }
                     Text(library.artistDisplayName(for: song) ?? "")

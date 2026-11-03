@@ -472,7 +472,7 @@
 		355FB9D59BD2017918C7988E /* SACDTrackCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8DB929200967C8A786EA12 /* SACDTrackCache.swift */; };
 		35B48C2F545DAC174744C25C /* PreparedPlaybackStartPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2226198F80B0E17BBF3555D /* PreparedPlaybackStartPolicy.swift */; };
 		35B6342BED0D222E166D96FD /* ID3LyricsFramePreservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F922996E55613A514AD0D4 /* ID3LyricsFramePreservation.swift */; };
-		35F990A3B678BAEA7F7A4C6A /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0CB5E6F56603DB9C437C18AB /* AppIcon.icon */; };
+		35F990A3B678BAEA7F7A4C6A /* AppIconPrimary.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0CB5E6F56603DB9C437C18AB /* AppIconPrimary.icon */; };
 		360222EF64603752EA8A1977 /* SettingsShortcutsHelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05FB8ABE512AF46E3B6BF38 /* SettingsShortcutsHelpView.swift */; };
 		360233DAA3A9722CEB8F659D /* SmartPlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */; };
 		360C6FA93249705D13F47BD1 /* SpokenWordBookRenames.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9AAD385BADB30084B4DFA7 /* SpokenWordBookRenames.swift */; };
@@ -2585,7 +2585,7 @@
 		0C8327A413776F7545781AD9 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferFilePreparation.swift; sourceTree = "<group>"; };
 		0CA47B016055EA193C967172 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
-		0CB5E6F56603DB9C437C18AB /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		0CB5E6F56603DB9C437C18AB /* AppIconPrimary.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIconPrimary.icon; sourceTree = "<group>"; };
 		0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOBaseMediaChapterParser.swift; sourceTree = "<group>"; };
 		0CF62AF729BC2E51A4C424EA /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDistributionChannel.swift; sourceTree = "<group>"; };
@@ -5127,7 +5127,7 @@
 		6E057AB9AC84A401AAB2D71D /* AppIcons */ = {
 			isa = PBXGroup;
 			children = (
-				0CB5E6F56603DB9C437C18AB /* AppIcon.icon */,
+				0CB5E6F56603DB9C437C18AB /* AppIconPrimary.icon */,
 				689C33A4E16E5398ACAEFBA5 /* AppIcon12.icon */,
 				B4E678A7788F43EE2A64E071 /* AppIcon15.icon */,
 				AEC9A07885B7FAA0DF5DAA12 /* AppIcon16.icon */,
@@ -6778,7 +6778,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				35F990A3B678BAEA7F7A4C6A /* AppIcon.icon in Resources */,
+				35F990A3B678BAEA7F7A4C6A /* AppIconPrimary.icon in Resources */,
 				BF99C076E88EABE0665A9F6B /* AppIcon12.icon in Resources */,
 				9995CF68B723A19C2C24CABB /* AppIcon15.icon in Resources */,
 				323E13FB471ADE331E3F501E /* AppIcon16.icon in Resources */,
@@ -9492,7 +9492,7 @@
 			baseConfigurationReference = 28EE6B136CE82FFC872F9E86 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIconGroove";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = Config/Primuse.entitlements;
@@ -9953,7 +9953,7 @@
 			baseConfigurationReference = 63D1E2C3BE30F68AD3F01632 /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon12 AppIcon15 AppIcon16 AppIcon19 AppIcon20 AppIconGroove";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIconPrimary;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = Config/Primuse.entitlements;

@@ -6208,7 +6208,7 @@
 "player_controls_tile_label_style" = "功能塊文字";
 "player_controls_tile_label_icon_text" = "圖示和文字";
 "player_controls_tile_label_icon_only" = "僅圖示";
-"player_menu_items_spoken_footer" = "關掉的項目不再出現在「更多」裡。頁面上拿掉的喜歡、文字稿、書籤和「接下來」仍會補進選單。";
+"player_menu_items_spoken_footer" = "關掉的項目不再出現在「更多」裡。頁面上拿掉的文字稿、書籤和「接下來」仍會補進選單。";
 "player_menu_group_book" = "這本書";
 "player_menu_group_episode" = "這一集";
 "player_menu_group_spoken_playback" = "播放與文字稿";
@@ -6269,7 +6269,7 @@
 "player_control_tint_footer" = "進度列、開著的隨機與循環等播放頁控制項的顏色。選單色時深色外觀下是白色、淺色外觀下是黑色，搭配流動色彩之類的背景不搶色；有聲書版面保留自己的配色。";
 "player_menu_items_title" = "「更多」選單";
 "player_menu_items_hidden_count %lld" = "已隱藏 %lld 項";
-"player_menu_items_footer" = "關掉的項目不再出現在播放頁的「更多」裡。已經擺在頁面上的按鈕本來就不會在選單裡重複，頁面上拿掉的喜歡、歌詞、佇列、隨機和循環仍會補進選單。";
+"player_menu_items_footer" = "關掉的項目不再出現在播放頁的「更多」裡。已經擺在頁面上的按鈕本來就不會在選單裡重複，頁面上拿掉的歌詞、佇列、隨機和循環仍會補進選單。";
 "player_menu_items_show_all" = "全部顯示";
 "player_menu_group_quick" = "最上面一排";
 "player_menu_group_modes" = "玩法";
@@ -7142,3 +7142,5 @@
 "listening_scene_heartbreak_prompt" = "適合分手後獨處的悲傷歌曲，表達失落、告別與釋懷。";
 "listening_scene_running_prompt" = "適合跑步的節奏穩定、充滿活力的歌曲，避免緩慢和大段安靜的段落。";
 "listening_scene_studying_prompt" = "適合學習的舒緩純音樂，少人聲、少突變，不分散注意力。";
+
+"library_show_row_numbers" = "顯示資料庫序號";

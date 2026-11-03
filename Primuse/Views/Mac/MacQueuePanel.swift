@@ -253,7 +253,7 @@ struct MacQueuePanel: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount, respectsLibraryPreference: false)
                     Text(song.title)
                         .font(.system(size: 12, weight: isPlaying ? .semibold : .medium))
                         .foregroundStyle(isPlaying ? PMColor.brand : PMColor.text)

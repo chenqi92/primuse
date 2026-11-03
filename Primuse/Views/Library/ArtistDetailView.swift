@@ -74,6 +74,8 @@ private final class ArtistAlbumShelvesCache {
 }
 
 struct ArtistDetailView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
@@ -953,10 +955,12 @@ struct ArtistDetailView: View {
         let isCurrent = player.currentSong?.id == song.id
         return Button { playSong(song) } label: {
             HStack(spacing: 12) {
-                Text("\(index + 1)")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(PMColor.textFaint)
-                    .frame(width: 24)
+                if showsRowNumbers {
+                    Text("\(index + 1)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(PMColor.textFaint)
+                        .frame(width: 24)
+                }
 
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,

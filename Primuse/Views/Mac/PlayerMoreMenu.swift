@@ -2397,7 +2397,7 @@ struct MacSimilarSongsPopover: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                        SongRowTrackNumber(number: ordinal, largestNumber: totalCount, respectsLibraryPreference: false)
                         Text(row.song.title)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(PMColor.text)

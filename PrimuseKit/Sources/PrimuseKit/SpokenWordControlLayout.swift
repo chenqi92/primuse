@@ -449,7 +449,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         context: SpokenWordControlContext
     ) -> [SpokenWordMenuFallback] {
         var result: [SpokenWordMenuFallback] = []
-        if !resolved.headerShowsLike, !resolved.placedActions.contains(.like), !resolved.tiles.contains(.like) {
+        if showsMenuItem(.like), !resolved.headerShowsLike, !resolved.placedActions.contains(.like), !resolved.tiles.contains(.like) {
             result.append(.like)
         }
         guard context.hasTiles else { return result }

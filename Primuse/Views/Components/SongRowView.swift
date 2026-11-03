@@ -448,6 +448,8 @@ struct SongRowActionRequest: Identifiable {
 }
 
 struct SongRowView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -860,20 +862,16 @@ struct SongRowView: View {
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: style.textSpacing) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    if let trackNumber {
+                    if !showsArtwork && isPlaying {
+                        if player.showsLoadingIndicator {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "waveform")
+                                .font(.caption)
+                                .foregroundStyle(Color.accentColor)
+                        }
+                    } else if let trackNumber, showsRowNumbers {
                         SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
-                            .opacity(!showsArtwork && isPlaying ? 0 : 1)
-                            .overlay {
-                                if !showsArtwork && isPlaying {
-                                    if player.showsLoadingIndicator {
-                                        ProgressView().controlSize(.small)
-                                    } else {
-                                        Image(systemName: "waveform")
-                                            .font(.caption)
-                                            .foregroundStyle(Color.accentColor)
-                                    }
-                                }
-                            }
                     }
                     Text(library.displayTitle(for: song))
                         .font(style.titleFont)
@@ -1046,7 +1044,7 @@ struct SongRowView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(
             [
-                trackNumber.map { $0.formatted(.number.grouping(.never).locale(locale)) },
+                showsRowNumbers ? trackNumber.map { $0.formatted(.number.grouping(.never).locale(locale)) } : nil,
                 song.title,
                 (library.song(id: song.id) ?? song).contentMetadata?.isExplicit == true
                     ? String(localized: "content_explicit") : nil,
@@ -2424,15 +2422,20 @@ struct SongRowNumberedTitle: View {
 }
 
 struct SongRowTrackNumber: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsNumbers = LibraryRowNumberPreferences.defaultValue
     let number: Int
     let largestNumber: Int
+    var respectsLibraryPreference = true
 
     var body: some View {
-        Text(number, format: .number.grouping(.never))
-            .font(.caption2.weight(.regular))
-            .foregroundStyle(.secondary)
-            .monospacedDigit()
-            .fixedSize()
+        if !respectsLibraryPreference || showsNumbers {
+            Text(number, format: .number.grouping(.never))
+                .font(.caption2.weight(.regular))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .fixedSize()
+        }
     }
 }
 

@@ -351,7 +351,7 @@ struct QueueView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount)
+                    SongRowTrackNumber(number: ordinal, largestNumber: totalCount, respectsLibraryPreference: false)
                     Text(song.title)
                         .font(.subheadline.weight(isPlaying ? .semibold : .regular))
                         .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)

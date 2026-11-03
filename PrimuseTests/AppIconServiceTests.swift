@@ -145,6 +145,23 @@ final class AppIconServiceTests: XCTestCase {
         XCTAssertEqual(service.currentIconID, service.options[1].id)
     }
 
+    #if os(iOS)
+    func testPrimaryIconUsesNewResourceIdentityForBundledDeviceFamilies() throws {
+        var keys = ["CFBundleIcons"]
+        if Bundle.main.object(forInfoDictionaryKey: "CFBundleIcons~ipad") != nil {
+            keys.append("CFBundleIcons~ipad")
+        }
+        for key in keys {
+            let icons = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: key) as? [String: Any])
+            let primary = try XCTUnwrap(icons["CFBundlePrimaryIcon"] as? [String: Any])
+            XCTAssertEqual(primary["CFBundleIconName"] as? String, "AppIconPrimary")
+            let files = try XCTUnwrap(primary["CFBundleIconFiles"] as? [String])
+            XCTAssertFalse(files.isEmpty)
+            XCTAssertTrue(files.allSatisfy { $0.hasPrefix("AppIconPrimary") })
+        }
+    }
+    #endif
+
     func testEverySelectableIconIsBundledAndRetiredIconsAreAbsent() throws {
         let service = try fixture(IconSystem()).0
         let bundleIcons = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleIcons") as? [String: Any])

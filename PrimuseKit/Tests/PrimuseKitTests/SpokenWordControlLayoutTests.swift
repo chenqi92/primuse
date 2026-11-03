@@ -57,6 +57,24 @@ import Testing
         #expect(book.menuFallback(for: book.resolved(in: landscape), context: landscape) == [.like])
     }
 
+    @Test func hiddenLikeDoesNotReturnThroughSpokenFallback() {
+        for kind in SpokenWordPlayerKind.allCases {
+            let removed = Layout.default(for: kind).settingShowsLike(false)
+            let hidden = Layout.decode(removed.settingMenuItem(.like, visible: false).encoded(), kind: kind)
+            for hasTiles in [true, false] {
+                let context = SpokenWordControlContext(hasTranscript: true, hasTiles: hasTiles)
+                let original = removed.menuFallback(for: removed.resolved(in: context), context: context)
+                #expect(original.contains(.like))
+                #expect(hidden.menuFallback(for: hidden.resolved(in: context), context: context) == original.filter { $0 != .like })
+                let restored = hidden.showingAllMenuItems()
+                #expect(restored.menuFallback(for: restored.resolved(in: context), context: context) == original)
+            }
+            let onPage = Layout.default(for: kind).settingMenuItem(.like, visible: false)
+            let context = SpokenWordControlContext(hasTranscript: false)
+            #expect(onPage.resolved(in: context).headerShowsLike)
+        }
+    }
+
     @Test func tilesFollowTheTogglesWhenContentsMovesAway() {
         // 目录常驻时只去掉目录块,不拿书签补位。
         let book = Layout.default(for: .audiobook).settingTile(.bookmark, shown: false)

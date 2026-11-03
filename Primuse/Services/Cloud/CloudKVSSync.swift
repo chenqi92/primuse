@@ -695,6 +695,7 @@ final class InterfaceLayoutSync {
         LibrarySectionLayoutPolicy.hiddenKey,
         PlaylistGrouping.storageKey,
         QuickAccessCoverStyle.storageKey,
+        LibraryRowNumberPreferences.storageKey,
         // 歌单头图用封面墙(`CollectionCoverWall.preferenceKey`,只有 iPhone / iPad 用,Mac 照样转发)。
         "primuse.library.playlistCoverWall.v1",
         // 资料库分类图标彩色 / 简洁(`LibraryIconStyle`,同样只有 iPhone / iPad 画)。

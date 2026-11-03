@@ -359,6 +359,24 @@ import Testing
         #expect(!layout.menuSuppressed(on: column).contains(.sleepTimer))
     }
 
+    @Test func hiddenLikeStaysOutOfEveryMenuWithoutRemovingPageButtons() {
+        let surfaces: [NowPlayingControlSurface] = [
+            .portrait, .wideLandscape, .compactLandscape(showsTransportEdges: false),
+            .toolColumn(showsTransportEdges: true, headerOverflows: true), .immersiveLyrics,
+        ]
+        let removed = Layout.default.placing(.sleepTimer, at: .slot(.header))
+        let hidden = Layout.decode(removed.settingMenuItem(.like, visible: false).encoded())
+        for surface in surfaces {
+            #expect(!hidden.menuFallback(on: surface).contains(.like))
+            #expect(hidden.menuFallback(on: surface) == removed.menuFallback(on: surface).filter { $0 != .like })
+            #expect(hidden.visibleActions(on: surface) == removed.visibleActions(on: surface))
+            #expect(hidden.showingAllMenuItems().menuFallback(on: surface) == removed.menuFallback(on: surface))
+        }
+        let onPage = Layout.default.settingMenuItem(.like, visible: false)
+        #expect(onPage.visibleActions(on: .portrait).contains(.like))
+        #expect(removed.menuFallback(on: .portrait).contains(.like))
+    }
+
     @Test func menuItemsCanBeHiddenAndRoundTrip() {
         #expect(Layout.default.hiddenMenuItems.isEmpty)
         let layout = Layout.default

@@ -1932,14 +1932,14 @@ private struct PlayerArtworkStyleSection: View {
 // MARK: - 「更多」菜单
 
 /// 音乐播放页「更多」菜单里哪些项出现(#198)。按菜单里的分组排,关掉的项不再出现;
-/// 页面按钮缺了时补进菜单的喜欢、歌词、队列、随机、循环不在这里,那是兜底入口。
+/// 歌词、队列、随机、循环保留兜底入口。
 private struct NowPlayingMenuItemsEditor: View {
     @Binding var storage: String
 
     private var layout: NowPlayingControlLayout { .decode(storage) }
 
     private static let groups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
-        ("player_menu_group_quick", [.fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
+        ("player_menu_group_quick", [.like, .fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
         ("player_menu_group_modes", [.karaoke, .medley]),
         ("player_menu_group_song", [
             .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .shuffleLink,
@@ -1962,7 +1962,7 @@ private struct NowPlayingMenuItemsEditor: View {
 }
 
 /// 有声书或播客播放页「更多」菜单里哪些项出现。只列这一种播放页的菜单里会出现的项;
-/// 页面上关掉后补进菜单的喜欢、文字稿、书签、「接下来」不在这里,那是兜底入口。
+/// 文字稿、书签、「接下来」保留兜底入口。
 private struct SpokenWordMenuItemsEditor: View {
     let kind: SpokenWordPlayerKind
     @Binding var storage: String
@@ -1972,7 +1972,7 @@ private struct SpokenWordMenuItemsEditor: View {
     /// 资料库里的播客(自己下载、标成播客的歌)走的也是播客这一份配置,菜单里有加歌单、
     /// 改标签这些曲库项,所以播客这边把它们也列出来。
     private static let audiobookGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
-        ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
+        ("player_menu_group_quick", [.like, .share, .addToPlaylist, .delete]),
         ("player_menu_group_book", [
             .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
             .reloadLyrics,
@@ -1981,7 +1981,7 @@ private struct SpokenWordMenuItemsEditor: View {
     ]
 
     private static let podcastGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
-        ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
+        ("player_menu_group_quick", [.like, .share, .addToPlaylist, .delete]),
         ("player_menu_group_episode", [
             .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow,
             .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
@@ -2048,6 +2048,7 @@ extension NowPlayingMenuItem {
     /// 和「更多」菜单里那一项同一个图标。
     var editorSymbol: String {
         switch self {
+        case .like: "heart"
         case .fullScreen: "viewfinder.rectangular"
         case .share: "square.and.arrow.up"
         case .addToPlaylist: "text.badge.plus"
@@ -2087,6 +2088,7 @@ extension NowPlayingMenuItem {
 
     var editorTitleKey: LocalizedStringKey {
         switch self {
+        case .like: "a11y_like"
         case .fullScreen: "full_screen_player"
         case .share: "share"
         case .addToPlaylist: "add_to_playlist"

@@ -2,6 +2,8 @@ import SwiftUI
 import PrimuseKit
 
 struct AlbumDetailView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
@@ -1026,11 +1028,11 @@ struct AlbumDetailView: View {
             discs.flatMap(\.songs).compactMap { AlbumTrackOrder.trackNumber(for: $0) }.max() ?? 1
         )
         let ordinalWidth = MacOrdinalColumn.width(
-            for: largestTrackNumber, minimum: 28, fontSize: 11, locale: locale
+            for: largestTrackNumber, minimum: 28, fontSize: 11, locale: locale, showsNumbers: showsRowNumbers
         )
         return VStack(spacing: 0) {
             HStack(spacing: PMSpace.s10) {
-                Text("#").frame(width: ordinalWidth, alignment: .center)
+                Text(showsRowNumbers ? "#" : "").frame(width: ordinalWidth, alignment: .center)
                 if showsTrackArtwork { Color.clear.frame(width: 36) }
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
                 Text("sort_artist").frame(width: 180, alignment: .leading)
@@ -1104,7 +1106,7 @@ struct AlbumDetailView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
                             .pmFadeTransition()
-                    } else {
+                    } else if showsRowNumbers {
                         Text(verbatim: trackNumber.formatted(.number.locale(locale)))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)

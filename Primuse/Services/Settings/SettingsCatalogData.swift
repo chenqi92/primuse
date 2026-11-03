@@ -197,6 +197,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "library.artistColorStyle", titleKey: "library_artist_color_style", iosPage: .libraryDisplay, macPage: nil, keywords: ["艺人", "艺术家", "取色", "封面", "背景", "经典", "artist", "color", "artwork", "background", "mesh", "classic"]),
         SettingDefinition(id: "library.artistSoftensEdges", titleKey: "library_artist_softens_edges", iosPage: .libraryDisplay, macPage: nil, keywords: ["艺人", "艺术家", "柔化", "模糊", "上下", "边缘", "artist", "soft", "blur", "edges"]),
         SettingDefinition(id: "library.iconStyle", titleKey: "library_icon_style_title", iosPage: .libraryDisplay, macPage: nil, keywords: ["图标", "彩色", "简洁", "单色", "极简", "色块", "icon", "colorful", "simple", "monochrome", "minimal"]),
+        SettingDefinition(id: "library.showRowNumbers", titleKey: "library_show_row_numbers", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["序号", "编号", "曲序", "number", "index"]),
         SettingDefinition(id: "library.flatBrowse", titleKey: "library_default_flat_view", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.minimalStartListening", titleKey: "listening_intent_minimal_songs_toggle", iosPage: .libraryDisplay, macPage: nil, keywords: ["开始听", "极简", "minimal", "intent"]),
         SettingDefinition(id: "library.sectionOrder", titleKey: "library_sections_settings_label", iosPage: .libraryDisplay, macPage: .appearance),

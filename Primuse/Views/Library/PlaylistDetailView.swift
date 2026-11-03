@@ -7,6 +7,8 @@ import AppKit
 #endif
 
 struct PlaylistDetailView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(\.dismiss) private var dismiss
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -1909,7 +1911,8 @@ struct PlaylistDetailView: View {
         // 已经排在歌单最前面的那首不给「置顶」。
         let topSongID = allowsPlaylistRemoval ? storedSongs.first?.id : nil
         let indexColumnWidth = MacOrdinalColumn.width(
-            for: table.rows.count, minimum: 32, fontSize: 11, locale: locale
+            for: table.rows.count, minimum: 32, fontSize: 11, locale: locale,
+            showsNumbers: showsRowNumbers || selection.isActive
         )
         let window = SongListScrollWindow.range(
             totalCount: table.rows.count,
@@ -1956,7 +1959,7 @@ struct PlaylistDetailView: View {
                                     )
                             case .pending(let pending):
                                 HStack(spacing: 12) {
-                                    Text(row.songIndex + 1, format: .number.grouping(.never))
+                                    Text(verbatim: showsRowNumbers ? (row.songIndex + 1).formatted(.number.grouping(.never)) : "")
                                         .font(.system(size: 11, design: .monospaced))
                                         .foregroundStyle(PMColor.textFaint)
                                         .frame(width: indexColumnWidth, alignment: .leading)
@@ -2066,6 +2069,8 @@ struct PlaylistDetailView: View {
     }
 
     private struct MacPlaylistSelectionIndexCell: View {
+        @AppStorage(LibraryRowNumberPreferences.storageKey)
+        private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
         @Environment(\.locale) private var locale
         let index: Int
         let isCurrent: Bool
@@ -2079,7 +2084,7 @@ struct PlaylistDetailView: View {
                 if isSelectionActive {
                     SongSelectionCheckmark(isSelected: membership.isSelected)
                         .pmFadeTransition(motion: .list)
-                } else {
+                } else if showsRowNumbers {
                     Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                         .font(.system(size: 11, design: .monospaced))
                         .lineLimit(1)

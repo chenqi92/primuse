@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from generate_app_icon_assets import EXACT_ICONS, RAW_DIR, ROOT
+from generate_app_icon_assets import EXACT_ICONS, IOS_PRIMARY_ICON_NAME, RAW_DIR, ROOT
 from generate_brand_marks import build_marks, clear_edges, soft_note_artwork
 
 
@@ -37,7 +37,8 @@ def mono_glyph(mark: tuple[np.ndarray, np.ndarray]) -> Image.Image:
 
 
 def save_icon(icon_name: str, light_name: str, dark_name: str, mono: Image.Image) -> None:
-    folder = OUTPUT / f"{icon_name}.icon"
+    asset_name = IOS_PRIMARY_ICON_NAME if icon_name == "AppIcon" else icon_name
+    folder = OUTPUT / f"{asset_name}.icon"
     assets = folder / "Assets"
     assets.mkdir(parents=True, exist_ok=True)
     for filename, source in [("Light.png", light_name), ("Dark.png", dark_name)]:

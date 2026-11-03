@@ -4,6 +4,8 @@ import PrimuseKit
 /// 智能歌单详情页。规则型会实时匹配资料库；AI 型按生成时保存的跨设备歌曲身份
 /// 解析，并可从详情页继续输入描述追加歌曲。
 struct SmartPlaylistDetailView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     /// 用 ID 查找而不是直接持值, 让规则编辑后 detail 能跟着 library 状态刷新。
     let smartPlaylistID: String
     private let onMacInlineBack: (() -> Void)?
@@ -713,11 +715,11 @@ struct SmartPlaylistDetailView: View {
 
     private func macSongTable(_ matched: [Song]) -> some View {
         let ordinalWidth = MacOrdinalColumn.width(
-            for: matched.count, minimum: 28, fontSize: 11, locale: locale
+            for: matched.count, minimum: 28, fontSize: 11, locale: locale, showsNumbers: showsRowNumbers
         )
         return VStack(spacing: 0) {
             HStack(spacing: PMSpace.s10) {
-                Text("#").frame(width: ordinalWidth, alignment: .center)
+                Text(showsRowNumbers ? "#" : "").frame(width: ordinalWidth, alignment: .center)
                 Color.clear.frame(width: 36)
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
                 Text("sort_artist").frame(width: 180, alignment: .leading)
@@ -752,7 +754,7 @@ struct SmartPlaylistDetailView: View {
                         Image(systemName: "play.fill")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
-                    } else {
+                    } else if showsRowNumbers {
                         Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)

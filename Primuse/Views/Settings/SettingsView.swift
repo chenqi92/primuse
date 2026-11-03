@@ -920,6 +920,8 @@ private struct PlayerAppearanceSettingsView: View {
 #endif
 
 private struct LibraryDisplaySettingsView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @AppStorage(LibraryReviewPreferences.enabledKey)
@@ -995,6 +997,12 @@ private struct LibraryDisplaySettingsView: View {
             }
 
             backupSection
+
+            Section {
+                Toggle("library_show_row_numbers", isOn: $showsRowNumbers)
+                    .settingsAnchor("library.showRowNumbers")
+                    .accessibilityIdentifier("library.showRowNumbers")
+            }
 
             Section {
                 Picker("library_quick_access_cover_style", selection: $quickAccessCoverStyle) {

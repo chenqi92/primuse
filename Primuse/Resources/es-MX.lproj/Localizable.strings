@@ -6137,7 +6137,7 @@
 "player_controls_tile_label_style" = "Etiquetas de mosaicos";
 "player_controls_tile_label_icon_text" = "Ícono y texto";
 "player_controls_tile_label_icon_only" = "Solo ícono";
-"player_menu_items_spoken_footer" = "Los elementos que desactives ya no aparecerán en el menú Más. Me gusta, el botón de transcripción, Marcadores y A continuación siguen pasando al menú si los quitas de la página.";
+"player_menu_items_spoken_footer" = "Los elementos que desactives ya no aparecerán en el menú Más. El botón de transcripción, Marcadores y A continuación siguen pasando al menú si los quitas de la página.";
 "player_menu_group_book" = "Este libro";
 "player_menu_group_episode" = "Este episodio";
 "player_menu_group_spoken_playback" = "Reproducción y transcripción";
@@ -6198,7 +6198,7 @@
 "player_control_tint_footer" = "Color de la barra de progreso, del aleatorio y la repetición activados y de otros controles del reproductor. Monocromo es blanco en modo oscuro y negro en modo claro, así no compite con fondos como Colores fluidos. Los diseños de audiolibros conservan sus propios colores.";
 "player_menu_items_title" = "Menú Más";
 "player_menu_items_hidden_count %lld" = "%lld ocultos";
-"player_menu_items_footer" = "Los elementos que desactives ya no aparecerán en el menú Más del reproductor. Los botones que ya están en la página nunca se repiten en el menú, y Me gusta, Letra, Cola, Aleatorio y Repetir siguen pasando al menú si los quitas de la página.";
+"player_menu_items_footer" = "Los elementos que desactives ya no aparecerán en el menú Más del reproductor. Los botones que ya están en la página nunca se repiten en el menú, y Letra, Cola, Aleatorio y Repetir siguen pasando al menú si los quitas de la página.";
 "player_menu_items_show_all" = "Mostrar todo";
 "player_menu_group_quick" = "Fila superior";
 "player_menu_group_modes" = "Modos";
@@ -7071,3 +7071,5 @@
 "listening_scene_heartbreak_prompt" = "Canciones tristes para estar a solas tras una ruptura, sobre pérdida, despedida y dejar ir.";
 "listening_scene_running_prompt" = "Canciones enérgicas para correr con ritmo constante. Evitar canciones lentas y pasajes largos de calma.";
 "listening_scene_studying_prompt" = "Música instrumental tranquila para estudiar, con pocas voces y sin cambios bruscos, para concentrarse.";
+
+"library_show_row_numbers" = "Mostrar números de fila en la biblioteca";

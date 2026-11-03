@@ -109,13 +109,7 @@ private struct WatchPlaybackPager: View {
         .ignoresSafeArea(.container, edges: .bottom)
         .navigationTitle(navigationTitle)
         .containerBackground(for: .navigation) {
-            if selection == .playing || selection == .seek {
-                WatchNowPlayingBackdrop(cover: store.coverImage, accent: store.accent)
-            } else if selection == .queue {
-                LinearGradient(colors: [store.accent.opacity(0.45), .black], startPoint: .top, endPoint: .bottom)
-            } else {
-                Color.black
-            }
+            WatchNowPlayingBackdrop(cover: store.coverImage, accent: store.accent)
         }
         .onChange(of: pages) { _, available in
             resetTransition()

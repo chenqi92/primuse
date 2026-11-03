@@ -247,3 +247,8 @@ public enum ListeningDiscoveryDefaults {
         return true
     }
 }
+
+public enum LibraryRowNumberPreferences {
+    public static let storageKey = "primuse.library.showRowNumbers"
+    public static let defaultValue = true
+}

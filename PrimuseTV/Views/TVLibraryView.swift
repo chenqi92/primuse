@@ -1484,6 +1484,8 @@ private struct TVArtworkGentleFloat: ViewModifier {
 /// (长了自己慢慢滚,按下看全文);右栏是曲目;专辑文件夹里有封底图时铺成整页背景。
 /// 串烧、补全专辑信息、恢复文件标签收在「更多」里。
 struct TVAlbumDetailView: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     /// 打开时的那份;封面取色、曲库刷新后按 id 重新取。
@@ -1950,7 +1952,7 @@ struct TVAlbumDetailView: View {
             focusBinding: $focusedTrackID, focusID: "appleMusic." + track.id
         ) { focused in
             HStack(spacing: 22) {
-                Text(verbatim: "\(track.number)")
+                Text(verbatim: showsRowNumbers ? "\(track.number)" : "")
                     .tvFont(.caption, design: .monospaced)
                     .foregroundStyle(TVColor.textFaint)
                     .frame(width: 56, alignment: .trailing)
@@ -2082,7 +2084,7 @@ struct TVAlbumDetailView: View {
         ) { focused in
             HStack(spacing: 22) {
                 ZStack(alignment: .trailing) {
-                    Text(verbatim: "\(track.number)")
+                    Text(verbatim: showsRowNumbers ? "\(track.number)" : "")
                         .tvFont(.caption, design: .monospaced)
                         .foregroundStyle(TVColor.textFaint)
                         .opacity(isCurrent ? 0 : 1)
@@ -2179,14 +2181,18 @@ struct TVAlbumDetailView: View {
 }
 
 struct TVSongOrdinal: View {
+    @AppStorage(LibraryRowNumberPreferences.storageKey)
+    private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     let number: Int
     let largestNumber: Int
 
     var body: some View {
-        Text(number, format: .number.grouping(.never))
-            .tvFont(.meta, design: .monospaced)
-            .foregroundStyle(TVColor.textFaint)
-            .fixedSize()
+        if showsRowNumbers {
+            Text(number, format: .number.grouping(.never))
+                .tvFont(.meta, design: .monospaced)
+                .foregroundStyle(TVColor.textFaint)
+                .fixedSize()
+        }
     }
 }
 

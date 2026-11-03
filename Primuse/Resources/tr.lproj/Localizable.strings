@@ -6137,7 +6137,7 @@
 "player_controls_tile_label_style" = "Kutucuk Etiketleri";
 "player_controls_tile_label_icon_text" = "Simge ve Metin";
 "player_controls_tile_label_icon_only" = "Yalnızca Simge";
-"player_menu_items_spoken_footer" = "Kapattığınız öğeler Diğer menüsünde artık görünmez. Beğen, döküm düğmesi, Yer imleri ve Sıradaki sayfadan kaldırıldığında yine menüye geçer.";
+"player_menu_items_spoken_footer" = "Kapattığınız öğeler Diğer menüsünde artık görünmez. Döküm düğmesi, Yer imleri ve Sıradaki sayfadan kaldırıldığında yine menüye geçer.";
 "player_menu_group_book" = "Bu Kitap";
 "player_menu_group_episode" = "Bu Bölüm";
 "player_menu_group_spoken_playback" = "Oynatma ve Döküm";
@@ -6198,7 +6198,7 @@
 "player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";
 "player_menu_items_title" = "Diğer Menüsü";
 "player_menu_items_hidden_count %lld" = "%lld gizli";
-"player_menu_items_footer" = "Kapattığınız öğeler çaların Diğer menüsünde artık görünmez. Sayfadaki düğmeler menüde zaten tekrarlanmaz; Beğen, Sözler, Sıra, Karıştır ve Yinele sayfadan kaldırıldığında yine menüye geçer.";
+"player_menu_items_footer" = "Kapattığınız öğeler çaların Diğer menüsünde artık görünmez. Sayfadaki düğmeler menüde zaten tekrarlanmaz; Sözler, Sıra, Karıştır ve Yinele sayfadan kaldırıldığında yine menüye geçer.";
 "player_menu_items_show_all" = "Tümünü Göster";
 "player_menu_group_quick" = "Üst Sıra";
 "player_menu_group_modes" = "Modlar";
@@ -7071,3 +7071,5 @@
 "listening_scene_heartbreak_prompt" = "Ayrılık sonrası yalnız dinlemek için kayıp, veda ve kabullenmeyi anlatan hüzünlü şarkılar.";
 "listening_scene_running_prompt" = "Koşu için düzenli ritimli, enerjik şarkılar. Yavaş şarkılar ve uzun sakin bölümler olmasın.";
 "listening_scene_studying_prompt" = "Ders çalışmak için sakin enstrümantal müzik, az vokal ve ani değişimler olmadan, odaklanmaya yardımcı olsun.";
+
+"library_show_row_numbers" = "Arşivde sıra numaralarını göster";
