@@ -11,7 +11,7 @@
   </a>
 </p>
 
-> **体验最新版本：** [加入 TestFlight 公测](https://g2.al/palveni)
+> **体验最新版本：** [加入 TestFlight 公测](https://g2.al/1)
 
 Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文件、NAS、媒体服务器、云盘、网络电台和 Apple Music 汇入同一资料库与播放队列，并提供高保真解码、CUE 分轨、逐字歌词、智能推荐、跨设备同步以及完整的系统播放控制。
 
@@ -23,7 +23,7 @@ Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文�
 
 <p align="center">
   <a href="Docs/community/wechat-group.jpg">
-    <img src="Docs/community/wechat-group.jpg" width="320" alt="Palveni 微信群聊二维码"/>
+    <img src="https://g2.al/palveni" width="320" alt="Palveni 微信群聊二维码"/>
   </a>
 </p>
 
