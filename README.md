@@ -33,7 +33,7 @@ Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文�
 - [中文更新日志](Docs/CHANGELOG.md) · [English Changelog](Docs/CHANGELOG.en.md)
 - [应用截图](#应用截图) · [macOS 桌面版](#macos-桌面版) · [Apple TV 版](#apple-tv-版) · [Apple Watch 与系统集成](#apple-watch-与系统集成)
 - [音乐源](#音乐源) · [电台发现与个性化](#电台发现与个性化) · [播放与格式](#播放与格式) · [歌词与元数据](#歌词与元数据) · [资料库与同步](#资料库与同步)
-- [快速开始](#快速开始) · [自定义刮削源](#自定义刮削源) · [项目结构](#项目结构) · [架构](#架构)
+- [快速开始](#快速开始) · [自定义刮削源](#自定义刮削源) · [项目结构](#项目结构) · [架构](#架构) · [许可证](#许可证)
 
 ## iPhone 与 iPad
 
@@ -453,3 +453,40 @@ iPhone / iPad / Mac
 ## 说明
 
 Primuse 不提供音乐内容或云存储。你需要使用自己的文件、服务器和第三方账号；各服务的可用性取决于提供商、地区、账号权限和 API 状态。请遵守内容来源的服务条款和适用法律。
+
+## 许可证
+
+Copyright (c) 2026 Welape
+
+除另有许可声明的部分外，Primuse 采用 **GNU Affero General Public License 第 3 版，仅限该版本（`AGPL-3.0-only`）**，完整条款见 [LICENSE](LICENSE)。本软件不提供任何担保，包括适销性或特定用途适用性的默示担保。
+
+第三方依赖及带有独立许可声明的资源继续遵循各自的许可证。此前按 MIT 发布的代码保留其原有授权；以下历史声明不为后续新增或修改的代码提供 MIT 授权。
+
+<details>
+<summary>历史 MIT 版权与许可声明</summary>
+
+```text
+MIT License
+
+Copyright (c) 2026 Welape
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>

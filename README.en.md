@@ -27,7 +27,7 @@ The stable release is available on the App Store. Search for “Primuse” or us
 - [中文更新日志](Docs/CHANGELOG.md) · [English Changelog](Docs/CHANGELOG.en.md)
 - [Screenshots](#screenshots) · [macOS Desktop App](#macos-desktop-app) · [Apple TV App](#apple-tv-app) · [Apple Watch and System Integration](#apple-watch-and-system-integration)
 - [Music Sources](#music-sources) · [Radio, Discovery, and Personalization](#radio-discovery-and-personalization) · [Playback and Formats](#playback-and-formats) · [Lyrics and Metadata](#lyrics-and-metadata) · [Library and Sync](#library-and-sync)
-- [Getting Started](#getting-started) · [Custom Scraping Sources](#custom-scraping-sources) · [Project Structure](#project-structure) · [Architecture](#architecture)
+- [Getting Started](#getting-started) · [Custom Scraping Sources](#custom-scraping-sources) · [Project Structure](#project-structure) · [Architecture](#architecture) · [License](#license)
 
 ## iPhone and iPad
 
@@ -447,3 +447,40 @@ iPhone / iPad / Mac
 ## Notes
 
 Primuse does not provide music or cloud storage. You use your own files, servers, and third-party accounts. Availability depends on each provider, region, account permissions, and API status. Follow the terms of your content sources and all applicable laws.
+
+## License
+
+Copyright (c) 2026 Welape
+
+Except where a separate license notice applies, Primuse is licensed under the **GNU Affero General Public License, version 3 only (`AGPL-3.0-only`)**. See [LICENSE](LICENSE) for the full terms. This software comes without any warranty, including the implied warranties of merchantability or fitness for a particular purpose.
+
+Third-party dependencies and assets with separate license notices remain under their respective licenses. Code previously released under MIT retains its original license; the historical notice below does not grant MIT licensing for subsequent additions or modifications.
+
+<details>
+<summary>Historical MIT copyright and permission notice</summary>
+
+```text
+MIT License
+
+Copyright (c) 2026 Welape
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+</details>
