@@ -2033,6 +2033,17 @@ struct PagedSongCatalogPage: Sendable {
     let nextOffset: Int?
 }
 
+/// Songs can be published while optional album metadata is still being read.
+/// The caller applies the enrichment before committing the final snapshot.
+protocol ServerCatalogEnrichingConnector: MusicSourceConnector {
+    func beginCatalogEnrichment(scanID: UUID, revision: String?) async throws
+    func finishCatalogEnrichment(
+        scanID: UUID,
+        progress: (@Sendable (Int) async -> Void)?
+    ) async throws -> ServerCatalogEnrichment?
+    func endCatalogEnrichment(scanID: UUID) async
+}
+
 /// A whole-library connector whose `scanSongs` walk keeps going when the
 /// catalogue moves under it (see `CatalogWalkDriftTracker`). Asked once the
 /// scan's streams have finished: a walk that drifted may add and update rows

@@ -49,6 +49,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { rare.values.serverAlbumDateAdded }
         set { updateRare { $0.serverAlbumDateAdded = newValue } }
     }
+    public var serverCatalogAlbum: ServerCatalogAlbumReference? {
+        get { rare.values.serverCatalogAlbum }
+        set { updateRare { $0.serverCatalogAlbum = newValue } }
+    }
     public var coverArtFileName: String?
     /// Source-owned artist artwork reference captured from a server catalogue.
     /// Unlike `artistID`, which is replaced with Primuse's name-derived ID,
@@ -253,7 +257,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         effectiveBitDepth: Int? = nil,
         serverDateAdded: Date? = nil,
         serverAlbumDateAdded: Date? = nil,
-        contentMetadata: SongContentMetadata? = nil
+        contentMetadata: SongContentMetadata? = nil,
+        serverCatalogAlbum: ServerCatalogAlbumReference? = nil
     ) {
         self.id = id
         self.title = title
@@ -294,7 +299,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainAlbumPeak = replayGainAlbumPeak
         if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil || sacdTrackNumber != nil
             || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
-            || serverDateAdded != nil || serverAlbumDateAdded != nil || contentMetadata != nil {
+            || serverDateAdded != nil || serverAlbumDateAdded != nil || contentMetadata != nil || serverCatalogAlbum != nil {
             var values = SongRareFields.Values()
             values.contentMetadata = contentMetadata
             values.mvPath = mvPath
@@ -307,6 +312,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             values.audioVariants = audioVariants
             values.serverDateAdded = serverDateAdded
             values.serverAlbumDateAdded = serverAlbumDateAdded
+            values.serverCatalogAlbum = serverCatalogAlbum
             values.overflowNumbers = rare.values.overflowNumbers
             rare = SongRareFields.make(values)
         }
@@ -323,7 +329,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         case cueSheetPath, cueStartTime, cueEndTime, sacdTrackNumber, revision, titlePinyin, artistPinyin, albumPinyin
         case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID, audioCodec
         case effectiveBitDepth
-        case serverDateAdded, serverAlbumDateAdded, contentMetadata
+        case serverDateAdded, serverAlbumDateAdded, contentMetadata, serverCatalogAlbum
     }
 
     public init(from decoder: Decoder) throws {
@@ -377,7 +383,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             effectiveBitDepth: try container.decodeIfPresent(Int.self, forKey: .effectiveBitDepth),
             serverDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverDateAdded),
             serverAlbumDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverAlbumDateAdded),
-            contentMetadata: try container.decodeIfPresent(SongContentMetadata.self, forKey: .contentMetadata)
+            contentMetadata: try container.decodeIfPresent(SongContentMetadata.self, forKey: .contentMetadata),
+            serverCatalogAlbum: try container.decodeIfPresent(ServerCatalogAlbumReference.self, forKey: .serverCatalogAlbum)
         )
     }
 
@@ -407,6 +414,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encode(dateAdded, forKey: .dateAdded)
         try container.encodeIfPresent(serverDateAdded, forKey: .serverDateAdded)
         try container.encodeIfPresent(serverAlbumDateAdded, forKey: .serverAlbumDateAdded)
+        try container.encodeIfPresent(serverCatalogAlbum, forKey: .serverCatalogAlbum)
         try container.encodeIfPresent(serverPlayCount, forKey: .serverPlayCount)
         try container.encodeIfPresent(coverArtFileName, forKey: .coverArtFileName)
         try container.encodeIfPresent(artistArtworkFileName, forKey: .artistArtworkFileName)
@@ -508,6 +516,7 @@ private final class SongRareFields: Hashable, Sendable {
     struct Values: Hashable, Sendable {
         var serverDateAdded: Date?
         var serverAlbumDateAdded: Date?
+        var serverCatalogAlbum: ServerCatalogAlbumReference?
         var contentMetadata: SongContentMetadata?
         var mvPath: String?
         var cueSheetPath: String?

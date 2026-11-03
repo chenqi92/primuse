@@ -1315,13 +1315,11 @@ struct ContentView: View {
     private var tabRoot: some View {
         TabView(selection: searchAwareTabSelection) {
             Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                LibraryReadyContent {
-                    HomeView(
-                        switchToSettingsTab: { selectedTab = 3 },
-                        model: homeModel,
-                        openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
-                    )
-                }
+                HomeView(
+                    switchToSettingsTab: { selectedTab = 3 },
+                    model: homeModel,
+                    openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
+                )
                     .id("primuse.tab.home")
                     .environment(\.minimalNavigationDetailScope, .home)
                     .environment(\.librarySearchTab, 0)
@@ -1563,7 +1561,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             Group {
-                if sidebarSelection == .settings {
+                if sidebarSelection == .settings || sidebarSelection == .home {
                     padDetail(for: sidebarSelection)
                 } else {
                     LibraryReadyContent(startupSection: sidebarSelection == .librarySongs

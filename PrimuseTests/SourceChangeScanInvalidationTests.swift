@@ -369,6 +369,18 @@ final class ServerCatalogDeletionScanTests: XCTestCase {
         XCTAssertTrue(extraFinished)
     }
 
+    func testPagedScanCommitsAlbumEnrichmentBeforePublishingCompletion() async throws {
+        let fixture = try makeFixture(songCount: 3)
+        await fixture.connector.enableAlbumEnrichment()
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.library.songs.count, 3)
+        for song in fixture.library.songs {
+            XCTAssertEqual(song.albumArtistName, "Various Artists")
+            XCTAssertEqual(song.serverAlbumDateAdded, Date(timeIntervalSince1970: 100))
+            XCTAssertEqual(song.serverLibraryID, "books")
+        }
+    }
+
     private static func songID(_ index: Int) -> String {
         String(format: "song-%03d", index)
     }
@@ -423,7 +435,17 @@ final class ServerCatalogDeletionScanTests: XCTestCase {
 
 /// Navidrome 式的 `search3` 分页目录。扫描标记照 `lastScan|count` 拼：删歌之后服务端扫过
 /// 一次，数目变了一回，此后一直不动。
-private actor StillScanMarkerCatalogConnector: ResumablePagedSongCatalogConnector {
+private actor StillScanMarkerCatalogConnector: ResumablePagedSongCatalogConnector, ServerCatalogEnrichingConnector {
+    private var enrichAlbums = false
+    private var enrichmentID: UUID?
+    func enableAlbumEnrichment() { enrichAlbums = true }
+    func beginCatalogEnrichment(scanID: UUID, revision: String?) async throws { enrichmentID = scanID }
+    func finishCatalogEnrichment(scanID: UUID, progress: (@Sendable (Int) async -> Void)?) async throws -> ServerCatalogEnrichment? {
+        guard enrichAlbums, enrichmentID == scanID else { return nil }
+        await progress?(1)
+        return ServerCatalogEnrichment(albums: ["album": .init(id: "album", artist: "Various Artists", created: Date(timeIntervalSince1970: 100), libraryID: "books")])
+    }
+    func endCatalogEnrichment(scanID: UUID) async { if enrichmentID == scanID { enrichmentID = nil } }
     let sourceID: String
     private var songIDs: [String]
     private var preferredWidth = 500
@@ -471,7 +493,8 @@ private actor StillScanMarkerCatalogConnector: ResumablePagedSongCatalogConnecto
         let window = Array(songIDs[offset..<min(offset + min(pageSize, responseCap ?? pageSize), songIDs.count)])
         let songs = window.map { id -> ConnectorScannedSong in
             let song = Song(id: id, title: "Song \(id)", fileFormat: .flac,
-                            filePath: "/fixture/\(id).flac", sourceID: sourceID)
+                            filePath: "/fixture/\(id).flac", sourceID: sourceID,
+                            serverCatalogAlbum: enrichAlbums ? .init(id: "album", taggedArtist: nil) : nil)
             return ConnectorScannedSong(song: song, displayName: song.title, titleMetadataInspected: true)
         }
         return PagedSongCatalogPage(

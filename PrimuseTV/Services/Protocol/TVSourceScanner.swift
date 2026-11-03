@@ -2677,17 +2677,32 @@ final class TVSourceScanner {
         return songs
     }
 
-    private func collectCatalog(
+    func collectCatalog(
         from connector: any SongScanningConnector,
         onSong: (Song) async throws -> Void
     ) async throws -> [Song] {
         try await connector.connect()
         defer { Task { await connector.disconnect() } }
+        let enrichmentProvider = connector as? any ServerCatalogEnrichingConnector
+        let enrichmentScanID = UUID()
+        let revision = enrichmentProvider == nil ? nil : try? await (connector as? any ResumablePagedSongCatalogConnector)?.stableSongCatalogRevision()
+        try await enrichmentProvider?.beginCatalogEnrichment(scanID: enrichmentScanID, revision: revision)
+        defer { Task { await enrichmentProvider?.endCatalogEnrichment(scanID: enrichmentScanID) } }
         var songs: [Song] = []
         for try await scanned in try await connector.scanSongs(from: "/") {
             try Task.checkCancellation()
             songs.append(scanned.song)
             try await onSong(scanned.song)
+        }
+        if let enrichment = try await enrichmentProvider?.finishCatalogEnrichment(scanID: enrichmentScanID, progress: nil) {
+            for index in songs.indices {
+                try Task.checkCancellation()
+                let enriched = enrichment.applying(to: songs[index])
+                if enriched != songs[index] {
+                    songs[index] = enriched
+                    try await onSong(enriched)
+                }
+            }
         }
         if let driftReporter = connector as? any CatalogDriftReportingConnector,
            await driftReporter.takeCatalogDriftObservation() {

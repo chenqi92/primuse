@@ -454,6 +454,27 @@ public final class IncrementalSongPageReader: @unchecked Sendable {
         return songs
     }
 
+    /// Queue and home-page restoration need only their saved IDs, independent
+    /// of the size and ordering of the rest of the catalogue.
+    public func songs(ids: [String]) throws -> [Song] {
+        try Task.checkCancellation()
+        return try database.read { db in
+            guard try Self.contentRevision(db) == revision else { throw IncrementalSongPageError.snapshotChanged }
+            let uniqueIDs = Array(Set(ids))
+            var byID: [String: Song] = [:]
+            for start in stride(from: 0, to: uniqueIDs.count, by: 400) {
+                try Task.checkCancellation()
+                let batch = Array(uniqueIDs[start..<min(start + 400, uniqueIDs.count)])
+                let idPredicate = "id IN (\(batch.map { _ in "?" }.joined(separator: ",")))"
+                let sql = "SELECT payload FROM librarySongRecords"
+                    + (predicate.isEmpty ? " WHERE " : predicate + " AND ") + idPredicate
+                let payloads = try Data.fetchAll(db, sql: sql, arguments: arguments + StatementArguments(batch))
+                for song in try IncrementalSongStore.decodeSongs(payloads) { byID[song.id] = song }
+            }
+            return ids.compactMap { byID[$0] }
+        }
+    }
+
     private static func contentRevision(_ db: Database) throws -> Int64 {
         try Int64.fetchOne(db, sql: "SELECT CAST(value AS INTEGER) FROM libraryStoreMetadata WHERE key = 'songs-content-revision'") ?? 0
     }

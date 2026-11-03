@@ -1424,6 +1424,12 @@ actor SourceConnectionRouter {
     /// A walk records drift on whichever candidate served it, and the route
     /// may have moved since. Ask every candidate: each one clears its own flag,
     /// and a flag left behind would only cost the next scan its removals.
+    func endCatalogEnrichment(scanID: UUID) async {
+        for candidate in candidates {
+            await (candidate.connector as? any ServerCatalogEnrichingConnector)?.endCatalogEnrichment(scanID: scanID)
+        }
+    }
+
     func takeCatalogDriftObservation() async -> Bool {
         var observed = false
         for candidate in candidates {
@@ -2289,17 +2295,47 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
     }
 }
 
+private actor RoutedCatalogEnrichmentContext {
+    private var current: (id: UUID, revision: String?)?
+    func set(scanID: UUID, revision: String?) { current = (scanID, revision) }
+    func clear(scanID: UUID) { if current?.id == scanID { current = nil } }
+    func prepare(_ connector: any MusicSourceConnector) async throws {
+        guard let current else { return }
+        try await (connector as? any ServerCatalogEnrichingConnector)?.beginCatalogEnrichment(scanID: current.id, revision: current.revision)
+    }
+}
+
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
-    ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
+    ServerCatalogEnrichingConnector, ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
     ServerPlaylistCreatingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
     ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector {
+    private let enrichmentContext = RoutedCatalogEnrichmentContext()
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func beginCatalogEnrichment(scanID: UUID, revision: String?) async throws {
+        await enrichmentContext.set(scanID: scanID, revision: revision)
+        try await routing.withRead { connector in
+            try await enrichmentContext.prepare(connector)
+        }
+    }
+
+    func finishCatalogEnrichment(scanID: UUID, progress: (@Sendable (Int) async -> Void)?) async throws -> ServerCatalogEnrichment? {
+        try await routing.withRead { connector in
+            try await enrichmentContext.prepare(connector)
+            return try await (connector as? any ServerCatalogEnrichingConnector)?.finishCatalogEnrichment(scanID: scanID, progress: progress)
+        }
+    }
+
+    func endCatalogEnrichment(scanID: UUID) async {
+        await enrichmentContext.clear(scanID: scanID)
+        await routing.endCatalogEnrichment(scanID: scanID)
+    }
 
     func takeObservedSongAlbumIDs() async -> [String: String] {
         await routing.takeObservedSongAlbumIDs()
@@ -2400,6 +2436,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
             guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
                 throw PagedSongCatalogError.unavailable
             }
+            try await enrichmentContext.prepare(connector)
             return try await scanner.songCatalogPage(from: path, offset: offset, pageSize: pageSize)
         }
     }
@@ -2409,6 +2446,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
             guard let scanner = connector as? any ResumablePagedSongCatalogConnector else {
                 throw PagedSongCatalogError.unavailable
             }
+            try await enrichmentContext.prepare(connector)
             return try await scanner.songCatalogPage(from: path, offset: offset)
         }
     }
@@ -2520,6 +2558,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
             guard let scanner = connector as? any SongScanningConnector else {
                 throw SourceError.connectionFailed("Song scanner unavailable")
             }
+            try await enrichmentContext.prepare(connector)
             return try await scanner.scanSongs(from: path)
         }
         return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)

@@ -679,3 +679,74 @@ struct PagedSongCatalogStagingStoreTests {
         )
     }
 }
+
+struct SubsonicAlbumCatalogStoreTests {
+    private let album = ServerCatalogAlbumMetadata(id: "album", artist: "Various Artists", created: Date(timeIntervalSince1970: 100), libraryID: "2")
+
+    @Test func resumesPagesAndRejectsLateWriters() throws {
+        let store = try SubsonicAlbumCatalogStore(path: ":memory:")
+        let now = Date()
+        var first = try store.claim(key: "account", revision: "r1", scopes: ["2"], now: now)
+        first.offsets["2"] = 1
+        first.firstPageIDs["2"] = [album.id]
+        try store.savePage(key: "account", checkpoint: first, scope: "2", offset: 0, albums: [album], now: now)
+        var second = try store.claim(key: "account", revision: "r1", scopes: ["2"], now: now)
+        #expect(second.albums[album.id] == album)
+        #expect(second.offsets["2"] == 1)
+        first.offsets["2"] = -1
+        try store.savePage(key: "account", checkpoint: first, scope: "2", offset: 1, albums: [], now: now)
+        second.offsets["2"] = 2
+        try store.savePage(key: "account", checkpoint: second, scope: "2", offset: 1, albums: [album], now: now)
+        let resumed = try store.claim(key: "account", revision: "r1", scopes: ["2"], now: now)
+        #expect(resumed.offsets["2"] == 2)
+        #expect(!resumed.isComplete)
+    }
+
+    @Test func cacheClaimsDoNotExtendFreshnessAndChangedIdentityCannotReuse() throws {
+        for invalidation in ["age", "revision", "scope", "unknown"] {
+            let store = try SubsonicAlbumCatalogStore(path: ":memory:")
+            let now = Date(timeIntervalSince1970: 10_000)
+            var initial = try store.claim(key: "key", revision: "r1", scopes: ["2"], now: now)
+            initial.offsets["2"] = -1
+            try store.savePage(key: "key", checkpoint: initial, scope: "2", offset: 0, albums: [album], now: now)
+            let reusable = try store.claim(key: "key", revision: "r1", scopes: ["2"], now: now.addingTimeInterval(3_500))
+            #expect(reusable.isComplete)
+            #expect(reusable.albums.count == 1)
+            let changed = try store.claim(key: "key", revision: invalidation == "unknown" ? nil : invalidation == "revision" ? "r2" : "r1",
+                                          scopes: invalidation == "scope" ? ["3"] : ["2"],
+                                          now: now.addingTimeInterval(invalidation == "age" ? 3_601 : 3_501))
+            #expect(changed.albums.isEmpty)
+            #expect(!changed.isComplete)
+        }
+    }
+
+    @Test func providerIdentitySurvivesLocalAlbumGroupingAndProtectsEdits() throws {
+        var song = Song(id: "song", title: "Title", albumID: "local-group", artistName: "Soloist", duration: 1,
+                        fileFormat: .mp3, filePath: "/songs/song.mp3", sourceID: "source",
+                        serverCatalogAlbum: .init(id: album.id, taggedArtist: nil))
+        song = try JSONDecoder().decode(Song.self, from: JSONEncoder().encode(song))
+        let enrichment = ServerCatalogEnrichment(albums: [album.id: album])
+        let enriched = enrichment.applying(to: song)
+        #expect(enriched.albumArtistName == album.artist)
+        #expect(enriched.serverAlbumDateAdded == album.created)
+        #expect(enriched.serverLibraryID == "2")
+        #expect(enriched.albumID == "local-group")
+        song.albumArtistName = "My edit"
+        song.userMetadataEditedAt = Date()
+        let merged = ServerSongCatalogMergePolicy.merged(existing: song, incoming: enriched)
+        #expect(merged.albumArtistName == "My edit")
+        #expect(merged.serverAlbumDateAdded == album.created)
+        #expect(merged.serverCatalogAlbum == song.serverCatalogAlbum)
+    }
+
+    @Test func cachedDateParsingKeepsExistingPrecisionAndOffsets() {
+        let parser = SubsonicCatalogDateParser()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        for value in ["2024-01-01T00:00:00.875Z", "2024-01-01T00:00:00.123456Z", "2024-01-01T08:00:00+08:00", "2024-01-01T00:00:00Z", "invalid"] {
+            #expect(parser.date(from: value) == (fractional.date(from: value) ?? plain.date(from: value)))
+        }
+    }
+}

@@ -358,7 +358,10 @@ struct IncrementalSongStoreTests {
         let expected = songs.filter { $0.sourceID == "b" }
         #expect(filtered.count == expected.count)
         #expect(try filtered.page(at: 1) == Array(expected[200..<400]))
+        let requested = Array(songs.reversed().map(\.id)) + ["missing", "song-3"]
+        #expect(try filtered.songs(ids: requested) == Array(expected.reversed()) + [songs[3]])
         #expect(try IncrementalSongPageReader(path: path, sourceIDs: []).count == 0)
+        #expect(try IncrementalSongPageReader(path: path, sourceIDs: []).songs(ids: requested).isEmpty)
         #expect(try all.queryPlan().allSatisfy { !$0.contains("TEMP B-TREE") })
         #expect(try filtered.queryPlan().allSatisfy { !$0.contains("TEMP B-TREE") })
 
@@ -368,6 +371,7 @@ struct IncrementalSongStoreTests {
                            arguments: [Data("broken".utf8), "song-1002"])
         }
         #expect(try all.page(at: 0).count == 200)
+        #expect(try all.songs(ids: ["song-1", "song-900"]) == [songs[1], songs[900]])
         #expect(throws: (any Error).self) { try all.page(at: 5) }
     }
 
@@ -385,6 +389,7 @@ struct IncrementalSongStoreTests {
         song.title = "New"
         try store.apply(upserts: [song])
         #expect(throws: IncrementalSongPageError.snapshotChanged) { try reader.page(at: 0) }
+        #expect(throws: IncrementalSongPageError.snapshotChanged) { try reader.songs(ids: [song.id]) }
         #expect(try IncrementalSongPageReader(path: path).page(at: 0) == [song])
     }
 

@@ -24,7 +24,7 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
-    private func makePlayer(librarySongs: [Song]) async throws -> AudioPlayerService {
+    private func makePlayer(librarySongs: [Song], startsPreparing: Bool = false) async throws -> AudioPlayerService {
         let suite = "queue-window-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
@@ -32,8 +32,18 @@ final class QueueWindowPlayerTests: XCTestCase {
             defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: directory)
         }
-        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
-        if !librarySongs.isEmpty {
+        let libraryDirectory = directory.appendingPathComponent("library")
+        let library: MusicLibrary
+        if startsPreparing {
+            try FileManager.default.createDirectory(at: libraryDirectory, withIntermediateDirectories: true)
+            let store = try IncrementalSongStore(path: libraryDirectory.appendingPathComponent("library-songs.sqlite").path)
+            try store.replaceAll(with: librarySongs)
+            try store.markMigrationCompleted(version: 10)
+            library = MusicLibrary.makePreparing(storageDirectory: libraryDirectory)
+        } else {
+            library = MusicLibrary(storageDirectory: libraryDirectory)
+        }
+        if !startsPreparing, !librarySongs.isEmpty {
             library.addSongs(librarySongs, affectedSourceIDs: ["local-source"])
             for _ in 0..<500 where library.unobservedVisibleSong(id: librarySongs.last!.id) == nil {
                 try await Task.sleep(for: .milliseconds(10))
@@ -46,6 +56,45 @@ final class QueueWindowPlayerTests: XCTestCase {
             playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
             activateAudioSession: { _ in XCTFail("Queue tests must not start audio") }
         )
+    }
+
+    @MainActor
+    func testRestoresSavedQueueBeforeFullLibraryAndPreservesNewUserQueue() async throws {
+        let catalog = songs(2_500)
+        let player = try await makePlayer(librarySongs: catalog, startsPreparing: true)
+        let library = try XCTUnwrap(player.library)
+        let ids = [catalog[2_400].id, catalog[17].id, "deleted", catalog[1_200].id]
+        try player.playbackSessionStore.save(.init(
+            queueSongIDs: ids, currentSongID: ids[1], currentIndex: 1,
+            currentTime: 47, duration: 180, wasPlaying: true, shuffleEnabled: false,
+            shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false
+        ))
+        await player.restorePlaybackSessionIfAvailable(startupSourceIDs: ["local-source"])
+        XCTAssertFalse(library.isReady)
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertEqual(player.currentSong?.id, catalog[17].id)
+        XCTAssertEqual(player.currentTime, 47)
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.queueCount, 3)
+        XCTAssertEqual(player.queuedSong(at: 0)?.id, catalog[2_400].id)
+        player.setQueue([catalog[42]], startAt: 0)
+        await player.restorePlaybackSessionIfAvailable(startupSourceIDs: ["local-source"])
+        XCTAssertEqual(player.queuedSong(at: 0)?.id, catalog[42].id)
+    }
+
+    @MainActor
+    func testStartupRestorationDoesNotRestoreRemovedSource() async throws {
+        let song = songs(1)[0]
+        let player = try await makePlayer(librarySongs: [song], startsPreparing: true)
+        try player.playbackSessionStore.save(.init(
+            queueSongIDs: [song.id], currentSongID: song.id, currentIndex: 0,
+            currentTime: 0, duration: 180, wasPlaying: false, shuffleEnabled: false,
+            shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false
+        ))
+        await player.restorePlaybackSessionIfAvailable(startupSourceIDs: [])
+        XCTAssertNil(player.currentSong)
+        XCTAssertEqual(player.queueCount, 0)
+        XCTAssertFalse(try XCTUnwrap(player.library).isReady)
     }
 
     @MainActor

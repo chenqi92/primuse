@@ -258,6 +258,7 @@ public enum ServerSongCatalogMergePolicy {
             )
         }
         var refreshed = existing
+        refreshed.serverCatalogAlbum = incoming.serverCatalogAlbum ?? existing.serverCatalogAlbum
         // Background enrichment only fills what the server leaves empty and
         // explicit edits are stamped, so an unstamped row's text is the
         // server's own and may follow it.

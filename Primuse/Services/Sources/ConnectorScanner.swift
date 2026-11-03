@@ -616,6 +616,11 @@ actor ConnectorScanner {
                     }
 
                     if let songConnector = connector as? any SongScanningConnector {
+                        let enrichmentProvider = connector as? any ServerCatalogEnrichingConnector
+                        let enrichmentScanID = UUID()
+                        let revision = enrichmentProvider == nil ? nil : try? await (connector as? any ResumablePagedSongCatalogConnector)?.stableSongCatalogRevision()
+                        try await enrichmentProvider?.beginCatalogEnrichment(scanID: enrichmentScanID, revision: revision)
+                        defer { Task { await enrichmentProvider?.endCatalogEnrichment(scanID: enrichmentScanID) } }
                         for directory in dirs {
                             try Task.checkCancellation()
                             do {
@@ -752,6 +757,19 @@ actor ConnectorScanner {
                         if !hadDirectoryFailure {
                             allSongs.removeAll { encounteredSongIDs.contains($0.id) == false }
                             scannedCount = allSongs.count
+                        }
+
+                        if let enrichment = try await enrichmentProvider?.finishCatalogEnrichment(scanID: enrichmentScanID, progress: nil) {
+                            for index in allSongs.indices where encounteredSongIDs.contains(allSongs[index].id) {
+                                try Task.checkCancellation()
+                                let previous = allSongs[index]
+                                let enriched = SongUserMetadataPolicy.preservingUserEdits(
+                                    from: previous, in: enrichment.applying(to: previous))
+                                if enriched != previous {
+                                    allSongs[index] = enriched
+                                    recordRow(enriched, for: enriched.id)
+                                }
+                            }
                         }
 
                         for hierarchy in preferredProviderHierarchies.values {

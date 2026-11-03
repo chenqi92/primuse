@@ -1454,6 +1454,7 @@ struct HomeView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
+    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(RadioStationsStore.self) private var radioStationsStore
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
@@ -1674,7 +1675,7 @@ struct HomeView: View {
         } action: { size in
             homeCanvasSize = size
         }
-        .task {
+        .task(id: library.isReady ? nil : startupSourceIDs) {
             await refreshHomeSnapshotAfterPresentationIfNeeded()
         }
         .background {
@@ -1683,7 +1684,7 @@ struct HomeView: View {
                 onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange,
                 onScanningChange: updateLibraryScanning
             )
-            if activeHomeFilter != .radio, activeHomeFilter != .spokenWord,
+            if library.isReady, activeHomeFilter != .radio, activeHomeFilter != .spokenWord,
                showFolders || showListeningRanking {
                 HomeDiscoveryObserver(model: model.discovery)
             }
@@ -3065,7 +3066,8 @@ struct HomeView: View {
             return
         }
 
-        if !model.isPrepared {
+        if !library.isReady || !model.isPrepared {
+            if !library.isReady { model.isPrepared = false }
             await prepareInitialHomeSnapshot()
             return
         }
@@ -3089,6 +3091,10 @@ struct HomeView: View {
                 prepared: persistedSnapshot?.heroSeed,
                 dayStamp: signature.dayStamp
             )
+        }
+        if !library.isReady {
+            await prepareStartupHomeSnapshot(persistedSnapshot)
+            return
         }
         let visibleSongs = library.visibleSongs
         let visibleAlbums = library.visibleAlbums
@@ -3123,6 +3129,46 @@ struct HomeView: View {
         if homeSnapshotSignature != signature {
             scheduleDebouncedHomeRefresh()
         }
+    }
+
+    private var startupSourceIDs: Set<String> {
+        Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+    }
+
+    static func startupSongIDs(in snapshot: PersistedHomeSnapshot?) -> [String] {
+        guard let snapshot, snapshot.version == PersistedHomeSnapshot.currentVersion else { return [] }
+        var seen: Set<String> = []
+        return (Array(snapshot.recentSongIDs.prefix(30)) + Array(snapshot.heroSongIDs.prefix(20))
+            + snapshot.recommendations.prefix(30).map(\.songID)).filter { seen.insert($0).inserted }
+    }
+
+    private func prepareStartupHomeSnapshot(_ persisted: PersistedHomeSnapshot?) async {
+        guard let songs = await library.prepareStartupSongs(
+            ids: Self.startupSongIDs(in: persisted), sourceIDs: startupSourceIDs, fallbackToFirstPage: true
+        ), !Task.isCancelled, !library.isReady else { return }
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        let music = songs.filter {
+            $0.isPlayable && !classification.collectionOnlySongIDs.contains($0.id)
+                && classification.kind(songID: $0.id, sourceID: $0.sourceID, filePath: $0.filePath,
+                                       genre: $0.genre, serverLibraryID: $0.serverLibraryID) == .music
+        }
+        let byID = Dictionary(music.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard !byID.isEmpty else { return }
+        let payload = Self.rehydrateInitialHomePayload(persisted, visibleAlbums: [], songForID: { byID[$0] })
+        let recent = (persisted?.recentSongIDs.prefix(30) ?? []).compactMap { byID[$0] }
+        let savedHero = payload?.heroCoverSongs ?? []
+        let hero = savedHero.isEmpty ? Self.provisionalHeroCoverSongs(from: music) : Array(savedHero.prefix(20))
+        model.snapshot = HomeSnapshot(
+            hasContent: true,
+            forYouResults: showForYou ? Array((payload?.forYouResults ?? []).prefix(30)) : [],
+            recentSongs: recent,
+            heroCoverSongs: hero
+        )
+        // This is a read-only projection. Full publication will rebuild the
+        // remaining sections and signatures from the canonical library.
+        model.signature = nil
+        model.isPrepared = true
+        tintProvider.prepare(Array(music.prefix(20)))
     }
 
     private func publishInitialHomeSnapshot(
@@ -3464,6 +3510,7 @@ struct HomeView: View {
     }
 
     private func refreshHomeSnapshot() {
+        guard library.isReady else { return }
         guard isSceneActive, isHomeVisible else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
@@ -4019,6 +4066,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.bordered)
                 .clipShape(Capsule())
+                .disabled(!library.isReady)
             }
         }
         .padding(16)
@@ -4965,6 +5013,11 @@ struct HomeView: View {
     }
 
     private func playSong(_ song: Song) {
+        if !library.isReady {
+            guard song.isPlayable, startupSourceIDs.contains(song.sourceID) else { return }
+            Task { await player.play(queue: [song], startingAt: 0) }
+            return
+        }
         plog("🏠 playSong TAPPED: '\(song.title)' id=\(song.id.prefix(12)) path=\(song.filePath)")
 
         // Build queue from recently played songs, supplemented by library.
@@ -5023,6 +5076,7 @@ struct HomeView: View {
     /// 先放这一首,其余音乐随机接在后面(顶部封面轮播)。同 `playLibrary`,只把 id 交出去,
     /// 过滤与打乱在后台做;这一首在整库里还会再出现一次,排队时只留开头那次。
     private func playLibraryShuffled(startingWith song: Song) {
+        guard library.isReady else { playSong(song); return }
         // 点的这一首照放; 后面整库接上的不含不喜欢的歌(#193)。
         let ids = library.musicSongIDsExcludingDisliked
         guard !ids.isEmpty else { return }
@@ -5032,6 +5086,7 @@ struct HomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
+        guard library.isReady else { return }
         // Skip cloud songs that haven't been backfilled yet — they have no
         // duration / cover / metadata and would land in the queue with a
         // blank progress bar. Once backfill catches up they become eligible.

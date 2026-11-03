@@ -459,6 +459,7 @@ struct HomeHeroCarousel: View {
             .buttonStyle(.bordered)
             .clipShape(Capsule())
         }
+        .disabled(!library.isReady)
     }
 
     /// 两个按钮的一行:竖屏平分整行(左右各留 16);横屏左边那一栏够宽时并排,

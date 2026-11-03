@@ -350,6 +350,21 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
 
 @MainActor
 final class HomePresentationCacheTests: XCTestCase {
+    func testStartupSelectionIsBoundedAndRetainsRecentQueuePriority() {
+        let snapshot = PersistedHomeSnapshot(
+            version: PersistedHomeSnapshot.currentVersion, dayStamp: 20261103,
+            visibleSongCount: 750_000, visibleAlbumCount: 100_000, visibleArtistCount: 10_000,
+            recentSongIDs: (0..<1_000).map { "recent-\($0)" },
+            heroSongIDs: ["recent-0"] + (0..<1_000).map { "hero-\($0)" },
+            recentlyAddedAlbums: [],
+            recommendations: (0..<1_000).map { .init(songID: "recommendation-\($0)", score: 1, reasons: []) }
+        )
+        let ids = HomeView.startupSongIDs(in: snapshot)
+        XCTAssertEqual(ids.count, 79)
+        XCTAssertEqual(Array(ids.prefix(30)), Array(snapshot.recentSongIDs.prefix(30)))
+        XCTAssertEqual(Set(ids).count, ids.count)
+    }
+
     func testStaleDiskCacheRestoresOnlyCurrentVisibleContent() throws {
         let song = Song(id: "kept", title: "Updated title", fileFormat: .mp3, filePath: "/kept.mp3", sourceID: "source")
         let album = Album(id: "kept-album", title: "Updated album")
@@ -400,7 +415,7 @@ final class HomePresentationCacheTests: XCTestCase {
         }
         let result = await worker.value
         XCTAssertFalse(result.1)
-        XCTAssertEqual(result.0.songs.map(\.id), [playable.id])
+        XCTAssertEqual(result.0.songs.map(\.id), [playable.id, unavailable.id])
         XCTAssertEqual(result.0.seedIDs, [playable.id])
         XCTAssertEqual(result.0.recentWeekIDs, ["playable"])
         XCTAssertEqual(result.0.recentMonthIDs, ["playable", "removed"])

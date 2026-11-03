@@ -20,14 +20,14 @@ extension AudioPlayerService {
 
     /// Restores queue/navigation context paused. The foreground launch policy
     /// may subsequently resume it if the listener explicitly enabled autoplay.
-    func restorePlaybackSessionIfAvailable() async {
+    func restorePlaybackSessionIfAvailable(startupSourceIDs: Set<String>? = nil) async {
         let restoreStartedAt = ProcessInfo.processInfo.systemUptime
         guard let restoreToken = playbackSessionRestoreLifecycle.begin() else { return }
         defer { playbackSessionRestoreLifecycle.complete(token: restoreToken) }
         guard let library else { return }
         let initialQueueGeneration = queueGeneration
         let initialAdvanceGeneration = playbackAdvancePolicy.generation
-        let visibleSongs = library.visibleSongs
+        let readySongs = library.isReady ? library.visibleSongs : nil
         // 播客单集不在曲库里:起播时存下的那份队列一起参与查找。
         let podcastSongs = PodcastPlaybackMemory.shared.songs()
         // 曲库外的 Apple Music 歌(搜索点播、目录续播、专辑页补上的)同理。
@@ -50,6 +50,19 @@ extension AudioPlayerService {
             let continuation = restored.continuation
             let reshapedLegacyQueue = restored.reshapedLegacyQueue
             let loadFinishedAt = ProcessInfo.processInfo.systemUptime
+
+            let visibleSongs: [Song]
+            if let readySongs {
+                visibleSongs = readySongs
+            } else if let startupSourceIDs,
+                      let savedSongs = await library.prepareStartupSongs(
+                        ids: snapshot.queueSongIDs, sourceIDs: startupSourceIDs
+                      ) {
+                visibleSongs = savedSongs
+            } else {
+                await library.whenReady()
+                visibleSongs = await library.visibleSongs
+            }
 
             // 只为队列里的歌建表, 不把整个可见曲库拷进字典。
             let queuedIDs = Set(snapshot.queueSongIDs)

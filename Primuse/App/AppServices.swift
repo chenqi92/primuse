@@ -1908,12 +1908,7 @@ final class AppServices {
         // 原生音频测试使用独立偏好和静音缓冲，不恢复宿主的曲库播放任务。
         if ProcessInfo.processInfo.environment["PRIMUSE_TEST_ISOLATE_AUDIO"] == "1" { return }
         #endif
-        // Stage 2: 播放恢复、源/歌曲对账、修剪、PhoneRelay、Navidrome 冷刷新
-        // 全都读库。等发布完成再开工 —— 等待时间不计入下面的耗时统计, 这样
-        // `🚀 deferred startup` 的含义与历史版本保持一致。
-        await musicLibrary.whenReady()
         #if os(iOS)
-        LaunchDiagnostics.mark(.deferredStartup)
         // 安全模式：这条链里的每一件事(恢复播放、整库对账、剪枝、iCloud 同步、
         // 后台扫描登记、预热)都在资料库发布那一瞬间同时开工, 也都是启动期闪退
         // 的嫌疑人。连续启动失败两次之后先整条让开, 让人打得开、发得出报告。
@@ -1922,11 +1917,21 @@ final class AppServices {
             return
         }
         #endif
-        serverRatingSync.resume()
+        let startupSourceIDs = Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+        async let playbackRestore: Void = playerService.restorePlaybackSessionIfAvailable(
+            startupSourceIDs: startupSourceIDs
+        )
         // 音频缓存的清单与目录清点放到后台先做,远端歌第一次起播不用再等它(#170)。
         Task.detached(priority: .utility) {
             await AudioCacheManager.shared.warmUp()
         }
+        // Reconciliation and maintenance need the complete library. Restoring
+        // the saved queue above only needs its own rows from the local store.
+        await musicLibrary.whenReady()
+        #if os(iOS)
+        LaunchDiagnostics.mark(.deferredStartup)
+        #endif
+        serverRatingSync.resume()
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         #if os(iOS)
@@ -1937,7 +1942,6 @@ final class AppServices {
 
         let sourceSnapshot = sourcesStore.allSources
         let songSnapshot = musicLibrary.songs
-        async let playbackRestore: Void = playerService.restorePlaybackSessionIfAvailable()
         let reconciliation = await Task.detached(priority: .utility) {
             var counts: [String: Int] = [:]
             counts.reserveCapacity(sourceSnapshot.count)

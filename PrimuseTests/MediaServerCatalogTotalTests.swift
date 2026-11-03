@@ -397,8 +397,13 @@ final class SubsonicAddedDateTests: XCTestCase {
     func testPagedCatalogUsesServerTrackAndAlbumDates() async throws {
         let (connector, session, host) = makeConnector()
         defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
+        let scanID = UUID()
+        try await connector.beginCatalogEnrichment(scanID: scanID, revision: "fixture")
         let page = try await connector.songCatalogPage(from: "/", offset: 0)
-        try assertDates(page.songs.map(\.song))
+        let enrichmentValue = try await connector.finishCatalogEnrichment(scanID: scanID, progress: nil)
+        let enrichment = try XCTUnwrap(enrichmentValue)
+        await connector.endCatalogEnrichment(scanID: scanID)
+        try assertDates(page.songs.map { enrichment.applying(to: $0.song) })
     }
 
     func testLegacyAlbumWalkUsesAlbumCreatedDate() async throws {
@@ -415,10 +420,15 @@ final class SubsonicAddedDateTests: XCTestCase {
         let (connector, session, host) = makeConnector(invalidDates: true)
         defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
         let started = Date()
+        let scanID = UUID()
+        try await connector.beginCatalogEnrichment(scanID: scanID, revision: "fixture")
         let page = try await connector.songCatalogPage(from: "/", offset: 0)
+        let enrichmentValue = try await connector.finishCatalogEnrichment(scanID: scanID, progress: nil)
+        let enrichment = try XCTUnwrap(enrichmentValue)
+        await connector.endCatalogEnrichment(scanID: scanID)
         XCTAssertEqual(page.songs.count, 2)
         for scanned in page.songs {
-            XCTAssertNil(scanned.song.serverDateAdded)
+            XCTAssertNil(enrichment.applying(to: scanned.song).serverDateAdded)
             XCTAssertNil(scanned.song.serverAlbumDateAdded)
             XCTAssertGreaterThanOrEqual(scanned.song.dateAdded, started)
             XCTAssertLessThanOrEqual(scanned.song.dateAdded, Date())
@@ -430,7 +440,12 @@ final class SubsonicAddedDateTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let (connector, session, host) = makeConnector()
         defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
+        let scanID = UUID()
+        try await connector.beginCatalogEnrichment(scanID: scanID, revision: "fixture")
         let page = try await connector.songCatalogPage(from: "/", offset: 0)
+        let enrichmentValue = try await connector.finishCatalogEnrichment(scanID: scanID, progress: nil)
+        let enrichment = try XCTUnwrap(enrichmentValue)
+        await connector.endCatalogEnrichment(scanID: scanID)
         let incoming = page.songs.map(\.song)
         let library = MusicLibrary(storageDirectory: root, deferredMaintenanceAllowed: { false })
         let oldRows = incoming.enumerated().map { index, row in
@@ -451,7 +466,7 @@ final class SubsonicAddedDateTests: XCTestCase {
                                   catalogRevision: "revision", offset: 0, nextOffset: nil,
                                   itemIDs: page.itemIDs, songs: incoming, metadataInspectedSongIDs: [],
                                   hierarchyItems: [], addedSongCount: 0)
-        let delta = try staging.delta(sourceID: host, existingByID: Dictionary(uniqueKeysWithValues: library.songs.map { ($0.id, $0) }))
+        let delta = try staging.delta(sourceID: host, existingByID: Dictionary(uniqueKeysWithValues: library.songs.map { ($0.id, $0) }), enrichment: enrichment)
         XCTAssertEqual(delta.upserts.count, 2)
         library.addSongs(delta.upserts, affectedSourceIDs: [host], mergeServerCatalogRows: true)
         await library.waitForPendingIndex()
@@ -537,7 +552,11 @@ private final class AddedDateURLProtocol: URLProtocol, @unchecked Sendable {
         case "getAlbumList2.view":
             body["albumList2"] = ["album": param("offset") == "0" ? albums : []]
         case "search3.view":
-            body["searchResult3"] = ["song": param("songOffset") == "0" ? songs : []]
+            if param("songCount") == "0" {
+                body["searchResult3"] = ["album": param("albumOffset") == "0" ? albums : []]
+            } else {
+                body["searchResult3"] = ["song": param("songOffset") == "0" ? songs : []]
+            }
         case "getAlbum.view":
             body["album"] = ["id": param("id") ?? "", "song": songs.filter { $0["albumId"] as? String == param("id") }]
         default:

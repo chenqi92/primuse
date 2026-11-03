@@ -514,22 +514,23 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
     public func delta(
         sourceID: String,
         existingByID: [String: Song],
-        batchSize: Int = 500
+        batchSize: Int = 500, enrichment: ServerCatalogEnrichment? = nil
     ) throws -> PagedSongCatalogStageDelta {
         try delta(sourceID: sourceID, existingCount: existingByID.count,
-                  existingSong: { existingByID[$0] }, batchSize: batchSize)
+                  existingSong: { existingByID[$0] }, batchSize: batchSize, enrichment: enrichment)
     }
 
     public func delta(
-        sourceID: String, existingByID: IndexedSongSnapshot, batchSize: Int = 500
+        sourceID: String, existingByID: IndexedSongSnapshot, batchSize: Int = 500,
+        enrichment: ServerCatalogEnrichment? = nil
     ) throws -> PagedSongCatalogStageDelta {
         try delta(sourceID: sourceID, existingCount: existingByID.count,
-                  existingSong: { existingByID[$0] }, batchSize: batchSize)
+                  existingSong: { existingByID[$0] }, batchSize: batchSize, enrichment: enrichment)
     }
 
     private func delta(
         sourceID: String, existingCount: Int,
-        existingSong: (String) -> Song?, batchSize: Int
+        existingSong: (String) -> Song?, batchSize: Int, enrichment: ServerCatalogEnrichment?
     ) throws -> PagedSongCatalogStageDelta {
         let safeBatchSize = max(1, min(batchSize, 1_000))
         let decoder = JSONDecoder()
@@ -559,6 +560,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                     let orderKey: Int = row["orderKey"]
                     let payload: Data = row["payload"]
                     var song = try decoder.decode(Song.self, from: payload)
+                    if let enrichment { song = enrichment.applying(to: song) }
                     if let existing = existingSong(song.id) {
                         song = ServerSongCatalogMergePolicy.merged(
                             existing: existing,

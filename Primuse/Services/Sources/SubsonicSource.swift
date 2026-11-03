@@ -19,7 +19,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ServerCollectionFavoriteConnector,
     NetworkAdaptiveTranscodingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
-    ResumablePagedSongCatalogConnector,
+    ResumablePagedSongCatalogConnector, ServerCatalogEnrichingConnector,
     ServerPlaylistConnector, ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
     ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector,
@@ -62,12 +62,18 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var libraryScope: LibraryScope?
     /// 上一次走查读过的库;扫描收尾时取走(`ServerLibraryListingConnector`)。
     private var observedLibraries: [ServerLibraryDescriptor]?
-    /// 服务端每张专辑的艺术家(专辑 id → 艺术家)。search3 平铺列歌, 每首只带自己的专辑
-    /// 艺术家; 服务端按专辑名并起来的专辑要靠这张表认回同一张, 见
-    /// `AlbumGroupingPolicy.serverCatalogAlbumArtistName`。
-    private var serverAlbumArtists: [String: String]?
-    private var serverAlbumCreatedDates: [String: Date] = [:]
-    private var serverAlbumArtistsFetchedAt: Date?
+    private let albumCatalogStore: SubsonicAlbumCatalogStore?
+    private var catalogScanID: UUID?
+    private var catalogRevision: String?
+    private var catalogPreparationID = UUID()
+    private var albumMetadataTask: Task<Void, Error>?
+    private var albumMetadataProgress: (@Sendable (Int) async -> Void)?
+    private var catalogAlbums: [String: ServerCatalogAlbumMetadata] = [:]
+    private var provisionalAlbumArtists: [String: String] = [:]
+    private var overlappingAlbumLibraries = false
+    private var legacyAlbumSearchScopes = Set<String>()
+    private var usesLegacyAlbumWalk = false
+    private var prefetchedSongPage: (path: String, offset: Int, size: Int, task: Task<[SubsonicChild], Error>)?
 
     private struct LibraryScope {
         /// nil = 不带 `musicFolderId`(读全部);空数组 = 全排除了。
@@ -199,12 +205,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             throw PagedSongCatalogError.unavailable
         }
 
-        // 每轮从第一页走起时重取库范围;断点续走的后几页沿用(新实例就补取一次)。
-        try await prepareLibraryScope(refreshing: offset == 0)
-        try await prepareServerAlbumArtists(refreshing: offset == 0)
+        // A scan owns its library scope through terminal verification.
+        try await ensureCatalogPreparation()
+        try Task.checkCancellation()
         let children: [SubsonicChild]
         do {
-            children = try await search3SongPage(offset: offset, path: path, pageSize: pageSize)
+            children = try await catalogSongPage(offset: offset, path: path, pageSize: pageSize)
         } catch SubsonicCompatibilityError.directCatalogUnavailable {
             throw PagedSongCatalogError.unavailable
         }
@@ -241,9 +247,11 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         password: String,
         alternateTLSValidationHostname: String? = nil,
         excludedLibraryIDs: Set<String> = [],
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        albumCatalogStore: SubsonicAlbumCatalogStore? = SubsonicAlbumCatalogStore.shared
     ) {
         self.sourceID = sourceID
+        self.albumCatalogStore = albumCatalogStore
         self.sourceType = sourceType
         self.excludedLibraryIDs = excludedLibraryIDs
         self.baseURL = Self.makeBaseURL(host: host, port: port, useSsl: useSsl, basePath: basePath)
@@ -344,10 +352,13 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     func disconnect() async {
         mediaTransportGeneration &+= 1
+        if let scanID = catalogScanID { await endCatalogEnrichment(scanID: scanID) }
         isConnected = false
     }
 
     deinit {
+        albumMetadataTask?.cancel()
+        prefetchedSongPage?.task.cancel()
         mediaSession.invalidateAndCancel()
     }
 
@@ -401,7 +412,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         try await connect()
-        try await prepareLibraryScope(refreshing: true)
+        try await ensureCatalogPreparation()
+        let scanID = catalogScanID
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
@@ -415,12 +427,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         isOpenSubsonic: isOpenSubsonic,
                         serverType: serverType
                     ) {
-                        try await prepareServerAlbumArtists(refreshing: true)
                         let catalog: [SubsonicChild]?
                         do {
                             catalog = try await fetchStableSearch3Catalog(
                                 path: path,
                                 toleratesDriftOnLastAttempt: true,
+                                retainingSongs: false,
                                 onValidatedPage: { page in
                                     try yieldSearch3Catalog(page, continuation: continuation)
                                 }
@@ -439,6 +451,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         }
                     }
 
+                    usesLegacyAlbumWalk = true
                     var offset = 0
                     var seenAlbumIDs = Set<String>()
                     var seenSongIDs = Set<String>()
@@ -508,10 +521,16 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     }
                     continuation.finish()
                 } catch {
+                    if let scanID { await endCatalogEnrichment(scanID: scanID) }
                     Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { @Sendable _ in producer.cancel() }
+            continuation.onTermination = { @Sendable termination in
+                producer.cancel()
+                if case .cancelled = termination, let scanID {
+                    Task { await self.endCatalogEnrichment(scanID: scanID) }
+                }
+            }
         }
     }
 
@@ -807,17 +826,21 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private func fetchStableSearch3Catalog(
         path: String,
         toleratesDriftOnLastAttempt: Bool = false,
+        retainingSongs: Bool = true,
         onValidatedPage: ([SubsonicChild]) throws -> Void = { _ in }
     ) async throws -> [SubsonicChild]? {
         for attempt in 0..<Self.catalogSnapshotMaximumAttempts {
             do {
-                let firstPage = try await search3SongPage(offset: 0, path: path)
+                let firstPage = try await (retainingSongs
+                    ? search3SongPage(offset: 0, path: path)
+                    : catalogSongPage(offset: 0, path: path))
                 guard !firstPage.isEmpty else { return nil }
                 return try await collectSearch3Catalog(
                     firstPage: firstPage,
                     path: path,
                     toleratesDrift: toleratesDriftOnLastAttempt
                         && attempt + 1 == Self.catalogSnapshotMaximumAttempts,
+                    retainingSongs: retainingSongs,
                     onValidatedPage: onValidatedPage
                 )
             } catch SubsonicCompatibilityError.catalogChangedDuringPagination {
@@ -837,6 +860,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         firstPage: [SubsonicChild],
         path: String,
         toleratesDrift: Bool,
+        retainingSongs: Bool,
         onValidatedPage: ([SubsonicChild]) throws -> Void
     ) async throws -> [SubsonicChild] {
         var offset = 0
@@ -860,7 +884,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     continue
                 }
                 guard child.isVideo != true else { continue }
-                catalog.append(child)
+                if retainingSongs { catalog.append(child) }
                 visiblePage.append(child)
             }
 
@@ -880,7 +904,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 continuesAfterShortPage: true
             ) else { return catalog }
             offset = nextOffset
-            page = try await search3SongPage(offset: offset, path: path)
+            page = try await (retainingSongs
+                ? search3SongPage(offset: offset, path: path)
+                : catalogSongPage(offset: offset, path: path))
         }
     }
 
@@ -932,107 +958,243 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
     }
 
-    /// 定下这一轮走查读哪几个库、每首歌落在哪个库(打到 `Song.serverLibraryID` 上,
-    /// 「有声」库标签按它匹配)。多个库时按库列一遍专辑:专辑只属于一个库。
+    /// Resolve exclusions before songs; multi-library membership arrives with album metadata.
     private func prepareLibraryScope(refreshing: Bool) async throws {
         guard organizesByLibrary, refreshing || libraryScope == nil else { return }
         let libraries = try await musicFolderLibraries()
         let allIDs = libraries.map(\.id)
         let included = SubsonicLibraryScopePolicy.includedLibraryIDs(all: allIDs, excluded: excludedLibraryIDs)
-        var scope = LibraryScope(
+        let scope = LibraryScope(
             includedLibraryIDs: included,
             soleLibraryID: allIDs.count == 1 ? allIDs[0] : nil,
             libraryIDsByAlbumID: [:]
         )
-        if allIDs.count > 1 {
-            var albumsByLibrary: [(libraryID: String, albumIDs: [String])] = []
-            for libraryID in included ?? allIDs {
-                albumsByLibrary.append((libraryID, try await albumIDs(inLibrary: libraryID)))
-            }
-            if let map = SubsonicLibraryScopePolicy.libraryIDsByAlbumID(albumsByLibrary) {
-                scope.libraryIDsByAlbumID = map
-            } else {
-                plog("⚠️ Subsonic library albums overlap; songs keep their previous library source=\(sourceID.prefix(8))…")
-            }
-        }
         libraryScope = scope
         observedLibraries = libraries
     }
 
-    /// 一次扫描里第一页会被取好几次(开头、续扫核对、收尾核对), 所以只在表超过 10 分钟
-    /// 才重取。取不到不挡扫描: 这一轮按各首自己的专辑艺术家分组, 和以前一样。
-    private func prepareServerAlbumArtists(refreshing: Bool) async throws {
-        if let fetchedAt = serverAlbumArtistsFetchedAt, serverAlbumArtists != nil,
-           !refreshing || Date().timeIntervalSince(fetchedAt) < 600 {
-            return
-        }
-        if libraryScope?.includedLibraryIDs?.isEmpty == true {
-            serverAlbumArtists = [:]
-            serverAlbumCreatedDates = [:]
-            serverAlbumArtistsFetchedAt = Date()
-            return
-        }
-        var artists: [String: String] = [:]
-        var createdDates: [String: Date] = [:]
-        var offset = 0
+    func beginCatalogEnrichment(scanID: UUID, revision: String?) async throws {
+        if catalogScanID == scanID, catalogRevision == revision { return }
+        albumMetadataTask?.cancel()
+        prefetchedSongPage?.task.cancel()
+        albumMetadataTask = nil
+        prefetchedSongPage = nil
+        albumMetadataProgress = nil
+        catalogScanID = scanID
+        catalogRevision = revision
+        catalogPreparationID = UUID()
+        catalogAlbums = [:]
+        provisionalAlbumArtists = [:]
+        overlappingAlbumLibraries = false
+        legacyAlbumSearchScopes = []
+        usesLegacyAlbumWalk = false
         do {
-            while true {
-                try Task.checkCancellation()
-                let container: AlbumListContainer = try await requestJSON(
-                    "getAlbumList2",
-                    query: [
-                        URLQueryItem(name: "type", value: "alphabeticalByName"),
-                        URLQueryItem(name: "size", value: String(Self.pageSize)),
-                        URLQueryItem(name: "offset", value: String(offset))
-                    ] + (libraryScope?.includedLibraryIDs ?? []).map {
-                        URLQueryItem(name: "musicFolderId", value: $0)
-                    }
-                )
-                let albums = container.albumList2?.album ?? []
-                for album in albums {
-                    createdDates[album.id] = album.created.flatMap(Self.parseCatalogDate)
-                    guard let artist = Self.cleaned(album.artist, unknown: "[Unknown Artist]") else { continue }
-                    artists[album.id] = artist
-                }
-                guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(offset + albums.count) else { break }
-                if albums.count < Self.pageSize { break }
-                offset += albums.count
-            }
-        } catch is CancellationError {
-            throw CancellationError()
+            try await connect()
+            try await prepareLibraryScope(refreshing: true)
         } catch {
-            plog("⚠️ Subsonic album artists unavailable; grouping by each song's own album artist source=\(sourceID.prefix(8))…: \(error.localizedDescription)")
-            // 有上一份就接着用; 记下时间, 免得后面每一页都再试一次。
-            if serverAlbumArtists == nil { serverAlbumArtists = [:] }
-            serverAlbumArtistsFetchedAt = Date()
-            return
+            if catalogScanID == scanID { catalogScanID = nil }
+            throw error
         }
-        serverAlbumArtists = artists
-        serverAlbumCreatedDates = createdDates
-        serverAlbumArtistsFetchedAt = Date()
     }
 
-    private func albumIDs(inLibrary libraryID: String) async throws -> [String] {
-        var ids: [String] = []
-        var offset = 0
-        while true {
-            try Task.checkCancellation()
-            let container: AlbumListContainer = try await requestJSON(
-                "getAlbumList2",
-                query: [
-                    URLQueryItem(name: "type", value: "alphabeticalByName"),
-                    URLQueryItem(name: "size", value: String(Self.pageSize)),
-                    URLQueryItem(name: "offset", value: String(offset)),
-                    URLQueryItem(name: "musicFolderId", value: libraryID),
-                ]
-            )
-            let albums = container.albumList2?.album ?? []
-            ids += albums.map(\.id)
-            guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(ids.count) else {
-                throw SourceError.connectionFailed("Subsonic album catalog exceeded the safety limit")
+    private func ensureCatalogPreparation() async throws {
+        if catalogScanID == nil {
+            try await beginCatalogEnrichment(scanID: UUID(), revision: nil)
+        }
+    }
+
+    private var albumScopes: [String] {
+        if libraryScope?.includedLibraryIDs?.isEmpty == true { return [] }
+        guard organizesByLibrary, let libraries = observedLibraries, libraries.count > 1 else { return [""] }
+        return libraryScope?.includedLibraryIDs ?? libraries.map(\.id)
+    }
+
+    private func startAlbumMetadataIfNeeded() {
+        guard albumMetadataTask == nil else { return }
+        let preparationID = catalogPreparationID
+        albumMetadataTask = Task {
+            do {
+                try await self.loadAlbumMetadata(preparationID: preparationID)
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+                plog("Subsonic album metadata unavailable; keeping song metadata source=\(sourceID.prefix(8)): \(error.localizedDescription)")
             }
-            if albums.count < Self.pageSize { return ids }
-            offset += albums.count
+        }
+    }
+
+    func finishCatalogEnrichment(scanID: UUID, progress: (@Sendable (Int) async -> Void)?) async throws -> ServerCatalogEnrichment? {
+        guard catalogScanID == scanID else { return nil }
+        if usesLegacyAlbumWalk, albumMetadataTask == nil, albumScopes == [""] || albumScopes.isEmpty { return nil }
+        startAlbumMetadataIfNeeded()
+        albumMetadataProgress = progress
+        let preparationID = catalogPreparationID
+        let task = albumMetadataTask
+        defer { if catalogPreparationID == preparationID { albumMetadataProgress = nil } }
+        try await withTaskCancellationHandler {
+            try await task?.value
+            try Task.checkCancellation()
+        } onCancel: { task?.cancel() }
+        guard catalogScanID == scanID, catalogPreparationID == preparationID else { throw CancellationError() }
+        return ServerCatalogEnrichment(albums: catalogAlbums, hasOverlappingLibraries: overlappingAlbumLibraries)
+    }
+
+    func endCatalogEnrichment(scanID: UUID) async {
+        guard catalogScanID == scanID else { return }
+        albumMetadataTask?.cancel()
+        prefetchedSongPage?.task.cancel()
+        albumMetadataTask = nil
+        prefetchedSongPage = nil
+        albumMetadataProgress = nil
+        catalogScanID = nil
+        catalogPreparationID = UUID()
+        provisionalAlbumArtists = [:]
+        catalogAlbums = [:]
+        legacyAlbumSearchScopes = []
+    }
+
+    private func catalogSongPage(offset: Int, path: String, pageSize: Int? = nil) async throws -> [SubsonicChild] {
+        let width = pageSize ?? SubsonicCatalogPagingPolicy.songPageSize(serverType: serverType)
+        guard catalogScanID != nil else { return try await search3SongPage(offset: offset, path: path, pageSize: width) }
+        let pageTask: Task<[SubsonicChild], Error>
+        if let pending = prefetchedSongPage, pending.path == path, pending.offset == offset, pending.size == width {
+            pageTask = pending.task
+        } else {
+            prefetchedSongPage?.task.cancel()
+            pageTask = Task { try await self.search3SongPage(offset: offset, path: path, pageSize: width) }
+        }
+        prefetchedSongPage = nil
+        let preparationID = catalogPreparationID
+        let metadataTask = albumMetadataTask
+        let page = try await withTaskCancellationHandler {
+            let page = try await pageTask.value
+            try Task.checkCancellation()
+            return page
+        } onCancel: {
+            pageTask.cancel()
+            metadataTask?.cancel()
+        }
+        guard preparationID == catalogPreparationID else { throw CancellationError() }
+        if !page.isEmpty {
+            // Derive the next offset from the received width, including capped pages.
+            let nextOffset = offset + page.count
+            let next = Task { try await self.search3SongPage(offset: nextOffset, path: path, pageSize: width) }
+            prefetchedSongPage = (path, nextOffset, width, next)
+            startAlbumMetadataIfNeeded()
+        }
+        return page
+    }
+
+    private func loadAlbumMetadata(preparationID: UUID) async throws {
+        let scopes = albumScopes
+        let wideAlbums = serverType?.lowercased() == "navidrome"
+        let cacheKey = Self.hash(([baseURL.absoluteString, username, wideAlbums ? "search3-albums-v1" : "albums-v1"] + scopes.sorted()).joined(separator: "\0"))
+        let revision = catalogRevision
+        let store = albumCatalogStore
+        var checkpoint = await Task.detached(priority: .utility) {
+            try? store?.claim(key: cacheKey, revision: revision, scopes: scopes)
+        }.value ?? SubsonicAlbumCatalogStore.Checkpoint(
+            token: UUID().uuidString, offsets: Dictionary(uniqueKeysWithValues: scopes.map { ($0, 0) }),
+            firstPageIDs: [:], albums: [:], hasOverlappingLibraries: false
+        )
+        try Task.checkCancellation()
+        guard preparationID == catalogPreparationID else { throw CancellationError() }
+        var publishesMetadata = true
+        defer {
+            if publishesMetadata, !Task.isCancelled, preparationID == catalogPreparationID {
+                catalogAlbums = checkpoint.albums
+                overlappingAlbumLibraries = checkpoint.hasOverlappingLibraries
+            }
+        }
+        if checkpoint.isComplete { return }
+        var completedEntries = checkpoint.albums.count
+        for scope in scopes {
+            guard checkpoint.offsets[scope] != -1 else { continue }
+            var offset = checkpoint.offsets[scope] ?? 0
+            if offset > 0 {
+                let first = try await albumMetadataPage(offset: 0, scope: scope, wide: wideAlbums)
+                if first.map(\.id) != checkpoint.firstPageIDs[scope] {
+                    let staleToken = checkpoint.token
+                    try await Task.detached(priority: .utility) {
+                        try store?.invalidate(key: cacheKey, token: staleToken)
+                    }.value
+                    // Restart this metadata walk; song receipts remain independent.
+                    guard preparationID == catalogPreparationID else { throw CancellationError() }
+                    catalogAlbums = [:]
+                    publishesMetadata = false
+                    return try await loadAlbumMetadata(preparationID: preparationID)
+                }
+            }
+            var pagesWithoutNewAlbums = 0
+            var seenScopeIDs = Set<String>()
+            while offset >= 0 {
+                try Task.checkCancellation()
+                let albums = try await albumMetadataPage(offset: offset, scope: scope, wide: wideAlbums)
+                guard preparationID == catalogPreparationID else { throw CancellationError() }
+                if offset == 0 { checkpoint.firstPageIDs[scope] = albums.map(\.id) }
+                var newAlbums = 0
+                for album in albums {
+                    if seenScopeIDs.insert(album.id).inserted { newAlbums += 1 }
+                    if let previous = checkpoint.albums[album.id] {
+                        if let previousLibrary = previous.libraryID, let library = album.libraryID, previousLibrary != library {
+                            checkpoint.hasOverlappingLibraries = true
+                        }
+                    }
+                    checkpoint.albums[album.id] = album
+                }
+                pagesWithoutNewAlbums = !albums.isEmpty && newAlbums == 0 ? pagesWithoutNewAlbums + 1 : 0
+                guard pagesWithoutNewAlbums < 3,
+                      SubsonicCatalogPagingPolicy.isWithinAlbumLimit(checkpoint.albums.count) else {
+                    throw SourceError.connectionFailed("Subsonic album catalog exceeded the paging safety limit")
+                }
+                // An empty page is authoritative even when a server caps page widths.
+                let nextOffset = albums.isEmpty ? -1 : offset + albums.count
+                checkpoint.offsets[scope] = nextOffset
+                let saved = SubsonicAlbumCatalogStore.Checkpoint(
+                    token: checkpoint.token, offsets: checkpoint.offsets, firstPageIDs: checkpoint.firstPageIDs,
+                    albums: [:], hasOverlappingLibraries: checkpoint.hasOverlappingLibraries)
+                let savedOffset = offset
+                await Task.detached(priority: .utility) {
+                    try? store?.savePage(key: cacheKey, checkpoint: saved, scope: scope, offset: savedOffset, albums: albums)
+                }.value
+                try Task.checkCancellation()
+                guard preparationID == catalogPreparationID else { throw CancellationError() }
+                completedEntries += albums.count
+                await albumMetadataProgress?(completedEntries)
+                offset = nextOffset
+            }
+        }
+    }
+
+    private func albumMetadataPage(offset: Int, scope: String, wide: Bool) async throws -> [ServerCatalogAlbumMetadata] {
+        let albums: [AlbumSummary]
+        let folder = scope.isEmpty ? [] : [URLQueryItem(name: "musicFolderId", value: scope)]
+        if wide && !legacyAlbumSearchScopes.contains(scope) {
+            let container: Search3Container = try await requestJSON("search3", query: [
+                URLQueryItem(name: "query", value: ""), URLQueryItem(name: "artistCount", value: "0"),
+                URLQueryItem(name: "songCount", value: "0"), URLQueryItem(name: "albumCount", value: "2000"),
+                URLQueryItem(name: "albumOffset", value: String(offset))
+            ] + folder)
+            guard let result = container.searchResult3 else { throw SubsonicCompatibilityError.directCatalogUnavailable }
+            if let page = result.album {
+                albums = page
+            } else if offset == 0 {
+                legacyAlbumSearchScopes.insert(scope)
+                // Older servers can expose song search but omit album search.
+                return try await albumMetadataPage(offset: offset, scope: scope, wide: false)
+            } else {
+                albums = []
+            }
+        } else {
+            let container: AlbumListContainer = try await requestJSON("getAlbumList2", query: [
+                URLQueryItem(name: "type", value: "alphabeticalByName"), URLQueryItem(name: "size", value: String(Self.pageSize)),
+                URLQueryItem(name: "offset", value: String(offset))
+            ] + folder)
+            guard let result = container.albumList2 else { throw SubsonicCompatibilityError.directCatalogUnavailable }
+            albums = result.album ?? []
+        }
+        return albums.map {
+            ServerCatalogAlbumMetadata(id: $0.id, artist: Self.cleaned($0.artist, unknown: "[Unknown Artist]"),
+                                       created: $0.created.flatMap(Self.parseCatalogDate), libraryID: scope.isEmpty ? libraryScope?.soleLibraryID : scope)
         }
     }
 
@@ -1868,7 +2030,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         let created = child.created.flatMap(Self.parseDate)
         let added = created.map(ServerSongCatalogMergePolicy.normalizedAddedDate)
         let albumCreated = album?.created.flatMap(Self.parseCatalogDate)
-            ?? (child.albumId ?? album?.id).flatMap { serverAlbumCreatedDates[$0] }
+            ?? (child.albumId ?? album?.id).flatMap { catalogAlbums[$0]?.created }
 
         // 单曲艺术家常缺标签 → Subsonic 返回 "[Unknown Artist]" 占位; 回退到
         // 专辑艺术家。真正全空的归一成 nil, 让 Primuse 走自己的"未知"处理,
@@ -1895,12 +2057,16 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             }
             return Self.cleaned(names.joined(separator: ", "), unknown: "[Unknown Artist]")
         }
+        let taggedAlbumArtist = Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]") ?? joinedAlbumArtists
+        if let id = child.albumId, provisionalAlbumArtists[id] == nil {
+            provisionalAlbumArtists[id] = taggedAlbumArtist ?? artist
+        }
         let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
             albumArtistName: AlbumGroupingPolicy.serverCatalogAlbumArtistName(
                 trackAlbumArtistName: Self.cleaned(child.displayAlbumArtist, unknown: "[Unknown Artist]")
                     ?? joinedAlbumArtists,
                 serverAlbumArtistName: Self.cleaned(album?.artist, unknown: "[Unknown Artist]")
-                    ?? child.albumId.flatMap { serverAlbumArtists?[$0] },
+                    ?? child.albumId.flatMap { catalogAlbums[$0]?.artist ?? provisionalAlbumArtists[$0] },
                 trackArtistName: artist
             ),
             trackArtistName: artist
@@ -1937,7 +2103,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             replayGainTrackPeak: child.replayGain?.trackPeak,
             replayGainAlbumGain: child.replayGain?.albumGain,
             replayGainAlbumPeak: child.replayGain?.albumPeak,
-            serverLibraryID: libraryScope?.libraryID(forAlbumID: child.albumId ?? album?.id),
+            serverLibraryID: (!overlappingAlbumLibraries ? (child.albumId ?? album?.id).flatMap { catalogAlbums[$0]?.libraryID } : nil)
+                ?? libraryScope?.libraryID(forAlbumID: child.albumId ?? album?.id),
             // 接口不给编码;码率高过任何有损编码的才在这里认作无损,其余留给读文件头。
             audioCodec: ContainerAudioCodecPolicy.codec(
                 catalogBitRateKbps: child.bitRate,
@@ -1946,7 +2113,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 container: format
             ),
             serverDateAdded: added,
-            serverAlbumDateAdded: albumCreated
+            serverAlbumDateAdded: albumCreated,
+            serverCatalogAlbum: (child.albumId ?? album?.id).map { ServerCatalogAlbumReference(id: $0, taggedArtist: taggedAlbumArtist) }
         )
     }
 
@@ -2426,12 +2594,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private static func parseDate(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: value)
+        SubsonicCatalogDateParser.shared.date(from: value)
     }
 
     private static func parseCatalogDate(_ value: String) -> Date? {
@@ -2707,6 +2870,7 @@ private struct Search3Container: SubsonicResponseContainer {
 }
 
 private struct SearchResult3: Decodable {
+    let album: [AlbumSummary]?
     let song: [SubsonicChild]?
 }
 

@@ -230,6 +230,7 @@ private protocol ScanBackgroundContinuation: AnyObject {
     var identifier: UUID { get }
     var isGranted: Bool { get }
     func update(scannedCount: Int, totalCount: Int)
+    func updateAuxiliaryProgress(_ count: Int)
     func finish(scanCompleted: Bool)
 }
 
@@ -243,6 +244,7 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
     private var finished = false
     private var scannedCount: Int
     private var totalCount: Int
+    private var auxiliaryCount = 0
     private var lastProgressPublishedAt = Date.distantPast
     private var progressWatchdog: Task<Void, Never>?
     private let progressTimeout: Duration
@@ -323,6 +325,13 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
         publishProgress(force: false)
     }
 
+    func updateAuxiliaryProgress(_ count: Int) {
+        guard !finished, count > auxiliaryCount else { return }
+        auxiliaryCount = count
+        if task != nil { restartProgressWatchdog() }
+        publishProgress(force: false)
+    }
+
     private func publishProgress(force: Bool) {
         guard let task else { return }
         let now = Date()
@@ -335,8 +344,8 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
         if units.completed > task.progress.completedUnitCount {
             restartProgressWatchdog()
         }
-        task.progress.totalUnitCount = units.total
-        task.progress.completedUnitCount = units.completed
+        task.progress.totalUnitCount = units.total + Int64(auxiliaryCount)
+        task.progress.completedUnitCount = units.completed + Int64(auxiliaryCount)
         task.updateTitle(
             String(localized: "scan_in_progress"),
             subtitle: ScanContinuedProcessingPolicy.progressSubtitle(
@@ -349,7 +358,7 @@ private final class ScanContinuedProcessingSession: ScanBackgroundContinuation {
 
     private func restartProgressWatchdog() {
         // 系统可能在约 30 秒无进展后直接挂失败卡片；提前交回执行权，
-        // 不用虚构进度续命。只以实际扫描数量推进来重置计时。
+        // 不用虚构进度续命。只以实际歌曲或专辑分页进展重置计时。
         progressWatchdog?.cancel()
         let timeout = progressTimeout
         progressWatchdog = Task { @MainActor [weak self] in
@@ -3947,9 +3956,14 @@ final class ScanService {
         }
     }
 
-    /// Stages Navidrome's authoritative `search3` pages in the durable scan
-    /// checkpoint. The live library is changed only after the first page and
-    /// server revision still match at the terminal boundary.
+    private func updateCatalogPreparationProgress(sourceID: String, generation: Int, count: Int) {
+        guard isCurrentScan(sourceID, generation: generation) else { return }
+        #if os(iOS)
+        continuedScanSessions[sourceID]?.updateAuxiliaryProgress(count)
+        #endif
+    }
+
+    /// Publish durable pages as previews; enrich and reconcile the final verified snapshot.
     private func scanPagedServerCatalog(
         source: MusicSource,
         generation: Int,
@@ -3967,6 +3981,9 @@ final class ScanService {
         identityScopeFingerprint: String,
         checkpoint: ScanCheckpoint?
     ) async -> Bool {
+        let enrichmentProvider = connector as? any ServerCatalogEnrichingConnector
+        let enrichmentScanID = UUID()
+        defer { Task { await enrichmentProvider?.endCatalogEnrichment(scanID: enrichmentScanID) } }
         let catalogPath = directories.first ?? "/"
         var pageSize = SubsonicCatalogPagingPolicy.pageSize
         let existingByID = await Task.detached(priority: .utility) {
@@ -4056,6 +4073,7 @@ final class ScanService {
                 }
 
                 let initialRevision = try await connector.stableSongCatalogRevision()
+                try await enrichmentProvider?.beginCatalogEnrichment(scanID: enrichmentScanID, revision: initialRevision)
                 let preferredPageSize = try await connector.preferredSongCatalogPageSize()
                 pageSize = SubsonicCatalogPagingPolicy.resumedPageSize(
                     saved: resumeCheckpoint?.subsonicCatalogState?.pageSize,
@@ -4462,6 +4480,12 @@ final class ScanService {
                         return true
                     }
 
+                let enrichment = try await enrichmentProvider?.finishCatalogEnrichment(scanID: enrichmentScanID) { [weak self] count in
+                    await self?.updateCatalogPreparationProgress(sourceID: source.id, generation: generation, count: count)
+                }
+                try checkScanCommitFence(sourceID: source.id, generation: generation,
+                                         expectedScopeFingerprint: scopeFingerprint,
+                                         expectedScopeDirectories: directories, sourceStore: sourceStore)
                 let liveSongsSnapshot = library.songs
                 let finalExistingByID = await Task.detached(priority: .utility) {
                     IndexedSongSnapshot(liveSongsSnapshot, sourceID: source.id)
@@ -4469,7 +4493,7 @@ final class ScanService {
                 let stagedCommit = try await Task.detached(priority: .utility) {
                     let delta = try stagingStore.delta(
                         sourceID: source.id,
-                        existingByID: finalExistingByID
+                        existingByID: finalExistingByID, enrichment: enrichment
                     )
                     let index = try stagingStore.loadHierarchyIndex(sourceID: source.id)
                     return (delta, index)

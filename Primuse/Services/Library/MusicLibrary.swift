@@ -4384,25 +4384,54 @@ final class MusicLibrary {
     private(set) var readiness: LibraryReadiness = .preparing
     var isReady: Bool { readiness == .ready }
 
+    func prepareStartupSongs(
+        ids: [String], sourceIDs: Set<String>, fallbackToFirstPage: Bool = false
+    ) async -> [Song]? {
+        guard !isReady else { return nil }
+        let directory = snapshotURL.deletingLastPathComponent()
+        let enabledIDs = sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs)
+        let worker = Task.detached(priority: .userInitiated) { () -> [Song]? in
+            do {
+                guard let reader = try Self.startupSongReader(directory: directory, sourceIDs: enabledIDs) else { return nil }
+                let songs = try reader.songs(ids: ids)
+                return songs.isEmpty && fallbackToFirstPage ? try reader.page(at: 0) : songs
+            } catch { return nil }
+        }
+        let songs = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard !Task.isCancelled, !isReady,
+              enabledIDs == sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs) else { return nil }
+        return songs
+    }
+
+    private nonisolated static func startupSongReader(
+        directory: URL, sourceIDs: Set<String>
+    ) throws -> IncrementalSongPageReader? {
+        try Task.checkCancellation()
+        let exclusionURL = directory.appendingPathComponent("library-device-local-excluded-songs.json")
+        if FileManager.default.fileExists(atPath: exclusionURL.path) {
+            let ledger = try JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: Data(contentsOf: exclusionURL))
+            // Imported stores can still contain locally excluded rows until
+            // normal preparation has reconciled their identity keys.
+            guard ledger.identities.isEmpty else { return nil }
+        }
+        let reader = try IncrementalSongPageReader(
+            path: directory.appendingPathComponent("library-songs.sqlite").path, sourceIDs: sourceIDs
+        )
+        guard reader.completedMigrationVersion >= loadedSongMigrationVersion else { return nil }
+        return reader
+    }
+
     func prepareStartupSongPages(sourceIDs: Set<String>) async -> LibraryStartupSongPages? {
         guard !isReady else { return nil }
         let directory = snapshotURL.deletingLastPathComponent()
         let enabledIDs = sourceIDs.subtracting(preparingDisabledSourceIDs ?? disabledSourceIDs)
         let worker = Task.detached(priority: .userInitiated) { () -> (IncrementalSongPageReader, [Song])? in
             do {
-                try Task.checkCancellation()
-                let exclusionURL = directory.appendingPathComponent("library-device-local-excluded-songs.json")
-                if FileManager.default.fileExists(atPath: exclusionURL.path) {
-                    let ledger = try JSONDecoder().decode(DeviceLocalExclusionLedger.self, from: Data(contentsOf: exclusionURL))
-                    // Old/imported stores may still contain excluded rows. The
-                    // normal preparation reconciles their identity keys first.
-                    guard ledger.identities.isEmpty else { return nil }
-                }
-                let reader = try IncrementalSongPageReader(
-                    path: directory.appendingPathComponent("library-songs.sqlite").path,
-                    sourceIDs: enabledIDs
-                )
-                guard reader.completedMigrationVersion >= Self.loadedSongMigrationVersion,
+                guard let reader = try Self.startupSongReader(directory: directory, sourceIDs: enabledIDs),
                       reader.count > 0 else { return nil }
                 return (reader, try reader.page(at: 0))
             } catch {
@@ -6594,6 +6623,7 @@ final class MusicLibrary {
             || old.dateAdded != new.dateAdded
             || old.serverDateAdded != new.serverDateAdded
             || old.serverAlbumDateAdded != new.serverAlbumDateAdded
+            || old.serverCatalogAlbum != new.serverCatalogAlbum
             || old.lastModified != new.lastModified
             || old.coverArtFileName != new.coverArtFileName
             || old.artistArtworkFileName != new.artistArtworkFileName

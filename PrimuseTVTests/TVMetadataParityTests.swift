@@ -7,6 +7,19 @@ import UIKit
 
 @MainActor
 final class TVMetadataParityTests: XCTestCase {
+    func testServerCatalogPublishesEarlyRowsThenReturnsOneEnrichedRow() async throws {
+        let connector = TVEnrichingCatalogFixture()
+        let scanner = TVSourceScanner()
+        var delivered: [Song] = []
+        let songs = try await scanner.collectCatalog(from: connector) { delivered.append($0) }
+        XCTAssertEqual(songs.count, 1)
+        XCTAssertEqual(delivered.count, 2)
+        XCTAssertNil(delivered.first?.serverAlbumDateAdded)
+        XCTAssertEqual(songs.first?.serverAlbumDateAdded, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(songs.first?.albumArtistName, "Various Artists")
+        XCTAssertEqual(delivered.last, songs.first)
+    }
+
     func testDirectoryInventoryDefersEveryMetadataReadAcrossSourceFamilies() async throws {
         for type in [MusicSourceType.local, .smb, .nfs, .ftp, .webdav, .oneDrive, .dropbox, .pcloud] {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
@@ -1166,5 +1179,30 @@ final class SourceMaintenanceQueueTests: XCTestCase {
         XCTAssertEqual(snapshot.keys, ["song"])
         XCTAssertNil(IndexedSongSnapshot([original], sourceID: "server")["song"])
     }
+}
+#endif
+
+#if os(tvOS)
+private actor TVEnrichingCatalogFixture: SongScanningConnector, ServerCatalogEnrichingConnector {
+    let sourceID = "enriching-tv"
+    private var scanID: UUID?
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let song = Song(id: "song", title: "Song", artistName: "Soloist", fileFormat: .mp3,
+                        filePath: "/songs/song.mp3", sourceID: sourceID,
+                        serverCatalogAlbum: .init(id: "album", taggedArtist: nil))
+        return .init { $0.yield(.init(song: song, displayName: song.title, titleMetadataInspected: true)); $0.finish() }
+    }
+    func beginCatalogEnrichment(scanID: UUID, revision: String?) async throws { self.scanID = scanID }
+    func finishCatalogEnrichment(scanID: UUID, progress: (@Sendable (Int) async -> Void)?) async throws -> ServerCatalogEnrichment? {
+        guard self.scanID == scanID else { return nil }
+        return .init(albums: ["album": .init(id: "album", artist: "Various Artists", created: Date(timeIntervalSince1970: 100), libraryID: nil)])
+    }
+    func endCatalogEnrichment(scanID: UUID) async { if self.scanID == scanID { self.scanID = nil } }
 }
 #endif

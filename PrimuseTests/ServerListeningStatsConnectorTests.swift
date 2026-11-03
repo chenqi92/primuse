@@ -954,7 +954,10 @@ private final class SubsonicStatsURLProtocol: URLProtocol, @unchecked Sendable {
         case "/rest/ping.view":
             respond(json: #"{"subsonic-response":{"status":"ok","type":"\#(configuration.serverType)","openSubsonic":\#(configuration.openSubsonic)}}"#)
         case "/rest/search3.view":
-            respond(json: #"{"subsonic-response":{"status":"ok","searchResult3":{"song":[\#(songJSON)]}}}"#)
+            let offset = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "songOffset" }?.value ?? "0"
+            let songs = offset == "0" ? songJSON : ""
+            respond(json: #"{"subsonic-response":{"status":"ok","searchResult3":{"song":[\#(songs)]}}}"#)
         case "/rest/getAlbumList2.view":
             respond(json: #"{"subsonic-response":{"status":"ok","albumList2":{"album":[{"id":"album-1","name":"Album"}]}}}"#)
         case "/rest/getAlbum.view":

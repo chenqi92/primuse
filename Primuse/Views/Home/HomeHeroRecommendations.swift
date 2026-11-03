@@ -232,13 +232,13 @@ private struct HomeHeroRecommendationRefresh: ViewModifier {
     @State private var handledRefreshRound = 0
 
     private var refreshKey: String {
-        "\(models.map { $0.theme.rawValue }.joined(separator: ","))#\(day)#\(refreshRound)#\(contentKind.rawValue)#\(songCount)#\(albumCount)#\(library.musicSongs.count)#\(library.musicSongsRevision)#\(intelligence.settingsStore.revision)#\(intelligence.regionAvailability.revision)"
+        "\(models.map { $0.theme.rawValue }.joined(separator: ","))#\(day)#\(refreshRound)#\(contentKind.rawValue)#\(songCount)#\(albumCount)#\(library.isReady)#\(library.musicSongs.count)#\(library.musicSongsRevision)#\(intelligence.settingsStore.revision)#\(intelligence.regionAvailability.revision)"
     }
 
     func body(content: Content) -> some View {
         content
             .task(id: refreshKey) {
-                guard isEnabled else { return }
+                guard isEnabled, library.isReady else { return }
                 let force = refreshRound != handledRefreshRound
                 handledRefreshRound = refreshRound
                 for model in models {

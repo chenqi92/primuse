@@ -468,7 +468,7 @@ final class SubsonicServerScanTests: XCTestCase {
         let host = "server-scan-success.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .success)
         let (source, session) = makeSource(host: host)
-        defer { session.invalidateAndCancel() }
+        defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
 
         let result = try await source.requestServerCatalogScan()
         guard case .accepted(let status) = result else {
@@ -502,7 +502,7 @@ final class SubsonicServerScanTests: XCTestCase {
         ] {
             SubsonicServerScanURLProtocol.configure(host: host, mode: mode)
             let (source, session) = makeSource(host: host)
-            defer { session.invalidateAndCancel() }
+            defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
             let result = try await source.requestServerCatalogScan()
             XCTAssertEqual(result, .permissionDenied)
         }
@@ -519,7 +519,7 @@ final class SubsonicServerScanTests: XCTestCase {
         for (host, mode) in cases {
             SubsonicServerScanURLProtocol.configure(host: host, mode: mode)
             let (source, session) = makeSource(host: host)
-            defer { session.invalidateAndCancel() }
+            defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
             let result = try await source.requestServerCatalogScan()
             XCTAssertEqual(result, .unsupported)
         }
@@ -532,7 +532,7 @@ final class SubsonicServerScanTests: XCTestCase {
         ] {
             SubsonicServerScanURLProtocol.configure(host: host, mode: mode)
             let (source, session) = makeSource(host: host)
-            defer { session.invalidateAndCancel() }
+            defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
             do {
                 _ = try await source.requestServerCatalogScan()
                 XCTFail("Expected authentication failure")
@@ -553,7 +553,7 @@ final class SubsonicServerScanTests: XCTestCase {
         for (host, mode) in cases {
             SubsonicServerScanURLProtocol.configure(host: host, mode: mode)
             let (source, session) = makeSource(host: host)
-            defer { session.invalidateAndCancel() }
+            defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
             do {
                 _ = try await source.requestServerCatalogScan()
                 XCTFail("Expected transport failure")
@@ -572,7 +572,7 @@ final class SubsonicServerScanTests: XCTestCase {
             let host = UUID().uuidString.lowercased() + ".invalid"
             SubsonicServerScanURLProtocol.configure(host: host, mode: .httpStatus(status))
             let (source, session) = makeSource(host: host)
-            defer { session.invalidateAndCancel() }
+            defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
             do { _ = try await source.songCatalogPage(from: "/", offset: 0); XCTFail("Expected capability fallback") }
             catch PagedSongCatalogError.unavailable { }
             catch { XCTFail("Lost compatibility classification: \(error)") }
@@ -584,7 +584,7 @@ final class SubsonicServerScanTests: XCTestCase {
         let host = "server-paged-catalog.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .pagedCatalog)
         let (source, session) = makeSource(host: host)
-        defer { session.invalidateAndCancel() }
+        defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
 
         let revision = try await source.stableSongCatalogRevision()
         XCTAssertEqual(revision, "2026-08-31T04:00:00Z|501")
@@ -616,19 +616,19 @@ final class SubsonicServerScanTests: XCTestCase {
             return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "songCount" }?.value
         }
-        XCTAssertEqual(sizes, ["2000", "2000", "2000"])
+        XCTAssertEqual(sizes.filter { $0 != "0" }, ["2000", "2000", "2000"])
     }
 
     func testPagedCatalogHonorsLegacyCheckpointWidth() async throws {
         let host = "server-paged-resume.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .pagedCatalog)
         let (source, session) = makeSource(host: host)
-        defer { session.invalidateAndCancel() }
+        defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
         let preferred = try await source.preferredSongCatalogPageSize()
         XCTAssertEqual(preferred, 2_000)
         _ = try await source.songCatalogPage(from: "/", offset: 0, pageSize: 500)
         let request = try XCTUnwrap(SubsonicServerScanURLProtocol.requests(host: host).last {
-            $0.url?.path == "/rest/search3.view"
+            $0.url?.path == "/rest/search3.view" && URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "songCount" }?.value != "0"
         })
         XCTAssertEqual(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "songCount" }?.value, "500")
@@ -638,7 +638,7 @@ final class SubsonicServerScanTests: XCTestCase {
         let host = "server-wide-pages.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .widePagedCatalog)
         let (source, session) = makeSource(host: host)
-        defer { session.invalidateAndCancel() }
+        defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
         var offset = 0
         var ids: [String] = []
         var sizes: [Int] = []
@@ -658,7 +658,7 @@ final class SubsonicServerScanTests: XCTestCase {
         let host = "server-repeated-short-page.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .repeatedCatalog)
         let (source, session) = makeSource(host: host)
-        defer { session.invalidateAndCancel() }
+        defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
         do {
             for try await _ in try await source.scanSongs(from: "/") {}
             XCTFail("A server ignoring offsets cannot finish an authoritative scan")
@@ -674,7 +674,7 @@ final class SubsonicServerScanTests: XCTestCase {
         let host = "server-failed-scan.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .failedScanStatus)
         let (source, session) = makeSource(host: host)
-        defer { session.invalidateAndCancel() }
+        defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
 
         do {
             _ = try await source.stableSongCatalogRevision()
@@ -791,6 +791,10 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
                 .value
                 .flatMap(Int.init) ?? 0
             let requested = items?.first { $0.name == "songCount" }?.value.flatMap(Int.init) ?? 500
+            if requested == 0 {
+                respond(json: #"{"subsonic-response":{"status":"ok","searchResult3":{"album":[]}}}"#)
+                return
+            }
             let total = state.mode == .widePagedCatalog ? 4_501 : 501
             let limit = state.mode == .widePagedCatalog ? requested : 500
             let range = state.mode == .repeatedCatalog ? 0..<2 : min(offset, total)..<min(offset + limit, total)
@@ -846,5 +850,179 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
 
     private func fail(_ code: URLError.Code) {
         client?.urlProtocol(self, didFailWithError: URLError(code))
+    }
+}
+
+@MainActor
+final class SubsonicCatalogEnrichmentTests: XCTestCase {
+    func testSlowAlbumsDoNotBlockFirstSongsAndNextPageIsPrefetched() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        CatalogEnrichmentURLProtocol.configure(host: host, holdOffset: 0)
+        let (source, session) = makeSource(host: host, store: nil)
+        defer { session.invalidateAndCancel(); CatalogEnrichmentURLProtocol.remove(host) }
+        let scanID = UUID()
+        try await source.beginCatalogEnrichment(scanID: scanID, revision: "r1")
+        let arrived = expectation(description: "first songs before album response")
+        let task = Task {
+            let page = try await source.songCatalogPage(from: "/", offset: 0)
+            arrived.fulfill()
+            return page
+        }
+        await fulfillment(of: [arrived], timeout: 3)
+        CatalogEnrichmentURLProtocol.release(host)
+        let page = try await task.value
+        XCTAssertEqual(page.itemIDs, ["song-0"])
+        let enrichmentValue = try await source.finishCatalogEnrichment(scanID: scanID, progress: nil)
+        let enrichment = try XCTUnwrap(enrichmentValue)
+        let enriched = enrichment.applying(to: try XCTUnwrap(page.songs.first?.song))
+        XCTAssertEqual(enriched.albumArtistName, "Various Artists")
+        XCTAssertEqual(enriched.serverAlbumDateAdded, Date(timeIntervalSince1970: 1_577_836_800))
+        XCTAssertTrue(CatalogEnrichmentURLProtocol.offsets(host, albums: false).contains(1))
+        XCTAssertEqual(CatalogEnrichmentURLProtocol.offsets(host, albums: true), [0, 1, 2])
+        await source.endCatalogEnrichment(scanID: scanID)
+    }
+
+    func testRecreatedConnectorUsesCompleteSharedAlbumCache() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        CatalogEnrichmentURLProtocol.configure(host: host)
+        let store = try SubsonicAlbumCatalogStore(path: ":memory:")
+        for _ in 0..<2 {
+            let (source, session) = makeSource(host: host, store: store)
+            let id = UUID()
+            try await source.beginCatalogEnrichment(scanID: id, revision: "r1")
+            let page = try await source.songCatalogPage(from: "/", offset: 0)
+            let enrichment = try await source.finishCatalogEnrichment(scanID: id, progress: nil)
+            XCTAssertEqual(enrichment?.applying(to: page.songs[0].song).albumArtistName, "Various Artists")
+            await source.endCatalogEnrichment(scanID: id)
+            session.invalidateAndCancel()
+        }
+        XCTAssertEqual(CatalogEnrichmentURLProtocol.offsets(host, albums: true), [0, 1, 2])
+        CatalogEnrichmentURLProtocol.remove(host)
+    }
+
+    func testCancelledAlbumWalkResumesAndOldCleanupCannotCancelNewScan() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        CatalogEnrichmentURLProtocol.configure(host: host, holdOffset: 1)
+        let store = try SubsonicAlbumCatalogStore(path: ":memory:")
+        let (source, session) = makeSource(host: host, store: store)
+        defer { session.invalidateAndCancel(); CatalogEnrichmentURLProtocol.remove(host) }
+        let firstID = UUID()
+        try await source.beginCatalogEnrichment(scanID: firstID, revision: "r1")
+        _ = try await source.songCatalogPage(from: "/", offset: 0)
+        for _ in 0..<100 where !CatalogEnrichmentURLProtocol.offsets(host, albums: true).contains(1) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(CatalogEnrichmentURLProtocol.offsets(host, albums: true), [0, 1])
+        await source.endCatalogEnrichment(scanID: firstID)
+        CatalogEnrichmentURLProtocol.release(host)
+        let secondID = UUID()
+        try await source.beginCatalogEnrichment(scanID: secondID, revision: "r1")
+        await source.endCatalogEnrichment(scanID: firstID)
+        let result = try await source.finishCatalogEnrichment(scanID: secondID, progress: nil)
+        XCTAssertEqual(result?.albums.count, 2)
+        XCTAssertEqual(CatalogEnrichmentURLProtocol.offsets(host, albums: true), [0, 1, 0, 1, 2])
+        await source.endCatalogEnrichment(scanID: secondID)
+    }
+
+    func testExcludedLibrariesStayExcludedDuringParallelAlbumRead() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        CatalogEnrichmentURLProtocol.configure(host: host, multipleLibraries: true)
+        let (source, session) = makeSource(host: host, store: nil, excluded: ["1"])
+        defer { session.invalidateAndCancel(); CatalogEnrichmentURLProtocol.remove(host) }
+        let id = UUID()
+        try await source.beginCatalogEnrichment(scanID: id, revision: "r1")
+        let page = try await source.songCatalogPage(from: "/", offset: 0)
+        let result = try await source.finishCatalogEnrichment(scanID: id, progress: nil)
+        XCTAssertEqual(result?.applying(to: page.songs[0].song).serverLibraryID, "2")
+        XCTAssertEqual(Set(CatalogEnrichmentURLProtocol.scopes(host)), ["2"])
+        await source.endCatalogEnrichment(scanID: id)
+    }
+
+    private func makeSource(host: String, store: SubsonicAlbumCatalogStore?, excluded: Set<String> = []) -> (SubsonicSource, URLSession) {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [CatalogEnrichmentURLProtocol.self]
+        let session = URLSession(configuration: config)
+        return (SubsonicSource(sourceID: UUID().uuidString, sourceType: .navidrome, host: host, port: nil,
+                               useSsl: true, basePath: nil, username: "qa", password: "qa",
+                               excludedLibraryIDs: excluded, session: session, albumCatalogStore: store), session)
+    }
+}
+
+private final class CatalogEnrichmentURLProtocol: URLProtocol, @unchecked Sendable {
+    private struct State {
+        var holdOffset: Int?
+        var multipleLibraries = false
+        var scopes: [String] = []
+        var albumOffsets: [Int] = []
+        var songOffsets: [Int] = []
+        var pending: [CatalogEnrichmentURLProtocol] = []
+    }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var states: [String: State] = [:]
+    private var pendingBody: [String: Any] = [:]
+    private var stopped = false
+    static func configure(host: String, holdOffset: Int? = nil, multipleLibraries: Bool = false) {
+        lock.withLock { states[host] = State(holdOffset: holdOffset, multipleLibraries: multipleLibraries) }
+    }
+    static func scopes(_ host: String) -> [String] { lock.withLock { states[host]?.scopes ?? [] } }
+    static func offsets(_ host: String, albums: Bool) -> [Int] {
+        lock.withLock { albums ? states[host]?.albumOffsets ?? [] : states[host]?.songOffsets ?? [] }
+    }
+    static func remove(_ host: String) { _ = lock.withLock { states.removeValue(forKey: host) } }
+    static func release(_ host: String) {
+        let pending = lock.withLock {
+            let pending = states[host]?.pending ?? []
+            states[host]?.pending = []
+            states[host]?.holdOffset = nil
+            return pending
+        }
+        for request in pending { request.respond(request.pendingBody) }
+    }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url, let host = url.host else { return }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ key: String) -> String? { query.first { $0.name == key }?.value }
+        switch url.lastPathComponent {
+        case "ping.view": respond(["type": "navidrome", "openSubsonic": true])
+        case "getMusicFolders.view":
+            let multiple = Self.lock.withLock { Self.states[host]?.multipleLibraries == true }
+            var folders: [[String: Any]] = [["id": 1, "name": "Music"]]
+            if multiple { folders.append(["id": 2, "name": "Audiobooks"]) }
+            respond(["musicFolders": ["musicFolder": folders]])
+        case "search3.view":
+            let albums = value("songCount") == "0"
+            let offset = Int(value(albums ? "albumOffset" : "songOffset") ?? "0") ?? 0
+            let body: [String: Any]
+            if albums {
+                body = ["searchResult3": ["album": offset < 2 ? [["id": "album-\(offset)", "artist": "Various Artists", "created": "2020-01-01T00:00:00Z"]] : []]]
+            } else {
+                body = ["searchResult3": ["song": offset < 2 ? [["id": "song-\(offset)", "albumId": "album-\(offset)", "title": "Song", "artist": "Soloist", "suffix": "mp3"]] : []]]
+            }
+            pendingBody = body
+            let held = Self.lock.withLock {
+                Self.states[host]?.scopes.append(value("musicFolderId") ?? "")
+                if albums { Self.states[host]?.albumOffsets.append(offset) }
+                else { Self.states[host]?.songOffsets.append(offset) }
+                if albums, Self.states[host]?.holdOffset == offset {
+                    Self.states[host]?.pending.append(self)
+                    return true
+                }
+                return false
+            }
+            if !held { respond(body) }
+        default: respond(["error": ["code": 70, "message": "Unsupported fixture"]])
+        }
+    }
+    override func stopLoading() { Self.lock.withLock { stopped = true } }
+    private func respond(_ body: [String: Any]) {
+        guard !Self.lock.withLock({ stopped }), let url = request.url else { return }
+        var body = body
+        body["status"] = body["error"] == nil ? "ok" : "failed"
+        let data = try! JSONSerialization.data(withJSONObject: ["subsonic-response": body])
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
