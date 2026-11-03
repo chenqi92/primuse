@@ -289,7 +289,7 @@ extension AudioPlayerService {
     func isSleepOptionArmed(_ option: SleepTimerOption) -> Bool {
         switch option {
         case .minutes: false
-        case .endOfTrack: sleepStopAfterSongID != nil
+        case .endOfTrack: sleepStopAfterSongID != nil && selectedChapterSleep == nil
         case .endOfChapter: sleepStopAfterChapter != nil
         case .endOfBook: sleepStopAfterBook != nil
         }

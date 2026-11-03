@@ -1,5 +1,8 @@
 import PrimuseKit
 import SwiftUI
+#if !os(tvOS)
+import UniformTypeIdentifiers
+#endif
 
 struct SpokenChapterGenerationSheet: View {
     let song: Song
@@ -19,6 +22,12 @@ struct SpokenChapterGenerationSheet: View {
     @State private var editingPreview = false
     @State private var resumingJobID: String?
     @State private var discardingJobID: String?
+    @State private var showsImporter = false
+    @State private var importPreview: SpokenChapterImportPreview?
+    @State private var importTask: Task<Void, Never>?
+    @State private var isImporting = false
+    @State private var isApplyingImport = false
+    @State private var confirmsImport = false
 
     var generator: SpokenChapterGenerator = .shared
     private var record: SpokenChapterRecord? {
@@ -28,6 +37,9 @@ struct SpokenChapterGenerationSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                #if !os(tvOS)
+                importSection
+                #endif
                 Section {
                     Text(song.title).font(.headline)
                     if bookSongs.count > 1 {
@@ -39,7 +51,7 @@ struct SpokenChapterGenerationSheet: View {
                         Button("chapter_generation_pause") { generator.cancel() }
                     } else {
                         Button("chapter_generation_start") { requestStart() }
-                            .disabled(generator.isApplying)
+                            .disabled(generator.isApplying || isApplyingImport)
                     }
                     if let failure = error ?? generator.failure { Text(failure).foregroundStyle(.secondary) }
                 }
@@ -82,7 +94,7 @@ struct SpokenChapterGenerationSheet: View {
                 }
                 if let record {
                     Section {
-                        Toggle("chapter_generation_use", isOn: Binding(get: { record.isEnabled }, set: { enabled in
+                        Toggle(LocalizedStringKey(record.origin == .imported ? "chapter_import_use" : "chapter_generation_use"), isOn: Binding(get: { record.isEnabled }, set: { enabled in
                             updateRecord { $0.isEnabled = enabled }
                         }))
                         chapterRows(record.chapters, songID: song.id, isPreview: false)
@@ -96,7 +108,7 @@ struct SpokenChapterGenerationSheet: View {
             #if os(tvOS)
             .safeAreaInset(edge: .top) {
                 HStack {
-                    Text("chapter_generation_title").font(.title).foregroundStyle(.white)
+                    Text("spoken_chapters_manage").font(.title).foregroundStyle(.white)
                     Spacer()
                     Button("done") { dismiss() }
                 }
@@ -105,7 +117,7 @@ struct SpokenChapterGenerationSheet: View {
                 .background(.black)
             }
             #else
-            .navigationTitle(Text("chapter_generation_title"))
+            .navigationTitle(Text("spoken_chapters_manage"))
             #endif
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -155,6 +167,19 @@ struct SpokenChapterGenerationSheet: View {
                 }
             }
         }
+        #if !os(tvOS)
+        .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.plainText, .json]) { result in
+            switch result {
+            case .success(let url): readImport(url)
+            case .failure: error = String(localized: "chapter_import_read_failed")
+            }
+        }
+        #endif
+        .alert(Text("chapter_import_replace"), isPresented: $confirmsImport) {
+            Button("cancel", role: .cancel) {}
+            Button("chapter_generation_apply") { applyImport() }
+        }
+        .onDisappear { importTask?.cancel() }
         .builtInAIConsentSheet($consent)
         #if os(macOS)
         .frame(minWidth: 480, minHeight: 540)
@@ -163,6 +188,97 @@ struct SpokenChapterGenerationSheet: View {
         .environment(\.colorScheme, .dark)
         .background(Color.black.ignoresSafeArea())
         #endif
+    }
+
+    #if !os(tvOS)
+    private var importSection: some View {
+        Section {
+            Button("chapter_import_file") { showsImporter = true }
+                .disabled(isImporting || isApplyingImport || generator.isApplying)
+                .accessibilityIdentifier("chapters.import")
+            if isImporting { ProgressView() }
+            if let preview = importPreview {
+                ForEach(preview.chapters) { chapter in
+                    HStack {
+                        Text(ChapterTimeFormatter.string(from: chapter.startTime)).monospacedDigit().foregroundStyle(.secondary)
+                        Text(chapter.title)
+                    }
+                }
+                HStack {
+                    Button("cancel") { importPreview = nil }
+                    Spacer()
+                    Button("chapter_generation_apply") {
+                        if record != nil { confirmsImport = true } else { applyImport() }
+                    }
+                    .accessibilityIdentifier("chapters.import.apply")
+                }
+                .disabled(isApplyingImport || generator.isApplying)
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("chapter_import_formats")
+                Text(verbatim: "00:00 Opening\n12:30 Next chapter")
+                    .font(.caption.monospaced())
+                Text(verbatim: "{\"version\":\"1.2.0\",\"chapters\":[{\"startTime\":0,\"title\":\"Opening\"}]}")
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private func readImport(_ url: URL) {
+        importTask?.cancel()
+        importPreview = nil
+        error = nil
+        isImporting = true
+        let id = song.id
+        let duration = song.duration
+        let revision = library.generatedChapterRecord(id: id)?.revision
+        importTask = Task {
+            defer { isImporting = false }
+            do {
+                let preview = try await Task.detached(priority: .userInitiated) {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    let file = try FileHandle(forReadingFrom: url)
+                    defer { try? file.close() }
+                    let data = try file.read(upToCount: SpokenChapterImport.maximumBytes + 1) ?? Data()
+                    return try SpokenChapterImportPreview(songID: id, data: data, duration: duration, previousRevision: revision)
+                }.value
+                try Task.checkCancellation()
+                importPreview = preview
+            } catch is CancellationError {
+            } catch let failure as SpokenChapterImport.Failure {
+                self.error = Self.importMessage(failure)
+            } catch {
+                self.error = String(localized: "chapter_import_read_failed")
+            }
+        }
+    }
+    #endif
+
+    private static func importMessage(_ failure: SpokenChapterImport.Failure) -> String {
+        switch failure {
+        case .tooLarge: String(localized: "chapter_import_too_large")
+        case .invalidTimeline: String(localized: "chapter_import_invalid_timeline")
+        case .invalidFormat, .empty: String(localized: "chapter_import_invalid_format")
+        }
+    }
+
+    private func applyImport() {
+        guard let preview = importPreview, !isApplyingImport, !generator.isApplying else { return }
+        do {
+            let record = try preview.record(replacing: library.generatedChapterRecord(id: song.id))
+            library.saveGeneratedChapterRecord(record)
+            isApplyingImport = true
+            Task {
+                defer { isApplyingImport = false }
+                if case .success = await library.persistNowAndWait() {
+                    importPreview = nil
+                    error = nil
+                } else { error = String(localized: "chapter_generation_save_failed") }
+            }
+        } catch { self.error = String(localized: "chapter_import_changed") }
     }
 
     private func requestStart(resuming id: String? = nil) {

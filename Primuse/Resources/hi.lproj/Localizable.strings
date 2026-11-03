@@ -7073,3 +7073,16 @@
 "listening_scene_studying_prompt" = "पढ़ाई के लिए शांत वाद्य संगीत, कम गायन और अचानक बदलाव के बिना, ताकि ध्यान बना रहे।";
 
 "library_show_row_numbers" = "लाइब्रेरी में क्रमांक दिखाएँ";
+
+"spoken_chapters_manage" = "अध्याय";
+"chapter_import_file" = "अध्याय फ़ाइल आयात करें…";
+"chapter_import_use" = "आयात किए गए अध्याय उपयोग करें";
+"chapter_import_formats" = "इस ऑडियो के लिए: UTF-8 TXT (हर पंक्ति में MM:SS या HH:MM:SS और शीर्षक) या Podcast Chapters JSON (startTime सेकंड में)।";
+"chapter_import_replace" = "सहेजे गए अध्याय बदलें?";
+"chapter_import_read_failed" = "अध्याय फ़ाइल पढ़ी नहीं जा सकी।";
+"chapter_import_too_large" = "फ़ाइल अधिकतम 2 MB और 10,000 अध्यायों की होनी चाहिए।";
+"chapter_import_invalid_timeline" = "अध्याय के समय बढ़ते क्रम में, बिना दोहराव या ओवरलैप के और ऑडियो अवधि के भीतर होने चाहिए।";
+"chapter_import_invalid_format" = "कोई मान्य अध्याय नहीं मिला। नीचे दिया TXT या JSON प्रारूप जाँचें।";
+"chapter_import_changed" = "पूर्वावलोकन के बाद अध्याय बदल गए हैं। फ़ाइल फिर से आयात करें।";
+"sleep_choose_chapter" = "अध्याय चुनें…";
+"sleep_after_selected_chapter_format" = "“%@” के बाद रोकें";

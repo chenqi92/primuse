@@ -278,6 +278,8 @@ public enum SpokenChapterGeneration {
 }
 
 public struct SpokenChapterRecord: Codable, Equatable, Sendable, Identifiable {
+    public enum Origin: String, Codable, Sendable { case imported }
+    public var origin: Origin?
     public var id: String
     public var chapters: [MediaChapter]
     public var transcriptFingerprint: String

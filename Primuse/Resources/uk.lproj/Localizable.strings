@@ -7073,3 +7073,16 @@
 "listening_scene_studying_prompt" = "Спокійна інструментальна музика для навчання, мінімум вокалу та різких змін, щоб зосередитися.";
 
 "library_show_row_numbers" = "Показувати номери в медіатеці";
+
+"spoken_chapters_manage" = "Розділи";
+"chapter_import_file" = "Імпортувати файл розділів…";
+"chapter_import_use" = "Використовувати імпортовані розділи";
+"chapter_import_formats" = "Для цього аудіофайлу: UTF-8 TXT (MM:SS або HH:MM:SS і назва в кожному рядку) або Podcast Chapters JSON (startTime у секундах).";
+"chapter_import_replace" = "Замінити збережені розділи?";
+"chapter_import_read_failed" = "Не вдалося прочитати файл розділів.";
+"chapter_import_too_large" = "Не більше 2 МБ і 10 000 розділів у файлі.";
+"chapter_import_invalid_timeline" = "Час розділів має зростати без повторів і перекриття та не перевищувати тривалість аудіо.";
+"chapter_import_invalid_format" = "Немає дійсних розділів. Перевірте формат TXT або JSON, наведений нижче.";
+"chapter_import_changed" = "Розділи змінилися після перегляду. Імпортуйте файл знову.";
+"sleep_choose_chapter" = "Вибрати розділ…";
+"sleep_after_selected_chapter_format" = "Зупинити після «%@»";

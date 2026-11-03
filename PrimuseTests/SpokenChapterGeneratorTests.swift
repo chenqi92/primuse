@@ -316,6 +316,81 @@ final class SpokenChapterGeneratorTests: XCTestCase {
     }
 
     #if !os(tvOS)
+    func testImportedChaptersDriveSelectedSleepAndRestoreOriginals() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let suite = "ImportedChapterSleep-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let library = MusicLibrary(storageDirectory: url)
+        let player = AudioPlayerService(library: library, playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                                        playbackSessionStore: PlaybackSessionStore(url: url.appendingPathComponent("session.json")),
+                                        activateAudioSession: { _ in XCTFail("Chapter selection must not start playback") })
+        defer { player.cancelSleep(); player.currentSong = nil }
+        var item = song(); item.genre = "Audiobook"
+        player.currentSong = item
+        player.currentItemIsSpokenWord = true
+        let original = [MediaChapter(startTime: 0, title: "Original")]
+        player.spokenWordChapters = original
+        let preview = try SpokenChapterImportPreview(songID: item.id,
+            data: Data("00:00 Opening\n10:00 Chapter two\n20:00 Last chapter".utf8), duration: item.duration, previousRevision: nil)
+        XCTAssertEqual(player.spokenWordChapters, original)
+        library.saveGeneratedChapterRecord(try preview.record(replacing: nil))
+        player.currentTime = 100
+        let selected = try XCTUnwrap(player.sleepChapterChoices.first { $0.title == "Chapter two" })
+        XCTAssertTrue(player.scheduleSleep(after: selected))
+        XCTAssertEqual(player.sleepStopAfterSongID, item.id)
+        NotificationCenter.default.post(name: .primuseGeneratedChaptersDidChange, object: nil)
+        XCTAssertNotNil(player.selectedChapterSleep, "An unrelated snapshot refresh must preserve the timer")
+        player.currentTime = 900
+        XCTAssertFalse(player.enforceSelectedChapterSleepIfNeeded())
+        player.currentTime = 1_200
+        XCTAssertTrue(player.enforceSelectedChapterSleepIfNeeded())
+        XCTAssertFalse(player.isSleepTimerActive)
+        XCTAssertFalse(player.isPlaying)
+
+        player.currentTime = 1_300
+        XCTAssertFalse(player.scheduleSleep(after: selected))
+        let last = try XCTUnwrap(player.sleepChapterChoices.last)
+        XCTAssertTrue(player.scheduleSleep(after: last))
+        XCTAssertEqual(player.sleepStopAfterSongID, item.id)
+        player.sleepStopAfterSongID = nil
+        XCTAssertNil(player.selectedChapterSleep)
+
+        player.currentTime = 100
+        XCTAssertTrue(player.scheduleSleep(after: selected))
+        var record = try XCTUnwrap(library.generatedChapterRecord(id: item.id))
+        record.isEnabled = false; record.revision = UUID().uuidString; record.updatedAt = Date().addingTimeInterval(1)
+        library.saveGeneratedChapterRecord(record)
+        player.enforceSelectedChapterSleepIfNeeded()
+        XCTAssertFalse(player.isSleepTimerActive)
+        XCTAssertEqual(player.spokenWordChapters, original)
+    }
+
+    func testSelectedSleepFollowsFutureBookFileAndCancelsWhenLeaving() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let library = MusicLibrary(storageDirectory: url)
+        var one = song("one"); one.genre = "Audiobook"; one.albumTitle = "Book"; one.trackNumber = 1
+        var two = song("two"); two.genre = "Audiobook"; two.albumTitle = "Book"; two.trackNumber = 2
+        library.addSongs([one, two])
+        await library.waitForPendingIndex()
+        let player = AudioPlayerService(library: library,
+            playbackSessionStore: PlaybackSessionStore(url: url.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Chapter selection must not start playback") })
+        defer { player.cancelSleep(); player.currentSong = nil }
+        player.queueEntries = [one, two].map { QueueEntry(song: $0) }
+        player.currentSong = one
+        player.currentItemIsSpokenWord = true
+        player.currentTime = 10
+        let target = try XCTUnwrap(player.sleepChapterChoices.first { $0.songID == two.id })
+        XCTAssertTrue(player.scheduleSleep(after: target))
+        XCTAssertNil(player.sleepStopAfterSongID)
+        player.currentSong = two
+        XCTAssertEqual(player.sleepStopAfterSongID, two.id)
+        XCTAssertNotNil(player.selectedChapterSleep)
+        player.currentSong = song("unrelated")
+        XCTAssertFalse(player.isSleepTimerActive)
+    }
+
     func testPlaybackUsesGeneratedChaptersAndRestoresOriginals() throws {
         let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
         let suite = "ChapterPlayback-\(UUID().uuidString)"
@@ -340,6 +415,72 @@ final class SpokenChapterGeneratorTests: XCTestCase {
         XCTAssertEqual(player.spokenWordChapters, original)
         XCTAssertEqual(player.currentChapterIndex, 0)
         player.currentSong = nil
+    }
+    #endif
+
+    func testImportedChapterPersistenceAndSnapshotSync() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let library = MusicLibrary(storageDirectory: url)
+        let preview = try SpokenChapterImportPreview(songID: "one", data: Data("00:00 First\n05:00 Second".utf8),
+                                                     duration: 900, previousRevision: nil)
+        let imported = try preview.record(replacing: nil)
+        library.saveGeneratedChapterRecord(imported)
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+        let reopened = MusicLibrary(storageDirectory: url)
+        XCTAssertEqual(reopened.generatedChapterRecord(id: "one")?.origin, .imported)
+        XCTAssertEqual(reopened.generatedChapterRecord(id: "one")?.revision, imported.revision)
+        XCTAssertEqual(reopened.generatedChapters(for: "one"), imported.chapters)
+        struct Snapshot: Encodable { var songs: [Song] = []; var playlists: [Playlist] = []; var generatedChapters: [SpokenChapterRecord] }
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let merged = try MusicLibrary.mergingSnapshotUserState(localData: encoder.encode(Snapshot(generatedChapters: [])),
+            incomingData: encoder.encode(Snapshot(generatedChapters: [imported])), locallyRetainedSongIDs: [])
+        try merged.write(to: url.appendingPathComponent("library-cache.json"))
+        let synced = MusicLibrary(storageDirectory: url)
+        XCTAssertEqual(synced.generatedChapterRecord(id: "one")?.origin, .imported)
+        XCTAssertEqual(synced.generatedChapters(for: "one")?.map(\.title), ["First", "Second"])
+    }
+
+    #if os(tvOS)
+    func testTVImportedChapterSleepStopsAndCancelsAfterEdits() async throws {
+        let url = try directory(); defer { try? FileManager.default.removeItem(at: url) }
+        let suite = "TVChapterSleep-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sources = SourcesStore(storageDirectoryURL: url)
+        let source = MusicSource(id: "test", name: "Books", type: .local)
+        try sources.addDurably(source)
+        let library = MusicLibrary(storageDirectory: url)
+        var item = song(); item.genre = "Audiobook"
+        library.addSongs([item])
+        await library.waitForPendingIndex()
+        let preview = try SpokenChapterImportPreview(songID: item.id, data: Data("00:00 First\n05:00 Last".utf8),
+                                                     duration: item.duration, previousRevision: nil)
+        library.saveGeneratedChapterRecord(try preview.record(replacing: nil))
+        let session = PlaybackSessionStore(url: url.appendingPathComponent("session.json"))
+        try session.save(.init(queueSongIDs: [item.id], currentSongID: item.id, currentIndex: 0,
+                               currentTime: 10, duration: item.duration, wasPlaying: false, shuffleEnabled: false,
+                               shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false))
+        let store = TVStore(sourcesStore: sources, library: library, defaults: defaults, sessionStore: session)
+        await store.prepareLocalLibrary()
+        defer { store.cancelSleepTimer(); store.engine.stop() }
+        let first = try XCTUnwrap(store.sleepChapterChoices.first)
+        XCTAssertTrue(store.scheduleSleep(after: first))
+        store.engine.prepareForSelection(startAt: 299)
+        XCTAssertFalse(store.enforceSelectedChapterSleepIfNeeded())
+        store.engine.prepareForSelection(startAt: 300)
+        XCTAssertTrue(store.enforceSelectedChapterSleepIfNeeded())
+        XCTAssertFalse(store.isSleepTimerActive)
+        store.engine.prepareForSelection(startAt: 10)
+        let last = try XCTUnwrap(store.sleepChapterChoices.last)
+        XCTAssertTrue(store.scheduleSleep(after: last))
+        XCTAssertTrue(store.shouldStopForSleep(afterEnding: item.id))
+        XCTAssertFalse(store.isSleepTimerActive)
+        XCTAssertTrue(store.scheduleSleep(after: first))
+        var record = try XCTUnwrap(library.generatedChapterRecord(id: item.id))
+        record.isEnabled = false; record.updatedAt = Date().addingTimeInterval(1); record.revision = UUID().uuidString
+        library.saveGeneratedChapterRecord(record)
+        XCTAssertFalse(store.shouldStopForSleep(afterEnding: item.id))
+        XCTAssertFalse(store.isSleepTimerActive)
     }
     #endif
 
@@ -380,6 +521,12 @@ final class SpokenChapterGeneratorTests: XCTestCase {
             host.view.layoutSubtreeIfNeeded()
             XCTAssertTrue(window.isVisible)
             XCTAssertGreaterThan(host.view.bounds.width, 400)
+            let bitmap = try XCTUnwrap(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
+            host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
+            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("chapters-\(state).png")
+            try data.write(to: file)
+            print("CHAPTER_SCREEN=\(file.path)")
             #else
             host.view.layoutIfNeeded()
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in

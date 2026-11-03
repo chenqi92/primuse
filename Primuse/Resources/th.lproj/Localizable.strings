@@ -7073,3 +7073,16 @@
 "listening_scene_studying_prompt" = "ดนตรีบรรเลงสงบสำหรับอ่านหนังสือ เสียงร้องน้อย ไม่เปลี่ยนอารมณ์ฉับพลัน ช่วยให้มีสมาธิ";
 
 "library_show_row_numbers" = "แสดงหมายเลขในคลัง";
+
+"spoken_chapters_manage" = "บท";
+"chapter_import_file" = "นำเข้าไฟล์บท…";
+"chapter_import_use" = "ใช้บทที่นำเข้า";
+"chapter_import_formats" = "สำหรับเสียงนี้: UTF-8 TXT (เวลา MM:SS หรือ HH:MM:SS และชื่อในแต่ละบรรทัด) หรือ Podcast Chapters JSON (startTime เป็นวินาที)";
+"chapter_import_replace" = "แทนที่บทที่บันทึกไว้หรือไม่?";
+"chapter_import_read_failed" = "ไม่สามารถอ่านไฟล์บทได้";
+"chapter_import_too_large" = "ไฟล์ต้องไม่เกิน 2 MB และ 10,000 บท";
+"chapter_import_invalid_timeline" = "เวลาของบทต้องเพิ่มขึ้นโดยไม่ซ้ำหรือทับซ้อน และอยู่ภายในความยาวเสียง";
+"chapter_import_invalid_format" = "ไม่พบบทที่ถูกต้อง ตรวจสอบรูปแบบ TXT หรือ JSON ด้านล่าง";
+"chapter_import_changed" = "บทมีการเปลี่ยนแปลงหลังแสดงตัวอย่าง โปรดนำเข้าไฟล์อีกครั้ง";
+"sleep_choose_chapter" = "เลือกบท…";
+"sleep_after_selected_chapter_format" = "หยุดหลัง “%@”";

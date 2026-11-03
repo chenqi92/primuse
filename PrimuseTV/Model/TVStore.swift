@@ -830,6 +830,7 @@ final class TVStore {
     var nowPlaying: TVNowPlaying = .none {
         didSet {
             guard nowPlaying.songID != oldValue.songID else { return }
+            advanceSelectedChapterSleepIfNeeded()
             playingArtworkRefreshTask?.cancel()
             playingArtworkRefreshTask = nil
             guard let song = library.song(id: nowPlaying.songID) else { return }
@@ -1201,9 +1202,10 @@ final class TVStore {
     private(set) var sleepStopAfterBookID: String?
     /// 「本章结束后停止」锁住的那一条里的那个章节标记。
     private(set) var sleepStopAfterChapter: (songID: String, chapterIndex: Int)?
+    private(set) var selectedChapterSleep: SpokenWordSleepSelection?
     var isSleepTimerActive: Bool {
         sleepTimerMinutes > 0 || sleepStopAfterItemID != nil || sleepStopAfterBookID != nil
-            || sleepStopAfterChapter != nil
+            || sleepStopAfterChapter != nil || selectedChapterSleep != nil
     }
 
     // 有声内容的续播:每一条记住自己听到哪一秒(与 iPhone / Mac 共用 SpokenWordStore)。
@@ -7496,6 +7498,7 @@ final class TVStore {
 
     /// 按分钟定时;0 关闭。与「本集结束 / 整本听完」互斥。
     func setSleepTimer(minutes: Int) {
+        selectedChapterSleep = nil
         sleepWorkItem?.cancel()
         sleepWorkItem = nil
         sleepStopAfterItemID = nil
@@ -7550,7 +7553,59 @@ final class TVStore {
         sleepStopAfterItemID = nowPlaying.songID
     }
 
-    /// 有声内容:播放头所在的章节标记结束就停。最后一章就是这一条的结尾,交给「本集结束」。
+    private var sleepChapterItemIDs: [String] {
+        guard currentItemIsSpokenWord, hasNowPlaying else { return [] }
+        guard let bookID = currentSpokenWordBookID else { return [nowPlaying.songID] }
+        let ids = queue.filter { spokenWordBookID(forSongID: $0) == bookID }
+        return ids.contains(nowPlaying.songID) ? ids : [nowPlaying.songID]
+    }
+
+    var sleepChapterChoices: [SpokenWordSleepChapter] {
+        let ids = sleepChapterItemIDs
+        guard let index = ids.firstIndex(of: nowPlaying.songID) else { return [] }
+        return ids[index...].flatMap { id -> [SpokenWordSleepChapter] in
+            let title = id == nowPlaying.songID ? nowPlaying.title : library.song(id: id)?.title ?? ""
+            let chapters = id == nowPlaying.songID ? spokenWordChapters : library.generatedChapters(for: id) ?? []
+            return SpokenWordSleepChapter.choices(songID: id, title: title, chapters: chapters)
+        }
+    }
+
+    func canScheduleSleep(after chapter: SpokenWordSleepChapter) -> Bool {
+        guard currentItemIsSpokenWord, hasNowPlaying else { return false }
+        return chapter.songID != nowPlaying.songID || chapter.endTime.map { $0 > currentTime } ?? true
+    }
+
+    @discardableResult
+    func scheduleSleep(after chapter: SpokenWordSleepChapter) -> Bool {
+        guard sleepChapterChoices.contains(chapter),
+              let selection = SpokenWordSleepSelection(chapter: chapter, orderedSongIDs: sleepChapterItemIDs,
+                  currentSongID: nowPlaying.songID, position: currentTime,
+                  chapterRevision: library.generatedChapterRecord(id: chapter.songID)?.revision) else { return false }
+        cancelSleepTimer()
+        selectedChapterSleep = selection
+        return true
+    }
+
+    private func advanceSelectedChapterSleepIfNeeded() {
+        guard var selection = selectedChapterSleep else { return }
+        guard selection.follow(songID: nowPlaying.songID) else { cancelSleepTimer(); return }
+        selectedChapterSleep = selection
+    }
+
+    @discardableResult
+    func enforceSelectedChapterSleepIfNeeded() -> Bool {
+        guard let selection = selectedChapterSleep else { return false }
+        guard library.generatedChapterRecord(id: selection.chapter.songID)?.revision == selection.chapterRevision else {
+            cancelSleepTimer()
+            return false
+        }
+        guard selection.shouldStop(songID: nowPlaying.songID, position: currentTime) else { return false }
+        cancelSleepTimer()
+        pausePlayback()
+        return true
+    }
+
+    /// The final chapter uses the natural item end, including when its duration is unknown.
     func scheduleSleepAtSpokenWordChapterEnd() {
         guard currentItemIsSpokenWord, hasNowPlaying,
               let index = currentSpokenWordChapterIndex else { return }
@@ -7564,6 +7619,7 @@ final class TVStore {
 
     /// 播放时钟每秒检查一次:锁住的章节播完就暂停;换到别的条目说明用户自己换了,撤锁。
     private func enforceSpokenWordChapterSleepIfNeeded() {
+        if enforceSelectedChapterSleepIfNeeded() { return }
         guard let lock = sleepStopAfterChapter else { return }
         guard hasNowPlaying, nowPlaying.songID == lock.songID else {
             sleepStopAfterChapter = nil
@@ -7586,7 +7642,15 @@ final class TVStore {
     }
 
     /// 一条自然播完时是否该停:锁住的就是这一条,或者锁住的书在队列里已经没有下一条。
-    private func shouldStopForSleep(afterEnding endedID: String) -> Bool {
+    func shouldStopForSleep(afterEnding endedID: String) -> Bool {
+        if let selection = selectedChapterSleep,
+           library.generatedChapterRecord(id: selection.chapter.songID)?.revision != selection.chapterRevision {
+            cancelSleepTimer()
+        }
+        if selectedChapterSleep?.chapter.songID == endedID {
+            cancelSleepTimer()
+            return true
+        }
         if let itemID = sleepStopAfterItemID {
             sleepStopAfterItemID = nil
             if itemID == endedID { return true }

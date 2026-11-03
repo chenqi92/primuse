@@ -7073,3 +7073,16 @@
 "listening_scene_studying_prompt" = "Música instrumental calma para estudar, com poucas vozes e sem mudanças bruscas, para manter a concentração.";
 
 "library_show_row_numbers" = "Mostrar números na biblioteca";
+
+"spoken_chapters_manage" = "Capítulos";
+"chapter_import_file" = "Importar arquivo de capítulos…";
+"chapter_import_use" = "Usar capítulos importados";
+"chapter_import_formats" = "Para este áudio: TXT UTF-8 (MM:SS ou HH:MM:SS e título por linha) ou Podcast Chapters JSON (startTime em segundos).";
+"chapter_import_replace" = "Substituir os capítulos salvos?";
+"chapter_import_read_failed" = "Não foi possível ler o arquivo de capítulos.";
+"chapter_import_too_large" = "Máximo de 2 MB e 10.000 capítulos por arquivo.";
+"chapter_import_invalid_timeline" = "Os tempos devem aumentar sem duplicatas nem sobreposição e estar dentro da duração do áudio.";
+"chapter_import_invalid_format" = "Nenhum capítulo válido. Confira o formato TXT ou JSON mostrado abaixo.";
+"chapter_import_changed" = "Os capítulos mudaram após a prévia. Importe o arquivo novamente.";
+"sleep_choose_chapter" = "Escolher capítulo…";
+"sleep_after_selected_chapter_format" = "Parar após “%@”";

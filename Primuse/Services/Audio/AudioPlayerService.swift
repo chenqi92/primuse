@@ -620,6 +620,7 @@ final class AudioPlayerService {
                 // queue; keep the music it interrupted.
                 rememberMusicSessionIfLeaving(from: oldValue, to: currentSong)
             advanceBookSleepLockIfNeeded()
+            advanceSelectedChapterSleepIfNeeded()
             }
         }
     }
@@ -1214,15 +1215,20 @@ final class AudioPlayerService {
     /// "曲终停止" 模式: 持有当前歌曲的 id, 一旦切到下一首 (或 currentSong
     /// 变 nil) 立即 pause。比固定分钟数更智能 ── 不会在曲子中间硬切。
     var sleepStopAfterSongID: String? {
-        didSet { if sleepStopAfterSongID != oldValue { synchronizeAppleMusicQueue() } }
+        didSet {
+            if let oldValue, sleepStopAfterSongID == nil,
+               selectedChapterSleep?.chapter.songID == oldValue { selectedChapterSleep = nil }
+            if sleepStopAfterSongID != oldValue { synchronizeAppleMusicQueue() }
+        }
     }
+    var selectedChapterSleep: SpokenWordSleepSelection?
     /// "本章结束后停止": 锁在当前条目的当前章节上, 播放头越过它就暂停。
     var sleepStopAfterChapter: SpokenWordChapterSleepLock?
     /// "本书结束后停止": 锁住这本书在队列里的条目, 播到最后一条时转成曲终停止。
     var sleepStopAfterBook: SpokenWordBookSleepLock?
     var isSleepTimerActive: Bool {
         sleepTimerEndDate != nil || sleepStopAfterSongID != nil || sleepStopAfterChapter != nil
-            || sleepStopAfterBook != nil
+            || sleepStopAfterBook != nil || selectedChapterSleep != nil
     }
 
     // MARK: - Spoken word

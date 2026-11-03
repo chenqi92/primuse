@@ -7073,3 +7073,16 @@
 "listening_scene_studying_prompt" = "Ders çalışmak için sakin enstrümantal müzik, az vokal ve ani değişimler olmadan, odaklanmaya yardımcı olsun.";
 
 "library_show_row_numbers" = "Arşivde sıra numaralarını göster";
+
+"spoken_chapters_manage" = "Bölümler";
+"chapter_import_file" = "Bölüm Dosyası İçe Aktar…";
+"chapter_import_use" = "İçe Aktarılan Bölümleri Kullan";
+"chapter_import_formats" = "Bu ses dosyası için: UTF-8 TXT (satır başına MM:SS veya HH:MM:SS ve başlık) ya da Podcast Chapters JSON (startTime saniye cinsinden).";
+"chapter_import_replace" = "Kayıtlı bölümler değiştirilsin mi?";
+"chapter_import_read_failed" = "Bölüm dosyası okunamadı.";
+"chapter_import_too_large" = "Dosya en fazla 2 MB ve 10.000 bölüm içermelidir.";
+"chapter_import_invalid_timeline" = "Bölüm zamanları artan sırada, tekrarsız, çakışmadan ve ses süresi içinde olmalıdır.";
+"chapter_import_invalid_format" = "Geçerli bölüm bulunamadı. Aşağıdaki TXT veya JSON biçimini kontrol edin.";
+"chapter_import_changed" = "Önizlemeden sonra bölümler değişti. Dosyayı yeniden içe aktarın.";
+"sleep_choose_chapter" = "Bölüm Seç…";
+"sleep_after_selected_chapter_format" = "“%@” sonrasında durdur";

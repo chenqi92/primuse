@@ -4,13 +4,15 @@ import Foundation
 public struct MediaChapter: Equatable, Sendable, Codable, Identifiable {
     /// Start of the chapter on the decoded timeline, in seconds.
     public var startTime: TimeInterval
+    public var endTime: TimeInterval?
     public var title: String
 
     public var id: String { "\(startTime)-\(title)" }
 
-    public init(startTime: TimeInterval, title: String) {
+    public init(startTime: TimeInterval, title: String, endTime: TimeInterval? = nil) {
         self.startTime = startTime
         self.title = title
+        self.endTime = endTime
     }
 }
 

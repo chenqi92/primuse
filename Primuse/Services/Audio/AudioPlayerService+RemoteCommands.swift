@@ -346,6 +346,7 @@ extension AudioPlayerService {
     }
 
     func cancelSleep() {
+        selectedChapterSleep = nil
         sleepTimerTask?.cancel()
         sleepTimerTask = nil
         sleepTimerEndDate = nil

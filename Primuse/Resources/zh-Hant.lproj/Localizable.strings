@@ -7144,3 +7144,16 @@
 "listening_scene_studying_prompt" = "適合學習的舒緩純音樂，少人聲、少突變，不分散注意力。";
 
 "library_show_row_numbers" = "顯示資料庫序號";
+
+"spoken_chapters_manage" = "章節管理";
+"chapter_import_file" = "匯入章節檔案…";
+"chapter_import_use" = "使用匯入的章節";
+"chapter_import_formats" = "用於目前音訊：UTF-8 TXT（每行 MM:SS 或 HH:MM:SS 時間戳記及標題）或 Podcast Chapters JSON（startTime 單位為秒）。";
+"chapter_import_replace" = "取代已儲存的章節？";
+"chapter_import_read_failed" = "無法讀取章節檔案。";
+"chapter_import_too_large" = "請選擇不超過 2 MB、10,000 個章節的檔案。";
+"chapter_import_invalid_timeline" = "章節時間須遞增、無重複或重疊，且不能超出音訊長度。";
+"chapter_import_invalid_format" = "找不到有效章節，請檢查下方所示的 TXT 或 JSON 格式。";
+"chapter_import_changed" = "預覽後章節已變更，請重新匯入檔案。";
+"sleep_choose_chapter" = "選擇章節…";
+"sleep_after_selected_chapter_format" = "播完「%@」後停止";

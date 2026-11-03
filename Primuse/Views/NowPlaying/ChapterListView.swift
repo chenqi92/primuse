@@ -115,7 +115,7 @@ struct SpokenWordContentsView: View {
                 HStack {
                     Spacer()
                     Button { chapterSong = song } label: {
-                        Label("chapter_generation_title", systemImage: "list.bullet.rectangle")
+                        Label("spoken_chapters_manage", systemImage: "list.bullet.rectangle")
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)

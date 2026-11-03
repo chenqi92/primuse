@@ -7073,3 +7073,16 @@
 "listening_scene_studying_prompt" = "Спокойная инструментальная музыка для учёбы, минимум вокала и резких переходов, чтобы сосредоточиться.";
 
 "library_show_row_numbers" = "Показывать номера в медиатеке";
+
+"spoken_chapters_manage" = "Главы";
+"chapter_import_file" = "Импортировать файл глав…";
+"chapter_import_use" = "Использовать импортированные главы";
+"chapter_import_formats" = "Для этого аудиофайла: UTF-8 TXT (MM:SS или HH:MM:SS и название в каждой строке) или Podcast Chapters JSON (startTime в секундах).";
+"chapter_import_replace" = "Заменить сохранённые главы?";
+"chapter_import_read_failed" = "Не удалось прочитать файл глав.";
+"chapter_import_too_large" = "Не более 2 МБ и 10 000 глав в файле.";
+"chapter_import_invalid_timeline" = "Время глав должно возрастать без повторов и пересечений и не превышать длительность аудио.";
+"chapter_import_invalid_format" = "Нет допустимых глав. Проверьте формат TXT или JSON, указанный ниже.";
+"chapter_import_changed" = "Главы изменились после предпросмотра. Импортируйте файл заново.";
+"sleep_choose_chapter" = "Выбрать главу…";
+"sleep_after_selected_chapter_format" = "Остановить после «%@»";

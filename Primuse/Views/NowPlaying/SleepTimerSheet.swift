@@ -4,11 +4,52 @@ import PrimuseKit
 import UIKit
 #endif
 
+private struct SleepChapterPicker: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.dismiss) private var dismiss
+    let selected: SpokenWordSleepChapter?
+    let onSelect: (SpokenWordSleepChapter) -> Void
+
+    var body: some View {
+        List {
+            ForEach(player.sleepChapterChoices) { chapter in
+                Button {
+                    onSelect(chapter)
+                    dismiss()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(chapter.title).foregroundStyle(.primary)
+                            if chapter.songID != player.currentSong?.id,
+                               let song = player.library?.song(id: chapter.songID), song.title != chapter.title {
+                                Text(song.title).font(.caption).foregroundStyle(.secondary)
+                            }
+                            if let end = chapter.endTime {
+                                Text(ChapterTimeFormatter.string(from: end)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if chapter.id == selected?.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!player.canScheduleSleep(after: chapter))
+            }
+        }
+        .navigationTitle(Text("sleep_choose_chapter"))
+    }
+}
+
 /// 睡眠定时现在的状态写成一句话:「将在 23:41 停止」「将在明天 07:00 停止」「当前曲目结束后停止」;
 /// 没开时为 nil。播放页「更多」、迷你条菜单、定时面板共用。
 enum SleepTimerStatusText {
     @MainActor
     static func summary(_ player: AudioPlayerService, now: Date = Date()) -> String? {
+        if let selection = player.selectedChapterSleep {
+            return String(format: String(localized: "sleep_after_selected_chapter_format"), selection.chapter.title)
+        }
         if let end = player.sleepTimerEndDate {
             return stopTime(end, now: now)
         }
@@ -47,6 +88,7 @@ struct SleepTimerSheet: View {
     @AppStorage("primuse.sleepTimer.clockMinuteOfDay") private var clockMinuteOfDay = 23 * 60
     @State private var customMode: CustomMode = .duration
     @State private var selectedEndOption: SleepTimerOption?
+    @State private var selectedChapter: SpokenWordSleepChapter?
     @State private var isEditing = false
 
     private enum CustomMode: Hashable {
@@ -84,6 +126,9 @@ struct SleepTimerSheet: View {
 
     private var canStart: Bool {
         guard customMode == .end else { return true }
+        if let selectedChapter {
+            return player.sleepChapterChoices.contains(selectedChapter) && player.canScheduleSleep(after: selectedChapter)
+        }
         guard let selectedEndOption, endOptions.contains(selectedEndOption) else { return false }
         return !isEndOptionUnavailable(selectedEndOption)
     }
@@ -217,6 +262,9 @@ struct SleepTimerSheet: View {
 
     private func draftSummary(now: Date) -> String {
         if customMode == .end {
+            if let selectedChapter {
+                return String(format: String(localized: "sleep_after_selected_chapter_format"), selectedChapter.title)
+            }
             return selectedEndOption.map(endTitle) ?? ""
         }
         let end = customEndDate(now: now)
@@ -226,6 +274,7 @@ struct SleepTimerSheet: View {
     }
 
     private func selectAvailableEndOption() {
+        if selectedChapter != nil { return }
         if let selectedEndOption, endOptions.contains(selectedEndOption),
            !isEndOptionUnavailable(selectedEndOption) { return }
         selectedEndOption = endOptions.first(where: { player.isSleepOptionArmed($0) })
@@ -235,7 +284,9 @@ struct SleepTimerSheet: View {
 
     private func startTimer() {
         guard canStart else { return }
-        if customMode == .end, let selectedEndOption {
+        if customMode == .end, let selectedChapter {
+            guard player.scheduleSleep(after: selectedChapter) else { return }
+        } else if customMode == .end, let selectedEndOption {
             player.applySleepOption(selectedEndOption)
         } else {
             player.scheduleSleep(until: customEndDate(now: Date()))
@@ -255,6 +306,7 @@ struct SleepTimerSheet: View {
                 customMode = .duration
             }
         } else {
+            selectedChapter = player.selectedChapterSleep?.chapter
             selectedEndOption = endOptions.first(where: { player.isSleepOptionArmed($0) })
             selectAvailableEndOption()
             customMode = endOptions.isEmpty ? .duration : .end
@@ -390,12 +442,35 @@ struct SleepTimerSheet: View {
                 }
                 endRow(option)
             }
+            if !player.sleepChapterChoices.isEmpty {
+                Divider().padding(.leading, 48)
+                NavigationLink {
+                    SleepChapterPicker(selected: selectedChapter) { chapter in
+                        selectedChapter = chapter
+                        selectedEndOption = nil
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "list.number").foregroundStyle(.tint).frame(width: 24)
+                        Text("sleep_choose_chapter").foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        Image(systemName: selectedChapter == nil ? "chevron.right" : "checkmark")
+                            .foregroundStyle(.tint)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 48)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("sleepTimer.chooseChapter")
+            }
         }
     }
 
     private func endRow(_ option: SleepTimerOption) -> some View {
         let isSelected = selectedEndOption == option
         return Button {
+            selectedChapter = nil
             selectedEndOption = option
         } label: {
             HStack(spacing: 12) {

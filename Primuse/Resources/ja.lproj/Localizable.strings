@@ -7168,3 +7168,16 @@
 "listening_scene_studying_prompt" = "勉強に集中できる穏やかなインスト曲。歌声や急な変化の少ない曲を選んでください。";
 
 "library_show_row_numbers" = "ライブラリの番号を表示";
+
+"spoken_chapters_manage" = "チャプター";
+"chapter_import_file" = "チャプターファイルを読み込む…";
+"chapter_import_use" = "読み込んだチャプターを使う";
+"chapter_import_formats" = "現在の音声用：UTF-8 TXT（各行に MM:SS または HH:MM:SS とタイトル）または Podcast Chapters JSON（startTime は秒単位）。";
+"chapter_import_replace" = "保存済みチャプターを置き換えますか？";
+"chapter_import_read_failed" = "チャプターファイルを読み込めませんでした。";
+"chapter_import_too_large" = "2 MB 以下、10,000 チャプター以内のファイルを選択してください。";
+"chapter_import_invalid_timeline" = "時刻は昇順で、重複や重なりがなく、音声の長さ以内である必要があります。";
+"chapter_import_invalid_format" = "有効なチャプターがありません。下記の TXT または JSON 形式を確認してください。";
+"chapter_import_changed" = "プレビュー後にチャプターが変更されました。再度読み込んでください。";
+"sleep_choose_chapter" = "チャプターを選択…";
+"sleep_after_selected_chapter_format" = "「%@」の終了後に停止";

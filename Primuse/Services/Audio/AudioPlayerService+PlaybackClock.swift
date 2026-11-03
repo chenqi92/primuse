@@ -125,6 +125,7 @@ extension AudioPlayerService {
     /// no-ops for music. The engine clock and the video pipeline's time
     /// observer both call this every tick.
     func runSpokenWordClockTick() {
+        if enforceSelectedChapterSleepIfNeeded() { return }
         if currentItemIsSpokenWord {
             applyPendingSpokenWordResumeIfNeeded()
             applyPendingServerSpokenWordResumeIfNeeded()

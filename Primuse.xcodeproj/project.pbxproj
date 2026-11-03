@@ -2229,6 +2229,8 @@
 		315EEC971B61A4EB9E953B58 /* PlayerActivityBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4AA0C3807372EF109BA70C1 /* PlayerActivityBar.swift */; };
 		192AA97558F69D5CB1F5FFB4 /* PlayerActivityBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4AA0C3807372EF109BA70C1 /* PlayerActivityBar.swift */; };
 		55A5DFDC57103139E3989A4A /* PlayerActivityBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4AA0C3807372EF109BA70C1 /* PlayerActivityBar.swift */; };
+		67E16FF7FC130E8FB9AB2879 /* SpokenChapterImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72139A70FD1867D00EF4F545 /* SpokenChapterImport.swift */; };
+		72EF451A542C09975142FF14 /* SpokenWordSleepSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D818B6A9281481020C7E6C /* SpokenWordSleepSelection.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -4094,6 +4096,8 @@
 		D8DEBCBBFCEDFB69C7E7C556 /* WordLyricsDiscoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordLyricsDiscoveryPolicy.swift; sourceTree = "<group>"; };
 		DFF344A281EBECC3E940B431 /* PlaybackWordLyricsDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackWordLyricsDiscovery.swift; sourceTree = "<group>"; };
 		C4AA0C3807372EF109BA70C1 /* PlayerActivityBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerActivityBar.swift; sourceTree = "<group>"; };
+		72139A70FD1867D00EF4F545 /* SpokenChapterImport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpokenChapterImport.swift; sourceTree = "<group>"; };
+		B9D818B6A9281481020C7E6C /* SpokenWordSleepSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpokenWordSleepSelection.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4827,6 +4831,8 @@
 				0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */,
 				AFC99787799DFBA7FE0F2C6D /* SiriRadioStationCatalog.swift */,
 				CBCBFFA902FF777CB0732DC6 /* SiriSongCatalog.swift */,
+				72139A70FD1867D00EF4F545 /* SpokenChapterImport.swift */,
+				B9D818B6A9281481020C7E6C /* SpokenWordSleepSelection.swift */,
 				EA2B308D3B10A325FA1CEF07 /* SleepTimerSchedule.swift */,
 				71FC29F0BEE2515FB72BA35E /* SmartNudgePolicy.swift */,
 				D17991F821D80A04544F35DD /* SmartTransitionPolicy.swift */,
@@ -7467,6 +7473,8 @@
 				B32FC2E13ECA019E4C5E4911 /* SiriMediaSearchResolver.swift in Sources */,
 				9CD3A703DEE9F5A5DAD72E1B /* SiriRadioStationCatalog.swift in Sources */,
 				38ED07F26B4CAF3CB3C2DC9E /* SiriSongCatalog.swift in Sources */,
+				67E16FF7FC130E8FB9AB2879 /* SpokenChapterImport.swift in Sources */,
+				72EF451A542C09975142FF14 /* SpokenWordSleepSelection.swift in Sources */,
 				73BA4565945F514BB2FE8DE2 /* SleepTimerSchedule.swift in Sources */,
 				A6FD805DCC55CC035D0503BB /* SmartNudgePolicy.swift in Sources */,
 				4104522A47C989851CAB4E72 /* SmartPlaylist.swift in Sources */,

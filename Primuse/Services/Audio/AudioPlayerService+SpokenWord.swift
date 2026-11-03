@@ -78,12 +78,18 @@ extension AudioPlayerService {
 
     /// Follows the store when the playing item's kind changes under it.
     func observeSpokenWordClassification() {
-        NotificationCenter.default.addObserver(forName: .primuseGeneratedChaptersDidChange, object: nil, queue: .main) { [weak self] _ in
+        NotificationCenter.default.addObserver(forName: .primuseGeneratedChaptersDidChange, object: nil, queue: .main) { [weak self] notification in
+            let changedID = notification.object as? String
             MainActor.assumeIsolated {
-                self?.sleepStopAfterChapter = nil
-                self?.spokenWordSummaryCache = nil
-                self?.spokenWordPartPositionCache = nil
-                self?.refreshCurrentChapter()
+                guard let self else { return }
+                if changedID == nil || changedID == self.currentSong?.id { self.sleepStopAfterChapter = nil }
+                if let selection = self.selectedChapterSleep,
+                   self.library?.generatedChapterRecord(id: selection.chapter.songID)?.revision != selection.chapterRevision {
+                    self.cancelSleep()
+                }
+                self.spokenWordSummaryCache = nil
+                self.spokenWordPartPositionCache = nil
+                self.refreshCurrentChapter()
             }
         }
         NotificationCenter.default.addObserver(
@@ -1207,6 +1213,62 @@ extension AudioPlayerService {
     }
 
     // MARK: - Sleep at chapter end
+
+    private var sleepChapterItemIDs: [String] {
+        guard let song = currentSong, currentItemIsSpokenWord else { return [] }
+        let ids = currentBookItemIDs
+        return ids.contains(song.id) ? ids : [song.id]
+    }
+
+    var sleepChapterChoices: [SpokenWordSleepChapter] {
+        guard let current = currentSong,
+              let index = sleepChapterItemIDs.firstIndex(of: current.id) else { return [] }
+        return sleepChapterItemIDs[index...].flatMap { id -> [SpokenWordSleepChapter] in
+            guard let song = id == current.id ? current : library?.song(id: id) else { return [] }
+            let chapters = id == current.id ? spokenWordChapters : library?.generatedChapters(for: id) ?? []
+            return SpokenWordSleepChapter.choices(songID: id, title: song.title, chapters: chapters)
+        }
+    }
+
+    func canScheduleSleep(after chapter: SpokenWordSleepChapter) -> Bool {
+        guard let current = currentSong, currentItemIsSpokenWord else { return false }
+        return chapter.songID != current.id || chapter.endTime.map { $0 > currentTime } ?? true
+    }
+
+    @discardableResult
+    func scheduleSleep(after chapter: SpokenWordSleepChapter) -> Bool {
+        guard let current = currentSong, sleepChapterChoices.contains(chapter),
+              let selection = SpokenWordSleepSelection(chapter: chapter, orderedSongIDs: sleepChapterItemIDs,
+                  currentSongID: current.id, position: currentTime,
+                  chapterRevision: library?.generatedChapterRecord(id: chapter.songID)?.revision) else { return false }
+        cancelSleep()
+        selectedChapterSleep = selection
+        advanceSelectedChapterSleepIfNeeded()
+        return true
+    }
+
+    func advanceSelectedChapterSleepIfNeeded() {
+        guard var selection = selectedChapterSleep else { return }
+        guard selection.follow(songID: currentSong?.id) else { cancelSleep(); return }
+        selectedChapterSleep = selection
+        if currentSong?.id == selection.chapter.songID {
+            // Natural EOS remains a fallback if no clock tick crosses the boundary.
+            sleepStopAfterSongID = selection.chapter.songID
+        }
+    }
+
+    @discardableResult
+    func enforceSelectedChapterSleepIfNeeded() -> Bool {
+        guard let selection = selectedChapterSleep else { return false }
+        guard library?.generatedChapterRecord(id: selection.chapter.songID)?.revision == selection.chapterRevision else {
+            cancelSleep()
+            return false
+        }
+        guard let song = currentSong, selection.shouldStop(songID: song.id, position: currentTime) else { return false }
+        cancelSleep()
+        pause()
+        return true
+    }
 
     /// Arms "stop at the end of this chapter" on the chapter under the play
     /// head. Replaces any other sleep timer.

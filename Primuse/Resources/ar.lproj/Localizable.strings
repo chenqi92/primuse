@@ -7073,3 +7073,16 @@
 "listening_scene_studying_prompt" = "موسيقى هادئة بلا كلمات للدراسة، بقليل من الغناء والتغيّرات المفاجئة، للمساعدة على التركيز.";
 
 "library_show_row_numbers" = "إظهار أرقام الصفوف في المكتبة";
+
+"spoken_chapters_manage" = "الفصول";
+"chapter_import_file" = "استيراد ملف الفصول…";
+"chapter_import_use" = "استخدام الفصول المستوردة";
+"chapter_import_formats" = "لهذا الملف الصوتي: UTF-8 TXT (توقيت MM:SS أو HH:MM:SS وعنوان في كل سطر) أو Podcast Chapters JSON (startTime بالثواني).";
+"chapter_import_replace" = "استبدال الفصول المحفوظة؟";
+"chapter_import_read_failed" = "تعذرت قراءة ملف الفصول.";
+"chapter_import_too_large" = "الحد الأقصى للملف 2 MB و10,000 فصل.";
+"chapter_import_invalid_timeline" = "يجب أن تكون أوقات الفصول متزايدة دون تكرار أو تداخل وضمن مدة الصوت.";
+"chapter_import_invalid_format" = "لم يُعثر على فصول صالحة. تحقق من تنسيق TXT أو JSON الموضح أدناه.";
+"chapter_import_changed" = "تغيرت الفصول بعد المعاينة. استورد الملف مرة أخرى.";
+"sleep_choose_chapter" = "اختيار فصل…";
+"sleep_after_selected_chapter_format" = "الإيقاف بعد «%@»";

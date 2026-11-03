@@ -71,6 +71,9 @@ enum TVSpokenWordText {
     }
 
     static func sleepLabel(_ store: TVStore) -> String {
+        if let selection = store.selectedChapterSleep {
+            return String(format: String(localized: "sleep_after_selected_chapter_format"), selection.chapter.title)
+        }
         if store.sleepStopAfterChapter != nil { return String(localized: "spoken_word_sleep_chapter_short") }
         if store.sleepStopAfterItemID != nil { return String(localized: "spoken_word_sleep_item_short") }
         if store.sleepStopAfterBookID != nil { return String(localized: "spoken_word_sleep_book_short") }
@@ -203,7 +206,7 @@ struct TVSpokenWordContentsColumn: View {
             .focusSection()
 
             if let song = store.chapterGenerationSong {
-                Button { chapterSong = song } label: { Label("chapter_generation_title", systemImage: "list.bullet.rectangle") }
+                Button { chapterSong = song } label: { Label("spoken_chapters_manage", systemImage: "list.bullet.rectangle") }
             }
             switch tab {
             case .contents:
@@ -536,6 +539,7 @@ struct TVSpokenWordRatePicker: View {
 struct TVSpokenWordSleepPicker: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var choosingChapter = false
 
     var body: some View {
         TVSpokenWordChoicePanel(title: String(localized: "sleep_timer")) {
@@ -557,6 +561,12 @@ struct TVSpokenWordSleepPicker: View {
                     dismiss()
                 }
             }
+            if !store.sleepChapterChoices.isEmpty {
+                TVSpokenWordChoiceRow(title: String(localized: "sleep_choose_chapter"),
+                                     isSelected: store.selectedChapterSleep != nil) {
+                    choosingChapter = true
+                }
+            }
             TVSpokenWordChoiceRow(
                 title: String(localized: "sleep_at_item_end"),
                 isSelected: store.sleepStopAfterItemID != nil
@@ -575,6 +585,20 @@ struct TVSpokenWordSleepPicker: View {
                 TVSpokenWordChoiceRow(title: String(localized: "cancel_timer")) {
                     store.cancelSleepTimer()
                     dismiss()
+                }
+            }
+        }
+        .sheet(isPresented: $choosingChapter) {
+            TVSpokenWordChoicePanel(title: String(localized: "sleep_choose_chapter")) {
+                ForEach(store.sleepChapterChoices) { chapter in
+                    TVSpokenWordChoiceRow(title: chapter.title,
+                                         isSelected: store.selectedChapterSleep?.chapter.id == chapter.id) {
+                        if store.scheduleSleep(after: chapter) {
+                            choosingChapter = false
+                            dismiss()
+                        }
+                    }
+                    .disabled(!store.canScheduleSleep(after: chapter))
                 }
             }
         }
