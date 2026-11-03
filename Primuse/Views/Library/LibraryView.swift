@@ -432,10 +432,10 @@ private enum LibraryArtworkPreviewBuilder {
         hasArtworkHint: (Item) -> Bool
     ) -> [Item] {
         let selectedIDs = LibraryArtworkPreviewSelectionPolicy.selectedIDs(
-            from: items.map {
+            from: items.map { item in
                 LibraryArtworkPreviewCandidate(
-                    id: id($0),
-                    hasArtworkHint: autoreleasepool { hasArtworkHint($0) }
+                    id: id(item),
+                    hasArtworkHint: autoreleasepool { hasArtworkHint(item) }
                 )
             },
             maximumCount: maximumCount,

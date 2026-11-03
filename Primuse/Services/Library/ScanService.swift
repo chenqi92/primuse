@@ -4422,9 +4422,10 @@ final class ScanService {
                     // validation. Publish it as merge-only observation; only
                     // the terminal staged snapshot may reconcile hierarchy or
                     // remove rows.
-                    if !stagedPageSongs.isEmpty {
+                    let changedPageSongs = stagedPageSongs.filter { !library.matchesStoredSong($0) }
+                    if !changedPageSongs.isEmpty {
                         library.addSongs(
-                            stagedPageSongs,
+                            changedPageSongs,
                             affectedSourceIDs: Set([source.id]),
                             notifyRemovals: false,
                             pruneMissingSongs: false,

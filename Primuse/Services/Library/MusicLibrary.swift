@@ -5470,53 +5470,55 @@ final class MusicLibrary {
         var spokenWordGenreVerdicts: [String: ListeningContentKind] = [:]
         var releaseMetadataIndex = AlbumReleaseMetadataIndex()
         for (index, song) in songs.enumerated() {
-            indexByID[song.id] = index
-            releaseMetadataIndex.include(song)
-            let isCollectionOnly = collectionOnlyCandidates.contains(song.id)
-            let kind: ListeningContentKind
-            if isCollectionOnly {
-                kind = .music
-                collectionOnlySongIDs.insert(song.id)
-            } else {
-                kind = spokenWordClassification.kind(
-                    songID: song.id,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    genre: song.genre,
-                    serverLibraryID: song.serverLibraryID,
-                    genreVerdicts: &spokenWordGenreVerdicts
-                )
-            }
-            let isSpokenWord = kind.isSpokenWordListening
-            if isSpokenWord { spokenWordSongIDs.insert(song.id) }
-            if kind == .podcast { podcastSongIDs.insert(song.id) }
-            let artistFields = ArtistResolutionFields(song)
-            let artistIDs: [String]
-            if let memoized = artistIDsByFields[artistFields] {
-                artistIDs = memoized
-            } else {
-                artistIDs = resolvedArtistIDs(
-                    for: song,
-                    configuration: artistNameConfiguration
-                )
-                artistIDsByFields[artistFields] = artistIDs
-            }
-            if !isSpokenWord, !isCollectionOnly, musicArtistFields.insert(artistFields).inserted {
-                musicArtistIDs.formUnion(artistIDs)
-            }
-            for artistID in artistIDs {
-                songIDsByArtistID[artistID, default: []].append(song.id)
-                if let current = preferredArtworkPositionByArtistID[artistID] {
-                    if artworkFallbackPrecedes(song, songs[current]) {
+            autoreleasepool {
+                indexByID[song.id] = index
+                releaseMetadataIndex.include(song)
+                let isCollectionOnly = collectionOnlyCandidates.contains(song.id)
+                let kind: ListeningContentKind
+                if isCollectionOnly {
+                    kind = .music
+                    collectionOnlySongIDs.insert(song.id)
+                } else {
+                    kind = spokenWordClassification.kind(
+                        songID: song.id,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        genre: song.genre,
+                        serverLibraryID: song.serverLibraryID,
+                        genreVerdicts: &spokenWordGenreVerdicts
+                    )
+                }
+                let isSpokenWord = kind.isSpokenWordListening
+                if isSpokenWord { spokenWordSongIDs.insert(song.id) }
+                if kind == .podcast { podcastSongIDs.insert(song.id) }
+                let artistFields = ArtistResolutionFields(song)
+                let artistIDs: [String]
+                if let memoized = artistIDsByFields[artistFields] {
+                    artistIDs = memoized
+                } else {
+                    artistIDs = resolvedArtistIDs(
+                        for: song,
+                        configuration: artistNameConfiguration
+                    )
+                    artistIDsByFields[artistFields] = artistIDs
+                }
+                if !isSpokenWord, !isCollectionOnly, musicArtistFields.insert(artistFields).inserted {
+                    musicArtistIDs.formUnion(artistIDs)
+                }
+                for artistID in artistIDs {
+                    songIDsByArtistID[artistID, default: []].append(song.id)
+                    if let current = preferredArtworkPositionByArtistID[artistID] {
+                        if artworkFallbackPrecedes(song, songs[current]) {
+                            preferredArtworkPositionByArtistID[artistID] = index
+                        }
+                    } else {
                         preferredArtworkPositionByArtistID[artistID] = index
                     }
-                } else {
-                    preferredArtworkPositionByArtistID[artistID] = index
                 }
+                positionsBySourceID[song.sourceID, default: []].append(index)
+                countBySourceID[song.sourceID, default: 0] += 1
+                if !song.isPlayable { unplayableSourceIDs.insert(song.sourceID) }
             }
-            positionsBySourceID[song.sourceID, default: []].append(index)
-            countBySourceID[song.sourceID, default: 0] += 1
-            if !song.isPlayable { unplayableSourceIDs.insert(song.sourceID) }
         }
         return (
             indexByID,
@@ -13562,11 +13564,13 @@ final class MusicLibrary {
                     configuration: request.artistNameConfiguration
                 )
                 if !Task.isCancelled,
-                   let result = MusicLibrary.computeAlbumsAndArtistsCancellable(
-                    songs: request.songs,
-                    configuration: request.artistNameConfiguration,
-                    folders: request.albumArtistFolders
-                   ), !Task.isCancelled {
+                   let result = autoreleasepool(invoking: {
+                       MusicLibrary.computeAlbumsAndArtistsCancellable(
+                           songs: request.songs,
+                           configuration: request.artistNameConfiguration,
+                           folders: request.albumArtistFolders
+                       )
+                   }), !Task.isCancelled {
                     // 可见缓存要看的是纠正后的 albumID, 否则刚合并的那几首会
                     // 在下一次整库重建之前一直挂在旧专辑上。
                     var correctedSongs = request.songs
@@ -13577,15 +13581,17 @@ final class MusicLibrary {
                             correctedSongs[index].albumID = albumID
                         }
                     }
-                    let visibleCache = MusicLibrary.prepareVisibleCache(
-                        songs: correctedSongs,
-                        albums: result.albums,
-                        artists: result.artists,
-                        artistNameConfiguration: request.artistNameConfiguration,
-                        disabledSourceIDs: request.disabledSourceIDs,
-                        spokenWordClassification: request.spokenWordClassification,
-                        previousVisibleSongs: request.previousVisibleSongs
-                    )
+                    let visibleCache = autoreleasepool {
+                        MusicLibrary.prepareVisibleCache(
+                            songs: correctedSongs,
+                            albums: result.albums,
+                            artists: result.artists,
+                            artistNameConfiguration: request.artistNameConfiguration,
+                            disabledSourceIDs: request.disabledSourceIDs,
+                            spokenWordClassification: request.spokenWordClassification,
+                            previousVisibleSongs: request.previousVisibleSongs
+                        )
+                    }
                     if !Task.isCancelled {
                         computation = DerivedIndexComputation(
                             signature: signature,
@@ -16885,10 +16891,12 @@ final class MusicLibrary {
         folders: AlbumArtistFolderIndex,
         configuration: ArtistNameConfiguration = .defaultValue
     ) -> [String: String] {
-        AlbumArtistInferencePolicy.inferredAlbumArtists(
-            for: songs.map { albumArtistInferenceTrack($0, folders: folders) },
-            configuration: configuration
-        )
+        autoreleasepool {
+            AlbumArtistInferencePolicy.inferredAlbumArtists(
+                for: songs.map { albumArtistInferenceTrack($0, folders: folders) },
+                configuration: configuration
+            )
+        }
     }
 
     /// Candidates being inserted/replaced, judged against the library rows they
@@ -17086,7 +17094,9 @@ final class MusicLibrary {
                 sourceID: first.sourceID
             ))
         }
-        albums.sort { $0.title.localizedCompare($1.title) == .orderedAscending }
+        albums.sort { lhs, rhs in
+            autoreleasepool { lhs.title.localizedCompare(rhs.title) == .orderedAscending }
+        }
         guard !cancellationCheck() else { return nil }
 
         // Artists ── every contributor participates while album grouping stays
@@ -17163,7 +17173,9 @@ final class MusicLibrary {
             ))
         }
         artistEntries = []
-        artists.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
+        artists.sort { lhs, rhs in
+            autoreleasepool { lhs.name.localizedCompare(rhs.name) == .orderedAscending }
+        }
         guard !cancellationCheck() else { return nil }
 
         // 逐首入库时只看得见自己那一行, albumID 可能停在未合并的旧值。整库

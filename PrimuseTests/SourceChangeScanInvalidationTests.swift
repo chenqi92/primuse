@@ -381,6 +381,21 @@ final class ServerCatalogDeletionScanTests: XCTestCase {
         }
     }
 
+    func testUnchangedPagedRescanDoesNotInvalidateSearchOrRepublishSongs() async throws {
+        let fixture = try makeFixture(songCount: 1_200)
+        try await fixture.scanOnce()
+        let searchRevision = fixture.library.searchRevision
+        let collectionRevision = fixture.library.visibleSongCollectionRevision
+        let songs = fixture.library.songs
+
+        try await fixture.scanOnce()
+
+        XCTAssertEqual(fixture.library.songs, songs)
+        XCTAssertEqual(fixture.library.searchRevision, searchRevision)
+        XCTAssertEqual(fixture.library.visibleSongCollectionRevision, collectionRevision)
+        XCTAssertEqual(fixture.store.source(id: fixture.source.id)?.songCount, 1_200)
+    }
+
     private static func songID(_ index: Int) -> String {
         String(format: "song-%03d", index)
     }
