@@ -25,6 +25,61 @@ import Testing
     #expect(ArtistNameParser.names(rawName: "AC/DC/周杰伦") == ["AC/DC", "周杰伦"])
 }
 
+@Test func configuredSeparatorsMatchWidthVariants() {
+    let configuration = ArtistNameConfiguration(
+        separators: [";", "；", "/", ",", "&"],
+        protectedNames: [],
+        displaySeparator: " / "
+    )
+    #expect(ArtistNameParser.names(rawName: "蒋志光，罗大佑", configuration: configuration)
+        == ["蒋志光", "罗大佑"])
+    #expect(ArtistNameParser.names(rawName: "Artist＆Guest", configuration: configuration)
+        == ["Artist", "Guest"])
+    #expect(ArtistNameParser.names(rawName: "Ａ／Ｂ", configuration: configuration) == ["Ａ", "Ｂ"])
+    #expect(ArtistNameParser.displayName(rawName: "Artist＆Guest，Third", configuration: configuration)
+        == "Artist / Guest / Third")
+}
+
+@Test func fullWidthConfiguredSeparatorsAlsoMatchHalfWidthText() {
+    let configuration = ArtistNameConfiguration(
+        separators: ["＆", "，"], protectedNames: [], displaySeparator: " / "
+    )
+    #expect(ArtistNameParser.names(rawName: "Artist&Guest,Third", configuration: configuration)
+        == ["Artist", "Guest", "Third"])
+}
+
+@Test func separatorWidthVariantsUseTheSameMatchingRules() {
+    for (halfWidth, fullWidth) in [(";", "；"), ("/", "／"), (",", "，"), ("&", "＆"), ("､", "、")] {
+        for (rule, input) in [(halfWidth, fullWidth), (fullWidth, halfWidth)] {
+            let configuration = ArtistNameConfiguration(
+                separators: [rule], protectedNames: [], displaySeparator: " / "
+            )
+            #expect(ArtistNameParser.names(rawName: "One\(input)Two", configuration: configuration)
+                == ["One", "Two"])
+        }
+    }
+}
+
+@Test func widthMatchingHonorsProtectedNamesAndUnconfiguredSymbols() {
+    let configuration = ArtistNameConfiguration(
+        separators: ["&", ","], protectedNames: ["接个吻，开一枪"], displaySeparator: " / "
+    )
+    #expect(ArtistNameParser.names(rawName: "接个吻,开一枪＆Guest", configuration: configuration)
+        == ["接个吻,开一枪", "Guest"])
+    #expect(ArtistNameParser.names(rawName: "Artist、Guest", configuration: configuration)
+        == ["Artist、Guest"])
+    #expect(ArtistNameParser.names(rawName: "Artist/Guest", configuration: configuration)
+        == ["Artist/Guest"])
+}
+
+@Test func separatorWidthMatchingInvalidatesPreviouslyDerivedIndexes() {
+    let configuration = ArtistNameConfiguration(
+        separators: ["&", ","], protectedNames: [], displaySeparator: " / "
+    )
+    let previousSignature = "1:1|3: / |1:&|1:,|1:\u{1F}"
+    #expect(configuration.cacheSignature != previousSignature)
+}
+
 @Test func preservesAuthoritativeNativeArtistBoundaries() {
     let configuration = ArtistNameConfiguration(
         separators: ["/", "&", ";"],

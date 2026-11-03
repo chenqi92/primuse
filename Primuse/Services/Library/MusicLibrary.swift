@@ -16380,7 +16380,7 @@ final class MusicLibrary {
                 guard !separator.isEmpty else { return false }
                 return candidate.range(
                     of: separator,
-                    options: [.caseInsensitive, .diacriticInsensitive],
+                    options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
                     locale: Locale(identifier: "en_US_POSIX")
                 ) != nil
             }

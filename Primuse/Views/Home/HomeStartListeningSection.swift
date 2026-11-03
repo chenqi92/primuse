@@ -148,14 +148,6 @@ struct StartListeningShelf: View {
             sectionTitle
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            Button {
-                sceneEditor = ListeningSceneEditorRequest()
-            } label: {
-                Image(systemName: "plus")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("listening_scene_new")
-            .accessibilityIdentifier("home.startListening.createScene")
             Button(action: openAll) {
                 viewAllLabel
             }

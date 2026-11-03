@@ -118,13 +118,15 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
     /// after an artist parsing rule changes.
     public var cacheSignature: String {
         let value = normalized()
-        let legacy = ([String(value.schemaVersion), value.displaySeparator]
+        let rules = ([String(value.schemaVersion), value.displaySeparator]
             + value.separators
             + ["\u{1F}"]
             + value.protectedNames)
             .map { "\($0.utf8.count):\($0)" }
             .joined(separator: "|")
-        return value.mergesCollaborativeAlbums ? legacy + "|mergeCollaborativeAlbums:1" : legacy
+        // Matching semantics are part of the cache key even when saved rules have not changed.
+        let signature = rules + "|separatorWidth:1"
+        return value.mergesCollaborativeAlbums ? signature + "|mergeCollaborativeAlbums:1" : signature
     }
 
     private static func normalizedList(
@@ -244,7 +246,7 @@ public enum ArtistNameParser {
                 in: candidate,
                 at: index,
                 candidates: separators,
-                widthInsensitive: false
+                widthInsensitive: true
             ) {
                 appendDistinct(current, to: &result)
                 current.removeAll(keepingCapacity: true)
@@ -324,7 +326,7 @@ public enum ArtistNameParser {
         separators.contains { separator in
             value.range(
                 of: separator,
-                options: [.caseInsensitive, .diacriticInsensitive],
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
                 locale: ArtistNameConfiguration.comparisonLocale
             ) != nil
         }

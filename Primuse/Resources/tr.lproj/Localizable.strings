@@ -3360,7 +3360,7 @@
 "home_todays_pick_title" = "Bugünün Seçimi";
 "scrape_preview" = "Üst veri sonuçları";
 "song_info" = "Şarkı Bilgisi";
-"artist_name_settings_separators_footer" = "Ayırıcılar tam anlamıyla eşleştirilir. Her iki genişlikteki noktalı virgüller, eğik çizgi ve ideografik virgül (、) varsayılan olarak etkindir.";
+"artist_name_settings_separators_footer" = "Yarım ve tam genişlikli ayırıcılar aynı şekilde eşleştirilir. Noktalı virgüller, eğik çizgiler ve ideografik virgül (、) varsayılan olarak etkindir.";
 "last_played_label" = "Son Oynanan";
 "lyrics_editor_shift_clamped" = "Zaten başlangıçta — daha fazla kaydırmak ilk satırı sıfırın önüne taşır.";
 "yearly_month_6" = "Haziran";

@@ -790,6 +790,56 @@ final class ArtistNameLibraryTests: XCTestCase {
         XCTAssertEqual(Set(result.artists.map(\.name)), ["AC/DC", "Simon & Garfunkel"])
     }
 
+    @MainActor
+    func testAddingSeparatorsRefreshesWideArtistNamesAndSurvivesReload() async throws {
+        let suite = "ArtistSeparatorRefresh-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let settings = ArtistNameSettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let library = MusicLibrary(storageDirectory: directory,
+                                   artistNameConfiguration: settings.configuration)
+        let songs = [
+            makeSong(id: "comma", artistName: "蒋志光，罗大佑", albumArtistName: "香港群星"),
+            makeSong(id: "ampersand", artistName: "Artist＆Guest", albumArtistName: "Album & Artist")
+        ]
+        library.addSongs(songs, affectedSourceIDs: ["source"])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(Set(library.visibleArtists.map(\.name)), ["蒋志光，罗大佑", "Artist＆Guest"])
+        XCTAssertEqual(library.artistDisplayName(for: songs[0]), "蒋志光，罗大佑")
+
+        XCTAssertTrue(settings.addSeparator(","))
+        XCTAssertTrue(settings.addSeparator("&"))
+        for _ in 0..<200 where library.artistNameConfiguration != settings.configuration {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.artistNameConfiguration, settings.configuration)
+        await library.waitForPendingIndex()
+        let expectedNames: Set<String> = ["蒋志光", "罗大佑", "Artist", "Guest"]
+        XCTAssertEqual(Set(library.visibleArtists.map(\.name)), expectedNames)
+        XCTAssertEqual(library.artistDisplayName(for: songs[0]), "蒋志光 / 罗大佑")
+        XCTAssertEqual(library.artistDisplayName(for: songs[1]), "Artist / Guest")
+        XCTAssertEqual(library.songs(forArtist: MusicLibrary.hashID("罗大佑")).map(\.id), ["comma"])
+        XCTAssertEqual(library.songs(forArtist: MusicLibrary.hashID("guest")).map(\.id), ["ampersand"])
+        for song in songs {
+            let stored = try XCTUnwrap(library.songs.first { $0.id == song.id })
+            XCTAssertEqual(stored.artistName, song.artistName)
+            XCTAssertEqual(stored.albumArtistName, song.albumArtistName)
+        }
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The updated artist index did not finish persistence")
+        }
+        let restored = MusicLibrary(storageDirectory: directory,
+                                    artistNameConfiguration: ArtistNameConfiguration.load(from: defaults))
+        await restored.waitForPendingIndex()
+        XCTAssertEqual(Set(restored.visibleArtists.map(\.name)), expectedNames)
+        XCTAssertEqual(restored.songs(forArtist: MusicLibrary.hashID("guest")).map(\.id), ["ampersand"])
+        _ = await restored.persistNowAndWait()
+    }
+
     func testCaseVariantsCollapseIntoOneStableArtist() throws {
         let first = makeSong(artistName: "Artist")
         let second = makeSong(artistName: "ARTIST")
