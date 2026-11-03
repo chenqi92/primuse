@@ -568,6 +568,56 @@ struct ScanCheckpointFileStoreTests {
 
 @Suite("Source sync state persistence")
 struct SourceSyncStateFileStoreTests {
+    @Test("Large streamed hierarchies remain compatible with the existing decoder")
+    func streamedHierarchyRoundTripsInBoundedChunks() throws {
+        var state = makeSourceSyncState(sourceID: "源\"\\\n", marker: "stream")
+        state.lastFullScanAt = Date(timeIntervalSince1970: 1_700_000_000)
+        state.scanEpoch = .max
+        state.identityAliases = ["old\"key": "new\\key"]
+        state.missingCatalogSongIDs = ["missing": 2]
+        state.pendingDirectories = ["/音乐/\n目录"]
+        for offset in 0..<4_000 {
+            let key = "track-\(offset)-\"\\音乐"
+            state.index[key] = SourceSyncIndexedItem(
+                stableKey: key, path: "/音乐/\(offset).flac", displayName: "曲目\n\(offset)",
+                parentPath: "/音乐", isDirectory: false, songIDs: ["song-\(offset)"],
+                size: .max, modifiedDate: state.lastFullScanAt, revision: "r1", seenEpoch: .max
+            )
+        }
+        let snapshot = [state.sourceID: state, "empty": makeSourceSyncState(sourceID: "empty", marker: "empty")]
+        var data = Data()
+        var chunkSizes: [Int] = []
+        try SourceSyncStateFileStore.streamSnapshot(snapshot) {
+            data.append($0)
+            chunkSizes.append($0.count)
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        #expect(try decoder.decode([String: SourceSyncState].self, from: data) == snapshot)
+        #expect(chunkSizes.count > 5)
+        #expect(chunkSizes.allSatisfy { $0 < 132 * 1024 })
+    }
+
+    @Test("A streaming encode failure preserves the committed file and removes its temporary file")
+    func failedStreamingWritePreservesSnapshot() async throws {
+        let urls = try makeTemporaryURLs()
+        defer { try? FileManager.default.removeItem(at: urls.directory) }
+        let syncURL = urls.directory.appendingPathComponent("source-sync-states.json")
+        let store = SourceSyncStateFileStore(url: syncURL)
+        let original = makeSourceSyncState(sourceID: "source", marker: "original")
+        _ = try await store.upsert(original, expectedMutationEpoch: 0)
+        var invalid = original
+        invalid.lastTelemetry = SourceSyncTelemetry(elapsed: .nan)
+        await #expect(throws: (any Error).self) {
+            try await store.upsert(invalid, expectedMutationEpoch: 0)
+        }
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": original])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: urls.directory.path) == ["source-sync-states.json"])
+        let recovered = makeSourceSyncState(sourceID: "source", marker: "recovered")
+        _ = try await store.upsert(recovered, expectedMutationEpoch: 0)
+        #expect(try decodeSourceSyncStates(from: syncURL) == ["source": recovered])
+    }
+
     @Test("Loaded snapshots skip duplicates while unverified state is repaired")
     func loadedSnapshotSkipsDuplicateWrite() async throws {
         let urls = try makeTemporaryURLs()

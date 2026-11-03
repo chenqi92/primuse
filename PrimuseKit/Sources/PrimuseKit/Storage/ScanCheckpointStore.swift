@@ -578,7 +578,7 @@ public actor SourceSyncStateFileStore {
     public typealias AtomicWriter = @Sendable (Data, URL) throws -> Void
 
     private let url: URL
-    private let atomicWriter: AtomicWriter
+    private let atomicWriter: AtomicWriter?
     private var states: [String: SourceSyncState]
     private var mutationEpochs: [String: UInt64] = [:]
     private var sourceRevisions: [String: UInt64] = [:]
@@ -591,9 +591,7 @@ public actor SourceSyncStateFileStore {
         url: URL,
         initialStates: [String: SourceSyncState] = [:],
         initialSnapshotIsPersisted: Bool = false,
-        atomicWriter: @escaping AtomicWriter = { data, url in
-            try data.write(to: url, options: .atomic)
-        }
+        atomicWriter: AtomicWriter? = nil
     ) {
         self.url = url
         self.states = initialStates
@@ -699,15 +697,92 @@ public actor SourceSyncStateFileStore {
             let url = url
             let atomicWriter = atomicWriter
             let writeTask = Task.detached(priority: .utility) {
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.sortedKeys]
-                encoder.dateEncodingStrategy = .iso8601
-                try atomicWriter(try encoder.encode(snapshot), url)
+                if let atomicWriter {
+                    var data = Data()
+                    try Self.streamSnapshot(snapshot) { data.append($0) }
+                    try atomicWriter(data, url)
+                } else {
+                    try Self.writeSnapshot(snapshot, to: url)
+                }
             }
             try await writeTask.value
             persistedRevision = revision
             hasPersistedSnapshot = true
             await Task.yield()
         }
+    }
+
+    private nonisolated static func writeSnapshot(
+        _ snapshot: [String: SourceSyncState], to url: URL
+    ) throws {
+        let manager = FileManager.default
+        let replacement = url.deletingLastPathComponent().appendingPathComponent(
+            ".\(url.lastPathComponent).\(UUID().uuidString).replacement"
+        )
+        defer { try? manager.removeItem(at: replacement) }
+        guard manager.createFile(
+            atPath: replacement.path, contents: nil, attributes: [.posixPermissions: 0o600]
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        let handle = try FileHandle(forWritingTo: replacement)
+        do {
+            try streamSnapshot(snapshot) { try handle.write(contentsOf: $0) }
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+        if manager.fileExists(atPath: url.path) {
+            _ = try manager.replaceItemAt(url, withItemAt: replacement)
+        } else {
+            try manager.moveItem(at: replacement, to: url)
+        }
+    }
+
+    /// Keep the existing JSON format without building an encoder object tree
+    /// for every source's entire hierarchy at once.
+    nonisolated static func streamSnapshot(
+        _ snapshot: [String: SourceSyncState], append: (Data) throws -> Void
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        var buffer = Data()
+        func emit(_ data: Data) throws {
+            buffer.append(data)
+            if buffer.count >= 128 * 1024 {
+                try append(buffer)
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+        try emit(Data("{".utf8))
+        for (sourceOffset, sourceID) in snapshot.keys.sorted().enumerated() {
+            guard let state = snapshot[sourceID] else { continue }
+            if sourceOffset > 0 { try emit(Data(",".utf8)) }
+            try emit(encoder.encode(sourceID))
+            try emit(Data(":".utf8))
+            var metadata = state
+            metadata.index = [:]
+            // Let Codable own the metadata schema, including future fields.
+            guard var object = try JSONSerialization.jsonObject(
+                with: encoder.encode(metadata)
+            ) as? [String: Any] else { throw CocoaError(.coderInvalidValue) }
+            object.removeValue(forKey: "index")
+            var header = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            header.removeLast()
+            try emit(header)
+            try emit(Data(",\"index\":{".utf8))
+            for (offset, key) in state.index.keys.sorted().enumerated() {
+                try autoreleasepool {
+                    if offset > 0 { try emit(Data(",".utf8)) }
+                    try emit(encoder.encode(key))
+                    try emit(Data(":".utf8))
+                    try emit(encoder.encode(state.index[key]!))
+                }
+            }
+            try emit(Data("}}".utf8))
+        }
+        try emit(Data("}".utf8))
+        if !buffer.isEmpty { try append(buffer) }
     }
 }
