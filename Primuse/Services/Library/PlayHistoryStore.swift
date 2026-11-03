@@ -108,9 +108,12 @@ final class PlayHistoryStore {
             let unresolved = entries.filter { $0.content == nil && library?.song(id: $0.songID) == nil }
             let wanted = Set(unresolved.compactMap { key(title: $0.songTitle, artist: $0.artistName, album: $0.albumTitle) })
             guard !wanted.isEmpty, let library else { return self }
+            let wantedTitles = Set(wanted.map { $0[0] })
             var matches: [[String]: Content] = [:]
             var ambiguous: Set<[String]> = []
             library.forEachSong { song in
+                guard !Task.isCancelled,
+                      wantedTitles.contains(song.title.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
                 guard let key = key(title: song.title, artist: song.artistName, album: song.albumTitle), wanted.contains(key) else { return }
                 let kind = space(inputs.kind(songID: song.id, sourceID: song.sourceID, filePath: song.filePath,
                                              genre: song.genre, serverLibraryID: song.serverLibraryID))
@@ -185,6 +188,7 @@ final class PlayHistoryStore {
     @ObservationIgnored private var classificationLibraryID: ObjectIdentifier?
     @ObservationIgnored private var classificationObserver: NSObjectProtocol?
     @ObservationIgnored private var archiveClassificationTask: Task<Void, Never>?
+    @ObservationIgnored private var classificationRecoveryTask: Task<Void, Never>?
     private let spokenWordStore: SpokenWordStore
     private let updatesArchives: Bool
 
@@ -224,12 +228,48 @@ final class PlayHistoryStore {
                 PlayHistoryArchiver.scheduleClassificationRefresh(context)
             }
         }
-        let resolved = context.recoveringLegacyEntries(entries)
-        let enriched = entries.map(resolved.enriching)
-        guard enriched != entries else { return }
-        entries = enriched
-        scheduleSave()
-        notifyChanged()
+        let enriched = entries.map(context.enriching)
+        if enriched != entries {
+            entries = enriched
+            scheduleSave()
+            notifyChanged()
+        }
+        scheduleLegacyClassificationRecovery(context)
+    }
+
+    private func scheduleLegacyClassificationRecovery(_ context: Classification) {
+        classificationRecoveryTask?.cancel()
+        let snapshot = entries
+        let generation = classificationRevision
+        guard context.library != nil,
+              snapshot.contains(where: { $0.content == nil && context.library?.song(id: $0.songID) == nil }) else {
+            classificationRecoveryTask = nil
+            return
+        }
+        classificationRecoveryTask = Task { [weak self] in
+            let worker = Task.detached(priority: .utility) {
+                context.recoveringLegacyEntries(snapshot)
+            }
+            let resolved = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard let self, !Task.isCancelled, generation == classificationRevision else { return }
+            let originals = Dictionary(snapshot.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            // A clear, remote correction or new play may arrive during recovery.
+            let enriched = entries.map { entry in
+                originals[entry.id] == entry ? resolved.enriching(entry) : entry
+            }
+            guard enriched != entries else { return }
+            entries = enriched
+            scheduleSave()
+            notifyChanged()
+        }
+    }
+
+    func waitForClassificationRecovery() async {
+        await classificationRecoveryTask?.value
     }
 
     /// The plays that were music.
@@ -391,7 +431,7 @@ final class PlayHistoryStore {
             survivingLocal.map { ($0.id, $0) },
             uniquingKeysWith: { lhs, rhs in lhs.playedAt.timeIntervalSinceReferenceDate >= rhs.playedAt.timeIntervalSinceReferenceDate ? lhs : rhs }
         )
-        let context = classification.recoveringLegacyEntries(survivingRemote)
+        let context = classification
         for var entry in survivingRemote {
             entry.content = entry.content ?? mergedByID[entry.id]?.content
             entry = context.enriching(entry)
@@ -402,6 +442,7 @@ final class PlayHistoryStore {
         guard entries != previous else { return }
         scheduleSave()
         notifyChanged(origin: "remote")
+        scheduleLegacyClassificationRecovery(context)
     }
 
     func clearFromRemote() {

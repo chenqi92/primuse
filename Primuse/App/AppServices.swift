@@ -2128,9 +2128,20 @@ final class AppServices {
     }
     #endif
 
+    private var localImportResumeTask: Task<Void, Never>?
+
     /// iOS resumes in a background execution window to keep large unfinished
     /// imports out of the launch path. macOS can resume after startup settles.
     func resumePendingLocalImportScanIfNeeded() {
+        guard localImportResumeTask == nil else { return }
+        localImportResumeTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.localImportResumeTask = nil }
+            await self.resumePendingLocalImportScan()
+        }
+    }
+
+    private func resumePendingLocalImportScan() async {
         #if os(iOS) || os(macOS)
         // Stage 2b: 库还在准备时 `library.song(id:)` 对每一行检查点都返回 nil,
         // 续扫会把整份检查点重新播种一遍, 并把源的 songCount 写成 0。守卫放在
@@ -2147,20 +2158,23 @@ final class AppServices {
         guard let sourceID = LocalImportService.existingSourceID else { return }
         guard scanService.scanStates[sourceID]?.isScanning != true else { return }
         let hasPendingCheckpoint = scanService.scanStates[sourceID]?.hasPendingWork == true
-        let hasUnplayableRows = musicLibrary.songs.contains {
-            $0.sourceID == sourceID && $0.duration <= 0
-        }
         let hasPendingScan = LocalImportService.hasPendingScan
 
         let source: MusicSource
         if let existing = sourcesStore.source(id: sourceID) {
             guard existing.isEnabled, !existing.isDeleted, LocalImportService.isManagedSource(existing) else { return }
-            guard hasPendingScan || hasPendingCheckpoint || hasUnplayableRows else { return }
+            if !hasPendingScan && !hasPendingCheckpoint {
+                guard await musicLibrary.sourceHasIncompleteDurations(sourceID) else { return }
+            }
+            guard !Task.isCancelled,
+                  let current = sourcesStore.source(id: sourceID), current.isEnabled, !current.isDeleted,
+                  LocalImportService.isManagedSource(current),
+                  scanService.scanStates[sourceID]?.isScanning != true else { return }
             do {
-                if existing.basePath != LocalImportService.musicDirectory.path {
+                if current.basePath != LocalImportService.musicDirectory.path {
                     try sourcesStore.updateDurably(sourceID) { $0.basePath = LocalImportService.musicDirectory.path }
                 }
-                source = sourcesStore.source(id: sourceID) ?? existing
+                source = sourcesStore.source(id: sourceID) ?? current
             } catch { return }
         } else if LocalImportService.hasRecoverableCompleteFiles || hasPendingCheckpoint {
             let recovered = LocalImportService.makeSource(
@@ -2892,7 +2906,7 @@ final class AppServices {
 
         let sourceIDs = Set(requests.keys)
         let removedSongIDs = await musicLibrary.removeSongsForSources(sourceIDs)
-        metadataBackfill.discardWorkNow(
+        await metadataBackfill.discardWorkNow(
             forSourceIDs: sourceIDs,
             knownSongIDs: removedSongIDs
         )

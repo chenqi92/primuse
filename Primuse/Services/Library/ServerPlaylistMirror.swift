@@ -269,6 +269,14 @@ enum ServerPlaylistMirror {
             self.descriptionReadRevision = ServerPlaylistMirror.descriptionRevision
         }
 
+        func prepareIndex() async {
+            let songs = library.songs
+            let sourceID = source.id
+            index = await Task.detached(priority: .utility) {
+                ServerPlaylistMirror.serverItemIndex(sourceID: sourceID, songs: songs)
+            }.value
+        }
+
         func apply(_ serverPlaylist: ServerPlaylist) {
             let entry = ServerPlaylistMirror.preparedEntry(
                 serverPlaylist, sourceID: source.id, sourceType: source.type, index: index
@@ -364,7 +372,9 @@ enum ServerPlaylistMirror {
 
     nonisolated private static func serverItemIndex(sourceID: String, songs: [Song]) -> [String: String] {
         var index: [String: String] = [:]
-        for song in songs where song.sourceID == sourceID {
+        for offset in songs.indices {
+            guard songs[offset].sourceID == sourceID else { continue }
+            let song = songs[offset]
             guard let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) else { continue }
             // 首个命中优先; 同一 item ID 重复出现说明扫描产生了重复行, 任取
             // 其一都指向同一服务端曲目。

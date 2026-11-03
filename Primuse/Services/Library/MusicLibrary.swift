@@ -82,7 +82,7 @@ struct PlaylistBrowseArtworkAccumulator {
 /// Two arrays backed by the same buffer. Without disabled sources the visible
 /// array is the library array itself; a patch then makes one copy and both
 /// take it, instead of each being copied separately.
-fileprivate func sharesStorage(_ lhs: [Song], _ rhs: [Song]) -> Bool {
+fileprivate func sharesStorage<Element>(_ lhs: [Element], _ rhs: [Element]) -> Bool {
     guard lhs.count == rhs.count else { return false }
     return lhs.withUnsafeBufferPointer { left in
         rhs.withUnsafeBufferPointer { right in left.baseAddress == right.baseAddress }
@@ -185,6 +185,37 @@ private final class DisplacedLibraryLookups: Sendable {
     }
 }
 
+@MainActor
+final class CoalescedLibraryCacheWriter {
+    private var pending: (@Sendable () async -> Void)?
+    private(set) var task: Task<Void, Never>?
+
+    func schedule(_ operation: @escaping @Sendable () async -> Void) {
+        let displaced = pending
+        pending = operation
+        if let displaced {
+            LibraryArrayReclaimer.release(holder: DisplacedLibraryLookups([displaced]), approximateElementCount: 512)
+        }
+        guard task == nil else { return }
+        task = Task { [weak self] in
+            while let operation = self?.pending {
+                self?.pending = nil
+                await operation()
+            }
+            self?.task = nil
+        }
+    }
+
+    func flush() async { await task?.value }
+}
+
+private actor LibraryCacheEncodingGate {
+    static let shared = LibraryCacheEncodingGate()
+    func write(_ operation: @Sendable () -> Void) {
+        autoreleasepool { operation() }
+    }
+}
+
 enum LibrarySearchMatchKind: CaseIterable, Sendable {
     case metadata
     case path
@@ -211,6 +242,7 @@ private struct LibrarySearchMatcher {
 
     var isValid: Bool { !normalizedQuery.isEmpty }
     var normalizedLength: Int { normalizedQuery.count }
+    var requiresPinyinCandidates: Bool { shouldTransliterateCandidates }
 
     init(query: String) {
         rawQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -251,6 +283,47 @@ private struct LibrarySearchMatcher {
             return (55, .fuzzy)
         }
 
+        return nil
+    }
+
+    struct PreparedText: Sendable {
+        let raw: String
+        let original: String
+        let latin: String
+        let initials: String
+        let semantic: String
+        let includesPinyin: Bool
+
+        init(_ text: String, includesPinyin: Bool = true) {
+            raw = text
+            original = LibrarySearchMatcher.normalized(text, transliterateHan: false)
+            semantic = ListeningSpaceSearchPolicy.normalized(text)
+            self.includesPinyin = includesPinyin
+            if includesPinyin {
+                let transliterated = LibrarySearchMatcher.containsHan(text)
+                    ? (text.applyingTransform(.mandarinToLatin, reverse: false)?
+                        .applyingTransform(.stripDiacritics, reverse: false) ?? text)
+                    : text
+                latin = LibrarySearchMatcher.normalized(transliterated, transliterateHan: false)
+                initials = LibrarySearchMatcher.initials(transliterated)
+            } else {
+                latin = original
+                initials = ""
+            }
+        }
+
+        var characters: Set<Unicode.Scalar> {
+            Set((original + latin + initials + semantic).unicodeScalars)
+        }
+    }
+
+    func score(prepared: PreparedText) -> Int? {
+        if prepared.raw.localizedCaseInsensitiveContains(rawQuery) { return 120 }
+        let candidate = shouldTransliterateCandidates ? prepared.latin : prepared.original
+        guard !candidate.isEmpty else { return nil }
+        if candidate.contains(normalizedQuery) { return 110 }
+        if shouldTransliterateCandidates, prepared.initials.contains(normalizedQuery) { return 100 }
+        if normalizedLength >= 3, Self.isSubsequence(normalizedQuery, of: candidate) { return 55 }
         return nil
     }
 
@@ -411,6 +484,9 @@ enum LibrarySearchWorker {
             && matchKinds.contains(.lyrics)
             && matcher.normalizedLength >= minimumLyricsQueryLength
 
+        let localLyricsFiles = shouldSearchLyrics
+            ? (try? FileManager.default.contentsOfDirectory(atPath: MetadataAssetStore.shared.lyricsDirectoryURL.path)).map(Set.init)
+            : nil
         var rankedSongs: [LibrarySearchResult] = []
         rankedSongs.reserveCapacity(min(songs.count, songLimit * 2))
         for song in songs {
@@ -455,6 +531,7 @@ enum LibrarySearchWorker {
 
             if shouldSearchLyrics,
                bestScore < 90,
+               hasSearchableLyricsCandidate(song, cache: cache, localFiles: localLyricsFiles),
                let searchableText = searchableLyricsText(for: song, cache: &cache),
                matcher.lyricsContainQuery(searchableText),
                let lines = searchableLyricsLines(for: song, cache: &cache),
@@ -511,6 +588,21 @@ enum LibrarySearchWorker {
             if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
             return lhs.0.title.localizedCaseInsensitiveCompare(rhs.0.title) == .orderedAscending
         }.map(\.0).prefix(limit))
+    }
+
+    private static func hasSearchableLyricsCandidate(
+        _ song: Song, cache: LibrarySearchCache, localFiles: Set<String>?
+    ) -> Bool {
+        if song.lyricsText?.isEmpty == false { return true }
+        let key = lyricsCacheKey(for: song)
+        if cache.lyricsTextByKey[key] != nil || cache.lyricsLinesByKey[key] != nil { return true }
+        if cache.missingLyricsKeys.contains(key) { return false }
+        // Enumerating the cache once avoids opening a nonexistent file for every
+        // song while the persistent lyrics index is still catching up.
+        guard let localFiles else { return true }
+        guard !localFiles.isEmpty else { return false }
+        if let reference = song.lyricsFileName, localFiles.contains(reference) { return true }
+        return localFiles.contains(MetadataAssetStore.shared.expectedLyricsFileName(for: song.id))
     }
 
     private static func searchableLyricsLines(for song: Song, cache: inout LibrarySearchCache) -> [LyricLine]? {
@@ -584,6 +676,138 @@ enum LibrarySearchWorker {
     }
 }
 
+// Character postings also admit pinyin initials and subsequences; final scoring
+// preserves the existing ranking without normalizing the entire catalogue per query.
+actor LibraryCatalogSearchIndex {
+    struct Output: Sendable {
+        let albums: [Album]
+        let artists: [Artist]
+    }
+
+    private struct AlbumText {
+        let title: LibrarySearchMatcher.PreparedText
+        let artist: LibrarySearchMatcher.PreparedText
+    }
+    private var albums: [Album] = []
+    private var artists: [Artist] = []
+    private var albumText: [AlbumText] = []
+    private var artistText: [LibrarySearchMatcher.PreparedText] = []
+    private var albumIDs = Set<String>()
+    private var albumIncludesPinyin = false
+    private var albumPostings: [Unicode.Scalar: Set<Int>] = [:]
+    private var artistPostings: [Unicode.Scalar: Set<Int>] = [:]
+    private var texts: [String: LibrarySearchMatcher.PreparedText] = [:]
+    private(set) var preparationCount = 0
+    private(set) var lastAlbumCandidateCount = 0
+
+    private func prepared(_ text: String, includesPinyin: Bool) -> LibrarySearchMatcher.PreparedText {
+        if let cached = texts[text], cached.includesPinyin || !includesPinyin { return cached }
+        let value = LibrarySearchMatcher.PreparedText(text, includesPinyin: includesPinyin)
+        texts[text] = value
+        return value
+    }
+
+    private func prepare(albums nextAlbums: [Album], artists nextArtists: [Artist], includesPinyin: Bool) -> Bool {
+        if !sharesStorage(albums, nextAlbums) || (includesPinyin && !albumIncludesPinyin) {
+            var rows: [AlbumText] = []
+            var postings: [Unicode.Scalar: Set<Int>] = [:]
+            rows.reserveCapacity(nextAlbums.count)
+            for (index, album) in nextAlbums.enumerated() {
+                guard !Task.isCancelled else { return false }
+                let row = AlbumText(
+                    title: prepared(album.title, includesPinyin: includesPinyin),
+                    artist: prepared(album.artistName ?? "", includesPinyin: includesPinyin)
+                )
+                rows.append(row)
+                for character in row.title.characters.union(row.artist.characters) {
+                    postings[character, default: []].insert(index)
+                }
+            }
+            albums = nextAlbums
+            albumText = rows
+            albumPostings = postings
+            albumIDs = Set(nextAlbums.map(\.id))
+            albumIncludesPinyin = includesPinyin
+            preparationCount += 1
+        }
+        if !sharesStorage(artists, nextArtists) {
+            var rows: [LibrarySearchMatcher.PreparedText] = []
+            var postings: [Unicode.Scalar: Set<Int>] = [:]
+            for (index, artist) in nextArtists.enumerated() {
+                guard !Task.isCancelled else { return false }
+                let row = prepared(artist.name, includesPinyin: false)
+                rows.append(row)
+                for character in row.characters { postings[character, default: []].insert(index) }
+            }
+            artists = nextArtists
+            artistText = rows
+            artistPostings = postings
+            preparationCount += 1
+        }
+        if texts.count > max(1_024, 2 * (nextAlbums.count * 2 + nextArtists.count)) {
+            var retained = Set(nextAlbums.flatMap { [$0.title, $0.artistName ?? ""] })
+            retained.formUnion(nextArtists.map(\.name))
+            texts = texts.filter { retained.contains($0.key) }
+        }
+        return true
+    }
+
+    private func candidates(
+        _ query: String, postings: [Unicode.Scalar: Set<Int>], alphanumericOnly: Bool = true
+    ) -> Set<Int> {
+        let characters = Set(query.unicodeScalars.filter {
+            alphanumericOnly ? CharacterSet.alphanumerics.contains($0) : !CharacterSet.whitespacesAndNewlines.contains($0)
+        })
+        guard !characters.isEmpty else { return [] }
+        let lists = characters.map { postings[$0] ?? [] }.sorted { $0.count < $1.count }
+        var result = lists[0]
+        for list in lists.dropFirst() {
+            result.formIntersection(list)
+            if result.isEmpty { break }
+        }
+        return result
+    }
+
+    func search(
+        query: String, albums: [Album], artists: [Artist],
+        relatedAlbums: [Album] = [], semanticArtists: Bool = false
+    ) -> Output {
+        let matcher = LibrarySearchMatcher(query: query)
+        guard !matcher.rawQuery.isEmpty, !Task.isCancelled,
+              prepare(albums: albums, artists: artists, includesPinyin: matcher.requiresPinyinCandidates) else {
+            return Output(albums: [], artists: [])
+        }
+        let offsets = candidates(matcher.normalizedQuery, postings: albumPostings)
+        lastAlbumCandidateCount = offsets.count
+        var ranked: [(Album, Int)] = []
+        for offset in offsets.sorted() {
+            guard !Task.isCancelled else { return Output(albums: [], artists: []) }
+            let row = albumText[offset]
+            let titleScore = matcher.score(prepared: row.title).map { $0 + 20 } ?? 0
+            let artistScore = matcher.score(prepared: row.artist).map { $0 + 10 } ?? 0
+            let score = max(titleScore, artistScore)
+            if score > 0 { ranked.append((albums[offset], score)) }
+        }
+        var matchedAlbums = ranked.sorted {
+            if $0.1 != $1.1 { return $0.1 > $1.1 }
+            return $0.0.title.localizedCaseInsensitiveCompare($1.0.title) == .orderedAscending
+        }.map(\.0)
+        var seen = Set(matchedAlbums.map(\.id))
+        matchedAlbums += relatedAlbums.filter { albumIDs.contains($0.id) && seen.insert($0.id).inserted }
+        let semanticQuery = ListeningSpaceSearchPolicy.normalized(query)
+        let words = semanticQuery.split(separator: " ")
+        let artistCandidates = candidates(semanticQuery, postings: artistPostings, alphanumericOnly: false)
+        let matchedArtists = artistCandidates.sorted().compactMap { offset -> Artist? in
+            let text = artistText[offset]
+            let matches = semanticArtists
+                ? text.semantic.contains(semanticQuery) || (words.count > 1 && words.allSatisfy { text.semantic.contains($0) })
+                : text.raw.localizedCaseInsensitiveContains(matcher.rawQuery)
+            return matches ? artists[offset] : nil
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return Output(albums: matchedAlbums, artists: matchedArtists)
+    }
+}
+
 /// Result returned by the persistent search index. `lyricsIndexComplete` is
 /// false only during the first incremental build (or immediately after songs
 /// are added). SearchView uses the inexpensive, cancellable literal fallback
@@ -654,6 +878,8 @@ actor LibrarySearchIndex {
 
     private let dbPool: DatabasePool?
     private var lastMetadataRevisionKey: String?
+    private var projectionAlbums: [Album] = []
+    private var projectionAlbumByID: [String: Album] = [:]
     private var projectionSongs: [Song] = []
     private var projectionIndexByID: [String: Int] = [:]
     private struct SearchDisplayPath {
@@ -1324,13 +1550,16 @@ actor LibrarySearchIndex {
                 return lhs.song.title.localizedCaseInsensitiveCompare(rhs.song.title) == .orderedAscending
             }.prefix(songLimit))
 
-            let albumByID = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
+            if !sharesStorage(projectionAlbums, albums) {
+                projectionAlbums = albums
+                projectionAlbumByID = Dictionary(albums.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            }
             var albumResults: [Album] = []
             var albumIDs = Set<String>()
             for id in metadataIDs {
                 guard let albumID = indexedSong(withID: id)?.albumID,
                       !albumIDs.contains(albumID),
-                      let album = albumByID[albumID] else { continue }
+                      let album = projectionAlbumByID[albumID] else { continue }
                 albumIDs.insert(albumID)
                 albumResults.append(album)
                 if albumResults.count == albumLimit { break }
@@ -4118,6 +4347,23 @@ final class MusicLibrary {
     private(set) var releaseCategoryRevision: UInt64 = 0
     private(set) var releaseCategoryMembershipRevision: UInt64 = 0
 
+    var releaseCategorySnapshot: AlbumReleaseMetadataIndex {
+        _ = releaseCategoryRevision
+        return releaseMetadataIndex
+    }
+
+    func sourceHasIncompleteDurations(_ sourceID: String) async -> Bool {
+        let snapshot = songsReference.value
+        let worker = Task.detached(priority: .utility) {
+            for index in snapshot.indices {
+                if index.isMultiple(of: 256), Task.isCancelled { return false }
+                if snapshot[index].sourceID == sourceID && snapshot[index].duration <= 0 { return true }
+            }
+            return false
+        }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+    }
+
     func automaticReleaseCategories(for album: Album) -> Set<AlbumReleaseCategory> {
         _ = releaseCategoryRevision
         return releaseMetadataIndex.categories(albumID: album.id)
@@ -4140,6 +4386,27 @@ final class MusicLibrary {
         if previous.albumID != updated.albumID { releaseCategoryMembershipRevision &+= 1 }
     }
     private var visibleArtistsReference = LibraryArrayReference<Artist>()
+    @ObservationIgnored private var favoriteArtistCandidatesCache: (
+        artists: LibraryArrayReference<Artist>, albumArtists: LibraryArrayReference<Artist>, result: [Artist]
+    )?
+
+    var favoriteArtistCandidates: [Artist] {
+        let artists = visibleArtistsReference
+        let albumArtists = visibleAlbumArtistsReference
+        if let cache = favoriteArtistCandidatesCache,
+           cache.artists === artists, cache.albumArtists === albumArtists { return cache.result }
+        let albumOnly = albumArtists.value.filter { visibleArtistByID.index(forKey: $0.id) == nil }
+        let result = albumOnly.isEmpty ? artists.value : artists.value + albumOnly
+        let displaced = favoriteArtistCandidatesCache
+        favoriteArtistCandidatesCache = (artists, albumArtists, result)
+        if let displaced {
+            LibraryArrayReclaimer.release(
+                holder: DisplacedLibraryLookups([displaced.artists, displaced.albumArtists, displaced.result]),
+                approximateElementCount: displaced.result.count
+            )
+        }
+        return result
+    }
     private(set) var visibleArtists: [Artist] {
         get { visibleArtistsReference.value }
         set {
@@ -4483,9 +4750,26 @@ final class MusicLibrary {
     @ObservationIgnored private var deferredDerivedIndexCacheWriteRequested = false
     @ObservationIgnored private var deferredPlaylistDurabilityWriteRequested = false
     @ObservationIgnored private var deferredDeviceLocalExclusionWriteRequested = false
+    @ObservationIgnored private var sourceRemovalInProgress = false
+    @ObservationIgnored private var sourceRemovalWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func waitForSourceRemoval() async {
+        while sourceRemovalInProgress {
+            await withCheckedContinuation { sourceRemovalWaiters.append($0) }
+        }
+    }
+
+    private func finishSourceRemoval() {
+        sourceRemovalInProgress = false
+        replayDeferredMutations()
+        let waiters = sourceRemovalWaiters
+        sourceRemovalWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
 
     /// 已就绪时立即返回; 否则挂起到发布完成。
     func whenReady() async {
+        await waitForSourceRemoval()
         guard readiness != .ready else { return }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             if readiness == .ready {
@@ -4571,7 +4855,7 @@ final class MusicLibrary {
     /// 顶层突变入口的排队助手。返回 `true` 表示调用方应立刻返回,
     /// 该次调用已被记录, 发布后按顺序重放。
     private func deferringUntilReady(_ work: @escaping @MainActor () -> Void) -> Bool {
-        guard isPreparing else { return false }
+        guard isPreparing || sourceRemovalInProgress else { return false }
         deferredMutations.append(work)
         return true
     }
@@ -4684,6 +4968,10 @@ final class MusicLibrary {
     }
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.updateDisabledSourceIDs(ids) }
+            return
+        }
         // 任何一次同步设置都让还在后台算的那一次作废, 最后一次调用说了算。
         disabledSourceIDsRequestGeneration &+= 1
         // S2 例外 1: 配置不排队。准备结果的可见缓存是用存储里的禁用集合算的,
@@ -4704,13 +4992,14 @@ final class MusicLibrary {
 
     /// `updateDisabledSourceIDs` 的离主线程版本。整库可见缓存 (过滤、艺术家解析、
     /// 分类、流派) 在后台算好, 主 actor 上只做装载 —— 6.6 万首时同步重算要一两秒。
-    /// 期间 songs / 专辑 / 歌手 / 可见缓存 / 命名配置 / 分类输入任何一样变了就重算
-    /// 一次, 仍对不上才退回同步路径, 所以最终状态与同步版本相同。之后到来的任何
-    /// 一次设置 (同步或异步) 都会让这一次作废。
+    /// 扫描期间快照可能连续失效，继续在后台按最新输入重算，不能退回主线程整库计算。
+    /// 之后到来的任何一次设置 (同步或异步) 都会让这一次作废。
     func updateDisabledSourceIDsInBackground(_ ids: Set<String>) async {
+        await waitForSourceRemoval()
+        guard !Task.isCancelled else { return }
         disabledSourceIDsRequestGeneration &+= 1
         let request = disabledSourceIDsRequestGeneration
-        for _ in 0..<2 {
+        while !Task.isCancelled, request == disabledSourceIDsRequestGeneration {
             guard !isPreparing, disabledSourceIDs != ids else {
                 updateDisabledSourceIDs(ids)
                 return
@@ -4723,7 +5012,7 @@ final class MusicLibrary {
             let classification = SpokenWordStore.shared.classificationSnapshot
             let previousVisible = visibleSongs
             let startedAt = ProcessInfo.processInfo.systemUptime
-            let prepared = await Task.detached(priority: .userInitiated) {
+            let worker = Task.detached(priority: .userInitiated) {
                 Self.prepareVisibleCache(
                     songs: songsSnapshot.value,
                     albums: albumsSnapshot.value,
@@ -4733,8 +5022,16 @@ final class MusicLibrary {
                     spokenWordClassification: classification,
                     previousVisibleSongs: previousVisible
                 )
-            }.value
-            guard request == disabledSourceIDsRequestGeneration else { return }
+            }
+            let prepared = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            defer {
+                LibraryArrayReclaimer.release(
+                    holder: DisplacedLibraryLookups([prepared, songsSnapshot, albumsSnapshot, artistsSnapshot, previousVisible]),
+                    approximateElementCount: songsSnapshot.value.count
+                )
+            }
+            await waitForSourceRemoval()
+            guard !Task.isCancelled, request == disabledSourceIDsRequestGeneration else { return }
             guard !isPreparing,
                   songsSnapshot === songsReference,
                   albumsSnapshot === albumsReference,
@@ -4752,12 +5049,15 @@ final class MusicLibrary {
             plog("📚 disabled sources applied off-main prepareMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songs=\(songsSnapshot.value.count) hidden=\(ids.count)")
             return
         }
-        updateDisabledSourceIDs(ids)
     }
 
     /// Re-splits only when corrections or folder rules differ from the
     /// inputs already used by the published cache.
     func refreshContentClassification() {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.refreshContentClassification() }
+            return
+        }
         guard !isPreparing else {
             preparingContentClassificationRefresh = true
             return
@@ -4825,7 +5125,8 @@ final class MusicLibrary {
     ///   重建会算这个)。引用还是已发布的那份才算数。
     private func applyPreparedVisibleCache(
         _ prepared: PreparedVisibleCache,
-        unchanged: UnchangedVisibleCollections = .none
+        unchanged: UnchangedVisibleCollections = .none,
+        artworkMembershipChanged: Bool = false
     ) {
         visibleContentClassification = prepared.spokenWordClassification
         let signpost = PrimuseSignposts.hitch.beginInterval("library.applyVisibleCache")
@@ -4864,7 +5165,7 @@ final class MusicLibrary {
         // 歌曲 ID 不动, 只有它解析出来的 coverArtFileName 变了。漏掉这一次
         // bump, 只盯这个 revision 的读者 (资料库快捷入口、CarPlay 编辑器预览)
         // 会一直显示占位图。
-        let artworkLookupsChanged =
+        let artworkLookupsChanged = artworkMembershipChanged ||
             preferredArtworkSongIDByAlbumID != prepared.preferredArtworkSongIDByAlbumID
                 || preferredArtworkSongIDByArtistID != prepared.preferredArtworkSongIDByArtistID
                 || Self.preferredArtworkReferencesChanged(
@@ -5098,6 +5399,8 @@ final class MusicLibrary {
             : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) })
         var releaseMetadataIndex = lookups.releaseMetadataIndex
         releaseMetadataIndex.prepare(albums: nextVisibleAlbums)
+        LibraryFavoritesStore.prepareKeys(albums: nextVisibleAlbums, artists: nextVisibleArtists)
+        LibraryFavoritesStore.prepareKeys(albums: [], artists: albumArtistIndex.artists)
         return PreparedVisibleCache(
             spokenWordClassification: spokenWordClassification,
             songs: nextVisibleSongs,
@@ -5629,7 +5932,7 @@ final class MusicLibrary {
         }
         // 在途的写入是真正的危险:它早于栅栏出发, 却可能晚于事务落盘。
         _ = await persistWriteTask?.value
-        _ = await startupCacheWriteTask?.value
+        await startupCacheWriter.flush()
     }
 
     /// 交还写入所有权: 放行被挡住的写入方, 并补上区间内攒下的那次防抖写入。
@@ -5811,6 +6114,10 @@ final class MusicLibrary {
     /// 与持久化屏障都要先走这里, 这样"先补丁后整行替换"的顺序与逐首发布时
     /// 完全一致, 落盘也不会漏掉窗口内的补丁。
     func flushPendingAssetReferencePatches() {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.flushPendingAssetReferencePatches() }
+            return
+        }
         pendingAssetPatchFlushTask?.cancel()
         pendingAssetPatchFlushTask = nil
         guard !pendingAssetPatches.isEmpty else { return }
@@ -7203,85 +7510,78 @@ final class MusicLibrary {
     private struct PreparedSourceSongRemoval: Sendable {
         let retainedSongs: [Song]
         let removedSongs: [Song]
-        let retainedIndexByID: [String: Int]
         let removedSongIDs: Set<String>
+        let visibleCache: PreparedVisibleCache
+        let referencedSongs: [Song]
+        let replacements: [String: String]
     }
 
-    /// 仅供测试注入: 拉长离主线程准备的时长, 好让并发的歌曲突变确定性地
-    /// 抢在这次整源移除前面落地。生产路径保持 nil。
     @ObservationIgnored var sourceSongRemovalPreparationDelayForTesting: Duration?
 
-    private nonisolated static func prepareSourceSongRemoval(
-        songs: [Song],
-        sourceIDs: Set<String>
-    ) -> PreparedSourceSongRemoval {
-        var retainedSongs: [Song] = []
-        retainedSongs.reserveCapacity(songs.count)
-        var removedSongs: [Song] = []
-        removedSongs.reserveCapacity(min(songs.count, 1_024))
-        var retainedIndexByID: [String: Int] = [:]
-        retainedIndexByID.reserveCapacity(songs.count)
-        var removedSongIDs: Set<String> = []
-
-        for song in songs {
-            if sourceIDs.contains(song.sourceID) {
-                removedSongs.append(song)
-                removedSongIDs.insert(song.id)
-            } else {
-                retainedIndexByID[song.id] = retainedSongs.count
-                retainedSongs.append(song)
-            }
-        }
-        return PreparedSourceSongRemoval(
-            retainedSongs: retainedSongs,
-            removedSongs: removedSongs,
-            retainedIndexByID: retainedIndexByID,
-            removedSongIDs: removedSongIDs
-        )
-    }
-
-    /// Remove several sources in one library pass. Repeated per-source
-    /// removeAll/playlist cleanup/index rebuild made rapid source deletion
-    /// O(sourceCount × librarySize) on the main actor. Partitioning and the
-    /// replacement lookup are prepared off-main; a generation fence retries
-    /// (at most twice) if another scan/backfill mutation landed while that
-    /// snapshot was read, then falls back to in-place preparation.
+    /// Queue mutations during preparation so a busy scan cannot force a full-library
+    /// fallback on the main actor. Durable scan checkpoints wait for the replay.
     @discardableResult
     func removeSongsForSources(_ sourceIDs: Set<String>) async -> Set<String> {
         guard !sourceIDs.isEmpty else { return [] }
-        // S2: 异步入口排队它的同步回退路径。
-        if deferringUntilReady({ [weak self] in
-            self?.removeSongsForSourcesSynchronously(sourceIDs)
-        }) { return [] }
-
-        // 持续的扫描 / 回填突变会一直推进 songMutationGeneration。无上限重试
-        // 会被这种突变流活活拖住, 所以只离主线程准备两次, 之后退回就地准备:
-        // 主线程上快照与应用之间没有窗口, 必然一次成功。
-        for _ in 0..<2 {
-            let snapshot = songs
-            let generation = songMutationGeneration
-            let preparationDelay = sourceSongRemovalPreparationDelayForTesting
-            let candidate = await Task.detached(priority: .userInitiated) {
-                if let preparationDelay { try? await Task.sleep(for: preparationDelay) }
-                return Self.prepareSourceSongRemoval(
-                    songs: snapshot,
-                    sourceIDs: sourceIDs
+        await whenReady()
+        await waitForSourceRemoval()
+        flushPendingAssetReferencePatches()
+        sourceRemovalInProgress = true
+        defer { finishSourceRemoval() }
+        let snapshot = songsReference
+        let albumsSnapshot = albumsReference
+        let artistsSnapshot = artistsReference
+        let previousVisible = visibleSongs
+        let configuration = artistNameConfiguration
+        let classification = SpokenWordStore.shared.classificationSnapshot
+        let disabled = disabledSourceIDs.subtracting(sourceIDs)
+        let playlistMembers = playlistSongIDs
+        let manualPlaylistIDs = Set(allPlaylists.filter {
+            !$0.isDeleted && $0.allowsManualSongMembership
+        }.map(\.id))
+        let reviewedIDs = Set(libraryReviewsBySubject.values.compactMap {
+            $0.subject.kind == .song && !$0.isDeleted ? $0.subject.entityID : nil
+        })
+        let preparationDelay = sourceSongRemovalPreparationDelayForTesting
+        let prepared = await Task.detached(priority: .userInitiated) {
+            if let preparationDelay { try? await Task.sleep(for: preparationDelay) }
+            let playlistReferencedIDs = Set(manualPlaylistIDs.flatMap { playlistMembers[$0] ?? [] })
+            let referencedIDs = playlistReferencedIDs.union(reviewedIDs)
+            var retained: [Song] = []
+            var removed: [Song] = []
+            var removedIDs = Set<String>()
+            var referenced: [Song] = []
+            retained.reserveCapacity(snapshot.value.count)
+            for song in snapshot.value {
+                if sourceIDs.contains(song.sourceID) {
+                    removed.append(song)
+                    removedIDs.insert(song.id)
+                    if referencedIDs.contains(song.id) { referenced.append(song) }
+                } else {
+                    retained.append(song)
+                }
+            }
+            let cache = Self.prepareVisibleCache(
+                songs: retained, albums: albumsSnapshot.value, artists: artistsSnapshot.value,
+                artistNameConfiguration: configuration, disabledSourceIDs: disabled,
+                spokenWordClassification: classification, previousVisibleSongs: previousVisible
+            )
+            return PreparedSourceSongRemoval(
+                retainedSongs: retained, removedSongs: removed, removedSongIDs: removedIDs,
+                visibleCache: cache, referencedSongs: referenced,
+                replacements: Self.siblingReplacements(
+                    for: referenced.filter { playlistReferencedIDs.contains($0.id) },
+                    songs: retained, disabledSourceIDs: disabled
                 )
-            }.value
-            guard generation == songMutationGeneration else { continue }
-            return applyPreparedSourceSongRemoval(candidate, sourceIDs: sourceIDs)
+            )
+        }.value
+        defer {
+            LibraryArrayReclaimer.release(
+                holder: DisplacedLibraryLookups([prepared, snapshot, albumsSnapshot, artistsSnapshot, previousVisible]),
+                approximateElementCount: snapshot.value.count
+            )
         }
-
-        let prepared = Self.prepareSourceSongRemoval(songs: songs, sourceIDs: sourceIDs)
         return applyPreparedSourceSongRemoval(prepared, sourceIDs: sourceIDs)
-    }
-
-    /// `removeSongsForSources` 的同步回退: 就地准备后立即应用。
-    /// 仅在 S2 重放排队突变时使用, 此时没有并发突变需要代际围栏。
-    private func removeSongsForSourcesSynchronously(_ sourceIDs: Set<String>) {
-        guard !sourceIDs.isEmpty else { return }
-        let prepared = Self.prepareSourceSongRemoval(songs: songs, sourceIDs: sourceIDs)
-        _ = applyPreparedSourceSongRemoval(prepared, sourceIDs: sourceIDs)
     }
 
     @discardableResult
@@ -7309,17 +7609,13 @@ final class MusicLibrary {
         }
 
         songs = prepared.retainedSongs
-        songIndexByID = prepared.retainedIndexByID
-        // 整源移除后这些源不再有任何行, 剩余计数一律为 0。同样必须早于歌单 /
-        // 最近播放清理。
-        pruneVisibleCachesAfterRemoval(
-            removedIDs: prepared.removedSongIDs,
-            affectedSourceIDs: sourceIDs,
-            remainingCountsBySource: [:]
-        )
+        applyPreparedVisibleCache(prepared.visibleCache, artworkMembershipChanged: true)
         invalidateSearchCaches()
-        reassignPlaylistMembers(ofRemoved: prepared.removedSongs, leavingPlaceholders: true)
-        recordCarriedMarks(of: prepared.removedSongs, origin: .removedSource)
+        reassignPlaylistMembers(
+            ofRemoved: prepared.referencedSongs, leavingPlaceholders: true,
+            preparedReplacements: prepared.replacements
+        )
+        recordCarriedMarks(of: prepared.referencedSongs, origin: .removedSource)
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
@@ -8401,6 +8697,7 @@ final class MusicLibrary {
                 return changes
             }
             let changes = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            await waitForSourceRemoval()
             guard !Task.isCancelled, applyFence() else { return }
             guard generation == songMutationGeneration,
                   previousCatalogs == automaticArtistArtworkCatalogsBySource,
@@ -8803,6 +9100,10 @@ final class MusicLibrary {
     }
 
     func updateArtistNameConfiguration(_ value: ArtistNameConfiguration) {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.updateArtistNameConfiguration(value) }
+            return
+        }
         // S2 例外 1: 配置不排队。准备结果的 artistID / albums / artists 都是用
         // 存储里的命名配置算出来的, 这里只记下最新值, 发布拷回之后再对账。
         if isPreparing {
@@ -8853,6 +9154,10 @@ final class MusicLibrary {
     /// 例外处理, 发布后对账; 启动装载时没有目录, 所以网盘用户每次启动都会在
     /// 这里补一次后台重建。
     func updateAlbumArtistFolders(_ value: AlbumArtistFolderIndex) {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.updateAlbumArtistFolders(value) }
+            return
+        }
         if isPreparing {
             preparingAlbumArtistFolders = value
             return
@@ -10118,6 +10423,13 @@ final class MusicLibrary {
         return ids.contains(songID)
     }
 
+    func likedSongIDs(fromSourceID sourceID: String) -> [String] {
+        (playlistSongIDs[Self.likedSongsPlaylistID] ?? []).filter { id in
+            guard let index = songIndexByID[id], songs.indices.contains(index) else { return false }
+            return songs[index].sourceID == sourceID
+        }
+    }
+
     func setLiked(
         songID: String,
         isLiked desired: Bool,
@@ -10382,15 +10694,18 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.replaceLikedSongs(fromSourceID: sourceID, with: authoritativeSongIDs)
         }) { return }
-        let sourceSongIDs = Set(songs.lazy.filter { $0.sourceID == sourceID }.map(\.id))
+        func belongsToSource(_ id: String) -> Bool {
+            guard let index = songIndexByID[id], songs.indices.contains(index) else { return false }
+            return songs[index].sourceID == sourceID
+        }
         let authoritative = validUniqueSongIDs(authoritativeSongIDs).filter {
-            sourceSongIDs.contains($0)
+            belongsToSource($0)
         }
         let current = playlistSongIDs[Self.likedSongsPlaylistID] ?? []
         let next = PlaylistMemberOrderPolicy.syncingSourceMembers(
             current,
             authoritative: authoritative
-        ) { sourceSongIDs.contains($0) }
+        ) { belongsToSource($0) }
         guard next != current else { return }
 
         if allPlaylists.contains(where: { $0.id == Self.likedSongsPlaylistID }) == false {
@@ -10717,10 +11032,12 @@ final class MusicLibrary {
             let entries = self.playlistPendingEntries
             let candidates = self.visibleSongs
             let cache = self.playlistEntryMatchKeyCache
-            let outcome = await Task.detached(priority: .utility) {
-                Self.matchPendingEntries(entries, against: candidates, keyCache: cache)
-            }.value
-            guard generation == self.playlistPendingResolutionGeneration else { return }
+            let worker = Task.detached(priority: .utility) {
+                Self.matchPendingEntries(entries, against: candidates, keyCache: cache, isCancelled: { Task.isCancelled })
+            }
+            let outcome = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            await self.waitForSourceRemoval()
+            guard !Task.isCancelled, generation == self.playlistPendingResolutionGeneration else { return }
             self.playlistPendingResolutionTask = nil
             self.applyPendingResolutions(outcome)
         }
@@ -10736,28 +11053,53 @@ final class MusicLibrary {
     nonisolated static func matchPendingEntries(
         _ entries: [String: PlaylistPendingEntry],
         against songs: [Song],
-        keyCache: PlaylistEntryMatchKeyCache?
+        keyCache: PlaylistEntryMatchKeyCache?,
+        isCancelled: () -> Bool = { false }
     ) -> PendingEntryMatchOutcome {
         var outcome = PendingEntryMatchOutcome()
-        guard !entries.isEmpty, !songs.isEmpty else { return outcome }
-        // 删源、剪枝留下的占位记着原来那首的 id:同一个 id 回来(源从回收站恢复、连接参数
-        // 改回原样)就原位点亮。只为这几个 id 扫一遍曲库, 不建整库的表。
+        guard !entries.isEmpty, !songs.isEmpty, !isCancelled() else { return outcome }
         let formerIDs = Set(entries.values.compactMap(\.formerSongID))
         var returnedFormerIDs = Set<String>()
-        if !formerIDs.isEmpty {
-            for song in songs where formerIDs.contains(song.id) { returnedFormerIDs.insert(song.id) }
+        var requestedServerIDs: [String: Set<String>] = [:]
+        for entry in entries.values {
+            if let source = entry.serverSourceID, let item = entry.externalID {
+                requestedServerIDs[source, default: []].insert(item)
+            }
         }
-        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
+        var serverSongs: [String: [String: String]] = [:]
+        if !formerIDs.isEmpty || !requestedServerIDs.isEmpty {
+            for index in songs.indices {
+                if index.isMultiple(of: 256), isCancelled() { return PendingEntryMatchOutcome() }
+                let id = songs[index].id
+                if formerIDs.contains(id) { returnedFormerIDs.insert(id) }
+                let source = songs[index].sourceID
+                if let requested = requestedServerIDs[source],
+                   let item = ServerPlaylistIdentity.serverItemID(fromFilePath: songs[index].filePath),
+                   requested.contains(item), serverSongs[source]?[item] == nil {
+                    serverSongs[source, default: [:]][item] = id
+                }
+            }
+        }
+        var remaining: [String: PlaylistPendingEntry] = [:]
         for (id, entry) in entries {
             if let former = entry.formerSongID, returnedFormerIDs.contains(former) {
                 outcome.resolved[id] = former
-                continue
+            } else if let source = entry.serverSourceID, let item = entry.externalID,
+                      let songID = serverSongs[source]?[item] {
+                outcome.resolved[id] = songID
+            } else if entry.hasPlayableMetadata && !(entry.serverSourceID != nil && entry.origin == MusicSourceType.tingReader.rawValue) {
+                remaining[id] = entry
             }
+        }
+        guard !isCancelled() else { return PendingEntryMatchOutcome() }
+        guard !remaining.isEmpty else { return outcome }
+        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache, isCancelled: isCancelled)
+        for (id, entry) in remaining {
+            guard !isCancelled() else { return PendingEntryMatchOutcome() }
             if entry.serverSourceID != nil {
                 if let song = matcher.matchServerEntry(entry) { outcome.resolved[id] = song.id }
                 continue
             }
-            guard entry.hasPlayableMetadata else { continue }
             let match = matcher.matchImportedTrack(ExternalPlaylistTrack(
                 title: entry.title, artists: entry.artists, album: entry.album, duration: entry.duration
             ))
@@ -10819,7 +11161,10 @@ final class MusicLibrary {
     /// `leavingPlaceholders` 为真(音乐源被移除、文件从源里消失)留下置灰占位,
     /// 以后有了再点亮; 为假(用户亲手删歌)照旧从歌单里去掉。「我喜欢」不留占位 ——
     /// 它和服务端收藏双向同步, 占位在那边没有对应物。
-    private func reassignPlaylistMembers(ofRemoved removed: [Song], leavingPlaceholders: Bool) {
+    private func reassignPlaylistMembers(
+        ofRemoved removed: [Song], leavingPlaceholders: Bool,
+        preparedReplacements: [String: String]? = nil
+    ) {
         guard !removed.isEmpty, !playlistSongIDs.isEmpty else { return }
         let removedByID = Dictionary(removed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var affectedPlaylistIDs: [String] = []
@@ -10838,7 +11183,7 @@ final class MusicLibrary {
         // 常见情况(没有歌单引用被删的歌)到这里就结束, 不碰整库。
         guard !referencedRemoved.isEmpty else { return }
 
-        let replacements = siblingReplacements(for: Array(referencedRemoved.values))
+        let replacements = preparedReplacements ?? siblingReplacements(for: Array(referencedRemoved.values))
         var placeholders: [String: PlaylistPendingEntry] = [:]
         var changed = false
         for playlistID in affectedPlaylistIDs {
@@ -10886,6 +11231,12 @@ final class MusicLibrary {
     /// 被删的歌 → 曲库里同一首歌的另一份(停用源除外)。只拿标题粗筛过的少数歌建索引,
     /// 不对整库做繁简归一化。
     private func siblingReplacements(for removed: [Song]) -> [String: String] {
+        Self.siblingReplacements(for: removed, songs: songs, disabledSourceIDs: disabledSourceIDs)
+    }
+
+    private nonisolated static func siblingReplacements(
+        for removed: [Song], songs: [Song], disabledSourceIDs: Set<String>
+    ) -> [String: String] {
         let coarseKeys = Set(removed.map { Self.coarseTitleKey($0.title) }.filter { !$0.isEmpty })
         guard !coarseKeys.isEmpty else { return [:] }
         let removedIDs = Set(removed.map(\.id))
@@ -10895,7 +11246,7 @@ final class MusicLibrary {
                 && coarseKeys.contains(Self.coarseTitleKey($0.title))
         }
         guard !candidates.isEmpty else { return [:] }
-        let matcher = PlaylistEntryMatcher(songs: candidates, keyCache: playlistEntryMatchKeyCache)
+        let matcher = PlaylistEntryMatcher(songs: candidates)
         var result: [String: String] = [:]
         for song in removed {
             if let best = matcher.match(PlaylistEntryMatcher.subject(of: song)).best {
@@ -11058,6 +11409,7 @@ final class MusicLibrary {
             let resolutions = await Task.detached(priority: .utility) {
                 Self.matchCarriedMarks(entries, against: candidates, keyCache: cache)
             }.value
+            await self.waitForSourceRemoval()
             guard generation == self.carriedSongMarksResolutionGeneration else { return }
             self.carriedSongMarksResolutionTask = nil
             self.carriedSongMarksCheckedState = state
@@ -11194,7 +11546,7 @@ final class MusicLibrary {
         guard !coarseKeys.isEmpty else { return [:] }
         let candidates = visibleSongs.filter { coarseKeys.contains(Self.coarseTitleKey($0.title)) }
         guard candidates.count > 1 else { return [:] }
-        let matcher = PlaylistEntryMatcher(songs: candidates, keyCache: playlistEntryMatchKeyCache)
+        let matcher = PlaylistEntryMatcher(songs: candidates)
         var result: [String: [Song]] = [:]
         for song in targets {
             let copies = matcher.match(PlaylistEntryMatcher.subject(of: song)).confident.filter {
@@ -11228,88 +11580,98 @@ final class MusicLibrary {
     /// Projects the already-persisted Apple Music mirrors into the folder
     /// browser. This is deliberately local-only: opening the library never
     /// starts another MusicKit request or authorization prompt.
-    func appleMusicFolderCollections(
-        availableSongs: [Song]
-    ) -> [LibraryFolderVirtualCollectionDescriptor] {
+    func appleMusicFolderCollections(availableSongs: [Song]) -> [LibraryFolderVirtualCollectionDescriptor] {
+        appleMusicFolderSnapshot().collections(availableSongs: availableSongs)
+    }
+
+    func appleMusicFolderSnapshot() -> AppleMusicFolderSnapshot {
         let sourceID = AppleMusicLibraryIdentity.sourceID
-        guard appleMusicLibrarySyncEnabled,
-              appleMusicSourceInstalled,
-              !disabledSourceIDs.contains(sourceID) else {
-            return []
-        }
+        let enabled = appleMusicLibrarySyncEnabled && appleMusicSourceInstalled && !disabledSourceIDs.contains(sourceID)
+        let mirrors = enabled ? allPlaylists.filter {
+            !$0.isDeleted && !isMirrorPlaylistSuppressed($0.id)
+                && $0.id.hasPrefix(AppleMusicLibraryIdentity.userPlaylistIDPrefix)
+        } : []
+        return AppleMusicFolderSnapshot(
+            enabled: enabled,
+            includesLibrarySongs: !isMirrorPlaylistSuppressed(AppleMusicLibraryIdentity.systemPlaylistID),
+            userMirrors: mirrors, playlistSongIDs: playlistSongIDs
+        )
+    }
 
-        var availableIDs: [String] = []
-        var availableIDSet = Set<String>()
-        for song in availableSongs where song.sourceID == sourceID {
-            if availableIDSet.insert(song.id).inserted {
-                availableIDs.append(song.id)
+    struct AppleMusicFolderSnapshot: Sendable {
+        let enabled: Bool
+        let includesLibrarySongs: Bool
+        let userMirrors: [Playlist]
+        let playlistSongIDs: [String: [String]]
+
+        func collections(availableSongs: [Song]) -> [LibraryFolderVirtualCollectionDescriptor] {
+            guard enabled else { return [] }
+            let sourceID = AppleMusicLibraryIdentity.sourceID
+            let userMirrors = userMirrors.sorted { lhs, rhs in
+                let order = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+                return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
             }
-        }
-
-        var librarySongIDs: [String] = []
-        var seenLibrarySongIDs = Set<String>()
-        for songID in playlistSongIDs[AppleMusicLibraryIdentity.systemPlaylistID] ?? []
-        where availableIDSet.contains(songID) && seenLibrarySongIDs.insert(songID).inserted {
-            librarySongIDs.append(songID)
-        }
-        librarySongIDs.append(contentsOf: availableIDs.filter {
-            seenLibrarySongIDs.insert($0).inserted
-        })
-
-        var collections: [LibraryFolderVirtualCollectionDescriptor] = []
-        if !isMirrorPlaylistSuppressed(AppleMusicLibraryIdentity.systemPlaylistID) {
-            collections.append(LibraryFolderVirtualCollectionDescriptor(
-                sourceID: sourceID,
-                identity: AppleMusicLibraryIdentity.systemPlaylistID,
-                displayName: String(localized: "library_folder_apple_music_library_songs"),
-                kind: .librarySongs,
-                songIDs: librarySongIDs
-            ))
-        }
-
-        let userMirrors = allPlaylists
-            .filter {
-                !$0.isDeleted
-                    && !isMirrorPlaylistSuppressed($0.id)
-                    && $0.id.hasPrefix(AppleMusicLibraryIdentity.userPlaylistIDPrefix)
+            var availableIDs: [String] = []
+            var availableIDSet = Set<String>()
+            for index in availableSongs.indices where availableSongs[index].sourceID == sourceID {
+                let id = availableSongs[index].id
+                if availableIDSet.insert(id).inserted { availableIDs.append(id) }
             }
-            .sorted { lhs, rhs in
-                let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
-                return lhs.id < rhs.id
-            }
-        var playlistMembership = Set<String>()
-        for playlist in userMirrors {
-            var seenSongIDs = Set<String>()
-            let memberIDs = (playlistSongIDs[playlist.id] ?? []).filter {
-                availableIDSet.contains($0) && seenSongIDs.insert($0).inserted
-            }
-            playlistMembership.formUnion(memberIDs)
-            let trimmedName = playlist.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            collections.append(LibraryFolderVirtualCollectionDescriptor(
-                sourceID: sourceID,
-                identity: playlist.id,
-                displayName: trimmedName.isEmpty
-                    ? String(localized: "library_folder_apple_music_unnamed_playlist")
-                    : trimmedName,
-                kind: .playlist,
-                songIDs: memberIDs
-            ))
-        }
 
-        if !userMirrors.isEmpty {
-            let notInPlaylist = librarySongIDs.filter { !playlistMembership.contains($0) }
-            if !notInPlaylist.isEmpty {
+            var librarySongIDs: [String] = []
+            var seenLibrarySongIDs = Set<String>()
+            for songID in playlistSongIDs[AppleMusicLibraryIdentity.systemPlaylistID] ?? []
+            where availableIDSet.contains(songID) && seenLibrarySongIDs.insert(songID).inserted {
+                librarySongIDs.append(songID)
+            }
+            librarySongIDs.append(contentsOf: availableIDs.filter {
+                seenLibrarySongIDs.insert($0).inserted
+            })
+
+            var collections: [LibraryFolderVirtualCollectionDescriptor] = []
+            if includesLibrarySongs {
                 collections.append(LibraryFolderVirtualCollectionDescriptor(
                     sourceID: sourceID,
-                    identity: AppleMusicLibraryIdentity.notInPlaylistCollectionID,
-                    displayName: String(localized: "library_folder_apple_music_not_in_playlist"),
-                    kind: .notInPlaylist,
-                    songIDs: notInPlaylist
+                    identity: AppleMusicLibraryIdentity.systemPlaylistID,
+                    displayName: String(localized: "library_folder_apple_music_library_songs"),
+                    kind: .librarySongs,
+                    songIDs: librarySongIDs
                 ))
             }
+
+            var playlistMembership = Set<String>()
+            for playlist in userMirrors {
+                var seenSongIDs = Set<String>()
+                let memberIDs = (playlistSongIDs[playlist.id] ?? []).filter {
+                    availableIDSet.contains($0) && seenSongIDs.insert($0).inserted
+                }
+                playlistMembership.formUnion(memberIDs)
+                let trimmedName = playlist.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                collections.append(LibraryFolderVirtualCollectionDescriptor(
+                    sourceID: sourceID,
+                    identity: playlist.id,
+                    displayName: trimmedName.isEmpty
+                        ? String(localized: "library_folder_apple_music_unnamed_playlist")
+                        : trimmedName,
+                    kind: .playlist,
+                    songIDs: memberIDs
+                ))
+            }
+
+            if !userMirrors.isEmpty {
+                let notInPlaylist = librarySongIDs.filter { !playlistMembership.contains($0) }
+                if !notInPlaylist.isEmpty {
+                    collections.append(LibraryFolderVirtualCollectionDescriptor(
+                        sourceID: sourceID,
+                        identity: AppleMusicLibraryIdentity.notInPlaylistCollectionID,
+                        displayName: String(localized: "library_folder_apple_music_not_in_playlist"),
+                        kind: .notInPlaylist,
+                        songIDs: notInPlaylist
+                    ))
+                }
+            }
+            return collections
         }
-        return collections
     }
 
     /// Cross-device identities that have not resolved on this device yet.
@@ -11607,14 +11969,14 @@ final class MusicLibrary {
         return (resolved, unresolved)
     }
 
-    private struct IdentityCloudPathKey: Hashable {
+    private struct IdentityCloudPathKey: Hashable, Sendable {
         let accountID: String
         let filePath: String
     }
 
-    private struct IdentityResolutionIndex {
-        let songIDByCloudPath: [IdentityCloudPathKey: String]
-        let songIndicesByTitle: [String: [Int]]
+    private struct IdentityResolutionIndex: Sendable {
+        var songIDByCloudPath: [IdentityCloudPathKey: String]
+        var songIndicesByTitle: [String: [Int]]
         /// 本机文件源里, 每个被问到的相对路径上有哪些歌。
         var deviceLocalPathCandidates: [String: [SongIdentityDeviceLocalPathMatch.Candidate]] = [:]
     }
@@ -11622,76 +11984,99 @@ final class MusicLibrary {
     /// Builds only the lookup buckets required by the pending identities.
     /// A metadata batch can otherwise perform one complete `songs.first` scan
     /// per pending playlist entry on the main actor.
+    private struct IdentityResolutionCandidates: Sendable {
+        var index: IdentityResolutionIndex
+        var cloudPaths: [(sourceID: String, filePath: String, songID: String)]
+    }
+
     private func makeIdentityResolutionIndex(for identities: [SongIdentity]) -> IdentityResolutionIndex {
-        // `resolveIdentity` 先按 id 找，按 id 找得到的用不上索引；全都找得到时（同一份曲库的设备之间是常态，
-        // 电视的播放历史每来一条都是这样）整库一遍也不必扫。
-        let identities = identities.filter { songForSynchronization(id: $0.songID) == nil }
-        let requestedTitles = Set(identities.lazy.compactMap { identity in
-            identity.title.isEmpty ? nil : identity.title
-        })
-        let requestedCloudPaths = Set(identities.compactMap { identity -> IdentityCloudPathKey? in
-            guard let accountID = identity.cloudAccountID, !identity.filePath.isEmpty else { return nil }
-            return IdentityCloudPathKey(accountID: accountID, filePath: identity.filePath)
-        })
-        let requestedFilePaths = Set(requestedCloudPaths.map(\.filePath))
-        let deviceLocalSourceIDs = deviceLocalSourceIDsProvider?() ?? []
-        let requestedLocalPaths: Set<String> = deviceLocalSourceIDs.isEmpty ? [] : Set(
-            identities.lazy.filter(SongIdentityDeviceLocalPathMatch.isEligible).map(\.filePath)
+        let unresolved = identities.filter { songForSynchronization(id: $0.songID) == nil }
+        let candidates = Self.identityResolutionCandidates(
+            for: unresolved, songs: songs, deviceLocalSourceIDs: deviceLocalSourceIDsProvider?() ?? []
         )
-        var deviceLocalPathCandidates: [String: [SongIdentityDeviceLocalPathMatch.Candidate]] = [:]
+        return finishIdentityResolutionIndex(candidates, identities: unresolved)
+    }
 
-        var songIDByCloudPath: [IdentityCloudPathKey: String] = [:]
-        var songIndicesByTitle: [String: [Int]] = [:]
-        songIDByCloudPath.reserveCapacity(requestedCloudPaths.count)
-        songIndicesByTitle.reserveCapacity(requestedTitles.count)
-
-        // 单张封面只需要它引用的路径；不要为无关歌曲生成云端路径索引。
-        // 同一来源的账号解析（包括失败）在本批只做一次。
-        var accountIDBySourceID: [String: String] = [:]
-        var resolvedSourceIDs = Set<String>()
-
-        // 按下标只取要比对的字段: `for song in songs` 每一首都要整份拷贝 Song
-        // (几十个字符串字段逐个 retain/release), 整库五六万首时这才是大头。
-        let allSongs = songs
-        let matchesTitles = !requestedTitles.isEmpty
-        let matchesPaths = !requestedFilePaths.isEmpty
-        let matchesLocalPaths = !requestedLocalPaths.isEmpty
-        guard matchesTitles || matchesPaths || matchesLocalPaths else {
-            return IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:])
-        }
-        for songIndex in allSongs.indices {
-            if matchesTitles {
-                let title = allSongs[songIndex].title
-                if requestedTitles.contains(title) {
-                    songIndicesByTitle[title, default: []].append(songIndex)
-                }
+    private nonisolated static func identityResolutionCandidates(
+        for identities: [SongIdentity], songs: [Song], deviceLocalSourceIDs: Set<String>,
+        isCancelled: () -> Bool = { false }
+    ) -> IdentityResolutionCandidates {
+        let titles = Set(identities.compactMap { $0.title.isEmpty ? nil : $0.title })
+        let paths = Set(identities.compactMap { $0.cloudAccountID == nil || $0.filePath.isEmpty ? nil : $0.filePath })
+        let localPaths = deviceLocalSourceIDs.isEmpty ? [] : Set(
+            identities.filter(SongIdentityDeviceLocalPathMatch.isEligible).map(\.filePath)
+        )
+        var result = IdentityResolutionCandidates(
+            index: IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:]), cloudPaths: []
+        )
+        guard !titles.isEmpty || !paths.isEmpty || !localPaths.isEmpty else { return result }
+        for index in songs.indices {
+            if index.isMultiple(of: 256), isCancelled() { break }
+            if !titles.isEmpty, titles.contains(songs[index].title) {
+                result.index.songIndicesByTitle[songs[index].title, default: []].append(index)
             }
-            if matchesLocalPaths,
-               requestedLocalPaths.contains(allSongs[songIndex].filePath),
-               deviceLocalSourceIDs.contains(allSongs[songIndex].sourceID) {
-                deviceLocalPathCandidates[allSongs[songIndex].filePath, default: []].append(
-                    Self.deviceLocalPathCandidate(allSongs[songIndex])
+            if !localPaths.isEmpty, localPaths.contains(songs[index].filePath),
+               deviceLocalSourceIDs.contains(songs[index].sourceID) {
+                result.index.deviceLocalPathCandidates[songs[index].filePath, default: []].append(
+                    deviceLocalPathCandidate(songs[index])
                 )
             }
-            guard matchesPaths else { continue }
-            let filePath = allSongs[songIndex].filePath
-            guard requestedFilePaths.contains(filePath) else { continue }
-            let sourceID = allSongs[songIndex].sourceID
-            if resolvedSourceIDs.insert(sourceID).inserted {
-                accountIDBySourceID[sourceID] = sourceIdentityResolver?(sourceID)
-            }
-            guard let accountID = accountIDBySourceID[sourceID] else { continue }
-            let key = IdentityCloudPathKey(accountID: accountID, filePath: filePath)
-            if requestedCloudPaths.contains(key), songIDByCloudPath[key] == nil {
-                songIDByCloudPath[key] = allSongs[songIndex].id
+            if !paths.isEmpty, paths.contains(songs[index].filePath) {
+                result.cloudPaths.append((songs[index].sourceID, songs[index].filePath, songs[index].id))
             }
         }
+        return result
+    }
 
-        return IdentityResolutionIndex(
-            songIDByCloudPath: songIDByCloudPath,
-            songIndicesByTitle: songIndicesByTitle,
-            deviceLocalPathCandidates: deviceLocalPathCandidates
-        )
+    private func finishIdentityResolutionIndex(
+        _ candidates: IdentityResolutionCandidates, identities: [SongIdentity]
+    ) -> IdentityResolutionIndex {
+        var result = candidates.index
+        let requested = Set(identities.compactMap { identity -> IdentityCloudPathKey? in
+            guard let account = identity.cloudAccountID, !identity.filePath.isEmpty else { return nil }
+            return IdentityCloudPathKey(accountID: account, filePath: identity.filePath)
+        })
+        var accounts: [String: String] = [:]
+        var seen = Set<String>()
+        for item in candidates.cloudPaths {
+            if seen.insert(item.sourceID).inserted { accounts[item.sourceID] = sourceIdentityResolver?(item.sourceID) }
+            guard let account = accounts[item.sourceID] else { continue }
+            let key = IdentityCloudPathKey(accountID: account, filePath: item.filePath)
+            if requested.contains(key), result.songIDByCloudPath[key] == nil { result.songIDByCloudPath[key] = item.songID }
+        }
+        return result
+    }
+
+    func prepareArtworkIdentityResolutions() async {
+        let generation = songMutationGeneration
+        let snapshot = songs
+        let now = Date()
+        let pending = artworkOverridesByOwner.compactMap { key, override -> (String, SongIdentity)? in
+            guard override.mode == .selectedSong, let identity = override.selectedSongIdentity,
+                  songIndexByID[identity.songID] == nil,
+                  LibraryArtworkSongResolutionCachePolicy.decision(
+                    cached: artworkSongIDResolutions[key], identity: identity,
+                    generation: generation, songCount: snapshot.count, now: now
+                  ) == .resolve else { return nil }
+            return (key, identity)
+        }
+        guard !pending.isEmpty else { return }
+        let identities = pending.map(\.1)
+        let localSources = deviceLocalSourceIDsProvider?() ?? []
+        let worker = Task.detached(priority: .utility) {
+            Self.identityResolutionCandidates(
+                for: identities, songs: snapshot, deviceLocalSourceIDs: localSources, isCancelled: { Task.isCancelled }
+            )
+        }
+        let candidates = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, generation == songMutationGeneration else { return }
+        let index = finishIdentityResolutionIndex(candidates, identities: identities)
+        for (key, identity) in pending where artworkOverridesByOwner[key]?.selectedSongIdentity == identity {
+            artworkSongIDResolutions[key] = LibraryArtworkSongResolutionCachePolicy.Entry(
+                identity: identity, songID: resolveIdentity(identity, using: index),
+                generation: generation, songCount: snapshot.count, checkedAt: now
+            )
+        }
     }
 
     /// iOS 前台的重试不建整库索引(见 `schedulePendingIdentityFlush`), 本机文件源
@@ -12588,7 +12973,7 @@ final class MusicLibrary {
         }) { return }
         // 先落地补丁再快照: 离主线程准备的整行替换必须看到窗口内的补丁, 并且
         // 补丁写过的字段要叠回这一批整行, 否则更早的读取会把它们盖回去。
-        let updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
+        var updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
 
         // A source toggle or another song mutation can land while preparation
         // is suspended. Rebase once on the newest immutable snapshots before
@@ -12613,6 +12998,7 @@ final class MusicLibrary {
                 return Self.prepareStableMetadataReplacements(request)
             }.value
 
+            await waitForSourceRemoval()
             // visibleCacheGeneration 覆盖 songs 不变但可见缓存已被重新发布的
             // 情况 (异步派生重建落地 / 稳定成员替换), 否则这份补丁会把更新的
             // visibleSongs 换回旧数组, 而 visibleSongIndexByID 仍指向新数组。
@@ -12621,6 +13007,23 @@ final class MusicLibrary {
                   automaticArtistArtworkCatalogRevision == request.automaticArtworkCatalogRevision,
                   disabledSourceIDs == request.disabledSourceIDs,
                   artistNameConfiguration == request.artistNameConfiguration else {
+                // Reference patches that landed while the full rows were being
+                // prepared are newer than those rows and must survive the retry.
+                updatedSongs = updatedSongs.map { incoming in
+                    guard let index = request.songIndexByID[incoming.id],
+                          request.originalSongs.indices.contains(index),
+                          let current = indexedLibrarySong(incoming.id) else { return incoming }
+                    let original = request.originalSongs[index]
+                    var rebased = incoming
+                    if current.coverArtFileName != original.coverArtFileName {
+                        rebased.coverArtFileName = current.coverArtFileName
+                    }
+                    if current.lyricsFileName != original.lyricsFileName {
+                        rebased.lyricsFileName = current.lyricsFileName
+                    }
+                    if current.mvPath != original.mvPath { rebased.mvPath = current.mvPath }
+                    return rebased
+                }
                 continue
             }
             guard let prepared else {
@@ -13134,6 +13537,10 @@ final class MusicLibrary {
     }
 
     private func rebuildIndex() {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.rebuildIndex() }
+            return
+        }
         rebuildIndexGeneration &+= 1
         let request = DerivedIndexRequest(
             generation: rebuildIndexGeneration,
@@ -13269,6 +13676,7 @@ final class MusicLibrary {
         if let computation { lastIndexRebuildSeconds = computation.elapsedSeconds }
         var applied = false
         if let computation,
+           !sourceRemovalInProgress,
            rebuildIndexGeneration == request.generation,
            songMutationGeneration == request.songMutationGeneration,
            disabledSourceIDs == request.disabledSourceIDs,
@@ -13433,6 +13841,10 @@ final class MusicLibrary {
 
     /// tvOS 下载到新快照后重新从磁盘加载整库(songs/playlists 等)。
     func reloadFromDisk(preferExternalSnapshot: Bool = true) {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.reloadFromDisk(preferExternalSnapshot: preferExternalSnapshot) }
+            return
+        }
         pendingSongPersistenceBatch?.seal()
         loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
     }
@@ -13493,6 +13905,7 @@ final class MusicLibrary {
                 )
             }.value
             guard !Task.isCancelled else { return false }
+            await waitForSourceRemoval()
             guard isReady, generation == songMutationGeneration,
                   visibilityGeneration == visibleCacheGeneration,
                   configuration == artistNameConfiguration, hidden == disabledSourceIDs else { continue }
@@ -14313,6 +14726,7 @@ final class MusicLibrary {
     func reloadFromDiskInBackground(preferExternalSnapshot: Bool = true) async {
         await whenReady()
         await waitForPendingIndex()
+        await waitForSourceRemoval()
         let baseline = storageForReload()
         readiness = .preparing
         let prepared = await Task.detached(priority: .userInitiated) {
@@ -14807,8 +15221,8 @@ final class MusicLibrary {
     @ObservationIgnored private var portableSnapshotPersistedGeneration: UInt64 = 0
     @ObservationIgnored private var portableSnapshotEnqueuedGeneration: UInt64?
     @ObservationIgnored private var portableSnapshotNeedsInitialWrite = false
-    private var derivedIndexCacheWriteTask: Task<Void, Never>?
-    private var startupCacheWriteTask: Task<Void, Never>?
+    private let derivedIndexCacheWriter = CoalescedLibraryCacheWriter()
+    private let startupCacheWriter = CoalescedLibraryCacheWriter()
     /// 远端歌单并进来之后还没写进耐久账本(见 `scheduleRemotePlaylistDurabilityLedgerWrite`)。
     @ObservationIgnored private var remotePlaylistLedgerWritePending = false
     @ObservationIgnored private var remotePlaylistLedgerWriteTask: Task<Void, Never>?
@@ -14847,12 +15261,11 @@ final class MusicLibrary {
             derivedIndexSignature: derivedIndexSignature
         )
         let url = startupCacheURL
-        let previous = startupCacheWriteTask
-        let task = Task.detached(priority: .utility) {
-            _ = await previous?.value
-            Self.writeStartupCache(cache, to: url)
+        startupCacheWriter.schedule {
+            await LibraryCacheEncodingGate.shared.write {
+                Self.writeStartupCache(cache, to: url)
+            }
         }
-        startupCacheWriteTask = task
     }
 
     private nonisolated static func writeStartupCache(_ cache: StartupCache, to url: URL) {
@@ -14884,19 +15297,18 @@ final class MusicLibrary {
             artists: artists
         )
         let url = derivedIndexCacheURL
-        let previous = derivedIndexCacheWriteTask
-        let task = Task.detached(priority: .utility) {
-            _ = await previous?.value
-            do {
-                let encoder = PropertyListEncoder()
-                encoder.outputFormat = .binary
-                let data = try encoder.encode(cache)
-                try data.write(to: url, options: .atomic)
-            } catch {
-                plog("⚠️ Derived library index cache write failed: \(error.localizedDescription)")
+        derivedIndexCacheWriter.schedule {
+            await LibraryCacheEncodingGate.shared.write {
+                do {
+                    let encoder = PropertyListEncoder()
+                    encoder.outputFormat = .binary
+                    let data = try encoder.encode(cache)
+                    try data.write(to: url, options: .atomic)
+                } catch {
+                    plog("⚠️ Derived library index cache write failed: \(error.localizedDescription)")
+                }
             }
         }
-        derivedIndexCacheWriteTask = task
     }
 
     private func persistSongChanges(
@@ -15106,7 +15518,7 @@ final class MusicLibrary {
         let cachedDerivedSignature = derivedIndexSignature
         let cacheFormatVersion = Self.startupCacheFormatVersion
         let previous = persistWriteTask
-        let previousStartupCacheWrite = startupCacheWriteTask
+        let previousStartupCacheWrite = startupCacheWriter.task
         let task = Task.detached(priority: .utility) {
             // Chain after any in-flight write so the atomic file is updated in
             // call order and we never run two encodes against the same path.
@@ -15134,7 +15546,9 @@ final class MusicLibrary {
                 artists: cachedArtists,
                 derivedIndexSignature: cachedDerivedSignature
             )
-            Self.writeStartupCache(cache, to: cacheURL)
+            await LibraryCacheEncodingGate.shared.write {
+                Self.writeStartupCache(cache, to: cacheURL)
+            }
             if let fallbackSongs {
                 Self.writeSongFallback(fallbackSongs, to: fallbackURL)
             }
@@ -15375,6 +15789,7 @@ final class MusicLibrary {
         // 整份替换进行中就先等它结束: 这个调用的契约是"返回时已落盘", 既不能
         // 空写成功, 也不能和事务抢同一个文件。
         await awaitExternalSnapshotWriteRelease()
+        await waitForSourceRemoval()
         guard !Task.isCancelled else { return .failure(.cancelled) }
         // 屏障语义: 窗口内的资源补丁也必须进这次落盘。
         flushPendingAssetReferencePatches()
@@ -15410,6 +15825,7 @@ final class MusicLibrary {
         // 同 `persistNowAndWait`: 存储句柄要等发布才装入, 分支判断也必须在
         // 发布之后做, 否则增量提交会退回 JSON 路径并同样空写成功。
         await whenReady()
+        await waitForSourceRemoval()
         flushPendingAssetReferencePatches()
         guard songStore != nil else {
             // Older/unsupported environments retain the proven JSON path.

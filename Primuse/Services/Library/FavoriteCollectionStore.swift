@@ -249,7 +249,7 @@ final class FavoriteCollectionStore {
         if let membershipCache, membershipCache.key == key { return membershipCache.value }
 
         let albums = favorites.likedAlbums(in: library.visibleAlbums)
-        let artists = favorites.likedArtists(in: library.favoriteArtistCandidates)
+        let artists = favorites.hasLikedArtists ? favorites.likedArtists(in: library.favoriteArtistCandidates) : []
         var dated: [(pin: QuickAccessPinReference, likedAt: Date)] = []
         dated.reserveCapacity(albums.count + artists.count)
         for album in albums {
@@ -433,12 +433,12 @@ final class FavoriteCollectionStore {
         guard !added.isEmpty else { return }
 
         var dated: [(pin: QuickAccessPinReference, likedAt: Date)] = []
-        for album in library.visibleAlbums {
+        for album in favorites.likedAlbums(in: library.visibleAlbums) {
             let key = favorites.favoriteID(for: album)
             guard added.contains(key) else { continue }
             dated.append((QuickAccessPinReference(kind: .album, itemID: album.id), favorites.entry(id: key)?.likedAt ?? .distantPast))
         }
-        for artist in library.favoriteArtistCandidates {
+        for artist in favorites.likedArtists(in: library.favoriteArtistCandidates) {
             let key = favorites.favoriteID(for: artist)
             guard added.contains(key) else { continue }
             dated.append((QuickAccessPinReference(kind: .artist, itemID: artist.id), favorites.entry(id: key)?.likedAt ?? .distantPast))
@@ -710,9 +710,4 @@ extension MusicLibrary {
         visibleArtist(id: id) ?? visibleAlbumArtist(id: id)
     }
 
-    /// 收藏能对上的全部艺人：全部艺术家，加上只在专辑艺术家里的那几位。
-    var favoriteArtistCandidates: [Artist] {
-        let albumArtistsOnly = visibleAlbumArtists.filter { visibleArtist(id: $0.id) == nil }
-        return albumArtistsOnly.isEmpty ? visibleArtists : visibleArtists + albumArtistsOnly
-    }
 }

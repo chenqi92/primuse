@@ -330,6 +330,8 @@ final class SearchWorkCoordinator {
     var searchTask: Task<Void, Never>?
     var intelligenceTask: Task<Void, Never>?
     var lyricsCache = LibrarySearchCache()
+    let catalogIndex = LibraryCatalogSearchIndex()
+    var requiresLocalSearchResume = false
     var generation = 0
     var intelligenceGeneration = 0
     var intelligenceQuery = ""
@@ -4335,7 +4337,8 @@ struct SearchView: View {
     /// body 会永久落在 searchingPlaceholder 分支。这里检测到"有词、结果对不上、
     /// 且当前没在搜"时重新触发, 让结果恢复。
     private func resumeSearchIfNeeded() {
-        guard !searchText.isEmpty, !isSearching, renderedQuery != searchText else { return }
+        guard !searchText.isEmpty, !isSearching,
+              renderedQuery != searchText || workCoordinator.requiresLocalSearchResume else { return }
         performSearch(query: searchText)
         performAppleMusicSearch(query: searchText)
     }
@@ -4352,6 +4355,7 @@ struct SearchView: View {
         workCoordinator.cancelLocalSearch()
         workCoordinator.generation += 1
         guard !query.isEmpty else {
+            workCoordinator.requiresLocalSearchResume = false
             searchResults = []
             keywordAlbums = []
             keywordArtists = []
@@ -4371,11 +4375,13 @@ struct SearchView: View {
         }
 
         let scopedSearch = scope != nil
+        workCoordinator.requiresLocalSearchResume = true
         let layout = resultLayout
         let matchKinds = layout.matchKinds
         // 全局搜索只在音乐里找歌: 有声条目按书列在自己那一组, 不混进歌曲结果。
         // 在某个歌单 / 文件夹范围里搜时, 范围里有什么就找什么。
-        let songsSnapshot = scope?.songs(in: library.visibleSongs) ?? library.musicSongs
+        let sourceSongsSnapshot = scopedSearch ? library.visibleSongs : library.musicSongs
+        let scopeSnapshot = scope
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
         let artistsSnapshot = scopedSearch || !layout.shows(.artists) ? [] : library.visibleArtists
         let cacheSnapshot = workCoordinator.lyricsCache
@@ -4400,6 +4406,13 @@ struct SearchView: View {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
 
+            let searchStartedAt = ProcessInfo.processInfo.systemUptime
+            let scopeWorker = Task.detached(priority: .userInitiated) {
+                scopeSnapshot?.songs(in: sourceSongsSnapshot) ?? sourceSongsSnapshot
+            }
+            let songsSnapshot = await withTaskCancellationHandler { await scopeWorker.value } onCancel: { scopeWorker.cancel() }
+            guard !Task.isCancelled else { return }
+
             // The persistent index limits global matches before membership filtering.
             // Search the scope directly so matches outside it cannot crowd out its songs.
             let indexed: LibraryIndexedSearchOutput?
@@ -4416,14 +4429,12 @@ struct SearchView: View {
             }
             guard !Task.isCancelled else { return }
 
+            var lyricsFallback: Task<LibrarySearchOutput, Never>?
+            defer { lyricsFallback?.cancel() }
             let output: LibrarySearchOutput
-            if var indexed {
-                // The first persistent lyrics build is intentionally gradual.
-                // Until it has examined the current song set, merge only the
-                // old literal-lyrics path (no metadata/pinyin ICU scan) so the
-                // feature remains complete during migration.
+            if let indexed {
                 if !indexed.lyricsIndexComplete, matchKinds.contains(.lyrics) {
-                    let fallbackWorker = Task.detached(priority: .utility) {
+                    lyricsFallback = Task.detached(priority: .utility) {
                         LibrarySearchWorker.compute(
                             query: query,
                             songs: songsSnapshot,
@@ -4434,15 +4445,6 @@ struct SearchView: View {
                             albumLimit: 0
                         )
                     }
-                    let fallback = await withTaskCancellationHandler {
-                        await fallbackWorker.value
-                    } onCancel: {
-                        fallbackWorker.cancel()
-                    }
-                    indexed.output = mergeIndexedSearch(
-                        indexed.output,
-                        literalFallback: fallback
-                    )
                 }
                 output = indexed.output
             } else {
@@ -4466,28 +4468,28 @@ struct SearchView: View {
                 }
             }
             guard !Task.isCancelled else { return }
-            let catalogWorker = Task.detached(priority: .userInitiated) {
-                (
-                    albums: SearchCatalogPolicy.albums(
-                        query: query,
-                        visibleAlbums: albumsSnapshot,
-                        relatedAlbums: output.albumResults
-                    ),
-                    artists: SearchCatalogPolicy.artists(
-                        query: query,
-                        visibleArtists: artistsSnapshot
-                    )
-                )
-            }
-            let catalog = await withTaskCancellationHandler {
-                await catalogWorker.value
-            } onCancel: {
-                catalogWorker.cancel()
-            }
+            guard myGen == workCoordinator.generation else { return }
+            searchResults = output.songResults
+            keywordAlbums = output.albumResults
+            keywordArtists = []
+            if renderedQuery != query { collectionResults = [] }
+            renderedQuery = query
+            let songsFinishedAt = ProcessInfo.processInfo.systemUptime
+            let catalog = await workCoordinator.catalogIndex.search(
+                query: query, albums: albumsSnapshot, artists: artistsSnapshot,
+                relatedAlbums: output.albumResults
+            )
             guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             searchResults = output.songResults
             keywordAlbums = catalog.albums
             keywordArtists = catalog.artists
+            #if DEBUG
+            plog(String(format: "🔎 local search songs=%.0fms catalog=%.0fms library=%d albums=%d results=%d/%d/%d",
+                (songsFinishedAt - searchStartedAt) * 1_000,
+                (ProcessInfo.processInfo.systemUptime - songsFinishedAt) * 1_000,
+                songsSnapshot.count, albumsSnapshot.count,
+                output.songResults.count, catalog.albums.count, catalog.artists.count))
+            #endif
             workCoordinator.lyricsCache = output.cache
             refreshSpaceResults(query: query)
             if renderedQuery != query { collectionResults = [] }
@@ -4496,6 +4498,17 @@ struct SearchView: View {
             let collections = await searchCollections(queries: [query])
             guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             collectionResults = collections
+            if let lyricsFallback {
+                let fallback = await withTaskCancellationHandler {
+                    await lyricsFallback.value
+                } onCancel: {
+                    lyricsFallback.cancel()
+                }
+                guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
+                searchResults = mergeIndexedSearch(output, literalFallback: fallback).songResults
+                workCoordinator.lyricsCache = fallback.cache
+            }
+            workCoordinator.requiresLocalSearchResume = false
         }
     }
 
@@ -4692,17 +4705,16 @@ struct SearchView: View {
                 }
                 output = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             }
-            let albumWorker = Task.detached(priority: .utility) {
-                SearchCatalogPolicy.albums(query: concept, visibleAlbums: albumsSnapshot, relatedAlbums: output.albumResults)
-            }
-            let relatedAlbums = await withTaskCancellationHandler { await albumWorker.value } onCancel: { albumWorker.cancel() }
-            for album in relatedAlbums where seenAlbums.insert(album.id).inserted {
+            let catalog = await workCoordinator.catalogIndex.search(
+                query: concept, albums: albumsSnapshot, artists: artistsSnapshot,
+                relatedAlbums: output.albumResults, semanticArtists: true
+            )
+            guard !Task.isCancelled else { return }
+            for album in catalog.albums where seenAlbums.insert(album.id).inserted {
                 albums.append(album)
                 albumConcepts[album.id] = concept
             }
-            artists += artistsSnapshot.filter {
-                SearchCatalogTextPolicy.matches($0.name, query: concept) && seenArtists.insert($0.id).inserted
-            }
+            artists += catalog.artists.filter { seenArtists.insert($0.id).inserted }
             for match in output.songResults {
                 if match.score >= (matchesByID[match.song.id]?.score ?? .min) {
                     matchesByID[match.song.id] = match

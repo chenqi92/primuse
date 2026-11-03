@@ -63,7 +63,7 @@ final class MusicLibrarySourceRemovalFenceTests: XCTestCase {
         // 继续加歌, 快照与计数就对不上了。
         let mutationsWhileRemoving = progress.mutations
         let churnStillRunning = !progress.isFinished
-        let songCountAfterRemoval = library.songCount
+        let songCountAfterRemoval = library.songs.count
         let remainingSourceIDs = Set(library.songs.map(\.sourceID))
         let doomedSurvivors = library.songs.filter { $0.sourceID == "source-1" }
         let keptFirst = library.song(id: "kept-1")
@@ -87,6 +87,95 @@ final class MusicLibrarySourceRemovalFenceTests: XCTestCase {
         XCTAssertNotNil(keptSecond)
         XCTAssertEqual(remainingSourceIDs, ["source-2"])
         XCTAssertEqual(songCountAfterRemoval, 2 + mutationsWhileRemoving)
+        XCTAssertFalse(library.visibleSongs.contains { $0.sourceID == "source-1" })
+        // Replayed scan batches use the same asynchronous catalogue publication as normal scans.
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.songCount, songCountAfterRemoval)
+        _ = await library.persistNowAndWait()
+    }
+
+    func testPersistenceWaitsForQueuedMutationDuringSourceRemoval() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseSourceRemovalDurability-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([makeSong(id: "removed", sourceID: "old")], affectedSourceIDs: ["old"])
+        await library.waitForPendingIndex()
+        library.sourceSongRemovalPreparationDelayForTesting = .milliseconds(200)
+        let removal = Task { await library.removeSongsForSources(["old"]) }
+        try await Task.sleep(for: .milliseconds(50))
+        library.addSongs([makeSong(id: "new", sourceID: "kept")], affectedSourceIDs: ["kept"], pruneMissingSongs: false)
+        let saved = await library.persistNowAndWait()
+        if case .failure(let error) = saved { XCTFail("Persistence failed: \(error)") }
+        _ = await removal.value
+        let reloaded = MusicLibrary(storageDirectory: directory)
+        XCTAssertNotNil(reloaded.song(id: "new"))
+        XCTAssertNil(reloaded.song(id: "removed"))
+    }
+
+    func testSourceRemovalPreservesAssetPatchesAndInFlightMetadataReplacement() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseSourceRemovalPatches-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let kept = makeSong(id: "kept", sourceID: "kept-source")
+        library.addSongs([makeSong(id: "removed", sourceID: "old"), kept], pruneMissingSongs: false)
+        await library.waitForPendingIndex()
+        library.stableMetadataPreparationDelayForTesting = .milliseconds(120)
+        library.sourceSongRemovalPreparationDelayForTesting = .milliseconds(220)
+        var updated = kept
+        updated.duration = 321
+        let replacement = Task { await library.replaceSongsPreparedOffMain([updated]) }
+        try await Task.sleep(for: .milliseconds(30))
+        let removal = Task { await library.removeSongsForSources(["old"]) }
+        try await Task.sleep(for: .milliseconds(30))
+        library.updateAssetReferences(songID: "kept", lyricsRef: "kept-lyrics.lrc")
+        library.flushPendingAssetReferencePatches()
+        _ = await removal.value
+        await replacement.value
+        await library.waitForPendingIndex()
+        XCTAssertNil(library.storedSong(id: "removed"))
+        XCTAssertEqual(library.storedSong(id: "kept")?.duration, 321)
+        XCTAssertEqual(library.storedSong(id: "kept")?.lyricsFileName, "kept-lyrics.lrc")
+        _ = await library.persistNowAndWait()
+    }
+
+    func testSourceRemovalDiscardsOnlyMatchingPersistedBackfillRetries() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        let ids = ["removed", "retained"]
+        for filename in ["backfill-failed.json", "backfill-deferred-retry.json"] {
+            try JSONEncoder().encode(ids).write(to: directory.appendingPathComponent(filename))
+        }
+        let service = MetadataBackfillService(library: library,
+            sourceManager: SourceManager(sourcesProvider: { [] }), storageDirectory: directory)
+        defer { service.stop() }
+        XCTAssertTrue(service.isDeferredRetry(songID: "removed"))
+        XCTAssertTrue(service.isDeferredRetry(songID: "retained"))
+        var removedIDs = Set((0..<10_000).map { "untracked-\($0)" })
+        removedIDs.insert("removed")
+        service.discardWork(forSourceID: "old")
+        var heartbeats = 0
+        let heartbeat = Task { @MainActor in
+            while !Task.isCancelled {
+                heartbeats += 1
+                await Task.yield()
+            }
+        }
+        await service.discardWorkNow(forSourceIDs: ["old"], knownSongIDs: removedIDs)
+        heartbeat.cancel()
+        await heartbeat.value
+        XCTAssertGreaterThan(heartbeats, 0)
+        XCTAssertFalse(service.isDeferredRetry(songID: "removed"))
+        XCTAssertTrue(service.isDeferredRetry(songID: "retained"))
+        let before = service.detailsState(for: makeSong(id: "retained", sourceID: "kept"), isLocalSource: false)
+        let after = service.detailsState(for: makeSong(id: "removed", sourceID: "old"), isLocalSource: false)
+        XCTAssertNotEqual(before, after)
     }
 
     private func makeSong(id: String, sourceID: String) -> Song {

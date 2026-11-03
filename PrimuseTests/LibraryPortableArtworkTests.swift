@@ -1760,6 +1760,7 @@ extension LibraryPortableArtworkTests {
         let remounted = Song(id: "new", title: "Renamed", duration: 260, fileFormat: .flac, filePath: original.filePath, sourceID: "new-mount")
         library.addSongs(unrelated + [wrong, remounted])
         resolvedSources = []
+        await library.prepareArtworkIdentityResolutions()
         XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [remounted]), .selectedSong(remounted.id))
         XCTAssertEqual(Set(resolvedSources), ["wrong-account", "new-mount"])
         XCTAssertEqual(resolvedSources.count, 2)

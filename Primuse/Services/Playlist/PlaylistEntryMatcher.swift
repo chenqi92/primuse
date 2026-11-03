@@ -22,12 +22,16 @@ struct PlaylistEntryMatcher: Sendable {
     private let index: ExternalTrackMatchIndex<Int>
     private let serverItems: [String: [String: Int]]
 
-    init(songs: [Song], keyCache: PlaylistEntryMatchKeyCache? = nil) {
+    init(
+        songs: [Song], keyCache: PlaylistEntryMatchKeyCache? = nil,
+        isCancelled: () -> Bool = { false }
+    ) {
         self.songs = songs
         var keyed: [(id: Int, key: ExternalTrackMatchPolicy.Key)] = []
         var serverItems: [String: [String: Int]] = [:]
         keyed.reserveCapacity(songs.count)
         for (offset, song) in songs.enumerated() {
+            if offset.isMultiple(of: 64), isCancelled() { break }
             let key = keyCache?.key(for: song) ?? ExternalTrackMatchPolicy.Key(Self.subject(of: song))
             keyed.append((offset, key))
             if let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath),
@@ -35,7 +39,7 @@ struct PlaylistEntryMatcher: Sendable {
                 serverItems[song.sourceID, default: [:]][itemID] = offset
             }
         }
-        index = ExternalTrackMatchIndex(keyed: keyed)
+        index = ExternalTrackMatchIndex(keyed: isCancelled() ? [] : keyed)
         self.serverItems = serverItems
     }
 
@@ -138,7 +142,9 @@ final class PlaylistEntryMatchKeyCache: @unchecked Sendable {
 
     private struct Fingerprint: Equatable {
         let title: String
-        let artists: [String]
+        let sourceArtists: [String]?
+        let artist: String?
+        let albumArtist: String?
         let duration: Double
     }
 
@@ -146,15 +152,15 @@ final class PlaylistEntryMatchKeyCache: @unchecked Sendable {
     private var entries: [String: Entry] = [:]
 
     func key(for song: Song) -> ExternalTrackMatchPolicy.Key {
-        let subject = PlaylistEntryMatcher.subject(of: song)
-        let fingerprint = Fingerprint(title: subject.title, artists: subject.artists, duration: song.duration)
+        let fingerprint = Fingerprint(title: song.title, sourceArtists: song.sourceArtistNames,
+                                      artist: song.artistName, albumArtist: song.albumArtistName, duration: song.duration)
         lock.lock()
         if let cached = entries[song.id], cached.fingerprint == fingerprint {
             lock.unlock()
             return cached.key
         }
         lock.unlock()
-        let key = ExternalTrackMatchPolicy.Key(subject)
+        let key = ExternalTrackMatchPolicy.Key(PlaylistEntryMatcher.subject(of: song))
         lock.lock()
         entries[song.id] = Entry(fingerprint: fingerprint, key: key)
         lock.unlock()

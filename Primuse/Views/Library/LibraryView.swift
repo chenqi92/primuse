@@ -1457,6 +1457,8 @@ struct LibraryView: View {
             return
         }
         guard !Task.isCancelled, artworkPreviewRevision == revision else { return }
+        await library.prepareArtworkIdentityResolutions()
+        guard !Task.isCancelled, artworkPreviewRevision == revision else { return }
         let songsSnapshot = songs
         let albumsSnapshot = albums
         let artistsSnapshot = artists

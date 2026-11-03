@@ -8,6 +8,31 @@ import SwiftUI
 @testable import Primuse
 
 final class LibraryDisplayConfigurationTests: XCTestCase {
+    @MainActor
+    func testCacheWriterKeepsOnlyLatestWaitingSnapshotAndCanRestartAfterFlush() async {
+        let writer = CoalescedLibraryCacheWriter()
+        let started = expectation(description: "First cache write started")
+        let gate = AsyncStream<Void>.makeStream()
+        let writes = OSAllocatedUnfairLock(initialState: [Int]())
+        writer.schedule {
+            writes.withLock { $0.append(1) }
+            started.fulfill()
+            for await _ in gate.stream { break }
+        }
+        await fulfillment(of: [started], timeout: 2)
+        for generation in 2...20 {
+            writer.schedule { writes.withLock { $0.append(generation) } }
+        }
+        XCTAssertEqual(writes.withLock { $0 }, [1])
+        gate.continuation.yield()
+        gate.continuation.finish()
+        await writer.flush()
+        XCTAssertEqual(writes.withLock { $0 }, [1, 20])
+        writer.schedule { writes.withLock { $0.append(21) } }
+        await writer.flush()
+        XCTAssertEqual(writes.withLock { $0 }, [1, 20, 21])
+    }
+
     func testTabSelectionPreservesEveryVisibleTab() {
         for tab in 0...3 {
             XCTAssertEqual(AppTabSelectionPolicy.resolve(tab), tab)
@@ -49,6 +74,187 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         var republished = albums
         republished[0].title = "Zebra II"
         XCTAssertFalse(request.matches(republished), "曲库发布的新数组不能认成已经排好的那份")
+    }
+
+    func testAlbumFilteringCombinesOverridesFavoritesAndSearchWithoutChangingOrder() throws {
+        let albums = [
+            Album(id: "studio", title: "Studio", artistName: "Singer", year: 2025),
+            Album(id: "live", title: "Concert", artistName: "Singer", year: 2026),
+            Album(id: "single", title: "First - Single", artistName: "Singer", year: 2026),
+        ]
+        var categories = AlbumReleaseMetadataIndex()
+        categories.prepare(albums: albums)
+        var favorites = LibraryFavoriteLedger()
+        _ = favorites.set(kind: .album, albumTitle: "Concert", artistName: "Singer", liked: true, at: Date())
+        let request = AlbumGridFilterRequest(
+            order: AlbumGridOrderRequest(order: .title, albums: albums), query: "2026", category: .live,
+            likedOnly: true, favoritesRevision: 1, categoryRevision: 1, membershipRevision: 1, overrideRevision: 1
+        )
+        let result = try XCTUnwrap(request.filter(
+            albums, categories: categories, overrides: ["live": [.live]], favorites: favorites,
+            unknownArtistName: "Unknown"
+        ))
+        XCTAssertEqual(result.map(\.id), ["live"])
+        XCTAssertNil(request.filter(albums, categories: categories, overrides: [:], favorites: favorites,
+                                    unknownArtistName: "Unknown", isCancelled: { true }))
+        XCTAssertTrue(try XCTUnwrap(request.filter(
+            albums, categories: categories, overrides: [:], favorites: favorites, unknownArtistName: "Unknown"
+        )).isEmpty, "Removing a manual category must remove its old matches")
+    }
+
+    @MainActor
+    func testAlbumFilterCacheInvalidatesForSameCountMetadataAndPreferenceChanges() {
+        let albums = [Album(id: "a", title: "First")]
+        func request(_ source: [Album], query: String = "", category: AlbumReleaseCategory? = nil,
+                     favorites: Int = 0, categories: UInt64 = 0, membership: UInt64 = 0, overrides: Int = 0) -> AlbumGridFilterRequest {
+            AlbumGridFilterRequest(order: AlbumGridOrderRequest(order: .title, albums: source), query: query,
+                                   category: category, likedOnly: favorites > 0, favoritesRevision: favorites,
+                                   categoryRevision: categories, membershipRevision: membership, overrideRevision: overrides)
+        }
+        let cache = AlbumGridFilterCache()
+        let original = request(albums)
+        cache.store(AlbumGridFilteredAlbums(request: original, source: albums, albums: albums))
+        XCTAssertEqual(cache.entry(for: original)?.albums.map(\.id), ["a"])
+        var edited = albums
+        edited[0].title = "Second"
+        for changed in [request(edited), request(albums, query: "Second"), request(albums, category: .live),
+                        request(albums, favorites: 1), request(albums, categories: 1),
+                        request(albums, membership: 1), request(albums, overrides: 1)] {
+            XCTAssertNil(cache.entry(for: changed))
+        }
+    }
+
+    func testPendingEntriesResolveExactIDsWithoutMetadataAndDiscardCancelledMatches() {
+        let song = Song(id: "returned", title: "Renamed", duration: 0, fileFormat: .flac,
+                        filePath: "/fnmusic/tracks/remote.flac", sourceID: "server")
+        let former = PlaylistPendingEntry(title: "", artists: [], formerSongID: "returned")
+        let server = PlaylistPendingEntry(title: "", artists: [], externalID: "remote", serverSourceID: "server")
+        let missing = PlaylistPendingEntry(title: "", artists: [], externalID: "absent", serverSourceID: "server")
+        let entries = [former.id: former, server.id: server, missing.id: missing]
+        let result = MusicLibrary.matchPendingEntries(entries, against: [song], keyCache: nil)
+        XCTAssertEqual(result.resolved, [former.id: song.id, server.id: song.id])
+        XCTAssertTrue(MusicLibrary.matchPendingEntries(entries, against: [song], keyCache: nil,
+                                                       isCancelled: { true }).resolved.isEmpty)
+        let fuzzy = PlaylistPendingEntry(title: "Title", artists: ["Singer"], duration: 180)
+        let songs = (0..<512).map { index in
+            Song(id: "song-\(index)", title: "Title", artistName: "Singer", duration: 180,
+                 fileFormat: .flac, filePath: "/\(index).flac", sourceID: "local")
+        }
+        var checkpoints = 0
+        let cancelled = MusicLibrary.matchPendingEntries([fuzzy.id: fuzzy], against: songs, keyCache: nil) {
+            checkpoints += 1
+            return checkpoints >= 3
+        }
+        XCTAssertTrue(cancelled.resolved.isEmpty)
+        XCTAssertTrue(cancelled.suggestions.isEmpty)
+    }
+
+    @MainActor
+    func testIncompleteImportProbeReadsStoredRowsBeforeVisibleIndexCatchesUp() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ImportDurationProbe-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let ready = Song(id: "ready", title: "Ready", duration: 180, fileFormat: .flac,
+                         filePath: "/ready.flac", sourceID: "local")
+        let pending = Song(id: "pending", title: "Pending", duration: 0, fileFormat: .flac,
+                           filePath: "/pending.flac", sourceID: "local")
+        library.addSongs([ready, pending])
+        let incomplete = await library.sourceHasIncompleteDurations("local")
+        let absent = await library.sourceHasIncompleteDurations("other")
+        XCTAssertTrue(incomplete)
+        XCTAssertFalse(absent)
+        library.addSongs([ready], affectedSourceIDs: ["local"])
+        let complete = await library.sourceHasIncompleteDurations("local")
+        XCTAssertFalse(complete)
+        _ = await library.persistNowAndWait()
+    }
+
+    @MainActor
+    func testBackgroundSourceVisibilityDiscardsCancelledAndSupersededRequests() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SourceVisibility-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        library.addSongs([Song(id: "song", title: "Song", fileFormat: .flac,
+                               filePath: "/song.flac", sourceID: "source")])
+        await library.waitForPendingIndex()
+        let cancelled = Task { await library.updateDisabledSourceIDsInBackground(["source"]) }
+        cancelled.cancel()
+        await cancelled.value
+        XCTAssertTrue(library.disabledSourceIDs.isEmpty)
+        XCTAssertEqual(library.visibleSongs.map(\.id), ["song"])
+
+        var started = false
+        let first = Task { @MainActor in
+            started = true
+            await library.updateDisabledSourceIDsInBackground(["source"])
+        }
+        while !started { await Task.yield() }
+        await library.updateDisabledSourceIDsInBackground([])
+        await first.value
+        XCTAssertTrue(library.disabledSourceIDs.isEmpty)
+        XCTAssertEqual(library.visibleSongs.map(\.id), ["song"])
+        _ = await library.persistNowAndWait()
+    }
+
+    @MainActor
+    func testBackgroundSourceVisibilityKeepsSongsChangedDuringPreparation() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("SourceVisibilityMutation-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        var song = Song(id: "kept", title: "Before", fileFormat: .flac,
+                        filePath: "/kept.flac", sourceID: "kept-source")
+        library.addSongs([song, Song(id: "hidden", title: "Hidden", fileFormat: .flac,
+                                    filePath: "/hidden.flac", sourceID: "hidden-source")])
+        await library.waitForPendingIndex()
+        var started = false
+        let update = Task { @MainActor in
+            started = true
+            await library.updateDisabledSourceIDsInBackground(["hidden-source"])
+        }
+        while !started { await Task.yield() }
+        song.title = "After"
+        library.addSongs([song], pruneMissingSongs: false)
+        await update.value
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.disabledSourceIDs, ["hidden-source"])
+        XCTAssertEqual(library.visibleSongs.map(\.id), ["kept"])
+        XCTAssertEqual(library.visibleSongs.first?.title, "After")
+        _ = await library.persistNowAndWait()
+    }
+
+    func testAppleMusicFolderSnapshotKeepsOrderVisibilityAndUnfiledSongsOffMainActor() async {
+        let source = AppleMusicLibraryIdentity.sourceID
+        let songs = ["one", "two", "three"].map {
+            Song(id: $0, title: $0, fileFormat: .mp3, filePath: "/\($0)", sourceID: source)
+        } + [Song(id: "other", title: "Other", fileFormat: .mp3, filePath: "/other", sourceID: "local")]
+        let snapshot = MusicLibrary.AppleMusicFolderSnapshot(
+            enabled: true, includesLibrarySongs: true,
+            userMirrors: [Playlist(id: "z", name: "Z"), Playlist(id: "a", name: "A")],
+            playlistSongIDs: [AppleMusicLibraryIdentity.systemPlaylistID: ["two", "two", "missing"],
+                              "z": ["one", "other"], "a": ["one", "one"]]
+        )
+        let collections = await Task.detached { snapshot.collections(availableSongs: songs) }.value
+        XCTAssertEqual(collections.map(\.identity), [AppleMusicLibraryIdentity.systemPlaylistID, "a", "z", AppleMusicLibraryIdentity.notInPlaylistCollectionID])
+        XCTAssertEqual(collections.map(\.songIDs), [["two", "one", "three"], ["one"], ["one"], ["two", "three"]])
+        let disabled = MusicLibrary.AppleMusicFolderSnapshot(enabled: false, includesLibrarySongs: true,
+                                                           userMirrors: snapshot.userMirrors, playlistSongIDs: snapshot.playlistSongIDs)
+        XCTAssertTrue(disabled.collections(availableSongs: songs).isEmpty)
+    }
+
+    func testPlaylistMatchingCacheInvalidatesWhenArtistFieldsOrDurationChange() {
+        let cache = PlaylistEntryMatchKeyCache()
+        var song = Song(id: "cached", title: "Song", artistName: "Original", duration: 180,
+                        fileFormat: .flac, filePath: "/song.flac", sourceID: "local")
+        let original = cache.key(for: song)
+        XCTAssertEqual(original, cache.key(for: song))
+        song.sourceArtistNames = ["Guest"]
+        XCTAssertNotEqual(cache.key(for: song).artistTokens, original.artistTokens)
+        song.sourceArtistNames = nil
+        song.artistName = nil
+        song.albumArtistName = "Album Artist"
+        XCTAssertEqual(cache.key(for: song), ExternalTrackMatchPolicy.Key(PlaylistEntryMatcher.subject(of: song)))
+        song.duration = 200
+        XCTAssertEqual(cache.key(for: song).duration, 200)
     }
 
     func testHomeAndListeningStatsKeepTheSameHistoricalCounts() {
@@ -3344,6 +3550,7 @@ final class ListeningHistoryClassificationTests: XCTestCase {
         let library = try await library([book])
         history.mergeRemoteEntries([old])
         history.refreshClassification(library: library)
+        await history.waitForClassificationRecovery()
         XCTAssertTrue(history.musicEntries.isEmpty)
         XCTAssertEqual(history.entries.first?.content?.kind, .spokenWord)
         var music = book
@@ -3356,6 +3563,22 @@ final class ListeningHistoryClassificationTests: XCTestCase {
         incomplete = .init(songID: "unrelated", songTitle: book.title, artistName: "", albumTitle: "",
                             playedAt: old.playedAt, listenedSec: 120, sourceID: "nas")
         XCTAssertNil(context.recoveringLegacyEntries([incomplete]).recoveredContent[incomplete.songID])
+    }
+
+    func testLegacyRecoveryDoesNotRestoreClearedHistoryOrOverwriteNewPlays() async throws {
+        let book = song("new-book", genre: "Audiobook")
+        let old = PlayHistoryStore.Entry(songID: "old-book", songTitle: book.title,
+            artistName: book.artistName ?? "", albumTitle: book.albumTitle ?? "",
+            playedAt: now, listenedSec: 120, sourceID: "old-source")
+        let library = try await library([book])
+        history.mergeRemoteEntries([old])
+        history.refreshClassification(library: library)
+        history.clearAll()
+        let music = song("new-play", source: "music")
+        history.record(song: music, startedAt: now.addingTimeInterval(1), listenedSec: 120)
+        await history.waitForClassificationRecovery()
+        XCTAssertEqual(history.entries.map(\.songID), [music.id])
+        XCTAssertEqual(history.musicEntries.map(\.songID), [music.id])
     }
 
     func testManualCorrectionsUpdateOldHistoryAndCanReturnItToMusic() {

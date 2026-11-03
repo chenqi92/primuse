@@ -23,8 +23,17 @@ final class LibraryFavoritesStore {
     @ObservationIgnored private let fileURL: URL?
     /// 专辑 / 艺人 id → 喜欢的键。整库筛选时每张专辑都要算一次折叠 + 哈希，记住它；
     /// 两个 id 本来就由同样的名字算出来，同一个 id 的键不会变。
-    @ObservationIgnored private var albumKeyCache: [String: String] = [:]
-    @ObservationIgnored private var artistKeyCache: [String: String] = [:]
+    private nonisolated static let keyCache = LibraryFavoriteKeyCache()
+
+    nonisolated static func prepareKeys(albums: [Album], artists: [Artist]) {
+        let unknown = String(localized: "unknown_artist")
+        for album in albums {
+            _ = keyCache.key(kind: .album, id: album.id, title: album.title, artist: album.artistName ?? "", unknown: unknown)
+        }
+        for artist in artists {
+            _ = keyCache.key(kind: .artist, id: artist.id, title: "", artist: artist.name, unknown: unknown)
+        }
+    }
 
     init(fileURL: URL? = LibraryFavoritesStore.defaultFileURL()) {
         self.fileURL = fileURL
@@ -58,22 +67,13 @@ final class LibraryFavoritesStore {
     }
 
     func favoriteID(for album: Album) -> String {
-        if let cached = albumKeyCache[album.id] { return cached }
-        let key = LibraryFavoriteKey.id(
-            kind: .album,
-            albumTitle: album.title,
-            artistName: Self.albumArtistName(album),
-            unknownArtistName: Self.unknownArtistName
-        )
-        albumKeyCache[album.id] = key
-        return key
+        Self.keyCache.key(kind: .album, id: album.id, title: album.title,
+                          artist: Self.albumArtistName(album), unknown: Self.unknownArtistName)
     }
 
     func favoriteID(for artist: Artist) -> String {
-        if let cached = artistKeyCache[artist.id] { return cached }
-        let key = favoriteID(forArtistNamed: artist.name)
-        artistKeyCache[artist.id] = key
-        return key
+        Self.keyCache.key(kind: .artist, id: artist.id, title: "",
+                          artist: artist.name, unknown: Self.unknownArtistName)
     }
 
     func favoriteID(forArtistNamed name: String) -> String {
@@ -121,8 +121,13 @@ final class LibraryFavoritesStore {
             uniquingKeysWith: { first, _ in first }
         )
         guard !order.isEmpty else { return [] }
+        let unknown = Self.unknownArtistName
         return albums
-            .compactMap { album in order[favoriteID(for: album)].map { (album, $0) } }
+            .compactMap { album in
+                let key = Self.keyCache.key(kind: .album, id: album.id, title: album.title,
+                                            artist: album.artistName ?? "", unknown: unknown)
+                return order[key].map { (album, $0) }
+            }
             .sorted { $0.1 < $1.1 }
             .map(\.0)
     }
@@ -134,8 +139,12 @@ final class LibraryFavoritesStore {
             uniquingKeysWith: { first, _ in first }
         )
         guard !order.isEmpty else { return [] }
+        let unknown = Self.unknownArtistName
         return artists
-            .compactMap { artist in order[favoriteID(for: artist)].map { (artist, $0) } }
+            .compactMap { artist in
+                let key = Self.keyCache.key(kind: .artist, id: artist.id, title: "", artist: artist.name, unknown: unknown)
+                return order[key].map { (artist, $0) }
+            }
             .sorted { $0.1 < $1.1 }
             .map(\.0)
     }
@@ -259,5 +268,31 @@ final class LibraryFavoritesStore {
         } catch {
             plog("💗 library favorites not saved: \(error.localizedDescription)")
         }
+    }
+}
+
+private final class LibraryFavoriteKeyCache: @unchecked Sendable {
+    private struct Entry {
+        let title: String
+        let artist: String
+        let unknown: String
+        let key: String
+    }
+    private let lock = NSLock()
+    private var entries: [String: Entry] = [:]
+
+    func key(kind: LibraryFavoriteKind, id: String, title: String, artist: String, unknown: String) -> String {
+        let cacheID = "\(kind.rawValue):\(id)"
+        lock.lock()
+        if let entry = entries[cacheID], entry.title == title, entry.artist == artist, entry.unknown == unknown {
+            lock.unlock()
+            return entry.key
+        }
+        lock.unlock()
+        let key = LibraryFavoriteKey.id(kind: kind, albumTitle: title, artistName: artist, unknownArtistName: unknown)
+        lock.lock()
+        entries[cacheID] = Entry(title: title, artist: artist, unknown: unknown, key: key)
+        lock.unlock()
+        return key
     }
 }

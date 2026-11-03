@@ -10,6 +10,30 @@ import Observation
 
 @MainActor
 final class LibraryFavoritesStoreTests: XCTestCase {
+    func testFavoriteArtistCandidatesFollowSameCountReplacementsAndAlbumArtists() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FavoriteArtists-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        var song = Song(id: "song", title: "Track", albumTitle: "Album", artistName: "Singer",
+                        albumArtistName: "Band", fileFormat: .mp3, filePath: "/song.mp3", sourceID: "s")
+        library.addSongs([song], affectedSourceIDs: ["s"])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(Set(library.favoriteArtistCandidates.map(\.name)), ["Singer", "Band"])
+        XCTAssertEqual(library.favoriteArtistCandidates.count, 2)
+        song.artistName = "New Singer"
+        song.albumArtistName = "New Band"
+        library.replaceSongs([song])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(Set(library.favoriteArtistCandidates.map(\.name)), ["New Singer", "New Band"])
+        song.albumArtistName = "New Singer"
+        library.replaceSongs([song])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.favoriteArtistCandidates.map(\.name), ["New Singer"])
+        _ = await library.persistNowAndWait()
+    }
+
     func testRestoringLikedCollectionPreservesSongsAndOtherCollections() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("FavoriteCollectionRestore-\(UUID().uuidString)")
@@ -82,6 +106,20 @@ final class LibraryFavoritesStoreTests: XCTestCase {
         reloaded.toggle(album)
         XCTAssertFalse(reloaded.isLiked(album))
         XCTAssertEqual(reloaded.allEntriesIncludingDeleted.count, 1, "unliking keeps a tombstone for iCloud")
+    }
+
+    func testPreparedFavoriteKeysTrackRenamedMetadataAndNewLikes() async {
+        let store = LibraryFavoritesStore(fileURL: nil)
+        let album = Album(id: "prewarmed-album", title: "First", artistName: "Singer")
+        let artist = Artist(id: "prewarmed-artist", name: "Singer")
+        await Task.detached { LibraryFavoritesStore.prepareKeys(albums: [album], artists: [artist]) }.value
+        XCTAssertFalse(store.isLiked(album))
+        store.setLiked(true, album: album)
+        XCTAssertEqual(store.likedAlbums(in: [album]).map(\.id), [album.id])
+        var renamed = album
+        renamed.title = "Second"
+        XCTAssertFalse(store.isLiked(renamed))
+        XCTAssertTrue(store.isLiked(album))
     }
 
     func testRemoteChangesNeverOverrideANewerLocalEdit() {

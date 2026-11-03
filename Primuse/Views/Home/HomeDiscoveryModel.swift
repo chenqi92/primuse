@@ -444,17 +444,10 @@ struct HomeDiscoveryObserver: View {
         pendingMetadataIDs.removeAll()
         let songs = library.visibleSongs
         let spokenWordSongIDs = library.spokenWordSongIDs
-        let collections = library.appleMusicFolderCollections(availableSongs: songs)
-        var descriptors = request.sources
-        var known = Set(descriptors.map(\.sourceID))
-        for song in songs where known.insert(song.sourceID).inserted {
-            descriptors.append(LibraryFolderSourceDescriptor(
-                sourceID: song.sourceID,
-                displayName: song.sourceID == AppleMusicLibraryIdentity.sourceID
-                    ? String(localized: "apple_music_library_section") : String(localized: "source_label"),
-                scanRoots: [], pathSemantics: .opaque
-            ))
-        }
+        let collectionSnapshot = library.appleMusicFolderSnapshot()
+        let descriptors = request.sources
+        let appleMusicName = String(localized: "apple_music_library_section")
+        let sourceName = String(localized: "source_label")
         var providers: [String: ProviderInput] = [:]
         for source in sourcesStore.allSources {
             guard source.type.isCloudDrive || source.type.isServerLibrary || source.type == .upnp else { continue }
@@ -465,6 +458,20 @@ struct HomeDiscoveryObserver: View {
             )
         }
         let task = Task.detached(priority: .utility) { [descriptors, providers] in
+            let collections = collectionSnapshot.collections(availableSongs: songs)
+            var descriptors = descriptors
+            var known = Set(descriptors.map(\.sourceID))
+            for index in songs.indices {
+                if index.isMultiple(of: 256), Task.isCancelled { break }
+                let sourceID = songs[index].sourceID
+                if known.insert(sourceID).inserted {
+                    descriptors.append(LibraryFolderSourceDescriptor(
+                        sourceID: sourceID,
+                        displayName: sourceID == AppleMusicLibraryIdentity.sourceID ? appleMusicName : sourceName,
+                        scanRoots: [], pathSemantics: .opaque
+                    ))
+                }
+            }
             let resolved = descriptors.map { descriptor in
                 guard let provider = providers[descriptor.sourceID], !provider.items.isEmpty else { return descriptor }
                 let indexedRoots = provider.items.values.filter { $0.isDirectory && $0.parentPath == nil }

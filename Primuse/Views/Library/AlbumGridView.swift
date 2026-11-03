@@ -12,8 +12,8 @@ struct AlbumGridView: View {
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
     @State private var showsLikedOnly = false
     @AppStorage(AlbumGridOrder.storageKey) private var albumOrderRawValue = AlbumGridOrder.defaultOrder.rawValue
-    /// 后台按当前排序排好的全部专辑（见 `prepareOrderedAlbums`）。
-    @State private var orderedAlbums: AlbumGridOrderedAlbums?
+    /// 后台准备好的筛选结果。
+    @State private var displayedAlbums: AlbumGridFilteredAlbums?
     private let favorites = LibraryFavoritesStore.shared
 
     private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedAlbums }
@@ -47,55 +47,59 @@ struct AlbumGridView: View {
         AlbumGridOrderRequest(order: albumOrder, albums: library.visibleAlbums)
     }
 
-    /// 按当前排序排好的全部专辑，第一次排好之前为 nil。曲库刚变、或刚换了排序方式，
-    /// 新顺序还在后台排的那一小会儿沿用上一份，网格不先空一下。
-    private var sortedAlbums: [Album]? {
-        let request = orderRequest
-        if let orderedAlbums, orderedAlbums.request == request { return orderedAlbums.albums }
-        return AlbumGridOrderCache.shared.entry(for: request)?.albums ?? orderedAlbums?.albums
+    private var filterRequest: AlbumGridFilterRequest {
+        AlbumGridFilterRequest(
+            order: orderRequest, query: albumFilter.trimmingCharacters(in: .whitespacesAndNewlines),
+            category: AlbumReleaseCategory(rawValue: releaseCategory), likedOnly: showsLikedOnly,
+            favoritesRevision: showsLikedOnly ? favorites.revision : 0,
+            categoryRevision: releaseCategory.isEmpty ? 0 : library.releaseCategoryRevision,
+            membershipRevision: releaseCategory.isEmpty ? 0 : library.releaseCategoryMembershipRevision,
+            overrideRevision: releaseCategory.isEmpty ? 0 : AlbumReleaseCategoryStore.shared.revision
+        )
     }
 
-    /// 排好的顺序里筛出喜欢的 / 匹配筛选词的，顺序保持。
     private var filteredAlbums: [Album] {
-        var albums = sortedAlbums ?? []
-        if let category = AlbumReleaseCategory(rawValue: releaseCategory) {
-            albums = albums.filter { LibraryReleaseCategoryIndex.shared.categories(for: $0, in: library).contains(category) }
-        }
-        if showsLikedOnly {
-            albums = albums.filter { favorites.isLiked($0) }
-        }
-        let query = albumFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return albums }
-        return albums.filter { album in
-            album.title.localizedCaseInsensitiveContains(query)
-                || (album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
-                || album.year.map(String.init)?.contains(query) == true
-        }
+        AlbumGridFilterCache.shared.entry(for: filterRequest)?.albums ?? displayedAlbums?.albums ?? []
     }
 
-    /// 拼音转写与按艺术家归集放到后台排，body 里不整库排序；排好的按「同一份可见专辑 +
-    /// 同一种排序」记在 `AlbumGridOrderCache` 里，换页回来直接用。
-    private func prepareOrderedAlbums(_ request: AlbumGridOrderRequest) async {
-        if let cached = AlbumGridOrderCache.shared.entry(for: request) {
-            if orderedAlbums?.request != request {
-                orderedAlbums = cached
-            }
+    private var isPreparing: Bool {
+        displayedAlbums == nil && AlbumGridFilterCache.shared.entry(for: filterRequest) == nil
+    }
+
+    private func prepareAlbums(_ request: AlbumGridFilterRequest) async {
+        if let cached = AlbumGridFilterCache.shared.entry(for: request) {
+            displayedAlbums = cached
             return
         }
         let source = library.visibleAlbums
-        // 曲库在这一拍之后又发布过：body 会带着新的请求再来一次。
-        guard request.matches(source) else { return }
-        let order = request.order
-        let songs = order == .recentlyAdded ? library.visibleSongs : []
+        guard request.order.matches(source) else { return }
+        let categories = request.category == nil ? nil : library.releaseCategorySnapshot
+        let overrides: [String: Set<AlbumReleaseCategory>]
+        if request.category != nil {
+            guard let resolved = await library.resolvedReleaseOverrides(AlbumReleaseCategoryStore.shared.snapshot) else { return }
+            overrides = resolved
+        } else { overrides = [:] }
+        guard !Task.isCancelled, filterRequest == request else { return }
+        let favoritesSnapshot = favorites.ledger
+        let songs = request.order.order == .recentlyAdded ? library.visibleSongs : []
         let unknownArtistName = String(localized: "unknown_artist")
-        let albums = await Task.detached(priority: .userInitiated) {
-            AlbumGridOrder.sorted(source, order: order, songs: songs, unknownArtistName: unknownArtistName)
-        }.value
-        // 已经有更新的请求在排：除非还一份都没有，不拿旧结果盖掉它。
-        guard !Task.isCancelled || orderedAlbums == nil else { return }
-        let entry = AlbumGridOrderedAlbums(request: request, source: source, albums: albums)
-        AlbumGridOrderCache.shared.store(entry)
-        orderedAlbums = entry
+        let ordered = await AlbumGridOrderCache.shared.prepare(
+            request.order, source: source, songs: songs, unknownArtistName: unknownArtistName
+        )
+        guard !Task.isCancelled, filterRequest == request else { return }
+        let worker = Task.detached(priority: .userInitiated) {
+            request.filter(
+                ordered.albums, categories: categories, overrides: overrides,
+                favorites: favoritesSnapshot, unknownArtistName: unknownArtistName,
+                isCancelled: { Task.isCancelled }
+            ).map { AlbumGridFilteredAlbums(request: request, source: source, albums: $0) }
+        }
+        let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+        guard let result, !Task.isCancelled, filterRequest == request else { return }
+        AlbumGridFilterCache.shared.store(result)
+        let previous = displayedAlbums
+        displayedAlbums = result
+        Task.detached(priority: .utility) { withExtendedLifetime(previous) {} }
     }
 
     #if !os(macOS)
@@ -124,12 +128,12 @@ struct AlbumGridView: View {
                     albumFilter = ""
                     openAlbum(album)
                 }
-                .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
+                .task(id: filterRequest) { await prepareAlbums(filterRequest) }
                 .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
                     filteredAlbums.map(LibraryInsightBatchItem.album)
                 }
             #else
-            iosGrid(filteredAlbums, isPreparing: sortedAlbums == nil)
+            iosGrid(filteredAlbums, isPreparing: isPreparing)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     LibraryInsightBatchStatusCard(
                         kind: .album,
@@ -172,7 +176,7 @@ struct AlbumGridView: View {
                         }
                     }
                 }
-                .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
+                .task(id: filterRequest) { await prepareAlbums(filterRequest) }
                 .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
                     filteredAlbums.map(LibraryInsightBatchItem.album)
                 }
@@ -274,7 +278,7 @@ struct AlbumGridView: View {
                             outerPadding: EdgeInsets(top: 0, leading: PMSpace.xxxl, bottom: 0, trailing: PMSpace.xxxl)
                         )
 
-                        if sortedAlbums == nil {
+                        if isPreparing {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(maxWidth: .infinity, minHeight: 280)
@@ -627,7 +631,7 @@ struct AlbumGridOrderRequest: Hashable, Sendable {
 }
 
 /// 排好的专辑，连同排它时的那份可见专辑数组（留着它，见 `AlbumGridOrderRequest`）。
-struct AlbumGridOrderedAlbums {
+struct AlbumGridOrderedAlbums: Sendable {
     let request: AlbumGridOrderRequest
     let source: [Album]
     let albums: [Album]
@@ -640,13 +644,102 @@ final class AlbumGridOrderCache {
     static let shared = AlbumGridOrderCache()
 
     private var latest: AlbumGridOrderedAlbums?
+    private var pending: (generation: Int, request: AlbumGridOrderRequest, task: Task<AlbumGridOrderedAlbums, Never>)?
+    private var preparationGeneration = 0
+
+    func prepare(
+        _ request: AlbumGridOrderRequest, source: [Album], songs: [Song], unknownArtistName: String
+    ) async -> AlbumGridOrderedAlbums {
+        if let cached = entry(for: request) { return cached }
+        if let pending, pending.request == request { return await pending.task.value }
+        let previous = pending?.task
+        previous?.cancel()
+        preparationGeneration &+= 1
+        let generation = preparationGeneration
+        let task = Task.detached(priority: .userInitiated) {
+            // Sorting is shared by filter requests; typing must not start another whole-library sort.
+            _ = await previous?.value
+            guard !Task.isCancelled else { return AlbumGridOrderedAlbums(request: request, source: source, albums: []) }
+            return AlbumGridOrderedAlbums(
+                request: request, source: source,
+                albums: AlbumGridOrder.sorted(source, order: request.order, songs: songs, unknownArtistName: unknownArtistName)
+            )
+        }
+        pending = (generation, request, task)
+        let result = await task.value
+        if pending?.generation == generation {
+            pending = nil
+            store(result)
+        }
+        return result
+    }
 
     func entry(for request: AlbumGridOrderRequest) -> AlbumGridOrderedAlbums? {
         latest?.request == request ? latest : nil
     }
 
     func store(_ entry: AlbumGridOrderedAlbums) {
+        let previous = latest
         latest = entry
+        Task.detached(priority: .utility) { withExtendedLifetime(previous) {} }
+    }
+}
+
+struct AlbumGridFilterRequest: Hashable, Sendable {
+    let order: AlbumGridOrderRequest
+    let query: String
+    let category: AlbumReleaseCategory?
+    let likedOnly: Bool
+    let favoritesRevision: Int
+    let categoryRevision: UInt64
+    let membershipRevision: UInt64
+    let overrideRevision: Int
+
+    func filter(
+        _ albums: [Album], categories: AlbumReleaseMetadataIndex?,
+        overrides: [String: Set<AlbumReleaseCategory>], favorites: LibraryFavoriteLedger,
+        unknownArtistName: String, isCancelled: () -> Bool = { false }
+    ) -> [Album]? {
+        guard !isCancelled() else { return nil }
+        guard category != nil || likedOnly || !query.isEmpty else { return albums }
+        var result: [Album] = []
+        for index in albums.indices {
+            if index.isMultiple(of: 256), isCancelled() { return nil }
+            let album = albums[index]
+            if let category,
+               !(overrides[album.id] ?? categories?.categories(albumID: album.id) ?? [.album]).contains(category) { continue }
+            if likedOnly && !favorites.isLiked(LibraryFavoriteKey.id(
+                kind: .album, albumTitle: album.title, artistName: album.artistName ?? "",
+                unknownArtistName: unknownArtistName
+            )) { continue }
+            if !query.isEmpty && !album.title.localizedCaseInsensitiveContains(query)
+                && !(album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
+                && !(album.year.map(String.init)?.contains(query) ?? false) { continue }
+            result.append(album)
+        }
+        return isCancelled() ? nil : result
+    }
+}
+
+struct AlbumGridFilteredAlbums: Sendable {
+    let request: AlbumGridFilterRequest
+    let source: [Album]
+    let albums: [Album]
+}
+
+@MainActor
+final class AlbumGridFilterCache {
+    static let shared = AlbumGridFilterCache()
+    private var latest: AlbumGridFilteredAlbums?
+
+    func entry(for request: AlbumGridFilterRequest) -> AlbumGridFilteredAlbums? {
+        latest?.request == request ? latest : nil
+    }
+
+    func store(_ entry: AlbumGridFilteredAlbums) {
+        let previous = latest
+        latest = entry
+        Task.detached(priority: .utility) { withExtendedLifetime(previous) {} }
     }
 }
 

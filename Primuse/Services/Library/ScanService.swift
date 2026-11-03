@@ -1086,7 +1086,7 @@ final class ScanService {
             context: .foregroundResume,
             resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
         ) else { return }
-        let populatedSourceIDs = Set(library.songs.map(\.sourceID))
+        let populatedSourceIDs = Set(library.songCountsBySourceID().filter { $0.value > 0 }.map(\.key))
         let sourceIDs = sourceStore.sources
             .filter { source in
                 // 用不透明条目 ID 的网盘同样只能从同步状态恢复文件夹层级，
@@ -1098,17 +1098,7 @@ final class ScanService {
                         || source.type == .upnp
                         || usesOpaqueTopology,
                       populatedSourceIDs.contains(source.id) else { return false }
-                // The checkpoint is cleared only after both the song snapshot
-                // and folder state are durable. Its presence therefore also
-                // recovers a cancellation or write failure between those two
-                // commits, even when the server kept the same song IDs.
-                // 网盘的中断扫描能从 checkpoint 续传，不该为了拓扑把那份进度
-                // 丢掉重来；它只在拓扑真的缺失时才需要完整遍历。
-                if !usesOpaqueTopology, checkpoints[source.id] != nil { return true }
-                return SourceSyncFolderTopologyPolicy.requiresRebuild(
-                    sourceType: source.type,
-                    state: syncStates[source.id]
-                )
+                return true
             }
             .map(\.id)
         guard !sourceIDs.isEmpty else { return }
@@ -1133,13 +1123,26 @@ final class ScanService {
                       !source.isDeleted else { continue }
                 let recoversInterruptedCommit = !source.type.usesOpaqueDirectoryIdentifiers
                     && self.checkpoints[sourceID] != nil
-                if !recoversInterruptedCommit,
-                   !SourceSyncFolderTopologyPolicy.requiresRebuild(
-                       sourceType: source.type,
-                       state: self.syncStates[sourceID]
-                   ) {
-                    continue
+                if !recoversInterruptedCommit {
+                    let state = self.syncStates[sourceID]
+                    let worker = Task.detached(priority: .utility) {
+                        SourceSyncFolderTopologyPolicy.requiresRebuild(sourceType: source.type, state: state)
+                    }
+                    let needsRebuild = await withTaskCancellationHandler {
+                        await worker.value
+                    } onCancel: { worker.cancel() }
+                    guard needsRebuild,
+                          self.syncStates[sourceID]?.scanEpoch == state?.scanEpoch,
+                          self.syncStates[sourceID]?.lastSuccessfulSyncAt == state?.lastSuccessfulSyncAt,
+                          self.syncStates[sourceID]?.index.count == state?.index.count else { continue }
                 }
+                guard !Task.isCancelled,
+                      let current = sourceStore.source(id: sourceID), current.isEnabled, !current.isDeleted,
+                      MusicSourceScopeFingerprint.make(for: current) == MusicSourceScopeFingerprint.make(for: source),
+                      !Self.shouldDeferAutomaticServerCatalogWork(
+                        context: .foregroundResume,
+                        resourcesAllowWork: self.automaticServerCatalogWorkAllowedHandler?() ?? true
+                      ) else { continue }
                 guard self.scanSource(
                     source,
                     mode: .deep,
@@ -5660,9 +5663,11 @@ final class ScanService {
             }
             guard fence() else { throw CancellationError() }
             if let syncState {
-                await library.updateAutomaticArtistArtworkCatalogOffMain(
-                    SourceArtistArtworkCatalog(sourceID: source.id, index: syncState.index), applyFence: fence
-                )
+                let catalog = await Task.detached(priority: .utility) {
+                    SourceArtistArtworkCatalog(sourceID: source.id, index: syncState.index)
+                }.value
+                guard fence() else { throw CancellationError() }
+                await library.updateAutomaticArtistArtworkCatalogOffMain(catalog, applyFence: fence)
             }
             guard fence() else { throw CancellationError() }
             if refreshFolderPlaylists {

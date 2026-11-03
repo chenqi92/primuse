@@ -1775,12 +1775,13 @@ final class MetadataBackfillService {
     func deferInspectedArtworkOnlyRows() {
         let readable = backfillableSourceIDs()
         let manuallyReadable = manuallyReadableSourceIDs()
+        let workReasons = makeWorkReasonsPredicate()
         let ids = Set(library.songs.lazy.filter { [self] in
             readable.contains($0.sourceID)
                 && manuallyReadable.contains($0.sourceID)
                 && !$0.isCueTrack && !$0.isStreamDescriptor
                 && titleCheckedIDs.contains($0.id)
-                && workReasons(for: $0) == .artwork
+                && workReasons($0) == .artwork
                 && peerCoverKeyBySongID[$0.id] == nil
         }.map(\.id))
         guard !ids.isEmpty else { return }
@@ -2342,7 +2343,7 @@ final class MetadataBackfillService {
                 return
             }
             guard let self, !Task.isCancelled else { return }
-            self.flushPendingDiscardWork()
+            await self.flushPendingDiscardWork()
         }
     }
 
@@ -2352,7 +2353,7 @@ final class MetadataBackfillService {
     func discardWorkNow(
         forSourceIDs sourceIDs: Set<String>,
         knownSongIDs: Set<String>
-    ) {
+    ) async {
         guard !sourceIDs.isEmpty else { return }
         stop()
         pendingDiscardSourceIDs.subtract(sourceIDs)
@@ -2360,28 +2361,38 @@ final class MetadataBackfillService {
             discardWorkTask?.cancel()
             discardWorkTask = nil
         }
-        discardPersistedWork(
+        await discardPersistedWork(
             forSourceIDs: sourceIDs,
             songIDs: knownSongIDs
         )
     }
 
-    private func flushPendingDiscardWork() {
+    private func flushPendingDiscardWork() async {
         let sourceIDs = pendingDiscardSourceIDs
-        pendingDiscardSourceIDs.removeAll(keepingCapacity: true)
-        discardWorkTask = nil
         guard !sourceIDs.isEmpty else { return }
+        let songs = library.songs
+        let songIDs = await Task.detached(priority: .utility) {
+            Set(songs.lazy.filter { sourceIDs.contains($0.sourceID) }.map(\.id))
+        }.value
+        guard !Task.isCancelled else { return }
+        pendingDiscardSourceIDs.subtract(sourceIDs)
+        discardWorkTask = nil
+        await discardPersistedWork(forSourceIDs: sourceIDs, songIDs: songIDs)
+    }
 
-        let songIDs = Set(library.songs.lazy.filter {
-            sourceIDs.contains($0.sourceID)
-        }.map(\.id))
-        discardPersistedWork(forSourceIDs: sourceIDs, songIDs: songIDs)
+    private func removeDiscardedIDs(_ removed: Set<String>, from ids: inout Set<String>) {
+        guard !ids.isEmpty else { return }
+        if ids.count < removed.count {
+            ids = ids.filter { !removed.contains($0) }
+        } else {
+            ids.subtract(removed)
+        }
     }
 
     private func discardPersistedWork(
         forSourceIDs sourceIDs: Set<String>,
         songIDs: Set<String>
-    ) {
+    ) async {
         guard !sourceIDs.isEmpty else { return }
         // Even an empty removed source stopped the shared worker. Preserve
         // other sources' explicit intent and resume after cleanup completes.
@@ -2403,20 +2414,17 @@ final class MetadataBackfillService {
         }
 
         guard !songIDs.isEmpty else { return }
-        failedSongIDs.subtract(songIDs)
-        incompleteSongIDs.subtract(songIDs)
-        sourceIssueSongIDs.subtract(songIDs)
-        sessionGivenUpIDs.subtract(songIDs)
-        sessionNetworkParkedIDs.subtract(songIDs)
-        sessionStallParkedIDs.subtract(songIDs)
-        lastProcessedSnapshotIDs.subtract(songIDs)
-        mutateDeferredRetries { $0.subtract(songIDs) }
-        for songID in songIDs { diagnosticRecords[songID] = nil }
-        titleCheckedIDs.subtract(songIDs)
-        albumArtistCheckedIDs.subtract(songIDs)
-        albumArtistRecheckedIDs.subtract(songIDs)
-        artistCheckedIDs.subtract(songIDs)
-        for id in songIDs { transientFailureCounts[id] = nil }
+        var batch = Set<String>()
+        batch.reserveCapacity(1_024)
+        for id in songIDs {
+            batch.insert(id)
+            if batch.count == 1_024 {
+                discardPersistedSongIDs(batch)
+                batch.removeAll(keepingCapacity: true)
+                await Task.yield()
+            }
+        }
+        if !batch.isEmpty { discardPersistedSongIDs(batch) }
         for sourceID in sourceIDs {
             sourceTransientFailureCounts[sourceID] = nil
             gatewayBackoff.reset(sourceID: sourceID)
@@ -2426,6 +2434,28 @@ final class MetadataBackfillService {
         saveDiagnostics()
         saveInspectionState()
         saveRetryCounts()
+    }
+
+    private func discardPersistedSongIDs(_ songIDs: Set<String>) {
+        removeDiscardedIDs(songIDs, from: &failedSongIDs)
+        removeDiscardedIDs(songIDs, from: &incompleteSongIDs)
+        removeDiscardedIDs(songIDs, from: &sourceIssueSongIDs)
+        removeDiscardedIDs(songIDs, from: &sessionGivenUpIDs)
+        removeDiscardedIDs(songIDs, from: &sessionNetworkParkedIDs)
+        removeDiscardedIDs(songIDs, from: &sessionStallParkedIDs)
+        removeDiscardedIDs(songIDs, from: &lastProcessedSnapshotIDs)
+        let discardedRetries = deferredRetrySongIDs.intersection(songIDs)
+        mutateDeferredRetries { $0.subtract(discardedRetries) }
+        if !diagnosticRecords.isEmpty {
+            for songID in songIDs { diagnosticRecords[songID] = nil }
+        }
+        removeDiscardedIDs(songIDs, from: &titleCheckedIDs)
+        removeDiscardedIDs(songIDs, from: &albumArtistCheckedIDs)
+        removeDiscardedIDs(songIDs, from: &albumArtistRecheckedIDs)
+        removeDiscardedIDs(songIDs, from: &artistCheckedIDs)
+        if !transientFailureCounts.isEmpty {
+            for id in songIDs { transientFailureCounts[id] = nil }
+        }
     }
 
     private func resumeReadingAfterSourceRemoval() {
@@ -6571,6 +6601,11 @@ final class MetadataBackfillService {
     /// 整库逐首判断用: 源集合和各份记账集合只取一次。`needsBackfill(_:)` 每问一首
     /// 都要把源列表筛两遍, 扫完一个上万首的源时这一下在主线程上要走好几秒(Debug)。
     private func makeNeedsBackfillPredicate() -> @Sendable (Song) -> Bool {
+        let workReasons = makeWorkReasonsPredicate()
+        return { !workReasons($0).isEmpty }
+    }
+
+    private func makeWorkReasonsPredicate() -> @Sendable (Song) -> MetadataBackfillWorkReasons {
         let bareOnlySourceIDs = self.bareOnlySourceIDs()
         let containerCodecOnlySourceIDs = self.containerCodecOnlySourceIDs()
         let artworkGivenUpIDs = self.artworkGivenUpIDs
@@ -6580,7 +6615,7 @@ final class MetadataBackfillService {
         let albumArtistUnconfirmedIDs = self.albumArtistUnconfirmedIDs
         let artistCheckedIDs = self.artistCheckedIDs
         return { song in
-            Self.needsBackfill(
+            Self.workReasons(
                 song,
                 restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
                     sourceUsesBareInventory: bareOnlySourceIDs.contains(song.sourceID),

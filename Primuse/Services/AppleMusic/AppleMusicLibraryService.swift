@@ -1137,9 +1137,13 @@ final class AppleMusicLibraryService {
         if let cached = librarySongIdentityCache, cached.generation == generation {
             return cached.index
         }
-        let identities = library.songs
-            .filter { $0.sourceID == Self.systemSourceID }
-            .map(Self.trackIdentity)
+        let songs = library.songs
+        var identities: [AppleMusicTrackIdentity] = []
+        songs.withUnsafeBufferPointer { buffer in
+            for index in buffer.indices where buffer[index].sourceID == Self.systemSourceID {
+                identities.append(Self.trackIdentity(buffer[index]))
+            }
+        }
         let index = librarySongIdentityCache.flatMap {
             $0.identities == identities ? $0.index : nil
         } ?? AppleMusicTrackIdentityIndex(identities)

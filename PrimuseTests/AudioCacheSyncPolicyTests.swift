@@ -224,6 +224,32 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         XCTAssertTrue(removedIDs.isEmpty)
     }
 
+    func testBulkSourceRemovalClearsTrackedRowsAndPreservesOtherSources() async throws {
+        let removed = try await fixture()
+        let retained = try await fixture()
+        defer {
+            removed.manager.deleteLocalCaches(for: [removed.song])
+            retained.manager.deleteLocalCaches(for: [retained.song])
+        }
+        for fixture in [removed, retained] {
+            try Data(repeating: 7, count: 128).write(to: fixture.url)
+            await fixture.manager.refreshOfflineAudioSnapshot(for: fixture.song)
+        }
+        let removedEntry = removed.manager.offlineAudioSnapshotEntry(for: removed.song)
+        let retainedEntry = retained.manager.offlineAudioSnapshotEntry(for: retained.song)
+        XCTAssertTrue(removedEntry.snapshot.isDownloaded)
+        let removedRevision = removed.manager.offlineAudioSnapshotRevision
+        let retainedRevision = retained.manager.offlineAudioSnapshotRevision
+        var ids = Set((0..<2_048).map { "unobserved-\($0)" })
+        ids.insert(removed.song.id)
+        NotificationCenter.default.post(name: .primuseSongsRemoved, object: nil,
+            userInfo: ["songIDs": ids, "sourceIDs": [removed.song.sourceID]])
+        XCTAssertEqual(removedEntry.snapshot.state, .notCached)
+        XCTAssertEqual(removed.manager.offlineAudioSnapshotRevision, removedRevision + 1)
+        XCTAssertTrue(retainedEntry.snapshot.isDownloaded)
+        XCTAssertEqual(retained.manager.offlineAudioSnapshotRevision, retainedRevision)
+    }
+
     func testCompletedPinnedFileRetainsOfflinePinWhenSnapshotRefreshes() async throws {
         let fixture = try await fixture()
         defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }

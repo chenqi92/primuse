@@ -7938,8 +7938,13 @@ final class SourceManager {
     /// row observers still receive their individual terminal snapshot.
     private func removeOfflineAudioSnapshots(forSongIDs songIDs: Set<String>) {
         guard !songIDs.isEmpty else { return }
+        var trackedIDs = Set(offlineAudioSnapshotVersions.keys)
+        trackedIDs.formUnion(offlineAudioSnapshots.keys)
+        trackedIDs.formUnion(offlineAudioSnapshotEntries.keys)
+        trackedIDs.formUnion(offlineAudioObservedSongs.keys)
+        trackedIDs.formUnion(offlineDownloadingSongIDs)
         var removedDownloadedSong = false
-        for songID in songIDs {
+        for songID in trackedIDs.intersection(songIDs) {
             stopObservingOfflineAudioSong(songID)
             offlineAudioSnapshotVersions[songID, default: 0] &+= 1
             removedDownloadedSong = removedDownloadedSong
@@ -11702,6 +11707,7 @@ final class SourceManager {
         let legacyWebDAVRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_webdav_cache")
         Task.detached(priority: .background) { [songs, legacyWebDAVRoot] in
+            guard FileManager.default.fileExists(atPath: legacyWebDAVRoot.path) else { return }
             for song in songs {
                 if Task.isCancelled { return }
                 let target = legacyWebDAVRoot.appendingPathComponent(

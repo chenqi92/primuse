@@ -1428,6 +1428,7 @@ final class FnMusicSourceTests: XCTestCase {
         library.replaceMirrorPlaylistSongs(playlistID: id("stale"), songIDs: ["one"], coverArtPath: nil)
 
         let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
+        await applier.prepareIndex()
         applier.apply(ServerPlaylist(id: "first", name: "First", trackIDs: ["two", "one"], reportedTrackCount: 2))
         applier.apply(ServerPlaylist(id: "unknown", name: "每日推荐 10-20", coverArtReference: "new-cover",
                                     trackIDs: ["missing"], reportedTrackCount: 1, isReadOnly: true))

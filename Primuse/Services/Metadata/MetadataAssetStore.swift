@@ -1203,8 +1203,14 @@ actor MetadataAssetStore {
 
     nonisolated func expectedLyricsFileName(for key: String) -> String {
         let digest = SHA256.hash(data: Data(key.utf8))
-        let base = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
-        return "\(base).json"
+        let hex = Array("0123456789abcdef".utf8)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(32)
+        for byte in digest.prefix(16) {
+            bytes.append(hex[Int(byte >> 4)])
+            bytes.append(hex[Int(byte & 15)])
+        }
+        return String(decoding: bytes, as: UTF8.self) + ".json"
     }
 
     /// The song-ID mirror is read before the song's reference, so a server

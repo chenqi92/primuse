@@ -5,6 +5,23 @@ import XCTest
 
 @MainActor
 final class ServerFavoriteSyncServiceTests: XCTestCase {
+    func testRefreshRechecksFenceAfterPreparingCatalog() async {
+        let source = makeSource(type: .navidrome)
+        let song = makeSong(sourceID: source.id, path: "/songs/song-1.flac")
+        let manager = FavoriteManagerFake()
+        manager.serverItemIDs = ["song-1"]
+        let library = FavoriteLibraryFake(songs: [song])
+        let service = makeService(source: source, manager: manager, library: library)
+        var checks = 0
+        await service.refresh(source: source, applyFence: {
+            checks += 1
+            return checks == 1
+        })
+        XCTAssertEqual(checks, 2)
+        XCTAssertFalse(library.isLiked(songID: song.id))
+        XCTAssertTrue(manager.setCalls.isEmpty)
+    }
+
     func testNavidromeRefreshAdmitsEightFavoritesMissingFromTheLocalCatalog() async {
         let source = makeSource(type: .navidrome)
         let existing = makeSong(sourceID: source.id, path: "/songs/existing.flac")

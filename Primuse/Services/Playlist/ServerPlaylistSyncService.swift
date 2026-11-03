@@ -29,6 +29,8 @@ enum ServerPlaylistSyncService {
 
         let snapshot: ServerPlaylistSnapshot?
         let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
+        await applier.prepareIndex()
+        guard !Task.isCancelled, applyFence() else { return result }
         do {
             // 进度回调只在这次读取期间被调用, 读完就不再持有闸门。
             snapshot = try await withoutActuallyEscaping(applyFence) { fence in
@@ -343,6 +345,7 @@ extension SourcesStore: ServerFavoriteSourcesProviding {}
 protocol ServerFavoriteLibraryManaging: AnyObject {
     var songs: [Song] { get }
     func isLiked(songID: String) -> Bool
+    func likedSongIDs(fromSourceID sourceID: String) -> [String]
     func setLiked(songID: String, isLiked: Bool, propagatesServerMutation: Bool)
     func replaceLikedSongs(fromSourceID sourceID: String, with authoritativeSongIDs: [String])
     func presentServerFavoriteError(_ message: String)
@@ -351,6 +354,9 @@ protocol ServerFavoriteLibraryManaging: AnyObject {
 }
 
 extension ServerFavoriteLibraryManaging {
+    func likedSongIDs(fromSourceID sourceID: String) -> [String] {
+        Array(songs.lazy.filter { $0.sourceID == sourceID && self.isLiked(songID: $0.id) }.map(\.id))
+    }
     func admitCollectionOnlySongs(_ incoming: [Song], sourceID: String, indexMaintenance: LibraryMaintenanceDisposition) {}
     func releaseUnreferencedCollectionOnlySongs(sourceID: String) {}
 }
@@ -494,7 +500,11 @@ final class ServerFavoriteSyncService {
                       expectedFingerprint: sourceScopeFingerprint
                   ),
                   mutationRevisions[source.id, default: 0] == mutationRevision else { return }
-            reconcile(snapshot, sourceID: source.id, sourceType: source.type)
+            guard await reconcile(snapshot, sourceID: source.id, sourceType: source.type, applyFence: {
+                applyFence() && self.mutationTasks[source.id] == nil
+                    && self.sourceScopeIsCurrent(sourceID: source.id, expectedFingerprint: sourceScopeFingerprint)
+                    && self.mutationRevisions[source.id, default: 0] == mutationRevision
+            }) else { return }
             clearConfirmedStates(
                 sourceID: source.id,
                 sourceScopeFingerprint: sourceScopeFingerprint
@@ -530,7 +540,7 @@ final class ServerFavoriteSyncService {
                     discardStaleMutationState(mutation, sourceID: sourceID)
                     continue
                 }
-                try accept(snapshot, for: mutation, sourceID: sourceID)
+                try await accept(snapshot, for: mutation, sourceID: sourceID)
             } catch is CancellationError {
                 if !hasPendingMutation(sourceID: sourceID, songID: mutation.song.id) {
                     if mutationScopeIsCurrent(mutation) {
@@ -585,7 +595,11 @@ final class ServerFavoriteSyncService {
                     songID: mutation.song.id
                 )
             } else {
-                reconcile(snapshot, sourceID: sourceID, sourceType: mutation.sourceType)
+                let revision = mutationRevisions[sourceID, default: 0]
+                guard await reconcile(snapshot, sourceID: sourceID, sourceType: mutation.sourceType, applyFence: {
+                    self.mutationScopeIsCurrent(mutation)
+                        && self.mutationRevisions[sourceID, default: 0] == revision
+                }) else { return }
                 clearConfirmedStates(
                     sourceID: sourceID,
                     sourceScopeFingerprint: mutation.sourceScopeFingerprint
@@ -608,7 +622,7 @@ final class ServerFavoriteSyncService {
         _ snapshot: ServerFavoriteSnapshot,
         for mutation: PendingMutation,
         sourceID: String
-    ) throws {
+    ) async throws {
         let serverValue = snapshot.itemIDs.contains(mutation.itemID)
         guard serverValue == mutation.desired else {
             throw SourceError.connectionFailed(String(localized: "server_favorite_refresh_mismatch"))
@@ -635,7 +649,11 @@ final class ServerFavoriteSyncService {
                 songID: mutation.song.id
             )
         } else {
-            reconcile(snapshot, sourceID: sourceID, sourceType: mutation.sourceType)
+            let revision = mutationRevisions[sourceID, default: 0]
+            guard await reconcile(snapshot, sourceID: sourceID, sourceType: mutation.sourceType, applyFence: {
+                self.mutationScopeIsCurrent(mutation)
+                    && self.mutationRevisions[sourceID, default: 0] == revision
+            }) else { return }
             clearConfirmedStates(
                 sourceID: sourceID,
                 sourceScopeFingerprint: mutation.sourceScopeFingerprint
@@ -676,30 +694,37 @@ final class ServerFavoriteSyncService {
     private func reconcile(
         _ snapshot: ServerFavoriteSnapshot,
         sourceID: String,
-        sourceType: MusicSourceType
-    ) {
+        sourceType: MusicSourceType,
+        applyFence: () -> Bool
+    ) async -> Bool {
         // 曲库里没有的收藏(插件的在线收藏)先作为仅歌单的歌入库, 下面才对得上号。
         library.admitCollectionOnlySongs(
             snapshot.itemIDs.compactMap { snapshot.playableSongs[$0] },
             sourceID: sourceID,
             indexMaintenance: .immediate
         )
-        var songsByServerItemID: [String: String] = [:]
-        var retainedLikes: [String] = []
-        var likedBefore = Set<String>()
-        for song in library.songs where song.sourceID == sourceID {
-            let isLiked = library.isLiked(songID: song.id)
-            if isLiked { likedBefore.insert(song.id) }
-            // 清单不完整时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
-            if !snapshot.isComplete, isLiked { retainedLikes.append(song.id) }
-            guard let itemID = ServerFavoriteWritebackPolicy.songID(
-                fromConnectorPath: song.filePath,
-                sourceType: sourceType
-            ),
-                  songsByServerItemID[itemID] == nil else { continue }
-            songsByServerItemID[itemID] = song.id
+        let songs = library.songs
+        let worker = Task.detached(priority: .utility) { () -> [String]? in
+            let requested = Set(snapshot.itemIDs)
+            var matches: [String: String] = [:]
+            for index in songs.indices {
+                if index.isMultiple(of: 1024), Task.isCancelled { return nil }
+                if matches.count == requested.count { break }
+                guard songs[index].sourceID == sourceID else { continue }
+                guard let itemID = ServerFavoriteWritebackPolicy.songID(
+                        fromConnectorPath: songs[index].filePath, sourceType: sourceType
+                      ), requested.contains(itemID), matches[itemID] == nil else { continue }
+                matches[itemID] = songs[index].id
+            }
+            return snapshot.itemIDs.compactMap { matches[$0] }
         }
-        let serverLikes = snapshot.itemIDs.compactMap { songsByServerItemID[$0] }
+        let prepared = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+        guard let prepared, !Task.isCancelled, applyFence() else { return false }
+        let currentLikes = library.likedSongIDs(fromSourceID: sourceID)
+        let likedBefore = Set(currentLikes)
+        // 清单不完整时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
+        let retainedLikes = snapshot.isComplete ? [] : currentLikes
+        let serverLikes = prepared
         let likedAfter = Set(retainedLikes + serverLikes)
         // 「服务器上收藏了 N 首、本机对上 M 首」: 用户说两边对不上时先看这一行。
         plog("Server favorites source=\(LogRedactionPolicy.digest(sourceID)) result=reconciled server=\(snapshot.itemIDs.count) matched=\(serverLikes.count) added=\(likedAfter.subtracting(likedBefore).count) removed=\(likedBefore.subtracting(likedAfter).count) complete=\(snapshot.isComplete)")
@@ -708,6 +733,7 @@ final class ServerFavoriteSyncService {
             with: retainedLikes + serverLikes
         )
         library.releaseUnreferencedCollectionOnlySongs(sourceID: sourceID)
+        return true
     }
 
     private func takeNextMutation(sourceID: String) -> PendingMutation? {

@@ -693,6 +693,75 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
 }
 
 final class ArtistNameLibraryTests: XCTestCase {
+    func testLyricsFallbackFindsCanonicalAndLegacyCacheFiles() throws {
+        let store = MetadataAssetStore.shared
+        XCTAssertEqual(store.expectedLyricsFileName(for: "abc"), "ba7816bf8f01cfea414140de5dae2223.json")
+        let suffix = UUID().uuidString
+        let canonical = Song(id: "canonical-" + suffix, title: "First", fileFormat: .mp3, filePath: "/first.mp3", sourceID: "test")
+        var legacy = Song(id: "legacy-" + suffix, title: "Second", fileFormat: .mp3, filePath: "/second.mp3", sourceID: "test")
+        legacy.lyricsFileName = "legacy-" + suffix + ".json"
+        let absent = Song(id: "absent-" + suffix, title: "Third", fileFormat: .mp3, filePath: "/third.mp3", sourceID: "test")
+        let urls = [store.expectedLyricsFileName(for: canonical.id), legacy.lyricsFileName!]
+            .map { store.lyricsDirectoryURL.appendingPathComponent($0) }
+        try FileManager.default.createDirectory(at: store.lyricsDirectoryURL, withIntermediateDirectories: true)
+        defer { for url in urls { try? FileManager.default.removeItem(at: url) } }
+        let lines = [LyricLine(timestamp: 12, text: "回忆里的夏天")]
+        for url in urls { try JSONEncoder().encode(lines).write(to: url) }
+        let result = LibrarySearchWorker.compute(
+            query: "回忆里", songs: [canonical, legacy, absent], albums: [],
+            cache: LibrarySearchCache(), includeMetadata: false
+        )
+        XCTAssertEqual(Set(result.songResults.map(\.song.id)), [canonical.id, legacy.id])
+        XCTAssertTrue(result.songResults.allSatisfy { $0.matchKind == .lyrics && $0.lyricTimestamp == 12 })
+    }
+
+    func testIndexedCatalogPreservesChinesePinyinInitialsAndFuzzyRanking() async {
+        let albums = [
+            Album(id: "chinese", title: "七里香", artistName: "周杰伦"),
+            Album(id: "latin", title: "Moonlight", artistName: "Artist"),
+            Album(id: "accent", title: "Café live", artistName: "Someone"),
+            Album(id: "other", title: "Other", artistName: "Else")
+        ]
+        let index = LibraryCatalogSearchIndex()
+        for query in ["七里", "qilixiang", "qlx", "zhoujielun", "zjl", "mnlt", "cafe", "unmatched"] {
+            let expected = SearchCatalogPolicy.albums(query: query, visibleAlbums: albums, relatedAlbums: [])
+            let actual = await index.search(query: query, albums: albums, artists: [])
+            XCTAssertEqual(actual.albums.map(\.id), expected.map(\.id), query)
+        }
+        let preparations = await index.preparationCount
+        XCTAssertEqual(preparations, 2) // Original-script index, then one pinyin upgrade.
+        let candidates = await index.lastAlbumCandidateCount
+        XCTAssertLessThan(candidates, albums.count)
+    }
+
+    func testIndexedCatalogDropsRemovedRowsAndKeepsOnlyVisibleRelatedAlbums() async {
+        let direct = Album(id: "direct", title: "Moonlight")
+        let removed = Album(id: "removed", title: "Moonlight two")
+        let related = Album(id: "related", title: "Other")
+        let index = LibraryCatalogSearchIndex()
+        _ = await index.search(query: "moonlight", albums: [direct, removed, related], artists: [])
+        let actual = await index.search(
+            query: "moonlight", albums: [direct, related], artists: [],
+            relatedAlbums: [removed, direct, related, related]
+        )
+        XCTAssertEqual(actual.albums.map(\.id), [direct.id, related.id])
+    }
+
+    func testIndexedArtistsPreserveLiteralAndSemanticMatching() async {
+        let artists = [
+            Artist(id: "latin", name: "Earth, Wind & Fire"),
+            Artist(id: "accent", name: "Café"),
+            Artist(id: "chinese", name: "周杰伦")
+        ]
+        let index = LibraryCatalogSearchIndex()
+        for query in ["&", "wind", "周杰伦", "cafe", "  "] {
+            let actual = await index.search(query: query, albums: [], artists: artists)
+            XCTAssertEqual(actual.artists.map(\.id), SearchCatalogPolicy.artists(query: query, visibleArtists: artists).map(\.id))
+        }
+        let semantic = await index.search(query: "fire earth", albums: [], artists: artists, semanticArtists: true)
+        XCTAssertEqual(semantic.artists.map(\.id), ["latin"])
+    }
+
     func testCatalogSearchFindsAlbumWithoutMatchingSongs() {
         let album = Album(id: "album", title: "独立专辑名称", artistName: "Artist")
         let result = SearchCatalogPolicy.albums(
