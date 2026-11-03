@@ -16,13 +16,15 @@ private final class SmokeLog: @unchecked Sendable {
 struct Song: Sendable {
     let id: String
     var title: String
+    var albumID: String?
     var albumTitle: String? = "Smoke album"
     var coverArtFileName: String?
     var dateAdded = Date()
     var duration: TimeInterval = 0
+    var isPlayable = true
     func displayArtistName(configuration: ArtistNameConfiguration) -> String? { "Smoke artist" }
 }
-struct Album: Sendable { let id: String; let title: String; var artistName: String?; var coverArtPath: String? }
+struct Album: Sendable { let id: String; let title: String; var artistName: String?; var coverArtPath: String?; var songCount = 0 }
 struct Artist: Sendable { let id: String; let name: String }
 struct Playlist: Sendable { let id: String; let name: String }
 struct ArtistNameConfiguration: Sendable { let cacheSignature = "smoke" }
@@ -153,8 +155,9 @@ extension SpotlightIndexService {
         throw SmokeFailure(description: "\(label): expected \(expected), got \(actual)")
     }
 
-    private func waitForCompletion() async throws {
-        for _ in 0..<150 {
+    private func waitForCompletion(timeout: Duration = .milliseconds(7_500)) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
             if workPhase == .idle && !Self.isSynchronizationPending { return }
             try await Task.sleep(for: .milliseconds(50))
         }
@@ -182,6 +185,8 @@ extension SpotlightIndexService {
                     status: SpotlightIndexStatus())
                 try require(complete, "System recovery fixture did not index")
                 try await systemReindexRequests(library: library, service: service)
+            } else if filter == "single-song-albums" {
+                try await singleSongAlbums(library: library, service: service)
             } else {
                 throw SmokeFailure(description: "Unknown smoke filter: \(filter)")
             }
@@ -262,6 +267,92 @@ extension SpotlightIndexService {
 
         try await interruptedRebuildResumes(library: library, service: migrated)
         try await searchDiagnosticsCoverShortTitles(library: library, service: migrated)
+        try await singleSongAlbums(library: library, service: migrated)
+    }
+
+    private static func singleSongAlbums(library: MusicLibrary, service: SpotlightIndexService) async throws {
+        library.visibleSongs = [
+            Song(id: "single", title: "路过人间", albumID: "single"),
+            Song(id: "multi", title: "Same title", albumID: "multi"),
+            Song(id: "different", title: "Song title", albumID: "different"),
+            Song(id: "normalized", title: "Road", albumID: "normalized"),
+            Song(id: "blank", title: " ", albumID: "blank"),
+            Song(id: "unplayable", title: "Unavailable", albumID: "unplayable", isPlayable: false),
+            Song(id: "ambiguous-a", title: "Versions", albumID: "ambiguous"),
+            Song(id: "ambiguous-b", title: "Versions", albumID: "ambiguous"),
+        ]
+        library.visibleAlbums = [
+            Album(id: "single", title: "路过人间", songCount: 2),
+            Album(id: "multi", title: "Same title", songCount: 2),
+            Album(id: "different", title: "Album title", songCount: 1),
+            Album(id: "normalized", title: " ｒＯＡＤ\n", songCount: 1),
+            Album(id: "orphan", title: "路过人间", songCount: 1),
+            Album(id: "blank", title: " ", songCount: 1),
+            Album(id: "unplayable", title: "Unavailable", songCount: 1),
+            Album(id: "ambiguous", title: "Versions", songCount: 1),
+        ]
+        library.visibleArtists = []
+        library.playlists = []
+        library.recentPlaybackSongIDsForSync = []
+        let prepared = prepareSnapshot(service.makeLibrarySnapshot(library: library))!
+        let retained = Set(prepared.records.map(\.identifier).filter { $0.hasPrefix("album:") })
+        try require(retained == Set(["album:single", "album:multi", "album:different", "album:orphan",
+                                    "album:blank", "album:unplayable", "album:ambiguous"]),
+                    "Album filtering removed a distinct, incomplete, ambiguous or unavailable song's album")
+        print("PASS: only matching single-song albums are omitted, with whitespace/case/width normalization")
+
+        let initial = await performSynchronization(snapshot: service.makeLibrarySnapshot(library: library),
+            manifestURL: service.manifestURL, thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+            status: SpotlightIndexStatus())
+        try require(initial, "Single-song album baseline did not index")
+        let oldRows = try await indexedRows()
+        try require(oldRows["album:single"] != nil && oldRows["song:single"] != nil,
+                    "Baseline must contain both song and album")
+        library.visibleAlbums[0].songCount = 1
+        let plan = SpotlightIndexPlanner.makePlan(
+            currentRecords: prepareSnapshot(service.makeLibrarySnapshot(library: library))!.records,
+            previousManifest: loadManifest(from: service.manifestURL), schemaVersion: schemaVersion)
+        try require(!plan.requiresFullRebuild && plan.identifiersToUpsert.isEmpty
+                    && plan.identifiersToDelete == ["album:single"],
+                    "Removing a redundant album should not rewrite any song")
+        defaults.set(false, forKey: synchronizationPendingKey)
+        defaults.set(synchronizationGeneration, forKey: completedSynchronizationGenerationKey)
+        defaults.set(schemaVersion, forKey: completedSchemaVersionKey)
+        defaults.removeObject(forKey: completedSelectionVersionKey)
+        let upgraded = SpotlightIndexService()
+        defer { upgraded.suspendSynchronization() }
+        try require(upgraded.needsSynchronization, "A clean older installation skipped the new selection policy")
+        upgraded.resumePendingSynchronization(library: library)
+        try await upgraded.waitForCompletion(timeout: .seconds(25))
+        var expected = oldRows
+        expected.removeValue(forKey: "album:single")
+        try await expectRows(expected, label: "upgrade removes the old duplicate album and preserves all song results")
+        try require(defaults.integer(forKey: completedSelectionVersionKey) == selectionVersion,
+                    "Verified selection policy was not persisted")
+        let relaunched = SpotlightIndexService()
+        relaunched.synchronizeIfNeeded(library: library)
+        try require(relaunched.workPhase == .idle, "Selection migration repeated on the next launch")
+        print("PASS: selection migration reconciles once without a full index rebuild")
+
+        library.visibleAlbums[0].songCount = 2
+        library.visibleSongs.append(Song(id: "second-track", title: "Another track", albumID: "single"))
+        let expanded = await performSynchronization(snapshot: service.makeLibrarySnapshot(library: library),
+            manifestURL: service.manifestURL, thumbnailDirectoryURL: service.thumbnailDirectoryURL,
+            status: SpotlightIndexStatus())
+        try require(expanded, "Expanded album did not synchronize")
+        expected["album:single"] = "路过人间"
+        expected["song:second-track"] = "Another track"
+        try await expectRows(expected, label: "a single gains another track and its album result returns")
+
+        library.visibleSongs = (0..<maxIndexedSongs).map { Song(id: "recent-\($0)", title: "Recent \($0)") }
+        library.visibleSongs.append(Song(id: "outside-cap", title: "路过人间", albumID: "outside-cap", dateAdded: .distantPast))
+        library.visibleAlbums = [Album(id: "outside-cap", title: "路过人间", songCount: 1)]
+        var bounded = service.makeLibrarySnapshot(library: library)
+        bounded.showsArtwork = false
+        let identifiers = Set(prepareSnapshot(bounded)!.records.map(\.identifier))
+        try require(!identifiers.contains("song:outside-cap") && identifiers.contains("album:outside-cap"),
+                    "The song cap removed both the song and its album entry")
+        print("PASS: an album stays searchable when its only song falls outside the song index cap")
     }
 
     private static func coverLookupPreservesLocalFallback() throws {

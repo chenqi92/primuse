@@ -147,6 +147,8 @@ final class SpotlightIndexService {
     /// 3: thumbnails travel as data (Spotlight cannot read a file in the app
     /// container), items are written in priority order with checkpoints.
     private nonisolated static let schemaVersion = 3
+    // Selection changes need one reconciliation, without rewriting unchanged items.
+    private nonisolated static let selectionVersion = 1
     private nonisolated static let debounceDuration: Duration = .seconds(3)
     private nonisolated static let followUpDebounceDuration: Duration = .seconds(1)
     private nonisolated static let interBatchDelay: Duration = .milliseconds(180)
@@ -155,7 +157,7 @@ final class SpotlightIndexService {
     /// of items keep the system's indexing daemon busy for hours and the phone
     /// warm, for search hits nobody scrolls to; past this many songs the index
     /// holds the recently played and liked ones and then the newest additions.
-    /// Albums, artists and playlists are always indexed in full.
+    /// Nonredundant albums, artists and playlists are indexed without this cap.
     nonisolated static let maxIndexedSongs = 20_000
     private nonisolated static let maxDeletesPerBatch = 250
     private nonisolated static let maxThumbnailCacheMissesPerBatch = 8
@@ -176,12 +178,15 @@ final class SpotlightIndexService {
         "primuse.spotlightIndex.completedSynchronizationGeneration.v2"
     private nonisolated static let completedSchemaVersionKey =
         "primuse.spotlightIndex.completedSchemaVersion"
+    private nonisolated static let completedSelectionVersionKey =
+        "primuse.spotlightIndex.completedSelectionVersion"
     /// 每次资料库变动都要写代次, 不能写进 standard, 见 `LibraryMaintenanceDefaults`。
     nonisolated(unsafe) private static let defaults = LibraryMaintenanceDefaults.migrating([
         synchronizationPendingKey,
         synchronizationGenerationKey,
         completedSynchronizationGenerationKey,
         completedSchemaVersionKey,
+        completedSelectionVersionKey,
     ])
 
     private let manifestURL: URL
@@ -286,6 +291,7 @@ final class SpotlightIndexService {
             // Older releases could commit a manifest after deleting its items.
             // A clean dirty bit must not suppress the recovery schema rebuild.
             || defaults.integer(forKey: completedSchemaVersionKey) != schemaVersion
+            || defaults.integer(forKey: completedSelectionVersionKey) != selectionVersion
     }
 
     /// Coalesces rapid library mutations. If a Core Spotlight batch is already
@@ -785,6 +791,7 @@ final class SpotlightIndexService {
                     forKey: Self.completedSynchronizationGenerationKey
                 )
                 Self.defaults.set(Self.schemaVersion, forKey: Self.completedSchemaVersionKey)
+                Self.defaults.set(Self.selectionVersion, forKey: Self.completedSelectionVersionKey)
                 needsSynchronization = false
                 Self.defaults.set(false, forKey: Self.synchronizationPendingKey)
             } else {
@@ -1213,8 +1220,18 @@ final class SpotlightIndexService {
         _ snapshot: LibrarySnapshot
     ) -> PreparedSnapshot? {
         let (songs, priorityCount) = indexedSongs(of: snapshot)
+        let songsByAlbum = Dictionary(grouping: songs, by: \.albumID)
+        let albums = snapshot.albums.filter { album in
+            guard album.songCount == 1,
+                  let members = songsByAlbum[album.id], members.count == 1,
+                  let song = members.first, song.isPlayable else { return true }
+            let title = album.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let songTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return title.isEmpty || title.compare(songTitle, options: [.caseInsensitive, .widthInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")) != .orderedSame
+        }
         let totalCount = songs.count
-            + snapshot.albums.count
+            + albums.count
             + snapshot.artists.count
             + snapshot.playlists.count
         var records: [SpotlightIndexRecord] = []
@@ -1261,7 +1278,7 @@ final class SpotlightIndexService {
             appendSong(song)
         }
 
-        for album in snapshot.albums {
+        for album in albums {
             let identifier = "album:\(album.id)"
             let cover = showsArtwork
                 ? coverSource(
