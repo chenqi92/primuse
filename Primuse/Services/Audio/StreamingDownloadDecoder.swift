@@ -145,12 +145,8 @@ final class StreamingDownloadDecoder: Sendable {
                 maximumRangedBodyBytes: maximumDownloadBytes,
                 wholeResponsePrefixLimit: nil
             )
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else {
-                try? FileManager.default.removeItem(at: downloadedURL)
-                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                throw AudioDecoderError.decodingFailed("HTTP \(code)")
-            }
+            defer { try? FileManager.default.removeItem(at: downloadedURL) }
+            let http = try Self.validatedDownloadResponse(response)
             try FileManager.default.moveItem(at: downloadedURL, to: tempURL)
 
             let byteCount = (try? FileManager.default.attributesOfItem(atPath: tempPath)[.size] as? Int64) ?? 0
@@ -279,12 +275,8 @@ final class StreamingDownloadDecoder: Sendable {
                         maximumRangedBodyBytes: maximumDownloadBytes,
                         wholeResponsePrefixLimit: nil
                     )
-
-                    guard let http = response as? HTTPURLResponse,
-                          (200...299).contains(http.statusCode) else {
-                        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                        throw AudioDecoderError.decodingFailed("HTTP \(code)")
-                    }
+                    defer { try? FileManager.default.removeItem(at: downloadedURL) }
+                    let http = try Self.validatedDownloadResponse(response)
 
                     // Move to our temp path (system temp files get cleaned up)
                     try FileManager.default.moveItem(at: downloadedURL, to: tempURL)
@@ -449,6 +441,17 @@ final class StreamingDownloadDecoder: Sendable {
                 control.cancel()
             }
         }
+    }
+
+    private static func validatedDownloadResponse(_ response: URLResponse) throws -> HTTPURLResponse {
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        guard (200...299).contains(http.statusCode) else {
+            throw RemoteMediaHTTPError(
+                service: "HTTP media", statusCode: http.statusCode,
+                retryAfter: RemoteMediaHTTPError.retryDelay(from: http)
+            )
+        }
+        return http
     }
 
     /// 解码一份已经完整落盘的文件, 直接把 PCM 推给调用方。

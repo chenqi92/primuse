@@ -1180,6 +1180,13 @@ final class HTTPRangeFetcher: @unchecked Sendable {
         guard let http = response as? HTTPURLResponse else {
             throw AudioDecoderError.decodingFailed("Invalid HTTP range response")
         }
+        if http.statusCode == 416, offset >= totalLength { return Data() }
+        guard (200...299).contains(http.statusCode) else {
+            throw RemoteMediaHTTPError(
+                service: "HTTP media", statusCode: http.statusCode,
+                retryAfter: RemoteMediaHTTPError.retryDelay(from: http)
+            )
+        }
         if httpMediaResponseLooksLikeErrorBody(http, data: data) {
             throw AudioDecoderError.decodingFailed("HTTP server returned a non-audio response")
         }
@@ -1204,10 +1211,8 @@ final class HTTPRangeFetcher: @unchecked Sendable {
             return data
         case 200:
             throw AudioDecoderError.decodingFailed("HTTP server ignored Range")
-        case 416 where offset >= totalLength:
-            return Data()
         default:
-            throw AudioDecoderError.decodingFailed("HTTP \(http.statusCode)")
+            throw AudioDecoderError.decodingFailed("Invalid HTTP range response")
         }
     }
 }
@@ -1294,7 +1299,7 @@ private final class State: @unchecked Sendable {
     /// — Baidu's anti-abuse then rate-limits the account globally.
     /// Cleared on the next successful serve.
     private var fetchDisabled: Bool = false
-    private var missingResourceError: NSError?
+    private var terminalReadError: NSError?
     /// Set when AudioPlayerService finalizes the stream on stop / track
     /// change. Decoder reads arriving after that point belong to the old
     /// source and should fail fast instead of starting stale OneDrive Range
@@ -1445,7 +1450,7 @@ private final class State: @unchecked Sendable {
             return nil
         }
         let endOffset = min(requestedEnd, totalLength)
-        if let error = lock.withLock({ missingResourceError }) {
+        if let error = lock.withLock({ terminalReadError }) {
             errorOut?.pointee = error
             return nil
         }
@@ -1676,11 +1681,14 @@ private final class State: @unchecked Sendable {
                     )
                     return nil
                 }
-                // Decoder format probes may read again after a failed read.
-                // A missing resource cannot recover within this stream.
+                // Format probes must not restart exhausted HTTP requests or
+                // bypass Retry-After. A new playback session may try again.
                 lock.lock()
                 fetchDisabled = true
-                if SourceManager.isMissingFileError(error) { missingResourceError = error as NSError }
+                if error is RemoteMediaHTTPError || error is HTTPResponseFailure
+                    || SourceManager.isMissingFileError(error) {
+                    terminalReadError = error as NSError
+                }
                 lock.unlock()
                 plog(String(format: "⚠️ Cloud stream '%@' fetch failed chunkStart=%lld len=%lld after %.2fs: %@",
                             label, chunkStart, want, elapsed, error.localizedDescription))

@@ -1,5 +1,7 @@
+import AVFoundation
 import CryptoKit
 import Foundation
+import Network
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -549,6 +551,201 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         } catch is AudioDecoderError {}
     }
 
+    func testDirectHTTPFailuresPreserveStatusAndRetryAfterBeforeInspectingBody() async throws {
+        for status in [302, 403, 404, 429, 503] {
+            let host = uniqueHost("direct-error")
+            let cdn = uniqueHost("cdn-error")
+            MediaServerRedirectURLProtocol.configure(host: host) { _ in
+                .init(status: 302, headers: ["Location": "https://\(cdn)/audio"])
+            }
+            MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+                .init(status: status,
+                      headers: ["Retry-After": "17", "Content-Type": "text/html"],
+                      body: Data("<html>Unavailable</html>".utf8))
+            }
+            let session = makeDirectMediaSession()
+            defer { session.invalidateAndCancel() }
+            let fetcher = HTTPRangeFetcher(
+                url: try XCTUnwrap(URL(string: "https://\(host)/rest/stream.view")),
+                totalLength: 16, session: session
+            )
+            do {
+                _ = try await fetcher.fetch(offset: 0, length: 4)
+                XCTFail("HTTP errors must not reach the decoder as audio")
+            } catch let error as RemoteMediaHTTPError {
+                XCTAssertEqual(error.statusCode, status)
+                XCTAssertEqual(error.retryAfter, 17)
+                XCTAssertFalse(SourceTransportFailure.isTransportFailure(error))
+            }
+            XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: cdn).count, 1)
+        }
+    }
+
+    func testDirectHTTPRangePastEndStillReturnsEOFWithAnHTML416Body() async throws {
+        let host = uniqueHost("eof")
+        MediaServerRedirectURLProtocol.configure(host: host) { _ in
+            .init(status: 416, headers: ["Content-Type": "text/html"], body: Data("<html>End</html>".utf8))
+        }
+        let session = makeDirectMediaSession()
+        defer { session.invalidateAndCancel() }
+        let fetcher = HTTPRangeFetcher(
+            url: try XCTUnwrap(URL(string: "https://\(host)/audio")), totalLength: 16, session: session
+        )
+        let eof = try await fetcher.fetch(offset: 16, length: 4)
+        XCTAssertTrue(eof.isEmpty)
+        do {
+            _ = try await fetcher.fetch(offset: 8, length: 4)
+            XCTFail("An in-bounds 416 must remain an HTTP error")
+        } catch let error as RemoteMediaHTTPError {
+            XCTAssertEqual(error.statusCode, 416)
+        }
+    }
+
+    func testRepeatedDecoderProbesDoNotRepeatFailedHTTPRequests() async throws {
+        for status in [302, 403, 404, 429, 503] {
+            let server = try STRMRedirectHTTPServer { _ in
+                .init(status: status, headers: ["Retry-After": "17"], body: Data("unavailable".utf8))
+            }
+            defer { server.stop() }
+            let url = try await server.start()
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let cache = directory.appendingPathComponent("song.flac")
+            let sourceID = UUID().uuidString
+            let song = Song(id: UUID().uuidString, title: "HTTP failure", fileFormat: .flac,
+                            filePath: "/song.flac", sourceID: sourceID, fileSize: 16)
+            let epoch = CloudPlaybackSource.streamEpochTicket(sourceID: sourceID)
+            defer { CloudPlaybackSource.cancelSessions(sourceID: sourceID) }
+            let input = try XCTUnwrap(CloudPlaybackSource.makeHTTPInputSource(
+                song: song, url: url, totalLength: 16, cacheURL: cache, streamEpoch: epoch,
+                persistOnComplete: false, prefetchAhead: 0
+            ) as? CloudInputSourceObjC)
+            try input.open()
+            defer { try? input.close() }
+            var bytes = [UInt8](repeating: 0, count: 4)
+            for _ in 0..<18 {
+                XCTAssertThrowsError(try bytes.withUnsafeMutableBytes {
+                    try input.read($0.baseAddress!, length: 4)
+                })
+                XCTAssertNotNil(input.lastReadError)
+            }
+            XCTAssertEqual(server.requests.count, 1, "Decoder format probes must reuse the terminal HTTP error")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: cache.path))
+
+            let content = Data("0123456789abcdef".utf8)
+            let recoveredServer = try STRMRedirectHTTPServer { request in Self.rangedReply(request, content: content) }
+            defer { recoveredServer.stop() }
+            let recoveredURL = try await recoveredServer.start()
+            let recovered = try XCTUnwrap(CloudPlaybackSource.makeHTTPInputSource(
+                song: song, url: recoveredURL, totalLength: 16, cacheURL: cache, streamEpoch: epoch,
+                persistOnComplete: false, prefetchAhead: 0
+            ) as? CloudInputSourceObjC)
+            try recovered.open()
+            defer { try? recovered.close() }
+            let count = try bytes.withUnsafeMutableBytes { try recovered.read($0.baseAddress!, length: 4) }
+            XCTAssertEqual(count, 4)
+            XCTAssertEqual(Data(bytes), content.prefix(4))
+        }
+    }
+
+    func testPlainSocketMediaRedirectsPreserveRangeAndWholeDownload() async throws {
+        let content = Data("fLaC0123456789ab".utf8)
+        let cdn = try STRMRedirectHTTPServer { request in
+            if request.url?.path == "/relay" {
+                return .init(status: 307, headers: ["Location": "/song.flac?signature=cdn-only"])
+            }
+            if request.value(forHTTPHeaderField: "Range") != nil {
+                return Self.rangedReply(request, content: content)
+            }
+            return .init(headers: ["Content-Type": "audio/flac"], body: content)
+        }
+        defer { cdn.stop() }
+        let cdnURL = try await cdn.start()
+        let origin = try STRMRedirectHTTPServer { _ in
+            .init(status: 302, headers: ["Location": cdnURL.appendingPathComponent("relay").absoluteString])
+        }
+        defer { origin.stop() }
+        let originURL = try await origin.start()
+        var request = URLRequest(url: originURL.appendingPathComponent("rest/stream.view"))
+        request.setValue("source-secret", forHTTPHeaderField: "Authorization")
+        request.setValue("source-cookie", forHTTPHeaderField: "Cookie")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let session = TrustedHTTPTransport.makeMediaSession()
+        defer { session.invalidateAndCancel() }
+        // Exercise the public-HTTP socket loader on loopback without changing host trust.
+        for offset: Int64 in [0, 8] {
+            request.setValue("bytes=\(offset)-\(offset + 3)", forHTTPHeaderField: "Range")
+            let (data, response) = try await TrustedHTTPTransport.mediaResponseFollowingRedirects(
+                for: request, session: session,
+                load: { request, _ in try await PlainHTTPClient.data(for: request, maxBytes: 4096) },
+                discard: { _ in }
+            )
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 206)
+            XCTAssertEqual(data, content.subdata(in: Int(offset)..<Int(offset + 4)))
+        }
+        request.setValue(nil, forHTTPHeaderField: "Range")
+        let (download, response) = try await TrustedHTTPTransport.mediaResponseFollowingRedirects(
+            for: request, session: session,
+            load: { request, _ in try await PlainHTTPClient.download(for: request) },
+            discard: { try? FileManager.default.removeItem(at: $0) }
+        )
+        defer { try? FileManager.default.removeItem(at: download) }
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(try Data(contentsOf: download), content)
+        XCTAssertEqual(origin.requests.count, 3)
+        let finalRequests = cdn.requests.filter { $0.url?.path == "/song.flac" }
+        XCTAssertEqual(finalRequests.map { $0.value(forHTTPHeaderField: "Range") }, ["bytes=0-3", "bytes=8-11", nil])
+        for hop in cdn.requests {
+            XCTAssertNil(hop.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertNil(hop.value(forHTTPHeaderField: "Cookie"))
+            XCTAssertEqual(hop.value(forHTTPHeaderField: "Accept-Encoding"), "identity")
+        }
+    }
+
+    func testCompleteDownloadHTTPFailuresPreserveStatusAndNeverInstallCache() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for status in [302, 403, 404, 429, 503] {
+            let server = try STRMRedirectHTTPServer { _ in
+                .init(status: status,
+                      headers: ["Retry-After": "17", "Content-Type": "text/html"],
+                      body: Data("<html>Unavailable</html>".utf8))
+            }
+            defer { server.stop() }
+            let url = try await server.start()
+            let destination = directory.appendingPathComponent("\(status).flac")
+            do {
+                _ = try await StreamingDownloadDecoder.materializeCompleteFile(
+                    from: url, to: destination, maximumDownloadBytes: 4096,
+                    sourceID: nil, streamEpoch: nil
+                )
+                XCTFail("HTTP errors must not become cached media")
+            } catch let error as RemoteMediaHTTPError {
+                XCTAssertEqual(error.statusCode, status)
+                XCTAssertEqual(error.retryAfter, 17)
+            }
+            let control = StreamingDownloadSessionControl()
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2))
+            do {
+                for try await _ in StreamingDownloadDecoder().decode(
+                    from: url, outputFormat: format, cacheFileURL: destination,
+                    fileExtension: "flac", maximumDownloadBytes: 4096, sessionControl: control
+                ) {
+                    XCTFail("An HTTP error body must never produce PCM")
+                }
+                XCTFail("The download decoder must preserve the HTTP failure")
+            } catch let error as RemoteMediaHTTPError {
+                XCTAssertEqual(error.statusCode, status)
+                XCTAssertEqual(error.retryAfter, 17)
+            }
+            await control.waitForTermination()
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+            XCTAssertEqual(server.requests.count, 2)
+        }
+    }
+
     func testMediaRedirectRejectsDowngradeAndKeepsAPITrafficRestricted() async throws {
         let host = uniqueHost("restricted")
         let cdn = uniqueHost("cdn")
@@ -926,6 +1123,78 @@ private final class MediaServerRedirectURLProtocol: URLProtocol, @unchecked Send
 
     override func stopLoading() {
         stateLock.withLock { stopped = true }
+    }
+}
+
+private final class STRMRedirectHTTPServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let handler: @Sendable (URLRequest) -> MediaServerRedirectURLProtocol.Reply
+    private let queue = DispatchQueue(label: "STRMRedirectHTTPServer")
+    private let lock = NSLock()
+    private var connections: [NWConnection] = []
+    private var captured: [URLRequest] = []
+    var requests: [URLRequest] { lock.withLock { captured } }
+
+    init(handler: @escaping @Sendable (URLRequest) -> MediaServerRedirectURLProtocol.Reply) throws {
+        self.handler = handler
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { connection.cancel(); return }
+            self.lock.withLock { self.connections.append(connection) }
+            connection.start(queue: self.queue)
+            self.receive(connection, buffered: Data())
+        }
+    }
+
+    func start() async throws -> URL {
+        listener.start(queue: queue)
+        for _ in 0..<500 {
+            if let port = listener.port, port.rawValue != 0 {
+                return URL(string: "http://127.0.0.1:\(port.rawValue)/")!
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw URLError(.timedOut)
+    }
+
+    func stop() {
+        listener.cancel()
+        lock.withLock { connections }.forEach { $0.cancel() }
+    }
+
+    private func receive(_ connection: NWConnection, buffered: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, complete, error in
+            guard let self, error == nil else { connection.cancel(); return }
+            var input = buffered
+            input.append(data ?? Data())
+            guard let end = input.range(of: Data("\r\n\r\n".utf8)) else {
+                if complete || input.count >= 65536 { connection.cancel() }
+                else { self.receive(connection, buffered: input) }
+                return
+            }
+            let lines = String(decoding: input[..<end.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
+            let parts = lines[0].split(separator: " ")
+            guard parts.count >= 2, let port = self.listener.port,
+                  let url = URL(string: "http://127.0.0.1:\(port.rawValue)\(parts[1])") else {
+                connection.cancel(); return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = String(parts[0])
+            for line in lines.dropFirst() {
+                guard let separator = line.firstIndex(of: ":") else { continue }
+                request.setValue(line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces),
+                                 forHTTPHeaderField: String(line[..<separator]))
+            }
+            self.lock.withLock { self.captured.append(request) }
+            let reply = self.handler(request)
+            var head = "HTTP/1.1 \(reply.status) Fixture\r\nConnection: close\r\nContent-Length: \(reply.body.count)\r\n"
+            for (key, value) in reply.headers { head += "\(key): \(value)\r\n" }
+            var output = Data((head + "\r\n").utf8)
+            output.append(reply.body)
+            connection.send(content: output, completion: .contentProcessed { _ in connection.cancel() })
+        }
     }
 }
 
