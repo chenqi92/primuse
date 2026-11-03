@@ -770,11 +770,12 @@ actor LibraryCatalogSearchIndex {
 
     func search(
         query: String, albums: [Album], artists: [Artist],
-        relatedAlbums: [Album] = [], semanticArtists: Bool = false
+        relatedAlbums: [Album] = [], semanticArtists: Bool = false,
+        includePinyin: Bool = true
     ) -> Output {
         let matcher = LibrarySearchMatcher(query: query)
         guard !matcher.rawQuery.isEmpty, !Task.isCancelled,
-              prepare(albums: albums, artists: artists, includesPinyin: matcher.requiresPinyinCandidates) else {
+              prepare(albums: albums, artists: artists, includesPinyin: includePinyin && matcher.requiresPinyinCandidates) else {
             return Output(albums: [], artists: [])
         }
         let offsets = candidates(matcher.normalizedQuery, postings: albumPostings)
@@ -862,6 +863,7 @@ actor LibrarySearchIndex {
     /// FTS5 external-content triggers touch several indexes per transaction.
     /// Larger utility batches drastically reduce WAL checkpoints/write
     /// amplification while the short inter-batch pause keeps reads responsive.
+    private static let metadataBatchSize = 512
     private static let lyricsBatchSize = 96
     private static let lyricQueryMinimumLength = 3
     private static let preparationPendingKey =
@@ -877,6 +879,7 @@ actor LibrarySearchIndex {
     ])
 
     private let dbPool: DatabasePool?
+    private let metadataBatchDidWriteForTesting: (@Sendable (Int) async -> Void)?
     private var lastMetadataRevisionKey: String?
     private var projectionAlbums: [Album] = []
     private var projectionAlbumByID: [String: Album] = [:]
@@ -1013,14 +1016,18 @@ actor LibrarySearchIndex {
         markPreparationCompleted(generation: lastGeneration, defaults: defaults)
     }
 
-    private init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default, storageDirectory: URL? = nil,
+        metadataBatchDidWriteForTesting: (@Sendable (Int) async -> Void)? = nil
+    ) {
+        self.metadataBatchDidWriteForTesting = metadataBatchDidWriteForTesting
         do {
             #if os(tvOS)
             let base = fileManager.primuseDirectoryURL(for: .cachesDirectory)
             #else
             let base = fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
             #endif
-            let directory = base.appendingPathComponent("Primuse", isDirectory: true)
+            let directory = storageDirectory ?? base.appendingPathComponent("Primuse", isDirectory: true)
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             let pool = try DatabasePool(
                 path: directory.appendingPathComponent("library-search.sqlite").path
@@ -1240,9 +1247,10 @@ actor LibrarySearchIndex {
             }
 
             if !pendingSearchDelta.isEmpty {
-                let work = pendingSearchDelta
+                var work = pendingSearchDelta
                 pendingSearchDelta = PendingSearchDelta()
                 let upserts = Array(work.upserts.values)
+                work.upserts = [:]
                 guard await synchronizeMetadataChanges(
                     upserts: upserts,
                     deletingIDs: work.mutations.deletingIDs
@@ -1587,44 +1595,8 @@ actor LibrarySearchIndex {
         do {
             let existing = try Self.metadataStates(in: pool)
             let songIDs = Set(songs.map(\.id))
-            var changed: [(song: Song, fingerprint: String, stateID: Int64?)] = []
-            changed.reserveCapacity(min(songs.count, 256))
-            for (offset, song) in songs.enumerated() {
-                if offset.isMultiple(of: 128), Task.isCancelled { return false }
-                let fingerprint = Self.metadataFingerprint(song)
-                if existing[song.id]?.fingerprint != fingerprint {
-                    changed.append((song, fingerprint, existing[song.id]?.id))
-                }
-            }
-            guard !Task.isCancelled else { return false }
-            let removed = existing.filter { !songIDs.contains($0.key) }.map(\.value.id)
-            let metadataChanges = changed
-
-            if !metadataChanges.isEmpty || !removed.isEmpty {
-                try await pool.write { db in
-                    for (offset, id) in removed.enumerated() {
-                        if offset.isMultiple(of: 64), Task.isCancelled {
-                            throw CancellationError()
-                        }
-                        try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [id])
-                        try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [id])
-                        try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [id])
-                        try db.execute(sql: "DELETE FROM metadataPathFts WHERE rowid = ?", arguments: [id])
-                        try db.execute(sql: "DELETE FROM metadataSearchState WHERE id = ?", arguments: [id])
-                    }
-                    for (offset, change) in metadataChanges.enumerated() {
-                        if offset.isMultiple(of: 32), Task.isCancelled {
-                            throw CancellationError()
-                        }
-                        try Self.writeMetadataChange(
-                            song: change.song,
-                            fingerprint: change.fingerprint,
-                            stateID: change.stateID,
-                            in: db
-                        )
-                    }
-                }
-            }
+            let removed = existing.compactMap { songIDs.contains($0.key) ? nil : $0.value.id }
+            try await writeMetadataBatches(songs: songs, removed: removed, existing: existing, pool: pool)
             lastMetadataRevisionKey = revisionKey
             return true
         } catch is CancellationError {
@@ -1649,57 +1621,8 @@ actor LibrarySearchIndex {
         do {
             let requestedIDs = Set(upserts.map(\.id)).union(deletingIDs)
             let existing = try Self.metadataStates(songIDs: requestedIDs, in: pool)
-            var changes: [(song: Song, fingerprint: String, stateID: Int64?)] = []
-            changes.reserveCapacity(upserts.count)
-            for (offset, song) in upserts.enumerated() {
-                if offset.isMultiple(of: 64), Task.isCancelled { return false }
-                let fingerprint = Self.metadataFingerprint(song)
-                if existing[song.id]?.fingerprint != fingerprint {
-                    changes.append((song, fingerprint, existing[song.id]?.id))
-                }
-            }
             let removed = deletingIDs.compactMap { existing[$0]?.id }
-            let metadataChanges = changes
-
-            if !metadataChanges.isEmpty || !removed.isEmpty {
-                try await pool.write { db in
-                    for id in removed {
-                        if Task.isCancelled { throw CancellationError() }
-                        try db.execute(
-                            sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?",
-                            arguments: [id]
-                        )
-                        try db.execute(
-                            sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?",
-                            arguments: [id]
-                        )
-                        try db.execute(
-                            sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?",
-                            arguments: [id]
-                        )
-                        try db.execute(
-                            sql: "DELETE FROM metadataPathFts WHERE rowid = ?",
-                            arguments: [id]
-                        )
-                        try db.execute(
-                            sql: "DELETE FROM metadataSearchState WHERE id = ?",
-                            arguments: [id]
-                        )
-                    }
-
-                    for (offset, change) in metadataChanges.enumerated() {
-                        if offset.isMultiple(of: 32), Task.isCancelled {
-                            throw CancellationError()
-                        }
-                        try Self.writeMetadataChange(
-                            song: change.song,
-                            fingerprint: change.fingerprint,
-                            stateID: change.stateID,
-                            in: db
-                        )
-                    }
-                }
-            }
+            try await writeMetadataBatches(songs: upserts, removed: removed, existing: existing, pool: pool)
             lastMetadataRevisionKey = nil
             return true
         } catch is CancellationError {
@@ -1707,6 +1630,55 @@ actor LibrarySearchIndex {
         } catch {
             plog("🔎 Metadata index delta failed: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    private func writeMetadataBatches(
+        songs: [Song], removed: [Int64], existing: [String: StoredMetadataState], pool: DatabasePool
+    ) async throws {
+        // Only the current batch owns copied Song values and Foundation temporaries.
+        // Interrupted batches leave the durable pending generation for the next recovery pass.
+        for start in stride(from: 0, to: removed.count, by: Self.metadataBatchSize) {
+            try Task.checkCancellation()
+            let ids = Array(removed[start..<min(start + Self.metadataBatchSize, removed.count)])
+            try await pool.write { db in
+                try autoreleasepool {
+                    for id in ids {
+                        try Task.checkCancellation()
+                        try db.execute(sql: "DELETE FROM metadataLexicalFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataPinyinFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataPinyinSubstringFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataPathFts WHERE rowid = ?", arguments: [id])
+                        try db.execute(sql: "DELETE FROM metadataSearchState WHERE id = ?", arguments: [id])
+                    }
+                }
+            }
+        }
+        for start in stride(from: 0, to: songs.count, by: Self.metadataBatchSize) {
+            try Task.checkCancellation()
+            let end = min(start + Self.metadataBatchSize, songs.count)
+            let changes = autoreleasepool {
+                songs[start..<end].compactMap { song -> (song: Song, fingerprint: String, stateID: Int64?)? in
+                    let fingerprint = Self.metadataFingerprint(song)
+                    guard existing[song.id]?.fingerprint != fingerprint else { return nil }
+                    return (song, fingerprint, existing[song.id]?.id)
+                }
+            }
+            if !changes.isEmpty {
+                try await pool.write { db in
+                    try autoreleasepool {
+                        for change in changes {
+                            try Task.checkCancellation()
+                            try Self.writeMetadataChange(
+                                song: change.song, fingerprint: change.fingerprint,
+                                stateID: change.stateID, in: db
+                            )
+                        }
+                    }
+                }
+                await metadataBatchDidWriteForTesting?(changes.count)
+            }
+            await Task.yield()
         }
     }
 
@@ -1938,13 +1910,16 @@ actor LibrarySearchIndex {
 
     private static func metadataStates(in pool: DatabasePool) throws -> [String: StoredMetadataState] {
         try pool.read { db in
-            let rows = try Row.fetchAll(db, sql: "SELECT id, songID, fingerprint FROM metadataSearchState")
-            return Dictionary(uniqueKeysWithValues: rows.map { row in
+            var result: [String: StoredMetadataState] = [:]
+            let rows = try Row.fetchCursor(db, sql: "SELECT id, songID, fingerprint FROM metadataSearchState")
+            while let row = try rows.next() {
+                try Task.checkCancellation()
                 let id: Int64 = row["id"]
                 let songID: String = row["songID"]
                 let fingerprint: String = row["fingerprint"]
-                return (songID, StoredMetadataState(id: id, fingerprint: fingerprint))
-            })
+                result[songID] = StoredMetadataState(id: id, fingerprint: fingerprint)
+            }
+            return result
         }
     }
 

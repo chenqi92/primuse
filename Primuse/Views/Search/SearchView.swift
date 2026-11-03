@@ -4477,7 +4477,7 @@ struct SearchView: View {
             let songsFinishedAt = ProcessInfo.processInfo.systemUptime
             let catalog = await workCoordinator.catalogIndex.search(
                 query: query, albums: albumsSnapshot, artists: artistsSnapshot,
-                relatedAlbums: output.albumResults
+                relatedAlbums: output.albumResults, includePinyin: false
             )
             guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             searchResults = output.songResults
@@ -4495,6 +4495,15 @@ struct SearchView: View {
             if renderedQuery != query { collectionResults = [] }
             renderedQuery = query
             isSearching = false
+            // Publish literal matches before a cold catalogue builds its pinyin
+            // postings. Cancelling this search also cancels that preparation.
+            let expandedCatalog = await workCoordinator.catalogIndex.search(
+                query: query, albums: albumsSnapshot, artists: artistsSnapshot,
+                relatedAlbums: output.albumResults
+            )
+            guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
+            keywordAlbums = expandedCatalog.albums
+            keywordArtists = expandedCatalog.artists
             let collections = await searchCollections(queries: [query])
             guard !Task.isCancelled, myGen == workCoordinator.generation else { return }
             collectionResults = collections

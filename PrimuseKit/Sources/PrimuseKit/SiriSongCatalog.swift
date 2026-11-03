@@ -22,24 +22,34 @@ public enum SiriSongCatalog {
     /// tracks, including different recordings with the same title.
     public static func shortcuts(from songs: [Song], priorityIDs: [String], limit: Int) -> [Song] {
         guard limit > 0 else { return [] }
-        var byID: [String: Song] = [:]
-        for song in songs where song.isPlayable {
-            guard let title = SiriRadioStationCatalog.safeDisplayName(song.title),
-                  title.count <= 3,
-                  SiriRadioStationCatalog.isSafeIdentifier(song.id) else { continue }
-            byID[song.id] = song
+        var byID: [String: Int] = [:]
+        for index in songs.indices {
+            if index.isMultiple(of: 256), Task.isCancelled { return [] }
+            let song = songs[index]
+            guard song.isPlayable else { continue }
+            let eligible = autoreleasepool {
+                let title = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !title.isEmpty && title.count <= 3
+                    && SiriRadioStationCatalog.safeDisplayName(title) != nil
+                    && SiriRadioStationCatalog.isSafeIdentifier(song.id)
+            }
+            if eligible { byID[song.id] = index }
         }
         var selected: [Song] = []
         for id in priorityIDs {
-            if let song = byID.removeValue(forKey: id) {
-                selected.append(song)
+            if let index = byID.removeValue(forKey: id) {
+                selected.append(songs[index])
                 if selected.count == limit { return selected }
             }
         }
-        let remaining = byID.values.sorted {
-            $0.dateAdded != $1.dateAdded ? $0.dateAdded > $1.dateAdded : $0.id < $1.id
+        guard !Task.isCancelled else { return [] }
+        let remaining = CarPlayListSelection.firstSorted(byID.values, limit: limit - selected.count) {
+            songs[$0].dateAdded != songs[$1].dateAdded
+                ? songs[$0].dateAdded > songs[$1].dateAdded
+                : songs[$0].id < songs[$1].id
         }
-        selected.append(contentsOf: remaining.prefix(limit - selected.count))
+        guard !Task.isCancelled else { return [] }
+        selected.append(contentsOf: remaining.map { songs[$0] })
         return selected
     }
 }

@@ -2497,9 +2497,10 @@ final class AppServices {
         let priorityIDs = musicLibrary.recentPlaybackSongIDsForSync
             + musicLibrary.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
         // System queries can arrive before the debounced catalog refresh.
-        return await Task.detached(priority: .utility) {
+        let worker = Task.detached(priority: .utility) {
             SiriSongCatalog.shortcuts(from: songs, priorityIDs: priorityIDs, limit: limit)
-        }.value
+        }
+        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
     }
 
     private func siriSongShortcutLimit(bookCount: Int) -> Int {
@@ -2526,7 +2527,7 @@ final class AppServices {
         let worker = Task.detached(priority: .utility) {
             SiriSongCatalog.shortcuts(from: songs, priorityIDs: inputs.priorityIDs, limit: inputs.limit)
         }
-        let selected = await worker.value
+        let selected = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
         guard !Task.isCancelled else { return false }
         siriShortcutSongs = selected
         siriCatalogSongInputs = inputs

@@ -993,7 +993,7 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
         }
         guard topCount > 0 else { return (Int(threadCount), []) }
 
-        var busy: [(usage: Double, name: String)] = []
+        var busy: [(usage: Double, name: String, thread: thread_t)] = []
         for index in 0..<Int(threadCount) {
             var info = thread_basic_info()
             var infoCount = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
@@ -1005,11 +1005,20 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
             guard result == KERN_SUCCESS, info.flags & TH_FLAGS_IDLE == 0 else { continue }
             let usage = Double(info.cpu_usage) / Double(TH_USAGE_SCALE) * 100
             guard usage >= 1 else { continue }
-            busy.append((usage, threadName(threads[index], index: index)))
+            busy.append((usage, threadName(threads[index], index: index), threads[index]))
         }
-        let top = busy
+        let busiest = busy
             .sorted { $0.usage > $1.usage }
             .prefix(topCount)
+        if ProcessInfo.processInfo.environment["PRIMUSE_DIAGNOSTIC_WORKER_STACKS"] == "1" {
+            let currentThread = pthread_mach_thread_np(pthread_self())
+            for worker in busiest where worker.thread != currentThread {
+                let frames = MainThreadStackSampler.capture(thread: worker.thread)
+                let stack = frames.map(MainThreadStackSampler.describe).joined(separator: " < ")
+                plog("🩺 worker \(worker.name) \(Int(worker.usage.rounded()))% stack: \(stack)")
+            }
+        }
+        let top = busiest
             .map { "\($0.name) \(Int($0.usage.rounded()))%" }
         return (Int(threadCount), Array(top))
     }

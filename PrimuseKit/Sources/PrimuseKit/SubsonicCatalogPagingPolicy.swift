@@ -544,39 +544,45 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
             var upserts: [Song] = []
             var lastOrderKey = -1
             while true {
-                let rows = try Row.fetchAll(
-                    db,
-                    sql: """
-                        SELECT orderKey, payload, metadataInspected
-                        FROM pagedCatalogSongs
-                        WHERE sourceID = ? AND orderKey > ?
-                        ORDER BY orderKey ASC
-                        LIMIT ?
-                        """,
-                    arguments: [sourceID, lastOrderKey, safeBatchSize]
-                )
-                guard !rows.isEmpty else { break }
-                for row in rows {
-                    let orderKey: Int = row["orderKey"]
-                    let payload: Data = row["payload"]
-                    var song = try decoder.decode(Song.self, from: payload)
-                    if let enrichment { song = enrichment.applying(to: song) }
-                    if let existing = existingSong(song.id) {
-                        song = ServerSongCatalogMergePolicy.merged(
-                            existing: existing,
-                            incoming: song
-                        )
+                try Task.checkCancellation()
+                let hasRows = try autoreleasepool {
+                    let rows = try Row.fetchAll(
+                        db,
+                        sql: """
+                            SELECT orderKey, payload, metadataInspected
+                            FROM pagedCatalogSongs
+                            WHERE sourceID = ? AND orderKey > ?
+                            ORDER BY orderKey ASC
+                            LIMIT ?
+                            """,
+                        arguments: [sourceID, lastOrderKey, safeBatchSize]
+                    )
+                    guard !rows.isEmpty else { return false }
+                    for row in rows {
+                        try Task.checkCancellation()
+                        let orderKey: Int = row["orderKey"]
+                        let payload: Data = row["payload"]
+                        var song = try decoder.decode(Song.self, from: payload)
+                        if let enrichment { song = enrichment.applying(to: song) }
+                        if let existing = existingSong(song.id) {
+                            song = ServerSongCatalogMergePolicy.merged(
+                                existing: existing,
+                                incoming: song
+                            )
+                        }
+                        authoritativeSongIDs.insert(song.id)
+                        let metadataInspected: Bool = row["metadataInspected"]
+                        if metadataInspected {
+                            metadataInspectedSongIDs.insert(song.id)
+                        }
+                        if existingSong(song.id) != song {
+                            upserts.append(song)
+                        }
+                        lastOrderKey = orderKey
                     }
-                    authoritativeSongIDs.insert(song.id)
-                    let metadataInspected: Bool = row["metadataInspected"]
-                    if metadataInspected {
-                        metadataInspectedSongIDs.insert(song.id)
-                    }
-                    if existingSong(song.id) != song {
-                        upserts.append(song)
-                    }
-                    lastOrderKey = orderKey
+                    return true
                 }
+                if !hasRows { break }
             }
             return PagedSongCatalogStageDelta(
                 upserts: upserts,
@@ -591,7 +597,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
     ) throws -> [String: SourceSyncIndexedItem] {
         let decoder = JSONDecoder()
         return try database.read { db in
-            let rows = try Row.fetchAll(
+            let rows = try Row.fetchCursor(
                 db,
                 sql: """
                     SELECT stableKey, payload FROM pagedCatalogHierarchy
@@ -600,14 +606,16 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 arguments: [sourceID]
             )
             var result: [String: SourceSyncIndexedItem] = [:]
-            result.reserveCapacity(rows.count)
-            for row in rows {
-                let stableKey: String = row["stableKey"]
-                let payload: Data = row["payload"]
-                result[stableKey] = try decoder.decode(
-                    SourceSyncIndexedItem.self,
-                    from: payload
-                )
+            while let row = try rows.next() {
+                try Task.checkCancellation()
+                try autoreleasepool {
+                    let stableKey: String = row["stableKey"]
+                    let payload: Data = row["payload"]
+                    result[stableKey] = try decoder.decode(
+                        SourceSyncIndexedItem.self,
+                        from: payload
+                    )
+                }
             }
             return result
         }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -732,6 +733,19 @@ final class ArtistNameLibraryTests: XCTestCase {
         XCTAssertEqual(preparations, 2) // Original-script index, then one pinyin upgrade.
         let candidates = await index.lastAlbumCandidateCount
         XCTAssertLessThan(candidates, albums.count)
+    }
+
+    func testLiteralCatalogResultsRemainAvailableBeforeAndAfterPinyinExpansion() async {
+        let albums = [Album(id: "literal", title: "qlx live"), Album(id: "pinyin", title: "七里香")]
+        let index = LibraryCatalogSearchIndex()
+        let literal = await index.search(query: "qlx", albums: albums, artists: [], includePinyin: false)
+        XCTAssertEqual(literal.albums.map(\.id), ["literal"])
+        let expanded = await index.search(query: "qlx", albums: albums, artists: [])
+        XCTAssertEqual(Set(expanded.albums.map(\.id)), ["literal", "pinyin"])
+        let warm = await index.search(query: "qlx", albums: albums, artists: [], includePinyin: false)
+        XCTAssertEqual(warm.albums.map(\.id), expanded.albums.map(\.id))
+        let preparations = await index.preparationCount
+        XCTAssertEqual(preparations, 2)
     }
 
     func testIndexedCatalogDropsRemovedRowsAndKeepsOnlyVisibleRelatedAlbums() async {
@@ -1673,5 +1687,57 @@ final class AppleMusicLibrarySongIdentityTests: XCTestCase {
         XCTAssertEqual(service.canonicalLibrarySong(for: catalogSecond).id, second.id)
         XCTAssertEqual(service.canonicalLibrarySong(for: song("1001", title: "First")).id, first.id)
         _ = await library.persistNowAndWait()
+    }
+}
+
+@MainActor
+final class LibrarySearchIndexBatchTests: XCTestCase {
+    func testCancelledRecoveryResumesCommittedBatchesAndAppliesLaterDeletions() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstBatch = expectation(description: "A searchable batch is durable")
+        let gate = AsyncStream<Void>.makeStream()
+        defer { gate.continuation.finish() }
+        let counts = OSAllocatedUnfairLock(initialState: [Int]())
+        let index = LibrarySearchIndex(storageDirectory: directory, metadataBatchDidWriteForTesting: { count in
+            let first = counts.withLock { values in values.append(count); return values.count == 1 }
+            if first {
+                firstBatch.fulfill()
+                for await _ in gate.stream { break }
+            }
+        })
+        let songs = (0..<1_250).map {
+            Song(id: "batch-\($0)", title: "batchfixture \($0)", fileFormat: .mp3,
+                 filePath: "/track\($0).mp3", sourceID: "batch-source")
+        }
+        let generation = LibrarySearchIndex.persistLibraryChangePending()
+        let preparation = Task { await index.prepare(songs: songs, generation: generation) }
+        await fulfillment(of: [firstBatch], timeout: 10)
+        let partial = await index.search(query: "batchfixture", songs: songs, albums: [],
+            metadataRevisionKey: "partial", matchKinds: [.metadata], songLimit: songs.count)
+        let partialCount = try XCTUnwrap(partial).output.songResults.count
+        XCTAssertGreaterThan(partialCount, 0)
+        XCTAssertLessThan(partialCount, songs.count)
+        preparation.cancel()
+        gate.continuation.finish()
+        await preparation.value
+        XCTAssertTrue(LibrarySearchIndex.hasPendingPreparation)
+        await index.prepare(songs: songs, generation: generation)
+        let recovered = await index.search(query: "batchfixture", songs: songs, albums: [],
+            metadataRevisionKey: "complete", matchKinds: [.metadata], songLimit: songs.count)
+        XCTAssertEqual(Set(try XCTUnwrap(recovered).output.songResults.map(\.song.id)), Set(songs.map(\.id)))
+        XCTAssertFalse(LibrarySearchIndex.hasPendingPreparation)
+        let removed = Set(songs.prefix(513).map(\.id))
+        var updated = [songs[700], songs[1_024]]
+        for position in updated.indices { updated[position].title = "replacementfixture \(position)" }
+        let deltaGeneration = LibrarySearchIndex.persistLibraryChangePending()
+        await index.applyChanges(upserts: updated, deletingIDs: removed, generation: deltaGeneration)
+        let old = await index.search(query: "batchfixture", songs: songs, albums: [],
+            metadataRevisionKey: "after-delta", matchKinds: [.metadata], songLimit: songs.count)
+        XCTAssertEqual(try XCTUnwrap(old).output.songResults.count, songs.count - removed.count - updated.count)
+        let replacement = await index.search(query: "replacementfixture", songs: updated, albums: [],
+            metadataRevisionKey: "replaced", matchKinds: [.metadata], songLimit: 10)
+        XCTAssertEqual(Set(try XCTUnwrap(replacement).output.songResults.map(\.song.id)), Set(updated.map(\.id)))
+        XCTAssertTrue(counts.withLock { $0.allSatisfy { $0 <= 512 } })
     }
 }

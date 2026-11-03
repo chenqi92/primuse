@@ -32,9 +32,14 @@ struct PlaylistEntryMatcher: Sendable {
         keyed.reserveCapacity(songs.count)
         for (offset, song) in songs.enumerated() {
             if offset.isMultiple(of: 64), isCancelled() { break }
-            let key = keyCache?.key(for: song) ?? ExternalTrackMatchPolicy.Key(Self.subject(of: song))
-            keyed.append((offset, key))
-            if let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath),
+            let prepared = autoreleasepool {
+                (
+                    key: keyCache?.key(for: song) ?? ExternalTrackMatchPolicy.Key(Self.subject(of: song)),
+                    itemID: ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath)
+                )
+            }
+            keyed.append((offset, prepared.key))
+            if let itemID = prepared.itemID,
                serverItems[song.sourceID]?[itemID] == nil {
                 serverItems[song.sourceID, default: [:]][itemID] = offset
             }

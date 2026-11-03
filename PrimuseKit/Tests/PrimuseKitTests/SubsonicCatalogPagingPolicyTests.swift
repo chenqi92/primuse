@@ -199,6 +199,27 @@ struct SubsonicCatalogPagingPolicyTests {
 
 @Suite("Paged Subsonic catalogue staging")
 struct PagedSongCatalogStagingStoreTests {
+    @Test("Cancelled reconciliation leaves the durable stage available for retry")
+    func cancelledDeltaCanBeRetried() async throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        try store.reset(sourceID: "source", stageSessionID: "cancelled", ownerGeneration: 1,
+                        replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "revision")
+        let song = makeSong(index: 1)
+        _ = try store.stagePage(sourceID: "source", stageSessionID: "cancelled",
+            scopeFingerprint: "account", catalogRevision: "revision", offset: 0, nextOffset: nil,
+            itemIDs: [song.id], songs: [song], metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 1)
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            #expect(throws: CancellationError.self) {
+                try store.delta(sourceID: "source", existingByID: [:])
+            }
+        }
+        await cancelled.value
+        #expect(try store.delta(sourceID: "source", existingByID: [:]).upserts == [song])
+    }
+
     @Test("A page and its duplicate receipts commit atomically")
     func duplicatePageRollsBack() throws {
         try withStore { store in

@@ -4,6 +4,26 @@ import Testing
 
 @Suite("Short song title shortcuts")
 struct SiriSongCatalogTests {
+    @Test func cancelledCatalogDoesNotReturnPartialSuggestions() async {
+        let input = (0..<1_200).map { song("cancelled-\($0)", "初晴") }
+        let result = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return SiriSongCatalog.shortcuts(from: input, priorityIDs: [], limit: 80)
+        }.value
+        #expect(result.isEmpty)
+    }
+
+    @Test func boundedSelectionPreservesNewestDuplicateAndPriorityOrder() {
+        var newest = song("duplicate", "清晨")
+        newest.dateAdded = Date(timeIntervalSince1970: 30)
+        var older = song("older", "晚霞")
+        older.dateAdded = Date(timeIntervalSince1970: 20)
+        let input = [song("duplicate", "山海"), older, song("priority", " 微风\n"), newest]
+        let selected = SiriSongCatalog.shortcuts(from: input, priorityIDs: ["priority", "priority"], limit: 2)
+        #expect(selected.map(\.id) == ["priority", "duplicate"])
+        #expect(selected.last?.title == "清晨")
+    }
+
     @Test func keepsDistinctRecordingsAndPrioritizesRecentSelections() {
         let songs = [song("a", "晨光"), song("b", "晨光"), song("c", "山海间"), song("long", "听见微风")]
         let selected = SiriSongCatalog.shortcuts(from: songs, priorityIDs: ["b", "b", "missing"], limit: 3)
