@@ -7086,3 +7086,8 @@
 "chapter_import_changed" = "पूर्वावलोकन के बाद अध्याय बदल गए हैं। फ़ाइल फिर से आयात करें।";
 "sleep_choose_chapter" = "अध्याय चुनें…";
 "sleep_after_selected_chapter_format" = "“%@” के बाद रोकें";
+
+"home_subtabs_pull_down" = "ऊपरी टैब पर नीचे स्वाइप करें";
+"home_subtabs_double_tap" = "होम पर दो बार टैप करें";
+"home_subtabs_trigger_footer" = "कोई जेस्चर न चुनने पर हमेशा दिखेंगे। जेस्चर चुनने पर शुरुआत में छिपे रहेंगे।";
+"home_subtabs_empty" = "इस श्रेणी में कोई आइटम नहीं है";

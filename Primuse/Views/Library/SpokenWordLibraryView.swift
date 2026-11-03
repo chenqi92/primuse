@@ -499,6 +499,50 @@ struct SpokenWordLibraryView: View {
     #endif
 }
 
+enum SpokenWordShelfSection: String, CaseIterable {
+    case all, listening, shelf, finished
+
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .all: "radio_folder_all"
+        case .listening: "spoken_word_player_now_listening"
+        case .shelf: "spoken_word_shelf_section"
+        case .finished: "spoken_word_finished"
+        }
+    }
+
+    func includes(_ section: Self) -> Bool { self == .all || self == section }
+}
+
+struct SpokenWordShelfSectionTabs: View {
+    @Binding var selection: SpokenWordShelfSection
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 22) {
+                ForEach(SpokenWordShelfSection.allCases, id: \.self) { section in
+                    Button { selection = section } label: {
+                        Text(section.titleKey)
+                            .font(.subheadline.weight(selection == section ? .semibold : .regular))
+                            .foregroundStyle(selection == section ? Color.primary : Color.secondary)
+                            .padding(.vertical, 10)
+                            .overlay(alignment: .bottom) {
+                                if selection == section {
+                                    Capsule().fill(.tint).frame(height: 2)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selection == section ? .isSelected : [])
+                    .accessibilityIdentifier("home.spoken.filter.\(section.rawValue)")
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .pmPinnedRowStopsAtVerticalBar()
+    }
+}
+
 /// 书架本身:在听的那本大卡、书架网格、折叠的已听完与已归档。有声页与首页的「有声」一面共用,
 /// 外面的滚动容器与边距由放它的地方给。
 struct SpokenWordShelf: View {
@@ -508,10 +552,11 @@ struct SpokenWordShelf: View {
     var showsArchived = true
     /// 首页那一面传首页持有的分组结果(见 `SpokenWordLibraryContent.model`)。
     var model: SpokenWordBooksModel? = nil
+    var section: SpokenWordShelfSection = .all
 
     var body: some View {
         SpokenWordLibraryContent(model: model) { snapshot in
-            SpokenWordShelfContent(snapshot: snapshot, findText: findText, showsArchived: showsArchived)
+            SpokenWordShelfContent(snapshot: snapshot, findText: findText, showsArchived: showsArchived, section: section)
         }
     }
 }
@@ -520,6 +565,7 @@ struct SpokenWordShelfContent: View {
     let snapshot: SpokenWordLibrarySnapshot
     var findText = ""
     var showsArchived = true
+    var section: SpokenWordShelfSection = .all
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
@@ -619,11 +665,11 @@ struct SpokenWordShelfContent: View {
             guard let findQuery else { return true }
             return LibraryFindPolicy.matches(findQuery, fields: [entry.book.title, entry.book.author])
         }
-        let shelf = ordered(snapshot.shelf, preferred: preferred).filter(matches)
-        let finished = ordered(snapshot.finished, preferred: preferred).filter(matches)
-        let archived = showsArchived ? ordered(snapshot.archived, preferred: preferred).filter(matches) : []
-        let nowListening = snapshot.nowListening.flatMap { matches($0) ? $0 : nil }
-        let listening = snapshot.listeningEntries.filter(matches)
+        let shelf = section.includes(.shelf) ? ordered(snapshot.shelf, preferred: preferred).filter(matches) : []
+        let finished = section.includes(.finished) ? ordered(snapshot.finished, preferred: preferred).filter(matches) : []
+        let archived = showsArchived && section == .all ? ordered(snapshot.archived, preferred: preferred).filter(matches) : []
+        let nowListening = section.includes(.listening) ? snapshot.nowListening.flatMap { matches($0) ? $0 : nil } : nil
+        let listening = section.includes(.listening) ? snapshot.listeningEntries.filter(matches) : []
         return LazyVStack(alignment: .leading, spacing: 28) {
             if !snapshot.isPrepared {
                 ProgressView()
@@ -635,6 +681,10 @@ struct SpokenWordShelfContent: View {
                 ContentUnavailableView.search(text: findText)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
+            }
+            if findQuery == nil, section != .all, snapshot.isPrepared,
+               listening.isEmpty, shelf.isEmpty, finished.isEmpty {
+                ContentUnavailableView("home_subtabs_empty", systemImage: "books.vertical")
             }
 
             #if os(macOS)
@@ -659,7 +709,7 @@ struct SpokenWordShelfContent: View {
             }
             #endif
 
-            if !shelf.isEmpty || !finished.isEmpty {
+            if !shelf.isEmpty || (section == .all && !finished.isEmpty) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text("spoken_word_shelf_section")
@@ -686,32 +736,36 @@ struct SpokenWordShelfContent: View {
             }
 
             if !finished.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Button {
-                        pmWithAnimation(.panel) { showsFinished.toggle() }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text("spoken_word_finished")
-                                .font(sectionTitleFont)
-                            Text(verbatim: "\(finished.count)")
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .rotationEffect(.degrees(showsFinished ? 90 : 0))
+                if section == .finished {
+                    bookCollection(finished)
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button {
+                            pmWithAnimation(.panel) { showsFinished.toggle() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("spoken_word_finished")
+                                    .font(sectionTitleFont)
+                                Text(verbatim: "\(finished.count)")
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .rotationEffect(.degrees(showsFinished ? 90 : 0))
+                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                         .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .accessibilityAddTraits(.isHeader)
+                        .accessibilityAddTraits(.isHeader)
 
-                    // 在找书时听完的也直接摊开, 命中的不藏在折叠里。
-                    if showsFinished || findQuery != nil {
-                        bookCollection(finished)
-                            .pmFadeTransition(motion: .panel)
+                        // 在找书时听完的也直接摊开, 命中的不藏在折叠里。
+                        if showsFinished || findQuery != nil {
+                            bookCollection(finished)
+                                .pmFadeTransition(motion: .panel)
+                        }
                     }
                 }
             }

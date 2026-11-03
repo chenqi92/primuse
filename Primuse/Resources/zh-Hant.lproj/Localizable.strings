@@ -7157,3 +7157,8 @@
 "chapter_import_changed" = "預覽後章節已變更，請重新匯入檔案。";
 "sleep_choose_chapter" = "選擇章節…";
 "sleep_after_selected_chapter_format" = "播完「%@」後停止";
+
+"home_subtabs_pull_down" = "頂部分頁列下滑";
+"home_subtabs_double_tap" = "點兩下首頁";
+"home_subtabs_trigger_footer" = "未選擇觸發方式時持續顯示；選擇後預設收合。";
+"home_subtabs_empty" = "此分類尚無內容";

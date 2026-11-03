@@ -7181,3 +7181,8 @@
 "chapter_import_changed" = "プレビュー後にチャプターが変更されました。再度読み込んでください。";
 "sleep_choose_chapter" = "チャプターを選択…";
 "sleep_after_selected_chapter_format" = "「%@」の終了後に停止";
+
+"home_subtabs_pull_down" = "上部のタブを下にスワイプ";
+"home_subtabs_double_tap" = "ホームをダブルタップ";
+"home_subtabs_trigger_footer" = "ジェスチャーを選択しない場合は常に表示します。選択すると最初は非表示になります。";
+"home_subtabs_empty" = "このカテゴリには項目がありません";

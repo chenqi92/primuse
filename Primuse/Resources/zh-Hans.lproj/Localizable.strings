@@ -7273,3 +7273,8 @@
 "chapter_import_changed" = "预览后章节已发生变化，请重新导入文件。";
 "sleep_choose_chapter" = "选择章节…";
 "sleep_after_selected_chapter_format" = "播完“%@”后停止";
+
+"home_subtabs_pull_down" = "顶部标签栏下滑";
+"home_subtabs_double_tap" = "双击首页";
+"home_subtabs_trigger_footer" = "未选择触发方式时始终显示；选择后默认收起。";
+"home_subtabs_empty" = "此分类暂无内容";

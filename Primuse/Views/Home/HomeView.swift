@@ -1009,17 +1009,16 @@ private struct HomeRadioStationsPage: View {
 /// 有的台带格式码率、有的台名长,卡片高度都不变,切台时下面的电台墙不跟着上下跳。
 private struct HomeRadioSpotlightCard: View {
     @Binding var selectedStationID: String?
+    let stations: [RadioStation]
     let usesPadMetrics: Bool
     let onToggle: (RadioStation) -> Void
 
     @Environment(AudioPlayerService.self) private var player
-    @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(\.pmHeightClass) private var heightClass
     @AppStorage(HomeRadioWallPreferences.showsStreamInfoKey) private var showsStreamInfo = true
     @Environment(\.homeFaceSwipeExclusion) private var swipeExclusion
 
     private var selectedStation: RadioStation? {
-        let stations = radioStationsStore.stations
         if let selectedStationID,
            let selected = stations.first(where: { $0.id == selectedStationID }) {
             return selected
@@ -1038,7 +1037,6 @@ private struct HomeRadioSpotlightCard: View {
     }
 
     private func select(relativeTo station: RadioStation, offset: Int) {
-        let stations = radioStationsStore.stations
         guard stations.count > 1,
               let index = stations.firstIndex(where: { $0.id == station.id }) else { return }
         selectedStationID = stations[(index + offset + stations.count) % stations.count].id
@@ -1102,7 +1100,6 @@ private struct HomeRadioSpotlightCard: View {
     }
 
     private func textColumn(_ station: RadioStation, subtitle: String?, isPlaying: Bool) -> some View {
-        let stations = radioStationsStore.stations
         let currentIndex = stations.firstIndex(where: { $0.id == station.id }) ?? 0
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -1209,6 +1206,7 @@ enum HomeRadioWallPreferences {
 /// 观察。音乐源镜像进来的台可能上千个，懒加载网格只建可见区里的卡片。
 private struct HomeRadioWall: View, @MainActor Equatable {
     let stations: [RadioStation]
+    let totalStationCount: Int
     let cardSurface: Color
     let onSelect: (RadioStation) -> Void
     let onAdd: () -> Void
@@ -1220,7 +1218,8 @@ private struct HomeRadioWall: View, @MainActor Equatable {
     /// 电台清单来自电台存储的排序缓存，没变化时是同一块数组存储，这里的比较
     /// 不会逐个比电台。
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.stations == rhs.stations && lhs.cardSurface == rhs.cardSurface
+        lhs.stations == rhs.stations && lhs.totalStationCount == rhs.totalStationCount
+            && lhs.cardSurface == rhs.cardSurface
     }
 
     /// iPad 等宽屏:默认列宽,按宽度多排几列。
@@ -1264,7 +1263,7 @@ private struct HomeRadioWall: View, @MainActor Equatable {
                 } label: {
                     Text(String(
                         format: String(localized: "home_radio_wall_manage %lld"),
-                        stations.count
+                        totalStationCount
                     ))
                     .font(.subheadline.weight(.medium))
                 }
@@ -1524,6 +1523,12 @@ struct HomeView: View {
     /// 筛选胶囊的顺序与显隐,在首页编辑的「顶部切换」里调。
     @AppStorage(HomeFilterBarConfiguration.storageKey) private var homeFilterBarRawValue = ""
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsLibrarySections = false
+    @AppStorage(HomeSubtabPresentation.pullDownKey) private var subtabPullDown = false
+    @AppStorage(HomeSubtabPresentation.doubleTapKey) private var subtabDoubleTap = false
+    @State private var expandedSubtabSpaces: Set<String> = []
+    @State private var radioFolderScope: RadioStationFilter.FolderScope = .all
+    @State private var radioActiveTags: Set<String> = []
+    @State private var spokenShelfSection: SpokenWordShelfSection = .all
     @State private var showsFilterBarEditor = false
 
     /// 筛选胶囊有哪几颗、什么顺序(`HomeFilterBarConfiguration`)。没调过「顶部切换」时,
@@ -1606,7 +1611,7 @@ struct HomeView: View {
         )
     }
 
-    private var observedHomeContent: some View {
+    private var homeScrollContent: some View {
         ScrollViewReader { _ in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -1630,14 +1635,22 @@ struct HomeView: View {
                         // iPhone Duo 竖栏:静止时就在竖排状态栏旁边,横滑的筛选胶囊停在竖栏前,不滑到时间和电量底下。
                         .pmPinnedRowStopsAtVerticalBar()
                         .id(Self.homeTopAnchor)
+                        #if os(iOS)
+                        .gesture(HomeSubtabPullGesture(enabled: canPresentSubtabs && subtabPullDown) { expanded in
+                            setSubtabsExpanded(expanded)
+                        })
+                        .accessibilityActions {
+                            if canPresentSubtabs, subtabPresentation.usesGestures {
+                                Button("home_show_library_sections") { setSubtabsExpanded(true) }
+                            }
+                        }
+                        #endif
                     }
 
                     #if os(iOS)
-                    if !editorMode, showsLibrarySections, appNavigationMode == .standard,
-                       activeHomeFilter == nil || activeHomeFilter == .music {
-                        StandardLibrarySectionTabs(selection: nil) { section in
-                            openLibraryDestination?(.section(section))
-                        }
+                    if canPresentSubtabs, subtabsAreVisible {
+                        homeSubtabs
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                     #endif
 
@@ -1675,6 +1688,10 @@ struct HomeView: View {
         } action: { size in
             homeCanvasSize = size
         }
+    }
+
+    private var homeDataObservedContent: some View {
+        homeScrollContent
         .task(id: library.isReady ? nil : startupSourceIDs) {
             await refreshHomeSnapshotAfterPresentationIfNeeded()
         }
@@ -1707,11 +1724,26 @@ struct HomeView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             tintProvider.invalidateArtwork(from: note)
         }
+    }
+
+    private var homeSettingsObservedContent: some View {
+        homeDataObservedContent
         .onChange(of: quickAccessRawValue) { _, _ in
             // Quick access is part of the cached home snapshot. Without an
             // explicit refresh, edits made in Library remained invisible
             // until another library revision happened to arrive.
             refreshHomeSnapshot()
+        }
+        .onChange(of: subtabPresentation) { _, _ in
+            expandedSubtabSpaces.removeAll()
+        }
+        .onChange(of: showsLibrarySections) { _, enabled in
+            expandedSubtabSpaces.removeAll()
+            if !enabled {
+                radioFolderScope = .all
+                radioActiveTags = []
+                spokenShelfSection = .all
+            }
         }
         .onChange(of: LibraryFavoritesStore.shared.revision) { _, _ in
             // 收藏的专辑 / 艺人记在喜欢的账本里，详情页点一下心就该在首页收藏区出现。
@@ -1720,6 +1752,10 @@ struct HomeView: View {
         .onChange(of: showForYou) { _, _ in
             refreshHomeSnapshot()
         }
+    }
+
+    private var observedHomeContent: some View {
+        homeSettingsObservedContent
         .onAppear {
             isSceneActive = scenePhase == .active
         }
@@ -1773,6 +1809,13 @@ struct HomeView: View {
             .pmVerticalBarTitleEdge()
             #if os(iOS)
             .minimalNavigationRoot()
+            .background {
+                HomeTabDoubleTapObserver(enabled: canPresentSubtabs && subtabDoubleTap && isHomeVisible) {
+                    let expanded = !subtabsAreVisible
+                    setSubtabsExpanded(expanded)
+                    if expanded { homeScrollPosition.scrollTo(y: 0) }
+                }
+            }
             .navigationDestination(for: HomeHeroRecommendationDestination.self) { destination in
                 switch destination {
                 case .albums:
@@ -1916,6 +1959,8 @@ struct HomeView: View {
     /// 经 iCloud 键值同步的那几项也一并推到别的设备。改了哪个开关的键或默认值,这里跟着改。
     static let defaultSectionVisibility: [String: Bool] = [
         HomeFilterBarConfiguration.showsLibrarySectionsKey: false,
+        HomeSubtabPresentation.pullDownKey: false,
+        HomeSubtabPresentation.doubleTapKey: false,
         "primuse.home.showHero": true,
         "primuse.home.showStatsGlimpse": true,
         "primuse.home.showForYou": true,
@@ -2385,6 +2430,18 @@ struct HomeView: View {
             Toggle("home_show_library_sections", isOn: $showsLibrarySections)
                 .padding(.horizontal, 20)
                 .accessibilityIdentifier("home.librarySectionTabs.toggle")
+            if showsLibrarySections {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("home_subtabs_pull_down", isOn: $subtabPullDown)
+                        .accessibilityIdentifier("home.subtabs.pullDown")
+                    Toggle("home_subtabs_double_tap", isOn: $subtabDoubleTap)
+                        .accessibilityIdentifier("home.subtabs.doubleTap")
+                    Text("home_subtabs_trigger_footer")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+            }
             if showsLibrarySections, appNavigationMode == .standard {
                 StandardLibrarySectionTabs(selection: nil) { _ in }
                     .allowsHitTesting(false)
@@ -2804,12 +2861,66 @@ struct HomeView: View {
         .decode(homeFilterBarRawValue)
     }
 
+    private var subtabPresentation: HomeSubtabPresentation {
+        #if os(iOS)
+        let hasBottomTabs = AppNavigationLayoutPolicy.rootLayout(
+            mode: appNavigationMode, usesRegularWidth: sizeClass == .regular,
+            allowsSidebar: UIDevice.current.userInterfaceIdiom == .pad
+        ) == .standardTabs
+        return HomeSubtabPresentation(
+            pullDown: subtabPullDown && !homeFilterSpaces.isEmpty,
+            doubleTap: subtabDoubleTap && hasBottomTabs
+        )
+        #else
+        return HomeSubtabPresentation()
+        #endif
+    }
+
+    private var subtabSpaceID: String { (activeHomeFilter ?? .music).rawValue }
+
+    private var subtabsAreVisible: Bool {
+        subtabPresentation.isVisible(
+            enabled: showsLibrarySections,
+            expanded: expandedSubtabSpaces.contains(subtabSpaceID)
+        )
+    }
+
+    #if os(iOS)
+    private var canPresentSubtabs: Bool {
+        !editorMode && showsLibrarySections && appNavigationMode == .standard && activeHomeFilter != .podcast
+    }
+
+    private func setSubtabsExpanded(_ expanded: Bool) {
+        pmWithAnimation(.panel) {
+            if expanded {
+                expandedSubtabSpaces.insert(subtabSpaceID)
+            } else {
+                expandedSubtabSpaces.remove(subtabSpaceID)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var homeSubtabs: some View {
+        switch activeHomeFilter {
+        case .radio:
+            RadioStationFilterBar(folderScope: $radioFolderScope, activeTags: $radioActiveTags)
+        case .spokenWord:
+            SpokenWordShelfSectionTabs(selection: $spokenShelfSection)
+        default:
+            StandardLibrarySectionTabs(selection: nil) { section in
+                openLibraryDestination?(.section(section))
+            }
+        }
+    }
+    #endif
+
     @ViewBuilder
     private var homePageContent: some View {
         if activeHomeFilter == .radio {
             radioModeContent
         } else if activeHomeFilter == .spokenWord {
-            SpokenWordShelf(showsArchived: false, model: spokenWordBooks)
+            SpokenWordShelf(showsArchived: false, model: spokenWordBooks, section: spokenShelfSection)
                 .padding(.horizontal, 16)
         } else if activeHomeFilter == .podcast {
             PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
@@ -2878,6 +2989,14 @@ struct HomeView: View {
 
     // MARK: - 电台态
 
+    private var visibleHomeRadioStations: [RadioStation] {
+        let filter = RadioStationFilter(
+            folder: radioFolderScope, tagNames: radioActiveTags
+        )
+        let stations = radioStationsStore.stations
+        return filter.isNarrowed ? RadioStationOrganization.filtered(stations, with: filter) : stations
+    }
+
     /// 电台那一面：正在直播的大卡 + 我的电台墙。跟音乐面互斥，切过来时
     /// 用户面对的只有电台这一件事。
     ///
@@ -2885,14 +3004,24 @@ struct HomeView: View {
     /// 内层网格能不能只建可见区里的卡片就取决于系统怎么量外层了。
     @ViewBuilder
     private var radioModeContent: some View {
-        let stations = radioStationsStore.stations
+        let stations = visibleHomeRadioStations
 
         VStack(alignment: .leading, spacing: 24) {
-            if stations.isEmpty {
+            if radioStationsStore.stations.isEmpty {
                 radioModeEmptyState
+            } else if stations.isEmpty {
+                ContentUnavailableView {
+                    Label("radio_filter_empty_title", systemImage: "line.3.horizontal.decrease.circle")
+                } actions: {
+                    Button("radio_filter_clear") {
+                        radioFolderScope = .all
+                        radioActiveTags = []
+                    }
+                }
             } else {
                 HomeRadioSpotlightCard(
                     selectedStationID: $selectedHomeRadioID,
+                    stations: stations,
                     usesPadMetrics: usesPadMetrics,
                     onToggle: toggleHomeRadio
                 )
@@ -2900,6 +3029,7 @@ struct HomeView: View {
 
                 HomeRadioWall(
                     stations: stations,
+                    totalStationCount: radioStationsStore.stations.count,
                     cardSurface: homeCardSurface,
                     onSelect: { station in
                         selectedHomeRadioID = station.id
@@ -2971,7 +3101,8 @@ struct HomeView: View {
             player.pause()
         } else {
             SiriMediaInteractionDonor.donate(station: station)
-            Task { await player.play(station: station, within: radioStationsStore.stations) }
+            let stations = visibleHomeRadioStations
+            Task { await player.play(station: station, within: stations) }
         }
     }
 

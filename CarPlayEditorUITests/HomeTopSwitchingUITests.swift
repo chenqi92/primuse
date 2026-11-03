@@ -2,6 +2,80 @@ import XCTest
 
 @MainActor
 final class HomeTopSwitchingUITests: XCTestCase {
+    func testHomeSubtabsVisibilityAndGestures() {
+        continueAfterFailure = false
+        let app = configuredApp()
+        let base = app.launchArguments + [
+            "-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0",
+            "-primuse.home.showsLibrarySections.v1", "YES"
+        ]
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchArguments = base + [
+                "-primuse.home.subtabs.pullDown.v1", "NO", "-primuse.home.subtabs.doubleTap.v1", "NO"
+            ]
+            app.launch()
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            if !app.buttons["home.spaceFilter.music"].isSelected {
+                app.buttons["home.spaceFilter.music"].tap()
+            }
+            app.terminate()
+        }
+        let categories = app.buttons["library.sectionTab.songs"]
+        let music = app.buttons["home.spaceFilter.music"]
+        let home = app.tabBars.buttons["首页"]
+
+        app.launchArguments = base + [
+            "-primuse.home.subtabs.pullDown.v1", "NO", "-primuse.home.subtabs.doubleTap.v1", "NO"
+        ]
+        app.launch()
+        XCTAssertTrue(music.waitForExistence(timeout: 20))
+        if !music.isSelected { music.tap() }
+        XCTAssertTrue(categories.waitForExistence(timeout: 20))
+        app.terminate()
+
+        app.launchArguments = base + [
+            "-primuse.home.subtabs.pullDown.v1", "YES", "-primuse.home.subtabs.doubleTap.v1", "NO"
+        ]
+        app.launch()
+        XCTAssertTrue(music.waitForExistence(timeout: 20))
+        if !music.isSelected { music.tap() }
+        XCTAssertFalse(categories.exists)
+        let start = music.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 70)))
+        XCTAssertTrue(categories.waitForExistence(timeout: 5))
+        attach(app, "home-subtabs-pull-down")
+        let up = music.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        up.press(forDuration: 0.05, thenDragTo: up.withOffset(CGVector(dx: 0, dy: -45)))
+        XCTAssertTrue(categories.waitForNonExistence(timeout: 5))
+        home.doubleTap()
+        XCTAssertFalse(categories.exists)
+        app.terminate()
+
+        app.launchArguments = base + [
+            "-primuse.home.subtabs.pullDown.v1", "NO", "-primuse.home.subtabs.doubleTap.v1", "YES"
+        ]
+        app.launch()
+        XCTAssertTrue(music.waitForExistence(timeout: 20))
+        if !music.isSelected { music.tap() }
+        XCTAssertFalse(categories.exists)
+        home.tap()
+        XCTAssertFalse(categories.exists)
+        home.doubleTap()
+        XCTAssertTrue(categories.waitForExistence(timeout: 5))
+        app.buttons["home.spaceFilter.radio"].tap()
+        XCTAssertTrue(app.buttons["home.spaceFilter.radio"].isSelected)
+        let allRadio = app.buttons["home.radio.filter.all"]
+        XCTAssertFalse(allRadio.exists)
+        home.doubleTap()
+        XCTAssertTrue(allRadio.waitForExistence(timeout: 5))
+        attach(app, "home-subtabs-radio")
+        home.doubleTap()
+        XCTAssertTrue(allRadio.waitForNonExistence(timeout: 5))
+        music.tap()
+        XCTAssertTrue(categories.waitForExistence(timeout: 5))
+    }
+
     func testRecommendationDetailPresentation() {
         continueAfterFailure = false
         let app = configuredApp()

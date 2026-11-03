@@ -464,6 +464,140 @@ private struct HomeFilterMaterialImage: View {
 }
 
 #if os(iOS)
+struct HomeSubtabPullGesture: UIGestureRecognizerRepresentable {
+    let enabled: Bool
+    let onChange: (Bool) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let recognizer = UIPanGestureRecognizer()
+        recognizer.maximumNumberOfTouches = 1
+        recognizer.delegate = context.coordinator
+        recognizer.isEnabled = enabled
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        recognizer.isEnabled = enabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        guard recognizer.state == .ended else { return }
+        let translation = recognizer.translation(in: recognizer.view)
+        if HomeSubtabPresentation.acceptsPull(translationX: translation.x, translationY: translation.y) {
+            onChange(translation.y > 0)
+        }
+    }
+
+    @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.y) > abs(velocity.x) * 1.5
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            otherGestureRecognizer is UIPanGestureRecognizer
+        }
+    }
+}
+
+struct HomeTabDoubleTapObserver: UIViewControllerRepresentable {
+    let enabled: Bool
+    let onDoubleTap: () -> Void
+
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.enabled = enabled
+        controller.onDoubleTap = onDoubleTap
+        controller.attach()
+    }
+
+    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) {
+        controller.detach()
+    }
+
+    final class Controller: UIViewController, UIGestureRecognizerDelegate {
+        var enabled = false
+        var onDoubleTap: () -> Void = {}
+        private weak var observedTabBar: UITabBar?
+        private lazy var recognizer: UITapGestureRecognizer = {
+            let gesture = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
+            gesture.numberOfTapsRequired = 2
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesBegan = false
+            gesture.delaysTouchesEnded = false
+            gesture.delegate = self
+            return gesture
+        }()
+
+        override func loadView() {
+            view = UIView(frame: .zero)
+            view.isUserInteractionEnabled = false
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            attach()
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            attach()
+        }
+
+        func attach() {
+            let tabBar = tabBarController?.tabBar
+            if observedTabBar !== tabBar {
+                detach()
+                observedTabBar = tabBar
+                tabBar?.addGestureRecognizer(recognizer)
+            }
+            recognizer.isEnabled = enabled
+        }
+
+        func detach() {
+            observedTabBar?.removeGestureRecognizer(recognizer)
+            observedTabBar = nil
+        }
+
+        @objc private func doubleTapped() {
+            guard enabled, recognizer.state == .ended else { return }
+            onDoubleTap()
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard enabled, let tabBar = observedTabBar, !tabBar.isHidden,
+                  let home = tabBar.items?.first, tabBar.selectedItem === home,
+                  let title = home.title else { return false }
+            var candidate = touch.view
+            while let view = candidate, view !== tabBar {
+                if view.accessibilityLabel == title { return true }
+                if let control = view as? UIControl {
+                    return Self.containsTitle(title, in: control)
+                }
+                candidate = view.superview
+            }
+            return false
+        }
+
+        private static func containsTitle(_ title: String, in view: UIView) -> Bool {
+            view.accessibilityLabel == title || (view as? UILabel)?.text == title
+                || view.subviews.contains { containsTitle(title, in: $0) }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool { true }
+    }
+}
+
 struct HomeFilterBarStylePicker: View {
     @Binding var selection: HomeFilterBarAppearance
 

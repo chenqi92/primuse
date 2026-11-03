@@ -6941,3 +6941,8 @@
 "chapter_import_changed" = "Chapters changed after the preview. Import the file again.";
 "sleep_choose_chapter" = "Choose Chapter…";
 "sleep_after_selected_chapter_format" = "Stop after “%@”";
+
+"home_subtabs_pull_down" = "Swipe down on the top tabs";
+"home_subtabs_double_tap" = "Double-tap Home";
+"home_subtabs_trigger_footer" = "Always shown when no gesture is selected. Selecting a gesture hides them initially.";
+"home_subtabs_empty" = "No items in this category";

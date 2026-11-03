@@ -6,15 +6,92 @@ import PrimuseKit
 @testable import Primuse
 
 final class StandardLibrarySectionTabsTests: XCTestCase {
+    func testSubtabsRemainVisibleWithoutTriggersAndCollapseWithEitherTrigger() {
+        for pull in [false, true] {
+            for doubleTap in [false, true] {
+                let presentation = HomeSubtabPresentation(pullDown: pull, doubleTap: doubleTap)
+                XCTAssertEqual(presentation.isVisible(enabled: true, expanded: false), !pull && !doubleTap)
+                XCTAssertTrue(presentation.isVisible(enabled: true, expanded: true))
+                XCTAssertFalse(presentation.isVisible(enabled: false, expanded: true))
+            }
+        }
+    }
+
+    func testSubtabPullIgnoresShortAndHorizontalDrags() {
+        XCTAssertFalse(HomeSubtabPresentation.acceptsPull(translationX: 0, translationY: 12))
+        XCTAssertFalse(HomeSubtabPresentation.acceptsPull(translationX: 60, translationY: 35))
+        XCTAssertTrue(HomeSubtabPresentation.acceptsPull(translationX: 4, translationY: 35))
+        XCTAssertTrue(HomeSubtabPresentation.acceptsPull(translationX: 4, translationY: -35))
+    }
+
+    @MainActor
+    func testShelfSubtabsFilterBooksAndExpandFinishedWithoutChangingSavedPreference() async throws {
+        let suite = "HomeShelfSubtabsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        let songs = (0..<3).map { index in
+            Song(id: "subtab-book-\(index)", title: "Chapter", albumTitle: "Book \(index)",
+                 artistName: "Author", duration: 300,
+                 fileFormat: .m4a, filePath: "/subtabs/\(index).m4b", sourceID: suite, genre: "Audiobook")
+        }
+        let model = SpokenWordBooksModel()
+        await model.refresh(
+            songs: songs,
+            positions: [songs[0].id: .init(position: 60, duration: 300, updatedAt: Date())],
+            finishedAt: [songs[2].id: Date()]
+        )
+        let snapshot = model.snapshot
+        XCTAssertEqual(snapshot.shelf.count, 1)
+        XCTAssertEqual(snapshot.finished.count, 1)
+        var built: Set<String> = []
+        SpokenWordShelfDiagnostics.didBuildCell = { built.insert($0) }
+        defer { SpokenWordShelfDiagnostics.didBuildCell = nil }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        defer { window.isHidden = true; window.rootViewController = nil }
+        for section in [SpokenWordShelfSection.shelf, .finished] {
+            built = []
+            let host = UIHostingController(rootView: ScrollView {
+                SpokenWordShelfContent(snapshot: snapshot, showsArchived: false, section: section)
+                    .padding(.horizontal, 16)
+            }
+                .environment(library)
+                .environment(AppServices.shared.playerService)
+                .environment(AppServices.shared.sourceManager)
+                .environment(ThemeService())
+                .defaultAppStorage(defaults))
+            window.rootViewController = host
+            window.isHidden = false
+            try await Task.sleep(for: .milliseconds(500))
+            let expected = section == .shelf ? snapshot.shelf : snapshot.finished
+            XCTAssertEqual(built, Set(expected.map(\.id)))
+            XCTAssertFalse(defaults.bool(forKey: "spokenWord.shelf.showsFinished"))
+            attach(window, name: "home-subtabs-books-\(section.rawValue)")
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+    }
+
     @MainActor
     func testDefaultIsOffAndRestoreDefaultsTurnsItOff() {
         withDefaults { defaults in
             let key = HomeFilterBarConfiguration.showsLibrarySectionsKey
             XCTAssertFalse(defaults.bool(forKey: key))
             defaults.set(true, forKey: key)
+            defaults.set(true, forKey: HomeSubtabPresentation.pullDownKey)
+            defaults.set(true, forKey: HomeSubtabPresentation.doubleTapKey)
             XCTAssertTrue(defaults.bool(forKey: key))
             HomeView.restoreDefaultSectionVisibility(defaults: defaults)
             XCTAssertFalse(defaults.bool(forKey: key))
+            XCTAssertFalse(defaults.bool(forKey: HomeSubtabPresentation.pullDownKey))
+            XCTAssertFalse(defaults.bool(forKey: HomeSubtabPresentation.doubleTapKey))
         }
     }
 

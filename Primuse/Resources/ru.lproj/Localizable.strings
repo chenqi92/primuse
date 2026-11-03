@@ -7086,3 +7086,8 @@
 "chapter_import_changed" = "Главы изменились после предпросмотра. Импортируйте файл заново.";
 "sleep_choose_chapter" = "Выбрать главу…";
 "sleep_after_selected_chapter_format" = "Остановить после «%@»";
+
+"home_subtabs_pull_down" = "Смахнуть вниз по верхним вкладкам";
+"home_subtabs_double_tap" = "Дважды нажать «Главная»";
+"home_subtabs_trigger_footer" = "Всегда видны, если жест не выбран. При выборе жеста изначально скрыты.";
+"home_subtabs_empty" = "В этой категории пока нет элементов";

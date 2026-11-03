@@ -7180,3 +7180,8 @@
 "chapter_import_changed" = "Die Kapitel wurden nach der Vorschau geändert. Importiere die Datei erneut.";
 "sleep_choose_chapter" = "Kapitel auswählen…";
 "sleep_after_selected_chapter_format" = "Nach „%@“ stoppen";
+
+"home_subtabs_pull_down" = "Auf den oberen Tabs nach unten wischen";
+"home_subtabs_double_tap" = "Start doppelt antippen";
+"home_subtabs_trigger_footer" = "Ohne ausgewählte Geste immer sichtbar. Mit einer Geste zunächst ausgeblendet.";
+"home_subtabs_empty" = "Keine Einträge in dieser Kategorie";

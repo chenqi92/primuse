@@ -576,6 +576,29 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+public struct HomeSubtabPresentation: Equatable, Sendable {
+    public static let pullDownKey = "primuse.home.subtabs.pullDown.v1"
+    public static let doubleTapKey = "primuse.home.subtabs.doubleTap.v1"
+
+    public var pullDown: Bool
+    public var doubleTap: Bool
+
+    public init(pullDown: Bool = false, doubleTap: Bool = false) {
+        self.pullDown = pullDown
+        self.doubleTap = doubleTap
+    }
+
+    public var usesGestures: Bool { pullDown || doubleTap }
+
+    public func isVisible(enabled: Bool, expanded: Bool) -> Bool {
+        enabled && (!usesGestures || expanded)
+    }
+
+    public static func acceptsPull(translationX: Double, translationY: Double) -> Bool {
+        abs(translationY) >= 28 && abs(translationY) > abs(translationX) * 1.5
+    }
+}
+
 /// 首页顶上筛选胶囊(音乐、电台、有声、播客)的顺序、显隐与显示方式。
 ///
 /// 没调过时(存空串)每颗胶囊跟着首页编辑里对应区块的开关走:关掉「电台」那块,电台胶囊也收起,

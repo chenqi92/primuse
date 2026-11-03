@@ -7086,3 +7086,8 @@
 "chapter_import_changed" = "บทมีการเปลี่ยนแปลงหลังแสดงตัวอย่าง โปรดนำเข้าไฟล์อีกครั้ง";
 "sleep_choose_chapter" = "เลือกบท…";
 "sleep_after_selected_chapter_format" = "หยุดหลัง “%@”";
+
+"home_subtabs_pull_down" = "ปัดลงบนแท็บด้านบน";
+"home_subtabs_double_tap" = "แตะหน้าหลักสองครั้ง";
+"home_subtabs_trigger_footer" = "แสดงเสมอเมื่อไม่ได้เลือกท่าทาง หากเลือกท่าทางจะซ่อนไว้ในตอนแรก";
+"home_subtabs_empty" = "ไม่มีรายการในหมวดหมู่นี้";

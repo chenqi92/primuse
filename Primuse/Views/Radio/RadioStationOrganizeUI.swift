@@ -84,6 +84,60 @@ enum RadioTagPalette {
     }
 }
 
+struct RadioStationFilterBar: View {
+    @Binding var folderScope: RadioStationFilter.FolderScope
+    @Binding var activeTags: Set<String>
+    @Environment(RadioStationsStore.self) private var store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    RadioFilterChip(
+                        title: String(localized: "radio_folder_all"), systemImage: "square.grid.2x2",
+                        count: store.stations.count, isSelected: folderScope == .all && activeTags.isEmpty
+                    ) {
+                        folderScope = .all
+                        activeTags = []
+                    }
+                    .accessibilityIdentifier("home.radio.filter.all")
+                    if store.ungroupedStationCount > 0, !store.folders.isEmpty {
+                        RadioFilterChip(
+                            title: String(localized: "radio_folder_ungrouped"), systemImage: "tray",
+                            count: store.ungroupedStationCount, isSelected: folderScope == .ungrouped
+                        ) { folderScope = folderScope == .ungrouped ? .all : .ungrouped }
+                    }
+                    ForEach(store.folders) { folder in
+                        RadioFilterChip(
+                            title: folder.name, systemImage: "folder", count: folder.stationCount,
+                            isSelected: folderScope == .folder(folder.name)
+                        ) { folderScope = folderScope == .folder(folder.name) ? .all : .folder(folder.name) }
+                        .accessibilityIdentifier("home.radio.filter.folder.\(folder.name)")
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            if !store.tags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(store.tags) { tag in
+                            RadioFilterChip(
+                                title: tag.name, systemImage: "tag", count: tag.stationCount,
+                                isSelected: activeTags.contains(tag.name), tint: RadioTagPalette.color(for: tag.name)
+                            ) {
+                                if !activeTags.insert(tag.name).inserted { activeTags.remove(tag.name) }
+                            }
+                            .accessibilityIdentifier("home.radio.filter.tag.\(tag.name)")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+        }
+        .pmPinnedRowStopsAtVerticalBar()
+    }
+}
+
 /// 筛选条上的一颗胶囊。选中态用 tint 填充，未选中态是一层淡底。
 struct RadioFilterChip: View {
     let title: String
@@ -121,6 +175,7 @@ struct RadioFilterChip: View {
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .pmAnimation(.hover, value: isSelected)
     }
 }

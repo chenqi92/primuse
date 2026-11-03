@@ -7086,3 +7086,8 @@
 "chapter_import_changed" = "Розділи змінилися після перегляду. Імпортуйте файл знову.";
 "sleep_choose_chapter" = "Вибрати розділ…";
 "sleep_after_selected_chapter_format" = "Зупинити після «%@»";
+
+"home_subtabs_pull_down" = "Провести вниз по верхніх вкладках";
+"home_subtabs_double_tap" = "Двічі торкнутися «Головна»";
+"home_subtabs_trigger_footer" = "Завжди видимі, якщо жест не вибрано. Після вибору жесту спочатку приховані.";
+"home_subtabs_empty" = "У цій категорії поки немає елементів";

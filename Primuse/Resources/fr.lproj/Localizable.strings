@@ -7180,3 +7180,8 @@
 "chapter_import_changed" = "Les chapitres ont changé depuis l’aperçu. Importez à nouveau le fichier.";
 "sleep_choose_chapter" = "Choisir un chapitre…";
 "sleep_after_selected_chapter_format" = "Arrêter après « %@ »";
+
+"home_subtabs_pull_down" = "Balayer les onglets du haut vers le bas";
+"home_subtabs_double_tap" = "Toucher deux fois Accueil";
+"home_subtabs_trigger_footer" = "Toujours affichés si aucun geste n’est sélectionné. Sinon, masqués au départ.";
+"home_subtabs_empty" = "Aucun élément dans cette catégorie";

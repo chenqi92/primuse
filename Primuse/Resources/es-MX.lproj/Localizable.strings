@@ -7086,3 +7086,8 @@
 "chapter_import_changed" = "Los capítulos cambiaron desde la vista previa. Importa el archivo de nuevo.";
 "sleep_choose_chapter" = "Elegir capítulo…";
 "sleep_after_selected_chapter_format" = "Detener después de “%@”";
+
+"home_subtabs_pull_down" = "Deslizar hacia abajo sobre las pestañas superiores";
+"home_subtabs_double_tap" = "Tocar Inicio dos veces";
+"home_subtabs_trigger_footer" = "Siempre visibles si no se elige un gesto. Al elegir uno, se ocultan al inicio.";
+"home_subtabs_empty" = "No hay elementos en esta categoría";

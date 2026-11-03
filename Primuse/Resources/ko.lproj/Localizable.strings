@@ -7180,3 +7180,8 @@
 "chapter_import_changed" = "미리보기 이후 챕터가 변경되었습니다. 파일을 다시 가져오세요.";
 "sleep_choose_chapter" = "챕터 선택…";
 "sleep_after_selected_chapter_format" = "“%@” 후 정지";
+
+"home_subtabs_pull_down" = "상단 탭에서 아래로 쓸어내리기";
+"home_subtabs_double_tap" = "홈 두 번 탭하기";
+"home_subtabs_trigger_footer" = "동작을 선택하지 않으면 항상 표시됩니다. 동작을 선택하면 처음에는 숨겨집니다.";
+"home_subtabs_empty" = "이 카테고리에 항목이 없습니다";

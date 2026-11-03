@@ -665,6 +665,8 @@ final class InterfaceLayoutSync {
         HomeSectionLayoutConfiguration.storageKey,
         HomeFilterBarConfiguration.storageKey,
         HomeFilterBarConfiguration.showsLibrarySectionsKey,
+        HomeSubtabPresentation.pullDownKey,
+        HomeSubtabPresentation.doubleTapKey,
         "primuse.home.showHero",
         HomeCoverSize.legacyStorageKey,
         "primuse.home.showContinueSpaces",

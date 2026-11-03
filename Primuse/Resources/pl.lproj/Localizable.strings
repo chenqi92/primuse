@@ -7086,3 +7086,8 @@
 "chapter_import_changed" = "Rozdziały zmieniły się po podglądzie. Zaimportuj plik ponownie.";
 "sleep_choose_chapter" = "Wybierz rozdział…";
 "sleep_after_selected_chapter_format" = "Zatrzymaj po „%@”";
+
+"home_subtabs_pull_down" = "Przesuń w dół na górnych kartach";
+"home_subtabs_double_tap" = "Stuknij dwukrotnie Początek";
+"home_subtabs_trigger_footer" = "Zawsze widoczne, gdy nie wybrano gestu. Po wybraniu gestu są początkowo ukryte.";
+"home_subtabs_empty" = "Brak elementów w tej kategorii";
