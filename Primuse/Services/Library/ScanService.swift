@@ -2777,9 +2777,6 @@ final class ScanService {
         // 只在服务端歌单里的歌(`admitCollectionOnlySongs`)从来不在走查里, 不算进「这一轮少了哪些」,
         // 否则几百首插件歌曲每轮都被当成一大批消失, 连真删掉的歌也跟着等确认。
         let collectionOnlySongIDs = CollectionOnlySongStore.shared.songIDs(forSourceID: source.id)
-        let knownExisting = library.songs.filter {
-            $0.sourceID == source.id && !collectionOnlySongIDs.contains($0.id)
-        }
         let scopeFingerprint = Self.scopeFingerprint(for: source, directories: directories)
         let identityScopeFingerprint = Self.scopeFingerprint(for: source, directories: [])
         let scanFenceIsValid: () -> Bool = {
@@ -2815,6 +2812,9 @@ final class ScanService {
            // 读成「都还在」、把攒下的证词清零，Jellyfin/Emby 少了一大批就永远确认不了
            // （#155）。新提交会顺带置 `requiresDeepScan`，这里兜住旧版本写下的状态。
            previousState.reconciliation?.kind != .serverCatalogMassDisappearance {
+            let knownExisting = library.songs.filter {
+                $0.sourceID == source.id && !collectionOnlySongIDs.contains($0.id)
+            }
             let handled = await performCatalogIncrementalSync(
                 source: source,
                 generation: generation,
@@ -2848,7 +2848,6 @@ final class ScanService {
                 directories: directories,
                 connector: pagedConnector,
                 stagingStore: pagedCatalogStore,
-                existingSongs: knownExisting,
                 sourceManager: sourceManager,
                 library: library,
                 sourceStore: sourceStore,
@@ -2900,6 +2899,9 @@ final class ScanService {
         // into the library above), not just the checkpoint slice — otherwise
         // the first intermediate flush below drops every not-yet-rewalked song
         // and cleanPlaylistEntries() permanently un-playlists them.
+        let knownExisting = library.songs.filter {
+            $0.sourceID == source.id && !collectionOnlySongIDs.contains($0.id)
+        }
         let existingForScan: [Song]
         let genericResumeSongs = activeCheckpoint?.subsonicCatalogState == nil
             ? (activeCheckpoint?.songs ?? [])
@@ -3966,6 +3968,53 @@ final class ScanService {
         #endif
     }
 
+    private func preparePagedCatalogSeed(
+        source: MusicSource, library: MusicLibrary
+    ) async -> (IndexedSongSnapshot, [String: String]) {
+        let songs = library.songs
+        let collectionOnlyIDs = CollectionOnlySongStore.shared.songIDs(forSourceID: source.id)
+        let worker = Task.detached(priority: .utility) {
+            let existing = songs.filter {
+                $0.sourceID == source.id && !collectionOnlyIDs.contains($0.id)
+            }
+            // Preserve IDs across Navidrome's server-side ID migration.
+            let carried = source.type.isSubsonicFamily
+                ? SubsonicSongIdentityCarryPolicy.songIDsByServerSongID(existing) {
+                    NavidromeCanonicalIDPolicy.canonicalID($0)
+                }
+                : [:]
+            return (IndexedSongSnapshot(existing), carried)
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    /// Only changed rows, hierarchy and IDs survive into the commit. Holding
+    /// the lookup's old song array across publication forces an extra full copy.
+    private func preparePagedCatalogCommit(
+        sourceID: String, library: MusicLibrary,
+        stagingStore: PagedSongCatalogStagingStore, enrichment: ServerCatalogEnrichment?
+    ) async throws -> (PagedSongCatalogStageDelta, [String: SourceSyncIndexedItem], Set<String>) {
+        let songs = library.songs
+        let worker = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            let existing = IndexedSongSnapshot(songs, sourceID: sourceID)
+            let delta = try stagingStore.delta(
+                sourceID: sourceID, existingByID: existing, enrichment: enrichment
+            )
+            let index = try stagingStore.loadHierarchyIndex(sourceID: sourceID)
+            return (delta, index, existing.keys)
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
     /// Publish durable pages as previews; enrich and reconcile the final verified snapshot.
     private func scanPagedServerCatalog(
         source: MusicSource,
@@ -3973,7 +4022,6 @@ final class ScanService {
         directories: [String],
         connector: any ResumablePagedSongCatalogConnector,
         stagingStore: PagedSongCatalogStagingStore,
-        existingSongs: [Song],
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
@@ -3989,18 +4037,9 @@ final class ScanService {
         defer { Task { await enrichmentProvider?.endCatalogEnrichment(scanID: enrichmentScanID) } }
         let catalogPath = directories.first ?? "/"
         var pageSize = SubsonicCatalogPagingPolicy.pageSize
-        let existingByID = await Task.detached(priority: .utility) {
-            IndexedSongSnapshot(existingSongs)
-        }.value
-        // Navidrome 0.64 re-encoded nearly every song id. Rows are carried by
-        // the server id in their path so they are not re-added as new songs.
-        let songIDsByServerSongID: [String: String] = source.type.isSubsonicFamily
-            ? await Task.detached(priority: .utility) {
-                SubsonicSongIdentityCarryPolicy.songIDsByServerSongID(existingSongs) {
-                    NavidromeCanonicalIDPolicy.canonicalID($0)
-                }
-            }.value
-            : [:]
+        var (existingByID, songIDsByServerSongID) = await preparePagedCatalogSeed(
+            source: source, library: library
+        )
         let pagedFenceIsValid: () -> Bool = {
             do {
                 try self.checkScanCommitFence(
@@ -4489,29 +4528,15 @@ final class ScanService {
                 try checkScanCommitFence(sourceID: source.id, generation: generation,
                                          expectedScopeFingerprint: scopeFingerprint,
                                          expectedScopeDirectories: directories, sourceStore: sourceStore)
-                let liveSongsSnapshot = library.songs
-                let snapshotWorker = Task.detached(priority: .utility) {
-                    IndexedSongSnapshot(liveSongsSnapshot, sourceID: source.id)
-                }
-                let finalExistingByID = await withTaskCancellationHandler {
-                    await snapshotWorker.value
-                } onCancel: {
-                    snapshotWorker.cancel()
-                }
-                try Task.checkCancellation()
-                let stagedCommitWorker = Task.detached(priority: .utility) {
-                    let delta = try stagingStore.delta(
-                        sourceID: source.id,
-                        existingByID: finalExistingByID, enrichment: enrichment
-                    )
-                    let index = try stagingStore.loadHierarchyIndex(sourceID: source.id)
-                    return (delta, index)
-                }
-                let stagedCommit = try await withTaskCancellationHandler {
-                    try await stagedCommitWorker.value
-                } onCancel: {
-                    stagedCommitWorker.cancel()
-                }
+                // The terminal walk no longer needs its opening snapshot.
+                // Release it before preparing the delta and publishing new rows.
+                existingByID = IndexedSongSnapshot([])
+                songIDsByServerSongID = [:]
+                let stagedCommit = try await preparePagedCatalogCommit(
+                    sourceID: source.id, library: library,
+                    stagingStore: stagingStore, enrichment: enrichment
+                )
+                plog("Catalog commit prepared source=\(source.id.prefix(8)) upserts=\(stagedCommit.0.upserts.count) hierarchy=\(stagedCommit.1.count)")
                 try checkScanCommitFence(
                     sourceID: source.id,
                     generation: generation,
@@ -4533,7 +4558,7 @@ final class ScanService {
                 // `library.songs`, but their retained records are recoverable
                 // and obey the same rule: one snapshot that fails to list them
                 // is not permission to forget them.
-                let knownSongIDs = Set(finalExistingByID.keys)
+                let knownSongIDs = stagedCommit.2
                     .union(library.locallyRemovedSongIDs(forSourceID: source.id))
                 // 证词按这一次完整走查记，不按服务端修订记。Navidrome 的 `lastScan`
                 // 只在服务端重新扫描资料库时才动，删完文件、服务端扫过一次后就停住，
