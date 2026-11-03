@@ -1130,6 +1130,113 @@ final class ArtistNameLibraryTests: XCTestCase {
     }
 
     @MainActor
+    func testCollaborativeAlbumArtistsStaySplitAcrossSettingsVisibilityAndReload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CollaborativeAlbumArtists-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var configuration = ArtistNameConfiguration.defaultValue
+        configuration.separators.append("&")
+        let library = MusicLibrary(storageDirectory: directory, artistNameConfiguration: configuration)
+        let songs = [
+            makeSong(id: "solo", artistName: "多多 poi", albumArtistName: "多多 poi",
+                     albumTitle: "别让我担心", filePath: "/solo/song.flac"),
+            makeSong(id: "duet", artistName: "多多 poi & 刘照坤 Jock",
+                     sourceArtistNames: ["多多 poi", "刘照坤 Jock"],
+                     albumArtistName: "多多 poi & 刘照坤 Jock", albumTitle: "你呀你呀",
+                     sourceID: "collaboration", filePath: "/duet/song.flac"),
+            makeSong(id: "second", artistName: "多多 poi / 宴宁",
+                     sourceArtistNames: ["多多 poi", "宴宁"],
+                     albumArtistName: "多多 poi / 宴宁", albumTitle: "门的另一端",
+                     filePath: "/second/song.flac")
+        ]
+        library.addSongs(songs, affectedSourceIDs: ["source", "collaboration"])
+        await library.waitForPendingIndex()
+
+        let expectedNames: Set<String> = ["多多 poi", "刘照坤 Jock", "宴宁"]
+        let leadID = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey("多多 poi"))
+        let guestID = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey("刘照坤 Jock"))
+        let duet = try XCTUnwrap(library.visibleAlbums.first { $0.title == "你呀你呀" })
+        let solo = try XCTUnwrap(library.visibleAlbums.first { $0.title == "别让我担心" })
+        let albumIDs = Set(library.visibleAlbums.map(\.id))
+        XCTAssertEqual(albumIDs.count, 3)
+        XCTAssertEqual(library.artistDisplayName(for: songs[1]), "多多 poi / 刘照坤 Jock")
+        XCTAssertEqual(Set(library.browsableArtists(.allArtists).map(\.name)), expectedNames)
+        XCTAssertEqual(Set(library.browsableArtists(.albumArtists).map(\.name)), expectedNames)
+        XCTAssertEqual(library.visibleAlbumArtist(id: leadID)?.albumCount, 3)
+        XCTAssertEqual(library.visibleAlbumArtist(id: leadID)?.songCount, 3)
+        XCTAssertEqual(library.visibleAlbumArtist(id: guestID)?.albumCount, 1)
+        XCTAssertEqual(library.visibleAlbumArtist(id: guestID)?.songCount, 1)
+        XCTAssertEqual(Set(library.songs(forArtist: leadID).map(\.id)), ["solo", "duet", "second"])
+        XCTAssertEqual(library.songs(forArtist: guestID).map(\.id), ["duet"])
+        XCTAssertTrue(library.isAlbum(duet, creditedToArtist: leadID))
+        XCTAssertTrue(library.isAlbum(duet, creditedToArtist: guestID))
+        XCTAssertFalse(library.isAlbum(solo, creditedToArtist: guestID))
+        XCTAssertEqual(library.linkedArtist(for: duet)?.id, leadID)
+
+        library.updateArtistNameConfiguration(.defaultValue)
+        await library.waitForPendingIndex()
+        XCTAssertTrue(library.browsableArtists(.albumArtists).contains { $0.name == "多多 poi & 刘照坤 Jock" })
+        XCTAssertEqual(Set(library.visibleAlbums.map(\.id)), albumIDs)
+        library.updateArtistNameConfiguration(configuration)
+        await library.waitForPendingIndex()
+        XCTAssertEqual(Set(library.browsableArtists(.albumArtists).map(\.name)), expectedNames)
+        XCTAssertTrue(library.isAlbum(duet, creditedToArtist: guestID))
+        XCTAssertEqual(Set(library.visibleAlbums.map(\.id)), albumIDs)
+
+        library.updateDisabledSourceIDs(["collaboration"])
+        XCTAssertEqual(Set(library.browsableArtists(.albumArtists).map(\.name)), ["多多 poi", "宴宁"])
+        XCTAssertEqual(library.visibleAlbumArtist(id: leadID)?.albumCount, 2)
+        XCTAssertFalse(library.isAlbum(duet, creditedToArtist: leadID))
+        library.updateDisabledSourceIDs([])
+        XCTAssertEqual(Set(library.browsableArtists(.albumArtists).map(\.name)), expectedNames)
+        XCTAssertEqual(library.visibleAlbumArtist(id: leadID)?.albumCount, 3)
+        XCTAssertTrue(library.isAlbum(duet, creditedToArtist: guestID))
+        for song in songs {
+            let stored = try XCTUnwrap(library.songs.first { $0.id == song.id })
+            XCTAssertEqual(stored.artistName, song.artistName)
+            XCTAssertEqual(stored.albumArtistName, song.albumArtistName)
+        }
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Artist index did not finish persistence")
+        }
+        let restored = MusicLibrary(storageDirectory: directory, artistNameConfiguration: configuration)
+        await restored.waitForPendingIndex()
+        XCTAssertEqual(Set(restored.browsableArtists(.albumArtists).map(\.name)), expectedNames)
+        XCTAssertEqual(Set(restored.visibleAlbums.map(\.id)), albumIDs)
+        XCTAssertEqual(restored.visibleAlbumArtist(id: leadID)?.albumCount, 3)
+        XCTAssertTrue(restored.isAlbum(duet, creditedToArtist: guestID))
+        XCTAssertEqual(restored.songs(forArtist: guestID).map(\.id), ["duet"])
+        _ = await restored.persistNowAndWait()
+    }
+
+    @MainActor
+    func testAlbumOnlyCollaboratorsKeepSongAndAlbumNavigation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AlbumOnlyCollaborators-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var configuration = ArtistNameConfiguration.defaultValue
+        configuration.separators.append("&")
+        let library = MusicLibrary(storageDirectory: directory, artistNameConfiguration: configuration)
+        let song = makeSong(id: "duet", artistName: "Performer",
+                            albumArtistName: "Composer A & Composer B", albumTitle: "Collaboration")
+        library.addSongs([song], affectedSourceIDs: [song.sourceID])
+        await library.waitForPendingIndex()
+        let album = try XCTUnwrap(library.visibleAlbums.first)
+        XCTAssertEqual(library.visibleAlbums.count, 1)
+        XCTAssertEqual(library.browsableArtists(.allArtists).map(\.name), ["Performer"])
+        let composers = library.browsableArtists(.albumArtists)
+        XCTAssertEqual(Set(composers.map(\.name)), ["Composer A", "Composer B"])
+        for composer in composers {
+            XCTAssertEqual(composer.albumCount, 1)
+            XCTAssertEqual(composer.songCount, 1)
+            XCTAssertEqual(library.songs(forArtist: composer.id).map(\.id), [song.id])
+            XCTAssertTrue(library.isAlbum(album, creditedToArtist: composer.id))
+        }
+        XCTAssertEqual(library.linkedArtist(for: album)?.name, "Composer A")
+        _ = await library.persistNowAndWait()
+    }
+
+    @MainActor
     func testAlbumArtistLinksDoNotInventUnavailableArtists() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MissingAlbumArtistLinkTests-\(UUID().uuidString)", isDirectory: true)

@@ -4191,6 +4191,8 @@ final class MusicLibrary {
     /// 只当过专辑艺人的人（「群星」）→ 名下专辑。他们没有自己署名的歌，艺人页、右键播放、
     /// CarPlay 与电视取歌都经 `songs(forArtist:)`，从这些专辑里取。
     @ObservationIgnored private var albumIDsByAlbumOnlyArtistID: [String: [String]] = [:]
+    @ObservationIgnored private var albumIDsByAlbumArtistID: [String: Set<String>] = [:]
+    private(set) var albumArtistCreditsRevision: UInt64 = 0
     /// 上面这些人的歌，第一次有人要时才整库找一遍；每次发布可见缓存时清空。
     @ObservationIgnored private var albumOnlyArtistSongIDsCache: [String: [String]] = [:]
     /// Artist detail bodies can ask for the same slice several times per frame.
@@ -4842,6 +4844,7 @@ final class MusicLibrary {
             visibleArtistByID,
             visibleAlbumArtistByID,
             albumIDsByAlbumOnlyArtistID,
+            albumIDsByAlbumArtistID,
             albumOnlyArtistSongIDsCache,
             visibleSongIDsByArtistID,
             visibleSongIDsByGenreID,
@@ -4950,6 +4953,8 @@ final class MusicLibrary {
         visibleArtistByID = prepared.artistByID
         visibleAlbumArtistByID = prepared.albumArtistByID
         albumIDsByAlbumOnlyArtistID = prepared.albumArtistIndex.albumIDsByAlbumOnlyArtistID
+        albumIDsByAlbumArtistID = prepared.albumArtistIndex.albumIDsByArtistID
+        albumArtistCreditsRevision &+= 1
         albumOnlyArtistSongIDsCache = [:]
         visibleSongIDsByArtistID = prepared.songIDsByArtistID
         visibleLookupGeneration &+= 1
@@ -5074,7 +5079,9 @@ final class MusicLibrary {
         let albumArtistIndex = AlbumArtistIndexBuilder.build(
             albums: nextVisibleAlbums,
             trackArtists: nextVisibleArtists,
-            trackArtistsByID: artistByID
+            trackArtistsByID: artistByID,
+            configuration: artistNameConfiguration,
+            artistID: { hashID(ArtistIdentityPolicy.groupingKey($0)) }
         )
         let allCounts = disabledSourceIDs.isEmpty
             ? lookups.countBySourceID
@@ -8751,6 +8758,11 @@ final class MusicLibrary {
             return songIDs.compactMap { lookupVisibleSong($0) }
         }
         return albumOnlyArtistSongIDs(artistID).compactMap { lookupVisibleSong($0) }
+    }
+
+    func isAlbum(_ album: Album, creditedToArtist artistID: String) -> Bool {
+        _ = albumArtistCreditsRevision
+        return albumIDsByAlbumArtistID[artistID]?.contains(album.id) == true
     }
 
     /// 只当过专辑艺人的人名下专辑里的歌，按专辑、再按曲目顺序。要整库找一遍，

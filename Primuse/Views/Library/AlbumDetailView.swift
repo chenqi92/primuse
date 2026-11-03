@@ -1229,7 +1229,14 @@ extension MusicLibrary {
         guard let name = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty else { return nil }
         let id = Self.hashID(ArtistIdentityPolicy.groupingKey(name))
-        return visibleArtist(id: id) ?? visibleAlbumArtist(id: id) ?? visibleArtist(named: name)
+        if let artist = visibleArtist(id: id) ?? visibleAlbumArtist(id: id) ?? visibleArtist(named: name) {
+            return artist
+        }
+        for contributor in ArtistNameParser.names(rawName: name, configuration: artistNameConfiguration) {
+            let id = Self.hashID(ArtistIdentityPolicy.groupingKey(contributor))
+            if let artist = visibleArtist(id: id) ?? visibleAlbumArtist(id: id) { return artist }
+        }
+        return nil
     }
 }
 

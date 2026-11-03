@@ -3,9 +3,9 @@ import Foundation
 /// 资料库「艺术家」页列哪些人。
 ///
 /// `allArtists` 列参与演唱的每一位：曲目艺人按分隔符拆开，合辑里的每位歌手、feat. 的嘉宾
-/// 各占一项。`albumArtists` 只列专辑艺人，取值和专辑分组用的是同一个名字（读到 ALBUMARTIST
-/// 用它，读不到退回曲目艺人），一张专辑只算在一个人名下，合辑归在「群星 / Various Artists」
-/// 这类名字下。专辑怎么合并跟这里无关，两种模式下专辑都一样。
+/// 各占一项。`albumArtists` 只列专辑署名者，合作署名按同一套规则拆开，同一张专辑可以
+/// 同时出现在各位署名者名下；合辑仍归在「群星 / Various Artists」这类名字下。
+/// 专辑怎么合并跟这里无关，两种模式下专辑都一样。
 public enum ArtistBrowseMode: String, CaseIterable, Sendable {
     case allArtists
     case albumArtists
@@ -23,12 +23,19 @@ public struct AlbumArtistIndex: Sendable {
     /// 每位专辑艺人一项，和曲目艺人列表同样按名字排好。专辑数是他名下的专辑，
     /// 歌曲数是这些专辑的曲目合计。
     public var artists: [Artist]
-    /// 不是任何曲目艺人的专辑艺人（「群星」、合写成一个名字的「A & B」）→ 他名下的专辑，
+    /// 全部专辑署名者 → 他名下的专辑；合作署名共享同一张专辑，不创建专辑副本。
+    public var albumIDsByArtistID: [String: Set<String>]
+    /// 不是任何曲目艺人的专辑艺人（如「群星」）→ 他名下的专辑，
     /// 按专辑的顺序。这些人没有自己署名的歌，艺人页的歌从这些专辑里取。
     public var albumIDsByAlbumOnlyArtistID: [String: [String]]
 
-    public init(artists: [Artist] = [], albumIDsByAlbumOnlyArtistID: [String: [String]] = [:]) {
+    public init(
+        artists: [Artist] = [],
+        albumIDsByArtistID: [String: Set<String>] = [:],
+        albumIDsByAlbumOnlyArtistID: [String: [String]] = [:]
+    ) {
         self.artists = artists
+        self.albumIDsByArtistID = albumIDsByArtistID
         self.albumIDsByAlbumOnlyArtistID = albumIDsByAlbumOnlyArtistID
     }
 
@@ -36,6 +43,11 @@ public struct AlbumArtistIndex: Sendable {
 }
 
 public enum AlbumArtistIndexBuilder {
+    private struct CreditKey: Hashable {
+        let id: String
+        let name: String?
+    }
+
     /// - Parameters:
     ///   - albums: 可见专辑。`artistID` 与艺人 id 是同一套哈希（专辑分组名的 groupingKey）。
     ///   - trackArtists: 可见的曲目艺人，已按名字排好序。
@@ -47,22 +59,48 @@ public enum AlbumArtistIndexBuilder {
     public static func build(
         albums: [Album],
         trackArtists: [Artist],
-        trackArtistsByID: [String: Artist]
+        trackArtistsByID: [String: Artist],
+        configuration: ArtistNameConfiguration,
+        artistID: (String) -> String
     ) -> AlbumArtistIndex {
+        let configuration = configuration.normalized()
         var albumCountByID: [String: Int] = [:]
         var songCountByID: [String: Int] = [:]
+        var albumIDsByArtistID: [String: Set<String>] = [:]
         var albumOnlyAlbumIDs: [String: [String]] = [:]
         var albumOnlyNameByID: [String: String] = [:]
+        var creditsByKey: [CreditKey: [(id: String, name: String?)]] = [:]
         for album in albums {
-            guard let id = album.artistID, !id.isEmpty else { continue }
-            albumCountByID[id, default: 0] += 1
-            songCountByID[id, default: 0] += album.songCount
-            guard trackArtistsByID[id] == nil else { continue }
-            albumOnlyAlbumIDs[id, default: []].append(album.id)
-            if albumOnlyNameByID[id] == nil,
-               let name = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !name.isEmpty {
-                albumOnlyNameByID[id] = name
+            guard let originalID = album.artistID, !originalID.isEmpty else { continue }
+            let key = CreditKey(id: originalID, name: album.artistName)
+            let credits: [(id: String, name: String?)]
+            if let cached = creditsByKey[key] {
+                credits = cached
+            } else if let artist = trackArtistsByID[originalID] {
+                // 曲目索引已确认的单一艺人（包括原生多人字段中的乐队名）保留身份。
+                credits = [(originalID, artist.name)]
+                creditsByKey[key] = credits
+            } else {
+                let names = ArtistNameParser.names(rawName: album.artistName, configuration: configuration)
+                if names.isEmpty {
+                    credits = [(originalID, nil)]
+                } else if names.count == 1,
+                          ArtistIdentityPolicy.groupingKey(names[0]) == ArtistIdentityPolicy.groupingKey(album.artistName ?? "") {
+                    credits = [(originalID, names[0])]
+                } else {
+                    credits = names.map { (artistID($0), $0) }
+                }
+                creditsByKey[key] = credits
+            }
+            for (id, name) in credits {
+                guard albumIDsByArtistID[id, default: []].insert(album.id).inserted else { continue }
+                albumCountByID[id, default: 0] += 1
+                songCountByID[id, default: 0] += album.songCount
+                guard trackArtistsByID[id] == nil else { continue }
+                albumOnlyAlbumIDs[id, default: []].append(album.id)
+                if albumOnlyNameByID[id] == nil, let name {
+                    albumOnlyNameByID[id] = name
+                }
             }
         }
         guard !albumCountByID.isEmpty else { return .empty }
@@ -89,6 +127,7 @@ public enum AlbumArtistIndexBuilder {
 
         return AlbumArtistIndex(
             artists: merged(shared, albumOnly),
+            albumIDsByArtistID: albumIDsByArtistID,
             albumIDsByAlbumOnlyArtistID: albumOnlyAlbumIDs.filter { albumOnlyNameByID[$0.key] != nil }
         )
     }

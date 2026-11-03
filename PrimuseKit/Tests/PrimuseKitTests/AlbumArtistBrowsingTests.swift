@@ -28,7 +28,9 @@ struct AlbumArtistBrowsingTests {
         let index = AlbumArtistIndexBuilder.build(
             albums: albums,
             trackArtists: trackArtists,
-            trackArtistsByID: Dictionary(uniqueKeysWithValues: trackArtists.map { ($0.id, $0) })
+            trackArtistsByID: Dictionary(uniqueKeysWithValues: trackArtists.map { ($0.id, $0) }),
+            configuration: .defaultValue,
+            artistID: ArtistIdentityPolicy.groupingKey
         )
 
         #expect(index.artists.count == 3)
@@ -49,7 +51,9 @@ struct AlbumArtistBrowsingTests {
         let index = AlbumArtistIndexBuilder.build(
             albums: albums,
             trackArtists: trackArtists,
-            trackArtistsByID: ["x": trackArtists[0]]
+            trackArtistsByID: ["x": trackArtists[0]],
+            configuration: .defaultValue,
+            artistID: ArtistIdentityPolicy.groupingKey
         )
 
         #expect(index.artists.map(\.name) == ["The Beatles"])
@@ -76,7 +80,9 @@ struct AlbumArtistBrowsingTests {
         let index = AlbumArtistIndexBuilder.build(
             albums: albums,
             trackArtists: trackArtists,
-            trackArtistsByID: Dictionary(uniqueKeysWithValues: trackArtists.map { ($0.id, $0) })
+            trackArtistsByID: Dictionary(uniqueKeysWithValues: trackArtists.map { ($0.id, $0) }),
+            configuration: .defaultValue,
+            artistID: ArtistIdentityPolicy.groupingKey
         )
 
         #expect(index.artists.map(\.name) == ["Abba", "Blur & Gorillaz", "Coldplay", "Muse", "Zed & Friends"])
@@ -91,7 +97,9 @@ struct AlbumArtistBrowsingTests {
         let index = AlbumArtistIndexBuilder.build(
             albums: [album("x", title: "X", artistID: nil, artistName: nil, songs: 3)],
             trackArtists: trackArtists,
-            trackArtistsByID: ["1": trackArtists[0]]
+            trackArtistsByID: ["1": trackArtists[0]],
+            configuration: .defaultValue,
+            artistID: ArtistIdentityPolicy.groupingKey
         )
         #expect(index.artists.isEmpty)
         #expect(index.albumIDsByAlbumOnlyArtistID.isEmpty)
@@ -99,6 +107,65 @@ struct AlbumArtistBrowsingTests {
 
     private func artist(_ id: String, _ name: String, albums: Int, songs: Int, thumbnail: String? = nil) -> Artist {
         Artist(id: id, name: name, albumCount: albums, songCount: songs, thumbnailPath: thumbnail)
+    }
+
+    @Test("Collaborations share albums between credited artists without a synthetic group")
+    func collaborationsUseIndividualCredits() throws {
+        let artists = [
+            artist("a", "A", albums: 1, songs: 5, thumbnail: "a.jpg"),
+            artist("b", "B", albums: 0, songs: 3)
+        ]
+        let collaboration = album("duet", title: "Duet", artistID: "a-and-b", artistName: "A & B", songs: 1)
+        let albums = [
+            album("solo", title: "Solo", artistID: "a", artistName: "A", songs: 2),
+            collaboration,
+            collaboration,
+            album("second", title: "Second", artistID: "repeated", artistName: "A / a & B", songs: 2)
+        ]
+        let index = AlbumArtistIndexBuilder.build(
+            albums: albums, trackArtists: artists,
+            trackArtistsByID: Dictionary(uniqueKeysWithValues: artists.map { ($0.id, $0) }),
+            configuration: .init(separators: ["&", "/"], protectedNames: [], displaySeparator: " / "),
+            artistID: ArtistIdentityPolicy.groupingKey
+        )
+        #expect(index.artists.map(\.name) == ["A", "B"])
+        let a = try #require(index.artists.first { $0.id == "a" })
+        let b = try #require(index.artists.first { $0.id == "b" })
+        #expect(a.albumCount == 3 && a.songCount == 5 && a.thumbnailPath == "a.jpg")
+        #expect(b.albumCount == 2 && b.songCount == 3)
+        #expect(index.albumIDsByArtistID["a"] == ["solo", "duet", "second"])
+        #expect(index.albumIDsByArtistID["b"] == ["duet", "second"])
+        #expect(index.albumIDsByAlbumOnlyArtistID.isEmpty)
+    }
+
+    @Test("Album-only collaborators retain album lookup and full-width matching")
+    func albumOnlyCollaboratorsKeepTheirAlbums() {
+        let index = AlbumArtistIndexBuilder.build(
+            albums: [album("duet", title: "Duet", artistID: "group", artistName: "A＆B", songs: 4)],
+            trackArtists: [], trackArtistsByID: [:],
+            configuration: .init(separators: ["&"], protectedNames: [], displaySeparator: " / "),
+            artistID: ArtistIdentityPolicy.groupingKey
+        )
+        #expect(index.artists.map(\.name) == ["A", "B"])
+        #expect(index.artists.allSatisfy { $0.albumCount == 1 && $0.songCount == 4 })
+        #expect(index.albumIDsByAlbumOnlyArtistID == ["a": ["duet"], "b": ["duet"]])
+    }
+
+    @Test("Protected names and source-backed groups remain single artists")
+    func genuineGroupsKeepTheirIdentity() {
+        let knownGroup = artist("native-band", "Simon & Garfunkel", albums: 1, songs: 3)
+        let index = AlbumArtistIndexBuilder.build(
+            albums: [
+                album("native", title: "Native", artistID: knownGroup.id, artistName: knownGroup.name, songs: 3),
+                album("protected", title: "Protected", artistID: "acdc", artistName: "AC/DC", songs: 2),
+                album("compilation", title: "Compilation", artistID: "various", artistName: "Various Artists", songs: 8)
+            ],
+            trackArtists: [knownGroup], trackArtistsByID: [knownGroup.id: knownGroup],
+            configuration: .init(separators: ["&", "/"], protectedNames: ["AC/DC"], displaySeparator: " / "),
+            artistID: ArtistIdentityPolicy.groupingKey
+        )
+        #expect(Set(index.artists.map(\.name)) == ["AC/DC", "Simon & Garfunkel", "Various Artists"])
+        #expect(index.albumIDsByAlbumOnlyArtistID == ["acdc": ["protected"], "various": ["compilation"]])
     }
 
     private func album(_ id: String, title: String, artistID: String?, artistName: String?, songs: Int) -> Album {

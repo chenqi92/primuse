@@ -51,6 +51,7 @@ private final class ArtistSongsCache {
 private struct ArtistAlbumShelves {
     struct Key: Equatable {
         let albumsRevision: Int
+        let albumCreditsRevision: UInt64
         let artistID: String
         let artistName: String
     }
@@ -151,10 +152,11 @@ struct ArtistDetailView: View {
     #endif
 
     /// 发行与参与的专辑要把整库专辑筛一遍、排一遍, 一次重绘却会问好几回 (头部计数、
-    /// 各个货架、最常听), 所以按专辑表的修订号记住结果。
+    /// 各个货架、最常听), 所以按专辑表与署名索引的修订号记住结果。
     private var albumShelves: ArtistAlbumShelves {
         let key = ArtistAlbumShelves.Key(
             albumsRevision: library.visibleAlbumsRevision,
+            albumCreditsRevision: library.albumArtistCreditsRevision,
             artistID: artist.id,
             artistName: artist.name
         )
@@ -1082,6 +1084,7 @@ struct ArtistDetailView: View {
     }
 
     private func isPrimaryArtistAlbum(_ album: Album, displayName: String) -> Bool {
+        if library.isAlbum(album, creditedToArtist: artist.id) { return true }
         if album.artistID == artist.id { return true }
         guard let albumArtist = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !albumArtist.isEmpty else { return false }
