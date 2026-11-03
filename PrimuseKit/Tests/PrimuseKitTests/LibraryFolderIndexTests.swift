@@ -308,6 +308,11 @@ struct LibraryFolderIndexTests {
         #expect(index.node(withID: root.id) != nil)
         #expect(folders.first?.parentID == root.id)
         #expect(index.sourceNode(for: "local")?.descendantSongCount == 4)
+        for songID in ["root", "unknown", "outside"] {
+            #expect(LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: songID, in: index) == sourceNode.id)
+        }
+        #expect(LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: "nested", in: index) == folders.first?.id)
+        #expect(LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: "removed", in: index) == nil)
     }
 
     @Test("Multiple roots and virtual playlists retain their distinct navigation and membership")
@@ -322,12 +327,46 @@ struct LibraryFolderIndexTests {
         #expect(LibraryFolderBrowsePolicy.collapsedScanRoot(in: index, for: sourceNode.id) == nil)
         #expect(LibraryFolderBrowsePolicy.displayedChildren(in: index, of: sourceNode.id).map(\.displayName) == ["One", "Two"])
         #expect(LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: sourceNode.id) == ["unknown"])
+        for songID in ["one", "two"] {
+            let target = try #require(LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: songID, in: index))
+            #expect(target.kind == .scanRoot)
+            #expect(LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: target) == [songID])
+        }
         let virtual = LibraryFolderIndexBuilder.build(sources: [source], songs: [testSong(id: "one", path: "opaque", sourceID: "local")], virtualCollections: [
             LibraryFolderVirtualCollectionDescriptor(sourceID: "local", identity: "all", displayName: "Songs", kind: .librarySongs, songIDs: ["one"]),
             LibraryFolderVirtualCollectionDescriptor(sourceID: "local", identity: "favorites", displayName: "Favorites", kind: .playlist, songIDs: ["one"]),
         ])
         #expect(LibraryFolderBrowsePolicy.displayedChildren(in: virtual, of: sourceNode.id).count == 2)
         #expect(LibraryFolderBrowsePolicy.displayedSongIDs(in: virtual, of: sourceNode.id).isEmpty)
+        let virtualTarget = try #require(LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: "one", in: virtual))
+        #expect(virtual.node(withID: virtualTarget)?.displayName == "Songs")
+        #expect(LibraryFolderBrowsePolicy.displayedSongIDs(in: virtual, of: virtualTarget) == ["one"])
+    }
+
+    @Test("Song location retains source identity and resolves a nested track beyond the inline preview")
+    func locatesNestedSongsByIdentity() throws {
+        let sources = ["a", "b"].map {
+            LibraryFolderSourceDescriptor(sourceID: $0, displayName: "Music", scanRoots: ["/Music"],
+                                          pathSemantics: .hierarchical, pathEncoding: .native)
+        }
+        let songs = sources.flatMap { source in
+            (0..<400).map { offset in
+                var song = testSong(id: "\(source.sourceID)-\(offset)", title: "Same Song",
+                                    path: "/Music/Artist/Album/\(offset).flac", sourceID: source.sourceID)
+                song.trackNumber = offset + 1
+                return song
+            }
+        }
+        let index = LibraryFolderIndexBuilder.build(sources: sources, songs: songs)
+        for source in sources {
+            let songID = "\(source.sourceID)-399"
+            let target = try #require(LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: songID, in: index))
+            #expect(target.sourceID == source.sourceID)
+            #expect(target.kind == .folder)
+            let displayedIDs = LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: target)
+            #expect(displayedIDs.count == 400)
+            #expect(displayedIDs.firstIndex(of: songID) == 399)
+        }
     }
 
     @Test("Displayed songs and folder playback share a deterministic disc, track and title order")

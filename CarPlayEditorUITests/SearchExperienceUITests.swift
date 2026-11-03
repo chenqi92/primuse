@@ -282,6 +282,55 @@ final class SongLocationUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testFolderModeOpensContainingDirectoryAndLocatesAgain() {
+        let app = launch("songs", folders: true)
+        defer { app.terminate() }
+        locateAndVerify(app)
+        XCTAssertTrue(app.navigationBars["Album"].exists)
+        app.scrollViews.firstMatch.swipeDown(velocity: .fast)
+        locateAndVerify(app)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "libraryFolderNode.source.")).firstMatch.waitForExistence(timeout: 5))
+    }
+
+    func testHomeFolderLocationOpensFullListBeyondPreview() {
+        let app = launch("folders", folders: true)
+        defer { app.terminate() }
+        locateAndVerify(app)
+        XCTAssertTrue(app.navigationBars["Album"].exists)
+        app.scrollViews.firstMatch.swipeDown(velocity: .fast)
+        locateAndVerify(app)
+    }
+
+    func testHomeFolderLocationLeavesAnotherDirectory() {
+        let app = launch("otherFolder", folders: true, target: "100")
+        defer { app.terminate() }
+        XCTAssertTrue(app.navigationBars["Other"].waitForExistence(timeout: 20))
+        let locate = app.buttons["songList.locateCurrent"].firstMatch
+        XCTAssertTrue(locate.waitForExistence(timeout: 10))
+        locate.tap()
+        let target = app.buttons["song.actions.location-100"].firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 15))
+        let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: target)
+        wait(for: [visible], timeout: 10)
+        XCTAssertTrue(app.navigationBars["Album"].exists)
+    }
+
+    func testMiniPlayerRevealPreservesFolderMode() {
+        let app = launch("playlist", folders: true)
+        defer { app.terminate() }
+        let mini = app.buttons.matching(identifier: "locationFixture.miniPlayer")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "正在播放:")).firstMatch
+        XCTAssertTrue(mini.waitForExistence(timeout: 30))
+        mini.press(forDuration: 1)
+        let reveal = app.buttons["在资料库中显示"]
+        XCTAssertTrue(reveal.waitForExistence(timeout: 5))
+        reveal.tap()
+        XCTAssertTrue(targetRow(app).waitForExistence(timeout: 15))
+        assertTargetVisible(app)
+        XCTAssertTrue(app.navigationBars["Album"].exists)
+    }
+
     func testLargeSongListLocatesPausedSongAndRepeatsAfterScrollingAway() {
         let app = launch("songs")
         defer { app.terminate() }
@@ -543,10 +592,12 @@ final class SongLocationUITests: XCTestCase {
     }
 
     private func launch(_ page: String, appearance: String? = "list", colorScheme: String = "dark",
-                        coverWall: Bool = false) -> XCUIApplication {
+                        coverWall: Bool = false, folders: Bool = false, target: String? = nil) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
         app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "songLocation"
         app.launchEnvironment["PRIMUSE_LOCATION_PAGE"] = page
+        if folders { app.launchEnvironment["PRIMUSE_LOCATION_FOLDERS"] = "1" }
+        if let target { app.launchEnvironment["PRIMUSE_LOCATION_TARGET"] = target }
         if coverWall {
             app.launchEnvironment["PRIMUSE_LOCATION_COVER_WALL"] = "1"
             app.launchEnvironment["PRIMUSE_LOCATION_TARGET"] = "1990"
@@ -554,7 +605,7 @@ final class SongLocationUITests: XCTestCase {
         app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
         app.launchArguments = [
             "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
-            "-library.songBrowseMode", "flat",
+            "-library.songBrowseMode", folders ? "folder" : "flat",
             "-library.songFilter.v1", "all",
             "-primuse.library.playlistCoverWall.v1", coverWall ? "YES" : "NO",
             "-primuse.navigation.mode.v1", "standard",

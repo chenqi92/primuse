@@ -21,7 +21,7 @@ enum MacOrdinalColumn {
 }
 #endif
 
-struct SongLibraryLocationRequest: Identifiable, Equatable, Sendable {
+struct SongLibraryLocationRequest: Identifiable, Hashable, Sendable {
     let id: UUID
     let songID: String
 
@@ -29,6 +29,18 @@ struct SongLibraryLocationRequest: Identifiable, Equatable, Sendable {
         self.id = id
         self.songID = songID
     }
+}
+
+struct FolderSongLocationRequest: Identifiable, Hashable {
+    let nodeID: LibraryFolderNodeID
+    let song: SongLibraryLocationRequest
+    var id: UUID { song.id }
+}
+
+private struct FolderSongLocationRevision: Hashable {
+    let nodeID: LibraryFolderNodeID?
+    let indexRevision: Int
+    let songOrderRevision: Int
 }
 
 @MainActor
@@ -1169,6 +1181,10 @@ struct SongListView: View {
     private var storedBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
     #endif
     @State private var folderCache = LibraryFolderBrowserCache()
+    @State private var pendingFolderLocation: SongLibraryLocationRequest?
+    #if os(iOS)
+    @State private var folderLocationDestination: FolderSongLocationRequest?
+    #endif
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var folderFollowsListSort = false
     @State private var showsHomeFolders = false
@@ -1430,6 +1446,7 @@ struct SongListView: View {
             }
             .onChange(of: browseMode) { _, mode in
                 cancelExplicitSortForNavigation()
+                pendingFolderLocation = nil
                 storedBrowseModeRawValue = mode.rawValue
                 selection.deactivate()
                 #if os(macOS)
@@ -1496,6 +1513,7 @@ struct SongListView: View {
                 validateMacFolderPath()
                 #endif
                 pruneSelection()
+                resolvePendingFolderLocation()
             }
             .onChange(of: songListVersion.replacementToken) { _, _ in
                 let folderStructureChanged = folderReplacementChangesStructure()
@@ -1535,6 +1553,18 @@ struct SongListView: View {
                 }
             }
             .onDisappear(perform: handleViewDisappear)
+            #if os(iOS)
+            .navigationDestination(item: $folderLocationDestination) { destination in
+                LibraryFolderNodeView(
+                    nodeID: destination.nodeID,
+                    folderCache: folderCache,
+                    listCache: listCache,
+                    selection: selection,
+                    sortOrder: sortOrderBinding,
+                    initialLocation: destination.song
+                )
+            }
+            #endif
             .sheet(isPresented: $showsHomeFolders) {
                 NavigationStack {
                     HomeFolderManagementView()
@@ -1660,6 +1690,7 @@ struct SongListView: View {
     private func handleViewDisappear() {
         cancelExplicitSortForNavigation()
         songLocation.cancel()
+        pendingFolderLocation = nil
         downloadedFilterGeneration &+= 1
         downloadedFilterTask?.cancel()
         downloadedFilterTask = nil
@@ -2010,6 +2041,7 @@ struct SongListView: View {
     private func openMacFolder(_ nodeID: LibraryFolderNodeID) {
         let path = resolvedMacFolderPath(to: nodeID)
         guard !path.isEmpty else { return }
+        if macFolderPath != path { songLocation = SongListLocation() }
         selection.deactivate()
         pmWithAnimation(.list) {
             macFolderPath = path
@@ -2017,6 +2049,7 @@ struct SongListView: View {
     }
 
     private func navigateMacFolder(to nodeID: LibraryFolderNodeID?) {
+        songLocation = SongListLocation()
         selection.deactivate()
         pmWithAnimation(.list) {
             guard let nodeID else {
@@ -2336,6 +2369,11 @@ struct SongListView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 112)
         }
+        .songLocationReader(songLocation, revision: FolderSongLocationRevision(
+            nodeID: macFolderPath.last,
+            indexRevision: folderCache.revision,
+            songOrderRevision: listCache.rowOrderRevision
+        ))
     }
 
     private var macSongListHeader: some View {
@@ -3126,10 +3164,10 @@ struct SongListView: View {
 
     private var locateCurrentButton: some View {
         LocateCurrentSongButton(
-            isEditing: selection.isActive || showsFolderBrowser,
+            isEditing: selection.isActive,
             titled: verticalBarEdge != nil,
             contains: { listCache.contains(songID: $0) },
-            isVisible: { id in filteredProjection.rows.contains { $0.id == id } }
+            isVisible: { id in showsFolderBrowser || filteredProjection.rows.contains { $0.id == id } }
         ) { songID, clearsFilters in
             if clearsFilters {
                 searchText = ""
@@ -3141,8 +3179,29 @@ struct SongListView: View {
                 selectedSourceID = nil
                 #endif
             }
+            locateSong(songID)
+        }
+    }
+
+    private func locateSong(_ songID: String) {
+        if showsFolderBrowser {
+            pendingFolderLocation = SongLibraryLocationRequest(songID: songID)
+            resolvePendingFolderLocation()
+        } else {
             songLocation.locate(songID)
         }
+    }
+
+    private func resolvePendingFolderLocation() {
+        guard let request = pendingFolderLocation,
+              let nodeID = folderCache.index?.nodeID(containingSongID: request.songID) else { return }
+        pendingFolderLocation = nil
+        #if os(iOS)
+        folderLocationDestination = FolderSongLocationRequest(nodeID: nodeID, song: request)
+        #else
+        openMacFolder(nodeID)
+        songLocation.locate(request.songID)
+        #endif
     }
 
     @ToolbarContentBuilder
@@ -4008,19 +4067,14 @@ struct SongListView: View {
         selection.deactivate()
         searchText = ""
         songFilter = .all
-        let wasAlreadyFlat = browseMode == .flat
-        browseMode = .flat
         #if os(iOS)
-        if wasAlreadyFlat && presentedBrowseMode != .flat {
-            scheduleBrowseModeTransition(to: .flat)
-        }
+        appliedSearchText = ""
         #endif
         #if os(macOS)
         selectedSourceID = nil
-        macFolderPath.removeAll()
         #endif
 
-        songLocation.locate(request.songID)
+        locateSong(request.songID)
         locationRequest = nil
     }
 
@@ -4717,7 +4771,7 @@ private struct MacLibraryFolderInlineContent: View {
                             selection: selection,
                             onPlay: playSong
                         )
-                        .id(songID)
+                        .id(SongLocationScrollID(songID: songID))
                     }
                 }
 
@@ -5269,6 +5323,10 @@ private struct LibraryFolderNodeView: View {
     let listCache: SongListCache
     let selection: SongSelectionModel
     @Binding var sortOrder: SongListView.SongSortOrder
+    var initialLocation: SongLibraryLocationRequest? = nil
+    @State private var songLocation = SongListLocation()
+    @State private var folderLocationDestination: FolderSongLocationRequest?
+    @State private var consumedInitialLocationID: UUID?
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var followsListSort = false
     @State private var maintenance = LibraryFolderMaintenanceModel()
@@ -5293,12 +5351,34 @@ private struct LibraryFolderNodeView: View {
         let _ = PlayerUIUpdateDiagnostics.body("folder")
         #endif
         content
+            .songLocationReader(songLocation, revision: FolderSongLocationRevision(
+                nodeID: nodeID,
+                indexRevision: folderCache.revision,
+                songOrderRevision: listCache.rowOrderRevision
+            ))
+            .onAppear {
+                if let initialLocation, consumedInitialLocationID != initialLocation.id {
+                    consumedInitialLocationID = initialLocation.id
+                    songLocation.locate(initialLocation.songID)
+                }
+            }
+            .onDisappear { songLocation.cancel() }
             .navigationTitle(Text(verbatim: navigationTitle))
             #if os(iOS)
             .modifier(SongListAppearancePreference())
             .navigationBarTitleDisplayMode(.inline)
             .minimalNavigationDetail()
             .toolbar { iosToolbar }
+            .navigationDestination(item: $folderLocationDestination) { destination in
+                LibraryFolderNodeView(
+                    nodeID: destination.nodeID,
+                    folderCache: folderCache,
+                    listCache: listCache,
+                    selection: selection,
+                    sortOrder: $sortOrder,
+                    initialLocation: destination.song
+                )
+            }
             .librarySearchContext {
                 guard let index = folderCache.index, let node = index.node(withID: nodeID) else { return nil }
                 return LibrarySearchScope.folder(
@@ -5364,7 +5444,7 @@ private struct LibraryFolderNodeView: View {
                                 selection: selection,
                                 onPlay: playSong
                             )
-                            .id(songID)
+                            .id(SongLocationScrollID(songID: songID))
                         }
                     }
 
@@ -5496,6 +5576,22 @@ private struct LibraryFolderNodeView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var iosToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            LocateCurrentSongButton(
+                isEditing: selection.isActive,
+                titled: verticalBarEdge != nil,
+                contains: { listCache.contains(songID: $0) }
+            ) { songID, _ in
+                guard let target = folderCache.index?.nodeID(containingSongID: songID) else { return }
+                if target == nodeID {
+                    songLocation.locate(songID)
+                } else {
+                    folderLocationDestination = FolderSongLocationRequest(
+                        nodeID: target, song: SongLibraryLocationRequest(songID: songID)
+                    )
+                }
+            }
+        }
         ToolbarItem(placement: .principal) {
             LibraryFolderToolbarPrincipal(
                 selection: selection,

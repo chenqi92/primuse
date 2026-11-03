@@ -244,6 +244,8 @@ struct SearchFolderProviderInput: Sendable {
 struct SearchCollectionDetailView: View {
     let result: SearchCollectionResult
     var onMacInlineBack: (() -> Void)? = nil
+    var initialLocation: SongLibraryLocationRequest? = nil
+    var folderModel: HomeDiscoveryModel? = nil
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
@@ -253,6 +255,9 @@ struct SearchCollectionDetailView: View {
     /// library made SwiftUI register every row up front — seconds on the main
     /// thread — so the page keeps IDs and a lazy stack resolves what it shows.
     @State private var songIDs: [String] = []
+    @State private var songLocation = SongListLocation()
+    @State private var consumedInitialLocationID: UUID?
+    @State private var folderLocationDestination: FolderSongLocationRequest?
 
     var body: some View {
         let ids = songIDs
@@ -283,6 +288,7 @@ struct SearchCollectionDetailView: View {
                                     context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
+                            .songLocationRow(songID)
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 guard let index = ids.firstIndex(of: songID) else { return }
@@ -295,9 +301,24 @@ struct SearchCollectionDetailView: View {
         }
         .task(id: result.id) {
             songIDs = result.songIDs(in: library)
+            if let initialLocation, consumedInitialLocationID != initialLocation.id {
+                consumedInitialLocationID = initialLocation.id
+                songLocation.locate(initialLocation.songID)
+            }
         }
+        .songLocationReader(songLocation, revision: songIDs)
+        .onDisappear { songLocation.cancel() }
         .navigationTitle(result.title)
         #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { locateCurrentButton }
+        }
+        .navigationDestination(item: $folderLocationDestination) { destination in
+            if let folderModel {
+                HomeFolderBrowser(nodeID: destination.nodeID, initialLocation: destination.song)
+                    .environment(folderModel)
+            }
+        }
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: result.title, songIDs: Set(ids),
@@ -305,6 +326,21 @@ struct SearchCollectionDetailView: View {
                                detail: result.detail)
         }
         #endif
+    }
+
+    private var locateCurrentButton: some View {
+        LocateCurrentSongButton(contains: { songID in
+            songIDs.contains(songID) || folderModel?.index?.nodeID(containingSongID: songID) != nil
+        }) { songID, _ in
+            if songIDs.contains(songID) {
+                songLocation.locate(songID)
+            } else if let index = folderModel?.index,
+                      let nodeID = LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: songID, in: index) {
+                folderLocationDestination = FolderSongLocationRequest(
+                    nodeID: nodeID, song: SongLibraryLocationRequest(songID: songID)
+                )
+            }
+        }
     }
 
     #if os(macOS)
@@ -329,6 +365,7 @@ struct SearchCollectionDetailView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 16)
+            locateCurrentButton
             if let onMacInlineBack {
                 MacNavigationBackButton(
                     accessibilityIdentifier: "searchCollectionInlineBack",

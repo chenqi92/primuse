@@ -432,6 +432,8 @@ private final class SongLocationEvidenceFixture {
     )
     let library: MusicLibrary
     let player: AudioPlayerService
+    let folderModel = HomeDiscoveryModel()
+    let sources: SourcesStore
     var playlist: Playlist?
     var targetID: String {
         let index = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_TARGET"] ?? "3990"
@@ -440,6 +442,7 @@ private final class SongLocationEvidenceFixture {
 
     init() {
         library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
         let defaults = UserDefaults(suiteName: "primuse.song-location.fixture")!
         player = AudioPlayerService(
             library: library,
@@ -450,6 +453,13 @@ private final class SongLocationEvidenceFixture {
     }
 
     func prepare() async {
+        let folders = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_FOLDERS"] == "1"
+        if folders, sources.source(id: "location-fixture") == nil {
+            sources.add(MusicSource(
+                id: "location-fixture", name: "Location Source", type: .local,
+                extraConfig: MusicSource.encodeScannedDirectories(["/location-fixture"], into: nil, type: .local)
+            ))
+        }
         let usesReferenceArtwork = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_REFERENCE_ARTWORK"] == "1"
         var coverReferences: [String] = []
         if usesReferenceArtwork {
@@ -469,7 +479,11 @@ private final class SongLocationEvidenceFixture {
         var songs = (0..<(Self.showsContentTags ? 3 : 4_000)).map { index in
             Song(id: "location-\(index)", title: String(format: "Track %04d", index),
                  albumTitle: "Location Album", artistName: "Location Artist", trackNumber: index + 1, duration: 180,
-                 fileFormat: .flac, filePath: "/location-fixture/\(index).flac", sourceID: "location-fixture",
+                 fileFormat: .flac,
+                 filePath: folders
+                    ? "/location-fixture/\(index < 20 ? "Other" : "Artist/Album")/\(index).flac"
+                    : "/location-fixture/\(index).flac",
+                 sourceID: "location-fixture",
                  contentMetadata: Self.showsContentTags ? SongContentMetadata(
                     iTunesAdvisory: index.isMultiple(of: 2) ? 4 : 2,
                     copyright: index < 2 ? "℗ 2026 Example Records" : "© 2026 Guest Artist",
@@ -513,6 +527,17 @@ private final class SongLocationEvidenceFixture {
         library.saveSmartPlaylist(SmartPlaylist(id: "location-smart", name: "Location Smart",
                                                sortField: .title, sortDirection: .ascending))
         player.currentSong = library.song(id: targetID)
+        if folders {
+            let descriptors = sources.allSources.map(LibraryFolderSourceDescriptor.init(source:))
+            folderModel.publish(
+                index: LibraryFolderIndexBuilder.build(sources: descriptors, songs: songs),
+                songs: Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) }),
+                covers: [:],
+                request: HomeDiscoveryModel.Request(collection: library.visibleSongCollectionRevision,
+                    playlists: library.playlistCollectionRevision, hierarchy: 0, names: 0, sources: descriptors),
+                metadataToken: library.songReplacementToken, directoryNames: [:]
+            )
+        }
     }
 }
 
@@ -538,6 +563,8 @@ struct SongLocationEvidenceHost: View {
                 .sheet(isPresented: $playerPresented) { NowPlayingView() }
                 .environment(fixture.library)
                 .environment(fixture.player)
+                .environment(fixture.sources)
+                .environment(fixture.folderModel)
                 .environment(\.openLibraryDestination, { link in
                     guard case .song(let songID) = link else { return }
                     playerPresented = false
@@ -559,6 +586,10 @@ struct SongLocationEvidenceHost: View {
     @ViewBuilder
     private var pageContent: some View {
         switch page {
+        case "folders":
+            HomeFolderBrowser()
+        case "otherFolder":
+            HomeFolderBrowser(nodeID: fixture.folderModel.index?.nodeID(containingSongID: "location-0"))
         case "liked":
             if let playlist = fixture.library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID }) {
                 PlaylistDetailView(playlist: playlist)

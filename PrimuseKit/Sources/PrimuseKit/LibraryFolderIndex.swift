@@ -929,6 +929,22 @@ public final class LibraryFolderIndex: Sendable {
 /// source wrapper, while playback uses only the songs directly visible in the
 /// current folder and folder actions include every descendant.
 public enum LibraryFolderBrowsePolicy {
+    /// Resolves the page that actually displays a song when the source wrapper
+    /// absorbs its only scan root and the unclassified buckets.
+    public static func displayedNodeID(
+        containingSongID songID: String,
+        in index: LibraryFolderIndex
+    ) -> LibraryFolderNodeID? {
+        guard let id = index.nodeID(containingSongID: songID),
+              let node = index.node(withID: id) else { return nil }
+        if let parentID = node.parentID, parentID.kind == .source,
+           node.kind == .other || node.kind == .uncategorized
+            || collapsedScanRoot(in: index, for: parentID)?.id == id {
+            return parentID
+        }
+        return id
+    }
+
     /// `spokenWordSongIDs` lets a folder of audiobook chapters read as on the shelf.
     public static func sortedSongs(_ songs: [Song], spokenWordSongIDs: Set<String> = []) -> [Song] {
         LibraryFolderTrackOrder.sorted(songs, spokenWordSongIDs: spokenWordSongIDs)

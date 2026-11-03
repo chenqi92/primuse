@@ -419,8 +419,14 @@ struct HomeFolderBrowser: View {
     var nodeID: LibraryFolderNodeID?
     var usesInlineControls = false
     var showsInlineBack = false
+    var initialLocation: SongLibraryLocationRequest? = nil
+    @State private var songLocation = SongListLocation()
+    @State private var pendingSongLocation: SongLibraryLocationRequest?
+    @State private var consumedInitialLocationID: UUID?
     #if os(iOS)
     @Environment(\.editMode) private var editMode
+    @State private var folderLocationDestination: FolderSongLocationRequest?
+    @State private var allSongsLocation: SongLibraryLocationRequest?
     #endif
     #if os(macOS)
     @Environment(\.dismiss) private var dismiss
@@ -510,6 +516,7 @@ struct HomeFolderBrowser: View {
         }.value
         guard !Task.isCancelled else { return }
         directSongs = (nodeID, ordered)
+        resolvePendingSongLocation()
     }
 
     /// 收藏的目录排过序、删过之后：顺序只改这一份，删掉的也从收藏区拿掉。
@@ -523,6 +530,35 @@ struct HomeFolderBrowser: View {
     }
 
     var body: some View {
+        content
+            .onAppear {
+                if let initialLocation, consumedInitialLocationID != initialLocation.id {
+                    consumedInitialLocationID = initialLocation.id
+                    pendingSongLocation = initialLocation
+                    resolvePendingSongLocation()
+                }
+            }
+            .onDisappear {
+                songLocation.cancel()
+                pendingSongLocation = nil
+            }
+            #if os(iOS)
+            .navigationDestination(item: $folderLocationDestination) { destination in
+                HomeFolderBrowser(nodeID: destination.nodeID, initialLocation: destination.song)
+                    .environment(model)
+            }
+            .navigationDestination(item: $allSongsLocation) { request in
+                if let nodeID {
+                    SearchCollectionDetailView(
+                        result: allSongsResult(nodeID: nodeID), initialLocation: request, folderModel: model
+                    )
+                }
+            }
+            #endif
+    }
+
+    @ViewBuilder
+    private var content: some View {
         #if os(macOS)
         VStack(spacing: 0) {
             macHeader
@@ -560,6 +596,7 @@ struct HomeFolderBrowser: View {
         }
         #else
         folderList
+            .songLocationReader(songLocation, revision: directSongIDs)
             .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision, order: songOrder)) {
                 await refreshDirectSongIDs()
             }
@@ -567,6 +604,62 @@ struct HomeFolderBrowser: View {
                 AlbumMetadataView(songs: batch.songs)
             }
         #endif
+    }
+
+    private var locateCurrentButton: some View {
+        LocateCurrentSongButton(
+            isEditing: isEditingFolders,
+            titled: verticalBarEdge != nil,
+            contains: { songID in model.index?.nodeID(containingSongID: songID) != nil }
+        ) { songID, _ in
+            guard let index = model.index,
+                  let target = LibraryFolderBrowsePolicy.displayedNodeID(containingSongID: songID, in: index)
+            else { return }
+            let request = SongLibraryLocationRequest(songID: songID)
+            #if os(macOS)
+            openMacFolder(target)
+            pendingSongLocation = request
+            resolvePendingSongLocation()
+            #else
+            if target == nodeID {
+                pendingSongLocation = request
+                resolvePendingSongLocation()
+            } else {
+                folderLocationDestination = FolderSongLocationRequest(nodeID: target, song: request)
+            }
+            #endif
+        }
+    }
+
+    private var isEditingFolders: Bool {
+        #if os(iOS)
+        editMode?.wrappedValue.isEditing == true
+        #else
+        false
+        #endif
+    }
+
+    private func resolvePendingSongLocation() {
+        guard let request = pendingSongLocation,
+              directSongs.nodeID == currentNodeID,
+              let offset = directSongIDs.firstIndex(of: request.songID) else { return }
+        pendingSongLocation = nil
+        #if os(iOS)
+        if offset >= Self.inlineSongLimit {
+            allSongsLocation = request
+            return
+        }
+        #endif
+        songLocation.locate(request.songID)
+    }
+
+    private func allSongsResult(nodeID: LibraryFolderNodeID) -> SearchCollectionResult {
+        SearchCollectionResult(
+            target: .folder(nodeID),
+            title: node.map(HomeDiscoveryText.folderTitle) ?? "",
+            detail: "",
+            folderSongIDs: directSongIDs
+        )
     }
 
     private var folderList: some View {
@@ -664,6 +757,7 @@ struct HomeFolderBrowser: View {
                                     SongRowView(song: song, isPlaying: player.currentSong?.id == song.id,
                                                 trackNumber: index + 1, largestTrackNumber: min(ids.count, Self.inlineSongLimit))
                                 }
+                                    .songLocationRow(songID)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         HomeDiscoveryPlayback.play(ids: ids, startingAt: songID, library: library, player: player)
@@ -672,12 +766,7 @@ struct HomeFolderBrowser: View {
                         }
                         if ids.count > Self.inlineSongLimit {
                             NavigationLink {
-                                SearchCollectionDetailView(result: SearchCollectionResult(
-                                    target: .folder(nodeID),
-                                    title: node.map(HomeDiscoveryText.folderTitle) ?? "",
-                                    detail: "",
-                                    folderSongIDs: ids
-                                ))
+                                SearchCollectionDetailView(result: allSongsResult(nodeID: nodeID), folderModel: model)
                             } label: {
                                 HStack {
                                     Text("see_all")
@@ -711,6 +800,7 @@ struct HomeFolderBrowser: View {
             return LibrarySearchScope.folder(node: node, index: index, title: HomeDiscoveryText.folderTitle)
         }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) { locateCurrentButton }
             if let node {
                 ToolbarItemGroup(placement: .primaryAction) {
                     pinButton(node.id, titled: verticalBarEdge != nil)
@@ -853,6 +943,8 @@ struct HomeFolderBrowser: View {
 
     private func openMacFolder(_ id: LibraryFolderNodeID?) {
         guard id != currentNodeID else { return }
+        songLocation = SongListLocation()
+        pendingSongLocation = nil
         // Native navigation pushes recreate window history/chrome; keep folder changes inside this pane.
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
@@ -864,6 +956,8 @@ struct HomeFolderBrowser: View {
     }
 
     private func navigateMacBreadcrumb(to id: LibraryFolderNodeID?) {
+        songLocation = SongListLocation()
+        pendingSongLocation = nil
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -945,7 +1039,15 @@ struct HomeFolderBrowser: View {
                     .id(songID)
             }
         }
-        .modifier(MacFolderScrollReset(nodeID: nodeID))
+        .modifier(MacFolderScrollReset(
+            nodeID: nodeID,
+            location: songLocation,
+            rowOffset: songLocation.request.flatMap { request in
+                songIDs.firstIndex(of: request.songID).map { songStart + $0 }
+            },
+            chromeHeight: macListChromeHeight,
+            viewportHeight: macListViewportHeight
+        ))
         .overlay {
             if model.index == nil {
                 ProgressView()
@@ -986,6 +1088,7 @@ struct HomeFolderBrowser: View {
                 if let context = macSearchContext {
                     macSearchControls(context: context)
                 } else {
+                    locateCurrentButton
                     Button {
                         guard let index = model.index else { return }
                         let context = LibrarySearchScope.folder(
@@ -1045,6 +1148,7 @@ struct HomeFolderBrowser: View {
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
+                locateCurrentButton
                 if model.index != nil, !children.isEmpty || !pins.isEmpty {
                     Menu {
                         HomeFolderSongOrderMenuItems(order: songOrderBinding)
@@ -1070,6 +1174,8 @@ struct HomeFolderBrowser: View {
 
     private var macBackButton: some View {
         Button {
+            songLocation = SongListLocation()
+            pendingSongLocation = nil
             if macFolderPath.isEmpty {
                 dismiss()
             } else {
@@ -1656,15 +1762,41 @@ private struct MacFolderDirectoryRow: View {
 
 private struct MacFolderScrollReset: ViewModifier {
     let nodeID: LibraryFolderNodeID
+    let location: SongListLocation
+    let rowOffset: Int?
+    let chromeHeight: CGFloat
+    let viewportHeight: CGFloat
     @State private var position = ScrollPosition()
+
+    private struct LocationTrigger: Equatable {
+        let request: SongLibraryLocationRequest?
+        let rowOffset: Int?
+        let chromeHeight: CGFloat
+        let viewportHeight: CGFloat
+    }
 
     func body(content: Content) -> some View {
         content
+            .environment(\.songListLocation, location)
+            .songLocationViewport(location, topInset: chromeHeight)
             .scrollPosition($position)
+            .onScrollPhaseChange { _, phase in
+                if phase == .tracking || phase == .interacting { location.cancel() }
+            }
             .task(id: nodeID) {
                 await Task.yield()
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, location.request == nil else { return }
                 position.scrollTo(y: 0)
+            }
+            .task(id: LocationTrigger(request: location.request, rowOffset: rowOffset,
+                                     chromeHeight: chromeHeight, viewportHeight: viewportHeight)) {
+                guard let request = location.request, location.needsScroll,
+                      let rowOffset, viewportHeight > 0 else { return }
+                await Task.yield()
+                guard !Task.isCancelled, location.request?.id == request.id, location.needsScroll else { return }
+                let target = chromeHeight + CGFloat(rowOffset) * 52
+                    - max(0, (viewportHeight - chromeHeight - 52) / 2)
+                position.scrollTo(y: max(0, target))
             }
     }
 }
@@ -1712,6 +1844,7 @@ private struct MacHomeFolderSongRow: View {
                 .pmRowBackground(selected: isCurrent)
             }
             .buttonStyle(.plain)
+            .songLocationRow(songID, assignsScrollID: false)
             .contextMenu {
                 MacHomeFolderSongMenu(song: song) { performAction(song, $0) }
             }
