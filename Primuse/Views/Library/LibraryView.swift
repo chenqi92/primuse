@@ -414,7 +414,9 @@ private final class LibraryArtworkPreviewSessionStore {
 private enum LibraryArtworkPreviewBuilder {
     static func hasReference(_ value: String?) -> Bool {
         guard let value else { return false }
-        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return autoreleasepool {
+            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     static func songHasArtworkHint(_ song: Song) -> Bool {
@@ -433,7 +435,7 @@ private enum LibraryArtworkPreviewBuilder {
             from: items.map {
                 LibraryArtworkPreviewCandidate(
                     id: id($0),
-                    hasArtworkHint: hasArtworkHint($0)
+                    hasArtworkHint: autoreleasepool { hasArtworkHint($0) }
                 )
             },
             maximumCount: maximumCount,
@@ -1525,8 +1527,8 @@ struct LibraryView: View {
                 id: \Album.id
             ) { album in
                 albumOverrideIDs.contains(album.id)
-                    || MetadataAssetStore.shared.hasAlbumCover(forAlbumID: album.id)
                     || albumIDsWithSongArtworkHint.contains(album.id)
+                    || MetadataAssetStore.shared.hasAlbumCover(forAlbumID: album.id)
             }
             let selectedArtists = LibraryArtworkPreviewBuilder.select(
                 artistsSnapshot,
@@ -1535,8 +1537,8 @@ struct LibraryView: View {
             ) { artist in
                 artistOverrideIDs.contains(artist.id)
                     || LibraryArtworkPreviewBuilder.hasReference(artist.thumbnailPath)
-                    || MetadataAssetStore.shared.hasArtistImage(forArtistID: artist.id)
                     || artistIDsWithSongArtworkHint.contains(artist.id)
+                    || MetadataAssetStore.shared.hasArtistImage(forArtistID: artist.id)
             }
             let selectedPlaylists = LibraryArtworkPreviewBuilder.select(
                 playlistsSnapshot,
