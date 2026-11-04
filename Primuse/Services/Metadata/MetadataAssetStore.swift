@@ -624,6 +624,17 @@ actor MetadataAssetStore {
         return coverContentIdentifier(named: expectedCoverFileName(for: songID))
     }
 
+    /// Derived thumbnails must also notice content eviction: redirects retain
+    /// their hash after the backing image is removed and when it is restored.
+    nonisolated func readableDisplayCoverIdentity(songID: String?, reference: String?) -> String? {
+        guard let identity = displayCoverIdentity(songID: songID, reference: reference) else { return nil }
+        guard identity.hasPrefix("sha256:"),
+              StoredArtworkOrigin.resolve(reference) != .selected else { return identity }
+        let hash = String(identity.dropFirst("sha256:".count))
+        let content = artworkContentDirectoryURL.appendingPathComponent("\(hash).jpg")
+        return FileManager.default.fileExists(atPath: content.path) ? identity : nil
+    }
+
     /// Read-only consumers use the chosen reference, not whichever writer most
     /// recently populated the historical song mirror.
     nonisolated func displayCoverData(songID: String?, reference: String?, allowsStale: Bool = true) -> Data? {

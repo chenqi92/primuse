@@ -5,6 +5,133 @@ import ImageIO
 import PrimuseKit
 import UniformTypeIdentifiers
 
+@MainActor
+final class SiriSongSuggestionCache {
+    struct Inputs: Equatable, Sendable {
+        let libraryRevision: UInt64
+        let replacementToken: UUID
+        let visibleRevision: Int
+        let priorityIDs: [String]
+        let limit: Int
+    }
+
+    typealias Select = @Sendable ([Song], [String], Int) async -> [Song]
+    private let select: Select
+    private var cached: (inputs: Inputs, songs: [Song])?
+    private var pending: (inputs: Inputs, token: UUID, task: Task<[Song], Never>)?
+
+    init(select: @escaping Select = { SiriSongCatalog.shortcuts(from: $0, priorityIDs: $1, limit: $2) }) {
+        self.select = select
+    }
+
+    func songs(for inputs: Inputs, from songs: [Song]) async -> [Song]? {
+        guard !Task.isCancelled else { return nil }
+        if let cached, cached.inputs == inputs { return cached.songs }
+        if pending?.inputs != inputs {
+            pending?.task.cancel()
+            cached = nil
+            let select = select
+            pending = (inputs, UUID(), Task.detached(priority: .utility) {
+                await select(songs, inputs.priorityIDs, inputs.limit)
+            })
+        }
+        guard let request = pending else { return nil }
+        // One cancelled system query must not cancel work shared by other callers.
+        let selected = await request.task.value
+        if pending?.token == request.token {
+            cached = (inputs, selected)
+            pending = nil
+            plog("Siri song shortcuts: selected=\(selected.count) budget=\(inputs.limit)")
+        }
+        guard !Task.isCancelled, cached?.inputs == inputs else { return nil }
+        return cached?.songs
+    }
+}
+
+actor PrimuseSongEntityCache {
+    struct Input: Sendable {
+        let song: Song
+        let artist: String?
+    }
+
+    private struct Key: Equatable {
+        let title: String
+        let artist: String?
+        let album: String?
+        let duration: UInt64
+        let coverReference: String?
+        let coverIdentity: String?
+        let showsArtwork: Bool
+
+        func hasSameArtwork(as other: Self) -> Bool {
+            showsArtwork == other.showsArtwork && coverReference == other.coverReference
+                && coverIdentity == other.coverIdentity
+        }
+    }
+
+    private struct Entry {
+        let key: Key
+        let entity: PrimuseLibrarySongEntity
+        var lastUsed: UInt64
+    }
+
+    static let shared = PrimuseSongEntityCache()
+    private let capacity: Int
+    private let coverIdentity: @Sendable (Song) -> String?
+    private let coverData: @Sendable (Song) -> Data?
+    private var entries: [String: Entry] = [:]
+    private var clock: UInt64 = 0
+
+    init(capacity: Int = 1_024,
+         coverIdentity: @escaping @Sendable (Song) -> String? = {
+             MetadataAssetStore.shared.readableDisplayCoverIdentity(songID: $0.id, reference: $0.coverArtFileName)
+         },
+         coverData: @escaping @Sendable (Song) -> Data? = {
+             MetadataAssetStore.shared.displayCoverData(songID: $0.id, reference: $0.coverArtFileName)
+         }) {
+        self.capacity = max(1, capacity)
+        self.coverIdentity = coverIdentity
+        self.coverData = coverData
+    }
+
+    // No suspension between lookup and insertion: simultaneous system queries
+    // reuse each thumbnail, including a cached absence of artwork.
+    func entities(for inputs: [Input], showsArtwork: Bool) -> [PrimuseLibrarySongEntity] {
+        var result: [PrimuseLibrarySongEntity] = []
+        for input in inputs {
+            guard !Task.isCancelled else { return [] }
+            let entity = autoreleasepool {
+                let song = input.song
+                let key = Key(title: song.title, artist: input.artist, album: song.albumTitle,
+                              duration: song.duration.bitPattern, coverReference: song.coverArtFileName,
+                              coverIdentity: showsArtwork ? coverIdentity(song) : nil, showsArtwork: showsArtwork)
+                clock &+= 1
+                if var entry = entries[song.id], entry.key == key {
+                    entry.lastUsed = clock
+                    entries[song.id] = entry
+                    return entry.entity
+                }
+                let entity: PrimuseLibrarySongEntity
+                if let entry = entries[song.id], entry.key.hasSameArtwork(as: key) {
+                    entity = PrimuseLibrarySongEntity(song, artistDisplayName: input.artist,
+                                                     artworkData: entry.entity.artworkData)
+                } else {
+                    entity = PrimuseLibrarySongEntity(song, artistDisplayName: input.artist,
+                        coverData: showsArtwork ? coverData(song) : nil, showsArtwork: showsArtwork)
+                }
+                entries[song.id] = Entry(key: key, entity: entity, lastUsed: clock)
+                if entries.count > capacity,
+                   let oldest = entries.min(by: { $0.value.lastUsed < $1.value.lastUsed })?.key {
+                    entries.removeValue(forKey: oldest)
+                }
+                return entity
+            }
+            result.append(entity)
+        }
+        return result
+    }
+}
+
 struct PrimuseLibrarySongEntity: AppEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Song")
     static let defaultQuery = PrimuseLibrarySongQuery()
@@ -14,6 +141,11 @@ struct PrimuseLibrarySongEntity: AppEntity {
     let artworkData: Data?
 
     init(_ song: Song, artistDisplayName: String?, coverData: Data?, showsArtwork: Bool) {
+        self.init(song, artistDisplayName: artistDisplayName,
+                  artworkData: showsArtwork ? Self.thumbnail(coverData) : nil)
+    }
+
+    fileprivate init(_ song: Song, artistDisplayName: String?, artworkData: Data?) {
         id = song.id
         title = song.title
         let details = [artistDisplayName, song.albumTitle]
@@ -22,7 +154,7 @@ struct PrimuseLibrarySongEntity: AppEntity {
         subtitle = [details.isEmpty ? nil : details,
                     song.duration.isFinite && song.duration > 0 ? song.duration.formattedDuration : nil]
             .compactMap { $0 }.joined(separator: " · ")
-        artworkData = showsArtwork ? Self.thumbnail(coverData) : nil
+        self.artworkData = artworkData
     }
 
     var displayRepresentation: DisplayRepresentation {
@@ -33,27 +165,11 @@ struct PrimuseLibrarySongEntity: AppEntity {
 
     @MainActor
     static func entities(for songs: [Song]) async -> [Self] {
-        let inputs = songs.map { ($0, AppServices.shared.musicLibrary.artistDisplayName(for: $0)) }
+        let inputs = songs.map { PrimuseSongEntityCache.Input(
+            song: $0, artist: AppServices.shared.musicLibrary.artistDisplayName(for: $0)
+        ) }
         let showsArtwork = SpotlightIndexService.showsArtwork
-        let worker = Task.detached(priority: .utility) {
-            var entities: [Self] = []
-            for (song, artist) in inputs {
-                guard !Task.isCancelled else { return [] as [Self] }
-                let entity = autoreleasepool {
-                    let cover = showsArtwork ? MetadataAssetStore.shared.displayCoverData(
-                        songID: song.id, reference: song.coverArtFileName
-                    ) : nil
-                    return Self(song, artistDisplayName: artist, coverData: cover, showsArtwork: showsArtwork)
-                }
-                entities.append(entity)
-            }
-            return entities
-        }
-        return await withTaskCancellationHandler {
-            await worker.value
-        } onCancel: {
-            worker.cancel()
-        }
+        return await PrimuseSongEntityCache.shared.entities(for: inputs, showsArtwork: showsArtwork)
     }
 
     private static func thumbnail(_ data: Data?) -> Data? {

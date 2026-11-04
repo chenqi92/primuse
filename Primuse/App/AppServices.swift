@@ -1071,14 +1071,6 @@ private struct SiriCatalogBookInputs: Equatable {
     let storeRevision: Int
 }
 
-#if os(iOS)
-private struct SiriCatalogSongInputs: Equatable {
-    let libraryRevision: Int
-    let priorityIDs: [String]
-    let limit: Int
-}
-#endif
-
 @MainActor
 final class AppServices {
     static let shared = AppServices()
@@ -1140,7 +1132,7 @@ final class AppServices {
     private var siriCatalogRefreshTask: Task<Void, Never>?
     private var siriCatalogForcePending = false
     #if os(iOS)
-    private var siriCatalogSongInputs: SiriCatalogSongInputs?
+    private let siriSongSuggestions = SiriSongSuggestionCache()
     private(set) var siriShortcutSongs: [Song] = []
     #endif
     private var listeningWidgetPublisher: ListeningWidgetPublisher?
@@ -2461,15 +2453,14 @@ final class AppServices {
                 + books.map { "b\($0.id)\u{1F}\($0.title)" }
                 + shows.map { "p\($0.id)\u{1F}\($0.title)" }
             #if os(iOS)
-            let limit = self.siriSongShortcutLimit(bookCount: books.count)
-            guard await self.refreshSiriSongs(limit: limit), !Task.isCancelled else { return }
+            guard await self.refreshSiriSongs(), !Task.isCancelled else { return }
             let songInputs = self.siriShortcutSongs.map {
                 ($0, self.musicLibrary.artistDisplayName(for: $0) ?? "")
             }
             let showsArtwork = SpotlightIndexService.showsArtwork
             signature += await Task.detached(priority: .utility) {
                 songInputs.map { song, artist in
-                    let cover = showsArtwork ? MetadataAssetStore.shared.displayCoverIdentity(
+                    let cover = showsArtwork ? MetadataAssetStore.shared.readableDisplayCoverIdentity(
                         songID: song.id, reference: song.coverArtFileName
                     ) : nil
                     return "s\(song.id)\u{1F}\(song.title)\u{1F}\(artist)\u{1F}\(song.albumTitle ?? "")\u{1F}\(song.duration)\u{1F}\(cover ?? "")\u{1F}\(showsArtwork)"
@@ -2491,16 +2482,8 @@ final class AppServices {
     #if os(iOS)
     func siriSongShortcutSuggestions() async -> [Song] {
         guard await musicLibrary.whenReady(timeout: .seconds(8)),
-              let books = await siriCatalogBookList(), !Task.isCancelled else { return [] }
-        let limit = siriSongShortcutLimit(bookCount: books.count)
-        let songs = musicLibrary.musicSongs
-        let priorityIDs = musicLibrary.recentPlaybackSongIDsForSync
-            + musicLibrary.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
-        // System queries can arrive before the debounced catalog refresh.
-        let worker = Task.detached(priority: .utility) {
-            SiriSongCatalog.shortcuts(from: songs, priorityIDs: priorityIDs, limit: limit)
-        }
-        return await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+              await refreshSiriSongs() else { return [] }
+        return siriShortcutSongs
     }
 
     private func siriSongShortcutLimit(bookCount: Int) -> Int {
@@ -2514,25 +2497,31 @@ final class AppServices {
         )
     }
 
-    private func refreshSiriSongs(limit: Int) async -> Bool {
-        guard musicLibrary.isReady else { return false }
-        let inputs = SiriCatalogSongInputs(
-            libraryRevision: musicLibrary.spotlightIndexRevision,
+    private func siriSongSuggestionInputs(limit: Int) -> SiriSongSuggestionCache.Inputs {
+        SiriSongSuggestionCache.Inputs(
+            libraryRevision: musicLibrary.musicSongsRevision,
+            replacementToken: musicLibrary.songReplacementToken,
+            visibleRevision: musicLibrary.visibleSongCollectionRevision,
             priorityIDs: musicLibrary.recentPlaybackSongIDsForSync
                 + musicLibrary.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID),
             limit: limit
         )
-        if siriCatalogSongInputs == inputs { return true }
-        let songs = musicLibrary.musicSongs
-        let worker = Task.detached(priority: .utility) {
-            SiriSongCatalog.shortcuts(from: songs, priorityIDs: inputs.priorityIDs, limit: inputs.limit)
+    }
+
+    private func refreshSiriSongs() async -> Bool {
+        guard musicLibrary.isReady else { return false }
+        while !Task.isCancelled {
+            guard let books = await siriCatalogBookList(), !Task.isCancelled else { return false }
+            let inputs = siriSongSuggestionInputs(limit: siriSongShortcutLimit(bookCount: books.count))
+            let selected = await siriSongSuggestions.songs(for: inputs, from: musicLibrary.musicSongs)
+            guard let currentBooks = await siriCatalogBookList(), !Task.isCancelled else { return false }
+            // A source can disappear or metadata can land while selection runs.
+            let current = siriSongSuggestionInputs(limit: siriSongShortcutLimit(bookCount: currentBooks.count))
+            guard inputs == current, let selected else { continue }
+            siriShortcutSongs = selected
+            return true
         }
-        let selected = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
-        guard !Task.isCancelled else { return false }
-        siriShortcutSongs = selected
-        siriCatalogSongInputs = inputs
-        plog("Siri song shortcuts: selected=\(selected.count) budget=\(limit)")
-        return true
+        return false
     }
     #endif
 
@@ -2592,7 +2581,7 @@ final class AppServices {
                     Task { @MainActor [weak self] in
                         guard let self, SpotlightIndexService.showsArtwork,
                               songID == nil || self.siriShortcutSongs.contains(where: { $0.id == songID }) else { return }
-                        self.refreshSiriCatalog(force: true)
+                        self.refreshSiriCatalog()
                     }
                 }
             )
