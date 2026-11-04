@@ -521,8 +521,7 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
         } ?? 0..<rowCount
 
         ScrollView(
-            allowsHorizontalScrolling ? [.vertical, .horizontal] : .vertical,
-            showsIndicators: allowsHorizontalScrolling
+            allowsHorizontalScrolling ? [.vertical, .horizontal] : .vertical
         ) {
             // 表头作为置顶的分区头: 纵向滚动时钉在可见区顶部, 横向仍与行一起滚动,
             // 列标题始终可见。
@@ -553,7 +552,7 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
         }
         .defaultScrollAnchor(.topLeading, for: .alignment)
         .songLocationViewport(songLocation, topInset: chromeHeight)
-        .scrollIndicators(.hidden, axes: .vertical)
+        .scrollIndicators(.visible, axes: .vertical)
         .scrollIndicators(
             allowsHorizontalScrolling ? .visible : .hidden,
             axes: .horizontal
@@ -2342,7 +2341,7 @@ struct SongListView: View {
     }
 
     private var macFolderSongList: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: PMSpace.l) {
                 if macFolderPath.isEmpty {
                     LibraryFolderRootContent(
@@ -2369,6 +2368,7 @@ struct SongListView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 112)
         }
+        .scrollIndicators(.visible, axes: .vertical)
         .songLocationReader(songLocation, revision: FolderSongLocationRevision(
             nodeID: macFolderPath.last,
             indexRevision: folderCache.revision,
