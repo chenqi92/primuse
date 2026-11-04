@@ -1011,16 +1011,18 @@ actor MetadataAssetStore {
     /// two Tasks/actor hops per song when a large source is removed.
     func invalidateCaches(forSongIDs songIDs: [String]) {
         for songID in songIDs {
-            let cover = hashedFileName(for: songID, pathExtension: "jpg")
-            try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
-            if lyricsMutationReservations[songID] == nil {
-                let lyrics = hashedFileName(for: songID, pathExtension: "json")
-                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+            autoreleasepool {
+                let cover = hashedFileName(for: songID, pathExtension: "jpg")
+                try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
+                if lyricsMutationReservations[songID] == nil {
+                    let lyrics = hashedFileName(for: songID, pathExtension: "json")
+                    try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+                }
+                let embedded = hashedFileName(for: songID, pathExtension: "embedded.json")
+                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(embedded))
+                let recheck = hashedFileName(for: songID, pathExtension: "recheck")
+                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(recheck))
             }
-            let embedded = hashedFileName(for: songID, pathExtension: "embedded.json")
-            try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(embedded))
-            let recheck = hashedFileName(for: songID, pathExtension: "recheck")
-            try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(recheck))
         }
     }
 
@@ -1030,17 +1032,19 @@ actor MetadataAssetStore {
     /// kinds that the new authoritative Song explicitly does not reference.
     func invalidateMissingCaches(for songs: [Song]) {
         for song in songs {
-            if song.coverArtFileName == nil {
-                let cover = hashedFileName(for: song.id, pathExtension: "jpg")
-                try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
-            }
-            if song.lyricsFileName == nil,
-               lyricsMutationReservations[song.id] == nil {
-                if cachedLyrics(forSongID: song.id)?.first?.documentIsLocalOverride == true {
-                    continue
+            autoreleasepool {
+                if song.coverArtFileName == nil {
+                    let cover = hashedFileName(for: song.id, pathExtension: "jpg")
+                    try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
                 }
-                let lyrics = hashedFileName(for: song.id, pathExtension: "json")
-                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+                if song.lyricsFileName == nil,
+                   lyricsMutationReservations[song.id] == nil {
+                    if cachedLyrics(forSongID: song.id)?.first?.documentIsLocalOverride == true {
+                        return
+                    }
+                    let lyrics = hashedFileName(for: song.id, pathExtension: "json")
+                    try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+                }
             }
         }
     }

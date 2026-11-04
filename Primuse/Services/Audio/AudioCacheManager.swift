@@ -1302,12 +1302,14 @@ actor AudioCacheManager {
         var accessChanged = false
         var manifestChanged = false
         for path in paths {
-            accessChanged = accessLog.removeValue(forKey: path) != nil || accessChanged
-            manifestChanged = offlineManifest.removeValue(forKey: path) != nil || manifestChanged
-            for familyPath in AudioCachePathFamily.relativePaths(for: path) {
-                removeTrackedPath(familyPath)
+            autoreleasepool {
+                accessChanged = accessLog.removeValue(forKey: path) != nil || accessChanged
+                manifestChanged = offlineManifest.removeValue(forKey: path) != nil || manifestChanged
+                for familyPath in AudioCachePathFamily.relativePaths(for: path) {
+                    removeTrackedPath(familyPath)
+                }
+                syncOfflineMirror(for: path)
             }
-            syncOfflineMirror(for: path)
         }
         if accessChanged { schedulePersist() }
         if manifestChanged { scheduleManifestPersist() }

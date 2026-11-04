@@ -3663,7 +3663,7 @@ final class SourceManager {
                 ?? Set(songs.map(\.id))
             MainActor.assumeIsolated {
                 if sourceIDs.isEmpty {
-                    self.deleteLocalCaches(for: songs)
+                    self.deleteLocalCaches(for: songs, removedFromLibrary: true)
                 } else {
                     self.deleteLocalCachesForRemovedSources(
                         sourceIDs,
@@ -6080,6 +6080,10 @@ final class SourceManager {
     }
 
     private func normalizedMusicVideoPath(for song: Song) -> String? {
+        Self.normalizedMusicVideoPath(for: song)
+    }
+
+    private nonisolated static func normalizedMusicVideoPath(for song: Song) -> String? {
         guard let raw = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               raw.isEmpty == false else { return nil }
         if URL(string: raw)?.scheme != nil { return raw }
@@ -6120,7 +6124,7 @@ final class SourceManager {
             .appendingPathComponent(Self.videoCacheFileName(sourceID: sourceID, path: path))
     }
 
-    private static func videoCacheFileName(sourceID: String, path: String) -> String {
+    private nonisolated static func videoCacheFileName(sourceID: String, path: String) -> String {
         let digest = SHA256.hash(data: Data("\(sourceID):\(path)".utf8))
         let hash = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
         let ext = (path as NSString).pathExtension.lowercased()
@@ -11584,99 +11588,49 @@ final class SourceManager {
         }
     }
 
+    @discardableResult
     func deleteLocalCaches(
         for songs: [Song],
         preserveFreshMetadataAssets: Bool = false,
-        preservingAudioPaths: Set<String> = []
-    ) {
-        guard songs.isEmpty == false else { return }
-
+        preservingAudioPaths: Set<String> = [],
+        removedFromLibrary: Bool = false
+    ) -> Task<Void, Never>? {
+        guard !songs.isEmpty else { return nil }
+        let needsPathInvalidation = !preservingAudioPaths.isEmpty
+            || !offlineCompactionTasks.isEmpty
+            || !preservingAutomaticRefreshPaths.isEmpty
+            || !contentChangeProtectionPendingPaths.isEmpty
+            || !contentChangeInvalidationGenerationByPath.isEmpty
+            || !blockedUntrustedAudioCachePaths.isEmpty
         for song in songs {
-            backgroundAudioCacheTasks[song.id]?.task.cancel()
-            let relativePath = audioCacheRelativePath(for: song)
-            cancelOfflineCompaction(path: relativePath)
-            if preservingAudioPaths.contains(relativePath) {
-                preservingAutomaticRefreshPaths.insert(relativePath)
-            } else {
-                preservingAutomaticRefreshPaths.remove(relativePath)
-                contentChangeProtectionPendingPaths.remove(relativePath)
-                contentChangeInvalidationGenerationByPath[relativePath] = nil
-                blockedUntrustedAudioCachePaths.remove(relativePath)
+            autoreleasepool {
+                backgroundAudioCacheTasks[song.id]?.task.cancel()
+                let hasSnapshot = offlineAudioSnapshots[song.id] != nil
+                    || offlineAudioSnapshotEntries[song.id] != nil
+                    || offlineAudioSnapshotVersions[song.id] != nil
+                if needsPathInvalidation || hasSnapshot || !removedFromLibrary {
+                    let path = audioCacheRelativePath(for: song)
+                    cancelOfflineCompaction(path: path)
+                    if preservingAudioPaths.contains(path) {
+                        preservingAutomaticRefreshPaths.insert(path)
+                    } else {
+                        preservingAutomaticRefreshPaths.remove(path)
+                        contentChangeProtectionPendingPaths.remove(path)
+                        contentChangeInvalidationGenerationByPath[path] = nil
+                        blockedUntrustedAudioCachePaths.remove(path)
+                        if hasSnapshot || !removedFromLibrary {
+                            setOfflineAudioSnapshot(.notCached, for: song.id)
+                        }
+                    }
+                }
+                if let path = Self.normalizedMusicVideoPath(for: song),
+                   URL(string: path)?.scheme == nil {
+                    musicVideoCacheDownloads.cancel(
+                        key: Self.musicVideoCacheKey(sourceID: song.sourceID, path: path)
+                    )
+                }
             }
         }
-
-        // 路径一律用 cacheFileURL 拼: URL.appendingPathComponent 不带目录提示时
-        // 会对文件 URL 做 lstat/getattrlist 判断是不是目录。服务端目录刷新一次
-        // 送来几千首「内容变了」的歌, 每首八九个路径各几级, 主线程就连续卡几百毫秒。
-        let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-        let tempRoot = FileManager.default.temporaryDirectory
-        var cacheTargets: [URL] = []
-        cacheTargets.reserveCapacity(songs.count * 8)
-        var audioRelativePaths: [String] = []
-        audioRelativePaths.reserveCapacity(songs.count)
-
-        for song in songs {
-            let audioName = cacheFileName(for: song)
-            let audioRelativePath = "\(song.sourceID)/\(audioName)"
-            if !preservingAudioPaths.contains(audioRelativePath) {
-                cacheTargets.append(Self.cacheFileURL(
-                    cachesRoot,
-                    [Self.audioCacheDirName, song.sourceID, audioName]
-                ))
-                audioRelativePaths.append(audioRelativePath)
-            }
-
-            let cacheName = CacheFileNamePolicy.make(path: song.filePath)
-            let legacyName = CacheFileNamePolicy.legacySanitized(path: song.filePath)
-            let connectorNamespace = MusicSourceSecurityRevision.cacheNamespace(
-                for: song.sourceID
-            )
-            let sourceID = song.sourceID
-            func scoped(_ root: URL, _ directory: String, _ name: String) -> URL {
-                Self.cacheFileURL(root, [directory, sourceID, connectorNamespace, name])
-            }
-            cacheTargets.append(scoped(tempRoot, "primuse_smb_cache", cacheName))
-            cacheTargets.append(scoped(tempRoot, "primuse_smb_cache", legacyName))
-            cacheTargets.append(scoped(tempRoot, "primuse_ftp_cache", legacyName))
-            cacheTargets.append(scoped(tempRoot, "primuse_sftp_cache", cacheName))
-            cacheTargets.append(scoped(tempRoot, "primuse_webdav_cache", cacheName))
-            cacheTargets.append(scoped(cachesRoot, "primuse_s3_cache", cacheName))
-            if let nfsName = NFSSelectionPathCodec.cacheFileName(for: song.filePath) {
-                cacheTargets.append(scoped(tempRoot, "primuse_nfs_cache", nfsName))
-            }
-            if let upnpURL = URL(string: song.filePath),
-               let scheme = upnpURL.scheme?.lowercased(),
-               scheme == "http" || scheme == "https" {
-                let upnpName = CacheFileNamePolicy.make(
-                    path: upnpURL.absoluteString,
-                    preferredExtension: upnpURL.pathExtension.isEmpty ? "bin" : upnpURL.pathExtension
-                )
-                cacheTargets.append(scoped(tempRoot, "primuse_upnp_cache", upnpName))
-            }
-
-            if let mvPath = normalizedMusicVideoPath(for: song),
-               URL(string: mvPath)?.scheme == nil {
-                musicVideoCacheDownloads.cancel(
-                    key: Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
-                )
-                cacheTargets.append(scoped(
-                    cachesRoot,
-                    Self.videoCacheDirName,
-                    Self.videoCacheFileName(sourceID: song.sourceID, path: mvPath)
-                ))
-            }
-            if !preservingAudioPaths.contains(audioRelativePath) {
-                setOfflineAudioSnapshot(.notCached, for: song.id)
-            }
-        }
-
-        // A source deletion can remove thousands of songs. Posting one artwork
-        // invalidation per song (often twice: id + cover ref) forced SwiftUI
-        // through thousands of update cycles. Clear the small in-memory cache
-        // once and publish one broad invalidation instead.
-        //
-        // 内容变更（服务端刷新常一次几千首）只让点名的歌失效: 清空整个内存缓存
-        // 会让在屏和随后滚进来的封面全部重新读盘解码, 刷新分几批到就清几次。
         if songs.count == 1, let song = songs.first {
             CachedArtworkView.invalidateCache(for: song.id)
             if let coverRef = song.coverArtFileName {
@@ -11688,26 +11642,92 @@ final class SourceManager {
             CachedArtworkView.clearMemoryCache()
         }
 
-        Task.detached(priority: .utility) { [cacheTargets] in
-            for target in cacheTargets {
+        let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        let tempRoot = FileManager.default.temporaryDirectory
+        let namespaces = Dictionary(uniqueKeysWithValues: Set(songs.map(\.sourceID)).map {
+            ($0, MusicSourceSecurityRevision.cacheNamespace(for: $0))
+        })
+        // Bound both Foundation temporaries and queued actor work. A directory
+        // change can remove tens of thousands of tracks at once.
+        return Task.detached(priority: .utility) {
+            for start in stride(from: 0, to: songs.count, by: 128) {
                 if Task.isCancelled { return }
-                Self.removeCacheFileFamily(at: target)
+                let batch = Array(songs[start..<min(start + 128, songs.count)])
+                let audioPaths = autoreleasepool {
+                    var paths: [String] = []
+                    for song in batch {
+                        autoreleasepool {
+                            let targets = Self.localCacheTargets(
+                                for: song, cachesRoot: cachesRoot, tempRoot: tempRoot,
+                                connectorNamespace: namespaces[song.sourceID]!,
+                                preservingAudioPaths: preservingAudioPaths
+                            )
+                            for target in targets { Self.removeCacheFileFamily(at: target) }
+                            let path = "\(song.sourceID)/\(Self.cacheFileName(for: song))"
+                            if !preservingAudioPaths.contains(path) { paths.append(path) }
+                        }
+                    }
+                    return paths
+                }
+                await AudioCacheManager.shared.removeEntries(paths: audioPaths)
+                if preserveFreshMetadataAssets {
+                    await MetadataAssetStore.shared.invalidateMissingCaches(for: batch)
+                } else {
+                    await MetadataAssetStore.shared.invalidateCaches(forSongIDs: batch.map(\.id))
+                }
+                await Task.yield()
             }
+        }
+    }
+
+    private nonisolated static func localCacheTargets(
+        for song: Song, cachesRoot: URL, tempRoot: URL,
+        connectorNamespace: String, preservingAudioPaths: Set<String>
+    ) -> [URL] {
+        var cacheTargets: [URL] = []
+        let audioName = Self.cacheFileName(for: song)
+        let audioRelativePath = "\(song.sourceID)/\(audioName)"
+        if !preservingAudioPaths.contains(audioRelativePath) {
+            cacheTargets.append(Self.cacheFileURL(
+                cachesRoot,
+                [Self.audioCacheDirName, song.sourceID, audioName]
+            ))
         }
 
-        if !audioRelativePaths.isEmpty {
-            Task {
-                await AudioCacheManager.shared.removeEntries(paths: audioRelativePaths)
-            }
+        let cacheName = CacheFileNamePolicy.make(path: song.filePath)
+        let legacyName = CacheFileNamePolicy.legacySanitized(path: song.filePath)
+        let sourceID = song.sourceID
+        func scoped(_ root: URL, _ directory: String, _ name: String) -> URL {
+            Self.cacheFileURL(root, [directory, sourceID, connectorNamespace, name])
         }
-        let songIDs = songs.map(\.id)
-        Task {
-            if preserveFreshMetadataAssets {
-                await MetadataAssetStore.shared.invalidateMissingCaches(for: songs)
-            } else {
-                await MetadataAssetStore.shared.invalidateCaches(forSongIDs: songIDs)
-            }
+        cacheTargets.append(scoped(tempRoot, "primuse_smb_cache", cacheName))
+        cacheTargets.append(scoped(tempRoot, "primuse_smb_cache", legacyName))
+        cacheTargets.append(scoped(tempRoot, "primuse_ftp_cache", legacyName))
+        cacheTargets.append(scoped(tempRoot, "primuse_sftp_cache", cacheName))
+        cacheTargets.append(scoped(tempRoot, "primuse_webdav_cache", cacheName))
+        cacheTargets.append(scoped(cachesRoot, "primuse_s3_cache", cacheName))
+        if let nfsName = NFSSelectionPathCodec.cacheFileName(for: song.filePath) {
+            cacheTargets.append(scoped(tempRoot, "primuse_nfs_cache", nfsName))
         }
+        if let upnpURL = URL(string: song.filePath),
+           let scheme = upnpURL.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            let upnpName = CacheFileNamePolicy.make(
+                path: upnpURL.absoluteString,
+                preferredExtension: upnpURL.pathExtension.isEmpty ? "bin" : upnpURL.pathExtension
+            )
+            cacheTargets.append(scoped(tempRoot, "primuse_upnp_cache", upnpName))
+        }
+
+        if let mvPath = Self.normalizedMusicVideoPath(for: song),
+           URL(string: mvPath)?.scheme == nil {
+            cacheTargets.append(scoped(
+                cachesRoot,
+                Self.videoCacheDirName,
+                Self.videoCacheFileName(sourceID: song.sourceID, path: mvPath)
+            ))
+        }
+        return cacheTargets
     }
 
     /// 拼缓存文件路径且不碰文件系统: 前几级按目录、最后一级按文件给出提示。
@@ -11743,10 +11763,12 @@ final class SourceManager {
             guard FileManager.default.fileExists(atPath: legacyWebDAVRoot.path) else { return }
             for song in songs {
                 if Task.isCancelled { return }
-                let target = legacyWebDAVRoot.appendingPathComponent(
-                    CacheFileNamePolicy.legacySanitized(path: song.filePath)
-                )
-                Self.removeCacheFileFamily(at: target)
+                autoreleasepool {
+                    let target = Self.cacheFileURL(legacyWebDAVRoot, [
+                        CacheFileNamePolicy.legacySanitized(path: song.filePath)
+                    ])
+                    Self.removeCacheFileFamily(at: target)
+                }
             }
         }
         Task.detached(priority: .background) { [songIDs] in

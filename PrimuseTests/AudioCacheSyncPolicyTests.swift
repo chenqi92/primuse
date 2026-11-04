@@ -301,6 +301,34 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         try await waitUntil { otherEntry.snapshot.isDownloaded }
     }
 
+    func testBatchedInvalidationPreservesProtectedAudioAcrossBatchBoundaries() async throws {
+        let fixture = try await fixture()
+        let songs = (0..<260).map { index in
+            Song(id: UUID().uuidString, title: "Batch \(index)", fileFormat: .flac,
+                 filePath: "/batch/track-\(index).flac", sourceID: fixture.song.sourceID,
+                 fileSize: 128)
+        }
+        let offsets = [0, 127, 128, 259]
+        let urls = offsets.map { fixture.manager.cacheURL(for: songs[$0]) }
+        for url in urls { try Data(repeating: 7, count: 128).write(to: url) }
+        try Data(repeating: 9, count: 128).write(to: fixture.url)
+        let protectedPath = songs[128].sourceID + "/" + urls[2].lastPathComponent
+        await AudioCacheManager.shared.recordAccess(path: protectedPath)
+        await fixture.manager.refreshOfflineAudioSnapshot(for: songs[128])
+        let cleanup = fixture.manager.deleteLocalCaches(
+            for: songs, preserveFreshMetadataAssets: true,
+            preservingAudioPaths: [protectedPath], removedFromLibrary: true
+        )
+        await cleanup?.value
+        XCTAssertFalse(FileManager.default.fileExists(atPath: urls[0].path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: urls[1].path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: urls[2].path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: urls[3].path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.url.path))
+        XCTAssertTrue(fixture.manager.offlineAudioSnapshot(for: songs[128]).isDownloaded)
+        await fixture.manager.deleteLocalCaches(for: [songs[128], fixture.song])?.value
+    }
+
     private func fixture() async throws -> (manager: SourceManager, song: Song, url: URL, path: String) {
         let source = MusicSource(id: UUID().uuidString, name: "Cache fixture", type: .navidrome)
         let song = Song(id: UUID().uuidString, title: "Cache fixture", fileFormat: .flac,

@@ -178,6 +178,66 @@ final class MusicLibrarySourceRemovalFenceTests: XCTestCase {
         XCTAssertNotEqual(before, after)
     }
 
+    func testQueuedBackfillStopsWhenSourceDisappearsBeforeSelection() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        library.addSongs([makeSong(id: "queued", sourceID: "source")])
+        await library.waitForPendingIndex()
+        var sourceIDs: Set<String> = ["source"]
+        let service = MetadataBackfillService(
+            library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { sourceIDs }, offlineReadableSourceIDs: { sourceIDs },
+            storageDirectory: directory.appendingPathComponent("backfill")
+        )
+        defer { service.stop() }
+        service.setExecutionMode(.userInitiated)
+        service.refreshStatusSnapshot()
+        XCTAssertGreaterThan(service.remainingCount, 0)
+        service.start()
+        XCTAssertTrue(service.isRunning)
+        sourceIDs = []
+        await service.waitUntilIdle()
+        XCTAssertFalse(service.isRunning)
+        XCTAssertEqual(service.pendingCount, 0)
+        XCTAssertEqual(library.song(id: "queued")?.duration, 0)
+        await Task.yield()
+        XCTAssertFalse(service.isRunning)
+    }
+
+    func testMetadataReplacementPublishesNewRowsAfterDeferredScanIndex() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        await library.whenReady()
+        let existing = makeSong(id: "existing", sourceID: "service")
+        library.addSongs([existing])
+        await library.waitForPendingIndex()
+        let scanned = makeSong(id: "scanned", sourceID: "smb")
+        library.addSongs([scanned], affectedSourceIDs: ["smb"], indexMaintenance: .deferredIncremental)
+        var tagged = scanned
+        tagged.duration = 65.5
+        tagged.albumTitle = "Read tags"
+        tagged.artistName = "Artist"
+        let assetUpdate = Task { @MainActor in
+            library.updateAssetReferences(songID: scanned.id, lyricsRef: "fresh.lrc")
+            library.flushPendingAssetReferencePatches()
+        }
+        await library.replaceSongsPreparedOffMain([tagged])
+        await assetUpdate.value
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.song(id: "scanned")?.duration, 65.5)
+        XCTAssertEqual(library.song(id: "scanned")?.albumTitle, "Read tags")
+        XCTAssertEqual(library.song(id: "scanned")?.lyricsFileName, "fresh.lrc")
+        XCTAssertEqual(Set(library.visibleSongs.map(\.id)), ["existing", "scanned"])
+        XCTAssertEqual(library.song(id: "existing")?.filePath, existing.filePath)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Metadata update must persist after pending scan publication")
+        }
+    }
+
     private func makeSong(id: String, sourceID: String) -> Song {
         Song(
             id: id,

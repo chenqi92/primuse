@@ -12980,6 +12980,35 @@ final class MusicLibrary {
         // is suspended. Rebase once on the newest immutable snapshots before
         // falling back to the general synchronous path.
         for _ in 0..<2 {
+            // New scan rows can precede their background visible-index publication.
+            // Only wait for those rows; ordinary backfill must retain deferred
+            // grouping instead of forcing a full rebuild before every batch.
+            let unpublishedRows = updatedSongs.compactMap { indexedLibrarySong($0.id) }.filter { song in
+                guard !disabledSourceIDs.contains(song.sourceID) else { return false }
+                guard let index = visibleSongIndexByID[song.id],
+                      visibleSongs.indices.contains(index) else { return true }
+                return visibleSongs[index].id != song.id
+            }
+            if !unpublishedRows.isEmpty {
+                let originals = Dictionary(updatedSongs.compactMap { incoming in
+                    indexedLibrarySong(incoming.id).map { (incoming.id, $0) }
+                }, uniquingKeysWith: { _, latest in latest })
+                await waitForPendingIndex()
+                updatedSongs = updatedSongs.map { incoming in
+                    guard let original = originals[incoming.id],
+                          let current = indexedLibrarySong(incoming.id) else { return incoming }
+                    var rebased = incoming
+                    if current.coverArtFileName != original.coverArtFileName {
+                        rebased.coverArtFileName = current.coverArtFileName
+                    }
+                    if current.lyricsFileName != original.lyricsFileName {
+                        rebased.lyricsFileName = current.lyricsFileName
+                    }
+                    if current.mvPath != original.mvPath { rebased.mvPath = current.mvPath }
+                    return rebased
+                }
+                updatedSongs = flushPendingAssetReferencePatches(overlaying: updatedSongs)
+            }
             let request = StableMetadataReplacementRequest(
                 songMutationGeneration: songMutationGeneration,
                 visibleCacheGeneration: visibleCacheGeneration,

@@ -1900,25 +1900,9 @@ final class MetadataBackfillService {
         setCellularPromptPresented(false)
 
         let limits = executionLimits
-        let needsBackfill = pickNextBatch(
-            limit: limits.snapshotLimit,
-            allowedSourceIDs: allowedSourceIDs
-        )
-        guard !needsBackfill.isEmpty else {
-            finishContinuedProcessing(success: remainingCount(forSource: userInitiatedSourceID) == 0)
-            updateWaitingForWiFiState(presentPrompt: networkBlocked)
-            // Either every song has metadata OR every bare song is in
-            // failedSongIDs. Surface both numbers so a "spinner stuck"
-            // report can be triaged from the log without app-side
-            // instrumentation.
-            let sourceIDs = backfillableSourceIDs()
-            let bareTotal = library.songs.lazy.filter {
-                sourceIDs.contains($0.sourceID) && Self.isBareSong($0)
-            }.count
-            plog("📥 Backfill: skip (no eligible bare songs — total=\(library.songs.count) bare=\(bareTotal) failed=\(failedSongIDs.count))")
-            return
-        }
-        pendingCount = needsBackfill.count
+        // The worker selects its first batch off-main; probing here repeats
+        // the same full-library walk before the asynchronous worker starts.
+        pendingCount = min(cachedRemainingCount, limits.snapshotLimit)
         processedTotal = 0
         processedCount = 0
         throughputSampler.reset()
@@ -1931,7 +1915,7 @@ final class MetadataBackfillService {
         // Diagnostic: prove that we only pick still-bare songs. If you see
         // this number stay >0 forever you can compare against
         // `library.songs.count` to confirm no infinite reprocessing.
-        plog("📥 Backfill: gen=\(generation) mode=\(String(describing: executionMode)) bareInLib=\(remainingCount) batchHead=\(needsBackfill.count)")
+        plog("📥 Backfill: gen=\(generation) mode=\(String(describing: executionMode)) bareInLib=\(remainingCount) queued=\(pendingCount)")
         let previousWorker = drainingWorker
         drainingWorker = nil
         drainingWorkerGeneration = nil
@@ -1951,7 +1935,7 @@ final class MetadataBackfillService {
                 }
                 return
             }
-            await self?.runWorker()
+            let processedBatch = await self?.runWorker() ?? false
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 // A stopped worker parks itself in `drainingWorker`; clear that
@@ -1994,7 +1978,7 @@ final class MetadataBackfillService {
                     self.setExecutionMode(.standard)
                 }
                 #if os(iOS)
-                if self.executionMode == .standard,
+                if processedBatch, self.executionMode == .standard,
                    UIApplication.shared.applicationState == .active {
                     _ = self.resumeAutomaticForegroundIfNeeded()
                 }
@@ -4075,7 +4059,7 @@ final class MetadataBackfillService {
     /// A manual reread may materialize and probe one complete file after the
     /// bounded ranges prove insufficient.
     private static let explicitRereadTimeout: TimeInterval = 180
-    private func runWorker() async {
+    private func runWorker() async -> Bool {
         defer { library.flushDeferredLibraryMaintenance() }
         resetPendingFlushState()
         batchSelectionCursor = BatchSelectionCursor()
@@ -4169,6 +4153,7 @@ final class MetadataBackfillService {
         if processedSongCount > 0 {
             readingProgressHandler?(processedSongCount)
         }
+        return processedSongCount > 0
     }
 
     /// 一批里已归到有声/播客的条目数,只用于日志。
@@ -6481,19 +6466,6 @@ final class MetadataBackfillService {
             cursor.previousSongID = nil
         }
         return selection
-    }
-
-    /// A song needs backfill if it has none of the metadata that file-header
-    /// extraction would produce (duration, bitRate). Songs in the failure
-    /// set are skipped. Limited to a batch so the queue doesn't grow
-    /// unbounded for huge libraries.
-    private func pickNextBatch(
-        limit: Int,
-        allowedSourceIDs: Set<String>? = nil
-    ) -> [Song] {
-        Self.selectBatch(
-            makeBatchSelectionInput(limit: limit, allowedSourceIDs: allowedSourceIDs)
-        )
     }
 
     /// Selection and its cursor are prepared away from the UI actor. Each read rechecks the live row.
