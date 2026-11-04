@@ -3,42 +3,88 @@ import Foundation
 import GRDB
 
 public struct Song: Codable, Identifiable, Hashable, Sendable {
-    // Libraries run to several hundred thousand songs, and every copy of the
-    // library holds each `Song` inline. Fields set on most songs are stored
-    // directly; small integers are packed as `Int32`, optional doubles and
-    // dates as bit patterns, and the fields that are rarely set live in one
-    // shared box (`SongRareFields.empty` for almost every song). Public
-    // properties, `Codable` keys and `==` keep their meaning.
+    // Array snapshots share the common fields until a song is edited. Numeric
+    // fields stay packed inline; rare fields use their existing immutable box.
+    // Both layers preserve value semantics and the persisted Codable shape.
+    private var core: SongCoreFields
 
-    public var id: String // SHA256 of sourceID + relativePath
-    public var title: String
-    public var albumID: String?
-    public var artistID: String?
-    public var albumTitle: String?
-    public var artistName: String?
+    public var id: String {
+        get { core.values.id }
+        set { updateCore { $0.id = newValue } }
+    }
+    public var title: String {
+        get { core.values.title }
+        set { updateCore { $0.title = newValue } }
+    }
+    public var albumID: String? {
+        get { core.values.albumID }
+        set { updateCore { $0.albumID = newValue } }
+    }
+    public var artistID: String? {
+        get { core.values.artistID }
+        set { updateCore { $0.artistID = newValue } }
+    }
+    public var albumTitle: String? {
+        get { core.values.albumTitle }
+        set { updateCore { $0.albumTitle = newValue } }
+    }
+    public var artistName: String? {
+        get { core.values.artistName }
+        set { updateCore { $0.artistName = newValue } }
+    }
     /// Distinct track artists supplied by a source that exposes a real
     /// multi-value field (for example repeated Vorbis comments or a media
     /// server `artists` array). Nil keeps legacy rows and joined text tags
     /// distinguishable from authoritative source boundaries.
-    public var sourceArtistNames: [String]?
+    public var sourceArtistNames: [String]? {
+        get { core.values.sourceArtistNames }
+        set { updateCore { $0.sourceArtistNames = newValue } }
+    }
     /// Effective album artist used for album grouping. Full metadata readers
     /// store the embedded album artist when available and otherwise fall back
     /// to the track artist, so a nil value also identifies legacy rows that
     /// have not yet inspected this field.
-    public var albumArtistName: String?
-    public var duration: TimeInterval
-    public var fileFormat: AudioFormat
+    public var albumArtistName: String? {
+        get { core.values.albumArtistName }
+        set { updateCore { $0.albumArtistName = newValue } }
+    }
+    public var duration: TimeInterval {
+        get { core.values.duration }
+        set { updateCore { $0.duration = newValue } }
+    }
+    public var fileFormat: AudioFormat {
+        get { core.values.fileFormat }
+        set { updateCore { $0.fileFormat = newValue } }
+    }
     /// 容器里实际的编码。只对装得下多种编码的容器有意义：同一个 `.m4a` 可能是
     /// AAC，也可能是 ALAC，扩展名说明不了音质。读过音轨或服务端报过才有值，
-    /// nil 是不知道。紧跟 `fileFormat` 声明，用的是它后面的对齐空位，不增加体积。
-    public var audioCodec: AudioFormat?
-    public var filePath: String // relative within source
-    public var sourceID: String
-    public var fileSize: Int64
+    /// nil 是不知道。与 `fileFormat` 一起存储。
+    public var audioCodec: AudioFormat? {
+        get { core.values.audioCodec }
+        set { updateCore { $0.audioCodec = newValue } }
+    }
+    public var filePath: String {
+        get { core.values.filePath }
+        set { updateCore { $0.filePath = newValue } }
+    }
+    public var sourceID: String {
+        get { core.values.sourceID }
+        set { updateCore { $0.sourceID = newValue } }
+    }
+    public var fileSize: Int64 {
+        get { core.values.fileSize }
+        set { updateCore { $0.fileSize = newValue } }
+    }
     /// Multiple embedded genres are joined with "; "; use `GenreTagValues`
     /// to recover individual labels without splitting punctuation in names.
-    public var genre: String?
-    public var dateAdded: Date
+    public var genre: String? {
+        get { core.values.genre }
+        set { updateCore { $0.genre = newValue } }
+    }
+    public var dateAdded: Date {
+        get { core.values.dateAdded }
+        set { updateCore { $0.dateAdded = newValue } }
+    }
     /// Authoritative catalogue dates, separate from device import time and
     /// file modification time. Albums may predate tracks added to them later.
     public var serverDateAdded: Date? {
@@ -53,26 +99,47 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { rare.values.serverCatalogAlbum }
         set { updateRare { $0.serverCatalogAlbum = newValue } }
     }
-    public var coverArtFileName: String?
+    public var coverArtFileName: String? {
+        get { core.values.coverArtFileName }
+        set { updateCore { $0.coverArtFileName = newValue } }
+    }
     /// Source-owned artist artwork reference captured from a server catalogue.
     /// Unlike `artistID`, which is replaced with Primuse's name-derived ID,
     /// this stays in the connector's native namespace so artist views can ask
     /// the originating source for its dedicated image.
-    public var artistArtworkFileName: String?
-    public var lyricsFileName: String?
+    public var artistArtworkFileName: String? {
+        get { core.values.artistArtworkFileName }
+        set { updateCore { $0.artistArtworkFileName = newValue } }
+    }
+    public var lyricsFileName: String? {
+        get { core.values.lyricsFileName }
+        set { updateCore { $0.lyricsFileName = newValue } }
+    }
     /// Provider-supplied content identifier — etag, md5, content_hash,
     /// `fs_id` + `local_mtime`, etc. Used by re-scan to detect remote
     /// replacement on cloud drives that don't report a usable
     /// modifiedDate (Baidu, Aliyun, Dropbox, OneDrive). When non-nil on
     /// both sides and different, the file is treated as replaced even
     /// when path and size are identical.
-    public var revision: String?
+    public var revision: String? {
+        get { core.values.revision }
+        set { updateCore { $0.revision = newValue } }
+    }
     /// FTS5 拼音搜索用的预生成 latin transliteration. nil 表示标题没有
     /// 中文 / 全 ASCII (不需要拼音索引)。由 PinyinTransformer 在 scan /
     /// migration 时计算填入。
-    public var titlePinyin: String?
-    public var artistPinyin: String?
-    public var albumPinyin: String?
+    public var titlePinyin: String? {
+        get { core.values.titlePinyin }
+        set { updateCore { $0.titlePinyin = newValue } }
+    }
+    public var artistPinyin: String? {
+        get { core.values.artistPinyin }
+        set { updateCore { $0.artistPinyin = newValue } }
+    }
+    public var albumPinyin: String? {
+        get { core.values.albumPinyin }
+        set { updateCore { $0.albumPinyin = newValue } }
+    }
 
     private var numbers = SongNumberFields()
     private var lastModifiedBits = SongOptionalDouble.absent
@@ -206,8 +273,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     }
     /// 服务端资料库的 id（Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的 library）。
     /// 只有按库组织的服务器源才填；按库声明「音乐 / 有声」的规则靠它认出一首歌属于哪个库，
-    /// 条目路径里没有这一层。按库组织的源每首都有，所以直接存在行内而不放进罕见字段盒。
-    public var serverLibraryID: String?
+    /// 条目路径里没有这一层。按库组织的源每首都有，所以与常用字段一起存储。
+    public var serverLibraryID: String? {
+        get { core.values.serverLibraryID }
+        set { updateCore { $0.serverLibraryID = newValue } }
+    }
 
     public init(
         id: String,
@@ -260,30 +330,32 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         contentMetadata: SongContentMetadata? = nil,
         serverCatalogAlbum: ServerCatalogAlbumReference? = nil
     ) {
-        self.id = id
-        self.title = title
-        self.albumID = albumID
-        self.artistID = artistID
-        self.albumTitle = albumTitle
-        self.artistName = artistName
-        self.sourceArtistNames = sourceArtistNames
-        self.albumArtistName = albumArtistName
-        self.duration = duration
-        self.fileFormat = fileFormat
-        self.audioCodec = audioCodec
-        self.filePath = filePath
-        self.sourceID = sourceID
-        self.fileSize = fileSize
-        self.genre = genre
-        self.dateAdded = dateAdded
-        self.coverArtFileName = coverArtFileName
-        self.artistArtworkFileName = artistArtworkFileName
-        self.lyricsFileName = lyricsFileName
-        self.revision = revision
-        self.titlePinyin = titlePinyin
-        self.artistPinyin = artistPinyin
-        self.albumPinyin = albumPinyin
-        self.serverLibraryID = serverLibraryID
+        core = SongCoreFields(.init(
+            id: id,
+            title: title,
+            albumID: albumID,
+            artistID: artistID,
+            albumTitle: albumTitle,
+            artistName: artistName,
+            sourceArtistNames: sourceArtistNames,
+            albumArtistName: albumArtistName,
+            duration: duration,
+            fileFormat: fileFormat,
+            audioCodec: audioCodec,
+            filePath: filePath,
+            sourceID: sourceID,
+            fileSize: fileSize,
+            genre: genre,
+            dateAdded: dateAdded,
+            coverArtFileName: coverArtFileName,
+            artistArtworkFileName: artistArtworkFileName,
+            lyricsFileName: lyricsFileName,
+            revision: revision,
+            titlePinyin: titlePinyin,
+            artistPinyin: artistPinyin,
+            albumPinyin: albumPinyin,
+            serverLibraryID: serverLibraryID
+        ))
         self.trackNumber = trackNumber
         self.discNumber = discNumber
         self.bitRate = bitRate
@@ -466,6 +538,13 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         return SongNumberFields.overflow
     }
 
+    private mutating func updateCore(_ change: (inout SongCoreFields.Values) -> Void) {
+        if !isKnownUniquelyReferenced(&core) {
+            core = SongCoreFields(core.values)
+        }
+        change(&core.values)
+    }
+
     private mutating func updateRare(_ change: (inout SongRareFields.Values) -> Void) {
         var values = rare.values
         change(&values)
@@ -508,6 +587,47 @@ private enum SongOptionalDouble {
     static func value(_ bits: UInt64) -> Double? {
         bits == absent ? nil : Double(bitPattern: bits)
     }
+}
+
+/// Mutable only through Song's uniqueness-checked setter. Separate Song values
+/// may cross executors; a write first detaches their shared storage.
+private final class SongCoreFields: Hashable, @unchecked Sendable {
+    struct Values: Hashable, Sendable {
+        var id: String
+        var title: String
+        var albumID: String?
+        var artistID: String?
+        var albumTitle: String?
+        var artistName: String?
+        var sourceArtistNames: [String]?
+        var albumArtistName: String?
+        var duration: TimeInterval
+        var fileFormat: AudioFormat
+        var audioCodec: AudioFormat?
+        var filePath: String
+        var sourceID: String
+        var fileSize: Int64
+        var genre: String?
+        var dateAdded: Date
+        var coverArtFileName: String?
+        var artistArtworkFileName: String?
+        var lyricsFileName: String?
+        var revision: String?
+        var titlePinyin: String?
+        var artistPinyin: String?
+        var albumPinyin: String?
+        var serverLibraryID: String?
+    }
+
+    var values: Values
+
+    init(_ values: Values) { self.values = values }
+
+    static func == (lhs: SongCoreFields, rhs: SongCoreFields) -> Bool {
+        lhs.values == rhs.values
+    }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(values) }
 }
 
 /// Fields almost every song leaves empty, boxed so they cost one pointer.

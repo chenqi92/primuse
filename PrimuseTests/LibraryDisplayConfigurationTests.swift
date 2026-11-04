@@ -9,6 +9,43 @@ import SwiftUI
 
 final class LibraryDisplayConfigurationTests: XCTestCase {
     @MainActor
+    func testRescanPreservesInferredAlbumIdentityUntilGroupingInputsChange() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let songs = ["李荣浩", "李荣浩", "李荣浩 & 张惠妹"].enumerated().map { index, artist in
+            Song(id: "\(index)", title: "Track \(index)", albumTitle: "纵横四海",
+                 artistName: artist, albumArtistName: artist, duration: 180,
+                 fileFormat: .mp3, filePath: "\(index).mp3", sourceID: "server")
+        }
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let before = try XCTUnwrap(library.storedSong(id: "2"))
+        XCTAssertEqual(library.albums.count, 1)
+        var scanned = before
+        MusicLibrary.fillDerivedIDs(&scanned)
+        XCTAssertNotEqual(scanned.albumID, before.albumID)
+        XCTAssertTrue(library.matchesStoredSong(scanned))
+
+        scanned.serverPlayCount = 9
+        library.addSongs([scanned], notifyRemovals: false, pruneMissingSongs: false,
+                         mergeServerCatalogRows: true)
+        XCTAssertEqual(library.storedSong(id: "2")?.albumID, before.albumID)
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.visibleSong(id: "2")?.serverPlayCount, 9)
+        XCTAssertEqual(library.albums.count, 1)
+
+        scanned.albumTitle = "Another Album"
+        XCTAssertFalse(library.matchesStoredSong(scanned))
+        library.addSongs([scanned], notifyRemovals: false, pruneMissingSongs: false,
+                         mergeServerCatalogRows: true)
+        await library.waitForPendingIndex()
+        XCTAssertNotEqual(library.storedSong(id: "2")?.albumID, before.albumID)
+        XCTAssertEqual(library.albums.count, 2)
+        _ = await library.persistNowAndWait()
+    }
+
+    @MainActor
     func testCacheWriterKeepsOnlyLatestWaitingSnapshotAndCanRestartAfterFlush() async {
         let writer = CoalescedLibraryCacheWriter()
         let started = expectation(description: "First cache write started")
@@ -147,6 +184,36 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         }
         XCTAssertTrue(cancelled.resolved.isEmpty)
         XCTAssertTrue(cancelled.suggestions.isEmpty)
+    }
+
+    func testPendingTitleSubsetPreservesMatchingOrderVersionsAndAmbiguity() {
+        let tracks = [
+            ExternalPlaylistTrack(title: "後來", artists: ["歌手"], duration: 180),
+            ExternalPlaylistTrack(title: "Singer - Another", artists: [], duration: 190),
+            ExternalPlaylistTrack(title: "Later (Live)", artists: ["Singer"], duration: 180)
+        ]
+        var songs = (0..<2_000).map {
+            Song(id: "unrelated-\($0)", title: "Unrelated \($0)", artistName: "Other",
+                 duration: 180, fileFormat: .flac, filePath: "/\($0)", sourceID: "local")
+        }
+        for (index, title) in ["后来", "後來", "Another", "Singer", "Later (Live)", "Later"].enumerated() {
+            songs.append(Song(id: "match-\(index)", title: title,
+                              artistName: index < 2 ? "歌手" : "Singer", duration: index == 2 ? 190 : 180,
+                              fileFormat: .flac, filePath: "/match-\(index)", sourceID: "local"))
+        }
+        let full = PlaylistEntryMatcher(songs: songs)
+        let subset = PlaylistEntryMatcher(songs: songs, matching: tracks.flatMap(\.matchSubjects))
+        for track in tracks {
+            let expected = full.matchImportedTrack(track)
+            let actual = subset.matchImportedTrack(track)
+            XCTAssertEqual(actual.confident.map(\.id), expected.confident.map(\.id))
+            XCTAssertEqual(actual.probable.map(\.id), expected.probable.map(\.id))
+        }
+        let entry = PlaylistPendingEntry(title: "後來", artists: ["歌手"], duration: 180,
+                                         externalID: "absent", serverSourceID: "server")
+        XCTAssertNil(subset.matchServerEntry(entry), "Ambiguous cross-source copies must remain unresolved")
+        XCTAssertTrue(PlaylistEntryMatcher(songs: songs, matching: tracks.flatMap(\.matchSubjects),
+                                           isCancelled: { true }).matchImportedTrack(tracks[0]).probable.isEmpty)
     }
 
     @MainActor

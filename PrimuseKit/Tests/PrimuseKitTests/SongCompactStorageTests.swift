@@ -33,9 +33,62 @@ struct SongCompactStorageTests {
         )
     }
 
-    @Test("A song stays well under the former 608-byte layout")
+    @Test("Library snapshots keep at most 96 inline bytes per song")
     func layout() {
-        #expect(MemoryLayout<Song>.stride <= 408)
+        #expect(MemoryLayout<Song>.stride <= 96)
+    }
+
+    @Test("Editing shared core fields leaves snapshots and hash keys unchanged")
+    func coreCopiesKeepValueSemantics() {
+        let original = full()
+        let snapshot = [original, original]
+        let keyed = [original: "saved"]
+        var edited = snapshot
+        edited[0].title.append(" edited")
+        edited[0].sourceArtistNames?.append("Third")
+        edited[0].albumID = nil
+        edited[0].fileFormat = .mp3
+        edited[0].duration += 1
+        edited[0].fileSize += 1
+        edited[0].dateAdded += 1
+        edited[0].serverLibraryID = "another-library"
+        edited[0].bitRate = 320
+        edited[0].lyricsText = "changed lyrics"
+        #expect(snapshot == [full(), full()])
+        #expect(edited[1] == original)
+        #expect(edited[0] != original)
+        #expect(edited[0].sourceArtistNames == ["歌手", "Guest", "Third"])
+        #expect(keyed[full()] == "saved")
+        #expect(keyed[edited[0]] == nil)
+    }
+
+    @Test("Concurrent snapshot edits detach their shared song storage")
+    func concurrentCopiesRemainIndependent() async {
+        let original = full()
+        let copies = await withTaskGroup(of: Song.self, returning: [Song].self) { group in
+            for index in 0..<32 {
+                group.addTask {
+                    var copy = original
+                    copy.id = "copy-\(index)"
+                    copy.title += " \(index)"
+                    copy.sourceArtistNames?.append("Guest \(index)")
+                    copy.duration += Double(index)
+                    copy.serverPlayCount = index
+                    return copy
+                }
+            }
+            var result: [Song] = []
+            for await copy in group { result.append(copy) }
+            return result
+        }
+        #expect(original == full())
+        #expect(Set(copies.map(\.id)).count == 32)
+        for copy in copies {
+            let index = copy.serverPlayCount ?? -1
+            #expect(copy.title == original.title + " \(index)")
+            #expect(copy.sourceArtistNames == ["歌手", "Guest", "Guest \(index)"])
+            #expect(copy.duration == original.duration + Double(index))
+        }
     }
 
     @Test("Every field round-trips through JSON under its former key")

@@ -714,10 +714,12 @@ actor LibraryCatalogSearchIndex {
             rows.reserveCapacity(nextAlbums.count)
             for (index, album) in nextAlbums.enumerated() {
                 guard !Task.isCancelled else { return false }
-                let row = AlbumText(
-                    title: prepared(album.title, includesPinyin: includesPinyin),
-                    artist: prepared(album.artistName ?? "", includesPinyin: includesPinyin)
-                )
+                let row = autoreleasepool {
+                    AlbumText(
+                        title: prepared(album.title, includesPinyin: includesPinyin),
+                        artist: prepared(album.artistName ?? "", includesPinyin: includesPinyin)
+                    )
+                }
                 rows.append(row)
                 for character in row.title.characters.union(row.artist.characters) {
                     postings[character, default: []].insert(index)
@@ -735,7 +737,7 @@ actor LibraryCatalogSearchIndex {
             var postings: [Unicode.Scalar: Set<Int>] = [:]
             for (index, artist) in nextArtists.enumerated() {
                 guard !Task.isCancelled else { return false }
-                let row = prepared(artist.name, includesPinyin: false)
+                let row = autoreleasepool { prepared(artist.name, includesPinyin: false) }
                 rows.append(row)
                 for character in row.characters { postings[character, default: []].insert(index) }
             }
@@ -883,7 +885,7 @@ actor LibrarySearchIndex {
     private var lastMetadataRevisionKey: String?
     private var projectionAlbums: [Album] = []
     private var projectionAlbumByID: [String: Album] = [:]
-    private var projectionSongs: [Song] = []
+    private var projectionSongIDs: [String] = []
     private var projectionIndexByID: [String: Int] = [:]
     private struct SearchDisplayPath {
         let filePath: String
@@ -1183,7 +1185,7 @@ actor LibrarySearchIndex {
     /// for first launch, schema migration, or crash recovery. Routine library
     /// mutations enter through `applyChanges` and touch only changed rows.
     func prepare(songs: [Song], generation: Int) async {
-        projectionSongs = []
+        projectionSongIDs = []
         projectionIndexByID = [:]
         guard dbPool != nil, !Task.isCancelled, Self.isPreparationPending() else { return }
         pendingFullPreparation = PendingFullPreparation(
@@ -1202,7 +1204,7 @@ actor LibrarySearchIndex {
         deletingIDs: Set<String>,
         generation: Int
     ) async {
-        projectionSongs = []
+        projectionSongIDs = []
         projectionIndexByID = [:]
         guard dbPool != nil, !upserts.isEmpty || !deletingIDs.isEmpty else { return }
         pendingSearchDelta.merge(
@@ -1366,19 +1368,20 @@ actor LibrarySearchIndex {
         lastMetadataRevisionKey = metadataRevisionKey
 
         do {
-            if !sharesStorage(projectionSongs, songs) {
+            if projectionSongIDs.count != songs.count
+                || !zip(projectionSongIDs, songs).allSatisfy({ $0.0 == $0.1.id }) {
                 var index: [String: Int] = [:]
                 index.reserveCapacity(songs.count)
                 for (offset, song) in songs.enumerated() where index[song.id] == nil {
                     if offset % 512 == 0 { try Task.checkCancellation() }
                     index[song.id] = offset
                 }
-                projectionSongs = songs
+                projectionSongIDs = songs.map(\.id)
                 projectionIndexByID = index
                 searchDisplayPaths = searchDisplayPaths.filter { index[$0.key] != nil }
             }
             let songIndexByID = projectionIndexByID
-            // crash-pattern: allow index-map-subscript index and retained snapshot share storage
+            // crash-pattern: allow index-map-subscript offsets validated against this snapshot's ordered IDs
             func indexedSong(withID id: String) -> Song? { songIndexByID[id].map { songs[$0] } }
             var metadataIDs: [String] = []
             var seenMetadata = Set<String>()
@@ -5352,17 +5355,19 @@ final class MusicLibrary {
             artistByID[artist.id] = artist
             return true
         }
-        let albumArtistIndex = AlbumArtistIndexBuilder.build(
-            albums: nextVisibleAlbums,
-            trackArtists: nextVisibleArtists,
-            trackArtistsByID: artistByID,
-            configuration: artistNameConfiguration,
-            artistID: { hashID(ArtistIdentityPolicy.groupingKey($0)) }
-        )
+        let albumArtistIndex = autoreleasepool {
+            AlbumArtistIndexBuilder.build(
+                albums: nextVisibleAlbums,
+                trackArtists: nextVisibleArtists,
+                trackArtistsByID: artistByID,
+                configuration: artistNameConfiguration,
+                artistID: { hashID(ArtistIdentityPolicy.groupingKey($0)) }
+            )
+        }
         let allCounts = disabledSourceIDs.isEmpty
             ? lookups.countBySourceID
             : makeSongCountsBySourceID(songs)
-        let genreIndex = LibraryGenreIndexBuilder.build(from: musicSongs)
+        let genreIndex = autoreleasepool { LibraryGenreIndexBuilder.build(from: musicSongs) }
         // Grouping reads other items (a folder's album, an album's only
         // author), so it is done once per library change, here, rather
         // than per item wherever a book id or a chapter's title is needed.
@@ -5373,9 +5378,11 @@ final class MusicLibrary {
             ? [:]
             : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) })
         var releaseMetadataIndex = lookups.releaseMetadataIndex
-        releaseMetadataIndex.prepare(albums: nextVisibleAlbums)
-        LibraryFavoritesStore.prepareKeys(albums: nextVisibleAlbums, artists: nextVisibleArtists)
-        LibraryFavoritesStore.prepareKeys(albums: [], artists: albumArtistIndex.artists)
+        autoreleasepool { releaseMetadataIndex.prepare(albums: nextVisibleAlbums) }
+        autoreleasepool {
+            LibraryFavoritesStore.prepareKeys(albums: nextVisibleAlbums, artists: nextVisibleArtists)
+            LibraryFavoritesStore.prepareKeys(albums: [], artists: albumArtistIndex.artists)
+        }
         return PreparedVisibleCache(
             spokenWordClassification: spokenWordClassification,
             songs: nextVisibleSongs,
@@ -6570,7 +6577,12 @@ final class MusicLibrary {
             }
             // 扫描入库仍旧走逐首口径: 整批的目录兄弟关系由随后的整库重建
             // 通过 `albumIDCorrections` 纠正。
-            if !derivedFieldsArePrepared {
+            if let index = existingIndexByID[newSong.id],
+               Self.sharesGroupingInputs(mergedSongs[index], newSong) {
+                newSong.albumID = mergedSongs[index].albumID
+                newSong.artistID = mergedSongs[index].artistID
+                if !derivedFieldsArePrepared { applyAutomaticArtistArtwork(to: &newSong) }
+            } else if !derivedFieldsArePrepared {
                 MusicLibrary.fillDerivedIDs(
                     &newSong,
                     configuration: artistNameConfiguration,
@@ -7647,7 +7659,12 @@ final class MusicLibrary {
         guard let stored = storedSong(id: song.id) else { return false }
         if stored == song { return true }
         var prepared = song
-        Self.fillDerivedIDs(&prepared, configuration: artistNameConfiguration)
+        if Self.sharesGroupingInputs(stored, prepared) {
+            prepared.albumID = stored.albumID
+            prepared.artistID = stored.artistID
+        } else {
+            Self.fillDerivedIDs(&prepared, configuration: artistNameConfiguration)
+        }
         applyAutomaticArtistArtwork(to: &prepared)
         return stored == prepared
     }
@@ -11070,7 +11087,14 @@ final class MusicLibrary {
         }
         guard !isCancelled() else { return PendingEntryMatchOutcome() }
         guard !remaining.isEmpty else { return outcome }
-        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache, isCancelled: isCancelled)
+        let subjects = remaining.values.flatMap { entry in
+            entry.serverSourceID != nil ? [entry.matchSubject] : ExternalPlaylistTrack(
+                title: entry.title, artists: entry.artists, album: entry.album, duration: entry.duration
+            ).matchSubjects
+        }
+        let matcher = PlaylistEntryMatcher(
+            songs: songs, keyCache: keyCache, matching: subjects, isCancelled: isCancelled
+        )
         for (id, entry) in remaining {
             guard !isCancelled() else { return PendingEntryMatchOutcome() }
             if entry.serverSourceID != nil {

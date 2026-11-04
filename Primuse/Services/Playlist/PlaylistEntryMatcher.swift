@@ -24,8 +24,12 @@ struct PlaylistEntryMatcher: Sendable {
 
     init(
         songs: [Song], keyCache: PlaylistEntryMatchKeyCache? = nil,
+        matching subjects: [ExternalTrackMatchPolicy.Subject]? = nil,
         isCancelled: () -> Bool = { false }
     ) {
+        let songs = subjects.map {
+            Self.candidates(in: songs, matching: $0, isCancelled: isCancelled)
+        } ?? songs
         self.songs = songs
         var keyed: [(id: Int, key: ExternalTrackMatchPolicy.Key)] = []
         var serverItems: [String: [String: Int]] = [:]
@@ -46,6 +50,26 @@ struct PlaylistEntryMatcher: Sendable {
         }
         index = ExternalTrackMatchIndex(keyed: isCancelled() ? [] : keyed)
         self.serverItems = serverItems
+    }
+
+    /// Metadata matches always share the normalized title. Pending entries have
+    /// already resolved exact IDs, so their index only needs those title buckets.
+    private static func candidates(
+        in songs: [Song], matching subjects: [ExternalTrackMatchPolicy.Subject],
+        isCancelled: () -> Bool
+    ) -> [Song] {
+        let titles = Set(subjects.map { ExternalTrackMatchPolicy.splitTitle($0.title).core })
+            .subtracting([""])
+        guard !titles.isEmpty else { return [] }
+        var candidates: [Song] = []
+        for (offset, song) in songs.enumerated() {
+            if offset.isMultiple(of: 64), isCancelled() { return [] }
+            let matches = autoreleasepool {
+                titles.contains(ExternalTrackMatchPolicy.splitTitle(song.title).core)
+            }
+            if matches { candidates.append(song) }
+        }
+        return candidates
     }
 
     var isEmpty: Bool { songs.isEmpty }
