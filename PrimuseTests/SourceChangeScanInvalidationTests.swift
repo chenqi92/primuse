@@ -8,6 +8,55 @@ import XCTest
 /// 也就一直留在资料库里。
 @MainActor
 final class SourceChangeScanInvalidationTests: XCTestCase {
+    func testDeferredStartupPublishesPersistedFoldersWithoutAnEmptyWrite() async throws {
+        let fixture = try deferredStartupFixture()
+        let before = try Data(contentsOf: fixture.url)
+        XCTAssertFalse(fixture.scan.isStartupStateReady)
+        XCTAssertTrue(fixture.scan.libraryFolderSyncIndex(for: "source").isEmpty)
+        XCTAssertEqual(try Data(contentsOf: fixture.url), before)
+
+        await fixture.scan.whenStartupStateReady()
+        XCTAssertTrue(fixture.scan.isStartupStateReady)
+        XCTAssertEqual(fixture.scan.libraryFolderSyncIndex(for: "source")["/Music/song.flac"]?.songIDs, ["song"])
+        XCTAssertGreaterThan(fixture.scan.folderHierarchyRevision, 0)
+        XCTAssertEqual(try Data(contentsOf: fixture.url), before)
+    }
+
+    func testSourceEditBeforeStartupPublicationCannotResurrectOldFolders() async throws {
+        let fixture = try deferredStartupFixture()
+        var edited = MusicSource(id: "source", name: "NAS", type: .webdav)
+        edited.extraConfig = "[\"/Other\"]"
+        post(edited, origin: "local")
+        await fixture.scan.whenStartupStateReady()
+        XCTAssertTrue(fixture.scan.libraryFolderSyncIndex(for: "source").isEmpty)
+        XCTAssertFalse(fixture.scan.libraryFolderSyncIndex(for: "untouched").isEmpty)
+        try await waitUntil {
+            guard let data = try? Data(contentsOf: fixture.url),
+                  let states = try? JSONDecoder().decode([String: SourceSyncState].self, from: data) else { return false }
+            return states["source"] == nil && states["untouched"] != nil
+        }
+    }
+
+    private func deferredStartupFixture() throws -> (scan: ScanService, url: URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = root.appendingPathComponent("Primuse")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let item = SourceSyncIndexedItem(
+            stableKey: "/Music/song.flac", path: "/Music/song.flac", parentPath: "/Music",
+            isDirectory: false, songIDs: ["song"], size: 100, modifiedDate: nil, revision: nil
+        )
+        let states = Dictionary(uniqueKeysWithValues: ["source", "untouched"].map {
+            ($0, SourceSyncState(sourceID: $0, scopeFingerprint: "saved", index: [item.stableKey: item]))
+        })
+        let url = directory.appendingPathComponent("source-sync-states.json")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(states).write(to: url)
+        let scan = ScanService(fileManager: ScanFixtureFileManager(root: root), defersSyncStateLoading: true)
+        return (scan, url)
+    }
+
     func testUserCancelledScanWaitsForManualResume() async throws {
         let fixture = try makeFixture(pausedPaths: ["/Music"])
         XCTAssertTrue(fixture.start())

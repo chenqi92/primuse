@@ -1243,7 +1243,7 @@ final class AppServices {
         // 歌词 API 服务器的地址列表经 iCloud 键值同步；CloudKVSSync 只给已登记的键
         // 应用外部变更，所以启动时就把 store 建出来完成登记，别等用户打开设置页。
         _ = LyricsAPIServerStore.shared
-        let scanService = ScanService()
+        let scanService = ScanService(defersSyncStateLoading: true)
         manager.prepareFileRenameHandler = { [weak scanService] sourceID in
             guard let scanService else { throw CancellationError() }
             try await scanService.prepareForFileRename(sourceID: sourceID)
@@ -1910,10 +1910,7 @@ final class AppServices {
         }
         #endif
         let startupSourceIDs = Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
-        async let playbackRestore: Void = playerService.restorePlaybackSessionIfAvailable(
-            startupSourceIDs: startupSourceIDs,
-            radioStations: radioStationsStore.allStations
-        )
+        async let playbackRestore: Void = restoreLaunchPlayback(sourceIDs: startupSourceIDs)
         // 音频缓存的清单与目录清点放到后台先做,远端歌第一次起播不用再等它(#170)。
         Task.detached(priority: .utility) {
             await AudioCacheManager.shared.warmUp()
@@ -1921,6 +1918,7 @@ final class AppServices {
         // Reconciliation and maintenance need the complete library. Restoring
         // the saved queue above only needs its own rows from the local store.
         await musicLibrary.whenReady()
+        await scanService.whenStartupStateReady()
         #if os(iOS)
         LaunchDiagnostics.mark(.deferredStartup)
         #endif
@@ -2079,6 +2077,14 @@ final class AppServices {
             (restoreFinishedAt - startedAt) * 1_000,
             (finishedAt - restoreFinishedAt) * 1_000
         ))
+    }
+
+    private func restoreLaunchPlayback(sourceIDs: Set<String>) async {
+        await playerService.restorePlaybackSessionIfAvailable(
+            startupSourceIDs: sourceIDs,
+            radioStations: radioStationsStore.allStations
+        )
+        playerService.autoplayRestoredSessionIfEnabled()
     }
 
     private func migrateSourceDirectoryDisplayNames() {

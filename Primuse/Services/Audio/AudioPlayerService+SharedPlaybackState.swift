@@ -240,11 +240,15 @@ extension AudioPlayerService {
         let isForeground = NSApplication.shared.isActive
         let otherAudio = false
         #endif
-        guard takeRestoredSessionAutoplayDecision(
-            enabled: UserDefaults.standard.bool(forKey: PlaybackSessionRestoreLifecycle.launchAutoplayKey),
+        let enabled = UserDefaults.standard.bool(forKey: PlaybackSessionRestoreLifecycle.launchAutoplayKey)
+        let phase = playbackSessionRestoreLifecycle.phase
+        let shouldResume = takeRestoredSessionAutoplayDecision(
+            enabled: enabled,
             isForeground: isForeground,
             otherAudioIsPlaying: otherAudio
-        ) else { return }
+        )
+        plog("▶️ Launch autoplay enabled=\(enabled) foreground=\(isForeground) phase=\(phase) selected=\(currentSong != nil) playing=\(isPlaying) loading=\(isLoading) ended=\(isAtTrackEnd) otherAudio=\(otherAudio) resume=\(shouldResume)")
+        guard shouldResume else { return }
         resume()
     }
 

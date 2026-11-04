@@ -11,11 +11,7 @@ import UIKit
 
 typealias ServerMirrorApplyFence = @MainActor () -> Bool
 
-/// 启动期两份 JSON 的解码结果。ScanService 的契约不变 —— init 返回时状态
-/// 一定是完整的, 因为扫描恢复、Sources 列表与文件夹索引在首帧就会同步读它。
-/// 变的只是解码发生在哪条线程上: `ScanService.prewarmStartupState()` 可以
-/// 在 AppServices 构造之前就把解码丢到后台线程, 让它与 keychain 迁移、
-/// SourcesStore、MusicLibrary 快照装载这些主线程启动工作并行完成。
+/// 扫描检查点和已提交的目录索引。App 启动先恢复检查点，目录索引后台准备后发布。
 struct ScanServiceStartupState: Sendable {
     let checkpoints: [String: ScanCheckpoint]
     let syncStates: [String: SourceSyncState]
@@ -42,12 +38,8 @@ struct ScanServiceStartupState: Sendable {
     }
 }
 
-/// 预热句柄。`start` 之后解码在后台线程进行; `take` 只有在预热过、且路径与
-/// 请求方一致时才交出结果 (必要时等待解码结束), 其余情况返回 nil, 调用方
-/// 原地解码 —— 测试里用临时目录构造的 ScanService 因此不会拿到 App 的状态。
+/// 每个服务持有自己的后台读取。等待完成后取出一次，释放预热端持有的大索引。
 final class ScanServiceStartupPrewarm: Sendable {
-    static let shared = ScanServiceStartupPrewarm()
-
     private struct Slot: Sendable {
         var checkpointURL: URL?
         var syncStateURL: URL?
@@ -60,7 +52,7 @@ final class ScanServiceStartupPrewarm: Sendable {
     /// 主线程 (userInteractive) 于是干等一个 userInitiated 的解码; 而
     /// `DispatchQueue.sync` 会对串行队列里还在排队/正在执行的块做优先级覆盖,
     /// 正是这里需要的防优先级反转。(`DispatchWorkItem.wait()` 有同样的覆盖
-    /// 语义, 但 DispatchWorkItem 不是 Sendable, 放不进这个 Sendable 单例。)
+    /// 语义, 但 DispatchWorkItem 不是 Sendable, 放不进这个 Sendable 句柄。)
     private let decodeQueue = DispatchQueue(
         label: "com.primuse.scanservice.startup-prewarm",
         qos: .userInitiated
@@ -101,6 +93,12 @@ final class ScanServiceStartupPrewarm: Sendable {
         return slot.withLock { slot in
             defer { slot.state = nil }
             return slot.state
+        }
+    }
+
+    func waitUntilReady() async {
+        await withCheckedContinuation { continuation in
+            decodeQueue.async { continuation.resume() }
         }
     }
 }
@@ -686,6 +684,9 @@ final class ScanService {
     private var syncStateStore: SourceSyncStateFileStore!
     private var syncStateMutationEpochs: [String: UInt64] = [:]
     private var syncStateAppliedRevisions: [String: UInt64] = [:]
+    @ObservationIgnored private var startupPreparation: ScanServiceStartupPrewarm?
+    @ObservationIgnored private var deferredStartupWorkGeneration = 0
+    private(set) var isStartupStateReady = false
     /// Runs the one-time server/UPnP folder-topology migration sequentially.
     /// The scan itself remains owned by `activeTasks`; cancelling this task only
     /// prevents another legacy source from starting during a scene transition.
@@ -717,6 +718,7 @@ final class ScanService {
 
     init(
         fileManager: FileManager = .default,
+        defersSyncStateLoading: Bool = false,
         connectorProvider: ((MusicSource) -> any MusicSourceConnector)? = nil,
         diagnosticProvider: ((MusicSource, [String]) async -> SourceDiagnosticReport)? = nil
     ) {
@@ -726,18 +728,24 @@ final class ScanService {
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let resolvedCheckpointURL = directory.appendingPathComponent(Self.checkpointFileName)
         let resolvedSyncStateURL = directory.appendingPathComponent(Self.syncStateFileName)
-        // 预热命中时这里只是取走后台线程已经解码好的结果; 没预热(或路径不同)
-        // 就原地解码, 与以前完全一致。无论走哪条路, init 返回时 checkpoints /
-        // syncStates / scanStates 都是完整的。
+        // 检查点关系到扫描恢复，先读小文件；庞大的已提交索引不阻塞首帧。
         let startedAt = Date()
-        let prewarmed = ScanServiceStartupPrewarm.shared.take(
-            checkpointURL: resolvedCheckpointURL,
-            syncStateURL: resolvedSyncStateURL
-        )
-        let startupState = prewarmed ?? ScanServiceStartupState.load(
-            checkpointURL: resolvedCheckpointURL,
-            syncStateURL: resolvedSyncStateURL
-        )
+        let preparation: ScanServiceStartupPrewarm?
+        let startupState: ScanServiceStartupState
+        if defersSyncStateLoading {
+            let pending = ScanServiceStartupPrewarm()
+            pending.start(checkpointURL: resolvedCheckpointURL, syncStateURL: resolvedSyncStateURL)
+            preparation = pending
+            startupState = ScanServiceStartupState(
+                checkpoints: ScanCheckpointFileStore.load(from: resolvedCheckpointURL),
+                syncStates: [:], syncStateSnapshotIsPersisted: false
+            )
+        } else {
+            preparation = nil
+            startupState = ScanServiceStartupState.load(
+                checkpointURL: resolvedCheckpointURL, syncStateURL: resolvedSyncStateURL
+            )
+        }
         checkpointStore = ScanCheckpointFileStore(
             checkpointURL: resolvedCheckpointURL,
             initialCheckpoints: startupState.checkpoints
@@ -777,19 +785,53 @@ final class ScanService {
                 }
             }
         }
-        applySyncStates(startupState.syncStates)
-        syncStateStore = SourceSyncStateFileStore(
-            url: syncStateURL,
-            initialStates: syncStates,
-            initialSnapshotIsPersisted: startupState.syncStateSnapshotIsPersisted
-        )
+        startupPreparation = preparation
+        if let preparation {
+            Task { @MainActor [weak self] in
+                await preparation.waitUntilReady()
+                self?.finishStartupStateLoading()
+            }
+        } else {
+            installStartupSyncStates(startupState)
+        }
         let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
         plog(
             "🗂️ Scan startup state ready in \(elapsedMilliseconds)ms "
-                + "prewarmed=\(prewarmed != nil) checkpoints=\(startupState.checkpoints.count) "
+                + "deferred=\(defersSyncStateLoading) checkpoints=\(startupState.checkpoints.count) "
                 + "syncStates=\(startupState.syncStates.count)"
         )
         observeSourceConfigurationChanges()
+    }
+
+    func whenStartupStateReady() async {
+        if let preparation = startupPreparation {
+            await preparation.waitUntilReady()
+            finishStartupStateLoading()
+        }
+    }
+
+    // Mutations must see the persisted baseline even if they arrive before
+    // background preparation finishes. Browsing can wait for the revision.
+    private func finishStartupStateLoading() {
+        guard let preparation = startupPreparation else { return }
+        let state = preparation.take(
+            checkpointURL: syncStateURL.deletingLastPathComponent().appendingPathComponent(Self.checkpointFileName),
+            syncStateURL: syncStateURL
+        )
+        startupPreparation = nil
+        guard let state else { return }
+        installStartupSyncStates(state)
+        advanceFolderHierarchyRevision()
+        plog("🗂️ Scan startup state published sources=\(state.syncStates.count)")
+    }
+
+    private func installStartupSyncStates(_ state: ScanServiceStartupState) {
+        applySyncStates(state.syncStates)
+        syncStateStore = SourceSyncStateFileStore(
+            url: syncStateURL, initialStates: syncStates,
+            initialSnapshotIsPersisted: state.syncStateSnapshotIsPersisted
+        )
+        isStartupStateReady = true
     }
 
     private nonisolated static let checkpointFileName = "scan-checkpoints.json"
@@ -798,19 +840,6 @@ final class ScanService {
     private nonisolated static func startupDirectory(fileManager: FileManager) -> URL {
         fileManager.primuseDirectoryURL(for: .applicationSupportDirectory)
             .appendingPathComponent("Primuse", isDirectory: true)
-    }
-
-    /// 把两份启动 JSON 的解码提前到后台线程。必须在第一个 ScanService 被构造
-    /// 之前调用 (PrimuseApp.init 里 AppServices.shared 之前), 这样解码就与
-    /// AppServices 里的 keychain 迁移、SourcesStore 与 MusicLibrary 快照装载
-    /// 并行; ScanService.init 依旧同步拿到完整状态, 所以 hasResumableScanWork、
-    /// scanStates 与文件夹索引在首帧的语义没有任何变化。
-    nonisolated static func prewarmStartupState(fileManager: FileManager = .default) {
-        let directory = startupDirectory(fileManager: fileManager)
-        ScanServiceStartupPrewarm.shared.start(
-            checkpointURL: directory.appendingPathComponent(checkpointFileName),
-            syncStateURL: directory.appendingPathComponent(syncStateFileName)
-        )
     }
 
     /// Any persisted source edit can also represent a credential-only change
@@ -839,6 +868,7 @@ final class ScanService {
             let changedSources = note.userInfo?["sources"] as? [String: MusicSource] ?? [:]
             let previousSources = note.userInfo?["previousSources"] as? [String: MusicSource] ?? [:]
             MainActor.assumeIsolated {
+                self.finishStartupStateLoading()
                 for sourceID in sourceIDs {
                     if cameFromRemote,
                        let source = changedSources[sourceID],
@@ -924,6 +954,7 @@ final class ScanService {
         for sourceID: String,
         discardingState: Bool
     ) {
+        finishStartupStateLoading()
         let mutationEpoch = syncStateMutationEpochs[sourceID, default: 0] &+ 1
         syncStateMutationEpochs[sourceID] = mutationEpoch
         if discardingState, syncStates.removeValue(forKey: sourceID) != nil {
@@ -987,6 +1018,7 @@ final class ScanService {
     }
 
     func prepareForFileRename(sourceID: String) async throws {
+        await whenStartupStateReady()
         cancelScan(for: sourceID)
         removeCheckpoint(for: sourceID)
         if let syncStateStore {
@@ -997,6 +1029,7 @@ final class ScanService {
     }
 
     func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary) async throws {
+        await whenStartupStateReady()
         guard original.id == updated.id, original.sourceID == updated.sourceID,
               original.filePath != updated.filePath
                 || original.lyricsFileName != updated.lyricsFileName
@@ -1081,6 +1114,19 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?
     ) {
+        guard isStartupStateReady else {
+            let generation = deferredStartupWorkGeneration
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.whenStartupStateReady()
+                guard self.deferredStartupWorkGeneration == generation else { return }
+                self.startFolderTopologyRebuildsIfNeeded(
+                    sourceManager: sourceManager, library: library,
+                    sourceStore: sourceStore, scraperService: scraperService
+                )
+            }
+            return
+        }
         guard folderTopologyRebuildTask == nil else { return }
         guard !Self.shouldDeferAutomaticServerCatalogWork(
             context: .foregroundResume,
@@ -1207,6 +1253,7 @@ final class ScanService {
         requestsContinuedProcessing: Bool = true,
         automaticRefreshIsAllowed: (() -> Bool)? = nil
     ) -> Bool {
+        finishStartupStateLoading()
         let source = sourceStore.source(id: source.id) ?? source
         guard activeTasks[source.id] == nil else { return false }
         guard !source.isDeleted else {
@@ -1807,6 +1854,19 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?
     ) {
+        guard isStartupStateReady else {
+            let generation = deferredStartupWorkGeneration
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.whenStartupStateReady()
+                guard self.deferredStartupWorkGeneration == generation else { return }
+                self.resumePendingScans(
+                    context: context, sourceManager: sourceManager, library: library,
+                    sourceStore: sourceStore, scraperService: scraperService
+                )
+            }
+            return
+        }
         deferredForegroundResumeTask?.cancel()
         deferredForegroundResumeTask = nil
         let now = Date()
@@ -1889,6 +1949,19 @@ final class ScanService {
         sourceStore: SourcesStore,
         scraperService: MusicScraperService?
     ) {
+        guard isStartupStateReady else {
+            let generation = deferredStartupWorkGeneration
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.whenStartupStateReady()
+                guard self.deferredStartupWorkGeneration == generation else { return }
+                self.startPeriodicQuickSyncIfNeeded(
+                    sourceManager: sourceManager, library: library,
+                    sourceStore: sourceStore, scraperService: scraperService
+                )
+            }
+            return
+        }
         let now = Date()
         for source in sourceStore.sources {
             guard activeTasks[source.id] == nil,
@@ -2124,6 +2197,7 @@ final class ScanService {
     /// Cancel every in-flight scan. Used by the BGProcessingTask expiration
     /// handler so iOS doesn't kill us mid-write.
     func cancelAllActiveScans() {
+        deferredStartupWorkGeneration &+= 1
         queuedAutomaticScans.removeAll()
         automaticScanOrder.removeAll()
         automaticScanDrainTask?.cancel()

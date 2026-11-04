@@ -826,23 +826,6 @@ private struct PlayerAppearanceSettingsView: View {
             }
             Section {
                 NavigationLink {
-                    NowPlayingCarouselSettingsView()
-                } label: {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("player_carousel_title")
-                            Text("player_carousel_subtitle")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "rotate.3d")
-                    }
-                }
-                .settingsAnchor("player.carousel")
-            }
-            Section {
-                NavigationLink {
                     FullscreenPlayerEffectSettingsView()
                 } label: {
                     Label("fullscreen_effect_settings_title", systemImage: "viewfinder.rectangular")
