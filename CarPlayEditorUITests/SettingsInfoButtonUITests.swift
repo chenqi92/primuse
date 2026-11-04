@@ -2,6 +2,32 @@ import XCTest
 
 @MainActor
 final class SettingsInfoButtonUITests: XCTestCase {
+    func testMusicMoreMenuOpensInCoverEditor() {
+        continueAfterFailure = false
+        let app = settingsApp("appearance.playerControls")
+        app.launchEnvironment["PRIMUSE_DEBUG_PLAYER_CONTROLS"] = "music.cover"
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_DEBUG_PLAYER_CONTROLS")
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            app.terminate()
+        }
+        app.launch()
+        let menu = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "「更多」菜单")).firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 25))
+        XCTAssertTrue(menu.isEnabled)
+        menu.tap()
+        XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 5))
+        attach(app, "music-more-menu-opened")
+        XCTAssertTrue(app.navigationBars["「更多」菜单"].waitForExistence(timeout: 5), app.debugDescription)
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+    }
+
     func testHiddenIconPickerOnlyOpensFromRepeatedVersionTaps() {
         continueAfterFailure = false
         let app = settingsApp("about.version")

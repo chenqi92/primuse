@@ -7,6 +7,39 @@ import XCTest
 @testable import Primuse
 
 final class DirectoryScanCooldownTests: XCTestCase {
+    func testLargeDirectoryProgressReusesSafeResumeBoundary() async throws {
+        let items = (0..<52_258).map { offset in
+            RemoteFileItem(name: "track-\(offset).mp3", path: "/Music/track-\(offset).mp3",
+                           isDirectory: false, size: 100, modifiedDate: nil)
+        }
+        let connector = IncrementalReconciliationTestConnector(listings: ["/Music": items])
+        let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+        var last: ConnectorScanner.ScanUpdate?
+        var progressCount = 0
+        var boundary: SourceScanResumeState?
+        for try await update in await scanner.scan(directories: ["/Music"]) {
+            last = update
+            if !update.currentFile.isEmpty, update.addedCount > 0,
+               let resume = update.resumeState {
+                progressCount += 1
+                XCTAssertTrue(resume.index.isEmpty)
+                XCTAssertTrue(resume.encounteredSongIDs.isEmpty)
+                XCTAssertEqual(resume.pendingDirectories, ["/Music"])
+                boundary = resume
+            }
+        }
+        XCTAssertGreaterThan(progressCount, 0)
+        XCTAssertEqual(last?.songs.count, items.count)
+        XCTAssertEqual(last?.resumeState?.index.count, items.count)
+        let partial = Array(try XCTUnwrap(last).songs.prefix(100))
+        for try await update in await scanner.scan(
+            directories: ["/Music"], existingSongs: partial,
+            resumeState: try XCTUnwrap(boundary)
+        ) { last = update }
+        XCTAssertEqual(Set(last?.songs.map(\.id) ?? []).count, items.count)
+        XCTAssertEqual(last?.resumeState?.pendingDirectories, [])
+    }
+
     @MainActor
     func testGoogleDriveAddingSongsKeepsCompletedTagsAfterWarmAndColdRescan() async throws {
         for storedIdentity in ["warm", "persisted", "missing"] {

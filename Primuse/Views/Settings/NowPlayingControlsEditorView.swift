@@ -291,7 +291,7 @@ struct NowPlayingControlsEditorView: View {
                 RadioControlsSections(storage: $radioStorage)
             }
         }
-        .environment(\.editMode, .constant(page == .music && surface == .cover ? .active : .inactive))
+        .environment(\.editMode, .constant(.inactive))
     }
 
     // MARK: 封面
@@ -347,6 +347,7 @@ struct NowPlayingControlsEditorView: View {
                 move: { storage = layout.movingBar(fromOffsets: $0, toOffset: $1).encoded() },
                 remove: { storage = layout.placing(nil, at: .bar($0)).encoded() }
             )
+            .environment(\.editMode, .constant(.active))
 
             NowPlayingTransportStyleSection(
                 playKey: PlayerAppearancePreferences.playButtonStyleKey,
@@ -369,6 +370,7 @@ struct NowPlayingControlsEditorView: View {
             } footer: {
                 Text("player_controls_status_footer")
             }
+            .environment(\.editMode, .constant(.active))
 
             Section {
                 Button("player_controls_reset") {

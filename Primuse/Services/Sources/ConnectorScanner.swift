@@ -1185,13 +1185,10 @@ actor ConnectorScanner {
                                                 currentFile: item.name,
                                                 songs: [],
                                                 carriesFullSnapshot: false,
-                                                resumeState: SourceScanResumeState(
-                                                    pendingDirectories: pendingDirectories + [directory] + failedDirectories,
-                                                    encounteredSongIDs: encounteredSongIDs,
-                                                    index: syncIndex
-                                                )
+                                                resumeState: inFlightResumeState
                                             )
                                         )
+                                        await Task.yield()
                                     }
                                 }
 

@@ -85,12 +85,16 @@ enum ServerPlaylistMirror {
         matchingSongs: [Song]
     ) -> PreparedSnapshot {
         let index = serverItemIndex(sourceID: sourceID, songs: songs)
-        let needsMetadataMatch = snapshot.playlists.contains { playlist in
-            playlist.tracks.contains { track in
-                track.externalID.map { index[$0] == nil && playlist.playableSongs[$0] == nil } ?? false
+        let unresolvedSubjects = snapshot.playlists.flatMap { playlist in
+            playlist.tracks.compactMap { track -> ExternalTrackMatchPolicy.Subject? in
+                guard let id = track.externalID,
+                      index[id] == nil, playlist.playableSongs[id] == nil else { return nil }
+                return .init(title: track.title, artists: track.artists, duration: track.duration)
             }
         }
-        let matcher = needsMetadataMatch ? PlaylistEntryMatcher(songs: matchingSongs) : nil
+        let matcher = unresolvedSubjects.isEmpty ? nil : PlaylistEntryMatcher(
+            songs: matchingSongs, matching: unresolvedSubjects
+        )
         let entries = snapshot.playlists.map { serverPlaylist in
             preparedEntry(
                 serverPlaylist, sourceID: sourceID, sourceType: sourceType,

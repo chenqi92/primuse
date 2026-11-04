@@ -749,10 +749,15 @@ public actor SourceSyncStateFileStore {
         encoder.dateEncodingStrategy = .iso8601
         var buffer = Data()
         func emit(_ data: Data) throws {
-            buffer.append(data)
-            if buffer.count >= 128 * 1024 {
-                try append(buffer)
-                buffer.removeAll(keepingCapacity: true)
+            var remaining = data[...]
+            while !remaining.isEmpty {
+                let count = min(128 * 1024 - buffer.count, remaining.count)
+                buffer.append(contentsOf: remaining.prefix(count))
+                remaining = remaining.dropFirst(count)
+                if buffer.count == 128 * 1024 {
+                    try append(buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
             }
         }
         try emit(Data("{".utf8))
@@ -772,12 +777,19 @@ public actor SourceSyncStateFileStore {
             header.removeLast()
             try emit(header)
             try emit(Data(",\"index\":{".utf8))
-            for (offset, key) in state.index.keys.sorted().enumerated() {
+            let keys = state.index.keys.sorted()
+            for start in stride(from: 0, to: keys.count, by: 128) {
                 try autoreleasepool {
-                    if offset > 0 { try emit(Data(",".utf8)) }
-                    try emit(encoder.encode(key))
-                    try emit(Data(":".utf8))
-                    try emit(encoder.encode(state.index[key]!))
+                    var batch: [String: SourceSyncIndexedItem] = [:]
+                    batch.reserveCapacity(128)
+                    for key in keys[start..<min(start + 128, keys.count)] {
+                        batch[key] = state.index[key]
+                    }
+                    var encoded = try encoder.encode(batch)
+                    encoded.removeFirst()
+                    encoded.removeLast()
+                    if start > 0 { try emit(Data(",".utf8)) }
+                    try emit(encoded)
                 }
             }
             try emit(Data("}}".utf8))
