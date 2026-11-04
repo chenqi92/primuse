@@ -1040,13 +1040,16 @@ struct PreviewFullBleedArtwork<Artwork: View>: View {
     @AppStorage(PlayerAppearancePreferences.fullBleedTopSofteningKey)
     private var topSoftening = PlayerAppearancePreferences.fullBleedTopSofteningByDefault
 
+    @AppStorage(PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+    private var middleSoftening = PlayerAppearancePreferences.fullBleedMiddleSofteningByDefault
+
     var body: some View {
         let softens = allowsTopSoftening && topSoftening
         ZStack(alignment: .top) {
             artwork()
                 .frame(width: width, height: height)
                 .clipped()
-                .mask { FullBleedArtworkFadeMask() }
+                .mask { FullBleedArtworkFadeMask(fraction: !allowsTopSoftening || middleSoftening ? FullBleedArtworkExtension.fadeFraction : 0) }
 
             // 播放页上是后台做好的模糊图;预览很小,直接把同一张封面模糊一下,高度、遮罩照播放页。
             if softens {

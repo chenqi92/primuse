@@ -86,7 +86,8 @@ enum PlayerBackdropImaging {
     /// 铺满封面下面那一截的底图：封面下沿占高度 `fraction` 的那条，下面接上它的上下镜像，
     /// 缩成小图一起模糊一次。上半垫在封面渐隐那段底下，下半往下铺到屏幕底；接缝两边是封面
     /// 最下面同一行像素，所以渐隐处看到的就是封面自己的颜色。
-    nonisolated static func fullBleedExtension(from image: CGImage, fraction: CGFloat) -> CGImage? {
+    nonisolated static func fullBleedExtension(from image: CGImage, fraction: CGFloat, aspectRatio: CGFloat = 1) -> CGImage? {
+        guard let image = fullBleedViewport(from: image, aspectRatio: aspectRatio) else { return nil }
         let width = CGFloat(image.width)
         let height = CGFloat(image.height)
         guard width > 0, height > 0 else { return nil }
@@ -113,7 +114,8 @@ enum PlayerBackdropImaging {
     /// 手机横屏铺满封面右边那一截的底图：封面右沿占宽度 `fraction` 的那一条，右边接上它的左右镜像，
     /// 缩成小图一起模糊一次。左半垫在封面渐隐那段底下，右半往右铺到屏幕边；接缝两边是封面最右边同一列像素，
     /// 渐隐处看到的就是封面自己的颜色，歌名和控件压在模糊的封面上，左右连成一片。
-    nonisolated static func fullBleedTrailingExtension(from image: CGImage, fraction: CGFloat) -> CGImage? {
+    nonisolated static func fullBleedTrailingExtension(from image: CGImage, fraction: CGFloat, aspectRatio: CGFloat = 1) -> CGImage? {
+        guard let image = fullBleedViewport(from: image, aspectRatio: aspectRatio) else { return nil }
         let width = CGFloat(image.width)
         let height = CGFloat(image.height)
         guard width > 0, height > 0 else { return nil }
@@ -137,12 +139,28 @@ enum PlayerBackdropImaging {
         return ciContext.createCGImage(blurred, from: extent)
     }
 
+    /// 与清晰封面相同：先裁成居中方图，再按当前横竖屏槽位等比铺满。
+    nonisolated static func fullBleedViewport(from image: CGImage, aspectRatio: CGFloat) -> CGImage? {
+        let side = CGFloat(min(image.width, image.height))
+        guard side > 0 else { return nil }
+        let aspect = aspectRatio.isFinite && aspectRatio > 0 ? aspectRatio : 1
+        let width = aspect < 1 ? side * aspect : side
+        let height = aspect > 1 ? side / aspect : side
+        return image.cropping(to: CGRect(
+            x: (CGFloat(image.width) - width) / 2,
+            y: (CGFloat(image.height) - height) / 2,
+            width: width,
+            height: height
+        ).integral)
+    }
+
     /// 延伸底图的宽度（横屏那一种是高度）。模糊过的图放大到整屏宽看不出差别。
     private nonisolated static let fullBleedExtensionWidth: CGFloat = 96
 
     /// 铺满封面顶部柔化的底图：整张封面缩成小图，重重模糊一次。播放页把它按封面同样的位置、
     /// 同样的裁法铺开，只露出状态栏和把手那一截，往下渐隐回清楚的封面。
     nonisolated static func fullBleedTopSoftening(from image: CGImage) -> CGImage? {
+        guard let image = fullBleedViewport(from: image, aspectRatio: 1) else { return nil }
         let width = CGFloat(image.width)
         guard width > 0, image.height > 0 else { return nil }
         let scale = min(1, fullBleedTopSofteningWidth / width)

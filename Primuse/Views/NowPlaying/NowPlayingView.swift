@@ -931,7 +931,7 @@ private enum LyricsArtworkPlacement: Hashable {
     case landscapeChrome
 }
 
-private struct LyricsArtworkShadow {
+struct LyricsArtworkShadow {
     var opacity: Double = 0
     var radius: CGFloat = 0
     var y: CGFloat = 0
@@ -1105,7 +1105,7 @@ private struct LyricsArtworkAnchorKey: PreferenceKey {
 ///
 /// 槽位不是正方形时（铺满封面在矮屏上被压扁、手机横屏的铺满封面）按长边铺满、居中裁掉多出来的那截，
 /// 下沿与尾侧渐隐也在同一层里随位置一起插值，飞向歌词小封面途中渐隐慢慢收掉。
-private struct LyricsArtworkFlight: ViewModifier, Animatable {
+struct LyricsArtworkFlight: ViewModifier, Animatable {
     var rect: CGRect
     var cornerRadius: CGFloat
     var shadow: LyricsArtworkShadow
@@ -1153,6 +1153,8 @@ private struct LyricsArtworkFlight: ViewModifier, Animatable {
             .scaleEffect(scale)
             .shadow(color: .black.opacity(max(0, shadow.opacity)), radius: max(0, shadow.radius), y: shadow.y)
             .position(x: rect.midX, y: rect.midY)
+            // 外层已经按矩形逐帧插值，内部缩放和裁切不能再分别追赶目标尺寸。
+            .transaction { $0.animation = nil }
     }
 
     /// 从 `startPoint` 一侧的实色到 `endPoint` 那头 `fraction` 那么长的一截渐隐。
@@ -8013,6 +8015,9 @@ struct NowPlayingView: View {
         }
     }
 
+    @AppStorage(PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+    private var fullBleedMiddleSoftening = PlayerAppearancePreferences.fullBleedMiddleSofteningByDefault
+
     /// 播放页大封面固定按这个尺寸画一次再缩放（单层飞行封面）。迷你条状态下的预热按同一尺寸解码。
     static let artworkRenderSize: CGFloat = 512
 
@@ -8052,12 +8057,13 @@ struct NowPlayingView: View {
                     rect: rect,
                     cornerRadius: anchor.cornerRadius,
                     shadow: anchor.shadow,
-                    bottomFade: anchor.bottomFade,
-                    trailingFade: anchor.trailingFade,
+                    bottomFade: fullBleedMiddleSoftening ? anchor.bottomFade : 0,
+                    trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
                     renderSize: renderSize
                 ))
                 .animation(standardLyricsAnimation, value: placement)
                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+                .animation(nil, value: geometry.size)
 
                 // 铺满封面压住了状态栏与下拉把手：顶上那一截换成模糊的封面(设置里可关)、垫一道淡底，
                 // 把手画在封面上面。版面里那根把手还在原位，被封面盖着；切到歌词时这几样淡出，露出的正是它。

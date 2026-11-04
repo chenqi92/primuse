@@ -300,6 +300,8 @@ enum PlayerAppearancePreferences {
     /// 铺满封面时状态栏和把手那一截换成模糊的封面、往下渐渐清楚(#338)。音乐和播客共用,电台台标不做。
     static let fullBleedTopSofteningKey = "primuse.player.fullBleedTopSoftening"
     static let fullBleedTopSofteningByDefault = true
+    static let fullBleedMiddleSofteningKey = "primuse.player.fullBleedMiddleSoftening"
+    static let fullBleedMiddleSofteningByDefault = true
 
     static func artworkStyle(rawValue: String) -> NowPlayingArtworkStyle {
         NowPlayingArtworkStyle(rawValue: rawValue) ?? .card

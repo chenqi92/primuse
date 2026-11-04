@@ -742,6 +742,7 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.podcastArtworkStyleKey,
         PlayerAppearancePreferences.radioArtworkStyleKey,
         PlayerAppearancePreferences.fullBleedTopSofteningKey,
+        PlayerAppearancePreferences.fullBleedMiddleSofteningKey,
         PlayerAppearancePreferences.playButtonStyleKey,
         PlayerAppearancePreferences.skipButtonStyleKey,
         PlayerAppearancePreferences.audiobookPlayButtonStyleKey,

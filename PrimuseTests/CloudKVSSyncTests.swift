@@ -123,6 +123,7 @@ final class CloudKVSSyncTests: XCTestCase {
             PlayerAppearancePreferences.podcastArtworkStyleKey,
             PlayerAppearancePreferences.radioArtworkStyleKey,
             PlayerAppearancePreferences.fullBleedTopSofteningKey,
+            PlayerAppearancePreferences.fullBleedMiddleSofteningKey,
             PlayerAppearancePreferences.animatedArtworkEnabledKey,
             PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
             PlayerAppearancePreferences.motionArtworkServiceEndpointKey,

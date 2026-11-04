@@ -661,6 +661,7 @@ private struct MusicArtworkStyleSections: View {
             .onChange(of: artworkStyleRawValue) { player.updatePlaybackState() }
             if PlayerAppearancePreferences.artworkStyle(rawValue: artworkStyleRawValue) == .fullBleed {
                 FullBleedTopSofteningToggle(isOn: $fullBleedTopSoftening)
+                FullBleedMiddleSofteningToggle()
             }
             Toggle(isOn: $showsArtworkLyrics) {
                 SettingsInfoLabel("player_artwork_lyrics") {
@@ -1887,6 +1888,16 @@ private struct FullBleedTopSofteningToggle: View {
     }
 }
 
+private struct FullBleedMiddleSofteningToggle: View {
+    @AppStorage(PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+    private var isOn = PlayerAppearancePreferences.fullBleedMiddleSofteningByDefault
+
+    var body: some View {
+        Toggle("player_full_bleed_middle_softening", isOn: $isOn)
+            .settingsAnchor("appearance.fullBleedMiddleSoftening")
+    }
+}
+
 /// 播客、电台那一页的封面(台标)样式:卡片或铺满,各存各的键;音乐的在 `MusicArtworkStyleSections`。
 private struct PlayerArtworkStyleSection: View {
     @AppStorage private var rawValue: String
@@ -1920,6 +1931,7 @@ private struct PlayerArtworkStyleSection: View {
             .labelsHidden()
             if offersTopSoftening, PlayerAppearancePreferences.artworkStyle(rawValue: rawValue) == .fullBleed {
                 FullBleedTopSofteningToggle(isOn: $fullBleedTopSoftening)
+                FullBleedMiddleSofteningToggle()
             }
         } header: {
             SettingsInfoHeader(title) {

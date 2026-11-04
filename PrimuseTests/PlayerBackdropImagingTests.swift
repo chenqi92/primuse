@@ -168,6 +168,125 @@ final class PlayerBackdropImagingTests: XCTestCase {
         XCTAssertLessThan(green(row: seam), green(row: extended.height - 2))
     }
 
+    func testControlBackdropKeepsArtworkColorAndCanBeDisabled() throws {
+        let suite = "PlayerBackdropColor-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let song = Song(id: suite, title: "Artwork", fileFormat: .mp3, filePath: "", sourceID: "test")
+        let cover = try XCTUnwrap(ImageRenderer(content: Color(red: 1, green: 0, blue: 0).frame(width: 200, height: 200)).uiImage?.cgImage)
+        let combined = try XCTUnwrap(PlayerBackdropImaging.fullBleedExtension(from: cover, fraction: 0.3, aspectRatio: 0.8))
+        let key = FullBleedArtworkExtensionImages.cacheKey(song: song, coverRevision: 0, aspectRatio: 0.8)
+        PlayerBackdropMemoryCache.shared.insert(combined, forKey: key)
+        for isLight in [false, true] {
+            for softens in [false, true] {
+                defaults.set(softens, forKey: PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+                let view = ZStack {
+                    Color(red: 0, green: 1, blue: 0)
+                    FullBleedArtworkExtension(song: song, coverRevision: 0,
+                        artworkRect: CGRect(x: 0, y: 0, width: 200, height: 250),
+                        pageSize: CGSize(width: 200, height: 400), isLight: isLight,
+                        strength: 0.7, usesIncreasedContrast: false, allowsLoading: false)
+                }.frame(width: 200, height: 400)
+                    .environment(SourceManager(sourcesProvider: { [] }))
+                    .defaultAppStorage(defaults)
+                let image = try XCTUnwrap(ImageRenderer(content: view).uiImage?.cgImage)
+                let pixels = try rgbaPixels(of: image)
+                // 两个方向各取一行，其中只有控制区会被封面延伸覆盖。
+                let samples = [40, 360].map { row in Array(pixels[(row * 200 + 100) * 4..<(row * 200 + 100) * 4 + 4]) }
+                if softens {
+                    XCTAssertTrue(samples.contains { $0[0] > 170 && $0[1] < 100 && $0[2] < 100 })
+                } else {
+                    XCTAssertTrue(samples.allSatisfy { $0[0] < 10 && $0[1] > 100 && $0[2] < 10 })
+                }
+            }
+        }
+    }
+
+    func testFullBleedSamplingMatchesPortraitAndLandscapeCrop() throws {
+        let data = try makeJPEG(width: 800, height: 400)
+        let image = try XCTUnwrap(PlayerBackdropImaging.decodedImage(data: data, maxPixel: 800))
+        let portrait = try XCTUnwrap(PlayerBackdropImaging.fullBleedViewport(from: image, aspectRatio: 0.8))
+        let landscape = try XCTUnwrap(PlayerBackdropImaging.fullBleedViewport(from: image, aspectRatio: 1.6))
+        XCTAssertEqual(portrait.width, 320)
+        XCTAssertEqual(portrait.height, 400)
+        XCTAssertEqual(landscape.width, 400)
+        XCTAssertEqual(landscape.height, 250)
+        let softenedTop = try XCTUnwrap(PlayerBackdropImaging.fullBleedTopSoftening(from: image))
+        XCTAssertEqual(softenedTop.width, softenedTop.height)
+        let extensionImage = try XCTUnwrap(PlayerBackdropImaging.fullBleedExtension(
+            from: image, fraction: 0.3, aspectRatio: 0.8
+        ))
+        XCTAssertEqual(Double(extensionImage.height) / Double(extensionImage.width), 0.75, accuracy: 0.03)
+    }
+
+    func testFullBleedCacheSeparatesOrientationAndFadeRegion() {
+        let song = Song(id: "softening-test", title: "Artwork", fileFormat: .mp3, filePath: "", sourceID: "test")
+        let portrait = FullBleedArtworkExtensionImages.cacheKey(song: song, coverRevision: 0, aspectRatio: 0.8)
+        let landscape = FullBleedArtworkExtensionImages.cacheKey(song: song, coverRevision: 0, edge: .trailing, aspectRatio: 1.6)
+        XCTAssertNotEqual(portrait, landscape)
+        XCTAssertNotEqual(portrait, FullBleedArtworkExtensionImages.cacheKey(song: song, coverRevision: 0, aspectRatio: 1))
+        XCTAssertNotEqual(portrait, FullBleedArtworkExtensionImages.cacheKey(song: song, coverRevision: 0, aspectRatio: 0.8, fraction: 0.5))
+    }
+
+    func testArtworkKeepsCircleRoundAcrossRotationFrames() throws {
+        let portrait = CGRect(x: 0, y: 0, width: 320, height: 400)
+        let landscape = CGRect(x: 0, y: 0, width: 480, height: 300)
+        for step in 0...10 {
+            let progress = CGFloat(step) / 10
+            let rect = CGRect(x: 0, y: 0,
+                              width: portrait.width + (landscape.width - portrait.width) * progress,
+                              height: portrait.height + (landscape.height - portrait.height) * progress)
+            let artwork = ZStack {
+                Color.black
+                Circle().fill(Color(red: 1, green: 0, blue: 0)).frame(width: 160, height: 160)
+            }
+            .modifier(LyricsArtworkFlight(rect: rect, cornerRadius: 0, shadow: .init(),
+                                          bottomFade: 0, trailingFade: 0, renderSize: 512))
+            .frame(width: rect.width, height: rect.height)
+            let image = try XCTUnwrap(ImageRenderer(content: artwork).uiImage?.cgImage)
+            let pixels = try rgbaPixels(of: image)
+            var xs: [Int] = []
+            var ys: [Int] = []
+            for y in 0..<image.height {
+                for x in 0..<image.width {
+                    let offset = (y * image.width + x) * 4
+                    if pixels[offset] > 220 && pixels[offset + 1] < 30 {
+                        xs.append(x)
+                        ys.append(y)
+                    }
+                }
+            }
+            let width = try XCTUnwrap(xs.max()) - XCTUnwrap(xs.min()) + 1
+            let height = try XCTUnwrap(ys.max()) - XCTUnwrap(ys.min()) + 1
+            XCTAssertEqual(width, height, accuracy: 2, "Rotation frame \(step)")
+            XCTAssertEqual(Double(width), Double(max(rect.width, rect.height) * 160 / 512), accuracy: 3)
+        }
+    }
+
+    func testMiddleSofteningDoesNotChangeTopAndSwitchesIndependently() throws {
+        let suite = "PlayerSoftening-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: PlayerAppearancePreferences.fullBleedTopSofteningKey)
+        func render(_ softens: Bool) throws -> [UInt8] {
+            defaults.set(softens, forKey: PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+            let view = PreviewFullBleedArtwork(width: 200, height: 250, topSafeArea: 0,
+                                               appearance: .init(colorScheme: .dark, contrast: .standard)) {
+                Color.red
+            }.defaultAppStorage(defaults)
+            return try rgbaPixels(of: XCTUnwrap(ImageRenderer(content: view).uiImage?.cgImage))
+        }
+        let on = try render(true)
+        let off = try render(false)
+        let top = (80 * 200 + 100) * 4
+        let bottom = (245 * 200 + 100) * 4
+        XCTAssertTrue(on[top] == off[top])
+        XCTAssertNotEqual(on, off)
+        XCTAssertEqual(off[bottom + 3], 255)
+        XCTAssertFalse(defaults.bool(forKey: PlayerAppearancePreferences.fullBleedTopSofteningKey))
+        XCTAssertEqual(SettingsCatalog.byID["appearance.fullBleedMiddleSoftening"]?.page, .playerStyle)
+    }
+
     private func rgbaPixels(of image: CGImage) throws -> [UInt8] {
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         try pixels.withUnsafeMutableBytes { buffer in

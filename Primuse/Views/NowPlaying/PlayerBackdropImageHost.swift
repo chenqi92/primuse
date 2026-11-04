@@ -261,7 +261,9 @@ struct FullBleedArtworkTopSoftening: View {
                 Image(decorative: shown.image, scale: 1)
                     .resizable()
                     .interpolation(.medium)
+                    .aspectRatio(contentMode: .fill)
                     .frame(width: side, height: side)
+                    .clipped()
                     .frame(width: artworkRect.width, height: artworkRect.height)
                     .clipped()
                     .frame(width: artworkRect.width, height: visibleHeight, alignment: .top)
@@ -372,7 +374,7 @@ struct FullBleedArtworkExtension: View {
     }
 
     /// 封面下沿渐隐那一截占封面高度的比例，播放页的铺满封面位用同一个值。
-    nonisolated static let fadeFraction: CGFloat = 0.4
+    nonisolated static let fadeFraction: CGFloat = 0.3
 
     let song: Song?
     let coverRevision: Int
@@ -387,6 +389,9 @@ struct FullBleedArtworkExtension: View {
     let edge: Edge
     /// 封面靠这一边渐隐那一截占封面高度（往右延伸时是宽度）的比例，和封面位的渐隐一致。
     let fadeFraction: CGFloat
+
+    @AppStorage(PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+    private var softens = PlayerAppearancePreferences.fullBleedMiddleSofteningByDefault
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var shown: FullBleedArtworkExtensionImages?
@@ -415,8 +420,13 @@ struct FullBleedArtworkExtension: View {
         self.fadeFraction = fadeFraction
         // 播放页每次展开都重新挂载：备好的那张直接用上，不再淡入一遍。
         _shown = State(initialValue: song.flatMap {
-            FullBleedArtworkExtensionImages.cached(song: $0, coverRevision: coverRevision, edge: edge)
+            FullBleedArtworkExtensionImages.cached(song: $0, coverRevision: coverRevision, edge: edge, aspectRatio: Self.aspectRatio(artworkRect), fraction: fadeFraction)
         })
+    }
+
+    private static func aspectRatio(_ rect: CGRect) -> CGFloat {
+        guard rect.height > 0 else { return 1 }
+        return (rect.width / rect.height * 100).rounded() / 100
     }
 
     private struct LoadKey: Equatable {
@@ -426,19 +436,19 @@ struct FullBleedArtworkExtension: View {
 
     var body: some View {
         let cacheKey = song.map {
-            FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: coverRevision, edge: edge)
+            FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: coverRevision, edge: edge, aspectRatio: Self.aspectRatio(artworkRect), fraction: fadeFraction)
         }
         ZStack {
-            if let shown {
+            if softens, let shown, shown.aspectRatio == Self.aspectRatio(artworkRect), shown.edge == edge {
                 extensionLayer(shown)
                     .id(shown.key)
                     .transition(.opacity)
             }
         }
         .frame(width: pageSize.width, height: pageSize.height)
-        .task(id: LoadKey(cacheKey: cacheKey, allowsLoading: allowsLoading)) {
-            guard let song, let cacheKey, shown?.key != cacheKey else { return }
-            if let cached = FullBleedArtworkExtensionImages.cached(song: song, coverRevision: coverRevision, edge: edge) {
+        .task(id: LoadKey(cacheKey: cacheKey, allowsLoading: allowsLoading && softens)) {
+            guard softens, let song, let cacheKey, shown?.key != cacheKey else { return }
+            if let cached = FullBleedArtworkExtensionImages.cached(song: song, coverRevision: coverRevision, edge: edge, aspectRatio: Self.aspectRatio(artworkRect), fraction: fadeFraction) {
                 withAnimation(Self.crossfade) { shown = cached }
                 return
             }
@@ -449,7 +459,8 @@ struct FullBleedArtworkExtension: View {
                 coverRevision: coverRevision,
                 sourceManager: sourceManager,
                 edge: edge,
-                fraction: fadeFraction
+                fraction: fadeFraction,
+                aspectRatio: Self.aspectRatio(artworkRect)
             )
             guard !Task.isCancelled else { return }
             withAnimation(Self.crossfade) { shown = loaded }
@@ -523,12 +534,13 @@ struct FullBleedArtworkExtension: View {
             usesIncreasedContrast: usesIncreasedContrast
         )
         let base: Color = isLight ? .white : .black
+        let opacityScale = usesIncreasedContrast ? 1.0 : 0.35
         return LinearGradient(
             stops: [
                 .init(color: base.opacity(0), location: 0),
-                .init(color: base.opacity(value.middleOpacity), location: seam),
-                .init(color: base.opacity(value.bottomOpacity), location: max(seam, settle)),
-                .init(color: base.opacity(value.bottomOpacity), location: 1),
+                .init(color: base.opacity(value.middleOpacity * opacityScale), location: seam),
+                .init(color: base.opacity(value.bottomOpacity * opacityScale), location: max(seam, settle)),
+                .init(color: base.opacity(value.bottomOpacity * opacityScale), location: 1),
             ],
             startPoint: axis == .vertical ? .top : .leading,
             endPoint: axis == .vertical ? .bottom : .trailing
@@ -539,12 +551,16 @@ struct FullBleedArtworkExtension: View {
 /// 铺满封面延伸底图（`PlayerBackdropImaging.fullBleedExtension`）切成的上下两半。
 struct FullBleedArtworkExtensionImages: Sendable {
     let key: String
+    let aspectRatio: CGFloat
+    let edge: FullBleedArtworkExtension.Edge
     /// 垫在封面渐隐那段底下的半张（竖屏是上半，横屏是左半）。
     let upper: CGImage
     /// 往外铺到屏幕边的半张。
     let lower: CGImage
 
-    private init?(key: String, combined: CGImage, edge: FullBleedArtworkExtension.Edge) {
+    private init?(key: String, combined: CGImage, edge: FullBleedArtworkExtension.Edge, aspectRatio: CGFloat) {
+        self.aspectRatio = aspectRatio
+        self.edge = edge
         let near: CGRect
         let far: CGRect
         switch edge {
@@ -565,19 +581,21 @@ struct FullBleedArtworkExtensionImages: Sendable {
         self.lower = lower
     }
 
-    static func cacheKey(song: Song, coverRevision: Int, edge: FullBleedArtworkExtension.Edge = .bottom) -> String {
+    static func cacheKey(song: Song, coverRevision: Int, edge: FullBleedArtworkExtension.Edge = .bottom, aspectRatio: CGFloat = 1, fraction: CGFloat = FullBleedArtworkExtension.fadeFraction) -> String {
         let prefix = edge == .bottom ? "fullbleed" : "fullbleed-trailing"
-        return "\(prefix)|\(song.id)|\(song.coverArtFileName ?? "")|\(coverRevision)"
+        return "\(prefix)-v2|\(song.id)|\(song.coverArtFileName ?? "")|\(coverRevision)|\(aspectRatio)|\(fraction)"
     }
 
     static func cached(
         song: Song,
         coverRevision: Int,
-        edge: FullBleedArtworkExtension.Edge = .bottom
+        edge: FullBleedArtworkExtension.Edge = .bottom,
+        aspectRatio: CGFloat = 1,
+        fraction: CGFloat = FullBleedArtworkExtension.fadeFraction
     ) -> FullBleedArtworkExtensionImages? {
-        let key = cacheKey(song: song, coverRevision: coverRevision, edge: edge)
+        let key = cacheKey(song: song, coverRevision: coverRevision, edge: edge, aspectRatio: aspectRatio, fraction: fraction)
         guard let image = PlayerBackdropMemoryCache.shared.image(forKey: key) else { return nil }
-        return FullBleedArtworkExtensionImages(key: key, combined: image, edge: edge)
+        return FullBleedArtworkExtensionImages(key: key, combined: image, edge: edge, aspectRatio: aspectRatio)
     }
 
     /// 取封面小图、在后台做一次模糊，结果放进背景图的内存缓存。
@@ -586,10 +604,11 @@ struct FullBleedArtworkExtensionImages: Sendable {
         coverRevision: Int,
         sourceManager: SourceManager,
         edge: FullBleedArtworkExtension.Edge = .bottom,
-        fraction: CGFloat = FullBleedArtworkExtension.fadeFraction
+        fraction: CGFloat = FullBleedArtworkExtension.fadeFraction,
+        aspectRatio: CGFloat = 1
     ) async -> FullBleedArtworkExtensionImages? {
-        if let cached = cached(song: song, coverRevision: coverRevision, edge: edge) { return cached }
-        let key = cacheKey(song: song, coverRevision: coverRevision, edge: edge)
+        if let cached = cached(song: song, coverRevision: coverRevision, edge: edge, aspectRatio: aspectRatio, fraction: fraction) { return cached }
+        let key = cacheKey(song: song, coverRevision: coverRevision, edge: edge, aspectRatio: aspectRatio, fraction: fraction)
         let cover = await CachedArtworkView.resolveImage(
             coverRef: song.coverArtFileName,
             songID: song.id,
@@ -603,13 +622,13 @@ struct FullBleedArtworkExtensionImages: Sendable {
         guard !Task.isCancelled, let image = cover?.platformCGImage else { return nil }
         let combined = await Task.detached(priority: .userInitiated) {
             switch edge {
-            case .bottom: PlayerBackdropImaging.fullBleedExtension(from: image, fraction: fraction)
-            case .trailing: PlayerBackdropImaging.fullBleedTrailingExtension(from: image, fraction: fraction)
+            case .bottom: PlayerBackdropImaging.fullBleedExtension(from: image, fraction: fraction, aspectRatio: aspectRatio)
+            case .trailing: PlayerBackdropImaging.fullBleedTrailingExtension(from: image, fraction: fraction, aspectRatio: aspectRatio)
             }
         }.value
         guard let combined else { return nil }
         PlayerBackdropMemoryCache.shared.insert(combined, forKey: key)
-        return FullBleedArtworkExtensionImages(key: key, combined: combined, edge: edge)
+        return FullBleedArtworkExtensionImages(key: key, combined: combined, edge: edge, aspectRatio: aspectRatio)
     }
 }
 
@@ -625,6 +644,8 @@ struct PlayerBackdropPrewarmer: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.displayScale) private var displayScale
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+    private var middleSoftening = PlayerAppearancePreferences.fullBleedMiddleSofteningByDefault
     @State private var store = PlayerBackdropSettingsStore.shared
     @State private var resolver = PlayerBackdropResolver.shared
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
@@ -682,7 +703,8 @@ struct PlayerBackdropPrewarmer: View {
             _ = await FullBleedArtworkExtensionImages.load(
                 song: song,
                 coverRevision: player.coverRevision,
-                sourceManager: sourceManager
+                sourceManager: sourceManager,
+                aspectRatio: 1 / NowPlayingView.fullBleedArtworkMaxAspect
             )
         }
         // 顶部柔化那张模糊封面同样提前备好，展开时顶上不会晚一拍才淡入。它不看背景选的是什么。
@@ -701,10 +723,10 @@ struct PlayerBackdropPrewarmer: View {
     /// 只有 iPhone 选了铺满封面、背景是封面取色时才用得上；电台的台标和 MV 不铺这一截，也不备。
     /// 播客单集看播客那一页选的样式。
     private func extensionKey(song: Song?, source: PlayerBackdropSource) -> ExtensionKey {
-        let applies = usesFullBleedArtwork(song: song) && source == .coverAmbient
+        let applies = usesFullBleedArtwork(song: song) && middleSoftening && source == .coverAmbient
         return ExtensionKey(
             cacheKey: applies ? song.map {
-                FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: player.coverRevision)
+                FullBleedArtworkExtensionImages.cacheKey(song: $0, coverRevision: player.coverRevision, aspectRatio: 1 / NowPlayingView.fullBleedArtworkMaxAspect)
             } : nil,
             isSceneActive: applies && scenePhase == .active
         )
