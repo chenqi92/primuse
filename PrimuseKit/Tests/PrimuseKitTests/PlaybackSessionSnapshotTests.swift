@@ -4,6 +4,18 @@ import Testing
 
 @Suite("Playback session persistence")
 struct PlaybackSessionSnapshotTests {
+    @Test("Music snapshots from older versions decode without media metadata")
+    func decodesLegacyMusicSnapshot() throws {
+        let snapshot = makeSnapshot()
+        let data = try JSONEncoder().encode(snapshot)
+        var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for key in ["radioStation", "radioStationOrderIDs", "podcastQueue"] { json.removeValue(forKey: key) }
+        let decoded = try JSONDecoder().decode(
+            PlaybackSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json)
+        )
+        #expect(decoded == snapshot)
+    }
+
     @Test("File store round-trips the full shuffle context")
     func roundTripsSnapshot() throws {
         let directory = FileManager.default.temporaryDirectory

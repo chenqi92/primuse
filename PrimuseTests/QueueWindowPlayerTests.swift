@@ -24,10 +24,11 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
-    private func makePlayer(librarySongs: [Song], startsPreparing: Bool = false) async throws -> AudioPlayerService {
+    private func makePlayer(librarySongs: [Song], startsPreparing: Bool = false, includesLibrary: Bool = true) async throws -> AudioPlayerService {
         let suite = "queue-window-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         cleanups.append {
             defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: directory)
@@ -51,7 +52,7 @@ final class QueueWindowPlayerTests: XCTestCase {
             XCTAssertNotNil(library.unobservedVisibleSong(id: librarySongs.last!.id))
         }
         return AudioPlayerService(
-            library: library,
+            library: includesLibrary ? library : nil,
             playbackSettings: PlaybackSettingsStore(defaults: defaults),
             playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
             activateAudioSession: { _ in XCTFail("Queue tests must not start audio") }
@@ -95,6 +96,147 @@ final class QueueWindowPlayerTests: XCTestCase {
         XCTAssertNil(player.currentSong)
         XCTAssertEqual(player.queueCount, 0)
         XCTAssertFalse(try XCTUnwrap(player.library).isReady)
+    }
+
+    @MainActor
+    func testRadioSessionReplacesMusicAndRestoresPausedWithoutLibrary() async throws {
+        let previousMusicMemory = MusicSessionMemoryStore.shared.memory
+        defer {
+            if let previousMusicMemory { MusicSessionMemoryStore.shared.save(previousMusicMemory) }
+            else { MusicSessionMemoryStore.shared.clear() }
+        }
+        let player = try await makePlayer(librarySongs: [])
+        let music = songs(1)[0]
+        player.currentSong = music
+        player.persistPlaybackSession(flushImmediately: true)
+        let stations = [
+            RadioStation(name: "First", streamURL: "https://radio.invalid/first.mp3"),
+            RadioStation(name: "Second", streamURL: "https://radio.invalid/second.aac", streamFormat: .aac)
+        ]
+        player.playbackKind = .liveRadio
+        player.currentRadioStation = stations[1]
+        player.radioStationOrder = stations
+        player.currentSong = stations[1].playbackSong
+        player.currentTime = 124
+        player.persistPlaybackSession(flushImmediately: true)
+
+        let restored = try await makePlayer(librarySongs: [], includesLibrary: false)
+        try Data(contentsOf: player.playbackSessionStore.url).write(to: restored.playbackSessionStore.url)
+        await restored.restorePlaybackSessionIfAvailable(radioStations: stations)
+
+        XCTAssertEqual(restored.currentRadioStation?.id, stations[1].id)
+        XCTAssertEqual(restored.currentSong?.title, "Second")
+        XCTAssertTrue(restored.hasCurrentSong)
+        XCTAssertTrue(restored.isLiveRadio)
+        XCTAssertTrue(restored.canSwitchRadioStation)
+        XCTAssertEqual(restored.radioStationOrder.map(\.id), stations.map(\.id))
+        XCTAssertEqual(restored.radioStreamFormat, .aac)
+        XCTAssertFalse(restored.isPlaying)
+        XCTAssertFalse(restored.isLoading)
+        XCTAssertFalse(restored.playbackCapabilities.canSeek)
+        XCTAssertEqual(restored.currentTime, 0)
+        XCTAssertEqual(restored.queueCount, 0)
+        XCTAssertEqual(restored.playbackSessionRestoreLifecycle.phase, .completed)
+        assertLaunchAutoplayChoices(restored)
+    }
+
+    @MainActor
+    func testDeletedAndDisabledRadioStationsAreNotRestored() async throws {
+        for deleted in [false, true] {
+            let station = RadioStation(name: "Server radio", streamURL: "",
+                                       sourceID: "removed-source", serverStationID: "station",
+                                       sourcePlaybackPath: "/radio/station")
+            let player = try await makePlayer(librarySongs: [])
+            player.playbackKind = .liveRadio
+            player.currentRadioStation = station
+            player.currentSong = station.playbackSong
+            player.persistPlaybackSession(flushImmediately: true)
+            let restored = try await makePlayer(librarySongs: [])
+            try Data(contentsOf: player.playbackSessionStore.url).write(to: restored.playbackSessionStore.url)
+            var latest = station
+            latest.isDeleted = deleted
+            await restored.restorePlaybackSessionIfAvailable(
+                startupSourceIDs: deleted ? ["removed-source"] : [], radioStations: [latest]
+            )
+            XCTAssertNil(restored.currentSong)
+            XCTAssertFalse(restored.hasCurrentSong)
+        }
+    }
+
+    @MainActor
+    func testPodcastSessionKeepsCurrentEpisodeBeyondFirstHundredAndAppendedQueue() async throws {
+        let episodes = (0..<130).map { index in
+            PodcastPlaybackSong.song(for: PodcastEpisode(
+                id: "podcast:\(UUID().uuidString)", showID: "restore-show", guid: "\(index)",
+                title: "Episode \(index)", duration: 1_800,
+                enclosureURL: URL(string: "https://podcast.invalid/\(index).mp3")!, firstSeenAt: Date()
+            ), show: nil)
+        }
+        let player = try await makePlayer(librarySongs: [])
+        player.setQueue(Array(episodes.prefix(120)), startAt: 110)
+        player.currentSong = episodes[110]
+        player.appendToQueue(Array(episodes.suffix(10)))
+        player.currentTime = 345
+        player.duration = 1_800
+        player.persistPlaybackSession(flushImmediately: true)
+
+        let restored = try await makePlayer(librarySongs: [], startsPreparing: true)
+        try Data(contentsOf: player.playbackSessionStore.url).write(to: restored.playbackSessionStore.url)
+        await restored.restorePlaybackSessionIfAvailable()
+
+        XCTAssertFalse(try XCTUnwrap(restored.library).isReady)
+        XCTAssertEqual(restored.currentSong?.id, episodes[110].id)
+        XCTAssertEqual(restored.currentTime, 345)
+        XCTAssertEqual(restored.queueCount, 130)
+        XCTAssertEqual(restored.queue.map(\.id), player.queue.map(\.id))
+        XCTAssertTrue(restored.currentItemIsSpokenWord)
+        XCTAssertTrue(restored.hasCurrentSong)
+        XCTAssertFalse(restored.isPlaying)
+        XCTAssertEqual(restored.pendingRecoveryTime, 345)
+        XCTAssertTrue(restored.needsPlaybackRecovery)
+        XCTAssertEqual(restored.playbackSessionRestoreLifecycle.phase, .completed)
+        assertLaunchAutoplayChoices(restored)
+    }
+
+    @MainActor
+    func testAudiobookAndLocalPodcastRestoreChapterAndPositionBeforeLibraryReady() async throws {
+        for genre in ["Audiobook", "Podcast"] {
+            var chapters = songs(3)
+            for index in chapters.indices { chapters[index].genre = genre }
+            let player = try await makePlayer(librarySongs: [])
+            player.setQueue(chapters, startAt: 1)
+            player.currentSong = chapters[1]
+            player.currentTime = 76
+            player.duration = 180
+            player.persistPlaybackSession(flushImmediately: true)
+            let restored = try await makePlayer(librarySongs: chapters, startsPreparing: true)
+            try Data(contentsOf: player.playbackSessionStore.url).write(to: restored.playbackSessionStore.url)
+            await restored.restorePlaybackSessionIfAvailable(startupSourceIDs: ["local-source"])
+
+            XCTAssertFalse(try XCTUnwrap(restored.library).isReady)
+            XCTAssertEqual(restored.currentSong?.id, chapters[1].id)
+            XCTAssertEqual(restored.currentIndex, 1)
+            XCTAssertEqual(restored.currentTime, 76)
+            XCTAssertEqual(restored.pendingRecoveryTime, 76)
+            XCTAssertTrue(restored.currentItemIsSpokenWord)
+            XCTAssertTrue(restored.hasCurrentSong)
+            XCTAssertFalse(restored.isPlaying)
+            XCTAssertEqual(restored.queue.map(\.id), chapters.map(\.id))
+            assertLaunchAutoplayChoices(restored)
+        }
+    }
+
+    @MainActor
+    private func assertLaunchAutoplayChoices(_ player: AudioPlayerService) {
+        let restoredLifecycle = player.playbackSessionRestoreLifecycle
+        XCTAssertFalse(player.takeRestoredSessionAutoplayDecision(enabled: false, isForeground: true))
+        player.playbackSessionRestoreLifecycle = restoredLifecycle
+        XCTAssertFalse(player.takeRestoredSessionAutoplayDecision(enabled: true, isForeground: false))
+        XCTAssertTrue(player.takeRestoredSessionAutoplayDecision(enabled: true, isForeground: true))
+        XCTAssertFalse(player.takeRestoredSessionAutoplayDecision(enabled: true, isForeground: true))
+        player.playbackSessionRestoreLifecycle = restoredLifecycle
+        player.registerPauseOrStopIntent()
+        XCTAssertFalse(player.takeRestoredSessionAutoplayDecision(enabled: true, isForeground: true))
     }
 
     @MainActor

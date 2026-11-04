@@ -1911,7 +1911,8 @@ final class AppServices {
         #endif
         let startupSourceIDs = Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
         async let playbackRestore: Void = playerService.restorePlaybackSessionIfAvailable(
-            startupSourceIDs: startupSourceIDs
+            startupSourceIDs: startupSourceIDs,
+            radioStations: radioStationsStore.allStations
         )
         // 音频缓存的清单与目录清点放到后台先做,远端歌第一次起播不用再等它(#170)。
         Task.detached(priority: .utility) {
@@ -3461,7 +3462,10 @@ final class AppServices {
             } else {
                 await musicLibrary.whenReady()
             }
-            await player.restorePlaybackSessionIfAvailable()
+            await player.restorePlaybackSessionIfAvailable(
+                startupSourceIDs: Set(sourcesStore.sources.filter(\.isEnabled).map(\.id)),
+                radioStations: radioStationsStore.allStations
+            )
         }
         while player.playbackSessionRestoreLifecycle.phase == .restoring,
               !Task.isCancelled,

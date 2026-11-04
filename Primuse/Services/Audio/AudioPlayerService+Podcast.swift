@@ -52,7 +52,6 @@ extension AudioPlayerService {
             if !isPlaying { togglePlayPause() }
             return
         }
-        PodcastPlaybackMemory.shared.remember(songs)
         await play(queue: songs, startingAt: 0)
     }
 
@@ -250,10 +249,8 @@ final class PodcastPlaybackState {
     var positionSaveSuppressedEpisodeID: String?
 }
 
-/// 最近一次播客队列里的那几集,冷启动恢复播放会话时用。
-///
-/// 恢复只认曲库里的歌;播客的单集不在曲库,整个播客库又得在后台读完才知道,
-/// 所以把起播时的队列原样存一份小文件,恢复时同步读回来。
+/// Reads episode metadata saved by older versions before it was included in
+/// the playback session snapshot.
 @MainActor
 final class PodcastPlaybackMemory {
     static let shared = PodcastPlaybackMemory()
@@ -266,16 +263,6 @@ final class PodcastPlaybackMemory {
         #endif
         return base.appendingPathComponent("Primuse/Podcasts/now-playing-queue.json")
     }()
-
-    func remember(_ songs: [Song]) {
-        let url = url
-        let snapshot = Array(songs.prefix(100))
-        Task.detached(priority: .utility) {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            try? data.write(to: url, options: .atomic)
-        }
-    }
 
     /// 同步读:文件只有几十集的元数据。
     func songs() -> [Song] {

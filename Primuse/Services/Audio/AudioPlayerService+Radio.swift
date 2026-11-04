@@ -18,6 +18,7 @@ import WidgetKit
 extension AudioPlayerService {
     @discardableResult
     func play(station: RadioStation, within stations: [RadioStation] = []) async -> Bool {
+        playbackSessionRestoreLifecycle.supersedeForPlaybackIntent()
         // 从有声书切到电台:趁播放头还是书的位置先记下来。不记的话只剩最多 15 秒前的
         // 自动保存,续播再回退 5 秒,回到书里就比离开时靠前一截。
         rememberSpokenWordPosition(force: true)

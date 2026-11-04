@@ -250,6 +250,8 @@ struct PreparedPlaybackSessionRestore: Sendable {
     let loadFinishedAt: TimeInterval
     let planFinishedAt: TimeInterval
     let lookupFinishedAt: TimeInterval
+    var radioStation: RadioStation? = nil
+    var radioStationOrder: [RadioStation] = []
 }
 
 /// One visible occurrence of a queue slot. Repeat-all may show the same slot in

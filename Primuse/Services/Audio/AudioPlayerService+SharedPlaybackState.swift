@@ -20,15 +20,18 @@ extension AudioPlayerService {
 
     /// Restores queue/navigation context paused. The foreground launch policy
     /// may subsequently resume it if the listener explicitly enabled autoplay.
-    func restorePlaybackSessionIfAvailable(startupSourceIDs: Set<String>? = nil) async {
+    func restorePlaybackSessionIfAvailable(
+        startupSourceIDs: Set<String>? = nil,
+        radioStations: [RadioStation]? = nil
+    ) async {
         let restoreStartedAt = ProcessInfo.processInfo.systemUptime
         guard let restoreToken = playbackSessionRestoreLifecycle.begin() else { return }
         defer { playbackSessionRestoreLifecycle.complete(token: restoreToken) }
-        guard let library else { return }
+        let library = library
         let initialQueueGeneration = queueGeneration
         let initialAdvanceGeneration = playbackAdvancePolicy.generation
-        let readySongs = library.isReady ? library.visibleSongs : nil
-        // 播客单集不在曲库里:起播时存下的那份队列一起参与查找。
+        let readySongs = library?.isReady == true ? library?.visibleSongs : nil
+        // 旧版播客快照只存 ID, 从独立的队列文件补回元数据。
         let podcastSongs = PodcastPlaybackMemory.shared.songs()
         // 曲库外的 Apple Music 歌(搜索点播、目录续播、专辑页补上的)同理。
         let appleMusicCatalogSongs = AppleMusicCatalogPlaybackMemory.shared.songs()
@@ -43,6 +46,29 @@ extension AudioPlayerService {
                 plog("⚠️ Playback session load failed: \(error.localizedDescription)")
                 return nil
             }
+            if let savedStation = snapshot.radioStation {
+                let station = radioStations?.first(where: { $0.id == savedStation.id }) ?? savedStation
+                guard !station.isDeleted,
+                      station.sourceID.map({ startupSourceIDs?.contains($0) ?? true }) ?? true,
+                      let plan = PlaybackSessionRestorationPolicy.plan(
+                        snapshot: snapshot, availableSongIDs: [station.playbackSong.id]
+                      ) else { return nil }
+                let orderIDs = snapshot.radioStationOrderIDs ?? [station.id]
+                let stationsByID = Dictionary(
+                    (radioStations ?? [station]).map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                var order = orderIDs.compactMap { stationsByID[$0] }.filter {
+                    !$0.isDeleted && ($0.sourceID.map { startupSourceIDs?.contains($0) ?? true } ?? true)
+                }
+                if !order.contains(where: { $0.id == station.id }) { order.append(station) }
+                let finishedAt = ProcessInfo.processInfo.systemUptime
+                return PreparedPlaybackSessionRestore(
+                    plan: plan, entries: [], continuation: nil, reshapedLegacyQueue: false,
+                    loadFinishedAt: finishedAt, planFinishedAt: finishedAt, lookupFinishedAt: finishedAt,
+                    radioStation: station, radioStationOrder: order
+                )
+            }
             // 有匹配的续接记录就原样沿用(补过的窗口本来就会超过千首);
             // 只有旧版本整库存成的队列才重切成窗口加后续。
             let restored = QueueWindowPolicy.restoring(snapshot, savedContinuation: continuationStore.load())
@@ -51,26 +77,31 @@ extension AudioPlayerService {
             let reshapedLegacyQueue = restored.reshapedLegacyQueue
             let loadFinishedAt = ProcessInfo.processInfo.systemUptime
 
+            let queuedIDs = Set(snapshot.queueSongIDs)
+            var playableSongsByID: [String: Song] = [:]
+            playableSongsByID.reserveCapacity(queuedIDs.count)
+            for song in snapshot.podcastQueue ?? podcastSongs
+            where queuedIDs.contains(song.id) && PodcastPlaybackSong.isEpisode(song) {
+                playableSongsByID[song.id] = song
+            }
             let visibleSongs: [Song]
-            if let readySongs {
+            if playableSongsByID.count == queuedIDs.count {
+                visibleSongs = []
+            } else if let readySongs {
                 visibleSongs = readySongs
-            } else if let startupSourceIDs,
+            } else if let library, let startupSourceIDs,
                       let savedSongs = await library.prepareStartupSongs(
                         ids: snapshot.queueSongIDs, sourceIDs: startupSourceIDs
                       ) {
                 visibleSongs = savedSongs
-            } else {
+            } else if let library {
                 await library.whenReady()
                 visibleSongs = await library.visibleSongs
+            } else {
+                visibleSongs = []
             }
 
             // 只为队列里的歌建表, 不把整个可见曲库拷进字典。
-            let queuedIDs = Set(snapshot.queueSongIDs)
-            var playableSongsByID: [String: Song] = [:]
-            playableSongsByID.reserveCapacity(queuedIDs.count)
-            for song in podcastSongs where queuedIDs.contains(song.id) {
-                playableSongsByID[song.id] = song
-            }
             if playableSongsByID.count < queuedIDs.count {
                 for song in visibleSongs
                 where queuedIDs.contains(song.id) && song.isPlayable && playableSongsByID[song.id] == nil {
@@ -121,6 +152,24 @@ extension AudioPlayerService {
 
         isRestoringPlaybackSession = true
         defer { isRestoringPlaybackSession = false }
+        if let station = prepared.radioStation {
+            playbackKind = .liveRadio
+            currentRadioStation = station
+            radioStationOrder = prepared.radioStationOrder
+            radioStreamFormat = station.streamFormat
+            radioBitRate = station.bitRate
+            currentSong = station.playbackSong
+            currentTime = 0
+            duration = 0
+            isPlaying = false
+            isLoading = false
+            isAtTrackEnd = false
+            clearPendingPlaybackRecovery()
+            updateNowPlayingInfo()
+            updateNowPlayingArtworkIfNeeded()
+            updatePlaybackState()
+            return
+        }
         queueEntries = prepared.entries
         currentIndex = plan.currentIndex
         // Apply these while currentSong is nil so restoring an Apple Music
@@ -191,13 +240,23 @@ extension AudioPlayerService {
         let isForeground = NSApplication.shared.isActive
         let otherAudio = false
         #endif
-        guard playbackSessionRestoreLifecycle.takeLaunchAutoplayDecision(
+        guard takeRestoredSessionAutoplayDecision(
             enabled: UserDefaults.standard.bool(forKey: PlaybackSessionRestoreLifecycle.launchAutoplayKey),
             isForeground: isForeground,
-            canResume: currentSong != nil && !isPlaying && !isLoading && !isAtTrackEnd,
             otherAudioIsPlaying: otherAudio
         ) else { return }
         resume()
+    }
+
+    func takeRestoredSessionAutoplayDecision(
+        enabled: Bool, isForeground: Bool, otherAudioIsPlaying: Bool = false
+    ) -> Bool {
+        playbackSessionRestoreLifecycle.takeLaunchAutoplayDecision(
+            enabled: enabled,
+            isForeground: isForeground,
+            canResume: currentSong != nil && !isPlaying && !isLoading && !isAtTrackEnd,
+            otherAudioIsPlaying: otherAudioIsPlaying
+        )
     }
 
     /// Installs a Handoff selection without starting any audio pipeline. The
@@ -235,7 +294,7 @@ extension AudioPlayerService {
         let signpost = PrimuseSignposts.hitch.beginInterval("player.sessionPersist")
         defer { PrimuseSignposts.hitch.endInterval("player.sessionPersist", signpost) }
         // 退到后台这类切换必须在返回前把在飞的写入排干。下面的提前返回(正在
-        // 恢复 / 直播流 / 空状态还不允许清空)都不会再提交新请求, 但上一次
+        // 恢复 / 空状态还不允许清空)都不会再提交新请求, 但上一次
         // save 可能还停在后台任务里, 而进程马上就要被挂起。
         var didDrainSynchronously = false
         defer {
@@ -244,7 +303,6 @@ extension AudioPlayerService {
             }
         }
         guard !isRestoringPlaybackSession else { return }
-        guard !isLiveRadio else { return }
         guard let song = currentSong else {
             guard clearWhenEmpty else { return }
             guard playbackSessionRestoreLifecycle.permitsEmptySessionClear else {
@@ -263,7 +321,7 @@ extension AudioPlayerService {
         let snapshotShuffleOrder: [Int]
         let snapshotShufflePosition: Int
         let snapshotPendingOrder: [Int]?
-        if queueEntries.indices.contains(currentIndex),
+        if !isLiveRadio, queueEntries.indices.contains(currentIndex),
            queueEntries[currentIndex].song.id == song.id {
             snapshotQueueIDs = queueEntries.map(\.song.id)
             snapshotCurrentIndex = currentIndex
@@ -282,15 +340,20 @@ extension AudioPlayerService {
             snapshotPendingOrder = nil
         }
 
-        rememberAppleMusicCatalogSongs(current: song)
+        if !isLiveRadio { rememberAppleMusicCatalogSongs(current: song) }
+
+        var podcastQueue = queueEntries.map(\.song).filter { PodcastPlaybackSong.isEpisode($0) }
+        if PodcastPlaybackSong.isEpisode(song), !podcastQueue.contains(where: { $0.id == song.id }) {
+            podcastQueue.append(song)
+        }
 
         let progress = isPlaying ? interpolatedTime() : currentTime
         let snapshot = PlaybackSessionSnapshot(
             queueSongIDs: snapshotQueueIDs,
             currentSongID: song.id,
             currentIndex: snapshotCurrentIndex,
-            currentTime: progress,
-            duration: duration,
+            currentTime: isLiveRadio ? 0 : progress,
+            duration: isLiveRadio ? 0 : duration,
             wasPlaying: isPlaying,
             shuffleEnabled: shuffleEnabled,
             shuffledIndices: snapshotShuffleOrder,
@@ -298,7 +361,10 @@ extension AudioPlayerService {
             pendingNextShuffleIndices: snapshotPendingOrder,
             repeatMode: repeatMode,
             isAtTrackEnd: isAtTrackEnd,
-            queueContinuationToken: queueContinuation?.token
+            queueContinuationToken: isLiveRadio ? nil : queueContinuation?.token,
+            radioStation: isLiveRadio ? currentRadioStation : nil,
+            radioStationOrderIDs: isLiveRadio ? radioStationOrder.map(\.id) : nil,
+            podcastQueue: podcastQueue.isEmpty ? nil : podcastQueue
         )
         // 只有在协调器确认这一代(或更顶掉它的更新一代)真的落盘之后, 才允许
         // 后续的空状态清空旧快照: 写失败时上一次启动留下的有效快照必须保留。

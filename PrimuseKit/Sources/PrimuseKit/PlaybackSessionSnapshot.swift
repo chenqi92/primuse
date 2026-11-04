@@ -24,6 +24,11 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
     /// Token of the `QueueContinuation` that tops up this queue, if any.
     /// Optional so older session files decode unchanged.
     public var queueContinuationToken: String?
+    public var radioStation: RadioStation?
+    public var radioStationOrderIDs: [String]?
+    /// Feed episodes are not library rows. Keep their metadata in the same
+    /// atomic write as the selected occurrence and position.
+    public var podcastQueue: [Song]?
 
     public init(
         version: Int = PlaybackSessionSnapshot.currentVersion,
@@ -40,7 +45,10 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         repeatMode: RepeatMode,
         isAtTrackEnd: Bool,
         updatedAt: Date = Date(),
-        queueContinuationToken: String? = nil
+        queueContinuationToken: String? = nil,
+        radioStation: RadioStation? = nil,
+        radioStationOrderIDs: [String]? = nil,
+        podcastQueue: [Song]? = nil
     ) {
         self.version = version
         self.queueSongIDs = queueSongIDs
@@ -57,6 +65,9 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         self.isAtTrackEnd = isAtTrackEnd
         self.updatedAt = updatedAt
         self.queueContinuationToken = queueContinuationToken
+        self.radioStation = radioStation
+        self.radioStationOrderIDs = radioStationOrderIDs
+        self.podcastQueue = podcastQueue
     }
 }
 
