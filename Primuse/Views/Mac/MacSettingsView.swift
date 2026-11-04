@@ -5612,6 +5612,53 @@ private final class ScraperReorderHandleNSView: NSView {
 
 // MARK: - ST-05 Lyrics Translation
 
+struct MacLyricsColorSettings: View {
+    private var colors = PlayerLyricsColors()
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    var body: some View {
+        MacSTRow(String(localized: "player_current_lyric_color"), divider: false) {
+            Picker("player_current_lyric_color", selection: colors.$modeRawValue) {
+                ForEach(PlayerLyricsColorMode.allCases) { mode in
+                    Text(mode.localizedTitle).tag(mode.rawValue)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 180)
+            .accessibilityIdentifier("playerLyricsColorModePicker")
+        }
+        .settingsAnchor("lyrics.colorMode")
+        switch colors.mode {
+        case .defaultColor:
+            EmptyView()
+        case .custom:
+            colorRow("player_lyrics_custom_color", selection: colors.$customHex,
+                     fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex,
+                     identifier: "playerLyricsCustomColorPicker")
+        case .gradient:
+            colorRow("player_lyrics_gradient_start_color", selection: colors.$startHex,
+                     fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex,
+                     identifier: "playerLyricsGradientStartColorPicker")
+            colorRow("player_lyrics_gradient_end_color", selection: colors.$endHex,
+                     fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex,
+                     identifier: "playerLyricsGradientEndColorPicker")
+        }
+        MacSTRow(String(localized: "player_lyrics_color_preview")) {
+            Text("player_lyrics_color_preview_sample")
+                .font(.headline)
+                .foregroundStyle(colors.style(defaultColor: .primary, layoutDirection: layoutDirection))
+        }
+    }
+
+    private func colorRow(_ key: String, selection: Binding<String>, fallback: String, identifier: String) -> some View {
+        MacSTRow(PMString(key)) {
+            ColorPicker(LocalizedStringKey(key), selection: PlayerLyricsColors.binding(selection, fallback: fallback), supportsOpacity: false)
+                .labelsHidden()
+                .accessibilityIdentifier(identifier)
+        }
+    }
+}
+
 private struct MacSTLyricsView: View {
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
     private var exploresWordLyrics = WordLyricsDiscoveryPreferences.enabledByDefault
@@ -5809,6 +5856,7 @@ private struct MacSTLyricsView: View {
 
             MacSTSection(String(localized: "lyrics_display_section")) {
                 MacSTGroup {
+                    MacLyricsColorSettings()
                     // 歌词字体(#332):播放页、桌面歌词、歌词岛、全屏效果都换,随 iCloud 同步。
                     // 和 iPhone 一样按组排字体块,选了没下好的字体就去下;最后一组是导入的字体,
                     // 可以点「导入字体…」或把字体文件拖进来,右键删除。

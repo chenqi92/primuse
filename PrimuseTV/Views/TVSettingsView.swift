@@ -544,6 +544,8 @@ struct TVSettingsView: View {
     @ViewBuilder
     private var lyricsSection: some View {
         settingsSection(String(localized: "Lyrics")) {
+            TVLyricsColorSettings()
+            settingDivider
             toggleRow("text.magnifyingglass", String(localized: "explore_word_lyrics"), isOn: Binding(
                 get: { exploresWordLyrics },
                 set: { exploresWordLyrics = $0; CloudKVSSync.shared.markChanged(key: WordLyricsDiscoveryPreferences.enabledKey) }
@@ -1067,6 +1069,173 @@ struct TVSettingsView: View {
             .fill(TVColor.divider)
             .frame(height: 1)
             .padding(.leading, 80)
+    }
+}
+
+struct TVLyricsColorSettings: View {
+    private var colors = PlayerLyricsColors()
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var editingColor: ColorSlot?
+
+    private enum ColorSlot: String, Identifiable {
+        case custom, start, end
+        var id: String { rawValue }
+        var titleKey: String {
+            switch self {
+            case .custom: "player_lyrics_custom_color"
+            case .start: "player_lyrics_gradient_start_color"
+            case .end: "player_lyrics_gradient_end_color"
+            }
+        }
+        var storageKey: String {
+            switch self {
+            case .custom: PlayerAppearancePreferences.customLyricsColorHexKey
+            case .start: PlayerAppearancePreferences.gradientLyricsStartColorHexKey
+            case .end: PlayerAppearancePreferences.gradientLyricsEndColorHexKey
+            }
+        }
+        var fallback: String {
+            switch self {
+            case .custom: PlayerAppearancePreferences.defaultCustomLyricsColorHex
+            case .start: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
+            case .end: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 18) {
+                Text("player_current_lyric_color").tvFont(.cardTitle, weight: .medium)
+                Spacer()
+                ForEach(PlayerLyricsColorMode.allCases) { mode in
+                    TVFocusButton(radius: 10, scale: 1.04, lift: 0) {
+                        colors.modeRawValue = mode.rawValue
+                        CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsColorModeKey)
+                    } label: { _ in
+                        Text(mode.localizedTitle)
+                            .tvFont(.caption, weight: .semibold)
+                            .foregroundStyle(colors.mode == mode ? TVColor.onBrand : TVColor.text)
+                            .padding(.horizontal, 20).padding(.vertical, 12)
+                            .background(colors.mode == mode ? TVColor.brand : TVColor.cardElev,
+                                        in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .accessibilityIdentifier("tv.lyricsColor.mode.\(mode.rawValue)")
+                    .accessibilityAddTraits(colors.mode == mode ? .isSelected : [])
+                }
+            }
+            HStack(spacing: 24) {
+                if colors.mode == .custom {
+                    colorButton(.custom)
+                } else if colors.mode == .gradient {
+                    colorButton(.start)
+                    colorButton(.end)
+                }
+                Spacer(minLength: 12)
+                Text("player_lyrics_color_preview_sample")
+                    .tvFont(.cardTitle, weight: .bold)
+                    .foregroundStyle(colors.style(defaultColor: TVColor.text, layoutDirection: layoutDirection))
+            }
+        }
+        .foregroundStyle(TVColor.text)
+        .padding(22)
+        .fullScreenCover(item: $editingColor) { slot in
+            TVLyricsColorPicker(titleKey: slot.titleKey, selection: binding(for: slot), fallback: slot.fallback) {
+                editingColor = nil
+            }
+        }
+    }
+
+    private func binding(for slot: ColorSlot) -> Binding<String> {
+        let storage: Binding<String> = switch slot {
+        case .custom: colors.$customHex
+        case .start: colors.$startHex
+        case .end: colors.$endHex
+        }
+        return Binding(get: { storage.wrappedValue }, set: {
+            storage.wrappedValue = $0
+            CloudKVSSync.shared.markChanged(key: slot.storageKey)
+        })
+    }
+
+    private func colorButton(_ slot: ColorSlot) -> some View {
+        TVFocusButton(radius: 12, scale: 1.03, lift: 0) {
+            editingColor = slot
+        } label: { _ in
+            HStack(spacing: 12) {
+                Circle().fill(PlayerLyricsColors.color(binding(for: slot).wrappedValue, fallback: slot.fallback))
+                    .frame(width: 28, height: 28)
+                Text(LocalizedStringKey(slot.titleKey)).tvFont(.caption)
+            }
+            .padding(14)
+            .background(TVColor.cardElev, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .accessibilityIdentifier("tv.lyricsColor.\(slot.rawValue)")
+    }
+}
+
+struct TVLyricsColorPicker: View {
+    let titleKey: String
+    @Binding var selection: String
+    let fallback: String
+    let onDismiss: () -> Void
+    @State private var hexInput = ""
+
+    private var normalizedInput: String {
+        PlayerAppearancePreferences.normalizedLyricsColorHex(hexInput, fallback: "")
+    }
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 28) {
+                Text(LocalizedStringKey(titleKey)).tvFont(.pageTitle, weight: .bold)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 7), spacing: 18) {
+                    ForEach(AppThemePreferences.swatches) { swatch in
+                        TVFocusButton(radius: 16, scale: 1.05, lift: 4) {
+                            selection = swatch.id
+                            onDismiss()
+                        } label: { _ in
+                            VStack(spacing: 12) {
+                                Circle().fill(Color(hex: swatch.id)).frame(width: 56, height: 56)
+                                    .overlay {
+                                        if selection == swatch.id {
+                                            Image(systemName: "checkmark").foregroundStyle(.black)
+                                        }
+                                    }
+                                Text(PMString(swatch.localizationKey)).tvFont(.caption)
+                                    .lineLimit(1).minimumScaleFactor(0.75)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 18)
+                            .background(TVColor.cardElev, in: RoundedRectangle(cornerRadius: 16))
+                        }
+                        .accessibilityAddTraits(selection == swatch.id ? .isSelected : [])
+                    }
+                }
+                HStack(spacing: 24) {
+                    TextField("#RRGGBB", text: $hexInput)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.characters)
+                        .frame(width: 360)
+                        .accessibilityLabel(Text(LocalizedStringKey(titleKey)))
+                    Button("save") {
+                        guard !normalizedInput.isEmpty else { return }
+                        selection = normalizedInput
+                        onDismiss()
+                    }
+                    .disabled(normalizedInput.isEmpty)
+                    Spacer()
+                    Text("player_lyrics_color_preview_sample")
+                        .tvFont(.cardTitle, weight: .bold)
+                        .foregroundStyle(PlayerLyricsColors.color(hexInput, fallback: fallback))
+                }
+                Button("cancel", action: onDismiss)
+            }
+            .padding(42).frame(maxWidth: 1500)
+        }
+        .foregroundStyle(TVColor.text)
+        .onAppear { hexInput = selection }
+        .onExitCommand(perform: onDismiss)
     }
 }
 

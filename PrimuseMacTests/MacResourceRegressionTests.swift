@@ -593,3 +593,113 @@ final class MacResourceRegressionTests: XCTestCase {
         }
     }
 }
+
+@MainActor
+final class PlayerLyricsColorRenderingTests: XCTestCase {
+    private struct Sample: View {
+        var colors = PlayerLyricsColors()
+        var active = true
+        var direction: LayoutDirection = .leftToRight
+        var body: some View {
+            Rectangle().fill(colors.style(defaultColor: .white, isActive: active, layoutDirection: direction))
+        }
+    }
+
+    func testCustomColorUsesSharedStorageAndLeavesInactiveLyricsUnchanged() throws {
+        try withDefaults { defaults in
+            defaults.set("custom", forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+            defaults.set(" #ff0000 ", forKey: PlayerAppearancePreferences.customLyricsColorHexKey)
+            let active = try render(Sample(), defaults: defaults)
+            XCTAssertGreaterThan(active[0], 240)
+            XCTAssertLessThan(active[1], 10)
+            let inactive = try render(Sample(active: false), defaults: defaults)
+            XCTAssertGreaterThan(inactive[0], 240)
+            XCTAssertGreaterThan(inactive[1], 240)
+            XCTAssertGreaterThan(inactive[2], 240)
+        }
+    }
+
+    func testInvalidModeAndColorUseReadableDefaults() throws {
+        try withDefaults { defaults in
+            defaults.set("unknown", forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+            let original = try render(Sample(), defaults: defaults)
+            XCTAssertGreaterThan(original[0], 240)
+            XCTAssertGreaterThan(original[1], 240)
+            defaults.set("custom", forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+            defaults.set("invalid", forKey: PlayerAppearancePreferences.customLyricsColorHexKey)
+            let fallback = try render(Sample(), defaults: defaults)
+            defaults.set(PlayerAppearancePreferences.defaultCustomLyricsColorHex,
+                         forKey: PlayerAppearancePreferences.customLyricsColorHexKey)
+            XCTAssertEqual(fallback, try render(Sample(), defaults: defaults))
+        }
+    }
+
+    func testGradientFollowsWritingDirection() throws {
+        try withDefaults { defaults in
+            defaults.set("gradient", forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+            defaults.set("FF0000", forKey: PlayerAppearancePreferences.gradientLyricsStartColorHexKey)
+            defaults.set("0000FF", forKey: PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
+            let ltr = try render(Sample(), defaults: defaults)
+            let rtl = try render(Sample(direction: .rightToLeft), defaults: defaults)
+            XCTAssertGreaterThan(Int(ltr[0]), Int(ltr[2]) + 100)
+            XCTAssertGreaterThan(Int(ltr[63 * 4 + 2]), Int(ltr[63 * 4]) + 100)
+            XCTAssertGreaterThan(Int(rtl[2]), Int(rtl[0]) + 100)
+            XCTAssertGreaterThan(Int(rtl[63 * 4]), Int(rtl[63 * 4 + 2]) + 100)
+        }
+    }
+
+
+    func testMacColorPickerPersistsSRGBHex() throws {
+        var stored = "FFFFFF"
+        let binding = PlayerLyricsColors.binding(Binding(get: { stored }, set: { stored = $0 }), fallback: "FFFFFF")
+        binding.wrappedValue = Color(.sRGB, red: 1, green: 0.5, blue: 0, opacity: 1)
+        XCTAssertEqual(stored, "FF8000")
+    }
+
+    func testMacSearchFindsLyricColorControls() {
+        for id in ["lyrics.colorMode", "lyrics.customColor", "lyrics.gradientStart", "lyrics.gradientEnd"] {
+            XCTAssertEqual(SettingsCatalog.byID[id]?.macPage, .lyrics)
+        }
+    }
+
+    func testColorSettingsPreview() throws {
+        try withDefaults { defaults in
+            defaults.set("gradient", forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+            let content = VStack(spacing: 0) { MacLyricsColorSettings() }
+                .padding(24).frame(width: 680).background(Color(nsColor: .windowBackgroundColor))
+                .defaultAppStorage(defaults).environment(\.colorScheme, .light)
+            let host = NSHostingView(rootView: content)
+            host.frame = CGRect(origin: .zero, size: host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "MacLyricsColorSettings"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    private func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
+        let name = "PlayerLyricsColorRenderingTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        try body(defaults)
+    }
+
+    private func render<V: View>(_ view: V, defaults: UserDefaults) throws -> [UInt8] {
+        let renderer = ImageRenderer(content: view.frame(width: 64, height: 32)
+            .defaultAppStorage(defaults).environment(\.colorScheme, .light))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.cgImage)
+        var pixels = [UInt8](repeating: 0, count: 64 * 32 * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 64, height: 32,
+                bitsPerComponent: 8, bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 32))
+        }
+        return pixels
+    }
+}

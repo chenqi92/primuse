@@ -369,6 +369,75 @@ enum PlayerLyricsColorMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// 各平台共用歌词颜色存储与解析，保留默认外观和文字方向。
+struct PlayerLyricsColors: DynamicProperty {
+    @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
+    var modeRawValue = PlayerLyricsColorMode.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.customLyricsColorHexKey)
+    var customHex = PlayerAppearancePreferences.defaultCustomLyricsColorHex
+    @AppStorage(PlayerAppearancePreferences.gradientLyricsStartColorHexKey)
+    var startHex = PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
+    @AppStorage(PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
+    var endHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+
+    static let keys = [
+        PlayerAppearancePreferences.lyricsColorModeKey,
+        PlayerAppearancePreferences.customLyricsColorHexKey,
+        PlayerAppearancePreferences.gradientLyricsStartColorHexKey,
+        PlayerAppearancePreferences.gradientLyricsEndColorHexKey,
+    ]
+
+    var mode: PlayerLyricsColorMode {
+        PlayerLyricsColorMode(rawValue: modeRawValue) ?? .defaultValue
+    }
+
+    func style(
+        defaultColor: Color,
+        isActive: Bool = true,
+        opacity: Double = 1,
+        layoutDirection: LayoutDirection = .leftToRight
+    ) -> AnyShapeStyle {
+        let opacity = min(max(opacity, 0), 1)
+        guard isActive else { return AnyShapeStyle(defaultColor.opacity(opacity)) }
+        switch mode {
+        case .defaultColor:
+            return AnyShapeStyle(defaultColor.opacity(opacity))
+        case .custom:
+            return AnyShapeStyle(Self.color(customHex, fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex).opacity(opacity))
+        case .gradient:
+            return AnyShapeStyle(LinearGradient(
+                colors: [
+                    Self.color(startHex, fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex).opacity(opacity),
+                    Self.color(endHex, fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex).opacity(opacity),
+                ],
+                startPoint: layoutDirection == .rightToLeft ? .trailing : .leading,
+                endPoint: layoutDirection == .rightToLeft ? .leading : .trailing
+            ))
+        }
+    }
+
+    static func color(_ hex: String, fallback: String) -> Color {
+        Color(hex: PlayerAppearancePreferences.normalizedLyricsColorHex(hex, fallback: fallback))
+    }
+
+    #if os(macOS)
+    static func binding(_ storage: Binding<String>, fallback: String) -> Binding<Color> {
+        Binding(
+            get: { color(storage.wrappedValue, fallback: fallback) },
+            set: { value in
+                guard let rgb = NSColor(value).usingColorSpace(.sRGB) else { return }
+                storage.wrappedValue = String(
+                    format: "%02X%02X%02X",
+                    Int((min(max(rgb.redComponent, 0), 1) * 255).rounded()),
+                    Int((min(max(rgb.greenComponent, 0), 1) * 255).rounded()),
+                    Int((min(max(rgb.blueComponent, 0), 1) * 255).rounded())
+                )
+            }
+        )
+    }
+    #endif
+}
+
 /// 歌词页换句时的滚动方式。
 enum PlayerLyricsMotion: String, CaseIterable, Identifiable {
     /// 整份歌词一起平滑滚到下一句(一直以来的做法)。

@@ -212,17 +212,22 @@ struct ArtistListView: View {
 
     private var mergeMenu: some View {
         Menu {
-            if mergeService.isRunning || mergeService.outcome != nil {
-                Button("artist_merge_title") { showsMerge = true }
-                if mergeService.isRunning {
-                    Button("cancel", role: .destructive) { mergeService.cancel() }
-                        .disabled(mergeService.cancellationRequested)
-                }
-            } else {
-                Button("artist_merge_select") { showsMerge = true }
-                Button("artist_merge_suggestions") { showsMergeSuggestions = true }
-            }
+            mergeMenuItems
         } label: { Label("artist_merge_title", systemImage: "person.2") }
+    }
+
+    @ViewBuilder
+    private var mergeMenuItems: some View {
+        if mergeService.isRunning || mergeService.outcome != nil {
+            Button("artist_merge_title") { showsMerge = true }
+            if mergeService.isRunning {
+                Button("cancel", role: .destructive) { mergeService.cancel() }
+                    .disabled(mergeService.cancellationRequested)
+            }
+        } else {
+            Button("artist_merge_select") { showsMerge = true }
+            Button("artist_merge_suggestions") { showsMergeSuggestions = true }
+        }
     }
 
     @ViewBuilder
@@ -440,15 +445,18 @@ struct ArtistListView: View {
     private var artistListPane: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
+                Text("tab_artists")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("artistList.title")
                 HStack(spacing: 8) {
-                    Text("tab_artists")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                    Spacer(minLength: 0)
-                    mergeMenu.labelStyle(.iconOnly)
                     if offersIntroFill {
                         LibraryInsightBatchMacButton { requestsIntroFill = true }
                     }
+                    macMergeMenu
+                    Spacer(minLength: 0)
                     if browsesLibrary {
                         macBrowseModeMenu
                     }
@@ -478,7 +486,7 @@ struct ArtistListView: View {
                 ContentUnavailableView.search(text: searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
+                ScrollView(.vertical) {
                     LazyVStack(spacing: 1) {
                         ForEach(filteredArtists) { artist in
                             artistRow(artist)
@@ -487,10 +495,29 @@ struct ArtistListView: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 24)
                 }
+                .scrollIndicators(.visible, axes: .vertical)
+                .accessibilityIdentifier("artistList.scroll")
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(PMColor.bg)
+    }
+
+    private var macMergeMenu: some View {
+        Menu {
+            mergeMenuItems
+        } label: {
+            macMenuLabel {
+                Image(systemName: "person.2")
+            }
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Text("artist_merge_title"))
+        .accessibilityLabel(Text("artist_merge_title"))
+        .accessibilityIdentifier("artistMerge.menu")
     }
 
     private var macBrowseModeMenu: some View {
@@ -502,26 +529,36 @@ struct ArtistListView: View {
             }
             .pickerStyle(.inline)
         } label: {
-            HStack(spacing: 4) {
+            macMenuLabel {
                 Text(String(localized: browseMode.titleKey))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .font(.system(size: 11.5, weight: .medium))
-            .foregroundStyle(PMColor.text)
-            .padding(.horizontal, 10)
-            .frame(height: 24)
-            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-            .overlay {
-                RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    .lineLimit(1)
             }
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .fixedSize()
         .help(Text("artist_browse_mode"))
+        .accessibilityLabel(Text("artist_browse_mode"))
+        .accessibilityValue(Text(String(localized: browseMode.titleKey)))
         .accessibilityIdentifier("artistBrowseMode.menu")
+    }
+
+    private func macMenuLabel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 6) {
+            content()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+        }
+        .font(.system(size: 11.5, weight: .medium))
+        .foregroundStyle(PMColor.text)
+        .padding(.horizontal, 10)
+        .frame(height: 24)
+        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .contentShape(Rectangle())
     }
 
     private var artistFilterField: some View {

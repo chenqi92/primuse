@@ -36,6 +36,7 @@ struct MacNowPlayingView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// 设置里选的歌词字体(#332)。
     @Environment(\.lyricsTypeface) private var lyricsTypeface
+    private var lyricsColors = PlayerLyricsColors()
 
     /// 显示与机翻用的那份：关掉「显示歌词自带的译文」时去掉文件带的译文。
     @State private var lyrics: [LyricLine] = []
@@ -1600,7 +1601,7 @@ struct MacNowPlayingView: View {
                 line: line,
                 fontSize: fontSize,
                 weight: weight,
-                activeColor: playerPrimaryColor,
+                activeStyle: lyricsColors.style(defaultColor: playerPrimaryColor, isActive: isActive, layoutDirection: lyricLayoutDirection),
                 inactiveColor: playerSecondaryColor,
                 textAlignment: textAlignment,
                 writingDirection: lyricsWritingDirection,
@@ -1614,7 +1615,7 @@ struct MacNowPlayingView: View {
             .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 14)
         } else {
             lyricsTypeface.text(line.text, size: fontSize, weight: weight)
-                .foregroundStyle(playerPrimaryColor)
+                .foregroundStyle(lyricsColors.style(defaultColor: playerPrimaryColor, isActive: isActive, layoutDirection: lyricLayoutDirection))
                 .lineSpacing(2)
                 .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)

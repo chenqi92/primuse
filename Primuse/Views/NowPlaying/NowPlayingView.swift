@@ -15208,14 +15208,7 @@ struct LyricsScrollView: View {
     private var lyricsAlignmentRawValue = PlayerLyricsAlignment.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsKey)
     private var spokenWordTranscriptHighlightsWords = PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsByDefault
-    @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
-    private var lyricsColorModeRawValue = PlayerLyricsColorMode.defaultValue.rawValue
-    @AppStorage(PlayerAppearancePreferences.customLyricsColorHexKey)
-    private var customLyricsColorHex = PlayerAppearancePreferences.defaultCustomLyricsColorHex
-    @AppStorage(PlayerAppearancePreferences.gradientLyricsStartColorHexKey)
-    private var gradientLyricsStartColorHex = PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
-    @AppStorage(PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
-    private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+    private var lyricsColors = PlayerLyricsColors()
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
@@ -15337,10 +15330,6 @@ struct LyricsScrollView: View {
         PlayerLyricsAlignment(rawValue: lyricsAlignmentRawValue) ?? .defaultValue
     }
 
-    private var lyricsColorMode: PlayerLyricsColorMode {
-        PlayerLyricsColorMode(rawValue: lyricsColorModeRawValue) ?? .defaultValue
-    }
-
     private var lyricLayoutDirection: LayoutDirection {
         switch lyricsWritingDirection {
         case .natural:
@@ -15376,49 +15365,7 @@ struct LyricsScrollView: View {
     }
 
     private func currentLyricStyle(opacity: Double = 1) -> AnyShapeStyle {
-        let resolvedOpacity = min(max(opacity, 0), 1)
-        switch lyricsColorMode {
-        case .defaultColor:
-            return AnyShapeStyle(appearance.primary.opacity(resolvedOpacity))
-        case .custom:
-            return AnyShapeStyle(
-                lyricsColor(
-                    from: customLyricsColorHex,
-                    fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex
-                )
-                .opacity(resolvedOpacity)
-            )
-        case .gradient:
-            let startPoint: UnitPoint = lyricLayoutDirection == .rightToLeft ? .trailing : .leading
-            let endPoint: UnitPoint = lyricLayoutDirection == .rightToLeft ? .leading : .trailing
-            return AnyShapeStyle(
-                LinearGradient(
-                    colors: [
-                        lyricsColor(
-                            from: gradientLyricsStartColorHex,
-                            fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
-                        )
-                        .opacity(resolvedOpacity),
-                        lyricsColor(
-                            from: gradientLyricsEndColorHex,
-                            fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
-                        )
-                        .opacity(resolvedOpacity),
-                    ],
-                    startPoint: startPoint,
-                    endPoint: endPoint
-                )
-            )
-        }
-    }
-
-    private func lyricsColor(from storedHex: String, fallback: String) -> Color {
-        Color(
-            hex: PlayerAppearancePreferences.normalizedLyricsColorHex(
-                storedHex,
-                fallback: fallback
-            )
-        )
+        lyricsColors.style(defaultColor: appearance.primary, opacity: opacity, layoutDirection: lyricLayoutDirection)
     }
 
     var body: some View {

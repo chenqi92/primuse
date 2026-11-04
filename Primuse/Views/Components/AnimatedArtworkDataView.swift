@@ -272,13 +272,17 @@ private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
         layer.addSublayer(videoLayer)
         #endif
         layoutVideo()
-        readiness = MotionArtworkReadinessObservation(layer: videoLayer) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, let videoLayer = self.videoLayer else { return }
-                videoLayer.isHidden = !videoLayer.isReadyForDisplay
+        if #available(tvOS 17.4, *) {
+            readiness = MotionArtworkReadinessObservation(layer: videoLayer) { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, let videoLayer = self.videoLayer else { return }
+                    videoLayer.isHidden = !videoLayer.isReadyForDisplay
+                }
             }
+            videoLayer.isHidden = !videoLayer.isReadyForDisplay
+        } else {
+            videoLayer.isHidden = false
         }
-        videoLayer.isHidden = !videoLayer.isReadyForDisplay
     }
 
     #if os(macOS)
@@ -299,6 +303,7 @@ private final class MotionArtworkVideoSurface: MotionArtworkVideoSurfaceBase {
 private final class MotionArtworkReadinessObservation {
     private let token: NSObjectProtocol
 
+    @available(tvOS 17.4, *)
     init(layer: AVSampleBufferDisplayLayer, onChange: @escaping @Sendable () -> Void) {
         // Sample-buffer readiness uses notifications, unlike AVPlayerLayer's KVO.
         token = NotificationCenter.default.addObserver(

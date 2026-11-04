@@ -40,6 +40,7 @@ struct TVNowPlayingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 歌词字体(#332),和 iPhone、Mac 同一份设置。
     @Environment(\.lyricsTypeface) private var lyricsTypeface
+    private var lyricsColors = PlayerLyricsColors()
     /// 进度条两端时间标签的宽度。原本写死 56pt,放得下「0:18」放不下「-3:58」,
     /// 于是「-3:5」和「8」被折成了两行;跟着系统文字大小放大只会更挤。
     /// 按 meta 字号同步缩放,并留足最长形如 -63:20 的六个等宽字符。
@@ -1499,6 +1500,7 @@ struct TVNowPlayingView: View {
                         currentTime: karaokeTime(at: context.date),
                         size: size,
                         tint: store.nowPlaying.tint,
+                        activeStyle: lyricsColors.style(defaultColor: TVColor.text, layoutDirection: lyricLayoutDirection(for: ln.writingDirection)),
                         writingDirection: ln.writingDirection,
                         alignment: flowAlignment,
                         handoverTime: nextLineTime
@@ -1507,7 +1509,7 @@ struct TVNowPlayingView: View {
             } else {
                 // 普通 .lrc 无逐字时间——整行高亮;非当前行半透明。
                 lyricsTypeface.text(ln.text, size: size, weight: isCur ? .bold : .semibold)
-                    .foregroundStyle(TVColor.text)
+                    .foregroundStyle(lyricsColors.style(defaultColor: TVColor.text, isActive: isCur, layoutDirection: lyricLayoutDirection(for: ln.writingDirection)))
                     .modifier(TVLyricGlow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2))
                     .multilineTextAlignment(textAlignment)
             }
@@ -1524,6 +1526,7 @@ struct TVNowPlayingView: View {
                             currentTime: karaokeTime(at: context.date),
                             size: size * 0.7,
                             tint: store.nowPlaying.tint,
+                            activeStyle: lyricsColors.style(defaultColor: TVColor.text, layoutDirection: lyricLayoutDirection(for: background.writingDirection)),
                             writingDirection: background.writingDirection,
                             alignment: flowAlignment
                         )
@@ -1531,7 +1534,7 @@ struct TVNowPlayingView: View {
                     .opacity(0.72)
                 } else {
                     lyricsTypeface.text(background.text, size: size * 0.7, weight: .semibold)
-                        .foregroundStyle(TVColor.text.opacity(0.62))
+                        .foregroundStyle(lyricsColors.style(defaultColor: TVColor.text, isActive: isCur, opacity: 0.62, layoutDirection: lyricLayoutDirection(for: background.writingDirection)))
                         .multilineTextAlignment(textAlignment)
                 }
             }
@@ -1605,6 +1608,7 @@ struct TVKaraokeLine: View {
     let currentTime: TimeInterval
     let size: CGFloat
     let tint: Color
+    var activeStyle = AnyShapeStyle(TVColor.text)
     let writingDirection: LyricWritingDirection
     var alignment: LyricFlowHorizontalAlignment = .leading
     /// 下一句接手的时刻；唱过的字在那之前落回原大小。
@@ -1639,11 +1643,31 @@ struct TVKaraokeLine: View {
                 at: currentTime
             )
         let cjkLanguage = LyricsFontLanguage.cjkLanguage(in: units.map(\.w).joined())
+        let overhang = (size * LyricSyllableEmphasisPolicy.raisedLiftRatio).rounded(.up) + 1
+        syllableLayer(units: units, lyricSyllables: lyricSyllables, state: state, hold: hold,
+                      cjkLanguage: cjkLanguage, highlighted: false)
+            .overlay {
+                Rectangle().fill(activeStyle)
+                    .mask {
+                        syllableLayer(units: units, lyricSyllables: lyricSyllables, state: state, hold: hold,
+                                      cjkLanguage: cjkLanguage, highlighted: true)
+                            .padding(overhang)
+                    }
+                    .padding(-overhang)
+                    .modifier(TVLyricGlow(color: tint.opacity(0.8), radius: 12))
+            }
+            .font(lyricsTypeface.font(size: size, weight: .bold))
+            .modifier(TVLyricGlow(color: tint.opacity(0.4), radius: 16, y: 2))
+            .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+
+    private func syllableLayer(
+        units: [TVSyllable], lyricSyllables: [LyricSyllable], state: TVSyllableHighlightState,
+        hold: Double, cjkLanguage: LyricsFontLanguage, highlighted: Bool
+    ) -> some View {
         TVSyllableFlowLayout(layoutDirection: lyricLayoutDirection, alignment: alignment) {
             ForEach(Array(units.enumerated()), id: \.offset) { i, s in
-                let active = i < state.index
-                let inFlight = i == state.index
-                let fillT: Double = active ? 1 : (inFlight ? state.progress : 0)
+                let fillT = i < state.index ? 1 : (i == state.index ? state.progress : 0)
                 let raise = hold > 0
                     ? LyricSyllableEmphasisPolicy.rise(
                         for: lyricSyllables[i],
@@ -1653,35 +1677,27 @@ struct TVKaraokeLine: View {
                         at: currentTime
                     ) * hold
                     : 0
-                lyricsTypeface.text(s.w, size: size, weight: .bold, cjkLanguage: cjkLanguage)
-                    .foregroundStyle(TVColor.textGhost)
-                    .overlay(alignment: .leading) {
-                        lyricsTypeface.text(s.w, size: size, weight: .bold, cjkLanguage: cjkLanguage)
-                            .foregroundStyle(TVColor.text)
+                let glyph = lyricsTypeface.text(s.w, size: size, weight: .bold, cjkLanguage: cjkLanguage)
+                Group {
+                    if highlighted {
+                        glyph.foregroundStyle(.white)
                             .mask {
                                 GeometryReader { g in
                                     Rectangle()
                                         .frame(width: g.size.width * fillT)
-                                        .frame(
-                                            width: g.size.width,
-                                            alignment: lyricLayoutDirection == .rightToLeft
-                                                ? .trailing
-                                                : .leading
-                                        )
+                                        .frame(width: g.size.width,
+                                               alignment: lyricLayoutDirection == .rightToLeft ? .trailing : .leading)
                                 }
                                 .environment(\.layoutDirection, .leftToRight)
                             }
-                            // 光晕套在遮罩外面，跟着亮起的笔画走。套在里面会被裁成字框大小，
-                            // 唱过的字后面就垫着一排硬边色块。
-                            .modifier(TVLyricGlow(color: tint.opacity(0.8), radius: 12))
+                    } else {
+                        glyph.foregroundStyle(TVColor.textGhost)
                     }
-                    .scaleEffect(1 + LyricSyllableEmphasisPolicy.raisedScale * raise, anchor: .bottom)
-                    .offset(y: -size * LyricSyllableEmphasisPolicy.raisedLiftRatio * raise)
+                }
+                .scaleEffect(1 + LyricSyllableEmphasisPolicy.raisedScale * raise, anchor: .bottom)
+                .offset(y: -size * LyricSyllableEmphasisPolicy.raisedLiftRatio * raise)
             }
         }
-        .font(lyricsTypeface.font(size: size, weight: .bold))
-        .modifier(TVLyricGlow(color: tint.opacity(0.4), radius: 16, y: 2))
-        .environment(\.layoutDirection, lyricLayoutDirection)
     }
 }
 

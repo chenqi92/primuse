@@ -20,6 +20,7 @@ struct MacMiniPlayerView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.lyricsTypeface) private var lyricsTypeface
+    private var lyricsColors = PlayerLyricsColors()
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
@@ -820,7 +821,7 @@ struct MacMiniPlayerView: View {
                 line: line,
                 fontSize: fontSize,
                 weight: weight,
-                activeColor: .primary.opacity(isActive ? 1 : 0.72),
+                activeStyle: lyricsColors.style(defaultColor: .primary, isActive: isActive, opacity: isActive ? 1 : 0.72, layoutDirection: lyricLayoutDirection),
                 inactiveColor: .secondary.opacity(isActive ? 0.55 : 0.42),
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
@@ -828,7 +829,7 @@ struct MacMiniPlayerView: View {
             )
         } else {
             lyricsTypeface.text(line.text, size: fontSize, weight: weight)
-                .foregroundStyle(isActive ? .primary : .secondary)
+                .foregroundStyle(lyricsColors.style(defaultColor: isActive ? .primary : .secondary, isActive: isActive, layoutDirection: lyricLayoutDirection))
                 .opacity(isActive ? 1 : 0.55)
                 .multilineTextAlignment(.center)
                 .environment(\.layoutDirection, lyricLayoutDirection)
