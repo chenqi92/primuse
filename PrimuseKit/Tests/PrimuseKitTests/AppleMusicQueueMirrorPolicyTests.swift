@@ -18,16 +18,101 @@ struct AppleMusicQueueMirrorPolicyTests {
         #expect(mapping?.count == 4)
     }
 
-    @Test("Partial, reordered, or unresolved snapshots cannot reassign queue identities")
-    func rejectsUnverifiedSongOrder() {
+    @Test("Partial, reordered, or unresolved snapshots never guess repeated occurrences")
+    func resolvesOnlyUniqueSongsWithoutVerifiedOrder() {
         let ids = [UUID(), UUID(), UUID()]
         let snapshots: [[String?]] = [["a", "b"], ["b", "a", "a"], ["a", nil, "a"]]
         for snapshot in snapshots {
-            #expect(AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            let mapping = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
                 nativeEntryIDs: snapshot.indices.map { "entry-\($0)" },
                 nativeSongIDs: snapshot, expectedSongIDs: ["a", "b", "a"], queueEntryIDs: ids
+            )
+            if let uniqueIndex = snapshot.firstIndex(of: "b") {
+                #expect(mapping == ["entry-\(uniqueIndex)": ids[1]])
+            } else {
+                #expect(mapping == nil)
+            }
+        }
+    }
+
+    @Test("Local entries with no Song item follow native automatic transitions")
+    func mapsMetadataOnlyLocalEntries() {
+        let identities = AppleMusicTrackIdentityIndex([
+            .init(itemID: "local-a", title: "First", artist: "Artist"),
+            .init(itemID: "local-b", title: "Second", artist: "Artist")
+        ])
+        let songIDs = ["First", "Second"].map {
+            AppleMusicQueueMirrorPolicy.songID(
+                resolvedIdentity: nil, entryTitle: $0, entrySubtitle: "Artist", identities: identities
+            )
+        }
+        let ids = [UUID(), UUID()]
+        let mapping = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: ["native-first", "native-second"], nativeSongIDs: songIDs,
+            expectedSongIDs: ["local-a", "local-b"], queueEntryIDs: ids
+        )
+        #expect(mapping?["native-first"] == ids[0])
+        #expect(mapping?["native-second"] == ids[1])
+    }
+
+    @Test("An unresolved neighbor cannot freeze the current song's queue position")
+    func resolvesCurrentSongIndependentlyOfNeighbors() {
+        let ids = [UUID(), UUID(), UUID()]
+        let mapping = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: ["n-a", "n-b", "n-c"], nativeSongIDs: [nil, "b", nil],
+            expectedSongIDs: ["a", "b", "c"], queueEntryIDs: ids
+        )
+        #expect(mapping == ["n-b": ids[1]])
+    }
+
+    @Test("Metadata-only duplicate songs retain separate occurrences in verified order")
+    func mapsMetadataOnlyRepeatedOccurrences() {
+        let identities = AppleMusicTrackIdentityIndex([
+            .init(itemID: "a", title: "First", artist: "Artist"),
+            .init(itemID: "b", title: "Second", artist: "Artist")
+        ])
+        let songIDs = ["First", "Second", "First"].map {
+            AppleMusicQueueMirrorPolicy.songID(
+                resolvedIdentity: nil, entryTitle: $0, entrySubtitle: "Artist", identities: identities
+            )
+        }
+        let ids = [UUID(), UUID(), UUID()]
+        let mapping = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: ["n-a1", "n-b", "n-a2"], nativeSongIDs: songIDs,
+            expectedSongIDs: ["a", "b", "a"], queueEntryIDs: ids
+        )
+        #expect(mapping?["n-a1"] == ids[0])
+        #expect(mapping?["n-a2"] == ids[2])
+    }
+
+    @Test("Missing or ambiguous display metadata must not select another recording")
+    func rejectsAmbiguousMetadata() {
+        let identities = AppleMusicTrackIdentityIndex([
+            .init(itemID: "studio", title: "Same", artist: "Artist", album: "Studio"),
+            .init(itemID: "live", title: "Same", artist: "Artist", album: "Live")
+        ])
+        for subtitle: String? in [nil, "Artist", "Someone else"] {
+            #expect(AppleMusicQueueMirrorPolicy.songID(
+                resolvedIdentity: nil, entryTitle: "Same", entrySubtitle: subtitle, identities: identities
             ) == nil)
         }
+        #expect(AppleMusicQueueMirrorPolicy.songID(
+            resolvedIdentity: .init(itemID: "live", title: "Same"),
+            entryTitle: "Same", entrySubtitle: "Artist", identities: identities
+        ) == "live")
+    }
+
+    @Test("Filtered native snapshots still map uniquely identified songs")
+    func mapsFilteredQueue() {
+        let ids = [UUID(), UUID(), UUID()]
+        #expect(AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: ["n-c"], nativeSongIDs: ["c"],
+            expectedSongIDs: ["a", "b", "c"], queueEntryIDs: ids
+        ) == ["n-c": ids[2]])
+        #expect(AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+            nativeEntryIDs: ["n-c1", "n-c2"], nativeSongIDs: ["c", "c"],
+            expectedSongIDs: ["a", "b", "c"], queueEntryIDs: ids
+        ) == nil)
     }
 
     @Test("Duplicate native or Primuse entry IDs cannot collapse occurrences")

@@ -2588,6 +2588,19 @@ public enum AppleMusicLibraryPreferences {
 /// Pure policy for deciding whether a MusicKit queue snapshot may replace
 /// Primuse's canonical playback queue.
 public enum AppleMusicQueueMirrorPolicy {
+    /// Local-library entries can expose display metadata without a Song item.
+    /// Resolve only an unambiguous identity; an entry ID is not a music item ID.
+    public static func songID(
+        resolvedIdentity: AppleMusicTrackIdentity?,
+        entryTitle: String,
+        entrySubtitle: String?,
+        identities: AppleMusicTrackIdentityIndex
+    ) -> String? {
+        identities.canonicalID(for: resolvedIdentity ?? AppleMusicTrackIdentity(
+            itemID: "", title: entryTitle, artist: entrySubtitle
+        ))
+    }
+
     /// A filtered native queue can identify a unique song without resolving
     /// every entry. Repeated occurrences still require the full order mapping.
     public static func uniqueEntryID(
@@ -2599,8 +2612,8 @@ public enum AppleMusicQueueMirrorPolicy {
         return queueEntryIDs[index]
     }
 
-    /// MusicKit resolves transient entries into new native IDs. Bind by
-    /// occurrence only after the complete, canonicalized song order matches.
+    /// Bind repeated occurrences only after the complete song order matches.
+    /// Other unresolved entries must not block a uniquely identified song.
     public static func resolvedEntryIDs(
         nativeEntryIDs: [String],
         nativeSongIDs: [String?],
@@ -2608,13 +2621,23 @@ public enum AppleMusicQueueMirrorPolicy {
         queueEntryIDs: [UUID]
     ) -> [String: UUID]? {
         guard !queueEntryIDs.isEmpty,
-              nativeEntryIDs.count == queueEntryIDs.count,
-              nativeSongIDs.count == queueEntryIDs.count,
+              nativeEntryIDs.count == nativeSongIDs.count,
               expectedSongIDs.count == queueEntryIDs.count,
               Set(nativeEntryIDs).count == nativeEntryIDs.count,
-              Set(queueEntryIDs).count == queueEntryIDs.count,
-              zip(nativeSongIDs, expectedSongIDs).allSatisfy({ $0 == $1 }) else { return nil }
-        return Dictionary(uniqueKeysWithValues: zip(nativeEntryIDs, queueEntryIDs))
+              Set(queueEntryIDs).count == queueEntryIDs.count else { return nil }
+        if nativeSongIDs.count == expectedSongIDs.count,
+           zip(nativeSongIDs, expectedSongIDs).allSatisfy({ $0 == $1 }) {
+            return Dictionary(uniqueKeysWithValues: zip(nativeEntryIDs, queueEntryIDs))
+        }
+        var resolved: [String: UUID] = [:]
+        let nativeOccurrences = Dictionary(grouping: nativeSongIDs.compactMap { $0 }, by: { $0 })
+        let expectedOccurrences = Dictionary(grouping: zip(expectedSongIDs, queueEntryIDs), by: { $0.0 })
+        for (nativeID, songID) in zip(nativeEntryIDs, nativeSongIDs) {
+            guard let songID, nativeOccurrences[songID]?.count == 1,
+                  let occurrences = expectedOccurrences[songID], occurrences.count == 1 else { continue }
+            resolved[nativeID] = occurrences[0].1
+        }
+        return resolved.isEmpty ? nil : resolved
     }
 
     public static func isActiveSession(

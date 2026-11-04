@@ -6,6 +6,8 @@ import SwiftUI
 /// 横滑的小胶囊里找。参数滑杆只在开启后出现,名称和当前数值同一行。
 struct AudioEffectsView: View {
     @Environment(AudioEffectsService.self) private var effects
+    /// 嵌在播放页转轮里时,拖滑杆期间告诉转轮别跟着翻页;设置页里是空操作。
+    @Environment(\.nowPlayingCarouselControlEditing) private var reportsControlEditing
 
     /// 混响七种:手机上一行四格(4 + 3),宽屏按宽度多排几格。
     private static let reverbColumns = [GridItem(.adaptive(minimum: 76), spacing: 8)]
@@ -42,7 +44,7 @@ struct AudioEffectsView: View {
 
                 if effects.reverbEnabled {
                     parameterRow("reverb_mix", value: "\(Int(effects.reverbWetDryMix))%") {
-                        Slider(value: $fx.reverbWetDryMix, in: 0...100, step: 1)
+                        Slider(value: $fx.reverbWetDryMix, in: 0...100, step: 1, onEditingChanged: reportsControlEditing)
                     }
                     .settingsAnchor("effects.reverbMix")
                     .pmFadeTransition()
@@ -84,31 +86,31 @@ struct AudioEffectsView: View {
 
                 if effects.compressorEnabled {
                     parameterRow("compressor_threshold", value: "\(Int(effects.compressorThreshold)) dB") {
-                        Slider(value: $fx.compressorThreshold, in: -40...0, step: 1)
+                        Slider(value: $fx.compressorThreshold, in: -40...0, step: 1, onEditingChanged: reportsControlEditing)
                     }
                     .settingsAnchor("effects.compressorThreshold")
                     .pmFadeTransition()
 
                     parameterRow("compressor_headroom", value: String(format: "%.1f dB", effects.compressorHeadRoom)) {
-                        Slider(value: $fx.compressorHeadRoom, in: 0.1...40, step: 0.5)
+                        Slider(value: $fx.compressorHeadRoom, in: 0.1...40, step: 0.5, onEditingChanged: reportsControlEditing)
                     }
                     .settingsAnchor("effects.compressorHeadroom")
                     .pmFadeTransition()
 
                     parameterRow("compressor_attack", value: String(format: "%.1f ms", effects.compressorAttackTime * 1000)) {
-                        Slider(value: $fx.compressorAttackTime, in: 0.0001...0.2, step: 0.001)
+                        Slider(value: $fx.compressorAttackTime, in: 0.0001...0.2, step: 0.001, onEditingChanged: reportsControlEditing)
                     }
                     .settingsAnchor("effects.compressorAttack")
                     .pmFadeTransition()
 
                     parameterRow("compressor_release", value: String(format: "%.0f ms", effects.compressorReleaseTime * 1000)) {
-                        Slider(value: $fx.compressorReleaseTime, in: 0.01...3, step: 0.01)
+                        Slider(value: $fx.compressorReleaseTime, in: 0.01...3, step: 0.01, onEditingChanged: reportsControlEditing)
                     }
                     .settingsAnchor("effects.compressorRelease")
                     .pmFadeTransition()
 
                     parameterRow("compressor_gain", value: String(format: "%.0f dB", effects.compressorMasterGain)) {
-                        Slider(value: $fx.compressorMasterGain, in: -40...40, step: 1)
+                        Slider(value: $fx.compressorMasterGain, in: -40...40, step: 1, onEditingChanged: reportsControlEditing)
                     }
                     .settingsAnchor("effects.compressorGain")
                     .pmFadeTransition()

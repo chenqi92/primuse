@@ -1599,6 +1599,12 @@ struct NowPlayingView: View {
     @State private var windowSafeAreaInsets = UIEdgeInsets.zero
     /// 系统竖栏在哪一侧(iPhone Duo 等);没有竖栏的设备与 Xcode 27.0 构建为 nil。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    /// 播放页转轮(默认关):左右滑动转到均衡器、卡拉 OK 等页(见 `NowPlayingCarouselContainer`)。
+    @AppStorage(NowPlayingCarouselConfiguration.enabledStorageKey)
+    private var carouselEnabled = NowPlayingCarouselConfiguration.enabledByDefault
+    @AppStorage(NowPlayingCarouselConfiguration.storageKey) private var carouselStorage = ""
+    /// 转轮停在哪一页。整页只读它的 `settledPage`(换页时才变),拖动中逐帧的位移只有转轮自己读。
+    @State private var carouselState = NowPlayingCarouselState()
     #endif
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
     @Environment(ThemeService.self) private var theme
@@ -2247,6 +2253,8 @@ struct NowPlayingView: View {
             deleteErrorMessage = nil
             showSimilarSongs = false
         }
+        // 转轮转回播放器:卡拉 OK 那一页收起时跟着卸下(会话停掉),下次展开是播放器本身。
+        carouselState.returnToPlayer(animated: false)
     }
     #endif
 
@@ -3269,6 +3277,8 @@ struct NowPlayingView: View {
                         verticalStartMaximumY: Double(verticalStartMaximumY)
                     )
                 guard let axis else { return }
+                // 转轮停在两侧的页上时,从左边沿横滑是转回播放器,不是侧滑收起。
+                if axis == .horizontal, isCarouselAwayFromPlayer { return }
                 activity.axis = axis
 
                 switch axis {
@@ -3332,6 +3342,259 @@ struct NowPlayingView: View {
             }
     }
 
+    /// 播放页按构图选的那一套布局,外加 iPhone Duo 竖栏里那一列。转轮打开与否都用这同一份。
+    @ViewBuilder
+    private func playerLayoutContent(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets,
+        occlusions: [OcclusionAvoidancePolicy.Region],
+        playerLayoutMode: NowPlayingPlayerLayoutMode,
+        landscapeMode: NowPlayingLandscapeMode,
+        arrangement: NowPlayingArrangement?,
+        usesCompactLandscapeSkeleton: Bool,
+        artSize: CGFloat,
+        portraitLayoutInsets: NowPlayingPortraitInsets,
+        toolColumnEdge: HorizontalEdge?
+    ) -> some View {
+        // 每套布局都经 NowPlayingDeferredContent 推迟构造，别直接内联回来：
+        // Debug 构建下这里会把主线程的栈吃满（见那个类型的说明）。
+        if player.isLiveRadio {
+            // 手机横屏和播客、音乐同一副骨架(左台标、右栏台名与按钮);其余照竖版排。
+            if isPhoneCanvas && playerLayoutMode == .compactLandscape {
+                NowPlayingDeferredContent {
+                    liveRadioCompactLandscapeLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
+                }
+                .transition(PMLayoutSwitchTransition())
+            } else {
+                NowPlayingDeferredContent {
+                    liveRadioLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
+                }
+                .transition(PMLayoutSwitchTransition())
+            }
+        } else if let arrangement {
+            NowPlayingDeferredContent {
+                arrangedPlayerLayout(
+                    geo: geo,
+                    arrangement: arrangement,
+                    safeInsets: safeInsets,
+                    usesToolColumn: toolColumnEdge != nil
+                )
+            }
+            .transition(PMLayoutSwitchTransition())
+        } else if usesCompactLandscapeSkeleton {
+            NowPlayingDeferredContent {
+                compactLandscapePlayerLayout(
+                    geo: geo,
+                    safeInsets: safeInsets,
+                    occlusions: occlusions,
+                    toolColumnEdge: toolColumnEdge
+                )
+            }
+            .transition(PMLayoutSwitchTransition())
+        } else {
+            switch landscapeMode {
+            case .musicVideo:
+                if let videoPlayer = player.musicVideoPlayer {
+                    NowPlayingDeferredContent {
+                        landscapeMusicVideoLayout(videoPlayer: videoPlayer, safeInsets: safeInsets)
+                    }
+                } else {
+                    NowPlayingDeferredContent {
+                        portraitLayout(
+                            geo: geo,
+                            artSize: artSize,
+                            insets: portraitLayoutInsets,
+                            usesToolColumn: toolColumnEdge != nil
+                        )
+                    }
+                }
+            case .immersiveLyrics:
+                NowPlayingDeferredContent {
+                    immersiveLandscapeLyricsLayout(geo: geo)
+                }
+            case .standardLyrics:
+                NowPlayingDeferredContent {
+                    standardLandscapeLyricsLayout(geo: geo)
+                }
+                .transition(lyricsPanelTransition)
+            case .none:
+                switch playerLayoutMode {
+                case .portrait:
+                    NowPlayingDeferredContent {
+                        portraitLayout(
+                            geo: geo,
+                            artSize: artSize,
+                            insets: portraitLayoutInsets,
+                            usesToolColumn: toolColumnEdge != nil
+                        )
+                    }
+                    .transition(PMLayoutSwitchTransition())
+                case .compactLandscape:
+                    NowPlayingDeferredContent {
+                        compactLandscapePlayerLayout(
+                            geo: geo,
+                            safeInsets: safeInsets,
+                            occlusions: occlusions,
+                            toolColumnEdge: toolColumnEdge
+                        )
+                    }
+                    .transition(PMLayoutSwitchTransition())
+                case .wideLandscape:
+                    NowPlayingDeferredContent {
+                        wideLandscapeLayout(geo: geo, safeInsets: safeInsets)
+                    }
+                }
+            }
+        }
+
+        #if os(iOS)
+        // iPhone Duo 竖栏里那一列:换构图(分栏 ⇄ 收起右栏 ⇄ 转屏)时同一个身份留在竖栏里。
+        if let toolColumnEdge {
+            barToolColumn(
+                edge: toolColumnEdge,
+                geo: geo,
+                safeInsets: safeInsets,
+                occlusions: occlusions,
+                offersLock: arrangement == nil && usesCompactLandscapeSkeleton
+            )
+            .transition(.opacity)
+        }
+        #endif
+    }
+
+    /// 画在版面之上的大封面(按锚点飞到封面 / 歌词小封面位)与手机横屏抬起的那几样。
+    private func playerArtworkOverlays(anchors: LyricsArtworkAnchorKey.Value) -> some View {
+        ZStack {
+            lyricsArtworkOverlay(anchors: anchors)
+            compactLandscapeLiftedChrome(anchors: anchors)
+        }
+    }
+
+    // MARK: 转轮
+
+    /// 设置里打开了转轮、而且至少排了一页。只在 iPhone / iPad 上有;它变了整页结构才换(只在设置里改)。
+    private var usesPlayerCarousel: Bool {
+        #if os(iOS)
+        carouselEnabled && !carouselConfiguration.isEmpty
+        #else
+        false
+        #endif
+    }
+
+    /// 转轮停在两侧某一页上(不是播放器)。
+    private var isCarouselAwayFromPlayer: Bool {
+        #if os(iOS)
+        usesPlayerCarousel && carouselState.isAwayFromPlayer
+        #else
+        false
+        #endif
+    }
+
+    #if os(iOS)
+    private var carouselConfiguration: NowPlayingCarouselConfiguration {
+        .decode(carouselStorage)
+    }
+
+    /// 这一刻能不能转:只在竖屏的音乐封面页上。歌词、全屏歌词、横屏骨架、iPad 双栏、Duo 分栏、
+    /// 电台与有声内容各有自己的左右手势或版面,一律不转(结构不变,只是不认横滑)。
+    private func carouselIsActive(
+        playerLayoutMode: NowPlayingPlayerLayoutMode,
+        landscapeMode: NowPlayingLandscapeMode,
+        arrangement: NowPlayingArrangement?,
+        usesCompactLandscapeSkeleton: Bool,
+        toolColumnEdge: HorizontalEdge?
+    ) -> Bool {
+        playerLayoutMode == .portrait
+            && landscapeMode == .none
+            && arrangement == nil
+            && !usesCompactLandscapeSkeleton
+            && toolColumnEdge == nil
+            && !showLyrics
+            && !isLyricsImmersive
+            && !player.isLiveRadio
+            && !usesSpokenWordTransport
+            && !showsImmersiveEffectPicker
+            && player.currentSong != nil
+    }
+
+    /// 停在播放器上时横滑从哪儿起手才算:封面与歌名那一块,不含左边沿(那是侧滑收起)。
+    /// 进度条、音量条、传输键都在它下面,拖它们不会转动转轮。
+    private func carouselPlayerSwipeRegion(geo: GeometryProxy, artSize: CGFloat) -> (CGPoint) -> Bool {
+        let width = geo.size.width
+        // 高画布上封面会放大到接近屏宽(见 `portraitLayout`),按两者里大的算。
+        let mediaHeight = max(artSize, min(width - 44, artSize * 1.25))
+        let maximumY = min(geo.size.height * 0.66, topSafeArea + 21 + mediaHeight + 24 + 64)
+        let isRightToLeft = layoutDirection == .rightToLeft
+        return { point in
+            let edgeDistance = NowPlayingDismissGesturePolicy.distanceFromLeadingEdge(
+                startX: Double(point.x),
+                containerWidth: Double(width),
+                layoutIsRightToLeft: isRightToLeft
+            )
+            return point.y <= maximumY
+                && edgeDistance > NowPlayingDismissGesturePolicy.leadingEdgeMaximumX
+        }
+    }
+
+    private func carouselPanel(
+        _ panel: NowPlayingCarouselPanel,
+        phase: NowPlayingCarouselPanelPhase,
+        safeInsets: EdgeInsets
+    ) -> AnyView {
+        let state = carouselState
+        let returnToPlayer = { state.returnToPlayer() }
+        let side = carouselConfiguration.side(of: panel) ?? .leading
+        let appearance = appearance
+
+        func page(_ content: some View) -> AnyView {
+            AnyView(
+                NowPlayingCarouselPanelPage(
+                    panel: panel,
+                    side: side,
+                    safeInsets: safeInsets,
+                    appearance: appearance,
+                    onReturnToPlayer: returnToPlayer
+                ) {
+                    content
+                }
+            )
+        }
+
+        switch panel {
+        case .karaoke:
+            return AnyView(
+                NowPlayingCarouselKaraokePage(phase: phase, safeInsets: safeInsets, onClose: returnToPlayer)
+            )
+        case .equalizer:
+            return page(
+                EqualizerView()
+                    .environment(player.equalizerService)
+            )
+        case .audioEffects:
+            return page(
+                AudioEffectsView()
+                    .environment(player.audioEffectsService)
+                    .scrollContentBackground(.hidden)
+            )
+        case .similarSongs:
+            return page(NowPlayingCarouselSimilarPanel(phase: phase, state: state, appearance: appearance))
+        case .albumAndArtist:
+            return page(
+                NowPlayingCarouselAlbumArtistPanel(
+                    appearance: appearance,
+                    onOpenAlbum: { album in presentAlbum(album, prefersMatchedArtworkSource: false) },
+                    onOpenArtist: { artist in onOpenArtist?(artist) }
+                )
+            )
+        case .queue:
+            return page(
+                QueueView(player: player, isEmbedded: true)
+                    .scrollContentBackground(.hidden)
+            )
+        }
+    }
+    #endif
+
     var body: some View {
         GeometryReader { geo in
             let safeInsets = resolvedSafeAreaInsets(for: geo)
@@ -3340,7 +3603,8 @@ struct NowPlayingView: View {
             #endif
             // 系统竖栏的设备(iPhone Duo)上播放页整屏居中,只让开遮挡区;其它设备这里恒为空。
             let occlusions = playerOcclusions(in: geo)
-            let verticalDismissStartMaximumY = showLyrics
+            // 转轮停在两侧的页上时,那几页大多是能上下滚的列表,下拉收起只认顶上那一截(和歌词页一样)。
+            let verticalDismissStartMaximumY = showLyrics || isCarouselAwayFromPlayer
                 ? CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY)
                 : max(
                     CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY),
@@ -3499,115 +3763,79 @@ struct NowPlayingView: View {
                                 .animation(nil, value: canvasKey)
                         }
 
-                        // 每套布局都经 NowPlayingDeferredContent 推迟构造，别直接内联回来：
+                        // 每套布局都经 NowPlayingDeferredContent 推迟构造(见 `playerLayoutContent`)，别直接内联回来：
                         // Debug 构建下这里会把主线程的栈吃满（见那个类型的说明）。
-                        if player.isLiveRadio {
-                            // 手机横屏和播客、音乐同一副骨架(左台标、右栏台名与按钮);其余照竖版排。
-                            if isPhoneCanvas && playerLayoutMode == .compactLandscape {
-                                NowPlayingDeferredContent {
-                                    liveRadioCompactLandscapeLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
-                                }
-                                .transition(PMLayoutSwitchTransition())
-                            } else {
-                                NowPlayingDeferredContent {
-                                    liveRadioLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
-                                }
-                                .transition(PMLayoutSwitchTransition())
-                            }
-                        } else if let arrangement {
-                            NowPlayingDeferredContent {
-                                arrangedPlayerLayout(
-                                    geo: geo,
-                                    arrangement: arrangement,
-                                    safeInsets: safeInsets,
-                                    usesToolColumn: toolColumnEdge != nil
-                                )
-                            }
-                            .transition(PMLayoutSwitchTransition())
-                        } else if usesCompactLandscapeSkeleton {
-                            NowPlayingDeferredContent {
-                                compactLandscapePlayerLayout(
-                                    geo: geo,
-                                    safeInsets: safeInsets,
-                                    occlusions: occlusions,
-                                    toolColumnEdge: toolColumnEdge
-                                )
-                            }
-                            .transition(PMLayoutSwitchTransition())
-                        } else {
-                            switch landscapeMode {
-                            case .musicVideo:
-                                if let videoPlayer = player.musicVideoPlayer {
-                                    NowPlayingDeferredContent {
-                                        landscapeMusicVideoLayout(videoPlayer: videoPlayer, safeInsets: safeInsets)
-                                    }
-                                } else {
-                                    NowPlayingDeferredContent {
-                                        portraitLayout(
-                                            geo: geo,
-                                            artSize: artSize,
-                                            insets: portraitLayoutInsets,
-                                            usesToolColumn: toolColumnEdge != nil
-                                        )
-                                    }
-                                }
-                            case .immersiveLyrics:
-                                NowPlayingDeferredContent {
-                                    immersiveLandscapeLyricsLayout(geo: geo)
-                                }
-                            case .standardLyrics:
-                                NowPlayingDeferredContent {
-                                    standardLandscapeLyricsLayout(geo: geo)
-                                }
-                                .transition(lyricsPanelTransition)
-                            case .none:
-                                switch playerLayoutMode {
-                                case .portrait:
-                                    NowPlayingDeferredContent {
-                                        portraitLayout(
-                                            geo: geo,
-                                            artSize: artSize,
-                                            insets: portraitLayoutInsets,
-                                            usesToolColumn: toolColumnEdge != nil
-                                        )
-                                    }
-                                    .transition(PMLayoutSwitchTransition())
-                                case .compactLandscape:
-                                    NowPlayingDeferredContent {
-                                        compactLandscapePlayerLayout(
-                                            geo: geo,
-                                            safeInsets: safeInsets,
-                                            occlusions: occlusions,
-                                            toolColumnEdge: toolColumnEdge
-                                        )
-                                    }
-                                    .transition(PMLayoutSwitchTransition())
-                                case .wideLandscape:
-                                    NowPlayingDeferredContent {
-                                        wideLandscapeLayout(geo: geo, safeInsets: safeInsets)
-                                    }
-                                }
-                            }
-                        }
-
                         #if os(iOS)
-                        // iPhone Duo 竖栏里那一列:换构图(分栏 ⇄ 收起右栏 ⇄ 转屏)时同一个身份留在竖栏里。
-                        if let toolColumnEdge {
-                            barToolColumn(
-                                edge: toolColumnEdge,
+                        if usesPlayerCarousel {
+                            // 转轮打开时播放器整面(连同画在覆盖层里的大封面)是转轮正中那一面,两侧的页转进来时
+                            // 它跟着转走;底下的背景色场不动。
+                            NowPlayingCarouselContainer(
+                                isActive: carouselIsActive(
+                                    playerLayoutMode: playerLayoutMode,
+                                    landscapeMode: landscapeMode,
+                                    arrangement: arrangement,
+                                    usesCompactLandscapeSkeleton: usesCompactLandscapeSkeleton,
+                                    toolColumnEdge: toolColumnEdge
+                                ),
+                                configuration: carouselConfiguration,
+                                state: carouselState,
+                                size: geo.size,
+                                safeInsets: safeInsets,
+                                appearance: appearance,
+                                playerSwipeRegion: carouselPlayerSwipeRegion(geo: geo, artSize: artSize),
+                                panel: { panel, phase in carouselPanel(panel, phase: phase, safeInsets: safeInsets) }
+                            ) {
+                                ZStack {
+                                    playerLayoutContent(
+                                        geo: geo,
+                                        safeInsets: safeInsets,
+                                        occlusions: occlusions,
+                                        playerLayoutMode: playerLayoutMode,
+                                        landscapeMode: landscapeMode,
+                                        arrangement: arrangement,
+                                        usesCompactLandscapeSkeleton: usesCompactLandscapeSkeleton,
+                                        artSize: artSize,
+                                        portraitLayoutInsets: portraitLayoutInsets,
+                                        toolColumnEdge: toolColumnEdge
+                                    )
+                                }
+                                .overlayPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
+                                    playerArtworkOverlays(anchors: anchors)
+                                }
+                            }
+                        } else {
+                            playerLayoutContent(
                                 geo: geo,
                                 safeInsets: safeInsets,
                                 occlusions: occlusions,
-                                offersLock: arrangement == nil && usesCompactLandscapeSkeleton
+                                playerLayoutMode: playerLayoutMode,
+                                landscapeMode: landscapeMode,
+                                arrangement: arrangement,
+                                usesCompactLandscapeSkeleton: usesCompactLandscapeSkeleton,
+                                artSize: artSize,
+                                portraitLayoutInsets: portraitLayoutInsets,
+                                toolColumnEdge: toolColumnEdge
                             )
-                            .transition(.opacity)
                         }
+                        #else
+                        playerLayoutContent(
+                            geo: geo,
+                            safeInsets: safeInsets,
+                            occlusions: occlusions,
+                            playerLayoutMode: playerLayoutMode,
+                            landscapeMode: landscapeMode,
+                            arrangement: arrangement,
+                            usesCompactLandscapeSkeleton: usesCompactLandscapeSkeleton,
+                            artSize: artSize,
+                            portraitLayoutInsets: portraitLayoutInsets,
+                            toolColumnEdge: toolColumnEdge
+                        )
                         #endif
                     }
                     .overlayPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
-                        ZStack {
-                            lyricsArtworkOverlay(anchors: anchors)
-                            compactLandscapeLiftedChrome(anchors: anchors)
+                        // 转轮打开时这一层画在转轮正中那一面里(见上),这里不再画第二份。
+                        if !usesPlayerCarousel {
+                            playerArtworkOverlays(anchors: anchors)
                         }
                     }
                     .onChange(of: canSplit, initial: true) { _, split in

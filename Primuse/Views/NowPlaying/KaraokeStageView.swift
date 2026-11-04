@@ -8,14 +8,22 @@ import UniformTypeIdentifiers
 /// optional microphone with live pitch, scoring and recording. The karaoke
 /// session lives exactly as long as this view.
 struct KaraokeStageView: View {
+    /// 嵌在播放页转轮里那一页时由转轮给:关闭是转回播放器,不是收起整个呈现。
+    /// 为 nil 时照旧是全屏 / 弹窗里的那一份,关闭走 `dismiss`。
+    var onClose: (() -> Void)? = nil
+
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
     @State private var session: KaraokeSession?
 
+    init(onClose: (() -> Void)? = nil) {
+        self.onClose = onClose
+    }
+
     var body: some View {
-        Group {
+        let stage = Group {
             if let session {
-                KaraokeStageContent(session: session, onClose: { dismiss() })
+                KaraokeStageContent(session: session, onClose: { (onClose ?? { dismiss() })() })
             } else {
                 KaraokeStageBackdrop(isPlaying: false)
             }
@@ -32,7 +40,14 @@ struct KaraokeStageView: View {
         #if os(macOS)
         .frame(minWidth: 760, idealWidth: 900, minHeight: 620, idealHeight: 720)
         #endif
-        .preferredColorScheme(.dark)
+
+        if onClose != nil {
+            // 嵌在播放页里:只把这一页画成深色。`preferredColorScheme` 会一路改到整个呈现
+            // (播放页背后的 App 也跟着变),嵌入时不能用。
+            stage.environment(\.colorScheme, .dark)
+        } else {
+            stage.preferredColorScheme(.dark)
+        }
     }
 }
 

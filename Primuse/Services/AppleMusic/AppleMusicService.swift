@@ -187,6 +187,7 @@ final class AppleMusicService {
     private(set) var nowPlayingQueueEntryID: UUID?
     @ObservationIgnored private var managedQueueEntryIDs: [String: UUID] = [:]
     private struct ManagedQueueProjection {
+        let songs: [MusicKit.Song]
         let songIDs: [String]
         let entryIDs: [UUID]
         let identities: AppleMusicTrackIdentityIndex
@@ -1028,8 +1029,14 @@ final class AppleMusicService {
          refreshManagedQueueEntryIDs()
          let currentEntry = player.queue.currentEntry
          let rawSong: MusicKit.Song? = {
-             guard status != .stopped, case .song(let song) = currentEntry?.item else { return nil }
-             return song
+             guard status != .stopped, let currentEntry else { return nil }
+             if let song = Self.song(in: currentEntry) { return song }
+             // A resolved local-file entry may have title/subtitle but no item.
+             // Use the song belonging to this verified queue occurrence.
+             guard let entryID = managedQueueEntryIDs[currentEntry.id],
+                   let projection = managedQueueProjection,
+                   let index = projection.entryIDs.firstIndex(of: entryID) else { return nil }
+             return projection.songs[index]
          }()
          let canonicalSong = rawSong.map { AppServices.shared.appleMusicLibrary.canonicalForNowPlaying($0) }
          // 换 entry 通常是换了一首, 观测窗口要重开。但 MusicKit 收摊一条
@@ -1150,10 +1157,8 @@ final class AppleMusicService {
              resetPlaybackEndObservation()
              return
          }
-         // queue.currentEntry 反映用户在 queue 里走到哪 — 不限于初次 play, 也包括
-         // 自动跳下一首 / skipToNextEntry。entry.item 在 user library / catalog 都
-         // 是 .song case。其它类型 (musicVideo 等) 我们 user library 拉的时候 filter
-         // 过, 这里默认走 .song 分支。
+         // Publish from the current native occurrence even when a local-file
+         // entry exposes only display metadata instead of a resolved Song.
          if let rawSong, let canonical = canonicalSong {
              let rawSongID = AppleMusicLibraryService.primuseSongID(forItemID: rawSong.id.rawValue)
              if nowPlayingRawSongID != rawSongID {
@@ -1343,6 +1348,7 @@ final class AppleMusicService {
              return
          }
          managedQueueProjection = ManagedQueueProjection(
+             songs: songs,
              songIDs: songs.map { $0.id.rawValue },
              entryIDs: entryIDs,
              identities: AppleMusicTrackIdentityIndex(songs.map(AppleMusicLibraryService.trackIdentity))
@@ -1364,45 +1370,39 @@ final class AppleMusicService {
          #endif
      }
 
+     private static func song(in entry: MusicKit.MusicPlayer.Queue.Entry) -> MusicKit.Song? {
+         if case .song(let song) = entry.item { return song }
+         return entry.transientItem as? MusicKit.Song
+     }
+
+     private func managedSongID(
+         for entry: MusicKit.MusicPlayer.Queue.Entry, projection: ManagedQueueProjection
+     ) -> String? {
+         AppleMusicQueueMirrorPolicy.songID(
+             resolvedIdentity: Self.song(in: entry).map(AppleMusicLibraryService.trackIdentity),
+             entryTitle: entry.title, entrySubtitle: entry.subtitle, identities: projection.identities
+         )
+     }
+
      private func refreshManagedQueueEntryIDs() {
          guard let projection = managedQueueProjection else { return }
          let entries = ApplicationMusicPlayer.shared.queue.entries
-         guard entries.count == projection.entryIDs.count else {
-             guard let current = ApplicationMusicPlayer.shared.queue.currentEntry,
-                   managedQueueEntryIDs[current.id] == nil else { return }
-             let song: MusicKit.Song?
-             if case .song(let resolved) = current.item {
-                 song = resolved
-             } else {
-                 song = current.transientItem as? MusicKit.Song
-             }
-             let songID = song.flatMap {
-                 projection.identities.canonicalID(for: AppleMusicLibraryService.trackIdentity($0))
-             }
-             if let entryID = AppleMusicQueueMirrorPolicy.uniqueEntryID(
-                 songID: songID, expectedSongIDs: projection.songIDs, queueEntryIDs: projection.entryIDs
-             ) {
-                 managedQueueEntryIDs[current.id] = entryID
-             }
-             return
-         }
-         guard entries.contains(where: { managedQueueEntryIDs[$0.id] == nil }) else { return }
-         let songIDs = entries.map { entry -> String? in
-             let song: MusicKit.Song?
-             if case .song(let resolved) = entry.item {
-                 song = resolved
-             } else {
-                 song = entry.transientItem as? MusicKit.Song
-             }
-             return song.flatMap {
-                 projection.identities.canonicalID(for: AppleMusicLibraryService.trackIdentity($0))
-             }
-         }
-         if let resolved = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
-             nativeEntryIDs: entries.map(\.id), nativeSongIDs: songIDs,
+         if entries.contains(where: { managedQueueEntryIDs[$0.id] == nil }),
+            let resolved = AppleMusicQueueMirrorPolicy.resolvedEntryIDs(
+             nativeEntryIDs: entries.map(\.id),
+             nativeSongIDs: entries.map { managedSongID(for: $0, projection: projection) },
              expectedSongIDs: projection.songIDs, queueEntryIDs: projection.entryIDs
          ) {
-             managedQueueEntryIDs = resolved
+             managedQueueEntryIDs.merge(resolved) { _, new in new }
+         }
+         // currentEntry can resolve before the corresponding entries snapshot.
+         if let current = ApplicationMusicPlayer.shared.queue.currentEntry,
+            managedQueueEntryIDs[current.id] == nil,
+            let entryID = AppleMusicQueueMirrorPolicy.uniqueEntryID(
+                songID: managedSongID(for: current, projection: projection),
+                expectedSongIDs: projection.songIDs, queueEntryIDs: projection.entryIDs
+            ) {
+             managedQueueEntryIDs[current.id] = entryID
          }
      }
 
@@ -1418,8 +1418,12 @@ final class AppleMusicService {
                !Task.isCancelled, !recoveredWithSingleItem,
                songs.count == entryIDs.count,
                Set(entryIDs).count == entryIDs.count,
-               let selectedIndex = entryIDs.firstIndex(of: currentEntryID),
-               nowPlayingQueueEntryID == currentEntryID else { return }
+               let selectedIndex = entryIDs.firstIndex(of: currentEntryID) else { return }
+         refreshManagedQueueEntryIDs()
+         // Queue edits may arrive before the next mirror tick, or after a
+         // native advance. Validate against the current native occurrence.
+         guard let current = ApplicationMusicPlayer.shared.queue.currentEntry,
+               managedQueueEntryIDs[current.id] == currentEntryID else { return }
          let requestedSongIDs = songs.map { $0.id.rawValue }
          let nativeEntryIDs = ApplicationMusicPlayer.shared.queue.entries.map(\.id)
          if managedQueueUpdateID == nil,
@@ -1437,7 +1441,6 @@ final class AppleMusicService {
              #endif
              return
          }
-         refreshManagedQueueEntryIDs()
          if managedQueueUpdateID == nil,
             ApplicationMusicPlayer.shared.queue.entries.map({ managedQueueEntryIDs[$0.id] }) == entryIDs {
              setAppleMusicRepeat(repeatMode)
@@ -1519,6 +1522,7 @@ final class AppleMusicService {
                let projection = managedQueueProjection,
                let index = projection.entryIDs.firstIndex(of: entryID) else { return }
          managedQueueProjection = ManagedQueueProjection(
+             songs: [projection.songs[index]],
              songIDs: [projection.songIDs[index]], entryIDs: [entryID], identities: projection.identities
          )
          managedQueueEntryIDs = [current.id: entryID]
