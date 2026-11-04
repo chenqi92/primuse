@@ -508,4 +508,87 @@ private struct ArtistNavigationHarness: View {
         LibraryView(deepLink: $probe.deepLink) { probe.activeSection = $0 }
     }
 }
+
+@MainActor
+final class LibraryFolderNavigationTests: XCTestCase {
+    func testOpeningFolderSettlesWithoutRepeatedToolbarUpdates() async throws {
+        let suite = "FolderNavigation-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let browseKey = LibrarySongBrowseModePreference.storageKey
+        let previousBrowseMode = UserDefaults.standard.object(forKey: browseKey)
+        UserDefaults.standard.set(LibrarySongBrowseMode.folder.rawValue, forKey: browseKey)
+        defaults.set(LibrarySongBrowseMode.folder.rawValue, forKey: browseKey)
+        defer {
+            UserDefaults.standard.set(previousBrowseMode, forKey: browseKey)
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        sources.add(MusicSource(id: suite, name: "Music", type: .local,
+            extraConfig: MusicSource.encodeScannedDirectories(["/music"], into: nil, type: .local)))
+        library.addSongs((0..<693).map { index in
+            Song(id: "folder-\(index)", title: "Track \(index)", albumTitle: "Album", artistName: "Artist",
+                 trackNumber: index + 1, duration: 180, fileFormat: .mp3,
+                 filePath: "/music/Album/\(index).mp3", sourceID: suite)
+        })
+        await library.waitForPendingIndex()
+
+        let services = AppServices.shared
+        let probe = FolderNavigationProbe()
+        var folderBuilds = 0
+        SongListRenderDiagnostics.didBuildFolder = { _ in folderBuilds += 1 }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(rootView: FolderNavigationHarness(probe: probe)
+            .environment(library).environment(sources).environment(services.playerService)
+            .environment(services.sourceManager).environment(services.scanService)
+            .environment(services.metadataBackfill).environment(services.scraperService)
+            .environment(services.scraperSettingsStore).environment(services.themeService)
+            .environment(services.batchRemoval).environment(services.musicIntelligence)
+            .environment(services.playbackSettingsStore).environment(services.coverTintProvider)
+            .environment(\.appNavigationMode, .standard).defaultAppStorage(defaults))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            SongListRenderDiagnostics.didBuildFolder = nil
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+        addTeardownBlock { [weak library] in
+            if library == nil { try? FileManager.default.removeItem(at: directory) }
+        }
+
+        try await Task.sleep(for: .milliseconds(400))
+        probe.request = SongLibraryLocationRequest(songID: "folder-692")
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while folderBuilds == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertGreaterThan(folderBuilds, 0, "The request must navigate into the real folder page")
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertLessThan(folderBuilds, 30, "Opening a folder must let the main run loop settle")
+        let settledBuilds = folderBuilds
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertLessThanOrEqual(folderBuilds - settledBuilds, 2,
+                                "An untouched sort menu must not keep invalidating the folder page")
+    }
+}
+
+@MainActor @Observable
+private final class FolderNavigationProbe {
+    var request: SongLibraryLocationRequest?
+}
+
+private struct FolderNavigationHarness: View {
+    @Bindable var probe: FolderNavigationProbe
+
+    var body: some View {
+        NavigationStack { SongListView(locationRequest: $probe.request) }
+    }
+}
 #endif

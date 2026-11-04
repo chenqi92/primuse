@@ -3,6 +3,12 @@ import PrimuseKit
 import os
 #if os(iOS)
 import UIKit
+#if DEBUG
+@MainActor
+enum SongListRenderDiagnostics {
+    static var didBuildFolder: ((LibraryFolderNodeID) -> Void)?
+}
+#endif
 #endif
 #if os(macOS)
 import AppKit
@@ -1443,6 +1449,17 @@ struct SongListView: View {
             .onChange(of: folderFollowsListSort, initial: true) { _, follows in
                 folderCache.followsListSort = follows
             }
+            // Keep $sortOrder's State location stable across navigation-bar hosts.
+            // A closure-backed Binding invalidates folder menus repeatedly on iOS 18.
+            .onChange(of: sortOrder) { previous, requested in
+                SongListPerformanceSignpost.sortSelection(
+                    current: previous.rawValue,
+                    requested: requested.rawValue,
+                    accepted: true
+                )
+                LibrarySongSortOrderPreference.save(requested.libraryOrder)
+                scheduleSortedRecompute(pruneRowModels: false, isExplicitSort: true)
+            }
             .onChange(of: browseMode) { _, mode in
                 cancelExplicitSortForNavigation()
                 pendingFolderLocation = nil
@@ -1559,7 +1576,7 @@ struct SongListView: View {
                     folderCache: folderCache,
                     listCache: listCache,
                     selection: selection,
-                    sortOrder: sortOrderBinding,
+                    sortOrder: $sortOrder,
                     initialLocation: destination.song
                 )
             }
@@ -1782,31 +1799,6 @@ struct SongListView: View {
     }
     #endif
 
-    private var sortOrderBinding: Binding<SongSortOrder> {
-        Binding(
-            get: { sortOrder },
-            set: { requestedOrder in
-                let currentOrder = sortOrder
-                let accepted = SongListSortProgressState.acceptsChange(
-                    from: currentOrder.libraryOrder,
-                    to: requestedOrder.libraryOrder
-                )
-                SongListPerformanceSignpost.sortSelection(
-                    current: currentOrder.rawValue,
-                    requested: requestedOrder.rawValue,
-                    accepted: accepted
-                )
-                guard accepted else { return }
-                sortOrder = requestedOrder
-                LibrarySongSortOrderPreference.save(requestedOrder.libraryOrder)
-                scheduleSortedRecompute(
-                    pruneRowModels: false,
-                    isExplicitSort: true
-                )
-            }
-        )
-    }
-
     private func localizedSortLabel(_ order: LibrarySongSortOrder) -> String {
         SongSortOrder(libraryOrder: order).label
     }
@@ -1893,7 +1885,7 @@ struct SongListView: View {
                         listCache: listCache,
                         rootSourceID: folderRootSourceID,
                         selection: selection,
-                        sortOrder: sortOrderBinding,
+                        sortOrder: $sortOrder,
                         showsListeningIntents: showsListeningIntentShelf
                     )
                 } else if songFilter == .downloaded,
@@ -1969,7 +1961,7 @@ struct SongListView: View {
                 browseMode: $browseMode,
                 folderBlocker: folderBrowseBlocker,
                 resolveFolderBlocker: resolveFolderBrowseBlocker,
-                sortOrder: sortOrderBinding,
+                sortOrder: $sortOrder,
                 filter: $songFilter,
                 manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
                 folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
@@ -2349,7 +2341,7 @@ struct SongListView: View {
                         listCache: listCache,
                         rootSourceID: folderRootSourceID,
                         selection: selection,
-                        sortOrder: sortOrderBinding,
+                        sortOrder: $sortOrder,
                         onOpenFolder: openMacFolder
                     )
                 } else {
@@ -2358,7 +2350,7 @@ struct SongListView: View {
                         folderCache: folderCache,
                         listCache: listCache,
                         selection: selection,
-                        sortOrder: sortOrderBinding,
+                        sortOrder: $sortOrder,
                         onOpenFolder: openMacFolder,
                         onNavigate: navigateMacFolder
                     )
@@ -2519,7 +2511,7 @@ struct SongListView: View {
 
             Menu {
                 SongSortMenuOptions(
-                    sortOrder: sortOrderBinding,
+                    sortOrder: $sortOrder,
                     followsListSort: showsFolderBrowser ? $folderFollowsListSort : nil
                 )
             } label: {
@@ -2651,7 +2643,7 @@ struct SongListView: View {
     private func tableHeader(ordinalWidth: CGFloat) -> some View {
         MacSongTableHeader(layout: tableLayout, ordinalWidth: ordinalWidth, sortOrder: sortOrder.libraryOrder) { criterion in
             if showsFolderBrowser { folderFollowsListSort = true }
-            sortOrderBinding.wrappedValue = sortOrder.selecting(criterion)
+            sortOrder = sortOrder.selecting(criterion)
         }
     }
 
@@ -3252,7 +3244,7 @@ struct SongListView: View {
             ToolbarOverflowMenu {
                 SongListNormalToolbarMenu(
                     selection: selection,
-                    sortOrder: sortOrderBinding,
+                    sortOrder: $sortOrder,
                     filter: $songFilter,
                     manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
                     folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
@@ -3293,7 +3285,7 @@ struct SongListView: View {
         ToolbarItem(placement: .topBarTrailing) {
             SongListNormalToolbarMenu(
                 selection: selection,
-                sortOrder: sortOrderBinding,
+                sortOrder: $sortOrder,
                 filter: $songFilter,
                 manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
                 folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil
@@ -5349,6 +5341,7 @@ private struct LibraryFolderNodeView: View {
     var body: some View {
         #if DEBUG && os(iOS)
         let _ = PlayerUIUpdateDiagnostics.body("folder")
+        let _ = SongListRenderDiagnostics.didBuildFolder?(nodeID)
         #endif
         content
             .songLocationReader(songLocation, revision: FolderSongLocationRevision(
