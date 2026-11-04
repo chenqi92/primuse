@@ -33,3 +33,5 @@
 "collapse_ranking" = "Show Less";
 "folder_song_order" = "フォルダ内の曲順";
 "folder_song_order_footer" = "ホームやここから開いたフォルダは、この順序で曲を表示・再生します。トラック順はディスク番号とトラック番号に従い、トラック番号がない曲はファイル名の先頭の番号を使います。";
+"folder_cache_confirm_format" = "「%1$@」とサブフォルダ内の%2$d曲をすべてキャッシュしますか？";
+"folder_cache_cancel" = "キャッシュをキャンセル";

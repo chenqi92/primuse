@@ -313,6 +313,9 @@ private struct HomeFolderRow: View {
     @Environment(HomeDiscoveryModel.self) private var model
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var cacheAction = HomeFolderCacheAction()
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
 
     private var playButtonWidth: CGFloat {
@@ -358,6 +361,11 @@ private struct HomeFolderRow: View {
         .contextMenu {
             Button("play", systemImage: "play.fill") { play(shuffle: false) }
             Button("shuffle", systemImage: "shuffle") { play(shuffle: true) }
+            HomeFolderCacheMenuButton(
+                node: node, index: model.index, library: library,
+                source: sourcesStore.source(id: node.sourceID),
+                sourceManager: sourceManager, action: cacheAction
+            )
             // 没收藏过目录时首页摆的是自动推荐的几个，它们还不算收藏。
             let collected = FavoriteCollectionStore.collectedFolderIDs(in: pinsRawValue).contains(node.id)
             Button(
@@ -368,6 +376,7 @@ private struct HomeFolderRow: View {
                 FavoriteCollectionStore.shared.setCollected(!collected, .folder(node.id), library: library)
             }
         }
+        .modifier(HomeFolderCacheConfirmation(action: cacheAction, sourceManager: sourceManager))
     }
 
     private var folderLabel: some View {
@@ -444,6 +453,8 @@ struct HomeFolderBrowser: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AudioPlayerService.self) private var player
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var cacheAction = HomeFolderCacheAction()
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderSongOrderPreference.storageKey) private var songOrderRawValue = ""
     @State private var albumMetadataSelection: BatchSongSelection?
@@ -531,6 +542,7 @@ struct HomeFolderBrowser: View {
 
     var body: some View {
         content
+            .modifier(HomeFolderCacheConfirmation(action: cacheAction, sourceManager: sourceManager))
             .onAppear {
                 if let initialLocation, consumedInitialLocationID != initialLocation.id {
                     consumedInitialLocationID = initialLocation.id
@@ -843,6 +855,7 @@ struct HomeFolderBrowser: View {
             .disabled(node.descendantSongCount == 0)
         }
         albumMetadataButton(node)
+        cacheMenuButton(node)
         if FolderPlaylistMenuButton.supports(node) {
             FolderPlaylistMenuButton(
                 node: node,
@@ -903,6 +916,7 @@ struct HomeFolderBrowser: View {
             .disabled(folder.descendantSongCount == 0)
         Button("shuffle", systemImage: "shuffle") { playFolder(folder.id, shuffle: true) }
             .disabled(folder.descendantSongCount == 0)
+        cacheMenuButton(folder)
         FolderPlaylistMenuButton(
             node: folder,
             index: model.index,
@@ -1115,6 +1129,7 @@ struct HomeFolderBrowser: View {
                     if FolderPlaylistMenuButton.supports(node) {
                         Menu {
                             albumMetadataButton(node)
+                            cacheMenuButton(node)
                             FolderPlaylistMenuButton(
                                 node: node,
                                 index: model.index,
@@ -1206,6 +1221,7 @@ struct HomeFolderBrowser: View {
         Button("shuffle", systemImage: "shuffle") { playFolder(child.id, shuffle: true) }
             .disabled(child.descendantSongCount == 0)
         albumMetadataButton(child)
+        cacheMenuButton(child)
         FolderPlaylistMenuButton(
             node: child,
             index: model.index,
@@ -1316,7 +1332,10 @@ struct HomeFolderBrowser: View {
             } label: {
                 HomeFolderChildLabel(node: child)
             }
-            .contextMenu { albumMetadataButton(child) }
+            .contextMenu {
+                cacheMenuButton(child)
+                albumMetadataButton(child)
+            }
             pinButton(child.id)
             #endif
         }
@@ -1365,6 +1384,14 @@ struct HomeFolderBrowser: View {
         HomeDiscoveryPlayback.playFolder(id, shuffle: shuffle, model: model, library: library, player: player)
     }
 
+    private func cacheMenuButton(_ node: LibraryFolderNode) -> some View {
+        HomeFolderCacheMenuButton(
+            node: node, index: model.index, library: library,
+            source: sourcesStore.source(id: node.sourceID),
+            sourceManager: sourceManager, action: cacheAction
+        )
+    }
+
     private func albumMetadataButton(_ node: LibraryFolderNode) -> some View {
         Button("album_metadata_search", systemImage: "square.stack") {
             let ids = model.index?.songIDs(in: node.id, scope: .descendants) ?? []
@@ -1374,6 +1401,87 @@ struct HomeFolderBrowser: View {
         }
         .disabled(node.descendantSongCount == 0 || node.sourceID == AppleMusicLibraryIdentity.sourceID)
         .accessibilityIdentifier("folder.albumMetadata")
+    }
+}
+
+@MainActor
+@Observable
+private final class HomeFolderCacheAction {
+    var request: FolderOfflineDownloadRequest?
+    var folderTitle = ""
+    var preparingNodeID: LibraryFolderNodeID?
+    @ObservationIgnored private var preparation: Task<Void, Never>?
+
+    func prepare(node: LibraryFolderNode, index: LibraryFolderIndex, library: MusicLibrary, source: MusicSource?) {
+        cancelPreparation()
+        let lookup = library.visibleSongLookup()
+        preparingNodeID = node.id
+        preparation = Task {
+            let prepared = await Task.detached(priority: .userInitiated) {
+                FolderOfflineDownloadRequest(nodeID: node.id, index: index, source: source, songForID: lookup.song)
+            }.value
+            guard !Task.isCancelled else { return }
+            folderTitle = HomeDiscoveryText.folderTitle(node)
+            request = prepared
+            preparingNodeID = nil
+            preparation = nil
+        }
+    }
+
+    func cancelPreparation() {
+        preparation?.cancel()
+        preparation = nil
+        preparingNodeID = nil
+    }
+}
+
+private struct HomeFolderCacheMenuButton: View {
+    let node: LibraryFolderNode
+    let index: LibraryFolderIndex?
+    let library: MusicLibrary
+    let source: MusicSource?
+    let sourceManager: SourceManager
+    let action: HomeFolderCacheAction
+
+    var body: some View {
+        let ownerID = FolderOfflineDownloadRequest.ownerID(for: node.id)
+        if sourceManager.activeOfflineBatchOwnerIDs.contains(ownerID) {
+            Button(HomeDiscoveryText.string("folder_cache_cancel"), systemImage: "stop.circle") {
+                sourceManager.cancelOfflineBatch(ownerID: ownerID)
+            }
+            .accessibilityIdentifier("folder.cancelCache")
+        } else if let source, source.isEnabled, !source.isDeleted,
+                  source.type != .local, source.type != .appleMusic, source.type != .appleMusicLibrary {
+            Button("source_cache_all_confirm", systemImage: "arrow.down.circle") {
+                guard let index else { return }
+                action.prepare(node: node, index: index, library: library, source: source)
+            }
+            .disabled(index == nil || node.descendantSongCount == 0 || action.preparingNodeID != nil)
+            .accessibilityIdentifier("folder.cacheAll")
+        }
+    }
+}
+
+private struct HomeFolderCacheConfirmation: ViewModifier {
+    @Bindable var action: HomeFolderCacheAction
+    let sourceManager: SourceManager
+
+    func body(content: Content) -> some View {
+        content
+            .alert(item: $action.request) { request in
+                Alert(
+                    title: Text("source_cache_all_confirm"),
+                    message: Text(String(
+                        format: HomeDiscoveryText.string("folder_cache_confirm_format"),
+                        action.folderTitle, request.songs.count
+                    )),
+                    primaryButton: .default(Text("source_cache_all_confirm")) {
+                        sourceManager.downloadForOffline(songs: request.songs, ownerID: request.ownerID)
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+            .onDisappear { action.cancelPreparation() }
     }
 }
 

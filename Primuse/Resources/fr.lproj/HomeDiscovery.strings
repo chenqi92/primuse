@@ -33,3 +33,5 @@
 "collapse_ranking" = "Show Less";
 "folder_song_order" = "Ordre des morceaux dans les dossiers";
 "folder_song_order_footer" = "Les dossiers ouverts depuis l’accueil ou depuis ici affichent et lisent leurs morceaux dans cet ordre. L’ordre des pistes suit les numéros de disque et de piste, ou le numéro au début du nom de fichier quand un morceau n’en a pas.";
+"folder_cache_confirm_format" = "Mettre en cache les %2$d morceaux de « %1$@ » et de ses sous-dossiers ?";
+"folder_cache_cancel" = "Annuler la mise en cache";

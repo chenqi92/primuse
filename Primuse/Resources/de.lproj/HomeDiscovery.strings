@@ -33,3 +33,5 @@
 "collapse_ranking" = "Show Less";
 "folder_song_order" = "Titelreihenfolge in Ordnern";
 "folder_song_order_footer" = "Ordner, die du auf der Startseite oder hier öffnest, zeigen und spielen ihre Titel in dieser Reihenfolge. Die Titelreihenfolge richtet sich nach CD- und Titelnummer, bei Titeln ohne Nummer nach der Zahl am Anfang des Dateinamens.";
+"folder_cache_confirm_format" = "Alle %2$d Titel in „%1$@“ und den Unterordnern zwischenspeichern?";
+"folder_cache_cancel" = "Zwischenspeichern abbrechen";
