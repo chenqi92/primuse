@@ -3020,6 +3020,7 @@
 "library_favorite_unlike" = "Прибрати з обраного";
 "library_favorite_filter" = "Лише обране";
 "library_favorite_filter_short" = "Обране";
+"album_filter_hide_single_song" = "Приховати альбоми з однією піснею";
 "library_folder_rescan" = "Пересканувати цю папку";
 "reread_song_tags" = "Прочитайте теги файлів ще раз";
 "radio_live" = "Живе радіо";

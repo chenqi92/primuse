@@ -800,6 +800,7 @@
 "library_favorite_unlike" = "お気に入りから削除";
 "library_favorite_filter" = "お気に入りのみ表示";
 "library_favorite_filter_short" = "お気に入り";
+"album_filter_hide_single_song" = "1曲のみのアルバムを非表示";
 "library_folder_rescan" = "このフォルダを再スキャン";
 "reread_song_tags" = "ファイルタグを再読み込み";
 "reread_song_tags_in_progress" = "ファイルタグを読み込んでいます…";

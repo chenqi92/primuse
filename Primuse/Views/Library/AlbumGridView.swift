@@ -11,6 +11,7 @@ struct AlbumGridView: View {
     @State private var requestsIntroFill = false
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
     @State private var showsLikedOnly = false
+    @AppStorage("library.hideSingleSongAlbums") private var hidesSingleSongAlbums = false
     @AppStorage(AlbumGridOrder.storageKey) private var albumOrderRawValue = AlbumGridOrder.defaultOrder.rawValue
     /// 后台准备好的筛选结果。
     @State private var displayedAlbums: AlbumGridFilteredAlbums?
@@ -51,6 +52,7 @@ struct AlbumGridView: View {
         AlbumGridFilterRequest(
             order: orderRequest, query: albumFilter.trimmingCharacters(in: .whitespacesAndNewlines),
             category: AlbumReleaseCategory(rawValue: releaseCategory), likedOnly: showsLikedOnly,
+            hidesSingleSongAlbums: hidesSingleSongAlbums,
             favoritesRevision: showsLikedOnly ? favorites.revision : 0,
             categoryRevision: releaseCategory.isEmpty ? 0 : library.releaseCategoryRevision,
             membershipRevision: releaseCategory.isEmpty ? 0 : library.releaseCategoryMembershipRevision,
@@ -150,6 +152,7 @@ struct AlbumGridView: View {
                         AlbumGridDisplayMenu(
                             order: albumOrderBinding,
                             showsLikedOnly: $showsLikedOnly,
+                            hidesSingleSongAlbums: $hidesSingleSongAlbums,
                             offersLikedFilter: showsLikedFilter,
                             offersIntroFill: offersIntroFill,
                             fillIntros: { requestsIntroFill = true }
@@ -169,6 +172,7 @@ struct AlbumGridView: View {
                             AlbumGridDisplayMenu(
                                 order: albumOrderBinding,
                                 showsLikedOnly: $showsLikedOnly,
+                                hidesSingleSongAlbums: $hidesSingleSongAlbums,
                                 offersLikedFilter: showsLikedFilter,
                                 offersIntroFill: offersIntroFill,
                                 fillIntros: { requestsIntroFill = true }
@@ -438,9 +442,15 @@ struct AlbumGridView: View {
                 }
             }
             .pickerStyle(.inline)
+            Section {
+                Toggle(isOn: $hidesSingleSongAlbums) {
+                    Label("album_filter_hide_single_song", systemImage: "music.note")
+                }
+                .accessibilityIdentifier("albumGrid.hideSingleSongAlbums")
+            }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "arrow.up.arrow.down")
+                Image(systemName: hidesSingleSongAlbums ? "line.3.horizontal.decrease.circle.fill" : "arrow.up.arrow.down")
                     .font(.system(size: 10, weight: .semibold))
                 Text(verbatim: albumOrder.label)
                 Image(systemName: "chevron.down")
@@ -690,6 +700,7 @@ struct AlbumGridFilterRequest: Hashable, Sendable {
     let query: String
     let category: AlbumReleaseCategory?
     let likedOnly: Bool
+    let hidesSingleSongAlbums: Bool
     let favoritesRevision: Int
     let categoryRevision: UInt64
     let membershipRevision: UInt64
@@ -701,11 +712,12 @@ struct AlbumGridFilterRequest: Hashable, Sendable {
         unknownArtistName: String, isCancelled: () -> Bool = { false }
     ) -> [Album]? {
         guard !isCancelled() else { return nil }
-        guard category != nil || likedOnly || !query.isEmpty else { return albums }
+        guard category != nil || likedOnly || hidesSingleSongAlbums || !query.isEmpty else { return albums }
         var result: [Album] = []
         for index in albums.indices {
             if index.isMultiple(of: 256), isCancelled() { return nil }
             let album = albums[index]
+            if hidesSingleSongAlbums && album.songCount == 1 { continue }
             if let category,
                !(overrides[album.id] ?? categories?.categories(albumID: album.id) ?? [.album]).contains(category) { continue }
             if likedOnly && !favorites.isLiked(LibraryFavoriteKey.id(
@@ -744,11 +756,11 @@ final class AlbumGridFilterCache {
 }
 
 #if !os(macOS)
-/// 专辑页右上角唯一的一颗：排序，有收藏的专辑时「只看收藏的」，以及补全缺少的简介。
 /// 工具栏条目跑在自己的视图图里，只收 Binding 与闭包、不读环境。
 private struct AlbumGridDisplayMenu: View {
     @Binding var order: AlbumGridOrder
     @Binding var showsLikedOnly: Bool
+    @Binding var hidesSingleSongAlbums: Bool
     let offersLikedFilter: Bool
     let offersIntroFill: Bool
     let fillIntros: () -> Void
@@ -763,12 +775,16 @@ private struct AlbumGridDisplayMenu: View {
             }
             .pickerStyle(.inline)
 
-            if offersLikedFilter {
-                Section {
+            Section {
+                if offersLikedFilter {
                     Toggle(isOn: $showsLikedOnly) {
                         Label("library_favorite_filter", systemImage: "heart")
                     }
                 }
+                Toggle(isOn: $hidesSingleSongAlbums) {
+                    Label("album_filter_hide_single_song", systemImage: "music.note")
+                }
+                .accessibilityIdentifier("albumGrid.hideSingleSongAlbums")
             }
 
             if offersIntroFill {
@@ -777,10 +793,9 @@ private struct AlbumGridDisplayMenu: View {
                 }
             }
         } label: {
-            // 只看收藏时图标实心，一眼看出列表被收窄了。
             Label(
                 "songs_display_mode",
-                systemImage: showsLikedOnly
+                systemImage: showsLikedOnly || hidesSingleSongAlbums
                     ? "line.3.horizontal.decrease.circle.fill"
                     : "line.3.horizontal.decrease.circle"
             )

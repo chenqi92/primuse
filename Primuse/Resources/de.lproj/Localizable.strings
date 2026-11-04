@@ -799,6 +799,7 @@
 "library_favorite_unlike" = "Aus Favoriten entfernen";
 "library_favorite_filter" = "Nur Favoriten anzeigen";
 "library_favorite_filter_short" = "Favoriten";
+"album_filter_hide_single_song" = "Alben mit nur einem Titel ausblenden";
 "library_folder_rescan" = "Diesen Ordner erneut scannen";
 "reread_song_tags" = "Datei-Tags erneut lesen";
 "reread_song_tags_in_progress" = "Datei-Tags werden gelesen…";

@@ -2963,6 +2963,7 @@
 "library_favorite_unlike" = "Remover dos favoritos";
 "library_favorite_filter" = "Mostrar só favoritos";
 "library_favorite_filter_short" = "Favoritos";
+"album_filter_hide_single_song" = "Ocultar álbuns com uma só música";
 "library_folder_rescan" = "Escanear esta pasta novamente";
 "reread_song_tags" = "Reler tags do arquivo";
 "reread_song_tags_completed" = "As tags do arquivo foram lidas novamente.";

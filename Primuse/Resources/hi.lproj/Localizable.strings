@@ -2963,6 +2963,7 @@
 "library_favorite_unlike" = "पसंदीदा से हटाएँ";
 "library_favorite_filter" = "केवल पसंदीदा दिखाएँ";
 "library_favorite_filter_short" = "पसंदीदा";
+"album_filter_hide_single_song" = "एक गाने वाले एल्बम छिपाएँ";
 "library_folder_rescan" = "इस फ़ोल्डर को फिर से स्कैन करें";
 "reread_song_tags" = "फ़ाइल टैग दोबारा पढ़ें";
 "reread_song_tags_completed" = "फ़ाइल टैग दोबारा पढ़े गए।";

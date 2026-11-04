@@ -2963,6 +2963,7 @@
 "library_favorite_unlike" = "นำออกจากรายการโปรด";
 "library_favorite_filter" = "แสดงเฉพาะรายการโปรด";
 "library_favorite_filter_short" = "รายการโปรด";
+"album_filter_hide_single_song" = "ซ่อนอัลบั้มที่มีเพลงเดียว";
 "library_folder_rescan" = "สแกนโฟลเดอร์นี้อีกครั้ง";
 "reread_song_tags" = "อ่านแท็กไฟล์อีกครั้ง";
 "reread_song_tags_completed" = "แท็กไฟล์ถูกอ่านอีกครั้ง";

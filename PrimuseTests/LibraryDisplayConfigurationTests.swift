@@ -116,19 +116,22 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
     func testAlbumFilteringCombinesOverridesFavoritesAndSearchWithoutChangingOrder() throws {
         let albums = [
             Album(id: "studio", title: "Studio", artistName: "Singer", year: 2025),
-            Album(id: "live", title: "Concert", artistName: "Singer", year: 2026),
+            Album(id: "live", title: "Concert", artistName: "Singer", year: 2026, songCount: 12),
+            Album(id: "one-track-live", title: "Encore", artistName: "Singer", year: 2026, songCount: 1),
             Album(id: "single", title: "First - Single", artistName: "Singer", year: 2026),
         ]
         var categories = AlbumReleaseMetadataIndex()
         categories.prepare(albums: albums)
         var favorites = LibraryFavoriteLedger()
         _ = favorites.set(kind: .album, albumTitle: "Concert", artistName: "Singer", liked: true, at: Date())
+        _ = favorites.set(kind: .album, albumTitle: "Encore", artistName: "Singer", liked: true, at: Date())
         let request = AlbumGridFilterRequest(
             order: AlbumGridOrderRequest(order: .title, albums: albums), query: "2026", category: .live,
-            likedOnly: true, favoritesRevision: 1, categoryRevision: 1, membershipRevision: 1, overrideRevision: 1
+            likedOnly: true, hidesSingleSongAlbums: true,
+            favoritesRevision: 1, categoryRevision: 1, membershipRevision: 1, overrideRevision: 1
         )
         let result = try XCTUnwrap(request.filter(
-            albums, categories: categories, overrides: ["live": [.live]], favorites: favorites,
+            albums, categories: categories, overrides: ["live": [.live], "one-track-live": [.live]], favorites: favorites,
             unknownArtistName: "Unknown"
         ))
         XCTAssertEqual(result.map(\.id), ["live"])
@@ -139,13 +142,44 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )).isEmpty, "Removing a manual category must remove its old matches")
     }
 
+    func testSingleSongAlbumFilterUsesLibraryTrackCountAndCanBeTurnedOff() throws {
+        let albums = [
+            Album(id: "partial", title: "Studio Album", songCount: 1),
+            Album(id: "ep", title: "Two Tracks - Single", songCount: 2),
+            Album(id: "full", title: "Full Album", songCount: 12),
+            Album(id: "unknown", title: "Unknown Track Count", songCount: 0),
+        ]
+        func filtered(_ albums: [Album], hidesSingleSongAlbums: Bool) throws -> [String] {
+            let request = AlbumGridFilterRequest(
+                order: AlbumGridOrderRequest(order: .title, albums: albums), query: "", category: nil,
+                likedOnly: false, hidesSingleSongAlbums: hidesSingleSongAlbums,
+                favoritesRevision: 0, categoryRevision: 0, membershipRevision: 0, overrideRevision: 0
+            )
+            return try XCTUnwrap(request.filter(
+                albums, categories: nil, overrides: [:], favorites: LibraryFavoriteLedger(),
+                unknownArtistName: "Unknown"
+            )).map(\.id)
+        }
+        XCTAssertEqual(try filtered(albums, hidesSingleSongAlbums: false), albums.map(\.id))
+        XCTAssertEqual(try filtered(albums, hidesSingleSongAlbums: true), ["ep", "full", "unknown"])
+        XCTAssertEqual(try filtered([albums[0]], hidesSingleSongAlbums: true), [])
+        XCTAssertEqual(try filtered([], hidesSingleSongAlbums: true), [])
+        var updated = albums
+        updated[0].songCount = 2
+        updated[1].songCount = 1
+        XCTAssertEqual(try filtered(updated, hidesSingleSongAlbums: true), ["partial", "full", "unknown"])
+        XCTAssertEqual(try filtered(albums, hidesSingleSongAlbums: false), albums.map(\.id))
+    }
+
     @MainActor
     func testAlbumFilterCacheInvalidatesForSameCountMetadataAndPreferenceChanges() {
         let albums = [Album(id: "a", title: "First")]
         func request(_ source: [Album], query: String = "", category: AlbumReleaseCategory? = nil,
-                     favorites: Int = 0, categories: UInt64 = 0, membership: UInt64 = 0, overrides: Int = 0) -> AlbumGridFilterRequest {
+                     hidesSingleSongAlbums: Bool = false, favorites: Int = 0, categories: UInt64 = 0,
+                     membership: UInt64 = 0, overrides: Int = 0) -> AlbumGridFilterRequest {
             AlbumGridFilterRequest(order: AlbumGridOrderRequest(order: .title, albums: source), query: query,
-                                   category: category, likedOnly: favorites > 0, favoritesRevision: favorites,
+                                   category: category, likedOnly: favorites > 0,
+                                   hidesSingleSongAlbums: hidesSingleSongAlbums, favoritesRevision: favorites,
                                    categoryRevision: categories, membershipRevision: membership, overrideRevision: overrides)
         }
         let cache = AlbumGridFilterCache()
@@ -154,7 +188,10 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertEqual(cache.entry(for: original)?.albums.map(\.id), ["a"])
         var edited = albums
         edited[0].title = "Second"
+        var trackCountChanged = albums
+        trackCountChanged[0].songCount = 1
         for changed in [request(edited), request(albums, query: "Second"), request(albums, category: .live),
+                        request(albums, hidesSingleSongAlbums: true), request(trackCountChanged),
                         request(albums, favorites: 1), request(albums, categories: 1),
                         request(albums, membership: 1), request(albums, overrides: 1)] {
             XCTAssertNil(cache.entry(for: changed))

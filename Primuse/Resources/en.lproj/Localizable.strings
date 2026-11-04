@@ -559,6 +559,7 @@
 "library_favorite_unlike" = "Remove from Favorites";
 "library_favorite_filter" = "Show Favorites Only";
 "library_favorite_filter_short" = "Favorites";
+"album_filter_hide_single_song" = "Hide Single-Song Albums";
 "library_folder_rescan" = "Rescan This Folder";
 "reread_song_tags" = "Read File Tags Again";
 "reread_song_tags_in_progress" = "Reading file tags…";

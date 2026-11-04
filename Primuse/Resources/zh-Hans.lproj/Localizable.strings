@@ -559,6 +559,7 @@
 "library_favorite_unlike" = "取消收藏";
 "library_favorite_filter" = "只看收藏的";
 "library_favorite_filter_short" = "收藏";
+"album_filter_hide_single_song" = "屏蔽单曲";
 "library_folder_rescan" = "重新扫描此文件夹";
 "reread_song_tags" = "重新读取文件标签";
 "reread_song_tags_in_progress" = "正在读取文件标签";

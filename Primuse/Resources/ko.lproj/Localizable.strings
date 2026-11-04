@@ -799,6 +799,7 @@
 "library_favorite_unlike" = "즐겨찾기 해제";
 "library_favorite_filter" = "즐겨찾기만 보기";
 "library_favorite_filter_short" = "즐겨찾기";
+"album_filter_hide_single_song" = "한 곡짜리 앨범 숨기기";
 "library_folder_rescan" = "이 폴더 다시 스캔";
 "reread_song_tags" = "파일 태그 다시 읽기";
 "reread_song_tags_in_progress" = "파일 태그 읽는 중…";
