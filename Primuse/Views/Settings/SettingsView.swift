@@ -2375,6 +2375,12 @@ struct PlaybackSettingsView: View {
                     }
                 }
                 .settingsAnchor("playback.cellularStreamQuality")
+                Picker("navidrome_transcode_format", selection: $settings.navidromeTranscodeFormat) {
+                    ForEach(StreamTranscodeFormat.allCases, id: \.self) { format in
+                        Text(verbatim: format.displayName).tag(format)
+                    }
+                }
+                .settingsAnchor("playback.navidromeTranscodeFormat")
             } header: {
                 SettingsInfoHeader("streaming_quality_section") {
                     Text("streaming_quality_desc")

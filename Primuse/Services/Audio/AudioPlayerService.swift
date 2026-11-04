@@ -6259,7 +6259,8 @@ final class AudioPlayerService {
         if let bitRateKbps = adaptiveTranscodeBitRate, let manager = sourceManager {
             let transcodeFileName = manager.adaptiveTranscodeFileName(
                 for: song,
-                bitRateKbps: bitRateKbps
+                bitRateKbps: bitRateKbps,
+                format: adaptiveTranscodePlan.transcodedFormat ?? .mp3
             )
             completedFileProvider = { [song] in
                 // 对共享下载的等待本身不响应取消。切歌时这个 Task 会被取消,
@@ -6290,12 +6291,10 @@ final class AudioPlayerService {
             ? (prepared.persistOnComplete ? prepared.url : nil)
             : nil
         let admittedMaximumBytes = Int(clamping: prepared.maximumTransferBytes)
-        // 交付的是 mp3, 不是 song.fileFormat 描述的原始容器。扩展名是
-        // StreamingDownloadDecoder 选解码器的唯一依据 —— 传 "flac" 会让它用
-        // SFB 的原生 FLAC 解码器去开一份 mp3。
+        // 用本次转码的容器选择解码器，不能沿用原文件的扩展名。
         let downloadFileExtension = adaptiveTranscodeBitRate == nil
             ? song.fileFormat.rawValue
-            : AdaptiveStreamQualityPolicy.transcodedFileExtension
+            : (adaptiveTranscodePlan.transcodedFormat ?? .mp3).rawValue
         let preparationID = UUID()
         let sessionControl = StreamingDownloadSessionControl()
         activeStreamingDownloadPreparation = ActiveStreamingDownloadPreparation(

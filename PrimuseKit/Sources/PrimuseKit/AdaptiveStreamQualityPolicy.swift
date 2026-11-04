@@ -26,10 +26,24 @@ public enum StreamQualityPreference: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// 一次播放要用的取流方式。`transcode` 表示让服务端转成 mp3 渐进流。
+public enum StreamTranscodeFormat: String, Codable, Sendable, CaseIterable {
+    case mp3
+    case aac
+    case opus
+
+    public var displayName: String {
+        switch self {
+        case .mp3: "MP3"
+        case .aac: "AAC"
+        case .opus: "Opus"
+        }
+    }
+}
+
+/// 一次播放要用的取流方式，格式与码率在这次播放期间保持不变。
 public enum SourceTranscodePlan: Sendable, Equatable {
     case original
-    case transcode(bitRateKbps: Int)
+    case transcode(bitRateKbps: Int, format: StreamTranscodeFormat = .mp3)
 
     public var isTranscode: Bool {
         if case .transcode = self { return true }
@@ -37,7 +51,12 @@ public enum SourceTranscodePlan: Sendable, Equatable {
     }
 
     public var transcodedBitRateKbps: Int? {
-        if case .transcode(let bitRateKbps) = self { return bitRateKbps }
+        if case .transcode(let bitRateKbps, _) = self { return bitRateKbps }
+        return nil
+    }
+
+    public var transcodedFormat: StreamTranscodeFormat? {
+        if case .transcode(_, let format) = self { return format }
         return nil
     }
 }
@@ -67,8 +86,7 @@ public enum AdaptiveStreamQualityPolicy {
     /// 所以本功能新增的判断一律只认这个独立标记。
     public static let adaptiveStreamQueryKey = "primuse_adaptive"
 
-    /// 服务端转码的目标容器。播放层据此选择解码器 —— 交付的字节是 mp3，
-    /// 不是 `Song.fileFormat` 描述的原始格式。
+    /// Emby / Jellyfin 转码端点使用的默认容器。
     public static let transcodedFileExtension = "mp3"
 
     // MARK: - 计划判定
@@ -111,7 +129,8 @@ public enum AdaptiveStreamQualityPolicy {
         isCueTrack: Bool = false,
         sourceBitRateKbps: Int?,
         fileSize: Int64,
-        duration: Double
+        duration: Double,
+        transcodeFormat: StreamTranscodeFormat = .mp3
     ) -> SourceTranscodePlan {
         let preference = activePreference(
             wifiPreference: wifiPreference,
@@ -156,7 +175,7 @@ public enum AdaptiveStreamQualityPolicy {
                 return .original
             }
         }
-        return .transcode(bitRateKbps: target)
+        return .transcode(bitRateKbps: target, format: transcodeFormat)
     }
 
     /// 原始码率(kbps)。优先用服务端给的值，缺失时用 fileSize/duration 估算；
@@ -201,7 +220,9 @@ public enum AdaptiveStreamQualityPolicy {
               bitRate > 0 else {
             return .original
         }
-        return .transcode(bitRateKbps: bitRate)
+        let format = queryValue(in: url, named: "format")
+            .flatMap { StreamTranscodeFormat(rawValue: $0.lowercased()) } ?? .mp3
+        return .transcode(bitRateKbps: bitRate, format: format)
     }
 
     private static func queryValue(in url: URL, named name: String) -> String? {
@@ -224,7 +245,9 @@ public enum AdaptiveStreamQualityPolicy {
 
     /// 单个转码文件名。`Song.id` 实际是十六进制摘要，但仍然过一遍白名单，
     /// 并附一个稳定指纹，避免清洗后两个不同 id 撞到同一个文件。
-    public static func transcodeFileName(songID: String, bitRateKbps: Int) -> String {
+    public static func transcodeFileName(
+        songID: String, bitRateKbps: Int, format: StreamTranscodeFormat = .mp3
+    ) -> String {
         var sanitized = ""
         sanitized.reserveCapacity(min(songID.count, 64))
         for character in songID {
@@ -238,7 +261,7 @@ public enum AdaptiveStreamQualityPolicy {
             sanitized = "song"
         }
         let fingerprint = stableFingerprint(songID)
-        return "\(sanitized)-\(fingerprint)-\(bitRateKbps).\(transcodedFileExtension)"
+        return "\(sanitized)-\(fingerprint)-\(bitRateKbps).\(format.rawValue)"
     }
 
     /// FNV-1a 64 位。必须跨进程稳定，所以不能用 Swift 的 `Hasher`

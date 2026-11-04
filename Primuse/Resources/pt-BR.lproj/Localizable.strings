@@ -4552,6 +4552,7 @@
 "streaming_quality_section" = "Qualidade de transmissão";
 "streaming_quality_wifi" = "Wi-Fi";
 "streaming_quality_cellular" = "Dados móveis";
+"navidrome_transcode_format" = "Formato de transcodificação do Navidrome";
 "streaming_quality_original" = "Original";
 "streaming_quality_320" = "320 kbps";
 "streaming_quality_192" = "192 kbps";

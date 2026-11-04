@@ -4552,6 +4552,7 @@
 "streaming_quality_section" = "คุณภาพการส่งข้อมูล";
 "streaming_quality_wifi" = "Wi-Fi";
 "streaming_quality_cellular" = "เครือข่ายมือถือ";
+"navidrome_transcode_format" = "รูปแบบการแปลงรหัส Navidrome";
 "streaming_quality_original" = "ต้นฉบับ";
 "streaming_quality_320" = "320 kbps";
 "streaming_quality_192" = "192 kbps";

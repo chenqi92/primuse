@@ -11,17 +11,19 @@ final class SubsonicRatingTests: XCTestCase {
         for useSSL in [false, true] {
             let (source, session) = makeSource(RatingHTTPFixture(), useSSL: useSSL)
             defer { session.invalidateAndCancel() }
-            for bitrate in [320, 192, 128] {
-                let resolved = try await source.streamingURL(for: "/songs/hires.flac", transcode: .transcode(bitRateKbps: bitrate))
-                let url = try XCTUnwrap(resolved)
-                let parameters = query(URLRequest(url: url))
-                XCTAssertEqual(url.scheme, useSSL ? "https" : "http")
-                XCTAssertEqual(url.path, "/rest/stream.view")
-                XCTAssertEqual(parameters["id"], "hires")
-                XCTAssertEqual(parameters["format"], "mp3")
-                XCTAssertEqual(parameters["maxBitRate"], String(bitrate))
-                XCTAssertEqual(parameters[SourceStreamQuery.transcoded], "1")
-                XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), .transcode(bitRateKbps: bitrate))
+            for format in StreamTranscodeFormat.allCases {
+                for bitrate in [320, 192, 128] {
+                    let resolved = try await source.streamingURL(for: "/songs/hires.flac", transcode: .transcode(bitRateKbps: bitrate, format: format))
+                    let url = try XCTUnwrap(resolved)
+                    let parameters = query(URLRequest(url: url))
+                    XCTAssertEqual(url.scheme, useSSL ? "https" : "http")
+                    XCTAssertEqual(url.path, "/rest/stream.view")
+                    XCTAssertEqual(parameters["id"], "hires")
+                    XCTAssertEqual(parameters["format"], format.rawValue)
+                    XCTAssertEqual(parameters["maxBitRate"], String(bitrate))
+                    XCTAssertEqual(parameters[SourceStreamQuery.transcoded], "1")
+                    XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), .transcode(bitRateKbps: bitrate, format: format))
+                }
             }
             let original = try await source.streamingURL(for: "/songs/hires.flac", transcode: .original)
             let parameters = query(URLRequest(url: try XCTUnwrap(original)))

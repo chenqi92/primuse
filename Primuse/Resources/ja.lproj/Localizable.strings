@@ -4647,6 +4647,7 @@
 "streaming_quality_section" = "転送音質";
 "streaming_quality_wifi" = "Wi-Fi";
 "streaming_quality_cellular" = "モバイル通信";
+"navidrome_transcode_format" = "Navidrome のトランスコード形式";
 "streaming_quality_original" = "オリジナル";
 "streaming_quality_320" = "320 kbps";
 "streaming_quality_192" = "192 kbps";

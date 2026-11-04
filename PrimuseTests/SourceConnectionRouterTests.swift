@@ -48,14 +48,14 @@ final class SourceConnectionRouterTests: XCTestCase {
             .init(kind: .localAddress, endpoint: nil, connector: local),
             .init(kind: .publicAddress, endpoint: nil, connector: remote)
         ], runtime: SourceConnectionRuntime()) { _ in }
-        let resolved = try await router.streamingURL(for: "/songs/hires.flac", transcode: .transcode(bitRateKbps: 320))
+        let resolved = try await router.streamingURL(for: "/songs/hires.flac", transcode: .transcode(bitRateKbps: 320, format: .opus))
         let url = try XCTUnwrap(resolved)
         XCTAssertEqual(url.host, "wan.invalid")
-        XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), .transcode(bitRateKbps: 320))
+        XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), .transcode(bitRateKbps: 320, format: .opus))
         let localRequests = await local.requests
         XCTAssertTrue(localRequests.isEmpty)
         let remoteRequests = await remote.requests
-        XCTAssertEqual(remoteRequests.map(\.plan), [.transcode(bitRateKbps: 320)])
+        XCTAssertEqual(remoteRequests.map(\.plan), [.transcode(bitRateKbps: 320, format: .opus)])
     }
 
     func testRoutedTranscodingDoesNotSilentlyFetchOriginalWhenUnsupported() async throws {
@@ -693,7 +693,7 @@ private actor AdaptiveTranscodingStubConnector: NetworkAdaptiveTranscodingConnec
         requests.append((path, plan))
         var components = URLComponents(string: "https://\(sourceID).invalid/stream")!
         components.queryItems = [
-            .init(name: "format", value: "mp3"),
+            .init(name: "format", value: (plan.transcodedFormat ?? .mp3).rawValue),
             .init(name: "maxBitRate", value: plan.transcodedBitRateKbps.map(String.init)),
             .init(name: SourceStreamQuery.adaptive, value: "1")
         ]

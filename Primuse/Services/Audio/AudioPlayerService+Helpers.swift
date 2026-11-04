@@ -961,7 +961,8 @@ extension AudioPlayerService {
         if let bitRateKbps = activeTranscodePlan.transcodedBitRateKbps {
             return sourceManager?.completedAdaptiveTranscodeURL(
                 for: song,
-                bitRateKbps: bitRateKbps
+                bitRateKbps: bitRateKbps,
+                format: activeTranscodePlan.transcodedFormat ?? .mp3
             )
         }
         return sourceManager?.cachedURL(for: song)

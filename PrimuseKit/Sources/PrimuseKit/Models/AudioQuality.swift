@@ -312,9 +312,11 @@ public enum NowPlayingAudioInfoTextPolicy {
     /// 这次播放走的是服务端转码流时, 给出它的规格; 原样取流返回 nil。
     public static func transcodedStream(plan: SourceTranscodePlan, sourceSampleRate: Int?) -> TranscodedStream? {
         guard let bitRateKbps = plan.transcodedBitRateKbps, bitRateKbps > 0 else { return nil }
-        let sampleRate = sourceSampleRate.flatMap { $0 > 0 && $0 <= transcodedSampleRateCeiling ? $0 : nil }
+        let format = plan.transcodedFormat ?? .mp3
+        let sampleRate = format == .opus ? 48_000
+            : sourceSampleRate.flatMap { $0 > 0 && $0 <= transcodedSampleRateCeiling ? $0 : nil }
         return TranscodedStream(
-            formatName: AudioFormat.mp3.displayName, bitRateKbps: bitRateKbps, sampleRate: sampleRate
+            formatName: format.displayName, bitRateKbps: bitRateKbps, sampleRate: sampleRate
         )
     }
 

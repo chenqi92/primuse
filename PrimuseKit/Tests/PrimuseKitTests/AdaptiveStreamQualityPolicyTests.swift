@@ -5,6 +5,39 @@ import Testing
 @Suite("Adaptive Stream Quality Policy")
 struct AdaptiveStreamQualityPolicyTests {
 
+    @Test(arguments: StreamTranscodeFormat.allCases)
+    func selectedFormatSurvivesPlanningAndURLResolution(format: StreamTranscodeFormat) throws {
+        let plan = AdaptiveStreamQualityPolicy.plan(
+            wifiPreference: .original, cellularPreference: .kbps128,
+            isExpensive: true, isConstrained: false,
+            formatIsLossless: true, formatRequiresCompleteLocalFile: false,
+            sourceBitRateKbps: 1000, fileSize: 30_000_000, duration: 240,
+            transcodeFormat: format
+        )
+        #expect(plan == .transcode(bitRateKbps: 128, format: format))
+        let url = try #require(URL(string: "https://music.invalid/rest/stream.view?format=\(format.rawValue)&maxBitRate=128&primuse_adaptive=1"))
+        #expect(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url) == plan)
+        let original = AdaptiveStreamQualityPolicy.plan(
+            wifiPreference: .original, cellularPreference: .original,
+            isExpensive: true, isConstrained: false,
+            formatIsLossless: true, formatRequiresCompleteLocalFile: false,
+            sourceBitRateKbps: 1000, fileSize: 30_000_000, duration: 240,
+            transcodeFormat: format
+        )
+        #expect(original == .original)
+    }
+
+    @Test func cachedFormatsDoNotCollideAndMP3KeepsItsExistingPath() {
+        let legacy = AdaptiveStreamQualityPolicy.transcodeFileName(songID: "same-song", bitRateKbps: 128)
+        let names = StreamTranscodeFormat.allCases.map {
+            AdaptiveStreamQualityPolicy.transcodeFileName(songID: "same-song", bitRateKbps: 128, format: $0)
+        }
+        #expect(Set(names).count == 3)
+        #expect(names.first == legacy)
+        #expect(names[1].hasSuffix(".aac"))
+        #expect(names[2].hasSuffix(".opus"))
+    }
+
     // 一首典型的无损曲目：FLAC、1000 kbps、40MB、4 分钟。
     private func losslessPlan(
         wifi: StreamQualityPreference,

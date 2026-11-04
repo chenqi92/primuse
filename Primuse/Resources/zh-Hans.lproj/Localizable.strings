@@ -4739,6 +4739,7 @@
 "streaming_quality_section" = "传输音质";
 "streaming_quality_wifi" = "Wi-Fi";
 "streaming_quality_cellular" = "移动网络";
+"navidrome_transcode_format" = "Navidrome 转码格式";
 "streaming_quality_original" = "原始音质";
 "streaming_quality_320" = "320 kbps";
 "streaming_quality_192" = "192 kbps";

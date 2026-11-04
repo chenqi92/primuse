@@ -4,6 +4,18 @@ import Testing
 
 @Suite("Audio quality formatting")
 struct AudioQualityFormattingTests {
+    @Test func transcodedQualityUsesSelectedCodecAndOpusOutputRate() throws {
+        let song = makeSong(bitRate: 1411, sampleRate: 44_100, bitDepth: 16)
+        for format in StreamTranscodeFormat.allCases {
+            let plan = SourceTranscodePlan.transcode(bitRateKbps: 128, format: format)
+            let text = CarPlayAudioQualityText(song: song, transcodePlan: plan)
+            #expect(text.badgeLines == [format.displayName])
+            #expect(text.details.contains("128kbps"))
+            let stream = try #require(NowPlayingAudioInfoTextPolicy.transcodedStream(plan: plan, sourceSampleRate: song.sampleRate))
+            #expect(stream.sampleRate == (format == .opus ? 48_000 : 44_100))
+        }
+    }
+
     @Test func carPlayQualityUsesTranscodedStreamInsteadOfOriginalHiResFile() {
         let song = makeSong(bitRate: 4608, sampleRate: 96_000, bitDepth: 24)
         let original = CarPlayAudioQualityText(song: song, transcodePlan: .original)

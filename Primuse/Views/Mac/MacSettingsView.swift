@@ -2990,6 +2990,14 @@ private struct MacSTPlaybackView: View {
                     )
                 }
                 .settingsAnchor("playback.cellularStreamQuality")
+                MacSTRow(String(localized: "navidrome_transcode_format")) {
+                    MacSTPicker(
+                        selection: $s.navidromeTranscodeFormat,
+                        options: StreamTranscodeFormat.allCases.map { ($0, $0.displayName) },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("playback.navidromeTranscodeFormat")
             }
         }
 

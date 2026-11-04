@@ -4552,6 +4552,7 @@
 "streaming_quality_section" = "Aktarım kalitesi";
 "streaming_quality_wifi" = "Wi-Fi";
 "streaming_quality_cellular" = "Hücresel veri";
+"navidrome_transcode_format" = "Navidrome Kod Dönüştürme Biçimi";
 "streaming_quality_original" = "Orijinal";
 "streaming_quality_320" = "320 kbps";
 "streaming_quality_192" = "192 kbps";

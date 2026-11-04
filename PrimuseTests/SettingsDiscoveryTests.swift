@@ -1,7 +1,37 @@
 import XCTest
+import PrimuseKit
 @testable import Primuse
 
 final class SettingsDiscoveryTests: XCTestCase {
+    @MainActor
+    func testNavidromeFormatPersistsAndIsDiscoverable() throws {
+        try withService { _, playback, defaults in
+            XCTAssertEqual(playback.navidromeTranscodeFormat, .mp3)
+            for format in StreamTranscodeFormat.allCases {
+                playback.navidromeTranscodeFormat = format
+                XCTAssertEqual(PlaybackSettings.load(defaults: defaults).navidromeTranscodeFormat, format)
+                XCTAssertEqual(PlaybackSettingsStore(defaults: defaults).navidromeTranscodeFormat, format)
+            }
+        }
+        for query in ["Navidrome", "Opus", "AAC"] {
+            XCTAssertTrue(SettingsCatalog.search(query).contains { $0.id == "playback.navidromeTranscodeFormat" })
+        }
+    }
+
+    func testNavidromeFormatUpgradeAndUnknownValuePreserveExistingSettings() throws {
+        var settings = PlaybackSettings()
+        settings.cellularStreamQuality = .kbps192
+        let data = try JSONEncoder().encode(settings)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "navidromeTranscodeFormat")
+        for unknownValue in [nil, "future-codec"] as [String?] {
+            object["navidromeTranscodeFormat"] = unknownValue
+            let decoded = try JSONDecoder().decode(PlaybackSettings.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertEqual(decoded.navidromeTranscodeFormat, .mp3)
+            XCTAssertEqual(decoded.cellularStreamQuality, .kbps192)
+        }
+    }
+
     @MainActor
     func testSimulatedWordLyricsDefaultsOffAndPersistsBothStates() throws {
         let id = "lyrics.simulatedWordTiming"

@@ -5302,6 +5302,8 @@ final class SourceManager {
         if source.type.isMediaServer, requiresConnectorBackedHTTPTransport(for: source) {
             return .original
         }
+        let settings = PlaybackSettings.load()
+        let format: StreamTranscodeFormat = source.type == .navidrome ? settings.navidromeTranscodeFormat : .mp3
         // 本地解不了的格式(WMA)必须由服务端转码, 与用户的音质设置无关。
         // 让它走和「按网络转码」同一条链路: 独立的转码目录、安装前校验、
         // 下完可拖动、提前准备下一首。
@@ -5312,9 +5314,8 @@ final class SourceManager {
         if source.type.isSubsonicFamily,
            SubsonicSource.requiresServerTranscode(song.fileFormat),
            !song.isCueTrack {
-            return .transcode(bitRateKbps: SubsonicSource.transcodeBitRate)
+            return .transcode(bitRateKbps: SubsonicSource.transcodeBitRate, format: format)
         }
-        let settings = PlaybackSettings.load()
         // 两项都是默认的 `.original` 时策略第一步就返回, 下面的判断都走不到。
         guard settings.wifiStreamQuality != .original
                 || settings.cellularStreamQuality != .original else {
@@ -5332,7 +5333,8 @@ final class SourceManager {
             isCueTrack: song.isCueTrack,
             sourceBitRateKbps: song.bitRate,
             fileSize: song.fileSize,
-            duration: song.duration
+            duration: song.duration,
+            transcodeFormat: format
         )
     }
 
@@ -5349,30 +5351,32 @@ final class SourceManager {
             )
     }
 
-    func adaptiveTranscodeFileURL(for song: Song, bitRateKbps: Int) -> URL {
+    func adaptiveTranscodeFileURL(for song: Song, bitRateKbps: Int, format: StreamTranscodeFormat = .mp3) -> URL {
         let directory = Self.adaptiveTranscodeDirectoryURL()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent(
             AdaptiveStreamQualityPolicy.transcodeFileName(
                 songID: song.id,
-                bitRateKbps: bitRateKbps
+                bitRateKbps: bitRateKbps,
+                format: format
             )
         )
     }
 
     /// 已经完整落盘的转码产物。`StreamingDownloadDecoder` 只在整段下载
     /// 结束后才原子安装到这个路径, 所以「文件存在」即「完整」。
-    func completedAdaptiveTranscodeURL(for song: Song, bitRateKbps: Int) -> URL? {
-        let url = Self.adaptiveTranscodeFileURL(song: song, bitRateKbps: bitRateKbps)
+    func completedAdaptiveTranscodeURL(for song: Song, bitRateKbps: Int, format: StreamTranscodeFormat = .mp3) -> URL? {
+        let url = Self.adaptiveTranscodeFileURL(song: song, bitRateKbps: bitRateKbps, format: format)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
 
-    private nonisolated static func adaptiveTranscodeFileURL(song: Song, bitRateKbps: Int) -> URL {
+    private nonisolated static func adaptiveTranscodeFileURL(song: Song, bitRateKbps: Int, format: StreamTranscodeFormat = .mp3) -> URL {
         adaptiveTranscodeDirectoryURL().appendingPathComponent(
             AdaptiveStreamQualityPolicy.transcodeFileName(
                 songID: song.id,
-                bitRateKbps: bitRateKbps
+                bitRateKbps: bitRateKbps,
+                format: format
             )
         )
     }
@@ -5408,7 +5412,8 @@ final class SourceManager {
         streamURL: URL,
         sourceStreamEpoch: UInt64
     ) async -> URL? {
-        let destination = adaptiveTranscodeFileURL(for: song, bitRateKbps: bitRateKbps)
+        let format = AdaptiveStreamQualityPolicy.plan(fromResolvedURL: streamURL).transcodedFormat ?? .mp3
+        let destination = adaptiveTranscodeFileURL(for: song, bitRateKbps: bitRateKbps, format: format)
         let name = destination.lastPathComponent
         if FileManager.default.fileExists(atPath: destination.path) {
             lastServedAdaptiveTranscodeName = name
@@ -5471,17 +5476,18 @@ final class SourceManager {
     }
 
     /// 这首歌在这个码率下的转码产物文件名 —— 也是在途物化的识别键。
-    func adaptiveTranscodeFileName(for song: Song, bitRateKbps: Int) -> String {
-        AdaptiveStreamQualityPolicy.transcodeFileName(songID: song.id, bitRateKbps: bitRateKbps)
+    func adaptiveTranscodeFileName(for song: Song, bitRateKbps: Int, format: StreamTranscodeFormat = .mp3) -> String {
+        AdaptiveStreamQualityPolicy.transcodeFileName(songID: song.id, bitRateKbps: bitRateKbps, format: format)
     }
 
     /// 队列预取: 解析出 adaptive 地址后走同一个单飞物化入口。
     private func prefetchAdaptiveTranscode(
         song: Song,
         source: MusicSource,
-        bitRateKbps: Int
+        bitRateKbps: Int,
+        format: StreamTranscodeFormat
     ) async {
-        let destination = adaptiveTranscodeFileURL(for: song, bitRateKbps: bitRateKbps)
+        let destination = adaptiveTranscodeFileURL(for: song, bitRateKbps: bitRateKbps, format: format)
         guard !FileManager.default.fileExists(atPath: destination.path) else { return }
         guard !(await playbackSourceEndpointsAreUnavailable(for: source)) else { return }
         let conn = connector(for: source)
@@ -5492,7 +5498,7 @@ final class SourceManager {
             let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
             guard let streamURL = try await adaptive.streamingURL(
                 for: song.filePath,
-                transcode: .transcode(bitRateKbps: bitRateKbps)
+                transcode: .transcode(bitRateKbps: bitRateKbps, format: format)
             ) else { return }
             try Task.checkCancellation()
             plog("⏩ Transcode prefetch: '\(song.title)' @\(bitRateKbps)kbps")
@@ -12611,12 +12617,13 @@ final class SourceManager {
             // 转码省下的流量。而转码这条链路是「整份下完再解码」, 冷转码的
             // 下载速度受服务端编码速度限制, 不提前备好每首歌开头都要静音等待。
             let plan = transcodePlan(for: song, source: source)
-            if case .transcode(let bitRateKbps) = plan {
+            if case .transcode(let bitRateKbps, let format) = plan {
                 setBackgroundAudioCachePhase(.completeFile(.transcoded), songID: song.id, runID: runID)
                 await prefetchAdaptiveTranscode(
                     song: song,
                     source: source,
-                    bitRateKbps: bitRateKbps
+                    bitRateKbps: bitRateKbps,
+                    format: format
                 )
                 return
             }
@@ -12703,14 +12710,14 @@ final class SourceManager {
             guard source.type != .local else { return }
 
             let plan = transcodePlan(for: song, source: source)
-            if case .transcode(let bitRateKbps) = plan {
+            if case .transcode(let bitRateKbps, let format) = plan {
                 // 转码的歌播放时也是整份下完再解码, 预取的就是那一份。
                 guard !rangeSeedOnly,
                       UpcomingPlaybackPrefetchPolicy.allowsCompleteFile(rank: rank, kind: .transcoded) else { return }
                 await waitForPlaybackQuietBeforePrefetch()
                 try Task.checkCancellation()
                 setBackgroundAudioCachePhase(.completeFile(.transcoded), songID: song.id, runID: runID)
-                await prefetchAdaptiveTranscode(song: song, source: source, bitRateKbps: bitRateKbps)
+                await prefetchAdaptiveTranscode(song: song, source: source, bitRateKbps: bitRateKbps, format: format)
                 return
             }
             // 旧式服务端转码流(CUE 里的 WMA 等): 播放用的是转码产物, 预取原文件没用。
