@@ -647,3 +647,90 @@ final class CarPlayEditorUITests: XCTestCase {
         add(attachment)
     }
 }
+
+@MainActor
+final class SpokenChapterManagementUITests: XCTestCase {
+    func testImportApplyAndCancelAreIndependent() {
+        let app = configuredApp()
+        for text in ["00:00 Opening\n12:30 Next chapter",
+                     #"{"version":"1.2.0","chapters":[{"startTime":0,"title":"Opening"},{"startTime":750,"title":"Next chapter"}]}"#] {
+            app.launchEnvironment["PRIMUSE_CHAPTER_TEST_IMPORT"] = text
+            app.launch()
+            openChapters(app)
+            app.buttons["chapters.import.cancel"].tap()
+            XCTAssertFalse(app.buttons["chapters.import.apply"].exists)
+            XCTAssertFalse(app.switches["chapters.saved.enabled"].exists)
+            app.buttons["Done"].tap()
+            openChapters(app)
+            app.buttons["chapters.import.apply"].tap()
+            XCTAssertTrue(app.switches["chapters.saved.enabled"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["chapters.import.apply"].waitForNonExistence(timeout: 5))
+            app.buttons["Done"].tap()
+            openChapters(app)
+            XCTAssertTrue(app.switches["chapters.saved.enabled"].exists, "Applied chapters must survive reopening")
+            app.buttons["chapters.import.cancel"].tap()
+            app.buttons["Delete"].tap()
+            app.alerts.buttons["Delete"].tap()
+            XCTAssertTrue(app.switches["chapters.saved.enabled"].waitForNonExistence(timeout: 5))
+            app.buttons["Done"].tap()
+            app.terminate()
+        }
+    }
+
+    func testSavedJobDeleteDoesNotResumeAndResumeDoesNotDelete() {
+        let app = configuredApp()
+        app.launchEnvironment["PRIMUSE_CHAPTER_TEST_MODE"] = "job"
+        app.launch()
+        openChapters(app)
+        app.buttons["chapters.job.delete"].tap()
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["Pause"].exists, "Delete must not start generation")
+        app.alerts.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["chapters.job.resume"].exists)
+        app.buttons["chapters.job.resume"].tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Resume must not request deletion")
+        app.buttons["Pause"].tap()
+        XCTAssertTrue(app.buttons["chapters.job.delete"].waitForExistence(timeout: 5))
+        app.buttons["chapters.job.delete"].tap()
+        app.alerts.buttons["Delete"].tap()
+        XCTAssertTrue(app.buttons["chapters.job.delete"].waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        app.buttons["Done"].tap()
+        openChapters(app)
+        XCTAssertFalse(app.buttons["chapters.job.delete"].exists)
+        app.buttons["Done"].tap()
+    }
+
+    private func configuredApp() -> XCUIApplication {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "chapterManagement"
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchEnvironment["PRIMUSE_NO_NOTIFICATION_PROMPT"] = "1"
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
+                               "-primuse.notifyLongTasks", "NO", "-primuse.launch.consecutiveAborts", "0",
+                               "-primuse.launch.safeModeLatched", "NO"]
+        addTeardownBlock { @MainActor in
+            if app.buttons["Done"].exists { app.buttons["Done"].tap() }
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_VISUAL_EVIDENCE")
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_CHAPTER_TEST_MODE")
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_CHAPTER_TEST_IMPORT")
+            app.launch()
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 20))
+            app.terminate()
+        }
+        return app
+    }
+
+    private func openChapters(_ app: XCUIApplication) {
+        let open = app.buttons["chapters.test.open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: open)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        open.tap()
+        XCTAssertTrue(app.buttons["chapters.import"].waitForExistence(timeout: 5))
+    }
+}

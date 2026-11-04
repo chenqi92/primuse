@@ -67,10 +67,15 @@ struct SpokenChapterGenerationSheet: View {
                                 HStack {
                                     Button("chapter_generation_resume") { requestStart(resuming: job.id) }
                                         .disabled(generator.isApplying)
+                                        .accessibilityIdentifier("chapters.job.resume")
                                     Spacer()
                                     Button("delete", role: .destructive) { discardingJobID = job.id }
                                         .disabled(generator.isApplying)
+                                        .accessibilityIdentifier("chapters.job.delete")
                                 }
+                                #if !os(tvOS)
+                                .buttonStyle(.borderless)
+                                #endif
                             }
                         }
                     }
@@ -97,6 +102,7 @@ struct SpokenChapterGenerationSheet: View {
                         Toggle(LocalizedStringKey(record.origin == .imported ? "chapter_import_use" : "chapter_generation_use"), isOn: Binding(get: { record.isEnabled }, set: { enabled in
                             updateRecord { $0.isEnabled = enabled }
                         }))
+                        .accessibilityIdentifier("chapters.saved.enabled")
                         chapterRows(record.chapters, songID: song.id, isPreview: false)
                         Button("delete", role: .destructive) { confirmsDelete = true }
                     }
@@ -206,12 +212,14 @@ struct SpokenChapterGenerationSheet: View {
                 }
                 HStack {
                     Button("cancel") { importPreview = nil }
+                        .accessibilityIdentifier("chapters.import.cancel")
                     Spacer()
                     Button("chapter_generation_apply") {
                         if record != nil { confirmsImport = true } else { applyImport() }
                     }
                     .accessibilityIdentifier("chapters.import.apply")
                 }
+                .buttonStyle(.borderless)
                 .disabled(isApplyingImport || generator.isApplying)
             }
         } footer: {
@@ -343,3 +351,82 @@ struct SpokenChapterGenerationSheet: View {
         }
     }
 }
+
+#if DEBUG && os(iOS)
+private extension SpokenChapterGenerationSheet {
+    func withTestImport(_ preview: SpokenChapterImportPreview?) -> Self {
+        var view = self
+        view._importPreview = State(initialValue: preview)
+        return view
+    }
+}
+
+struct SpokenChapterManagementTestHost: View {
+    @StateObject private var fixture = Fixture()
+    private var library: MusicLibrary { fixture.library }
+    private var intelligence: MusicIntelligenceService { fixture.intelligence }
+    private let song = Song(id: "chapter-test", title: "Chapter test book", duration: 50_000,
+                            fileFormat: .mp3, filePath: "chapter-test.mp3", sourceID: "test")
+    @State private var generator = SpokenChapterGenerator(usesDefaultStorage: false)
+    @State private var prepared = false
+    @State private var showsChapters = false
+
+    @MainActor
+    private final class Fixture: ObservableObject {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ChapterManagementUITests")
+        let defaults = UserDefaults(suiteName: "ChapterManagementUITests")!
+        let intelligence: MusicIntelligenceService
+        let library: MusicLibrary
+
+        init() {
+            let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+            settings.recordBuiltInAIConsent()
+            intelligence = MusicIntelligenceService(settingsStore: settings, recommendationReuseDefaults: defaults)
+            try? intelligence.grantRemoteConsent()
+            library = MusicLibrary(storageDirectory: directory)
+        }
+
+        func cleanUp() {
+            defaults.removePersistentDomain(forName: "ChapterManagementUITests")
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    var body: some View {
+        Button("spoken_chapters_manage") { showsChapters = true }
+            .accessibilityIdentifier("chapters.test.open")
+            .disabled(!prepared)
+            .sheet(isPresented: $showsChapters, onDismiss: { generator.cancel() }) {
+                SpokenChapterGenerationSheet(song: song, library: library, loadTranscript: { _ in
+                    // Suspend before any provider request if a tap accidentally resumes the job.
+                    try? await Task.sleep(for: .seconds(60))
+                    return []
+                }, generator: generator)
+                .withTestImport(importPreview)
+                .environment(intelligence)
+            }
+            .task {
+                guard !prepared else { return }
+                if ProcessInfo.processInfo.environment["PRIMUSE_CHAPTER_TEST_MODE"] == "job" {
+                    generator.start(songs: [song], library: library,
+                        loadTranscript: { _ in [.init(timestamp: 0, text: "Opening", isSynchronized: true)] },
+                        limits: intelligence.spokenChapterLimits,
+                        checkpointNamespace: intelligence.spokenChapterCheckpointNamespace,
+                        request: { _ in throw SpokenChapterGeneration.Failure.invalidResponse })
+                    await generator.waitForCompletion()
+                }
+                prepared = true
+            }
+            .onDisappear {
+                generator.cancel()
+                fixture.cleanUp()
+            }
+    }
+
+    private var importPreview: SpokenChapterImportPreview? {
+        guard let text = ProcessInfo.processInfo.environment["PRIMUSE_CHAPTER_TEST_IMPORT"] else { return nil }
+        return try? SpokenChapterImportPreview(songID: song.id, data: Data(text.utf8), duration: song.duration,
+                                               previousRevision: library.generatedChapterRecord(id: song.id)?.revision)
+    }
+}
+#endif

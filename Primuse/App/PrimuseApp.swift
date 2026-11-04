@@ -1710,6 +1710,8 @@ struct PrimuseApp: App {
                 .modifier(DebugEvidenceOrientation())
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "spokenWordChapters" {
             SpokenWordChapterEvidenceHost()
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "chapterManagement" {
+            SpokenChapterManagementTestHost()
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "spokenWordShelf" {
             SpokenWordShelfEvidenceHost()
         } else {
