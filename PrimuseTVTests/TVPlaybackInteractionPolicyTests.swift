@@ -123,6 +123,22 @@ final class TVTabTransitionTests: XCTestCase {
         }
     }
 
+    func testReversingTransitionNotifiesWhenRetiringPageBecomesActiveAgain() async throws {
+        let probe = TabProbe()
+        try await withHost(probe) {
+            probe.selection = .playlists
+            try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.displayed.last, .playlists)
+            probe.selection = .home
+            try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.displayed.last, .home,
+                           "Returning to a retained page must restore its content focus without another onAppear")
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(probe.visible, [.home])
+            XCTAssertEqual(probe.enabled[.home], true)
+        }
+    }
+
     func testPlayerAndContentFocusChangesDoNotKeepOutgoingPage() async throws {
         let probe = TabProbe()
         try await withHost(probe) {
@@ -163,6 +179,7 @@ final class TVTabTransitionTests: XCTestCase {
         var selection = TVRoot.Tab.home
         var allowsAnimation = true
         var visible: Set<TVRoot.Tab> = []
+        var displayed: [TVRoot.Tab] = []
         var enabled: [TVRoot.Tab: Bool] = [:]
         var focusRequest = 0
     }
@@ -188,7 +205,8 @@ final class TVTabTransitionTests: XCTestCase {
     private struct TabHarness: View {
         let probe: TabProbe
         var body: some View {
-            TVTabContent(selection: probe.selection, allowsAnimation: probe.allowsAnimation) { item in
+            TVTabContent(selection: probe.selection, allowsAnimation: probe.allowsAnimation,
+                         onDisplayed: { probe.displayed.append($0) }) { item in
                 TabPage(item: item, probe: probe)
             }
         }
@@ -425,6 +443,17 @@ final class TVContentFocusRoutingTests: XCTestCase {
             state.contentModeDidChange(in: .nowPlaying, nowPlayingMode: .liveRadio)?.target,
             .nowPlaying(.liveRadioPrimary)
         )
+    }
+
+    func testPlaylistsDownSurvivesPageReplacementAndReturningToTabsCancelsIt() {
+        var state = TVContentFocusRoutingState()
+        let first = state.moveDown(from: .playlists, nowPlayingMode: .song)
+        XCTAssertEqual(first?.target, .playlistsPrimary)
+        let restored = state.contentDidAppear(in: .playlists, nowPlayingMode: .song)
+        XCTAssertEqual(restored?.target, .playlistsPrimary)
+        XCTAssertNotEqual(first?.id, restored?.id)
+        state.returnToTabs()
+        XCTAssertNil(state.contentDidAppear(in: .playlists, nowPlayingMode: .song))
     }
 
     func testSourcesDownRoutesToPrimaryAddAction() {

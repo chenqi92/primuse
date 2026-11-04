@@ -5,6 +5,7 @@ import PrimuseKit
 /// tvOS 歌单 — 4 列磁贴网格(对应 tvos.jsx 的 TVPlaylistsArtboard)。
 struct TVPlaylistsView: View {
     @Environment(TVStore.self) private var store
+    var focusRequest = 0
     var openPlayer: () -> Void = {}
     /// 新建、重命名歌单的面板开着:顶栏停掉播放快捷键,关掉后焦点由这一页自己放回。
     var onModalPresentationChanged: (Bool) -> Void = { _ in }
@@ -14,6 +15,7 @@ struct TVPlaylistsView: View {
     @AppStorage(PlaylistListOrder.storageKey) private var orderRawValue = PlaylistListOrder.custom.rawValue
     /// 设置里的「评分与评论」:关着时电视上不显示星级,按星级聚合的卡片也不出。
     @AppStorage(LibraryReviewPreferences.enabledKey) private var ratingsEnabled = false
+    @FocusState private var focusedFilter: Int?
     @FocusState private var isOrderMenuFocused: Bool
     @FocusState private var isCreateFocused: Bool
     @State private var showsCreate = false
@@ -42,8 +44,14 @@ struct TVPlaylistsView: View {
                         }
                         HStack(spacing: 16) {
                             TVSelectionButton(title: PMString("ext.tv.library.filter.all"), selected: filter == 0) { filter = 0 }
+                                .focused($focusedFilter, equals: 0)
+                                .accessibilityIdentifier("tv.playlists.filter.0")
                             TVSelectionButton(title: String(localized: "tab_playlists"), selected: filter == 1) { filter = 1 }
+                                .focused($focusedFilter, equals: 1)
+                                .accessibilityIdentifier("tv.playlists.filter.1")
                             TVSelectionButton(title: PMString("ext.tv.library.filter.smart"), selected: filter == 2) { filter = 2 }
+                                .focused($focusedFilter, equals: 2)
+                                .accessibilityIdentifier("tv.playlists.filter.2")
                             Spacer(minLength: 16)
                             // 只排普通歌单:只看智能歌单、普通歌单不到两个时没得排。
                             if filter != 2, store.normalPlaylists.lazy.filter({ $0.kind == .normal }).count >= 2 {
@@ -81,6 +89,12 @@ struct TVPlaylistsView: View {
                     .tvPage()
                 }
             }
+        }
+        .task(id: focusRequest) {
+            guard focusRequest > 0 else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            focusedFilter = filter
         }
         .task { await appleMusic.loadPlaylists() }
         .fullScreenCover(isPresented: $showsCreate) {

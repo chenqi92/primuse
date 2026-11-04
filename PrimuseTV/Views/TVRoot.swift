@@ -12,6 +12,7 @@ enum TVContentFocusTab: Equatable, Sendable {
     case nowPlaying
     case sources
     case search
+    case playlists
     case other
 }
 
@@ -35,6 +36,7 @@ enum TVContentFocusTarget: Equatable, Sendable {
     case nowPlaying(TVNowPlayingFocusTarget)
     case sourcesPrimary
     case searchField
+    case playlistsPrimary
 }
 
 struct TVContentFocusRequest: Equatable, Sendable {
@@ -63,6 +65,8 @@ enum TVContentFocusRoutingPolicy {
             return .sourcesPrimary
         case .search:
             return .searchField
+        case .playlists:
+            return .playlistsPrimary
         case .other:
             return nil
         }
@@ -210,6 +214,7 @@ struct TVRoot: View {
     @State private var libraryFocusRequest = 0
     @State private var nowPlayingFocusRequest: TVContentFocusRequest?
     @State private var sourcesFocusRequest = 0
+    @State private var playlistsFocusRequest = 0
     @State private var searchFocusRequest: TVContentFocusRequest?
     @State private var playbackInteractionRequest = 0
     @State private var isRoutingToScrubber = false
@@ -730,6 +735,7 @@ struct TVRoot: View {
             )
         case .playlists:
             TVPlaylistsView(
+                focusRequest: playlistsFocusRequest,
                 openPlayer: { openPlayerFromPage() },
                 onModalPresentationChanged: childModalPresentationChanged
             )
@@ -784,11 +790,13 @@ struct TVRoot: View {
 
     private func selectTab(_ item: Tab) {
         guard item != tab else { return }
+        plog("TV navigation select \(tab.rawValue)→\(item.rawValue)")
         tab = item
         guard item == .nowPlaying, store.hasNowPlaying else { return }
         // 顶栏随即收起,焦点要明确送进播放页(封面)。
         Task { @MainActor in
             await Task.yield()
+            guard tab == .nowPlaying, hidesTabBar else { return }
             requestContentFocus(from: .nowPlaying)
         }
     }
@@ -910,7 +918,7 @@ struct TVRoot: View {
     }
 
     private func restoreNowPlayingFocus(_ mode: TVNowPlayingFocusMode) {
-        guard let request = contentFocusRouting.contentDidAppear(
+        guard tab == .nowPlaying, let request = contentFocusRouting.contentDidAppear(
             in: .nowPlaying,
             nowPlayingMode: mode
         ) else { return }
@@ -918,7 +926,7 @@ struct TVRoot: View {
     }
 
     private func retargetNowPlayingFocus(_ mode: TVNowPlayingFocusMode) {
-        guard let request = contentFocusRouting.contentModeDidChange(
+        guard tab == .nowPlaying, let request = contentFocusRouting.contentModeDidChange(
             in: .nowPlaying,
             nowPlayingMode: mode
         ) else { return }
@@ -957,6 +965,8 @@ struct TVRoot: View {
             sourcesFocusRequest = request.id
         case .searchField:
             searchFocusRequest = request
+        case .playlistsPrimary:
+            playlistsFocusRequest = request.id
         }
     }
 
@@ -966,6 +976,7 @@ struct TVRoot: View {
         case .nowPlaying: return .nowPlaying
         case .sources: return .sources
         case .search: return .search
+        case .playlists: return .playlists
         default: return .other
         }
     }
@@ -1005,7 +1016,10 @@ struct TVTabContent<Content: View>: View {
                     .accessibilityHidden(item != displayed)
                     .zIndex(item == displayed ? 1 : 0)
                     .transition(.opacity)
-                    .onAppear { if item == displayed { onDisplayed(item) } }
+                    // 反向切回仍在淡出的页不会再触发 onAppear；恢复交互时也必须重发焦点。
+                    .onChange(of: item == displayed, initial: true) { _, isDisplayed in
+                        if isDisplayed { onDisplayed(item) }
+                    }
             }
         }
         .onChange(of: selection) { _, next in
@@ -1120,6 +1134,11 @@ extension TVTabBarItem {
     }
 }
 
+private struct TVTabSelectionIntent: Equatable {
+    let selection: TVRoot.Tab?
+    let revision: Int
+}
+
 struct TVTabBar: View {
     @AppStorage(AppIconService.storageKey) private var iconID = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1134,6 +1153,7 @@ struct TVTabBar: View {
     var onSettings: () -> Void
     @FocusState private var focusedTarget: TVTabBarFocusTarget?
     @State private var pendingProgrammaticFocusTarget: TVTabBarFocusTarget?
+    @State private var selectionIntentRevision = 0
 
     private var pendingSelection: TVRoot.Tab? {
         TVTabFocusSelectionPolicy.selection(
@@ -1174,14 +1194,17 @@ struct TVTabBar: View {
                         isActive: item == active,
                         isFocused: focusedTarget == .tab(item)
                     ) {
+                        selectionIntentRevision &+= 1
                         onSelect(item)
                     }
+                    .accessibilityIdentifier("tv.tab.\(item.rawValue)")
                     .focused($focusedTarget, equals: .tab(item))
                     .anchorPreference(key: TVTabBoundsPreferenceKey.self, value: .bounds) {
                         [item: $0]
                     }
                     .onMoveCommand { direction in
                         if direction == .down {
+                            selectionIntentRevision &+= 1
                             onContentDown(item)
                         }
                     }
@@ -1209,6 +1232,8 @@ struct TVTabBar: View {
             .focused($focusedTarget, equals: .settings)
         }
         .onChange(of: focusedTarget) { previous, focused in
+            selectionIntentRevision &+= 1
+            pdiag("TV tab focus \(String(describing: previous))→\(String(describing: focused)) active=\(active.rawValue)")
             onFocusChanged(focused != nil)
             let bypassesEntryCorrection = focused != nil
                 && focused == pendingProgrammaticFocusTarget
@@ -1223,12 +1248,18 @@ struct TVTabBar: View {
                 return
             }
         }
-        .task(id: pendingSelection) {
-            if let selection = await TVTabFocusSelectionPolicy.settledSelection(pendingSelection) {
-                onSelect(selection)
-            }
+        .task(id: TVTabSelectionIntent(selection: pendingSelection, revision: selectionIntentRevision)) {
+            let revision = selectionIntentRevision
+            guard let selection = await TVTabFocusSelectionPolicy.settledSelection(pendingSelection),
+                  revision == selectionIntentRevision,
+                  focusedTarget?.tab == selection else { return }
+            onSelect(selection)
+        }
+        .onChange(of: allowsFocusDrivenSelection) { _, _ in
+            selectionIntentRevision &+= 1
         }
         .onChange(of: focusRequest) {
+            selectionIntentRevision &+= 1
             focusedTarget = .tab(active)
         }
         .onAppear {
