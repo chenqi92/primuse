@@ -2803,6 +2803,11 @@ protocol NetworkAdaptiveTranscodingConnector: MusicSourceConnector {
     func streamingURL(for path: String, transcode: SourceTranscodePlan) async throws -> URL?
 }
 
+/// The caller owns the returned file and must remove it after processing.
+protocol TemporaryAudioProcessingConnector: MusicSourceConnector {
+    func temporaryAudioProcessingURL(for path: String) async throws -> URL
+}
+
 /// 共享判定: NAS download 端点在会话失效时常回 HTTP 200 + JSON / HTML 登录页。
 /// 把这种 body 切片当 chunk 会损坏 .partial 缓存, 所以先嗅探内容类型。
 func httpMediaResponseLooksLikeErrorBody(_ http: HTTPURLResponse, data: Data) -> Bool {

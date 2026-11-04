@@ -17,7 +17,7 @@ import PrimuseKit
 /// 普通曲目下载取 `download` 原文件;STRM 通过 `stream` 取实际媒体。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
     ServerCollectionFavoriteConnector,
-    NetworkAdaptiveTranscodingConnector,
+    NetworkAdaptiveTranscodingConnector, TemporaryAudioProcessingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector, ServerCatalogEnrichingConnector,
     ServerPlaylistConnector, ServerPlaylistCreatingConnector, ServerPlaylistDescriptionConnector,
@@ -1281,6 +1281,58 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         guard let remoteURL = buildRESTURL(method: isDescriptor ? "stream" : "download", query: query) else {
             throw SourceError.fileNotFound(path)
         }
+        let (temporaryURL, http, prefix) = try await downloadAudio(from: remoteURL, generation: generation)
+        do {
+            try checkMediaTransportGeneration(generation)
+            if isDescriptor {
+                let mediaExtension = AudioFileSignaturePolicy.inspect(prefix).parserFileExtension
+                    ?? http.url.flatMap { AudioFormat.from(fileExtension: $0.pathExtension)?.rawValue }
+                    ?? "bin"
+                fileURL = cacheDirectory.appendingPathComponent("\(songID).\(mediaExtension)")
+            }
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try? FileManager.default.removeItem(at: temporaryURL)
+            } else {
+                try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
+            }
+            if isDescriptor { resolvedMediaCacheURLs[songID] = fileURL }
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
+        return fileURL
+    }
+
+    /// Local audio processing uses the permitted playback stream even when
+    /// Navidrome disables downloads. The caller owns this uncached file.
+    func temporaryAudioProcessingURL(for path: String) async throws -> URL {
+        try await connect()
+        guard let songID = songID(from: path),
+              let remoteURL = buildRESTURL(method: "stream", query: [
+                URLQueryItem(name: "id", value: songID),
+                URLQueryItem(name: "format", value: "raw")
+              ]) else { throw SourceError.fileNotFound(path) }
+        let generation = mediaTransportGeneration
+        let (temporaryURL, http, prefix) = try await downloadAudio(from: remoteURL, generation: generation)
+        do {
+            try checkMediaTransportGeneration(generation)
+            let ext = AudioFileSignaturePolicy.inspect(prefix).parserFileExtension
+                ?? AudioFormat.from(fileExtension: (path as NSString).pathExtension)?.rawValue
+                ?? http.url.flatMap { AudioFormat.from(fileExtension: $0.pathExtension)?.rawValue }
+                ?? "bin"
+            let fileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("primuse-audio-processing-\(UUID().uuidString).\(ext)")
+            try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
+            return fileURL
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
+    }
+
+    private func downloadAudio(
+        from remoteURL: URL, generation: UInt64
+    ) async throws -> (URL, HTTPURLResponse, Data) {
         var request = URLRequest(url: remoteURL)
         request.timeoutInterval = 120
         let (temporaryURL, response) = try await mediaResponseFollowingRedirects(
@@ -1300,28 +1352,17 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             let prefix: Data
             do {
                 defer { try? handle.close() }
-                prefix = try handle.read(upToCount: 4 * 1024) ?? Data()
+                prefix = try handle.read(upToCount: 64 * 1024) ?? Data()
             }
+            if let error = Self.mediaResponseError(in: prefix) { throw error }
             guard !prefix.isEmpty, !httpMediaResponseLooksLikeErrorBody(http, data: prefix) else {
                 throw SourceError.connectionFailed("Subsonic returned a non-audio response")
             }
-            if isDescriptor {
-                let mediaExtension = AudioFileSignaturePolicy.inspect(prefix).parserFileExtension
-                    ?? http.url.flatMap { AudioFormat.from(fileExtension: $0.pathExtension)?.rawValue }
-                    ?? "bin"
-                fileURL = cacheDirectory.appendingPathComponent("\(songID).\(mediaExtension)")
-            }
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                try? FileManager.default.removeItem(at: temporaryURL)
-            } else {
-                try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
-            }
-            if isDescriptor { resolvedMediaCacheURLs[songID] = fileURL }
+            return (temporaryURL, http, prefix)
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw error
         }
-        return fileURL
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -1385,6 +1426,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             throw SourceError.connectionFailed("Invalid Subsonic range response")
         }
         guard (200...299).contains(http.statusCode) else { throw mediaHTTPError(http) }
+        if http.statusCode == 200, let error = Self.mediaResponseError(in: data) { throw error }
         guard !httpMediaResponseLooksLikeErrorBody(http, data: data) else {
             throw SourceError.connectionFailed("Subsonic returned a non-audio response")
         }
@@ -2618,6 +2660,26 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         throw SourceError.connectionFailed("Navidrome server scan failed: \(detail)")
     }
 
+    private static func mediaResponseError(in data: Data) -> SourceError? {
+        let prefix = Data(data.prefix(64 * 1024))
+        if let envelope = try? JSONDecoder().decode(Envelope<EmptyContainer>.self, from: prefix),
+           envelope.subsonicResponse.status == "failed" {
+            return error(from: envelope.subsonicResponse.error)
+        }
+        guard let text = String(data: prefix, encoding: .utf8),
+              text.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{feff}")))
+                .hasPrefix("<"),
+              text.range(of: "<!DOCTYPE", options: .caseInsensitive) == nil else { return nil }
+        let delegate = SubsonicMediaErrorXMLParser()
+        let parser = XMLParser(data: prefix)
+        parser.shouldProcessNamespaces = true
+        parser.shouldResolveExternalEntities = false
+        parser.externalEntityResolvingPolicy = .never
+        parser.delegate = delegate
+        guard parser.parse(), delegate.status == "failed" else { return nil }
+        return error(from: delegate.error)
+    }
+
     private static func error(from error: SubsonicError?) -> SourceError {
         guard let error else { return .connectionFailed("Subsonic request failed") }
         if error.code == 40 || error.code == 41 { return .authenticationFailed }
@@ -2752,6 +2814,31 @@ private struct Envelope<C: Decodable>: Decodable {
 private struct SubsonicError: Decodable {
     let code: Int
     let message: String?
+}
+
+private final class SubsonicMediaErrorXMLParser: NSObject, XMLParserDelegate {
+    private var depth = 0
+    private(set) var status: String?
+    private(set) var error: SubsonicError?
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?, attributes: [String: String] = [:]) {
+        depth += 1
+        if depth == 1 {
+            guard elementName == "subsonic-response" else {
+                parser.abortParsing()
+                return
+            }
+            status = attributes["status"]
+        } else if depth == 2, elementName == "error", let code = attributes["code"].flatMap(Int.init) {
+            error = SubsonicError(code: code, message: attributes["message"])
+        }
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?) {
+        depth -= 1
+    }
 }
 
 private struct PingContainer: SubsonicResponseContainer {

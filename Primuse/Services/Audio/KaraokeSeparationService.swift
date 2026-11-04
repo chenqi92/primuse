@@ -338,8 +338,19 @@ final class KaraokeSeparationService {
     /// The song's own file, the one its stem was separated from. Exporting
     /// the instrumental decodes it the same way again.
     static func sourceAudioFile(for song: Song, sourceManager: SourceManager) async throws -> KaraokeAudioFile {
+        if let cached = await sourceManager.cachedURLForBackgroundRead(for: song) {
+            try Task.checkCancellation()
+            return KaraokeAudioFile(url: cached)
+        }
+        let connector = try await sourceManager.auxiliaryConnector(for: song)
+        if let processor = connector as? any TemporaryAudioProcessingConnector {
+            return KaraokeAudioFile(
+                url: try await processor.temporaryAudioProcessingURL(for: song.filePath),
+                removeAfterDecoding: true
+            )
+        }
         let startedAt = Date()
-        let url = try await sourceManager.auxiliaryConnector(for: song).localURL(for: song.filePath)
+        let url = try await connector.localURL(for: song.filePath)
         // 分离完只用伴奏文件。专为这次分离整首下载的原文件解码完就删,
         // 不留在连接器缓存里; 播放等别处先下好的那份照旧留着。
         return KaraokeAudioFile(

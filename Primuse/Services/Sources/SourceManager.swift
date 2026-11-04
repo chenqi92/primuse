@@ -2322,7 +2322,7 @@ private actor RoutedCatalogEnrichmentContext {
 }
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTranscodingConnector,
-    RefreshingMetadataSongConnector,
+    RefreshingMetadataSongConnector, TemporaryAudioProcessingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ServerCatalogEnrichingConnector, ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
@@ -2334,6 +2334,15 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func temporaryAudioProcessingURL(for path: String) async throws -> URL {
+        try await routing.withRead { connector in
+            guard let processor = connector as? any TemporaryAudioProcessingConnector else {
+                throw SourceError.connectionFailed("Audio processing stream unavailable")
+            }
+            return try await processor.temporaryAudioProcessingURL(for: path)
+        }
+    }
 
     func beginCatalogEnrichment(scanID: UUID, revision: String?) async throws {
         await enrichmentContext.set(scanID: scanID, revision: revision)

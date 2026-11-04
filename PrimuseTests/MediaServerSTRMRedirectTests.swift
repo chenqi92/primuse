@@ -397,6 +397,274 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         await source.disconnect()
     }
 
+    @MainActor
+    func testKaraokeUsesNavidromeStreamWhenDownloadsAreDisabled() async throws {
+        try await verifyKaraokeWithDownloadsDisabled(routed: false)
+    }
+
+    @MainActor
+    func testKaraokeUsesRoutedNavidromeStreamWhenDownloadsAreDisabled() async throws {
+        try await verifyKaraokeWithDownloadsDisabled(routed: true)
+    }
+
+    @MainActor
+    private func verifyKaraokeWithDownloadsDisabled(routed: Bool) async throws {
+        let host = uniqueHost("navidrome-no-download")
+        let content = try Self.separationAudioFixture()
+        MediaServerRedirectURLProtocol.configure(host: host) { request in
+            switch request.url?.lastPathComponent {
+            case "ping.view":
+                return .json(#"{"subsonic-response":{"status":"ok","version":"1.16.1","type":"navidrome","openSubsonic":true}}"#)
+            case "download.view":
+                return .json(#"{"subsonic-response":{"status":"failed","error":{"code":50,"message":"downloads are disabled"}}}"#)
+            case "stream.view":
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }
+                guard query?.first(where: { $0.name == "format" })?.value == "raw" else {
+                    return .json(#"{"subsonic-response":{"status":"failed","error":{"code":0,"message":"unexpected transcoding"}}}"#)
+                }
+                return .init(headers: ["Content-Type": "audio/wav"], body: content)
+            default:
+                return .init(status: 404)
+            }
+        }
+        let (connector, session) = makeSubsonicSource(host: host, sourceType: .navidrome)
+        defer { session.invalidateAndCancel() }
+        let source = MusicSource(
+            id: host, name: "Navidrome", type: .navidrome, host: host,
+            connectionConfiguration: routed ? SourceConnectionConfiguration(
+                localEndpoint: SourceConnectionEndpoint(host: host, port: 443, useSsl: true),
+                publicEndpoint: SourceConnectionEndpoint(host: "public-\(host)", port: 443, useSsl: true)
+            ) : nil
+        )
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        if routed {
+            XCTAssertFalse(manager.connector(for: source) is SubsonicSource)
+            XCTAssertTrue(manager.connector(for: source) is any TemporaryAudioProcessingConnector)
+        }
+        let song = Song(id: host, title: "Song", duration: 0.1, fileFormat: .wav,
+                        filePath: "/songs/song.wav", sourceID: host, fileSize: Int64(content.count))
+
+        _ = await manager.cachedURLForBackgroundRead(for: song)
+        let incompleteCache = manager.cacheURL(for: song)
+        try FileManager.default.createDirectory(at: incompleteCache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.prefix(8).write(to: incompleteCache)
+        defer { try? FileManager.default.removeItem(at: incompleteCache) }
+
+        let file = try await KaraokeSeparationService.sourceAudioFile(for: song, sourceManager: manager)
+        defer { try? FileManager.default.removeItem(at: file.url) }
+        XCTAssertTrue(file.removeAfterDecoding)
+        XCTAssertEqual(try Data(contentsOf: file.url), content)
+        let mediaMethods = MediaServerRedirectURLProtocol.requests(host: host)
+            .compactMap(\.url?.lastPathComponent).filter { $0 != "ping.view" }
+        XCTAssertEqual(mediaMethods, ["stream.view"])
+
+        // The processing file must not become the connector's ordinary download cache.
+        do {
+            _ = try await connector.localURL(for: song.filePath)
+            XCTFail("The download endpoint must still enforce its own permission")
+        } catch is SourceError {}
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).last?.url?.lastPathComponent, "download.view")
+
+        let decoded = try await KaraokeSeparationService.decodeForModel(file: file, start: nil, end: nil)
+        XCTAssertEqual(decoded.left.count, 4_410)
+        XCTAssertEqual(decoded.right.count, 4_410)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.url.path))
+        await connector.disconnect()
+    }
+
+    @MainActor
+    func testKaraokeReusesCompleteOriginalCacheWithoutConnectingOrDeletingIt() async throws {
+        let host = uniqueHost("navidrome-cached")
+        MediaServerRedirectURLProtocol.configure(host: host) { _ in .init(status: 503) }
+        let (connector, session) = makeSubsonicSource(host: host, sourceType: .navidrome)
+        defer { session.invalidateAndCancel() }
+        let source = MusicSource(id: host, name: "Navidrome", type: .navidrome, host: host)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let content = try Self.separationAudioFixture()
+        let song = Song(id: host, title: "Song", duration: 0.1, fileFormat: .wav,
+                        filePath: "/songs/song.wav", sourceID: host, fileSize: Int64(content.count))
+        // Establish the account scope before installing this fixture's original cache.
+        _ = await manager.cachedURLForBackgroundRead(for: song)
+        let cached = manager.cacheURL(for: song)
+        try FileManager.default.createDirectory(at: cached.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: cached)
+        defer { try? FileManager.default.removeItem(at: cached) }
+
+        let file = try await KaraokeSeparationService.sourceAudioFile(for: song, sourceManager: manager)
+        XCTAssertEqual(file.url, cached)
+        XCTAssertFalse(file.removeAfterDecoding)
+        let decoded = try await KaraokeSeparationService.decodeForModel(file: file, start: nil, end: nil)
+        XCTAssertEqual(decoded.left.count, 4_410)
+        XCTAssertEqual(try Data(contentsOf: cached), content)
+        XCTAssertTrue(MediaServerRedirectURLProtocol.requests(host: host).isEmpty)
+    }
+
+    func testSubsonicProcessingFilesAreIndependentAndFollowSTRMRedirects() async throws {
+        let host = uniqueHost("subsonic-processing")
+        let cdn = uniqueHost("cdn")
+        let content = try Self.separationAudioFixture()
+        configureSubsonicOrigin(host, location: "https://\(cdn)/opaque?signature=processing")
+        MediaServerRedirectURLProtocol.configure(host: cdn) { _ in
+            .init(headers: ["Content-Type": "application/octet-stream"], body: content)
+        }
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let first = try await source.temporaryAudioProcessingURL(for: "/songs/song.strm")
+        defer { try? FileManager.default.removeItem(at: first) }
+        let second = try await source.temporaryAudioProcessingURL(for: "/songs/song.strm")
+        defer { try? FileManager.default.removeItem(at: second) }
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(first.pathExtension, "wav")
+        try FileManager.default.removeItem(at: first)
+        XCTAssertEqual(try Data(contentsOf: second), content)
+        for request in MediaServerRedirectURLProtocol.requests(host: cdn) {
+            XCTAssertEqual(request.url?.query, "signature=processing")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+        }
+        await source.disconnect()
+    }
+
+    func testSubsonicProcessingRejectsDeniedStreamsAndErrorPagesWithoutDownloadFallback() async throws {
+        let host = uniqueHost("subsonic-processing-denied")
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        for contentType in ["application/json", "text/html", "application/octet-stream"] {
+            MediaServerRedirectURLProtocol.configure(host: host) { request in
+                if request.url?.lastPathComponent == "ping.view" {
+                    return .json(#"{"subsonic-response":{"status":"ok","version":"1.16.1"}}"#)
+                }
+                return .init(headers: ["Content-Type": contentType], body: Data("<error>Access denied</error>".utf8))
+            }
+            do {
+                let file = try await source.temporaryAudioProcessingURL(for: "/songs/song.flac")
+                try? FileManager.default.removeItem(at: file)
+                XCTFail("A denied stream must never become processing audio")
+            } catch is SourceError {}
+        }
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).compactMap(\.url?.lastPathComponent),
+                       ["ping.view", "stream.view", "stream.view", "stream.view"])
+        await source.disconnect()
+    }
+
+    func testSubsonicMediaRequestsPreserveJSONAndXMLErrors() async throws {
+        let failures: [(Int, String?)] = [
+            (40, "Wrong username or password"),
+            (50, "downloads are disabled"),
+            (70, "Song not found"),
+            (0, "Access denied & unavailable"),
+            (50, nil)
+        ]
+        for (code, message) in failures {
+            var detail: [String: Any] = ["code": code]
+            detail["message"] = message
+            let json = try JSONSerialization.data(withJSONObject: [
+                "subsonic-response": ["status": "failed", "error": detail]
+            ])
+            let attribute = message.map { " message=\"\($0.replacingOccurrences(of: "&", with: "&amp;"))\"" } ?? ""
+            let xml = Data("""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <subsonic-response xmlns="http://subsonic.org/restapi" status="failed" version="1.16.1">
+                  <error code="\(code)"\(attribute)/>
+                </subsonic-response>
+                """.utf8)
+            for body in [json, xml] {
+                try await assertSubsonicMediaFailure(
+                    body: body,
+                    expectedMessage: code == 40 ? nil : message ?? "Subsonic error \(code)"
+                )
+            }
+        }
+    }
+
+    func testSubsonicMediaRequestsRejectMalformedAndUnrelatedErrorDocuments() async throws {
+        let bodies = [
+            #"<html><error code="50" message="untrusted page"/></html>"#,
+            #"<subsonic-response status="failed"><error code="50" message="truncated"/>"#,
+            #"<!DOCTYPE subsonic-response [<!ENTITY message "expanded">]><subsonic-response status="failed"><error code="50" message="&message;"/></subsonic-response>"#,
+            #"{"subsonic-response":{"status":"ok","error":{"code":50,"message":"not a failure"}}}"#
+        ]
+        for body in bodies {
+            try await assertSubsonicMediaFailure(
+                body: Data(body.utf8), expectedMessage: "Subsonic returned a non-audio response"
+            )
+        }
+    }
+
+    func testSubsonicInteriorRangeDoesNotInterpretAudioBytesAsServerErrors() async throws {
+        let host = uniqueHost("subsonic-range-error-text")
+        let body = Data(#"{"subsonic-response":{"status":"failed","error":{"code":50,"message":"audio bytes"}}}"#.utf8)
+        MediaServerRedirectURLProtocol.configure(host: host) { request in
+            if request.url?.lastPathComponent == "ping.view" {
+                return .json(#"{"subsonic-response":{"status":"ok","version":"1.16.1"}}"#)
+            }
+            return .init(status: 206, headers: [
+                "Content-Type": "application/octet-stream",
+                "Content-Range": "bytes 32-\(31 + body.count)/\(32 + body.count)",
+                "Content-Length": String(body.count)
+            ], body: body)
+        }
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let range = try await source.fetchRange(path: "/songs/song.flac", offset: 32, length: Int64(body.count))
+        XCTAssertEqual(range, body)
+        await source.disconnect()
+    }
+
+    private func assertSubsonicMediaFailure(body: Data, expectedMessage: String?) async throws {
+        let host = uniqueHost("subsonic-media-error")
+        MediaServerRedirectURLProtocol.configure(host: host) { request in
+            if request.url?.lastPathComponent == "ping.view" {
+                return .json(#"{"subsonic-response":{"status":"ok","version":"1.16.1"}}"#)
+            }
+            return .init(headers: ["Content-Type": "application/octet-stream"], body: body)
+        }
+        let (source, session) = makeSubsonicSource(host: host)
+        defer { session.invalidateAndCancel() }
+        for operation in 0..<4 {
+            do {
+                switch operation {
+                case 0, 1:
+                    let file = try await source.localURL(for: "/songs/song.flac")
+                    try? FileManager.default.removeItem(at: file)
+                case 2:
+                    let file = try await source.temporaryAudioProcessingURL(for: "/songs/song.flac")
+                    try? FileManager.default.removeItem(at: file)
+                default:
+                    _ = try await source.fetchRange(path: "/songs/song.flac", offset: 0, length: 512)
+                }
+                XCTFail("A server error must not become audio or a cached file")
+            } catch let error as SourceError {
+                switch error {
+                case .authenticationFailed:
+                    XCTAssertNil(expectedMessage)
+                case .connectionFailed(let message):
+                    XCTAssertEqual(message, expectedMessage)
+                default:
+                    XCTFail("Unexpected source error: \(error)")
+                }
+            }
+        }
+        XCTAssertEqual(MediaServerRedirectURLProtocol.requests(host: host).compactMap(\.url?.lastPathComponent),
+                       ["ping.view", "download.view", "download.view", "stream.view", "stream.view"])
+        await source.disconnect()
+    }
+
+    private static func separationAudioFixture() throws -> Data {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("separation-fixture-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_410))
+        buffer.frameLength = 4_410
+        let channels = try XCTUnwrap(buffer.floatChannelData)
+        for channel in 0..<2 { channels[channel].initialize(repeating: 0, count: 4_410) }
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
+            try file.write(from: buffer)
+        }
+        return try Data(contentsOf: url)
+    }
+
     func testSubsonicRejectsRedirectedErrorDocumentsAndDoesNotCacheThem() async throws {
         let host = uniqueHost("subsonic-error")
         let cdn = uniqueHost("cdn")
@@ -981,13 +1249,13 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         )
     }
 
-    private func makeSubsonicSource(host: String) -> (SubsonicSource, URLSession) {
+    private func makeSubsonicSource(host: String, sourceType: MusicSourceType = .subsonic) -> (SubsonicSource, URLSession) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MediaServerRedirectURLProtocol.self]
         configuration.httpAdditionalHeaders = ["Authorization": "source-secret", "Cookie": "source-session"]
         let session = URLSession(configuration: configuration)
         return (SubsonicSource(
-            sourceID: host, sourceType: .subsonic, host: host, port: nil,
+            sourceID: host, sourceType: sourceType, host: host, port: nil,
             useSsl: true, basePath: nil, username: "user", password: "source-secret", session: session
         ), session)
     }
