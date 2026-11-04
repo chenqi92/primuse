@@ -78,11 +78,12 @@ public enum AdaptiveStreamQualityPolicy {
         wifiPreference: StreamQualityPreference,
         cellularPreference: StreamQualityPreference,
         isExpensive: Bool,
-        isConstrained: Bool
+        isConstrained: Bool,
+        underlyingCellularOnly: Bool = false
     ) -> StreamQualityPreference {
         // isExpensive 覆盖蜂窝与个人热点；isConstrained 是低数据模式。
-        // 两者任一成立都按「移动网络」处理。
-        if isExpensive || isConstrained {
+        // VPN 可能不标记 isExpensive，此时仍按底层蜂窝网络选择音质。
+        if isExpensive || isConstrained || underlyingCellularOnly {
             return cellularPreference
         }
         return wifiPreference
@@ -104,6 +105,7 @@ public enum AdaptiveStreamQualityPolicy {
         cellularPreference: StreamQualityPreference,
         isExpensive: Bool,
         isConstrained: Bool,
+        underlyingCellularOnly: Bool = false,
         formatIsLossless: Bool,
         formatRequiresCompleteLocalFile: Bool,
         isCueTrack: Bool = false,
@@ -115,7 +117,8 @@ public enum AdaptiveStreamQualityPolicy {
             wifiPreference: wifiPreference,
             cellularPreference: cellularPreference,
             isExpensive: isExpensive,
-            isConstrained: isConstrained
+            isConstrained: isConstrained,
+            underlyingCellularOnly: underlyingCellularOnly
         )
         // 第一道且最重要的一道：两项都是默认值时这里就返回，
         // 调用方之后的每个分支都走原有代码。

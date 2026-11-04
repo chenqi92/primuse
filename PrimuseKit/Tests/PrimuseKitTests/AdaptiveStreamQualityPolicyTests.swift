@@ -78,6 +78,28 @@ struct AdaptiveStreamQualityPolicyTests {
         #expect(plan == .transcode(bitRateKbps: 192))
     }
 
+    @Test("蜂窝 VPN 即使未标记昂贵网络也采用移动网络音质")
+    func cellularTunnelUsesCellularPreference() {
+        for preference in StreamQualityPreference.allCases {
+            let plan = AdaptiveStreamQualityPolicy.plan(
+                wifiPreference: .original, cellularPreference: preference,
+                isExpensive: false, isConstrained: false, underlyingCellularOnly: true,
+                formatIsLossless: true, formatRequiresCompleteLocalFile: false,
+                sourceBitRateKbps: 4608, fileSize: 138_240_000, duration: 240
+            )
+            let expected = preference.targetBitRateKbps.map { SourceTranscodePlan.transcode(bitRateKbps: $0) } ?? .original
+            #expect(plan == expected)
+        }
+        #expect(AdaptiveStreamQualityPolicy.activePreference(
+            wifiPreference: .kbps128, cellularPreference: .kbps320,
+            isExpensive: false, isConstrained: false, underlyingCellularOnly: true
+        ) == .kbps320)
+        #expect(AdaptiveStreamQualityPolicy.activePreference(
+            wifiPreference: .original, cellularPreference: .kbps320,
+            isExpensive: false, isConstrained: false, underlyingCellularOnly: false
+        ) == .original)
+    }
+
     @Test("Wi-Fi 那一项非原始时在 Wi-Fi 上生效")
     func wifiPreferenceApplies() {
         let plan = losslessPlan(wifi: .kbps320, cellular: .original)

@@ -7,6 +7,30 @@ import ImageIO
 @testable import Primuse
 
 final class SubsonicRatingTests: XCTestCase {
+    func testAdaptiveStreamURLsPreserveFormatAndBitrateOverHTTPAndHTTPS() async throws {
+        for useSSL in [false, true] {
+            let (source, session) = makeSource(RatingHTTPFixture(), useSSL: useSSL)
+            defer { session.invalidateAndCancel() }
+            for bitrate in [320, 192, 128] {
+                let resolved = try await source.streamingURL(for: "/songs/hires.flac", transcode: .transcode(bitRateKbps: bitrate))
+                let url = try XCTUnwrap(resolved)
+                let parameters = query(URLRequest(url: url))
+                XCTAssertEqual(url.scheme, useSSL ? "https" : "http")
+                XCTAssertEqual(url.path, "/rest/stream.view")
+                XCTAssertEqual(parameters["id"], "hires")
+                XCTAssertEqual(parameters["format"], "mp3")
+                XCTAssertEqual(parameters["maxBitRate"], String(bitrate))
+                XCTAssertEqual(parameters[SourceStreamQuery.transcoded], "1")
+                XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), .transcode(bitRateKbps: bitrate))
+            }
+            let original = try await source.streamingURL(for: "/songs/hires.flac", transcode: .original)
+            let parameters = query(URLRequest(url: try XCTUnwrap(original)))
+            XCTAssertEqual(parameters["format"], "raw")
+            XCTAssertNil(parameters["maxBitRate"])
+            XCTAssertNil(parameters[SourceStreamQuery.adaptive])
+        }
+    }
+
     func testArtworkSizesKeepCurrentCredentialsAndServerCoverID() async throws {
         let fixture = RatingHTTPFixture()
         let (source, session) = makeSource(fixture)
@@ -129,14 +153,14 @@ final class SubsonicRatingTests: XCTestCase {
         return Dictionary(items.compactMap { item in item.value.map { (item.name, $0) } }, uniquingKeysWith: { _, rhs in rhs })
     }
 
-    private func makeSource(_ fixture: RatingHTTPFixture) -> (SubsonicSource, URLSession) {
-        let host = "rating-\(UUID().uuidString.lowercased()).invalid"
+    private func makeSource(_ fixture: RatingHTTPFixture, useSSL: Bool = true) -> (SubsonicSource, URLSession) {
+        let host = "rating-\(UUID().uuidString.lowercased()).\(useSSL ? "invalid" : "local")"
         RatingHTTPProtocol.register(fixture, host: host)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RatingHTTPProtocol.self]
         let session = URLSession(configuration: configuration)
         let source = SubsonicSource(sourceID: host, sourceType: .navidrome, host: host, port: nil,
-                                    useSsl: true, basePath: nil, username: "qa", password: "qa", session: session)
+                                    useSsl: useSSL, basePath: nil, username: "qa", password: "qa", session: session)
         return (source, session)
     }
 }

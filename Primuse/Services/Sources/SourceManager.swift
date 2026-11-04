@@ -1404,6 +1404,18 @@ actor SourceConnectionRouter {
         return routed.value
     }
 
+    func streamingURL(for path: String, transcode plan: SourceTranscodePlan) async throws -> URL? {
+        try await withRead { connector in
+            guard plan.isTranscode else {
+                return try await connector.streamingURL(for: path)
+            }
+            guard let adaptive = connector as? any NetworkAdaptiveTranscodingConnector else {
+                throw SourceError.connectionFailed("Server transcoding unavailable")
+            }
+            return try await adaptive.streamingURL(for: path, transcode: plan)
+        }
+    }
+
     func withReadAndRoute<T: Sendable>(
         _ operation: @Sendable (any MusicSourceConnector) async throws -> T
     ) async throws -> (value: T, routeIndex: Int) {
@@ -2061,6 +2073,10 @@ private extension RoutedConnectorProxy {
         try await routing.withRead { try await $0.streamingURL(for: path) }
     }
 
+    func streamingURL(for path: String, transcode plan: SourceTranscodePlan) async throws -> URL? {
+        try await routing.streamingURL(for: path, transcode: plan)
+    }
+
     func imageURL(for path: String) async throws -> URL? {
         try await routing.withRead { try await $0.imageURL(for: path) }
     }
@@ -2305,7 +2321,8 @@ private actor RoutedCatalogEnrichmentContext {
     }
 }
 
-private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTranscodingConnector,
+    RefreshingMetadataSongConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ServerCatalogEnrichingConnector, ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
@@ -5300,6 +5317,7 @@ final class SourceManager {
             cellularPreference: settings.cellularStreamQuality,
             isExpensive: monitor.isExpensive,
             isConstrained: monitor.isConstrained,
+            underlyingCellularOnly: monitor.routePathCondition.underlyingCellularOnly,
             formatIsLossless: song.codecFormat.isLossless,
             formatRequiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat),
             isCueTrack: song.isCueTrack,
