@@ -7142,3 +7142,16 @@
 "rg_preamp" = "Попереднє підсилення";
 "rg_preamp_decrease" = "Зменшити попереднє підсилення";
 "rg_preamp_increase" = "Збільшити попереднє підсилення";
+
+"lyric_alignment_title" = "Створити таймінг слів";
+"lyric_alignment_language" = "Мова тексту";
+"lyric_alignment_upload_consent" = "Надіслати аудіо цієї пісні та наявний текст до Primuse AI для створення таймінгу слів. Результат буде додано до чернетки.";
+"lyric_alignment_start" = "Завантажити й вирівняти";
+"lyric_alignment_apply" = "Застосувати до чернетки";
+"lyric_alignment_working" = "Вирівнювання тексту…";
+"lyric_alignment_result_format" = "Таймінг слів оновлено для %d рядків. Решта рядків не змінена.";
+"lyric_alignment_failed" = "Не вдалося вирівняти текст. Спробуйте пізніше.";
+"lyric_alignment_editor_changed" = "Текст змінився. Закрийте це вікно й вирівняйте поточну чернетку.";
+"lyric_alignment_duration_error" = "Пісні до 10 хвилин, без таймінгу рядків — до 5 хвилин.";
+"lyric_alignment_lyrics_error" = "Використовуйте текст однієї вокальної партії без перекриття рядків або звичайний текст.";
+"lyric_alignment_quota_error" = "Немає доступного ліміту вирівнювання. Перевірте тариф ШІ та залишок ліміту.";

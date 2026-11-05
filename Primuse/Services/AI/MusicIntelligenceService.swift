@@ -1,6 +1,12 @@
+import AVFoundation
 import Foundation
 import Observation
 import PrimuseKit
+
+struct LyricAlignmentExecution {
+    let document: LyricsEditorDocument
+    let alignedLineCount: Int
+}
 
 struct AISemanticSearchExecution: Sendable {
     var plan: AISemanticSearchPlan
@@ -341,6 +347,52 @@ final class MusicIntelligenceService {
     let lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore
     let regionAvailability: AIRegionAvailabilityService
     private(set) var lyricsTranscriptionCredentialAvailable = false
+    private(set) var builtInLyricAlignmentOffered = false
+
+    func refreshLyricAlignmentOffer() async {
+        guard settingsStore.primuseRelayEnabled, settingsStore.hasBuiltInAIConsent,
+              PrimuseAIRelayClient.isSupportedOnCurrentDevice,
+              AIAvailabilityPolicy.decision(for: .bundledRemote, regionContext: regionAvailability.context).isAllowed else {
+            builtInLyricAlignmentOffered = false
+            return
+        }
+        builtInLyricAlignmentOffered = await primuseRelayClient.isLyricAlignmentOffered() ?? false
+    }
+
+    func canAlignLyrics(of song: Song) -> Bool {
+        builtInLyricAlignmentOffered && settingsStore.primuseRelayEnabled && settingsStore.hasBuiltInAIConsent
+            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+            && AIAvailabilityPolicy.decision(for: .bundledRemote, regionContext: regionAvailability.context).isAllowed
+            && song.sourceID != AppleMusicLibraryIdentity.sourceID && song.cueSheetPath == nil
+            && song.duration > 0 && song.duration <= 600
+    }
+
+    func alignLyrics(at audioFileURL: URL, song: Song, document: LyricsEditorDocument,
+                     language: String, hasExplicitUploadConsent: Bool) async throws -> LyricAlignmentExecution {
+        #if os(tvOS)
+        throw LyricAlignmentFailure.unavailable
+        #else
+        let regionSnapshot = regionAvailability.snapshot
+        guard hasExplicitUploadConsent, canAlignLyrics(of: song), LyricAlignment.languages.contains(language) else {
+            throw LyricAlignmentFailure.unavailable
+        }
+        _ = try LyricAlignment.requestLines(document: document, duration: song.duration)
+        let compact = try await OfflineAudioCompactor.encodeForTranscription(original: audioFileURL, expectedDuration: song.duration)
+        defer { try? FileManager.default.removeItem(at: compact.url) }
+        let duration = try await AVURLAsset(url: compact.url).load(.duration).seconds
+        let lines = try LyricAlignment.requestLines(document: document, duration: duration)
+        try Task.checkCancellation()
+        guard regionSnapshot == regionAvailability.snapshot, canAlignLyrics(of: song) else { throw LyricAlignmentFailure.unavailable }
+        let output = try await primuseRelayClient.alignLyrics(fileURL: compact.url, lines: lines, language: language)
+        try Task.checkCancellation()
+        guard regionSnapshot == regionAvailability.snapshot, canAlignLyrics(of: song) else { throw LyricAlignmentFailure.unavailable }
+        return LyricAlignmentExecution(
+            document: try LyricAlignment.applying(output, to: document, duration: duration),
+            alignedLineCount: output.lines.filter { $0.status == "aligned" }.count
+        )
+        #endif
+    }
+
     /// 内置 AI 的后台有没有配好转写模型(service-info 说的),且当前套餐能用;没问到
     /// 之前当作没有,免得给出一个点了必失败的入口。
     private(set) var builtInTranscriptionOffered = false
@@ -4252,7 +4304,7 @@ enum BuiltInAIQuotaText {
     static let featureOrder = [
         "recommendations", "semantic_search", "lyrics_translation", "lyrics_romanization", "listening_intents",
         "listening_mood", "library_insight", "song_discovery", "tag_cleanup", "audio_transcription",
-        "transcript_generation", "spoken_chapters",
+        "transcript_generation", "spoken_chapters", "lyric_alignment",
     ]
 
     static func title(for feature: BuiltInAIQuotaOverview.Feature) -> String {
@@ -4267,6 +4319,7 @@ enum BuiltInAIQuotaText {
         case "library_insight": String(localized: "ai_feature_library_insight")
         case "spoken_chapters": String(localized: "chapter_generation_title")
         case "listening_mood": String(localized: "ai_feature_listening_mood")
+        case "lyric_alignment": String(localized: "lyric_alignment_title")
         case "audio_transcription": String(localized: "ai_audio_transcription_title")
         case "transcript_generation": String(localized: "transcript_generation_title")
         default: feature.name ?? feature.id

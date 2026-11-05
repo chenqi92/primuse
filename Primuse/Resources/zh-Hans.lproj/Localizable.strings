@@ -7329,3 +7329,16 @@
 "rg_preamp" = "前置增益";
 "rg_preamp_decrease" = "降低前置增益";
 "rg_preamp_increase" = "提高前置增益";
+
+"lyric_alignment_title" = "生成逐字时间";
+"lyric_alignment_language" = "歌词语言";
+"lyric_alignment_upload_consent" = "将这首歌的音频和已有歌词发送到 Primuse AI，生成逐字时间。结果将应用到编辑草稿。";
+"lyric_alignment_start" = "上传并对齐";
+"lyric_alignment_apply" = "应用到草稿";
+"lyric_alignment_working" = "正在对齐歌词…";
+"lyric_alignment_result_format" = "已更新 %d 行逐字时间，其余行保持原样。";
+"lyric_alignment_failed" = "未能完成歌词对齐，请稍后重试。";
+"lyric_alignment_editor_changed" = "歌词已发生修改，请关闭后重新对齐当前草稿。";
+"lyric_alignment_duration_error" = "支持最长 10 分钟的歌曲；没有逐行时间时最长 5 分钟。";
+"lyric_alignment_lyrics_error" = "请使用单声部、行时间不重叠的歌词，或纯文本歌词。";
+"lyric_alignment_quota_error" = "当前没有可用的歌词对齐额度，请检查 AI 套餐和剩余额度。";

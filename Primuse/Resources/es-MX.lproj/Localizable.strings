@@ -7142,3 +7142,16 @@
 "rg_preamp" = "Preamplificación";
 "rg_preamp_decrease" = "Reducir preamplificación";
 "rg_preamp_increase" = "Aumentar preamplificación";
+
+"lyric_alignment_title" = "Generar tiempos por palabra";
+"lyric_alignment_language" = "Idioma de la letra";
+"lyric_alignment_upload_consent" = "Envía el audio de esta canción y la letra existente a Primuse AI para generar tiempos por palabra. El resultado se agregará al borrador.";
+"lyric_alignment_start" = "Subir y alinear";
+"lyric_alignment_apply" = "Aplicar al borrador";
+"lyric_alignment_working" = "Alineando letra…";
+"lyric_alignment_result_format" = "Se actualizaron los tiempos de %d líneas. Las demás no cambiaron.";
+"lyric_alignment_failed" = "No se pudo alinear la letra. Inténtalo más tarde.";
+"lyric_alignment_editor_changed" = "La letra cambió. Cierra esta ventana y alinea el borrador actual.";
+"lyric_alignment_duration_error" = "Admite canciones de hasta 10 minutos, o 5 minutos sin tiempos por línea.";
+"lyric_alignment_lyrics_error" = "Usa una sola voz con tiempos de línea sin superposición, o texto sin formato.";
+"lyric_alignment_quota_error" = "No hay cuota de alineación disponible. Revisa tu plan de IA y el saldo restante.";

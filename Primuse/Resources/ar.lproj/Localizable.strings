@@ -7142,3 +7142,16 @@
 "rg_preamp" = "الكسب المسبق";
 "rg_preamp_decrease" = "خفض الكسب المسبق";
 "rg_preamp_increase" = "زيادة الكسب المسبق";
+
+"lyric_alignment_title" = "إنشاء توقيت الكلمات";
+"lyric_alignment_language" = "لغة الكلمات";
+"lyric_alignment_upload_consent" = "أرسل صوت هذه الأغنية وكلماتها الحالية إلى Primuse AI لإنشاء توقيت الكلمات. ستُضاف النتيجة إلى مسودة التحرير.";
+"lyric_alignment_start" = "رفع ومحاذاة";
+"lyric_alignment_apply" = "تطبيق على المسودة";
+"lyric_alignment_working" = "جارٍ محاذاة الكلمات…";
+"lyric_alignment_result_format" = "تم تحديث توقيت الكلمات في %d سطر. لم تتغير الأسطر الأخرى.";
+"lyric_alignment_failed" = "تعذرت محاذاة الكلمات. حاول مجددًا لاحقًا.";
+"lyric_alignment_editor_changed" = "تغيرت الكلمات. أغلق هذه النافذة وحاذِ المسودة الحالية.";
+"lyric_alignment_duration_error" = "يدعم أغاني حتى 10 دقائق، أو 5 دقائق دون توقيت للأسطر.";
+"lyric_alignment_lyrics_error" = "استخدم كلمات لصوت واحد دون تداخل توقيت الأسطر، أو نصًا عاديًا.";
+"lyric_alignment_quota_error" = "لا يوجد رصيد متاح لمحاذاة الكلمات. تحقق من خطة الذكاء الاصطناعي والرصيد المتبقي.";

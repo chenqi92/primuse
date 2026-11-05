@@ -7236,3 +7236,16 @@
 "rg_preamp" = "Vorverstärkung";
 "rg_preamp_decrease" = "Vorverstärkung verringern";
 "rg_preamp_increase" = "Vorverstärkung erhöhen";
+
+"lyric_alignment_title" = "Wortzeiten erzeugen";
+"lyric_alignment_language" = "Sprache des Liedtexts";
+"lyric_alignment_upload_consent" = "Audio und vorhandenen Liedtext an Primuse AI senden, um Wortzeiten zu erzeugen. Das Ergebnis wird in den Bearbeitungsentwurf übernommen.";
+"lyric_alignment_start" = "Hochladen und ausrichten";
+"lyric_alignment_apply" = "In Entwurf übernehmen";
+"lyric_alignment_working" = "Liedtext wird ausgerichtet…";
+"lyric_alignment_result_format" = "Wortzeiten für %d Zeilen aktualisiert. Andere Zeilen bleiben unverändert.";
+"lyric_alignment_failed" = "Der Liedtext konnte nicht ausgerichtet werden. Bitte später erneut versuchen.";
+"lyric_alignment_editor_changed" = "Der Liedtext wurde geändert. Dieses Fenster schließen und den aktuellen Entwurf ausrichten.";
+"lyric_alignment_duration_error" = "Unterstützt Titel bis 10 Minuten; ohne Zeilenzeiten bis 5 Minuten.";
+"lyric_alignment_lyrics_error" = "Einstimmigen Liedtext mit nicht überlappenden Zeilenzeiten oder einfachen Text verwenden.";
+"lyric_alignment_quota_error" = "Kein Kontingent für die Liedtextausrichtung verfügbar. KI-Tarif und verbleibendes Kontingent prüfen.";

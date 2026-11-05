@@ -828,6 +828,39 @@ actor PrimuseAIRelayClient {
         }
     }
 
+    func alignLyrics(fileURL: URL, lines: [LyricAlignmentLine], language: String) async throws -> LyricAlignmentOutput {
+        struct Input: Encodable, Sendable {
+            let audio_base64: String
+            let mime_type = "audio/m4a"
+            let language: String
+            let lines: [LyricAlignmentLine]
+        }
+        let audio = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        guard !audio.isEmpty, audio.count <= AIAudioTranscriptionPolicy.builtInMaximumUploadBytes else {
+            throw PrimuseAIRelayError.requestFailed(statusCode: 413, code: "request_too_large")
+        }
+        var completed: LyricAlignmentOutput?
+        try await performStreamingFeature(
+            path: "/v1/audio/alignments", purpose: "lyric_alignment",
+            input: Input(audio_base64: audio.base64EncodedString(), language: language, lines: lines),
+            output: LyricAlignmentOutput.self, progress: AudioTranscriptionProgress.self,
+            canRetryTransientFailure: false
+        ) { event in
+            if case .completed(let output) = event { completed = output }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        return completed
+    }
+
+    func isLyricAlignmentOffered() async -> Bool? {
+        guard let info = await serviceInfo(timeout: 15) else { return nil }
+        guard Self.offered(info.lyricAlignment) == true else { return false }
+        guard let usage: UsagePlanOutput = try? await performFeature(
+            path: "/v1/account/usage", purpose: "usage", input: UsageQueryInput(limit: 1)
+        ) else { return nil }
+        return (usage.plan?.features?["lyric_alignment"] ?? 0) > 0
+    }
+
     /// 听歌识词:把本机转好的 M4A 整份交给内置 AI,等它把每个词的起止时间带回来。
     /// 一首歌要转写几十秒,中转在 NDJSON 流里每 10 秒发一个空行保活;时长以中转
     /// 从文件里读出来的为准(上限 10 分钟)。
@@ -2595,12 +2628,14 @@ actor PrimuseAIRelayClient {
     }
 
     private struct ServiceInfoOutput: Decodable, Sendable {
+        var lyricAlignment: String?
         var audioTranscription: String?
         var diagnosticsUpload: String?
         var redeemCodes: String?
         var transcriptGeneration: String?
 
         private enum CodingKeys: String, CodingKey {
+            case lyricAlignment = "lyric_alignment"
             case audioTranscription = "audio_transcription"
             case diagnosticsUpload = "diagnostics_upload"
             case redeemCodes = "redeem_codes"

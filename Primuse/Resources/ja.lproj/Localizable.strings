@@ -7237,3 +7237,16 @@
 "rg_preamp" = "プリアンプ";
 "rg_preamp_decrease" = "プリアンプを下げる";
 "rg_preamp_increase" = "プリアンプを上げる";
+
+"lyric_alignment_title" = "単語のタイミングを生成";
+"lyric_alignment_language" = "歌詞の言語";
+"lyric_alignment_upload_consent" = "この曲の音声と既存の歌詞を Primuse AI に送信し、単語のタイミングを生成します。結果は編集中の下書きに追加されます。";
+"lyric_alignment_start" = "アップロードして同期";
+"lyric_alignment_apply" = "下書きに適用";
+"lyric_alignment_working" = "歌詞を同期中…";
+"lyric_alignment_result_format" = "%d 行の単語タイミングを更新しました。他の行は変更されません。";
+"lyric_alignment_failed" = "歌詞を同期できませんでした。後でもう一度お試しください。";
+"lyric_alignment_editor_changed" = "歌詞が変更されました。この画面を閉じて現在の下書きを同期してください。";
+"lyric_alignment_duration_error" = "最大 10 分の曲に対応します。行のタイミングがない場合は最大 5 分です。";
+"lyric_alignment_lyrics_error" = "時間が重ならない単一パートの歌詞、またはプレーンテキストを使用してください。";
+"lyric_alignment_quota_error" = "歌詞同期の利用枠がありません。AI プランと残りの利用枠を確認してください。";

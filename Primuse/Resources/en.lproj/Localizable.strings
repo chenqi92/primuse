@@ -6997,3 +6997,16 @@
 "rg_preamp" = "Preamp";
 "rg_preamp_decrease" = "Decrease preamp";
 "rg_preamp_increase" = "Increase preamp";
+
+"lyric_alignment_title" = "Generate Word Timing";
+"lyric_alignment_language" = "Lyrics Language";
+"lyric_alignment_upload_consent" = "Send this song’s audio and existing lyrics to Primuse AI to generate word timing. The result will be added to your editing draft.";
+"lyric_alignment_start" = "Upload and Align";
+"lyric_alignment_apply" = "Apply to Draft";
+"lyric_alignment_working" = "Aligning lyrics…";
+"lyric_alignment_result_format" = "Updated word timing for %d lines. Other lines are unchanged.";
+"lyric_alignment_failed" = "Could not align these lyrics. Please try again later.";
+"lyric_alignment_editor_changed" = "The lyrics have changed. Close this sheet and align the current draft.";
+"lyric_alignment_duration_error" = "Supports songs up to 10 minutes, or 5 minutes without line timing.";
+"lyric_alignment_lyrics_error" = "Use a single vocal part with non-overlapping line timing, or plain lyrics.";
+"lyric_alignment_quota_error" = "No lyric alignment allowance is available. Check your AI plan and remaining usage.";

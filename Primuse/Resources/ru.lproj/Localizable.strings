@@ -7142,3 +7142,16 @@
 "rg_preamp" = "Предусиление";
 "rg_preamp_decrease" = "Уменьшить предусиление";
 "rg_preamp_increase" = "Увеличить предусиление";
+
+"lyric_alignment_title" = "Создать тайминг слов";
+"lyric_alignment_language" = "Язык текста";
+"lyric_alignment_upload_consent" = "Отправить аудио этой песни и имеющийся текст в Primuse AI для создания тайминга слов. Результат будет добавлен в черновик.";
+"lyric_alignment_start" = "Загрузить и выровнять";
+"lyric_alignment_apply" = "Применить к черновику";
+"lyric_alignment_working" = "Выравнивание текста…";
+"lyric_alignment_result_format" = "Тайминг слов обновлён для %d строк. Остальные строки не изменены.";
+"lyric_alignment_failed" = "Не удалось выровнять текст. Повторите попытку позже.";
+"lyric_alignment_editor_changed" = "Текст изменился. Закройте это окно и выровняйте текущий черновик.";
+"lyric_alignment_duration_error" = "Песни до 10 минут, без тайминга строк — до 5 минут.";
+"lyric_alignment_lyrics_error" = "Используйте текст одной вокальной партии без перекрытия строк или обычный текст.";
+"lyric_alignment_quota_error" = "Нет доступного лимита выравнивания. Проверьте тариф ИИ и остаток лимита.";

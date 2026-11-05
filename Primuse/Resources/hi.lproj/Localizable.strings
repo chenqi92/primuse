@@ -7142,3 +7142,16 @@
 "rg_preamp" = "प्रीएम्प";
 "rg_preamp_decrease" = "प्रीएम्प घटाएँ";
 "rg_preamp_increase" = "प्रीएम्प बढ़ाएँ";
+
+"lyric_alignment_title" = "शब्दों का समय बनाएँ";
+"lyric_alignment_language" = "गीत के बोल की भाषा";
+"lyric_alignment_upload_consent" = "शब्दों का समय बनाने के लिए इस गाने का ऑडियो और मौजूदा बोल Primuse AI को भेजें। परिणाम संपादन ड्राफ़्ट में जोड़ा जाएगा।";
+"lyric_alignment_start" = "अपलोड करके मिलाएँ";
+"lyric_alignment_apply" = "ड्राफ़्ट पर लागू करें";
+"lyric_alignment_working" = "बोल का समय मिलाया जा रहा है…";
+"lyric_alignment_result_format" = "%d पंक्तियों के शब्दों का समय अपडेट हुआ। बाकी पंक्तियाँ नहीं बदलीं।";
+"lyric_alignment_failed" = "बोल का समय नहीं मिल सका। बाद में फिर कोशिश करें।";
+"lyric_alignment_editor_changed" = "बोल बदल गए हैं। यह विंडो बंद करके मौजूदा ड्राफ़्ट का समय मिलाएँ।";
+"lyric_alignment_duration_error" = "अधिकतम 10 मिनट के गाने; पंक्ति का समय न हो तो अधिकतम 5 मिनट।";
+"lyric_alignment_lyrics_error" = "एकल गायन के ऐसे बोल इस्तेमाल करें जिनकी पंक्तियों का समय न टकराए, या सादा टेक्स्ट दें।";
+"lyric_alignment_quota_error" = "बोल का समय मिलाने का कोटा उपलब्ध नहीं है। अपना AI प्लान और बाकी कोटा देखें।";

@@ -7142,3 +7142,16 @@
 "rg_preamp" = "Ön kazanç";
 "rg_preamp_decrease" = "Ön kazancı azalt";
 "rg_preamp_increase" = "Ön kazancı artır";
+
+"lyric_alignment_title" = "Kelime zamanlarını oluştur";
+"lyric_alignment_language" = "Şarkı sözü dili";
+"lyric_alignment_upload_consent" = "Kelime zamanlarını oluşturmak için bu şarkının sesini ve mevcut sözlerini Primuse AI’a gönderin. Sonuç düzenleme taslağına eklenecektir.";
+"lyric_alignment_start" = "Yükle ve hizala";
+"lyric_alignment_apply" = "Taslağa uygula";
+"lyric_alignment_working" = "Şarkı sözleri hizalanıyor…";
+"lyric_alignment_result_format" = "%d satırın kelime zamanları güncellendi. Diğer satırlar değişmedi.";
+"lyric_alignment_failed" = "Şarkı sözleri hizalanamadı. Daha sonra tekrar deneyin.";
+"lyric_alignment_editor_changed" = "Şarkı sözleri değişti. Bu pencereyi kapatıp güncel taslağı hizalayın.";
+"lyric_alignment_duration_error" = "En fazla 10 dakikalık şarkılar; satır zamanları yoksa en fazla 5 dakika desteklenir.";
+"lyric_alignment_lyrics_error" = "Çakışmayan satır zamanlarıyla tek vokal partisi veya düz metin kullanın.";
+"lyric_alignment_quota_error" = "Şarkı sözü hizalama kotası yok. AI planınızı ve kalan kotanızı kontrol edin.";

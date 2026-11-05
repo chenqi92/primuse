@@ -7142,3 +7142,16 @@
 "rg_preamp" = "พรีแอมป์";
 "rg_preamp_decrease" = "ลดพรีแอมป์";
 "rg_preamp_increase" = "เพิ่มพรีแอมป์";
+
+"lyric_alignment_title" = "สร้างเวลารายคำ";
+"lyric_alignment_language" = "ภาษาของเนื้อเพลง";
+"lyric_alignment_upload_consent" = "ส่งเสียงเพลงนี้และเนื้อเพลงที่มีอยู่ไปยัง Primuse AI เพื่อสร้างเวลารายคำ ผลลัพธ์จะถูกเพิ่มในฉบับร่าง";
+"lyric_alignment_start" = "อัปโหลดและจัดแนว";
+"lyric_alignment_apply" = "ใช้กับฉบับร่าง";
+"lyric_alignment_working" = "กำลังจัดแนวเนื้อเพลง…";
+"lyric_alignment_result_format" = "อัปเดตเวลารายคำแล้ว %d บรรทัด บรรทัดอื่นไม่เปลี่ยนแปลง";
+"lyric_alignment_failed" = "ไม่สามารถจัดแนวเนื้อเพลงได้ โปรดลองอีกครั้งภายหลัง";
+"lyric_alignment_editor_changed" = "เนื้อเพลงเปลี่ยนแล้ว ปิดหน้าต่างนี้และจัดแนวฉบับร่างปัจจุบัน";
+"lyric_alignment_duration_error" = "รองรับเพลงยาวสูงสุด 10 นาที หรือ 5 นาทีหากไม่มีเวลารายบรรทัด";
+"lyric_alignment_lyrics_error" = "ใช้เนื้อเพลงเสียงร้องเดียวที่เวลาแต่ละบรรทัดไม่ทับซ้อนกัน หรือข้อความธรรมดา";
+"lyric_alignment_quota_error" = "ไม่มีโควตาจัดแนวเนื้อเพลง โปรดตรวจสอบแผน AI และโควตาที่เหลือ";

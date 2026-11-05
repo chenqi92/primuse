@@ -7142,3 +7142,16 @@
 "rg_preamp" = "Wzmocnienie wstępne";
 "rg_preamp_decrease" = "Zmniejsz wzmocnienie wstępne";
 "rg_preamp_increase" = "Zwiększ wzmocnienie wstępne";
+
+"lyric_alignment_title" = "Generuj czasy słów";
+"lyric_alignment_language" = "Język tekstu";
+"lyric_alignment_upload_consent" = "Wyślij dźwięk tego utworu i istniejący tekst do Primuse AI, aby wygenerować czasy słów. Wynik zostanie dodany do szkicu.";
+"lyric_alignment_start" = "Prześlij i dopasuj";
+"lyric_alignment_apply" = "Zastosuj do szkicu";
+"lyric_alignment_working" = "Dopasowywanie tekstu…";
+"lyric_alignment_result_format" = "Zaktualizowano czasy słów w %d wierszach. Pozostałe są bez zmian.";
+"lyric_alignment_failed" = "Nie udało się dopasować tekstu. Spróbuj ponownie później.";
+"lyric_alignment_editor_changed" = "Tekst się zmienił. Zamknij to okno i dopasuj bieżący szkic.";
+"lyric_alignment_duration_error" = "Utwory do 10 minut lub do 5 minut bez czasów wierszy.";
+"lyric_alignment_lyrics_error" = "Użyj tekstu jednego głosu bez nakładających się czasów wierszy lub zwykłego tekstu.";
+"lyric_alignment_quota_error" = "Brak limitu dopasowania tekstu. Sprawdź plan AI i pozostały limit.";

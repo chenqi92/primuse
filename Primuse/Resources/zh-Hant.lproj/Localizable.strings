@@ -7213,3 +7213,16 @@
 "rg_preamp" = "前置增益";
 "rg_preamp_decrease" = "降低前置增益";
 "rg_preamp_increase" = "提高前置增益";
+
+"lyric_alignment_title" = "產生逐字時間";
+"lyric_alignment_language" = "歌詞語言";
+"lyric_alignment_upload_consent" = "將這首歌的音訊和已有歌詞傳送到 Primuse AI，產生逐字時間。結果將套用到編輯草稿。";
+"lyric_alignment_start" = "上傳並對齊";
+"lyric_alignment_apply" = "套用到草稿";
+"lyric_alignment_working" = "正在對齊歌詞…";
+"lyric_alignment_result_format" = "已更新 %d 行逐字時間，其餘行保持原樣。";
+"lyric_alignment_failed" = "未能完成歌詞對齊，請稍後重試。";
+"lyric_alignment_editor_changed" = "歌詞已發生修改，請關閉後重新對齊目前草稿。";
+"lyric_alignment_duration_error" = "支援最長 10 分鐘的歌曲；沒有逐行時間時最長 5 分鐘。";
+"lyric_alignment_lyrics_error" = "請使用單聲部、行時間不重疊的歌詞，或純文字歌詞。";
+"lyric_alignment_quota_error" = "目前沒有可用的歌詞對齊額度，請檢查 AI 方案和剩餘額度。";

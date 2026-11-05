@@ -7236,3 +7236,16 @@
 "rg_preamp" = "Préamplification";
 "rg_preamp_decrease" = "Réduire la préamplification";
 "rg_preamp_increase" = "Augmenter la préamplification";
+
+"lyric_alignment_title" = "Générer le minutage des mots";
+"lyric_alignment_language" = "Langue des paroles";
+"lyric_alignment_upload_consent" = "Envoyer le son de ce morceau et les paroles existantes à Primuse AI pour générer le minutage des mots. Le résultat sera ajouté au brouillon.";
+"lyric_alignment_start" = "Envoyer et aligner";
+"lyric_alignment_apply" = "Appliquer au brouillon";
+"lyric_alignment_working" = "Alignement des paroles…";
+"lyric_alignment_result_format" = "Minutage des mots mis à jour pour %d lignes. Les autres lignes restent inchangées.";
+"lyric_alignment_failed" = "Impossible d’aligner ces paroles. Réessayez plus tard.";
+"lyric_alignment_editor_changed" = "Les paroles ont changé. Fermez cette fenêtre et alignez le brouillon actuel.";
+"lyric_alignment_duration_error" = "Morceaux de 10 minutes maximum, ou 5 minutes sans minutage des lignes.";
+"lyric_alignment_lyrics_error" = "Utilisez des paroles à une seule voix sans chevauchement des lignes, ou du texte brut.";
+"lyric_alignment_quota_error" = "Aucun quota d’alignement disponible. Vérifiez votre forfait IA et le quota restant.";

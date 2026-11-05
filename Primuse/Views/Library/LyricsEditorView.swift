@@ -70,6 +70,7 @@ struct LyricsEditorView: View {
     @State private var isLiveWriting = false
     @State private var liveDraft = ""
     @State private var showClearConfirm = false
+    @State private var alignmentDraft: LyricAlignmentDraft?
     @State private var isTranscribingAudio = false
     @State private var audioTranscriptionTask: Task<Void, Never>?
     @State private var didAutoStartAudioTranscription = false
@@ -136,6 +137,20 @@ struct LyricsEditorView: View {
             .task(id: song.id) { await trackPlaybackTime() }
             // 选了内置 AI 时先问一下后台有没有开放听歌识词,入口据此出现。
             .task { await intelligence.refreshBuiltInTranscriptionOffer() }
+            .task { await intelligence.refreshLyricAlignmentOffer() }
+            .sheet(item: $alignmentDraft) { draft in
+                LyricAlignmentSheet { language in
+                    let input = try await localTranscriptionInput(requiresConversion: true)
+                    defer { if let temporaryURL = input.temporaryURL { try? FileManager.default.removeItem(at: temporaryURL) } }
+                    return try await intelligence.alignLyrics(at: input.url, song: song, document: draft.document,
+                                                              language: language, hasExplicitUploadConsent: true)
+                } apply: { aligned in
+                    guard document == draft.document else { throw LyricAlignmentFailure.editorChanged }
+                    document = aligned
+                    sourceText = aligned.serialized()
+                    timingSession.reset(document: aligned)
+                }
+            }
             .task(id: "\(song.id)#\(autoStartsAudioTranscription)") {
                 guard autoStartsAudioTranscription,
                       !didAutoStartAudioTranscription,
@@ -299,6 +314,12 @@ struct LyricsEditorView: View {
                     .lineLimit(1)
             }
             Spacer()
+            if intelligence.canAlignLyrics(of: song), !document.lines.isEmpty {
+                Button { alignmentDraft = LyricAlignmentDraft(document: document) } label: {
+                    Label(String(localized: "lyric_alignment_title"), systemImage: "text.word.spacing")
+                }
+                .disabled(isTranscribingAudio)
+            }
             if canTranscribeSongAudio {
                 Button {
                     requestAudioTranscription()
@@ -710,14 +731,14 @@ struct LyricsEditorView: View {
         }
     }
 
-    private func localTranscriptionInput() async throws -> LocalTranscriptionInput {
+    private func localTranscriptionInput(requiresConversion: Bool = false) async throws -> LocalTranscriptionInput {
         let resolvedURL = try await sourceManager.resolveFullDownloadSourceURL(for: song)
         // 内置 AI 先在本机转成 M4A 再上传,原文件是什么格式都行;自己的 Google 密钥
         // 直接传原文件,只能是 Google 写明支持的格式。
         guard let mimeType = Self.audioTranscriptionMIMEType(
             for: resolvedURL,
             fallbackFormat: song.fileFormat
-        ) ?? (intelligence.lyricsTranscriptionSettingsStore.usesBuiltIn
+        ) ?? ((requiresConversion || intelligence.lyricsTranscriptionSettingsStore.usesBuiltIn)
             ? "application/octet-stream"
             : nil) else {
             throw CocoaError(.fileReadUnsupportedScheme)
@@ -1379,6 +1400,12 @@ struct LyricsEditorView: View {
 
     private var editorActionsMenu: some View {
         Menu {
+            if intelligence.canAlignLyrics(of: song), !document.lines.isEmpty {
+                Button { alignmentDraft = LyricAlignmentDraft(document: document) } label: {
+                    Label(String(localized: "lyric_alignment_title"), systemImage: "text.word.spacing")
+                }
+                .disabled(isTranscribingAudio)
+            }
             if canTranscribeSongAudio {
                 Button {
                     requestAudioTranscription()
@@ -3295,5 +3322,85 @@ private struct LyricsWordTimingFlowLayout: Layout {
         widestRow = max(widestRow, max(0, x - horizontalSpacing))
         height += rowHeight
         return CGSize(width: widestRow, height: height)
+    }
+}
+
+
+private struct LyricAlignmentDraft: Identifiable {
+    let id = UUID()
+    let document: LyricsEditorDocument
+}
+
+private struct LyricAlignmentSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let run: (String) async throws -> LyricAlignmentExecution
+    let apply: (LyricsEditorDocument) throws -> Void
+    @State private var language = Locale.current.language.languageCode?.identifier == "zh" ? "Chinese" : "English"
+    @State private var task: Task<Void, Never>?
+    @State private var result: LyricAlignmentExecution?
+    @State private var message: String?
+    private let codes = ["zh", "en", "yue", "fr", "de", "it", "ja", "ko", "pt", "ru", "es"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker(String(localized: "lyric_alignment_language"), selection: $language) {
+                    ForEach(Array(zip(LyricAlignment.languages, codes)), id: \.0) { name, code in
+                        Text(Locale.current.localizedString(forLanguageCode: code) ?? name).tag(name)
+                    }
+                }
+                .disabled(task != nil || result != nil)
+                if let result {
+                    Text(String(format: String(localized: "lyric_alignment_result_format"), result.alignedLineCount))
+                } else if task != nil {
+                    ProgressView(String(localized: "lyric_alignment_working"))
+                } else {
+                    Text(String(localized: "lyric_alignment_upload_consent"))
+                }
+                if let message { Text(message).foregroundStyle(.red) }
+            }
+            .navigationTitle(String(localized: "lyric_alignment_title"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "cancel")) { task?.cancel(); dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: result == nil ? "lyric_alignment_start" : "lyric_alignment_apply")) {
+                        if let result {
+                            do { try apply(result.document); dismiss() }
+                            catch { message = String(localized: "lyric_alignment_editor_changed") }
+                        } else {
+                            message = nil
+                            task = Task { @MainActor in
+                                defer { task = nil }
+                                do {
+                                    let value = try await run(language)
+                                    try Task.checkCancellation()
+                                    result = value
+                                } catch is CancellationError {
+                                } catch let error as LyricAlignmentFailure {
+                                    switch error {
+                                    case .invalidDuration: message = String(localized: "lyric_alignment_duration_error")
+                                    case .unsupportedLyrics: message = String(localized: "lyric_alignment_lyrics_error")
+                                    default: message = String(localized: "lyric_alignment_failed")
+                                    }
+                                } catch let error as PrimuseAIRelayError {
+                                    if case .requestFailed(_, let code, _) = error,
+                                       ["feature_quota_exhausted", "period_quota_exhausted", "daily_quota_exhausted", "daily_request_limit_exhausted", "feature_not_in_plan"].contains(code) {
+                                        message = String(localized: "lyric_alignment_quota_error")
+                                    } else { message = String(localized: "lyric_alignment_failed") }
+                                } catch { message = String(localized: "lyric_alignment_failed") }
+                            }
+                        }
+                    }
+                    .disabled(task != nil)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 470, height: 300)
+        #endif
+        .interactiveDismissDisabled(task != nil)
+        .onDisappear { task?.cancel() }
     }
 }
