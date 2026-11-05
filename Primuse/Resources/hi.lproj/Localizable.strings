@@ -2956,7 +2956,7 @@
 "reorder" = "पुन: व्यवस्थित करें";
 "repeat" = "दोहराएँ";
 "replay_gain" = "ReplayGain";
-"replay_gain_desc" = "ऑडियो फ़ाइलों में एम्बेडेड ReplayGain टैग के आधार पर स्वचालित रूप से वॉल्यूम समायोजित करें।";
+"replay_gain_desc" = "ReplayGain टैग या अपने आप मापी गई ध्वनि की प्रबलता से वॉल्यूम समायोजित करें।";
 "library_liked_albums_title" = "पसंदीदा एल्बम";
 "library_liked_artists_title" = "पसंदीदा कलाकार";
 "library_favorite_like" = "पसंदीदा में जोड़ें";
@@ -7135,3 +7135,8 @@
 "player_carousel_open_artist" = "कलाकार";
 "player_carousel_song_count %lld" = "%lld गाने";
 "player_carousel_more_by_artist %@" = "%@ के और गाने";
+
+"rg_mode_automatic" = "अपने आप";
+"rg_preamp" = "प्रीएम्प";
+"rg_preamp_decrease" = "प्रीएम्प घटाएँ";
+"rg_preamp_increase" = "प्रीएम्प बढ़ाएँ";

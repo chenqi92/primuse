@@ -2501,6 +2501,16 @@ struct PlaybackSettingsView: View {
                         }
                     }
                     .pmFadeTransition()
+                    VStack(alignment: .leading) {
+                        HStack {
+                            Text("rg_preamp")
+                            Spacer()
+                            Text(String(format: "%+.1f dB", settings.replayGainPreampDB))
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        Slider(value: $settings.replayGainPreampDB, in: ReplayGainPolicy.preampRange, step: 0.5)
+                            .accessibilityLabel(Text("rg_preamp"))
+                    }
                 }
             }
             .disabled(settings.outputMode == .highFidelity)

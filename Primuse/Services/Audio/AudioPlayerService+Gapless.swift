@@ -369,6 +369,7 @@ extension AudioPlayerService {
         completedTransition: GaplessTransitionState,
         playID id: UUID
     ) {
+        analyzeReplayGainAfterTransition(song: activatedSong, url: prepared.url)
         // Normally the successor's samples already carry its ReplayGain and
         // the node volume must stay where it is. Only a successor that could
         // not be scaled falls back to changing the node volume here, which

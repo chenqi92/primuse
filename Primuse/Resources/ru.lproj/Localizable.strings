@@ -1123,7 +1123,7 @@
 "playlist_reorder_changed" = "Порядок изменен.";
 "encoding_fix_empty_message" = "Этот текст нельзя перечитать в другой кодировке. Если текст по-прежнему выглядит неправильно, значит, исходные символы уже потеряны, и вам придется ввести их заново.";
 "smart_field_isInPlaylist" = "В плейлисте";
-"replay_gain_desc" = "Автоматически регулировать громкость на основе тегов ReplayGain, встроенных в аудиофайлы.";
+"replay_gain_desc" = "Регулировать громкость по тегам ReplayGain или автоматически измеренной громкости.";
 "lyrics_editor_stamp" = "Поставить метку";
 "theme_color_hex" = "Значение";
 "theme_color_picker" = "Выбор цвета";
@@ -7135,3 +7135,8 @@
 "player_carousel_open_artist" = "Исполнитель";
 "player_carousel_song_count %lld" = "Песен: %lld";
 "player_carousel_more_by_artist %@" = "Ещё от %@";
+
+"rg_mode_automatic" = "Автоматически";
+"rg_preamp" = "Предусиление";
+"rg_preamp_decrease" = "Уменьшить предусиление";
+"rg_preamp_increase" = "Увеличить предусиление";

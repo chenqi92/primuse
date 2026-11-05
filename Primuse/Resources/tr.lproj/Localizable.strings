@@ -1123,7 +1123,7 @@
 "playlist_reorder_changed" = "Sıralama değiştirildi";
 "encoding_fix_empty_message" = "Bu metin başka bir kodlama olarak tekrar okunamaz. Hâlâ yanlış görünüyorsa, orijinal karakterler zaten kaybolmuştur ve bunları yeniden yazmanız gerekecektir.";
 "smart_field_isInPlaylist" = "Çalma listesinde";
-"replay_gain_desc" = "Ses dosyalarına gömülü ReplayGain etiketlerine göre ses seviyesini otomatik olarak ayarlayın.";
+"replay_gain_desc" = "Sesi ReplayGain etiketlerine veya otomatik ölçülen ses yüksekliğine göre ayarla.";
 "lyrics_editor_stamp" = "Zaman damgası ekle";
 "theme_color_hex" = "Değer";
 "theme_color_picker" = "Renk Seçici";
@@ -7135,3 +7135,8 @@
 "player_carousel_open_artist" = "Sanatçı";
 "player_carousel_song_count %lld" = "%lld şarkı";
 "player_carousel_more_by_artist %@" = "%@ adlı sanatçıdan daha fazlası";
+
+"rg_mode_automatic" = "Otomatik";
+"rg_preamp" = "Ön kazanç";
+"rg_preamp_decrease" = "Ön kazancı azalt";
+"rg_preamp_increase" = "Ön kazancı artır";

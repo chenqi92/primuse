@@ -461,7 +461,7 @@
 "Maximum Crossfade Duration" = "最長淡入淡出時長";
 "seconds" = "秒";
 "replay_gain" = "回放增益";
-"replay_gain_desc" = "根據音訊檔案中嵌入的 ReplayGain 標籤自動調整音量。";
+"replay_gain_desc" = "根據回放增益標籤或自動分析的響度調整音量。";
 "spatial_audio" = "空間音訊";
 "spatial_audio_desc" = "透過 Apple 的空間音訊算繪器，把播放聲場放在前方的虛擬舞台中。";
 "spatial_head_tracking" = "頭部追蹤";
@@ -7206,3 +7206,8 @@
 "player_carousel_open_artist" = "藝人";
 "player_carousel_song_count %lld" = "%lld 首歌曲";
 "player_carousel_more_by_artist %@" = "%@ 的更多歌曲";
+
+"rg_mode_automatic" = "自動";
+"rg_preamp" = "前置增益";
+"rg_preamp_decrease" = "降低前置增益";
+"rg_preamp_increase" = "提高前置增益";

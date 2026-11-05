@@ -1417,8 +1417,17 @@ final class AudioPlayerService {
         didSet { syncPumpLease() }
     }
     var playID: UUID? {
-        didSet { syncPumpLease() }
+        didSet {
+            if playID != oldValue {
+                replayGainAnalysisTask?.cancel()
+                replayGainAnalysisTask = nil
+                replayGainAnalysisIdentity = nil
+            }
+            syncPumpLease()
+        }
     }
+    @ObservationIgnored var replayGainAnalysisTask: Task<Void, Never>?
+    @ObservationIgnored var replayGainAnalysisIdentity: String?
     /// 起播计时的起点（`play(song:)` 入口）。`⏱️ play` 行按它报到各阶段的累计
     /// 耗时，用来分清「点了歌好一会儿才出声」的时间花在哪一段（#170）。
     @ObservationIgnored private var playStartTimeline: (playID: UUID, startedAt: TimeInterval)?
@@ -5781,6 +5790,9 @@ final class AudioPlayerService {
             }
             // 有声内容从记忆位置直接起播时,时钟也从那里读。
             audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? spokenWordOpening ?? 0
+            let initialProgramVolume = await targetProgramVolume(for: song, url: url, allowFileRead: false)
+            guard !Task.isCancelled, playID == id else { await gate.drain(); return }
+            audioEngine.applyProgramVolume(initialProgramVolume)
             let didStartPlayback = audioEngine.play()
             logPlayStage("playing", playID: id)
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")

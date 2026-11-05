@@ -2956,7 +2956,7 @@
 "reorder" = "Zmień kolejność";
 "repeat" = "Powtarzaj";
 "replay_gain" = "ReplayGain";
-"replay_gain_desc" = "Automatycznie dostosuj głośność w oparciu o znaczniki ReplayGain osadzone w plikach audio.";
+"replay_gain_desc" = "Dostosuj głośność na podstawie tagów ReplayGain lub automatycznego pomiaru głośności.";
 "library_liked_albums_title" = "Ulubione albumy";
 "library_liked_artists_title" = "Ulubieni wykonawcy";
 "library_favorite_like" = "Dodaj do ulubionych";
@@ -7135,3 +7135,8 @@
 "player_carousel_open_artist" = "Wykonawca";
 "player_carousel_song_count %lld" = "Utwory: %lld";
 "player_carousel_more_by_artist %@" = "Więcej od: %@";
+
+"rg_mode_automatic" = "Automatyczny";
+"rg_preamp" = "Wzmocnienie wstępne";
+"rg_preamp_decrease" = "Zmniejsz wzmocnienie wstępne";
+"rg_preamp_increase" = "Zwiększ wzmocnienie wstępne";

@@ -15,6 +15,8 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     private var delegateProxy: DelegateProxy?
     private var nextGeneration: Generation = 0
     private var mixVolume: Float = 1
+    private var programVolume: Float = 1
+    private var replayGainUnit: AVAudioUnitEQ?
     /// 听书语速。每个 `AudioPlayer` 在源节点与主混音之间挂一个变速单元;1× 时旁路,
     /// 音乐(APE、DSD 等也走这条路)不经过任何处理。
     private var playbackRate: Float = 1
@@ -34,25 +36,43 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     /// 之后源格式变化时,SFBAudioEngine 会经代理的 `reconfigureProcessingGraph` 回来问该接到哪个节点。
     private func insertTimePitch(into player: AudioPlayer) -> AVAudioUnitTimePitch {
         let unit = AVAudioUnitTimePitch()
+        let gainUnit = AVAudioUnitEQ(numberOfBands: 1)
+        gainUnit.bands[0].bypass = true
+        gainUnit.globalGain = 20 * log10(max(1, programVolume))
+        replayGainUnit = gainUnit
         unit.rate = playbackRate
         unit.bypass = abs(playbackRate - 1) < 0.001
         let source = player.sourceNode
         player.modifyProcessingGraph { engine in
             let format = source.outputFormat(forBus: 0)
             engine.attach(unit)
+            engine.attach(gainUnit)
             engine.disconnectNodeOutput(source)
             // crash-pattern: allow avaudioengine-connect 格式取自源节点刚接到主混音的输出格式, SFBAudioEngine 已接过一次
             engine.connect(source, to: unit, format: format)
             // crash-pattern: allow avaudioengine-connect 同上, 变速单元按同一格式接回主混音
-            engine.connect(unit, to: engine.mainMixerNode, format: format)
+            engine.connect(unit, to: gainUnit, format: format)
+            // crash-pattern: allow avaudioengine-connect 沿用 SFB 源节点已验证的处理格式。
+            engine.connect(gainUnit, to: engine.mainMixerNode, format: format)
         }
         return unit
     }
 
     func setMixVolume(_ volume: Float) {
         mixVolume = min(1, max(0, volume))
-        let gain = mixVolume
+        let gain = mixVolume * min(1, programVolume)
         player.modifyProcessingGraph { $0.mainMixerNode.outputVolume = gain }
+    }
+
+    func setReplayGain(_ volume: Float) {
+        programVolume = volume.isFinite ? min(ReplayGainPolicy.maximumLinearGain, max(0, volume)) : 1
+        let gain = mixVolume * min(1, programVolume)
+        let boost = 20 * log10(max(1, programVolume))
+        let unit = replayGainUnit
+        player.modifyProcessingGraph {
+            unit?.globalGain = boost
+            $0.mainMixerNode.outputVolume = gain
+        }
     }
 
     var onEnded: (@MainActor (Generation) -> Void)?
@@ -73,12 +93,12 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         let generation = nextGeneration
         let player = AudioPlayer()
         let unit = insertTimePitch(into: player)
-        let proxy = DelegateProxy(owner: self, generation: generation, timePitch: unit)
+        let proxy = DelegateProxy(owner: self, generation: generation, timePitch: unit, gainUnit: replayGainUnit!)
         player.delegate = proxy
         self.player = player
         timePitch = unit
         delegateProxy = proxy
-        let gain = mixVolume
+        let gain = mixVolume * min(1, programVolume)
         player.modifyProcessingGraph { $0.mainMixerNode.outputVolume = gain }
         do {
             let pcm = try Self.openedDecoder(url: url, preferred: decoder)
@@ -174,11 +194,13 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         weak var owner: TVSFBEngine?
         let generation: Generation
         let timePitch: AVAudioUnitTimePitch
+        let gainUnit: AVAudioUnitEQ
 
-        init(owner: TVSFBEngine, generation: Generation, timePitch: AVAudioUnitTimePitch) {
+        init(owner: TVSFBEngine, generation: Generation, timePitch: AVAudioUnitTimePitch, gainUnit: AVAudioUnitEQ) {
             self.owner = owner
             self.generation = generation
             self.timePitch = timePitch
+            self.gainUnit = gainUnit
         }
 
         /// 源格式变了(换了解码器、采样率或声道数):变速单元照旧接在源节点后面,
@@ -189,8 +211,11 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
             with format: AVAudioFormat
         ) -> AVAudioNode {
             engine.disconnectNodeOutput(timePitch)
-            // crash-pattern: allow avaudioengine-connect 格式是 SFBAudioEngine 换源后交来的处理链格式, 它自己也按这个格式接
-            engine.connect(timePitch, to: engine.mainMixerNode, format: format)
+            engine.disconnectNodeOutput(gainUnit)
+            // crash-pattern: allow avaudioengine-connect 格式是 SFBAudioEngine 换源后交来的处理链格式。
+            engine.connect(timePitch, to: gainUnit, format: format)
+            // crash-pattern: allow avaudioengine-connect 沿用 SFB 重建回调提供的有效格式。
+            engine.connect(gainUnit, to: engine.mainMixerNode, format: format)
             return timePitch
         }
 

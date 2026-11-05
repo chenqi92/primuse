@@ -36,12 +36,10 @@ enum DSDPlaybackMode: String, Codable, Sendable, CaseIterable {
     }
 }
 
-enum ReplayGainMode: String, Codable, Sendable, CaseIterable {
-    case track
-    case album
-
+extension ReplayGainMode {
     var displayName: String {
         switch self {
+        case .automatic: String(localized: "rg_mode_automatic")
         case .track: String(localized: "rg_mode_track")
         case .album: String(localized: "rg_mode_album")
         }
@@ -98,7 +96,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     var crossfadeMode: CrossfadeMode = .smart
     var crossfadeDuration: Double = PlaybackSettings.defaultCrossfadeDuration
     var replayGainEnabled: Bool = false
-    var replayGainMode: ReplayGainMode = .track
+    var replayGainMode: ReplayGainMode = .automatic
+    var replayGainPreampDB: Double = 0
     var spatialAudioEnabled: Bool = false
     var spatialHeadTrackingEnabled: Bool = false
     var audioCacheEnabled: Bool = true
@@ -187,6 +186,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
             ?? Self.defaultCrossfadeDuration
         replayGainEnabled = try c.decodeIfPresent(Bool.self, forKey: .replayGainEnabled) ?? false
         replayGainMode = try c.decodeIfPresent(ReplayGainMode.self, forKey: .replayGainMode) ?? .track
+        replayGainPreampDB = ReplayGainPolicy.sanitizedPreamp(try c.decodeIfPresent(Double.self, forKey: .replayGainPreampDB) ?? 0)
         spatialAudioEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialAudioEnabled) ?? false
         spatialHeadTrackingEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialHeadTrackingEnabled) ?? false
         audioCacheEnabled = try c.decodeIfPresent(Bool.self, forKey: .audioCacheEnabled) ?? true
@@ -244,7 +244,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         crossfadeMode: CrossfadeMode = .smart,
         crossfadeDuration: Double = PlaybackSettings.defaultCrossfadeDuration,
         replayGainEnabled: Bool = false,
-        replayGainMode: ReplayGainMode = .track,
+        replayGainMode: ReplayGainMode = .automatic,
+        replayGainPreampDB: Double = 0,
         spatialAudioEnabled: Bool = false,
         spatialHeadTrackingEnabled: Bool = false,
         audioCacheEnabled: Bool = true,
@@ -295,6 +296,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.crossfadeDuration = crossfadeDuration
         self.replayGainEnabled = replayGainEnabled
         self.replayGainMode = replayGainMode
+        self.replayGainPreampDB = ReplayGainPolicy.sanitizedPreamp(replayGainPreampDB)
         self.spatialAudioEnabled = spatialAudioEnabled
         self.spatialHeadTrackingEnabled = spatialHeadTrackingEnabled
         self.audioCacheEnabled = audioCacheEnabled
@@ -452,6 +454,7 @@ final class PlaybackSettingsStore {
     var crossfadeDuration: Double { didSet { persist() } }
     var replayGainEnabled: Bool { didSet { persist() } }
     var replayGainMode: ReplayGainMode { didSet { persist() } }
+    var replayGainPreampDB: Double { didSet { persist() } }
     var spatialAudioEnabled: Bool {
         didSet {
             if !spatialAudioEnabled, spatialHeadTrackingEnabled {
@@ -634,6 +637,7 @@ final class PlaybackSettingsStore {
         self.crossfadeDuration = s.crossfadeDuration
         self.replayGainEnabled = s.replayGainEnabled
         self.replayGainMode = s.replayGainMode
+        self.replayGainPreampDB = s.replayGainPreampDB
         self.spatialAudioEnabled = s.spatialAudioEnabled
         self.spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         self.audioCacheEnabled = s.audioCacheEnabled
@@ -720,6 +724,7 @@ final class PlaybackSettingsStore {
         crossfadeDuration = s.crossfadeDuration
         replayGainEnabled = s.replayGainEnabled
         replayGainMode = s.replayGainMode
+        replayGainPreampDB = s.replayGainPreampDB
         spatialAudioEnabled = s.spatialAudioEnabled
         spatialHeadTrackingEnabled = s.spatialAudioEnabled && s.spatialHeadTrackingEnabled
         audioCacheEnabled = s.audioCacheEnabled
@@ -781,6 +786,7 @@ final class PlaybackSettingsStore {
             crossfadeDuration: crossfadeDuration,
             replayGainEnabled: replayGainEnabled,
             replayGainMode: replayGainMode,
+            replayGainPreampDB: replayGainPreampDB,
             spatialAudioEnabled: spatialAudioEnabled,
             spatialHeadTrackingEnabled: spatialHeadTrackingEnabled,
             audioCacheEnabled: audioCacheEnabled,

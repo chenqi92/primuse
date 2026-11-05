@@ -393,6 +393,10 @@ final class TVAudioEngine {
     /// Karaoke vocal reduction runs in the same AVPlayer tap as the spectrum.
     @ObservationIgnored let karaokeProcessor = TVKaraokeProcessor()
     @ObservationIgnored private var karaokeTapWanted = false
+    @ObservationIgnored private let replayGainControl = TVReplayGainControl()
+    @ObservationIgnored private var replayGainEnabled = false
+    @ObservationIgnored private var replayGainVolume: Float = 1
+    @ObservationIgnored private var mixVolume: Float = 1
     /// The karaoke processor sits in the playing item's tap. False on the
     /// SFB / live PCM paths, which karaoke does not cover.
     private(set) var isKaraokeTapInstalled = false
@@ -479,8 +483,31 @@ final class TVAudioEngine {
     var wantsSpectrumAnalysis: Bool { spectrumAnalysisEnabled }
 
     func setMixVolume(_ volume: Float) {
-        player.volume = min(1, max(0, volume))
+        mixVolume = volume.isFinite ? min(1, max(0, volume)) : 1
+        applyAVPlayerMixVolume()
         sfb.setMixVolume(volume)
+    }
+
+    func setReplayGain(enabled: Bool, volume: Float) {
+        replayGainEnabled = enabled
+        replayGainVolume = enabled && volume.isFinite ? min(ReplayGainPolicy.maximumLinearGain, max(0, volume)) : 1
+        replayGainControl.setGain(replayGainVolume)
+        sfb.setReplayGain(replayGainVolume)
+        applyAVPlayerMixVolume()
+        if enabled, !usingSFB, !usingLivePCM, !currentItemHasTap,
+           let item = player.currentItem, let activeItemID {
+            installAVPlayerSpectrumTap(on: item, expectedItemID: activeItemID)
+        }
+    }
+
+    var replayGainFileURL: URL? {
+        if let decodedTemporaryFileURL { return decodedTemporaryFileURL }
+        guard let url = (player.currentItem?.asset as? AVURLAsset)?.url, url.isFileURL else { return nil }
+        return url
+    }
+
+    private func applyAVPlayerMixVolume() {
+        player.volume = mixVolume * (currentItemHasTap ? 1 : min(1, replayGainVolume))
     }
 
     /// The two medley decks are reused and never own system controls or the audio session.
@@ -604,6 +631,7 @@ final class TVAudioEngine {
     /// starts. Keeping the audio session active avoids an avoidable route handoff
     /// between adjacent queue items, while all track-specific state is cleared.
     func prepareForSelection(startAt seconds: Double, seekFloor: Double = 0) {
+        setReplayGain(enabled: false, volume: 1)
         removePeriodicObserver()
         selectionRequestedAt = ProcessInfo.processInfo.systemUptime
         selectionStartRoute = ""
@@ -1090,7 +1118,7 @@ final class TVAudioEngine {
         installStalledObserver(for: item, expectedItemID: observedItemID)
         let carriesSpectrumTap = spectrumUsedOnCurrentItem
         spectrumUsedOnCurrentItem = spectrumAnalysisEnabled
-        if spectrumAnalysisEnabled || karaokeTapWanted || carriesSpectrumTap {
+        if spectrumAnalysisEnabled || karaokeTapWanted || replayGainEnabled || carriesSpectrumTap {
             installAVPlayerSpectrumTap(
                 on: item,
                 expectedItemID: observedItemID,
@@ -1459,8 +1487,10 @@ final class TVAudioEngine {
 
     /// 停掉分析和轮询,频谱归零;取样节点和管线的格式都留着(`reset()` 会清掉格式,节点不会再配置一次)。
     private func stopSpectrumAnalysis() {
-        spectrumSetupTask?.cancel()
-        spectrumSetupTask = nil
+        if !replayGainEnabled && !karaokeTapWanted {
+            spectrumSetupTask?.cancel()
+            spectrumSetupTask = nil
+        }
         spectrumTask?.cancel()
         spectrumTask = nil
         resetSpectrumLevels()
@@ -1478,7 +1508,7 @@ final class TVAudioEngine {
         karaokeTapWanted = enabled
         if enabled {
             installCurrentKaraokeTap()
-        } else if !spectrumAnalysisEnabled {
+        } else if !spectrumAnalysisEnabled && !replayGainEnabled {
             clearSpectrumSource()
         }
     }
@@ -1503,15 +1533,14 @@ final class TVAudioEngine {
         }
     }
 
-    /// AVPlayer 的解码结果通过 MTAudioProcessingTap 读取。它只旁路复制 PCM，
-    /// 不改变声音，也不使用与音乐无关的合成动画。
+    /// AVPlayer 解码后的公共处理节点:按开关应用 ReplayGain、伴奏处理及频谱取样。
     /// - Parameter carriesOver: 上一首开过频谱分析,这一首起播时先挂上节点(此刻还没在出声)。
     private func installAVPlayerSpectrumTap(
         on item: AVPlayerItem,
         expectedItemID: ObjectIdentifier,
         carriesOver: Bool = false
     ) {
-        guard spectrumAnalysisEnabled || karaokeTapWanted || carriesOver else { return }
+        guard spectrumAnalysisEnabled || karaokeTapWanted || replayGainEnabled || carriesOver else { return }
         spectrumSetupTask?.cancel()
         spectrumSetupTask = Task { [weak self, weak item] in
             guard let item else { return }
@@ -1522,12 +1551,13 @@ final class TVAudioEngine {
                 }
                 guard !Task.isCancelled,
                       let self,
-                      self.spectrumAnalysisEnabled || self.karaokeTapWanted || carriesOver,
+                      self.spectrumAnalysisEnabled || self.karaokeTapWanted || self.replayGainEnabled || carriesOver,
                       self.activeItemID == expectedItemID,
                       let track = tracks.first,
                       let tap = TVAudioProcessingTapFactory.make(context: TVAudioTapContext(
                           pipeline: self.spectrumPipeline,
-                          karaoke: TVKaraokeTapRenderer(processor: self.karaokeProcessor)
+                          karaoke: TVKaraokeTapRenderer(processor: self.karaokeProcessor),
+                          replayGain: TVReplayGainRenderer(control: self.replayGainControl)
                       )) else {
                     return
                 }
@@ -1539,6 +1569,7 @@ final class TVAudioEngine {
                 item.audioMix = mix
                 self.processingTap = tap
                 self.tappedItemID = expectedItemID
+                self.applyAVPlayerMixVolume()
                 self.isKaraokeTapInstalled = true
                 self.spectrumUnavailableItemID = nil
                 plog("📺 TV engine: spectrum tap attached carriesOver=\(carriesOver)")
@@ -2568,10 +2599,12 @@ private enum TVMixerSpectrumTap {
 private final class TVAudioTapContext: @unchecked Sendable {
     let pipeline: TVRealtimeSpectrumPipeline
     let karaoke: TVKaraokeTapRenderer
+    let replayGain: TVReplayGainRenderer
 
-    init(pipeline: TVRealtimeSpectrumPipeline, karaoke: TVKaraokeTapRenderer) {
+    init(pipeline: TVRealtimeSpectrumPipeline, karaoke: TVKaraokeTapRenderer, replayGain: TVReplayGainRenderer) {
         self.pipeline = pipeline
         self.karaoke = karaoke
+        self.replayGain = replayGain
     }
 }
 
@@ -2591,6 +2624,7 @@ private enum TVAudioProcessingTapFactory {
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap))
                     .takeUnretainedValue()
                 context.pipeline.configure(format: processingFormat.pointee)
+                context.replayGain.configure(processingFormat.pointee)
                 context.karaoke.configure(format: processingFormat.pointee, maxFrames: Int(maxFrames))
             },
             unprepare: { tap in
@@ -2614,6 +2648,7 @@ private enum TVAudioProcessingTapFactory {
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap))
                     .takeUnretainedValue()
                 let start = timeRange.start
+                context.replayGain.process(bufferList, frames: Int(frameCountOut.pointee))
                 context.karaoke.process(
                     bufferList: bufferList,
                     frameCount: Int(frameCountOut.pointee),

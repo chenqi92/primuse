@@ -1,10 +1,53 @@
 import Foundation
 
+public enum ReplayGainMode: String, Codable, Sendable, CaseIterable {
+    case automatic, track, album
+
+    public var localizationKey: String { "rg_mode_\(rawValue)" }
+}
+
+public struct ReplayGainAdjustment: Equatable, Sendable {
+    public var gain: Double?
+    public var peak: Double?
+
+    public init(gain: Double? = nil, peak: Double? = nil) {
+        self.gain = gain?.isFinite == true ? gain : nil
+        self.peak = peak?.isFinite == true && (peak ?? 0) > 0 ? peak : nil
+    }
+
+    public var hasValue: Bool { gain != nil }
+}
+
 /// Turns ReplayGain tags into player-node volumes and keeps a crossfade on
 /// those volumes, so a transition never passes through unity gain on either
 /// side. Volumes are linear amplitude multipliers, the unit AVAudioPlayerNode
 /// works in.
 public enum ReplayGainPolicy {
+    public static let preampRange = -12.0...12.0
+
+    public static func sanitizedPreamp(_ value: Double) -> Double {
+        value.isFinite ? min(preampRange.upperBound, max(preampRange.lowerBound, value)) : 0
+    }
+
+    public static func albumKey(for song: Song) -> String? {
+        guard let title = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return nil }
+        return [song.sourceID, song.albumID ?? title, song.albumArtistName ?? ""].joined(separator: "\u{1f}")
+    }
+
+    public static func effectiveMode(_ mode: ReplayGainMode, song: Song, queue: [Song], shuffled: Bool) -> ReplayGainMode {
+        guard mode == .automatic else { return mode }
+        guard !shuffled, queue.count > 1, let key = albumKey(for: song),
+              queue.allSatisfy({ albumKey(for: $0) == key }) else { return .track }
+        return .album
+    }
+
+    public static func adjustment(for song: Song, mode: ReplayGainMode) -> ReplayGainAdjustment {
+        if mode == .album, let gain = song.replayGainAlbumGain, gain.isFinite {
+            return .init(gain: gain, peak: song.replayGainAlbumPeak ?? song.replayGainTrackPeak)
+        }
+        return .init(gain: song.replayGainTrackGain, peak: song.replayGainTrackPeak)
+    }
+
     /// +12 dB. No sane ReplayGain tag asks for more; the cap keeps a corrupt
     /// tag from turning the node into a distortion pedal.
     public static let maximumLinearGain: Float = 4
@@ -14,9 +57,9 @@ public enum ReplayGainPolicy {
     /// the track still fits below full scale. The equalizer after the player
     /// node lowers its own level by its boost (`EqualizerHeadroomPolicy`), so
     /// no headroom is held back for it here.
-    public static func linearGain(gainDB: Double?, peak: Double?) -> Float {
+    public static func linearGain(gainDB: Double?, peak: Double?, preampDB: Double = 0) -> Float {
         guard let gainDB, gainDB.isFinite else { return 1 }
-        var linear = pow(10.0, gainDB / 20.0)
+        var linear = pow(10.0, (gainDB + sanitizedPreamp(preampDB)) / 20.0)
         if let peak, peak.isFinite, peak > 0 {
             linear = min(linear, 1.0 / peak)
         }

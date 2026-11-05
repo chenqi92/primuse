@@ -2956,7 +2956,7 @@
 "reorder" = "إعادة الترتيب";
 "repeat" = "تكرار";
 "replay_gain" = "ReplayGain";
-"replay_gain_desc" = "ضبط مستوى الصوت تلقائيًا بناءً على علامات ReplayGain المضمنة في الملفات الصوتية.";
+"replay_gain_desc" = "ضبط مستوى الصوت باستخدام علامات ReplayGain أو مستوى جهارة الصوت المقاس تلقائيًا.";
 "library_liked_albums_title" = "الألبومات المفضلة";
 "library_liked_artists_title" = "الفنانون المفضلون";
 "library_favorite_like" = "إضافة إلى المفضلة";
@@ -7135,3 +7135,8 @@
 "player_carousel_open_artist" = "الفنان";
 "player_carousel_song_count %lld" = "%lld أغنية";
 "player_carousel_more_by_artist %@" = "المزيد من %@";
+
+"rg_mode_automatic" = "تلقائي";
+"rg_preamp" = "الكسب المسبق";
+"rg_preamp_decrease" = "خفض الكسب المسبق";
+"rg_preamp_increase" = "زيادة الكسب المسبق";

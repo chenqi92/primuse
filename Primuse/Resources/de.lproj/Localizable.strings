@@ -712,7 +712,7 @@
 "Maximum Crossfade Duration" = "Maximale Überblenddauer";
 "seconds" = "Sekunden";
 "replay_gain" = "ReplayGain";
-"replay_gain_desc" = "Passe die Lautstärke automatisch anhand der in den Audiodateien eingebetteten ReplayGain-Tags an.";
+"replay_gain_desc" = "Lautstärke anhand von ReplayGain-Tags oder automatisch gemessener Lautheit anpassen.";
 "spatial_audio" = "3D-Audio";
 "spatial_audio_desc" = "Platziert die Wiedergabe über Apples Spatial-Audio-Renderer auf einer virtuellen Bühne vor dir.";
 "spatial_head_tracking" = "Head-Tracking";
@@ -7229,3 +7229,8 @@
 "player_carousel_open_artist" = "Künstler";
 "player_carousel_song_count %lld" = "%lld Titel";
 "player_carousel_more_by_artist %@" = "Mehr von %@";
+
+"rg_mode_automatic" = "Automatisch";
+"rg_preamp" = "Vorverstärkung";
+"rg_preamp_decrease" = "Vorverstärkung verringern";
+"rg_preamp_increase" = "Vorverstärkung erhöhen";

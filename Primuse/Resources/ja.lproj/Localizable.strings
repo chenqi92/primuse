@@ -713,7 +713,7 @@
 "Maximum Crossfade Duration" = "最大クロスフェード時間";
 "seconds" = "秒";
 "replay_gain" = "ReplayGain";
-"replay_gain_desc" = "オーディオファイルに埋め込まれた ReplayGain タグに基づいて音量を自動調整します。";
+"replay_gain_desc" = "ReplayGain タグまたは自動測定したラウドネスに基づいて音量を調整します。";
 "spatial_audio" = "空間オーディオ";
 "spatial_audio_desc" = "Apple の空間オーディオレンダラーにより、再生音を前方の仮想サウンドステージに配置します。";
 "spatial_head_tracking" = "ヘッドトラッキング";
@@ -7230,3 +7230,8 @@
 "player_carousel_open_artist" = "アーティスト";
 "player_carousel_song_count %lld" = "%lld 曲";
 "player_carousel_more_by_artist %@" = "%@ のその他の曲";
+
+"rg_mode_automatic" = "自動";
+"rg_preamp" = "プリアンプ";
+"rg_preamp_decrease" = "プリアンプを下げる";
+"rg_preamp_increase" = "プリアンプを上げる";

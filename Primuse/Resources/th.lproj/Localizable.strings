@@ -2956,7 +2956,7 @@
 "reorder" = "สั่งซื้อใหม่";
 "repeat" = "เล่นซ้ำ";
 "replay_gain" = "ReplayGain";
-"replay_gain_desc" = "ปรับระดับเสียงโดยอัตโนมัติตามแท็ก ReplayGain ที่ฝังอยู่ในไฟล์เสียง";
+"replay_gain_desc" = "ปรับระดับเสียงตามแท็ก ReplayGain หรือความดังที่วัดโดยอัตโนมัติ";
 "library_liked_albums_title" = "อัลบั้มโปรด";
 "library_liked_artists_title" = "ศิลปินโปรด";
 "library_favorite_like" = "เพิ่มในรายการโปรด";
@@ -7135,3 +7135,8 @@
 "player_carousel_open_artist" = "ศิลปิน";
 "player_carousel_song_count %lld" = "%lld เพลง";
 "player_carousel_more_by_artist %@" = "เพิ่มเติมจาก %@";
+
+"rg_mode_automatic" = "อัตโนมัติ";
+"rg_preamp" = "พรีแอมป์";
+"rg_preamp_decrease" = "ลดพรีแอมป์";
+"rg_preamp_increase" = "เพิ่มพรีแอมป์";

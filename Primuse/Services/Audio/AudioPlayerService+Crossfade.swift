@@ -940,6 +940,7 @@ extension AudioPlayerService {
             startTimeUpdater()
         }
         plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
+        analyzeReplayGainAfterTransition(song: nextSong, url: nextURL)
 
         if !nextSong.isCueTrack,
            nextSong.appliedPlaybackRange == nil,

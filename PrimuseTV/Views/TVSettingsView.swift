@@ -56,6 +56,7 @@ private var tvDebugShowsScraperSettings: Bool {
 }
 
 struct TVSettingsView: View {
+    @State private var replayGain = TVReplayGainSettings.shared
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
@@ -238,6 +239,31 @@ struct TVSettingsView: View {
                             )
                         }
                         settingsSection(String(localized: "playback")) {
+                            toggleRow("waveform", String(localized: "replay_gain"), isOn: $replayGain.enabled)
+                            if replayGain.enabled {
+                                settingDivider
+                                navRow("slider.horizontal.3", String(localized: "rg_mode"),
+                                       String(localized: String.LocalizationValue(replayGain.mode.localizationKey)),
+                                       trailing: "arrow.triangle.2.circlepath") {
+                                    replayGain.mode = Self.next(after: replayGain.mode, in: ReplayGainMode.allCases)
+                                }
+                                settingDivider
+                                HStack {
+                                    Text("rg_preamp")
+                                    Spacer()
+                                    Button { replayGain.preampDB = max(-12, replayGain.preampDB - 0.5) } label: {
+                                        Image(systemName: "minus")
+                                    }
+                                    .accessibilityLabel(Text("rg_preamp_decrease"))
+                                    Text(String(format: "%+.1f dB", replayGain.preampDB)).monospacedDigit().frame(width: 120)
+                                    Button { replayGain.preampDB = min(12, replayGain.preampDB + 0.5) } label: {
+                                        Image(systemName: "plus")
+                                    }
+                                    .accessibilityLabel(Text("rg_preamp_increase"))
+                                }
+                                .padding(.vertical, 12)
+                            }
+                            settingDivider
                             toggleRow(
                                 "infinity",
                                 String(localized: "auto_continue_similar"),

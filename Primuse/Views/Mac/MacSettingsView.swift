@@ -2970,6 +2970,14 @@ private struct MacSTPlaybackView: View {
                         )
                     }
                     .pmSlideTransition(edge: .top)
+                    MacSTRow(String(localized: "rg_preamp")) {
+                        Slider(value: $s.replayGainPreampDB, in: ReplayGainPolicy.preampRange, step: 0.5)
+                            .frame(width: 160)
+                            .accessibilityLabel(Text("rg_preamp"))
+                        Text(String(format: "%+.1f dB", s.replayGainPreampDB))
+                            .monospacedDigit().frame(width: 72, alignment: .trailing)
+                    }
+                    .disabled(s.outputMode == .highFidelity)
                 }
                 MacSTRow(
                     String(localized: "streaming_quality_wifi"),

@@ -1123,7 +1123,7 @@
 "playlist_reorder_changed" = "Замовлення змінено";
 "encoding_fix_empty_message" = "Цей текст не можна перечитати як інше кодування. Якщо це все ще виглядає неправильно, оригінальні символи вже втрачено, і вам потрібно буде ввести їх повторно.";
 "smart_field_isInPlaylist" = "У списку відтворення";
-"replay_gain_desc" = "Автоматично регулюйте гучність на основі тегів ReplayGain, вбудованих у аудіофайли.";
+"replay_gain_desc" = "Регулювати гучність за тегами ReplayGain або автоматично виміряною гучністю.";
 "lyrics_editor_stamp" = "Поставити мітку";
 "theme_color_hex" = "Значення";
 "theme_color_picker" = "Вибір кольору";
@@ -7135,3 +7135,8 @@
 "player_carousel_open_artist" = "Виконавець";
 "player_carousel_song_count %lld" = "Пісень: %lld";
 "player_carousel_more_by_artist %@" = "Більше від %@";
+
+"rg_mode_automatic" = "Автоматично";
+"rg_preamp" = "Попереднє підсилення";
+"rg_preamp_decrease" = "Зменшити попереднє підсилення";
+"rg_preamp_increase" = "Збільшити попереднє підсилення";

@@ -366,6 +366,7 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
+      - path: PrimuseTests/ReplayGainPlaybackTests.swift
       - path: PrimuseTests/AppleIntelligenceProviderTests.swift
       - path: PrimuseTests/SpokenChapterGeneratorTests.swift
       - path: PrimuseMacTests
@@ -811,6 +812,7 @@ targets:
       - path: Primuse/Services/Sources/MusicSourceSecurityRevision.swift
       - path: Primuse/Services/Metadata/MetadataAssetStore.swift
       - path: Primuse/Services/Metadata/FileMetadataReader.swift
+      - path: Primuse/Services/Audio/ReplayGainAnalysisService.swift
       - path: Primuse/Services/Metadata/EmbeddedMetadataWriter.swift
       - path: Primuse/Services/Metadata/LyricsParser.swift
       - path: Primuse/Services/Cloud/CloudKitRuntime.swift
