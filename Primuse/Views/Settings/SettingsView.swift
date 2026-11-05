@@ -2375,12 +2375,12 @@ struct PlaybackSettingsView: View {
                     }
                 }
                 .settingsAnchor("playback.cellularStreamQuality")
-                Picker("navidrome_transcode_format", selection: $settings.navidromeTranscodeFormat) {
+                Picker("stream_transcode_format", selection: $settings.streamTranscodeFormat) {
                     ForEach(StreamTranscodeFormat.allCases, id: \.self) { format in
                         Text(verbatim: format.displayName).tag(format)
                     }
                 }
-                .settingsAnchor("playback.navidromeTranscodeFormat")
+                .settingsAnchor("playback.streamTranscodeFormat")
             } header: {
                 SettingsInfoHeader("streaming_quality_section") {
                     Text("streaming_quality_desc")
@@ -3105,6 +3105,12 @@ struct StorageManagementView: View {
                     }
                 }
                 .settingsAnchor("storage.offlineDownloadQuality")
+                Picker("offline_download_format", selection: $settings.offlineDownloadFormat) {
+                    ForEach(StreamTranscodeFormat.allCases, id: \.self) { format in
+                        Text(verbatim: format.displayName).tag(format)
+                    }
+                }
+                .settingsAnchor("storage.offlineDownloadFormat")
 
                 if settings.offlineDownloadQuality != .original
                     || sourceManager.offlineCompactionSweepProgress != nil {

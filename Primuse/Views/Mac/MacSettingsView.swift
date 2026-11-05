@@ -545,6 +545,14 @@ private struct MacSTStorageView: View {
                         )
                     }
                     .settingsAnchor("storage.offlineDownloadQuality")
+                    MacSTRow(String(localized: "offline_download_format")) {
+                        MacSTPicker(
+                            selection: $settings.offlineDownloadFormat,
+                            options: StreamTranscodeFormat.allCases.map { ($0, $0.displayName) },
+                            width: 160
+                        )
+                    }
+                    .settingsAnchor("storage.offlineDownloadFormat")
                     if settings.offlineDownloadQuality != .original
                         || sourceManager.offlineCompactionSweepProgress != nil {
                         MacSTRow(
@@ -2998,14 +3006,14 @@ private struct MacSTPlaybackView: View {
                     )
                 }
                 .settingsAnchor("playback.cellularStreamQuality")
-                MacSTRow(String(localized: "navidrome_transcode_format")) {
+                MacSTRow(String(localized: "stream_transcode_format")) {
                     MacSTPicker(
-                        selection: $s.navidromeTranscodeFormat,
+                        selection: $s.streamTranscodeFormat,
                         options: StreamTranscodeFormat.allCases.map { ($0, $0.displayName) },
                         width: 160
                     )
                 }
-                .settingsAnchor("playback.navidromeTranscodeFormat")
+                .settingsAnchor("playback.streamTranscodeFormat")
             }
         }
 

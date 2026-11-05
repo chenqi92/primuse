@@ -7042,7 +7042,7 @@ final class AudioPlayerService {
     }
 
     func usesFFmpegDecoder(for song: Song, url: URL) async -> Bool {
-        // 离线精简副本是 AAC m4a, 与这首歌原文件的格式无关。
+        // 离线副本的 AAC / MP3 / Opus 均走原生解码，不沿用原文件的格式。
         if OfflineCompactArtifact.isCompactURL(url) { return false }
         // Persisted format knowledge is authoritative and avoids re-reading a
         // dead mount merely to rediscover DTS-CD content.

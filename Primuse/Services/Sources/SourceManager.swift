@@ -5283,10 +5283,9 @@ final class SourceManager {
 
     /// 能按「用户设置 + 当前网络」改变取流音质的来源类型。
     ///
-    /// Subsonic 系与 Emby / Jellyfin 都有成熟的服务端音频转码端点。
-    /// Plex 的转码走另一套会话协商, 不在本功能范围内。
+    /// Subsonic 系与 Emby / Jellyfin / Plex 的服务端音频转码端点。
     private nonisolated static func supportsAdaptiveTranscoding(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily || type == .jellyfin || type == .emby
+        type.isSubsonicFamily || type == .jellyfin || type == .emby || type == .plex
     }
 
     /// 这首歌这次该怎么取流。
@@ -5304,7 +5303,7 @@ final class SourceManager {
             return .original
         }
         let settings = PlaybackSettings.load()
-        let format: StreamTranscodeFormat = source.type == .navidrome ? settings.navidromeTranscodeFormat : .mp3
+        let format = settings.streamTranscodeFormat
         // 本地解不了的格式(WMA)必须由服务端转码, 与用户的音质设置无关。
         // 让它走和「按网络转码」同一条链路: 独立的转码目录、安装前校验、
         // 下完可拖动、提前准备下一首。
@@ -9272,12 +9271,13 @@ final class SourceManager {
 
     // MARK: - 离线缓存音质
 
-    /// 离线下载完成并固定之后, 按「离线缓存音质」把原文件在本机转成 AAC。
+    /// 离线下载完成并固定之后, 按离线音质与格式设置在本机转换副本。
     /// 设置是原始音质、格式不需要转、转换失败时原文件保持原样。整轨 CUE 的
     /// 各分轨共用一个文件, 同一路径的转换只跑一份。返回省下的字节数。
     @discardableResult
     private func compactOfflineArtifactIfNeeded(for song: Song) async -> Int64? {
-        let preference = PlaybackSettings.load().offlineDownloadQuality
+        let settings = PlaybackSettings.load()
+        let preference = settings.offlineDownloadQuality
         guard case .compact(let bitRateKbps) = OfflineDownloadQualityPolicy.plan(
             preference: preference,
             format: song.codecFormat,
@@ -9299,7 +9299,8 @@ final class SourceManager {
             return await self.performOfflineCompaction(
                 song: song,
                 relativePath: relativePath,
-                bitRateKbps: bitRateKbps
+                bitRateKbps: bitRateKbps,
+                format: settings.offlineDownloadFormat
             )
         }
         offlineCompactionTasks[relativePath] = OfflineCompactionTaskRecord(id: id, task: task)
@@ -9313,7 +9314,8 @@ final class SourceManager {
     private func performOfflineCompaction(
         song: Song,
         relativePath: String,
-        bitRateKbps: Int
+        bitRateKbps: Int,
+        format: StreamTranscodeFormat
     ) async -> Int64? {
         guard await ensureAudioCacheScopeValidated(for: song.sourceID),
               compactionMayTouch(relativePath, sourceID: song.sourceID),
@@ -9333,7 +9335,8 @@ final class SourceManager {
 
         if let record = source.compactRecord,
            record.originalByteCount == original.byteCount,
-           record.bitRateKbps == bitRateKbps {
+           record.bitRateKbps == bitRateKbps,
+           record.format == format {
             // 副本早就转好了, 只是当时原文件正被播放没删掉。
             await removeSupersededOfflineOriginal(
                 path: relativePath,
@@ -9358,6 +9361,7 @@ final class SourceManager {
                 original: canonical,
                 originalByteCount: original.byteCount,
                 targetKbps: bitRateKbps,
+                format: format,
                 expectedDuration: isCueTrack ? nil : duration
             )
         }
@@ -9419,8 +9423,9 @@ final class SourceManager {
             errorMessage: nil
         ), for: song.id)
         plog(String(
-            format: "🗜 Offline: '%@' saved as AAC %ldkbps %lldKB → %lldKB elapsed=%.1fs%@",
+            format: "🗜 Offline: '%@' saved as %@ %ldkbps %lldKB → %lldKB elapsed=%.1fs%@",
             song.title,
+            format.displayName,
             output.encodedBitRate / 1000,
             original.byteCount / 1024,
             output.byteCount / 1024,

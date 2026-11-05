@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import PrimuseKit
@@ -23,6 +24,38 @@ final class OfflineDownloadFileStoreTests: XCTestCase {
         let url = root.appendingPathComponent(name)
         try Data(repeating: bytes, count: 4096).write(to: url)
         return url
+    }
+
+    func testCompactFormatSurvivesNamingReplacementAndRestart() throws {
+        func compact(_ format: StreamTranscodeFormat) throws -> URL {
+            let url = try audio(format.rawValue + ".compact.m4a")
+            let record = OfflineCompactArtifactRecord(originalByteCount: 10000, bitRateKbps: 192, format: format)
+            let bytes = Array(record.serialized.utf8)
+            let status = bytes.withUnsafeBytes {
+                setxattr(url.path, OfflineDownloadQualityPolicy.compactRecordAttributeName,
+                         $0.baseAddress, $0.count, 0, 0)
+            }
+            XCTAssertEqual(status, 0)
+            return url
+        }
+        let aac = try store.publish(compact(.aac), for: path, kind: .compact, displayName: "Track")
+        let mp3 = try store.publish(compact(.mp3), for: path, kind: .compact, displayName: "Track")
+        XCTAssertEqual(mp3.pathExtension, "mp3")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: aac.path))
+        XCTAssertEqual(store.fileURL(for: path, kind: .compact), mp3)
+        let renamed = mp3.deletingLastPathComponent().appendingPathComponent("My Track.mp3")
+        try FileManager.default.moveItem(at: mp3, to: renamed)
+        XCTAssertEqual(try store.reconcile(), [path])
+        let opus = try store.publish(compact(.opus), for: path, kind: .compact)
+        XCTAssertEqual(opus.lastPathComponent, "My Track.opus")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
+        let restarted = OfflineDownloadFileStore(directory: store.directory,
+                                                indexURL: root.appendingPathComponent("Private/index.json"))
+        XCTAssertEqual(restarted.fileURL(for: path, kind: .compact), opus)
+        try FileManager.default.removeItem(at: opus)
+        let restoredAAC = try restarted.publish(compact(.aac), for: path, kind: .compact)
+        XCTAssertEqual(restoredAAC.lastPathComponent, "My Track.m4a")
+        XCTAssertEqual(restarted.fileURL(for: path, kind: .compact), restoredAAC)
     }
 
     func testClearingTheEntireCacheDoesNotRemoveTheDownload() throws {

@@ -494,15 +494,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     /// 按网络选择传输音质时用的取流地址。`plan` 为 `.original` 时逐字转发给
     /// 既有实现 —— 默认设置下这条重载与原方法完全等价。
     func streamingURL(for path: String, transcode plan: SourceTranscodePlan) async throws -> URL? {
-        // Plex 的转码走另一套会话协商, 不在本功能范围内。
-        guard kind != .plex, let bitRateKbps = plan.transcodedBitRateKbps else {
+        guard let bitRateKbps = plan.transcodedBitRateKbps, let format = plan.transcodedFormat else {
             return try await streamingURL(for: path)
         }
         try await connect()
         guard let itemID = itemID(from: path) else {
             throw SourceError.fileNotFound(path)
         }
-        let url = try adaptiveTranscodePlaybackURL(for: itemID, bitRateKbps: bitRateKbps)
+        let url = try adaptiveTranscodePlaybackURL(for: itemID, bitRateKbps: bitRateKbps, format: format)
         // 需要连接器自己接管传输(明文 / 自签证书)时拿不到可直连的转码地址,
         // 退回原始音质而不是硬转 —— 播放层会从 URL 反推出 `.original`,
         // 计划与现实因此始终一致。
@@ -797,29 +796,51 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     /// 按网络策略转码的取流地址。
     ///
-    /// 形状与 `radioPlaybackURL` 同源(`/Audio/{id}/stream.mp3` + `Static=false`
-    /// + `AudioCodec=mp3`), 多一个码率上限。`AudioBitrate` 的单位是 **bps**,
-    /// 名字取自 Jellyfin 自己在 `PlaybackInfo` 响应里给出的 `TranscodingUrl`;
-    /// Emby 同源且查询参数绑定不区分大小写。服务端可能给出低于请求值的码率
-    /// (实测 Jellyfin 会把 320k 压到 256k), 那仍然满足「不超过用户设定」。
-    ///
-    /// 两个 primuse 标记让播放层知道这是转码流(别按原文件大小做 Range)、
-    /// 并且是本次网络策略的产物(不写原文件缓存、下完才可拖动)。
-    private func adaptiveTranscodePlaybackURL(for itemID: String, bitRateKbps: Int) throws -> URL {
-        guard kind != .plex, let accessToken else {
-            throw SourceError.authenticationFailed
+    private func adaptiveTranscodePlaybackURL(
+        for itemID: String,
+        bitRateKbps: Int,
+        format: StreamTranscodeFormat
+    ) throws -> URL {
+        guard let accessToken else { throw SourceError.authenticationFailed }
+        let markers = [
+            URLQueryItem(name: SourceStreamQuery.transcoded, value: "1"),
+            URLQueryItem(name: SourceStreamQuery.adaptive, value: "1"),
+            URLQueryItem(name: "maxBitRate", value: String(bitRateKbps)),
+            URLQueryItem(name: "format", value: format.rawValue),
+        ]
+        if kind == .plex {
+            let container = format == .opus ? "ogg" : format.rawValue
+            let profile = "add-transcode-target(type=musicProfile&context=streaming&protocol=http"
+                + "&container=\(container)&audioCodec=\(format.rawValue)&replace=true)"
+            return buildURL(
+                path: "/music/:/transcode/universal/start.\(container)",
+                queryItems: [
+                    URLQueryItem(name: "path", value: "/library/metadata/\(itemID)"),
+                    URLQueryItem(name: "mediaIndex", value: "0"),
+                    URLQueryItem(name: "partIndex", value: "0"),
+                    URLQueryItem(name: "protocol", value: "http"),
+                    URLQueryItem(name: "directPlay", value: "0"),
+                    URLQueryItem(name: "directStream", value: "0"),
+                    URLQueryItem(name: "directStreamAudio", value: "0"),
+                    URLQueryItem(name: "musicBitrate", value: String(bitRateKbps)),
+                    URLQueryItem(name: "X-Plex-Token", value: accessToken),
+                    URLQueryItem(name: "X-Plex-Client-Identifier", value: deviceID),
+                    URLQueryItem(name: "X-Plex-Product", value: "Primuse"),
+                    URLQueryItem(name: "X-Plex-Client-Profile-Name", value: "Generic"),
+                    URLQueryItem(name: "X-Plex-Client-Profile-Extra", value: profile),
+                ] + markers
+            )
         }
         return buildURL(
-            path: "/Audio/\(itemID)/stream.\(AdaptiveStreamQualityPolicy.transcodedFileExtension)",
+            path: "/Audio/\(itemID)/stream.\(format.rawValue)",
             queryItems: [
                 URLQueryItem(name: "Static", value: "false"),
-                URLQueryItem(name: "AudioCodec", value: "mp3"),
-                URLQueryItem(name: "Container", value: "mp3"),
+                URLQueryItem(name: "AudioCodec", value: format.rawValue),
+                URLQueryItem(name: "Container", value: format.rawValue),
                 URLQueryItem(name: "AudioBitrate", value: String(bitRateKbps * 1000)),
-            ] + tokenQueryItems + [
-                URLQueryItem(name: SourceStreamQuery.transcoded, value: "1"),
-                URLQueryItem(name: SourceStreamQuery.adaptive, value: "1")
-            ]
+                URLQueryItem(name: "EnableAutoStreamCopy", value: "false"),
+                URLQueryItem(name: "DeviceId", value: deviceID),
+            ] + tokenQueryItems + markers
         )
     }
 

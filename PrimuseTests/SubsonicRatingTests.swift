@@ -8,28 +8,30 @@ import ImageIO
 
 final class SubsonicRatingTests: XCTestCase {
     func testAdaptiveStreamURLsPreserveFormatAndBitrateOverHTTPAndHTTPS() async throws {
-        for useSSL in [false, true] {
-            let (source, session) = makeSource(RatingHTTPFixture(), useSSL: useSSL)
-            defer { session.invalidateAndCancel() }
-            for format in StreamTranscodeFormat.allCases {
-                for bitrate in [320, 192, 128] {
-                    let resolved = try await source.streamingURL(for: "/songs/hires.flac", transcode: .transcode(bitRateKbps: bitrate, format: format))
-                    let url = try XCTUnwrap(resolved)
-                    let parameters = query(URLRequest(url: url))
-                    XCTAssertEqual(url.scheme, useSSL ? "https" : "http")
-                    XCTAssertEqual(url.path, "/rest/stream.view")
-                    XCTAssertEqual(parameters["id"], "hires")
-                    XCTAssertEqual(parameters["format"], format.rawValue)
-                    XCTAssertEqual(parameters["maxBitRate"], String(bitrate))
-                    XCTAssertEqual(parameters[SourceStreamQuery.transcoded], "1")
-                    XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), .transcode(bitRateKbps: bitrate, format: format))
+        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic] {
+            for useSSL in [false, true] {
+                let (source, session) = makeSource(RatingHTTPFixture(), useSSL: useSSL, type: type)
+                defer { session.invalidateAndCancel() }
+                for format in StreamTranscodeFormat.allCases {
+                    for bitrate in [320, 192, 128] {
+                        let resolved = try await source.streamingURL(for: "/songs/hires.flac", transcode: .transcode(bitRateKbps: bitrate, format: format))
+                        let url = try XCTUnwrap(resolved)
+                        let parameters = query(URLRequest(url: url))
+                        XCTAssertEqual(url.scheme, useSSL ? "https" : "http")
+                        XCTAssertEqual(url.path, "/rest/stream.view")
+                        XCTAssertEqual(parameters["id"], "hires")
+                        XCTAssertEqual(parameters["format"], format.rawValue)
+                        XCTAssertEqual(parameters["maxBitRate"], String(bitrate))
+                        XCTAssertEqual(parameters[SourceStreamQuery.transcoded], "1")
+                        XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), .transcode(bitRateKbps: bitrate, format: format))
+                    }
                 }
+                let original = try await source.streamingURL(for: "/songs/hires.flac", transcode: .original)
+                let parameters = query(URLRequest(url: try XCTUnwrap(original)))
+                XCTAssertEqual(parameters["format"], "raw")
+                XCTAssertNil(parameters["maxBitRate"])
+                XCTAssertNil(parameters[SourceStreamQuery.adaptive])
             }
-            let original = try await source.streamingURL(for: "/songs/hires.flac", transcode: .original)
-            let parameters = query(URLRequest(url: try XCTUnwrap(original)))
-            XCTAssertEqual(parameters["format"], "raw")
-            XCTAssertNil(parameters["maxBitRate"])
-            XCTAssertNil(parameters[SourceStreamQuery.adaptive])
         }
     }
 
@@ -155,13 +157,13 @@ final class SubsonicRatingTests: XCTestCase {
         return Dictionary(items.compactMap { item in item.value.map { (item.name, $0) } }, uniquingKeysWith: { _, rhs in rhs })
     }
 
-    private func makeSource(_ fixture: RatingHTTPFixture, useSSL: Bool = true) -> (SubsonicSource, URLSession) {
+    private func makeSource(_ fixture: RatingHTTPFixture, useSSL: Bool = true, type: MusicSourceType = .navidrome) -> (SubsonicSource, URLSession) {
         let host = "rating-\(UUID().uuidString.lowercased()).\(useSSL ? "invalid" : "local")"
         RatingHTTPProtocol.register(fixture, host: host)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RatingHTTPProtocol.self]
         let session = URLSession(configuration: configuration)
-        let source = SubsonicSource(sourceID: host, sourceType: .navidrome, host: host, port: nil,
+        let source = SubsonicSource(sourceID: host, sourceType: type, host: host, port: nil,
                                     useSsl: useSSL, basePath: nil, username: "qa", password: "qa", session: session)
         return (source, session)
     }

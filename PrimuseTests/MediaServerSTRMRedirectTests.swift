@@ -7,6 +7,50 @@ import XCTest
 @testable import Primuse
 
 final class MediaServerSTRMRedirectTests: XCTestCase {
+    func testAdaptiveTranscodingUsesRequestedCodecAndRestoresPlaybackPlan() async throws {
+        for kind in [MediaServerSource.Kind.jellyfin, .emby, .plex] {
+            let host = uniqueHost("transcode")
+            MediaServerRedirectURLProtocol.configure(host: host) { request in
+                switch request.url?.path {
+                case "/Users/Me": return .json(#"{"Id":"user"}"#)
+                case "", "/": return .json(#"{"MediaContainer":{"machineIdentifier":"server"}}"#)
+                default: return .init(status: 404)
+                }
+            }
+            let source = makeSource(host: host, kind: kind)
+            for format in StreamTranscodeFormat.allCases {
+                for bitrate in [128, 192, 320] {
+                    let plan = SourceTranscodePlan.transcode(bitRateKbps: bitrate, format: format)
+                    let resolved = try await source.streamingURL(for: "/items/song.flac", transcode: plan)
+                    let url = try XCTUnwrap(resolved)
+                    let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                    let query = Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { _, new in new })
+                    XCTAssertEqual(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url), plan)
+                    XCTAssertEqual(query[SourceStreamQuery.transcoded], "1")
+                    if kind == .plex {
+                        let container = format == .opus ? "ogg" : format.rawValue
+                        XCTAssertEqual(url.path, "/music/:/transcode/universal/start.\(container)")
+                        XCTAssertEqual(query["path"], "/library/metadata/song")
+                        XCTAssertEqual(query["musicBitrate"], String(bitrate))
+                        XCTAssertEqual(query["protocol"], "http")
+                        XCTAssertEqual(query["directPlay"], "0")
+                        XCTAssertEqual(query["directStreamAudio"], "0")
+                        XCTAssertEqual(query["X-Plex-Token"], "source-token")
+                        XCTAssertTrue(query["X-Plex-Client-Profile-Extra"]?.contains("audioCodec=\(format.rawValue)&replace=true") == true)
+                    } else {
+                        XCTAssertEqual(url.path, "/Audio/song/stream.\(format.rawValue)")
+                        XCTAssertEqual(query["AudioCodec"], format.rawValue)
+                        XCTAssertEqual(query["Container"], format.rawValue)
+                        XCTAssertEqual(query["AudioBitrate"], String(bitrate * 1000))
+                        XCTAssertEqual(query["Static"], "false")
+                        XCTAssertEqual(query["EnableAutoStreamCopy"], "false")
+                    }
+                }
+            }
+            await source.disconnect()
+        }
+    }
+
     func testMissingJellyfinLyricsAndEmbyItemsRemainAbsent() async throws {
         for kind in [MediaServerSource.Kind.jellyfin, .emby] {
             let host = uniqueHost("missing-lyrics")

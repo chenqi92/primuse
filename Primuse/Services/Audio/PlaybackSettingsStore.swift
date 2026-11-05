@@ -106,9 +106,10 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 默认两项都是 `.original` —— 那时整条取流链路与未引入本功能时一致。
     var wifiStreamQuality: StreamQualityPreference = .original
     var cellularStreamQuality: StreamQualityPreference = .original
-    var navidromeTranscodeFormat: StreamTranscodeFormat = .mp3
-    /// 离线下载在本机转成的 AAC 码率。默认 `.original` 保存原文件。
+    var streamTranscodeFormat: StreamTranscodeFormat = .mp3
+    /// 离线下载在本机转成的码率。默认 `.original` 保存原文件。
     var offlineDownloadQuality: StreamQualityPreference = .original
+    var offlineDownloadFormat: StreamTranscodeFormat = .aac
     var skipLeadingSilenceEnabled: Bool = true
     var skipTrailingSilenceEnabled: Bool = false
     var prewarmQueueCount: Int = 3
@@ -172,6 +173,10 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     var reverbWetDryMix: Float = 20
     var reverbRoomSize: Float = 55
 
+    private enum LegacyTranscodeKeys: String, CodingKey {
+        case navidromeTranscodeFormat
+    }
+
     // Custom decoding: use decodeIfPresent for new fields so that older
     // persisted JSON (without compressor/reverb keys) does not fail to
     // decode — existing user settings are preserved on update.
@@ -195,8 +200,12 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         // 用户不能因为装了新版本就被改成转码。
         wifiStreamQuality = try c.decodeIfPresent(StreamQualityPreference.self, forKey: .wifiStreamQuality) ?? .original
         cellularStreamQuality = try c.decodeIfPresent(StreamQualityPreference.self, forKey: .cellularStreamQuality) ?? .original
-        navidromeTranscodeFormat = (try? c.decodeIfPresent(StreamTranscodeFormat.self, forKey: .navidromeTranscodeFormat)) ?? .mp3
+        let legacy = try decoder.container(keyedBy: LegacyTranscodeKeys.self)
+        streamTranscodeFormat = (try? c.decodeIfPresent(StreamTranscodeFormat.self, forKey: .streamTranscodeFormat))
+            ?? (try? legacy.decodeIfPresent(StreamTranscodeFormat.self, forKey: .navidromeTranscodeFormat))
+            ?? .mp3
         offlineDownloadQuality = try c.decodeIfPresent(StreamQualityPreference.self, forKey: .offlineDownloadQuality) ?? .original
+        offlineDownloadFormat = (try? c.decodeIfPresent(StreamTranscodeFormat.self, forKey: .offlineDownloadFormat)) ?? .aac
         skipLeadingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipLeadingSilenceEnabled) ?? true
         skipTrailingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipTrailingSilenceEnabled) ?? false
         prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
@@ -252,8 +261,9 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         audioCacheLimitBytes: Int64 = AudioCacheManager.defaultMaxCacheSize,
         wifiStreamQuality: StreamQualityPreference = .original,
         cellularStreamQuality: StreamQualityPreference = .original,
-        navidromeTranscodeFormat: StreamTranscodeFormat = .mp3,
+        streamTranscodeFormat: StreamTranscodeFormat = .mp3,
         offlineDownloadQuality: StreamQualityPreference = .original,
+        offlineDownloadFormat: StreamTranscodeFormat = .aac,
         skipLeadingSilenceEnabled: Bool = true,
         skipTrailingSilenceEnabled: Bool = false,
         prewarmQueueCount: Int = 3,
@@ -303,8 +313,9 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.audioCacheLimitBytes = audioCacheLimitBytes
         self.wifiStreamQuality = wifiStreamQuality
         self.cellularStreamQuality = cellularStreamQuality
-        self.navidromeTranscodeFormat = navidromeTranscodeFormat
+        self.streamTranscodeFormat = streamTranscodeFormat
         self.offlineDownloadQuality = offlineDownloadQuality
+        self.offlineDownloadFormat = offlineDownloadFormat
         self.skipLeadingSilenceEnabled = skipLeadingSilenceEnabled
         self.skipTrailingSilenceEnabled = skipTrailingSilenceEnabled
         self.prewarmQueueCount = prewarmQueueCount
@@ -370,9 +381,10 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         // 传输音质按这台设备的网络来: Mac 没有蜂窝, 手机的流量套餐也不是 Mac 的。
         .init("wifiStreamQuality", \.wifiStreamQuality),
         .init("cellularStreamQuality", \.cellularStreamQuality),
-        .init("navidromeTranscodeFormat", \.navidromeTranscodeFormat),
+        .init("streamTranscodeFormat", \.streamTranscodeFormat),
         // 离线缓存存成什么码率是这台设备的存储取舍: Mac 上存原文件, 手机上省空间。
         .init("offlineDownloadQuality", \.offlineDownloadQuality),
+        .init("offlineDownloadFormat", \.offlineDownloadFormat),
     ])
 
     static func load(defaults: UserDefaults = .standard) -> PlaybackSettings {
@@ -481,8 +493,9 @@ final class PlaybackSettingsStore {
     var audioCacheLimitBytes: Int64 { didSet { persist() } }
     var wifiStreamQuality: StreamQualityPreference { didSet { persist() } }
     var cellularStreamQuality: StreamQualityPreference { didSet { persist() } }
-    var navidromeTranscodeFormat: StreamTranscodeFormat { didSet { persist() } }
+    var streamTranscodeFormat: StreamTranscodeFormat { didSet { persist() } }
     var offlineDownloadQuality: StreamQualityPreference { didSet { persist() } }
+    var offlineDownloadFormat: StreamTranscodeFormat { didSet { persist() } }
     var skipLeadingSilenceEnabled: Bool { didSet { persist() } }
     var skipTrailingSilenceEnabled: Bool { didSet { persist() } }
     var prewarmQueueCount: Int {
@@ -644,8 +657,9 @@ final class PlaybackSettingsStore {
         self.audioCacheLimitBytes = s.audioCacheLimitBytes
         self.wifiStreamQuality = s.wifiStreamQuality
         self.cellularStreamQuality = s.cellularStreamQuality
-        self.navidromeTranscodeFormat = s.navidromeTranscodeFormat
+        self.streamTranscodeFormat = s.streamTranscodeFormat
         self.offlineDownloadQuality = s.offlineDownloadQuality
+        self.offlineDownloadFormat = s.offlineDownloadFormat
         self.skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
         self.skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         self.prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
@@ -731,8 +745,9 @@ final class PlaybackSettingsStore {
         audioCacheLimitBytes = s.audioCacheLimitBytes
         wifiStreamQuality = s.wifiStreamQuality
         cellularStreamQuality = s.cellularStreamQuality
-        navidromeTranscodeFormat = s.navidromeTranscodeFormat
+        streamTranscodeFormat = s.streamTranscodeFormat
         offlineDownloadQuality = s.offlineDownloadQuality
+        offlineDownloadFormat = s.offlineDownloadFormat
         skipLeadingSilenceEnabled = s.skipLeadingSilenceEnabled
         skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
@@ -793,8 +808,9 @@ final class PlaybackSettingsStore {
             audioCacheLimitBytes: audioCacheLimitBytes,
             wifiStreamQuality: wifiStreamQuality,
             cellularStreamQuality: cellularStreamQuality,
-            navidromeTranscodeFormat: navidromeTranscodeFormat,
+            streamTranscodeFormat: streamTranscodeFormat,
             offlineDownloadQuality: offlineDownloadQuality,
+            offlineDownloadFormat: offlineDownloadFormat,
             skipLeadingSilenceEnabled: skipLeadingSilenceEnabled,
             skipTrailingSilenceEnabled: skipTrailingSilenceEnabled,
             prewarmQueueCount: prewarmQueueCount,

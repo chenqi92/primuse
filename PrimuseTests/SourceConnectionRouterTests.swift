@@ -6,6 +6,32 @@ import XCTest
 
 @MainActor
 final class SourceConnectionRouterTests: XCTestCase {
+    @MainActor
+    func testAllAdaptiveServersUseTheSharedFormatPreference() {
+        let saved = UserDefaults.standard.data(forKey: PlaybackSettings.defaultsKey)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: PlaybackSettings.defaultsKey) }
+            else { UserDefaults.standard.removeObject(forKey: PlaybackSettings.defaultsKey) }
+        }
+        var settings = PlaybackSettings.load()
+        settings.wifiStreamQuality = .kbps128
+        settings.cellularStreamQuality = .kbps128
+        for format in StreamTranscodeFormat.allCases {
+            settings.streamTranscodeFormat = format
+            settings.save()
+            for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .emby, .jellyfin, .plex] {
+                var source = MusicSource(id: UUID().uuidString, name: "Transcode", type: type, host: "server.invalid")
+                source.useSsl = true
+                let snapshot = source
+                let manager = SourceManager(sourcesProvider: { [snapshot] })
+                let song = Song(id: UUID().uuidString, title: "Track", duration: 60, fileFormat: .flac,
+                                filePath: "/items/track.flac", sourceID: source.id, fileSize: 10_000_000)
+                XCTAssertEqual(manager.transcodePlan(for: song, source: source),
+                               .transcode(bitRateKbps: 128, format: format), "\(type)")
+            }
+        }
+    }
+
     func testDualAddressSubsonicSourcesRetainAdaptiveTranscoding() throws {
         for type in [MusicSourceType.navidrome, .subsonic, .airsonic, .gonic] {
             var source = MusicSource(id: UUID().uuidString, name: "Dual", type: type)

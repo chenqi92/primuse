@@ -43,6 +43,52 @@ final class OfflineAudioCompactorTests: XCTestCase {
         XCTAssertEqual(Double(encoded.length) / encoded.fileFormat.sampleRate, 12, accuracy: 0.05)
     }
 
+    func testMP3AndOpusCopiesDecodeCompletelyAndKeepTheirFormatInDownloads() async throws {
+        let wav = try OfflineAudioFixture.writeWAV(
+            to: directory.appendingPathComponent("source.wav"), seconds: 4, sampleRate: 96_000, channels: 2
+        )
+        let originalSize = try OfflineAudioFixture.byteCount(of: wav)
+        let store = OfflineDownloadFileStore(
+            directory: directory.appendingPathComponent("Downloads"),
+            indexURL: directory.appendingPathComponent("download-index.json")
+        )
+        for format in [StreamTranscodeFormat.mp3, .opus] {
+            for bitrate in [128, 192, 320] {
+                let output = try await OfflineAudioCompactor.encode(
+                    original: wav, originalByteCount: originalSize, targetKbps: bitrate,
+                    format: format, expectedDuration: 4
+                )
+                defer { try? FileManager.default.removeItem(at: output.url) }
+                XCTAssertEqual(output.url.pathExtension, format.offlineFileExtension)
+                XCTAssertEqual(output.record.format, format)
+                XCTAssertEqual(output.encodedBitRate, min(bitrate, format == .opus ? 256 : 320) * 1000)
+                XCTAssertLessThan(output.byteCount, originalSize / 4)
+                let key = "source/\(format.rawValue)-\(bitrate).wav"
+                let alias = OfflineCompactArtifact.url(forCanonical: directory.appendingPathComponent(key))
+                try OfflineCompactArtifact.install(staging: output.url, at: alias, record: output.record)
+                let stored = try store.publish(alias, for: key, kind: .compact)
+                XCTAssertEqual(stored.pathExtension, format.offlineFileExtension)
+                try store.setDisplayName("Track", for: key)
+                let named = try XCTUnwrap(store.fileURL(for: key, kind: .compact))
+                XCTAssertEqual(named.pathExtension, format.offlineFileExtension)
+                XCTAssertTrue(named.lastPathComponent.contains(format.displayName))
+                XCTAssertEqual(OfflineCompactArtifact.readRecord(at: named), output.record)
+                XCTAssertTrue(OfflineCompactArtifact.isCompactURL(named))
+                let decoder = await FileFormatRouter.decoder(for: named)
+                let info = try await decoder.fileInfo(for: named)
+                XCTAssertEqual(info.duration, 4, accuracy: 0.15)
+                XCTAssertEqual(info.channelCount, 2)
+                let pcm = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+                var frames: Int64 = 0
+                for try await buffer in decoder.decode(from: named, outputFormat: pcm) {
+                    frames += Int64(buffer.frameLength)
+                }
+                XCTAssertEqual(Double(frames) / 48_000, 4, accuracy: 0.15)
+            }
+        }
+        XCTAssertEqual(try OfflineAudioFixture.byteCount(of: wav), originalSize)
+    }
+
     func testMonoSourceFallsBackToABitRateTheEncoderAccepts() async throws {
         let wav = try OfflineAudioFixture.writeWAV(
             to: directory.appendingPathComponent("mono.wav"),
@@ -138,6 +184,23 @@ final class OfflineDownloadQualityIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: download.path), "A source revision must not silently delete the user's retained file")
     }
 
+    func testSelectedOfflineFormatIsUsedForServerAndFolderSources() async throws {
+        for sourceType in [MusicSourceType.navidrome, .webdav, .smb, .local] {
+            for format in [StreamTranscodeFormat.mp3, .opus] {
+                let restore = setOfflineQuality(.kbps128, format: format)
+                defer { restore() }
+                let fixture = try await makeFixture(seconds: 2, sourceType: sourceType)
+                defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
+                let result = await fixture.manager.downloadForOfflineBatch(songs: [fixture.song])
+                XCTAssertEqual(result.completedCount, 1, "\(sourceType) / \(format)")
+                let playback = try XCTUnwrap(fixture.manager.cachedPlaybackURL(for: fixture.song))
+                XCTAssertEqual(playback.pathExtension, format.offlineFileExtension)
+                XCTAssertEqual(OfflineCompactArtifact.readRecord(at: playback)?.format, format)
+                XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.canonical.path))
+            }
+        }
+    }
+
     func testOriginalQualityKeepsTheDownloadedFile() async throws {
         let restore = setOfflineQuality(.original)
         defer { restore() }
@@ -194,10 +257,11 @@ final class OfflineDownloadQualityIntegrationTests: XCTestCase {
     }
 
     /// 改宿主 App 的偏好, 返回还原用的闭包。
-    private func setOfflineQuality(_ quality: StreamQualityPreference) -> () -> Void {
+    private func setOfflineQuality(_ quality: StreamQualityPreference, format: StreamTranscodeFormat = .aac) -> () -> Void {
         let saved = UserDefaults.standard.data(forKey: PlaybackSettings.defaultsKey)
         var settings = PlaybackSettings.load()
         settings.offlineDownloadQuality = quality
+        settings.offlineDownloadFormat = format
         settings.save()
         return {
             if let saved {
@@ -208,13 +272,13 @@ final class OfflineDownloadQualityIntegrationTests: XCTestCase {
         }
     }
 
-    private func makeFixture(seconds: Double) async throws -> (
+    private func makeFixture(seconds: Double, sourceType: MusicSourceType = .navidrome) async throws -> (
         manager: SourceManager,
         song: Song,
         canonical: URL,
         path: String
     ) {
-        let source = MusicSource(id: UUID().uuidString, name: "Compact fixture", type: .navidrome)
+        let source = MusicSource(id: UUID().uuidString, name: "Compact fixture", type: sourceType)
         let staging = FileManager.default.temporaryDirectory
             .appendingPathComponent("compact-fixture-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: staging) }

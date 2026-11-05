@@ -137,21 +137,35 @@ public final class OfflineDownloadFileStore: NSObject, NSFilePresenter, @uncheck
             try load()
             guard Self.isRegularFile(source) else { throw CocoaError(.fileReadNoSuchFile) }
             try prepare(directory)
+            let format = Self.compactFormat(at: source)
             var artifact = index.artifacts[path]?[kind.rawValue]
             if artifact == nil {
                 let id = UUID().uuidString
-                let relative = preferredPath(path, kind: kind, displayName: displayName)
+                let relative = preferredPath(path, kind: kind, displayName: displayName, compactFormat: format)
                 artifact = Artifact(id: id, relativePath: relative, hasDisplayName: displayName != nil)
             }
             guard var artifact, var destination = safeURL(artifact.relativePath) else {
                 throw CocoaError(.fileWriteInvalidFileName)
+            }
+            var supersededURL: URL?
+            let existingFile = Self.isRegularFile(destination)
+            if kind == .compact,
+               (existingFile && Self.compactFormat(at: destination) != format
+                || !existingFile && destination.pathExtension != format.offlineFileExtension) {
+                supersededURL = destination
+                artifact.relativePath = (artifact.relativePath as NSString).deletingPathExtension
+                    + "." + format.offlineFileExtension
+                guard let replacement = safeURL(artifact.relativePath) else {
+                    throw CocoaError(.fileWriteInvalidFileName)
+                }
+                destination = replacement
             }
             // Never replace an unrelated file placed in Downloads by the user.
             if FileManager.default.fileExists(atPath: destination.path),
                Self.identity(destination) != artifact.id,
                !Self.sameFile(source, destination) {
                 artifact.relativePath = preferredPath(path, kind: kind, displayName: displayName,
-                                                       disambiguator: artifact.id)
+                                                       disambiguator: artifact.id, compactFormat: format)
                 guard let alternative = safeURL(artifact.relativePath) else {
                     throw CocoaError(.fileWriteInvalidFileName)
                 }
@@ -179,6 +193,12 @@ public final class OfflineDownloadFileStore: NSObject, NSFilePresenter, @uncheck
             index.artifacts[path, default: [:]][kind.rawValue] = artifact
             index.externallyRemoved.remove(path)
             try persist(paths: [path])
+            if let supersededURL, supersededURL != destination,
+               Self.identity(supersededURL) == artifact.id {
+                try? coordinateWrite(supersededURL, options: .forDeleting) { coordinated in
+                    try FileManager.default.removeItem(at: coordinated)
+                }
+            }
             return destination
         }
     }
@@ -192,7 +212,7 @@ public final class OfflineDownloadFileStore: NSObject, NSFilePresenter, @uncheck
             for kind in [Kind.original, .compact] {
                 guard var artifact = index.artifacts[path]?[kind.rawValue], !artifact.hasDisplayName,
                       let source = safeURL(artifact.relativePath), Self.isRegularFile(source),
-                      let destination = safeURL(preferredPath(path, kind: kind, displayName: name)),
+                      let destination = safeURL(preferredPath(path, kind: kind, displayName: name, compactFormat: Self.compactFormat(at: source))),
                       !FileManager.default.fileExists(atPath: destination.path) else { continue }
                 try prepare(destination.deletingLastPathComponent())
                 try coordinateWrite(source, options: .forMoving) { coordinated in
@@ -392,15 +412,24 @@ public final class OfflineDownloadFileStore: NSObject, NSFilePresenter, @uncheck
     }
 
     private func preferredPath(
-        _ path: String, kind: Kind, displayName: String?, disambiguator: String? = nil
+        _ path: String, kind: Kind, displayName: String?, disambiguator: String? = nil,
+        compactFormat: StreamTranscodeFormat = .aac
     ) -> String {
         let file = URL(fileURLWithPath: path)
         let source = Self.safeName(path.split(separator: "/").first.map(String.init) ?? "Music", limit: 64)
         let key = file.deletingPathExtension().lastPathComponent
         let stem = Self.safeName(displayName ?? key, limit: 140)
         let suffix = disambiguator ?? String(key.prefix(12))
-        let ext = kind == .compact ? "m4a" : Self.safeName(file.pathExtension, limit: 12)
-        return "\(source)/\(stem) - \(suffix)\(kind == .compact ? " - AAC" : "").\(ext.isEmpty ? "audio" : ext)"
+        let ext = kind == .compact ? compactFormat.offlineFileExtension : Self.safeName(file.pathExtension, limit: 12)
+        return "\(source)/\(stem) - \(suffix)\(kind == .compact ? " - " + compactFormat.displayName : "").\(ext.isEmpty ? "audio" : ext)"
+    }
+
+    private static func compactFormat(at url: URL) -> StreamTranscodeFormat {
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let count = getxattr(url.path, OfflineDownloadQualityPolicy.compactRecordAttributeName,
+                             &buffer, buffer.count, 0, 0)
+        guard count > 0, count <= buffer.count else { return .aac }
+        return OfflineCompactArtifactRecord(serialized: String(decoding: buffer.prefix(count), as: UTF8.self))?.format ?? .aac
     }
 
     private static func safeName(_ name: String, limit: Int) -> String {

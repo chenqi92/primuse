@@ -4,7 +4,7 @@ import Foundation
 public enum OfflineCompactionPlan: Sendable, Equatable {
     /// 保留下载下来的原文件。
     case keepOriginal
-    /// 在本机转成这个码率的 AAC，转好后只留转换后的副本。
+    /// 在本机转成这个码率的所选格式，转好后只留转换后的副本。
     case compact(bitRateKbps: Int)
 }
 
@@ -14,28 +14,40 @@ public struct OfflineCompactArtifactRecord: Sendable, Equatable {
     /// 转换时原文件的字节数。
     public let originalByteCount: Int64
     public let bitRateKbps: Int
+    public let format: StreamTranscodeFormat
 
-    public init(originalByteCount: Int64, bitRateKbps: Int) {
+    public init(originalByteCount: Int64, bitRateKbps: Int, format: StreamTranscodeFormat = .aac) {
         self.originalByteCount = originalByteCount
         self.bitRateKbps = bitRateKbps
+        self.format = format
     }
 
     public var serialized: String {
-        "1 \(originalByteCount) \(bitRateKbps)"
+        format == .aac
+            ? "1 \(originalByteCount) \(bitRateKbps)"
+            : "2 \(originalByteCount) \(bitRateKbps) \(format.rawValue)"
     }
 
     public init?(serialized: String) {
         let fields = serialized
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: " ")
-        guard fields.count == 3,
-              fields[0] == "1",
-              let originalByteCount = Int64(fields[1]),
+        let format: StreamTranscodeFormat
+        if fields.count == 3, fields[0] == "1" {
+            format = .aac
+        } else if fields.count == 4, fields[0] == "2",
+                  let decoded = StreamTranscodeFormat(rawValue: String(fields[3])) {
+            format = decoded
+        } else {
+            return nil
+        }
+        guard let originalByteCount = Int64(fields[1]),
               originalByteCount > 0,
               let bitRateKbps = Int(fields[2]),
               bitRateKbps > 0 else { return nil }
         self.originalByteCount = originalByteCount
         self.bitRateKbps = bitRateKbps
+        self.format = format
     }
 
     /// 副本能不能代表资料库里这首歌现在的内容。
@@ -51,13 +63,12 @@ public struct OfflineCompactArtifactRecord: Sendable, Equatable {
 
 /// 「离线缓存音质」的全部判定。纯函数，只依赖 Foundation。
 ///
-/// 离线下载仍然先完整下载原文件(网盘、WebDAV、NAS 都没有服务端转码),
-/// 下载完在本机解码、编码成 AAC, 校验通过后删掉原文件, 只留转换后的副本。
+/// 离线下载先完整取得原文件,
+/// 下载完在本机解码、编码成所选格式, 校验通过后删掉原文件, 只留转换后的副本。
 /// 判定故意保守: 拿不准就保留原文件 —— 多占一点空间, 也不要把用户的
 /// 文件换成一份放不完整的副本。
 public enum OfflineDownloadQualityPolicy {
-    /// 精简副本与原文件缓存放在同一目录, 文件名是原文件缓存名加这个后缀,
-    /// 因此属于同一组缓存文件, 一起加锁、清理、迁移。
+    /// 内部兼容路径沿用旧后缀；Downloads 实体文件按记录的格式命名。
     public static let compactFileSuffix = ".compact.m4a"
 
     /// 副本扩展属性的名字, 内容见 `OfflineCompactArtifactRecord.serialized`。

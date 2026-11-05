@@ -31,6 +31,10 @@ public enum StreamTranscodeFormat: String, Codable, Sendable, CaseIterable {
     case aac
     case opus
 
+    public var offlineFileExtension: String {
+        self == .aac ? "m4a" : rawValue
+    }
+
     public var displayName: String {
         switch self {
         case .mp3: "MP3"
@@ -85,9 +89,6 @@ public enum AdaptiveStreamQualityPolicy {
     /// 同时出现；后者还覆盖 WMA 这类「本地解不了才转码」的存量路径，
     /// 所以本功能新增的判断一律只认这个独立标记。
     public static let adaptiveStreamQueryKey = "primuse_adaptive"
-
-    /// Emby / Jellyfin 转码端点使用的默认容器。
-    public static let transcodedFileExtension = "mp3"
 
     // MARK: - 计划判定
 

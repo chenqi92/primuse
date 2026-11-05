@@ -123,6 +123,17 @@ struct OfflineDownloadQualityPolicyTests {
         #expect(OfflineCompactArtifactRecord(serialized: "1 abc 192") == nil)
     }
 
+    @Test("副本记录保存编码格式并兼容旧 AAC")
+    func compactFormatMigration() {
+        #expect(OfflineCompactArtifactRecord(serialized: "1 10000 192")?.format == .aac)
+        for format in StreamTranscodeFormat.allCases {
+            let record = OfflineCompactArtifactRecord(originalByteCount: 10000, bitRateKbps: 192, format: format)
+            #expect(OfflineCompactArtifactRecord(serialized: record.serialized) == record)
+        }
+        #expect(OfflineCompactArtifactRecord(serialized: "2 10000 192 future") == nil)
+        #expect(OfflineCompactArtifactRecord(serialized: "2 10000 192 opus extra") == nil)
+    }
+
     @Test("副本只在原文件缓存同样会被认可时才算数")
     func recordMatchesLikeOriginalCacheCheck() {
         let record = OfflineCompactArtifactRecord(originalByteCount: 1_000_000, bitRateKbps: 192)

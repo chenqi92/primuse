@@ -2,6 +2,7 @@ import AVFoundation
 import Darwin
 import Foundation
 import PrimuseKit
+import SFBAudioEngine
 
 /// 离线缓存里的精简副本: 原文件缓存名加 `.compact.m4a`, 扩展属性里记着
 /// 它是从多大的原文件转出来的。判定与命名在 `OfflineDownloadQualityPolicy`。
@@ -11,7 +12,7 @@ enum OfflineCompactArtifact {
     }
 
     /// 播放层用它认出「这是转换后的副本」: 那时 `Song` 上的格式、采样率描述的
-    /// 是原文件, 不是手上这份 AAC。
+    /// 是原文件, 不是手上这份转换后的音频。
     static func isCompactURL(_ url: URL) -> Bool {
         url.isFileURL && (url.path.hasSuffix(OfflineDownloadQualityPolicy.compactFileSuffix)
             || readRecord(at: url) != nil)
@@ -79,14 +80,14 @@ enum OfflineCompactArtifact {
     }
 }
 
-/// 把离线缓存里的原文件在本机转成 AAC。
+/// 把离线缓存里的原文件在本机转成所选格式。
 ///
-/// 只负责「原文件 → 校验过的临时 m4a」; 安装副本、删原文件与记账由
+/// 只负责「原文件 → 校验过的临时文件」; 安装副本、删原文件与记账由
 /// `SourceManager` 在持有这组缓存文件的锁时完成。解码沿用播放用的两套
 /// 解码器, 所以能播的格式都能转。
 enum OfflineAudioCompactor {
     struct Output: Sendable {
-        /// 临时目录里的 m4a, 调用方负责装好或删掉。
+        /// 临时目录里的转换文件, 调用方负责装好或删掉。
         let url: URL
         let byteCount: Int64
         let record: OfflineCompactArtifactRecord
@@ -129,12 +130,13 @@ enum OfflineAudioCompactor {
         original: URL,
         originalByteCount: Int64,
         targetKbps: Int,
+        format: StreamTranscodeFormat = .aac,
         expectedDuration: TimeInterval?
     ) async throws -> Output {
         try await encode(
             original: original,
             originalByteCount: originalByteCount,
-            profile: EncodingProfile(targetKbps: targetKbps, sampleRate: nil, requiresSmaller: true),
+            profile: EncodingProfile(targetKbps: targetKbps, sampleRate: nil, requiresSmaller: true, format: format),
             expectedDuration: expectedDuration
         )
     }
@@ -165,6 +167,7 @@ enum OfflineAudioCompactor {
         /// nil: 跟随原文件(高于 48 kHz 的按家族降下来)。
         var sampleRate: Double?
         var requiresSmaller: Bool
+        var format: StreamTranscodeFormat = .aac
     }
 
     private static func encode(
@@ -224,47 +227,77 @@ enum OfflineAudioCompactor {
         let sourceDuration = info.duration > 0 ? info.duration : (expectedDuration ?? 0)
         guard sourceDuration > 0 else { throw CompactionError.unknownDuration }
 
-        let sampleRate = profile.sampleRate ?? OfflineDownloadQualityPolicy.encoderSampleRate(
+        let format = profile.format
+        var sampleRate = profile.sampleRate ?? OfflineDownloadQualityPolicy.encoderSampleRate(
             sourceSampleRate: info.sampleRate
         )
+        if format == .opus { sampleRate = 48_000 }
+        if format == .mp3 { sampleRate = max(32_000, sampleRate) }
+        let applicable: [Int]
+        switch format {
+        case .aac:
+            applicable = applicableBitRates(sampleRate: sampleRate, channelCount: channelCount)
+        case .mp3:
+            applicable = [32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320].map { $0 * 1000 }
+        case .opus:
+            // The bundled encoder accepts at most 256 kbps.
+            applicable = [min(targetKbps * 1000 / (channelCount == 1 ? 2 : 1), 256_000)]
+        }
         let bitRate = OfflineDownloadQualityPolicy.encoderBitRate(
-            targetKbps: targetKbps,
-            channelCount: channelCount,
-            applicableBitRates: applicableBitRates(sampleRate: sampleRate, channelCount: channelCount)
+            targetKbps: targetKbps, channelCount: channelCount, applicableBitRates: applicable
         )
-
         let directory = stagingDirectory()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // AVAudioFile 按扩展名决定容器, 临时文件必须以 .m4a 结尾。
-        let staging = directory.appendingPathComponent(UUID().uuidString + ".m4a")
+        let staging = directory.appendingPathComponent(UUID().uuidString + "." + format.offlineFileExtension)
         var keepsStaging = false
         defer {
             if !keepsStaging { try? FileManager.default.removeItem(at: staging) }
         }
 
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: sampleRate,
-            AVNumberOfChannelsKey: channelCount,
-            AVEncoderBitRateKey: bitRate,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-        ]
         var writtenFrames: AVAudioFramePosition = 0
-        do {
+        if format == .aac {
             let file = try AVAudioFile(
                 forWriting: staging,
-                settings: settings,
+                settings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: sampleRate,
+                    AVNumberOfChannelsKey: channelCount,
+                    AVEncoderBitRateKey: bitRate,
+                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+                ],
                 commonFormat: .pcmFormatFloat32,
                 interleaved: false
             )
             defer { file.close() }
-            let stream = decoder.decode(from: original, outputFormat: file.processingFormat)
-            for try await buffer in stream {
+            for try await buffer in decoder.decode(from: original, outputFormat: file.processingFormat) {
                 try Task.checkCancellation()
                 guard buffer.frameLength > 0 else { continue }
                 try file.write(from: buffer)
                 writtenFrames += AVAudioFramePosition(buffer.frameLength)
             }
+        } else {
+            let encoder = try SFBAudioEngine.AudioEncoder(
+                url: staging, encoderName: format == .mp3 ? .MP3 : .oggOpus
+            )
+            let encoderSettings: [SFBAudioEngine.AudioEncodingSettingsKey: Any] = format == .mp3
+                ? [.mp3ConstantBitrate: bitRate / 1000, .mp3Quality: 2]
+                : [.opusBitrate: bitRate / 1000]
+            encoder.settings = encoderSettings
+            guard let pcm = AVAudioFormat(
+                standardFormatWithSampleRate: sampleRate,
+                channels: AVAudioChannelCount(channelCount)
+            ) else { throw CompactionError.unknownDuration }
+            try encoder.setSourceFormat(pcm)
+            try encoder.openReturningError()
+            defer { try? encoder.close() }
+            sampleRate = encoder.processingFormat.sampleRate
+            for try await buffer in decoder.decode(from: original, outputFormat: encoder.processingFormat) {
+                try Task.checkCancellation()
+                guard buffer.frameLength > 0 else { continue }
+                try encoder.encode(from: buffer)
+                writtenFrames += AVAudioFramePosition(buffer.frameLength)
+            }
+            try encoder.finish()
         }
         try Task.checkCancellation()
 
@@ -277,10 +310,8 @@ enum OfflineAudioCompactor {
         ) else {
             throw CompactionError.incompleteOutput(expected: sourceDuration, actual: writtenDuration)
         }
-        let check = try AVAudioFile(forReading: staging)
-        let encodedDuration = check.fileFormat.sampleRate > 0
-            ? Double(check.length) / check.fileFormat.sampleRate
-            : 0
+        let outputDecoder = await FileFormatRouter.decoder(for: staging)
+        let encodedDuration = try await outputDecoder.fileInfo(for: staging).duration
         guard OfflineDownloadQualityPolicy.durationIsComplete(
             expectedDuration: writtenDuration,
             actualDuration: encodedDuration
@@ -301,7 +332,8 @@ enum OfflineAudioCompactor {
             byteCount: byteCount,
             record: OfflineCompactArtifactRecord(
                 originalByteCount: originalByteCount,
-                bitRateKbps: targetKbps
+                bitRateKbps: targetKbps,
+                format: format
             ),
             encodedBitRate: bitRate
         )

@@ -4,32 +4,63 @@ import PrimuseKit
 
 final class SettingsDiscoveryTests: XCTestCase {
     @MainActor
-    func testNavidromeFormatPersistsAndIsDiscoverable() throws {
+    func testStreamTranscodeFormatPersistsAndIsDiscoverable() throws {
         try withService { _, playback, defaults in
-            XCTAssertEqual(playback.navidromeTranscodeFormat, .mp3)
+            XCTAssertEqual(playback.streamTranscodeFormat, .mp3)
             for format in StreamTranscodeFormat.allCases {
-                playback.navidromeTranscodeFormat = format
-                XCTAssertEqual(PlaybackSettings.load(defaults: defaults).navidromeTranscodeFormat, format)
-                XCTAssertEqual(PlaybackSettingsStore(defaults: defaults).navidromeTranscodeFormat, format)
+                playback.streamTranscodeFormat = format
+                XCTAssertEqual(PlaybackSettings.load(defaults: defaults).streamTranscodeFormat, format)
+                XCTAssertEqual(PlaybackSettingsStore(defaults: defaults).streamTranscodeFormat, format)
             }
         }
-        for query in ["Navidrome", "Opus", "AAC"] {
-            XCTAssertTrue(SettingsCatalog.search(query).contains { $0.id == "playback.navidromeTranscodeFormat" })
+        for query in ["Navidrome", "Subsonic", "Emby", "Jellyfin", "Plex", "Opus", "AAC"] {
+            XCTAssertTrue(SettingsCatalog.search(query).contains { $0.id == "playback.streamTranscodeFormat" })
         }
     }
 
-    func testNavidromeFormatUpgradeAndUnknownValuePreserveExistingSettings() throws {
+    func testStreamTranscodeFormatUpgradeAndUnknownValuePreserveExistingSettings() throws {
         var settings = PlaybackSettings()
         settings.cellularStreamQuality = .kbps192
         let data = try JSONEncoder().encode(settings)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        object.removeValue(forKey: "navidromeTranscodeFormat")
+        object.removeValue(forKey: "streamTranscodeFormat")
         for unknownValue in [nil, "future-codec"] as [String?] {
-            object["navidromeTranscodeFormat"] = unknownValue
+            object["streamTranscodeFormat"] = unknownValue
             let decoded = try JSONDecoder().decode(PlaybackSettings.self, from: JSONSerialization.data(withJSONObject: object))
-            XCTAssertEqual(decoded.navidromeTranscodeFormat, .mp3)
+            XCTAssertEqual(decoded.streamTranscodeFormat, .mp3)
             XCTAssertEqual(decoded.cellularStreamQuality, .kbps192)
         }
+    }
+
+    @MainActor
+    func testOfflineFormatPersistsIndependentlyOfStreamingFormat() throws {
+        try withService { _, playback, defaults in
+            XCTAssertEqual(playback.offlineDownloadFormat, .aac)
+            playback.streamTranscodeFormat = .opus
+            for format in StreamTranscodeFormat.allCases {
+                playback.offlineDownloadFormat = format
+                let restored = PlaybackSettingsStore(defaults: defaults)
+                XCTAssertEqual(restored.offlineDownloadFormat, format)
+                XCTAssertEqual(restored.streamTranscodeFormat, .opus)
+            }
+        }
+        for payload in [#"{}"#, #"{"offlineDownloadFormat":"future-codec"}"#] {
+            let settings = try JSONDecoder().decode(PlaybackSettings.self, from: Data(payload.utf8))
+            XCTAssertEqual(settings.offlineDownloadFormat, .aac)
+            XCTAssertEqual(settings.offlineDownloadQuality, .original)
+        }
+        XCTAssertEqual(SettingsCatalog.byID["storage.offlineDownloadFormat"]?.page, .storage)
+    }
+
+    func testLegacyNavidromeFormatMigratesToSharedFormat() throws {
+        let data = Data(#"{"navidromeTranscodeFormat":"opus","wifiStreamQuality":"kbps128"}"#.utf8)
+        let settings = try JSONDecoder().decode(PlaybackSettings.self, from: data)
+        XCTAssertEqual(settings.streamTranscodeFormat, .opus)
+        XCTAssertEqual(settings.wifiStreamQuality, .kbps128)
+        let roundTrip = try JSONDecoder().decode(PlaybackSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(roundTrip.streamTranscodeFormat, .opus)
+        let both = Data(#"{"navidromeTranscodeFormat":"opus","streamTranscodeFormat":"aac"}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(PlaybackSettings.self, from: both).streamTranscodeFormat, .aac)
     }
 
     @MainActor
