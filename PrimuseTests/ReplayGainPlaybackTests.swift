@@ -4,6 +4,42 @@ import XCTest
 @testable import Primuse
 
 final class ReplayGainPlaybackTests: XCTestCase {
+    @MainActor func testBadgePreferenceIsIndependentOfAudioInfoAndReplayGain() throws {
+        let suite = "replaygain-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let playback = PlaybackSettingsStore(defaults: defaults, cloudSync: CloudKVSSync(store: nil, defaults: defaults, observing: nil))
+        playback.replayGainEnabled = true
+        defaults.set(NowPlayingAudioInfoMode.off.rawValue, forKey: PlayerAppearancePreferences.audioInfoModeKey)
+        let service = SettingsActionService(playback: playback, defaults: defaults)
+        let id = "appearance.replayGainBadge"
+        XCTAssertNotNil(SettingsCatalog.byID[id])
+        XCTAssertTrue(SettingsCatalog.search("ReplayGain").contains { $0.id == id })
+        XCTAssertTrue(InterfaceLayoutSync.keys.contains(PlayerAppearancePreferences.showsReplayGainBadgeKey))
+        XCTAssertEqual(service.booleanValue(for: id), true)
+        try service.setEnabled(false, for: id)
+        XCTAssertEqual(service.booleanValue(for: id), false)
+        XCTAssertTrue(playback.replayGainEnabled)
+        XCTAssertEqual(defaults.string(forKey: PlayerAppearancePreferences.audioInfoModeKey), NowPlayingAudioInfoMode.off.rawValue)
+        let restored = SettingsActionService(playback: playback, defaults: defaults)
+        try restored.setEnabled(true, for: id)
+        XCTAssertEqual(service.booleanValue(for: id), true)
+        XCTAssertTrue(playback.replayGainEnabled)
+    }
+
+    @MainActor func testFailedPreparationDoesNotLeaveLoadingStatus() async throws {
+        let song = Song(id: UUID().uuidString, title: "Unavailable", duration: 3, fileFormat: .flac, filePath: "missing.flac", sourceID: "test")
+        let info = ReplayGainPlaybackInfo(enabled: true)
+        try await ReplayGainAnalysisService.shared.prepare([song]) { song in
+            let status = await ReplayGainAnalysisService.shared.status(for: song)
+            XCTAssertTrue(info.displayState(analysis: status).isLoading)
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let status = await ReplayGainAnalysisService.shared.status(for: song)
+        XCTAssertEqual(info.displayState(analysis: status), .original)
+        XCTAssertFalse(info.displayState(analysis: status).isLoading)
+    }
+
     @MainActor func testLateAnalysisDoesNotChangeCurrentPlaybackOrSeekButNextStartUsesIt() async throws {
         let suite = "replaygain-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -78,6 +114,7 @@ final class ReplayGainPlaybackTests: XCTestCase {
                 reads.append(song.id)
                 let status = await ReplayGainAnalysisService.shared.status(for: song)
                 XCTAssertEqual(status, .queued)
+                XCTAssertTrue(ReplayGainPlaybackInfo(enabled: true).displayState(analysis: status).isLoading)
                 return KaraokeAudioFile(url: url)
             }
         }
@@ -85,6 +122,8 @@ final class ReplayGainPlaybackTests: XCTestCase {
         for song in songs {
             let cached = await ReplayGainAnalysisService.cachedAdjustment(for: song, mode: .track, album: [])
             XCTAssertTrue(cached.hasValue)
+            let status = await ReplayGainAnalysisService.shared.status(for: song)
+            XCTAssertEqual(ReplayGainPlaybackInfo(enabled: true).displayState(analysis: status), .cached)
         }
     }
 

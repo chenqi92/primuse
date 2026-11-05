@@ -486,6 +486,9 @@
 "rg_info_cache" = "Loudness analysis cache";
 "rg_info_gain" = "Applied gain";
 "rg_info_peak_limited" = "Peak protection active";
+"rg_show_badge" = "Show loudness badge";
+"rg_analysis_pending_detail" = "Loudness analysis is not finished. This playback keeps the original volume. The result will be cached and applied from the start of the next playback.";
+"rg_analysis_cached_detail" = "To avoid a sudden volume change, this playback keeps the original volume. The cached gain will be applied from the start the next time you play this song.";
 "spatial_audio" = "Spatial Audio";
 "spatial_audio_desc" = "Places playback in a virtual front soundstage through Apple's spatial audio renderer.";
 "spatial_head_tracking" = "Head Tracking";

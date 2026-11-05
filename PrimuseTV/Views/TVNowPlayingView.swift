@@ -58,6 +58,8 @@ struct TVNowPlayingView: View {
     @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
     @State private var showOptions = false
     @State private var showsAudioDetails = false
+    @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
+    private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     /// 播放控制里的「歌词翻译」键打开的面板。
     @State private var showTranslation = false
     @AppStorage(TVLyricsFontLevel.storageKey)
@@ -1057,8 +1059,12 @@ struct TVNowPlayingView: View {
         }) { focused in
             HStack(spacing: 12) {
                 Text(metadataLine(np))
-                if store.replayGainPlaybackInfo.showsBadge {
-                    Label("RG", systemImage: store.replayGainPlaybackInfo.isActive ? "checkmark" : "clock")
+                if showsReplayGainBadge, store.replayGainPlaybackInfo.showsBadge {
+                    ReplayGainBadge(
+                        info: store.replayGainPlaybackInfo,
+                        song: store.currentSongID.flatMap { store.library.song(id: $0) },
+                        tint: focused ? TVColor.onBrand : color
+                    )
                 }
             }
             .tvFont(.caption)

@@ -8,7 +8,7 @@ actor ReplayGainAnalysisService {
     private var pending: [String: (UUID, Task<ReplayGainLoudnessMeasurement, Error>)] = [:]
     private var preparations: [UUID: Set<String>] = [:]
 
-    enum Status: Equatable, Sendable { case unavailable, queued, analyzing, cached }
+    typealias Status = ReplayGainAnalysisStatus
 
     func status(for song: Song) async -> Status {
         if await ReplayGainAnalysisCache.shared.measurement(for: song) != nil { return .cached }

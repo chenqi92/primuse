@@ -1,35 +1,97 @@
 import SwiftUI
+import Observation
 import PrimuseKit
+
+@MainActor @Observable
+private final class ReplayGainAnalysisPresentation {
+    private var songKey: String?
+    private var status: PrimuseKit.ReplayGainAnalysisStatus = .unavailable
+
+    struct Identity: Equatable {
+        let songKey: String?
+        let needsAnalysis: Bool
+    }
+
+    static func identity(song: Song?, info: ReplayGainPlaybackInfo) -> Identity {
+        Identity(songKey: song.map { ReplayGainAnalysisCache.key(for: $0) }, needsAnalysis: info.showsBadge && !info.isActive)
+    }
+
+    func state(song: Song?, info: ReplayGainPlaybackInfo) -> ReplayGainDisplayState {
+        let key = song.map { ReplayGainAnalysisCache.key(for: $0) }
+        return info.displayState(analysis: songKey == key ? status : .unavailable)
+    }
+
+    func observe(song: Song?, info: ReplayGainPlaybackInfo) async {
+        guard !Task.isCancelled else { return }
+        songKey = song.map { ReplayGainAnalysisCache.key(for: $0) }
+        status = .unavailable
+        guard info.showsBadge, !info.isActive, let song else { return }
+        while !Task.isCancelled {
+            let value = await ReplayGainAnalysisService.shared.status(for: song)
+            guard !Task.isCancelled else { return }
+            status = value
+            if value == .cached { return }
+            do { try await Task.sleep(for: .seconds(1)) }
+            catch { return }
+        }
+    }
+}
+
+struct ReplayGainBadge: View {
+    let info: ReplayGainPlaybackInfo
+    let song: Song?
+    let tint: Color
+    @State private var analysis = ReplayGainAnalysisPresentation()
+
+    var body: some View {
+        let state = analysis.state(song: song, info: info)
+        let shape = RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+        HStack(spacing: 4) {
+            if state.isLoading {
+                ProgressView().controlSize(.mini).tint(tint)
+                    .frame(width: indicatorSize, height: indicatorSize)
+            } else {
+                Image(systemName: state.symbol).imageScale(.small)
+                    .frame(width: indicatorSize, height: indicatorSize)
+            }
+            Text(verbatim: "RG").fontWeight(.semibold)
+        }
+        .font(.caption2.monospacedDigit())
+        .lineLimit(1)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .foregroundStyle(tint)
+        .background(tint.opacity(0.08), in: shape)
+        .overlay { shape.strokeBorder(tint.opacity(0.5), lineWidth: 0.75) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("replay_gain"))
+        .accessibilityValue(Text(LocalizedStringKey(state.localizationKey)))
+        .task(id: ReplayGainAnalysisPresentation.identity(song: song, info: info)) {
+            await analysis.observe(song: song, info: info)
+        }
+    }
+
+    private var indicatorSize: CGFloat {
+        #if os(tvOS)
+        18
+        #else
+        12
+        #endif
+    }
+}
 
 struct ReplayGainInfoView: View {
     let info: ReplayGainPlaybackInfo
     let song: Song?
 
-    @State private var analysisStatus = ReplayGainAnalysisService.Status.unavailable
-    @State private var analysisSongKey: String?
-
-    private var songKey: String? { song.map { ReplayGainAnalysisCache.key(for: $0) } }
-    private var status: ReplayGainAnalysisService.Status {
-        analysisSongKey == songKey ? analysisStatus : .unavailable
-    }
-
-    private var statusKey: String {
-        if !info.enabled { return "rg_status_disabled" }
-        if !info.supported { return "rg_status_bypassed" }
-        if info.isActive { return "rg_status_active" }
-        switch status {
-        case .cached: return "rg_status_cached"
-        case .queued: return "rg_status_queued"
-        case .analyzing: return "rg_status_analyzing"
-        case .unavailable: return "rg_status_original"
-        }
-    }
+    @State private var analysis = ReplayGainAnalysisPresentation()
 
     var body: some View {
+        let state = analysis.state(song: song, info: info)
         VStack(alignment: .leading, spacing: 10) {
             Label("replay_gain", systemImage: "waveform")
                 .font(.headline)
-            Text(LocalizedStringKey(statusKey))
+            Text(LocalizedStringKey(state.localizationKey))
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("replayGain.status")
             if info.isActive, let snapshot = info.snapshot {
@@ -42,31 +104,18 @@ struct ReplayGainInfoView: View {
                 if info.isPeakLimited {
                     Text("rg_info_peak_limited").foregroundStyle(.secondary)
                 }
-            } else if info.showsBadge, status == .queued || status == .analyzing {
-                Text("rg_status_original").foregroundStyle(.secondary)
+            } else if state.isLoading {
+                Text("rg_analysis_pending_detail").foregroundStyle(.secondary)
+            } else if state == .cached {
+                Text("rg_analysis_cached_detail").foregroundStyle(.secondary)
             }
         }
         .font(.subheadline)
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
-        .task(id: RefreshID(songKey: songKey, enabled: info.enabled && info.supported && !info.isActive)) {
-            analysisStatus = .unavailable
-            analysisSongKey = songKey
-            guard info.showsBadge, !info.isActive, let song else { return }
-            while !Task.isCancelled {
-                let value = await ReplayGainAnalysisService.shared.status(for: song)
-                guard !Task.isCancelled else { return }
-                analysisStatus = value
-                if value == .cached { return }
-                do { try await Task.sleep(for: .seconds(1)) }
-                catch { return }
-            }
+        .task(id: ReplayGainAnalysisPresentation.identity(song: song, info: info)) {
+            await analysis.observe(song: song, info: info)
         }
-    }
-
-    private struct RefreshID: Equatable {
-        let songKey: String?
-        let enabled: Bool
     }
 
     private func row(_ key: LocalizedStringKey, value: String) -> some View {

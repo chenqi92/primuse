@@ -734,6 +734,7 @@ final class InterfaceLayoutSync {
         PlayerAppearancePreferences.artworkLyricsLinesKey,
         PlayerAppearancePreferences.artworkLyricsFontScaleKey,
         PlayerAppearancePreferences.audioInfoModeKey,
+        PlayerAppearancePreferences.showsReplayGainBadgeKey,
         PlayerAppearancePreferences.progressStyleKey,
         PlayerAppearancePreferences.progressThicknessKey,
         PlayerAppearancePreferences.progressGlowKey,

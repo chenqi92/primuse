@@ -668,6 +668,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
+    private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
     @AppStorage(PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
@@ -773,6 +775,9 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.audioInfo")
+                Toggle("rg_show_badge", isOn: $showsReplayGainBadge)
+                    .settingsAnchor("appearance.replayGainBadge")
+                    .accessibilityIdentifier("replayGain.badgeToggle")
             }
             Section {
                 Toggle(isOn: $tapArtworkOpensLyrics) {

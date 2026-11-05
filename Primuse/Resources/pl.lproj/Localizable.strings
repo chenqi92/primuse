@@ -2969,6 +2969,9 @@
 "rg_info_cache" = "Pamięć analizy głośności";
 "rg_info_gain" = "Zastosowane wzmocnienie";
 "rg_info_peak_limited" = "Ochrona szczytów aktywna";
+"rg_show_badge" = "Pokaż wskaźnik głośności";
+"rg_analysis_pending_detail" = "Analiza głośności jeszcze się nie zakończyła. Podczas tego odtwarzania zachowana jest oryginalna głośność. Wynik zostanie zapisany i zastosowany od początku następnego odtwarzania.";
+"rg_analysis_cached_detail" = "Aby uniknąć nagłej zmiany głośności, podczas tego odtwarzania zachowana jest oryginalna głośność. Zapisane wzmocnienie zostanie zastosowane od początku następnego odtworzenia tego utworu.";
 "library_liked_albums_title" = "Ulubione albumy";
 "library_liked_artists_title" = "Ulubieni wykonawcy";
 "library_favorite_like" = "Dodaj do ulubionych";

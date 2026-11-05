@@ -725,6 +725,9 @@
 "rg_info_cache" = "Gespeicherte Lautheitsanalyse";
 "rg_info_gain" = "Angewandte Verstärkung";
 "rg_info_peak_limited" = "Spitzenpegelschutz aktiv";
+"rg_show_badge" = "Lautheitsanzeige zeigen";
+"rg_analysis_pending_detail" = "Die Lautheitsanalyse ist noch nicht abgeschlossen. Diese Wiedergabe behält den Originalpegel. Das Ergebnis wird gespeichert und bei der nächsten Wiedergabe von Anfang an angewendet.";
+"rg_analysis_cached_detail" = "Um einen plötzlichen Lautstärkewechsel zu vermeiden, bleibt der Originalpegel bei dieser Wiedergabe erhalten. Die gespeicherte Verstärkung wird beim nächsten Abspielen dieses Titels von Anfang an angewendet.";
 "spatial_audio" = "3D-Audio";
 "spatial_audio_desc" = "Platziert die Wiedergabe über Apples Spatial-Audio-Renderer auf einer virtuellen Bühne vor dir.";
 "spatial_head_tracking" = "Head-Tracking";

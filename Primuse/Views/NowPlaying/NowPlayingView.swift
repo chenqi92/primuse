@@ -1435,6 +1435,8 @@ struct NowPlayingView: View {
     private var radioArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
+    private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     @AppStorage(PlayerAppearancePreferences.playButtonStyleKey)
     private var playButtonStyleRawValue = NowPlayingPlayButtonStyle.filledCircle.rawValue
     @AppStorage(PlayerAppearancePreferences.skipButtonStyleKey)
@@ -9750,7 +9752,7 @@ struct NowPlayingView: View {
                 allowsOutputDetail: !player.isAppleMusicMode,
                 transcodePlan: player.activeTranscodePlan,
                 replayGain: player.replayGainPlaybackInfo,
-                showsReplayGain: !isSpokenWord && audioInfoMode != .off,
+                showsReplayGain: !isSpokenWord && showsReplayGainBadge,
                 tint: appearance.tertiary
             )
         }

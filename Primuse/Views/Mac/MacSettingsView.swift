@@ -7479,6 +7479,8 @@ private struct MacSTThemeView: View {
     private var showsAlbumInSubtitle = PlayerAppearancePreferences.showsAlbumInSubtitleByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
+    private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     @AppStorage(PlayerAppearancePreferences.progressStyleKey)
     private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
@@ -7848,6 +7850,12 @@ private struct MacSTThemeView: View {
                     )
                 }
                 .settingsAnchor("appearance.audioInfo")
+                MacSTRow(String(localized: "rg_show_badge")) {
+                    MacSTToggle(isOn: $showsReplayGainBadge)
+                        .accessibilityLabel(Text("rg_show_badge"))
+                        .accessibilityIdentifier("replayGain.badgeToggle")
+                }
+                .settingsAnchor("appearance.replayGainBadge")
                 MacSTRow(
                     String(localized: "player_progress_style_title"),
                     hint: String(localized: "player_progress_style_footer")

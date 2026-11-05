@@ -4,6 +4,21 @@ import Testing
 
 @Suite("ReplayGain policy")
 struct ReplayGainPolicyTests {
+    @Test("Loading ends when analysis is cached without claiming it is applied")
+    func loadingTracksAnalysisRatherThanPlaybackGain() {
+        let pending = ReplayGainPlaybackInfo(enabled: true, snapshot: .init(mode: .track, values: .init(), origin: .tags))
+        #expect(pending.displayState(analysis: .queued).isLoading)
+        #expect(pending.displayState(analysis: .analyzing).isLoading)
+        #expect(pending.displayState(analysis: .cached) == .cached)
+        #expect(!pending.displayState(analysis: .cached).isLoading)
+        #expect(pending.appliedGainDB == nil)
+        #expect(!pending.displayState(analysis: .unavailable).isLoading)
+        let active = ReplayGainPlaybackInfo(enabled: true, snapshot: .init(mode: .track, values: .init(gain: -6), origin: .analysis))
+        #expect(active.displayState(analysis: .queued) == .active)
+        #expect(!ReplayGainPlaybackInfo(enabled: false).displayState(analysis: .analyzing).isLoading)
+        #expect(!ReplayGainPlaybackInfo(enabled: true, supported: false).displayState(analysis: .analyzing).isLoading)
+    }
+
     @Test("Playback details report the protected gain, not the requested boost")
     func playbackDetailsUseAppliedGain() throws {
         let snapshot = ReplayGainPlaybackSnapshot(mode: .album, values: .init(gain: 3, peak: 2), origin: .tags)

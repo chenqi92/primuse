@@ -486,6 +486,9 @@
 "rg_info_cache" = "响度分析缓存";
 "rg_info_gain" = "实际增益";
 "rg_info_peak_limited" = "峰值保护已生效";
+"rg_show_badge" = "显示响度标识";
+"rg_analysis_pending_detail" = "响度分析尚未完成。本次保持原音量，结果会缓存，在下次播放时从开头应用。";
+"rg_analysis_cached_detail" = "为避免音量突变，本次仍保持原音量。下次播放这首歌时会从开头应用缓存的增益。";
 "spatial_audio" = "空间音频";
 "spatial_audio_desc" = "通过 Apple 的空间音频渲染器，把播放声场放在前方的虚拟舞台中。";
 "spatial_head_tracking" = "头部追踪";

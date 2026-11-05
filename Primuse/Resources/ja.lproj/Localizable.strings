@@ -726,6 +726,9 @@
 "rg_info_cache" = "ラウドネス解析キャッシュ";
 "rg_info_gain" = "適用ゲイン";
 "rg_info_peak_limited" = "ピーク保護が有効";
+"rg_show_badge" = "ラウドネス表示";
+"rg_analysis_pending_detail" = "ラウドネス解析はまだ完了していません。今回は元の音量で再生し、解析結果をキャッシュして次回の再生開始時から適用します。";
+"rg_analysis_cached_detail" = "急な音量変化を避けるため、今回は元の音量を維持します。次回この曲を再生するとき、キャッシュ済みのゲインを最初から適用します。";
 "spatial_audio" = "空間オーディオ";
 "spatial_audio_desc" = "Apple の空間オーディオレンダラーにより、再生音を前方の仮想サウンドステージに配置します。";
 "spatial_head_tracking" = "ヘッドトラッキング";

@@ -2969,6 +2969,9 @@
 "rg_info_cache" = "Análisis de sonoridad en caché";
 "rg_info_gain" = "Ganancia aplicada";
 "rg_info_peak_limited" = "Protección de picos activa";
+"rg_show_badge" = "Mostrar indicador de sonoridad";
+"rg_analysis_pending_detail" = "El análisis de sonoridad aún no termina. Esta reproducción mantiene el volumen original. El resultado se guardará en caché y se aplicará desde el inicio de la próxima reproducción.";
+"rg_analysis_cached_detail" = "Para evitar un cambio brusco de volumen, esta reproducción mantiene el volumen original. La ganancia en caché se aplicará desde el inicio la próxima vez que reproduzcas esta canción.";
 "library_liked_albums_title" = "Álbumes favoritos";
 "library_liked_artists_title" = "Artistas favoritos";
 "library_favorite_like" = "Agregar a favoritos";

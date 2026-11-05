@@ -31,6 +31,24 @@ public struct ReplayGainPlaybackSnapshot: Equatable, Sendable {
     }
 }
 
+public enum ReplayGainAnalysisStatus: Equatable, Sendable {
+    case unavailable, queued, analyzing, cached
+}
+
+public enum ReplayGainDisplayState: String, Equatable, Sendable {
+    case disabled, bypassed, original, queued, analyzing, cached, active
+
+    public var isLoading: Bool { self == .queued || self == .analyzing }
+    public var localizationKey: String { "rg_status_\(rawValue)" }
+    public var symbol: String {
+        switch self {
+        case .active: return "checkmark"
+        case .cached: return "arrow.clockwise"
+        default: return "waveform"
+        }
+    }
+}
+
 public struct ReplayGainPlaybackInfo: Equatable, Sendable {
     public let enabled: Bool
     public let supported: Bool
@@ -46,6 +64,18 @@ public struct ReplayGainPlaybackInfo: Equatable, Sendable {
 
     public var isActive: Bool { enabled && supported && snapshot?.values.hasValue == true }
     public var showsBadge: Bool { enabled && supported }
+
+    public func displayState(analysis: ReplayGainAnalysisStatus) -> ReplayGainDisplayState {
+        if !enabled { return .disabled }
+        if !supported { return .bypassed }
+        if isActive { return .active }
+        switch analysis {
+        case .unavailable: return .original
+        case .queued: return .queued
+        case .analyzing: return .analyzing
+        case .cached: return .cached
+        }
+    }
 
     /// This is the steady programme gain, independent of crossfade envelopes
     /// and the hardware volume. A newly cached analysis is not an active gain.

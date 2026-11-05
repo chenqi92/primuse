@@ -130,7 +130,7 @@ struct NowPlayingAudioTagRow: View {
         #endif
     }
 
-    /// 两枚放不下(窄屏、大字号)时只留音质那枚。
+    /// 窄屏或大字号下优先保留响度状态,完整音质仍可点开查看。
     private var tags: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) {
@@ -144,7 +144,9 @@ struct NowPlayingAudioTagRow: View {
                     replayGainTag
                 }
             }
-            if let audioTag {
+            if let replayGainTag {
+                replayGainTag
+            } else if let audioTag {
                 audioTag
             } else {
                 sourceTag
@@ -165,9 +167,9 @@ struct NowPlayingAudioTagRow: View {
         showsSourceTag ? source : nil
     }
 
-    private var replayGainTag: NowPlayingAudioTag? {
+    private var replayGainTag: ReplayGainBadge? {
         guard showsReplayGain, replayGain.showsBadge else { return nil }
-        return NowPlayingAudioTag(symbol: replayGain.isActive ? "checkmark" : "clock", title: "RG", tint: tint)
+        return ReplayGainBadge(info: replayGain, song: song, tint: tint)
     }
 
     @ViewBuilder

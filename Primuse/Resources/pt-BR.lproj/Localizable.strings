@@ -2969,6 +2969,9 @@
 "rg_info_cache" = "Análise de intensidade em cache";
 "rg_info_gain" = "Ganho aplicado";
 "rg_info_peak_limited" = "Proteção de picos ativa";
+"rg_show_badge" = "Mostrar indicador de intensidade";
+"rg_analysis_pending_detail" = "A análise de intensidade sonora ainda não terminou. Esta reprodução mantém o volume original. O resultado será armazenado em cache e aplicado desde o início da próxima reprodução.";
+"rg_analysis_cached_detail" = "Para evitar uma mudança brusca de volume, esta reprodução mantém o volume original. O ganho em cache será aplicado desde o início na próxima vez que você tocar esta música.";
 "library_liked_albums_title" = "Álbuns favoritos";
 "library_liked_artists_title" = "Artistas favoritos";
 "library_favorite_like" = "Favoritar";

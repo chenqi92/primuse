@@ -57,6 +57,8 @@ private var tvDebugShowsScraperSettings: Bool {
 
 struct TVSettingsView: View {
     @State private var replayGain = TVReplayGainSettings.shared
+    @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
+    private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
     @AppStorage(WordLyricsDiscoveryPreferences.enabledKey)
@@ -240,6 +242,14 @@ struct TVSettingsView: View {
                         }
                         settingsSection(String(localized: "playback")) {
                             toggleRow("waveform", String(localized: "replay_gain"), isOn: $replayGain.enabled)
+                            settingDivider
+                            toggleRow("waveform", String(localized: "rg_show_badge"), isOn: Binding(
+                                get: { showsReplayGainBadge },
+                                set: {
+                                    showsReplayGainBadge = $0
+                                    CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.showsReplayGainBadgeKey)
+                                }
+                            ))
                             if replayGain.enabled {
                                 settingDivider
                                 navRow("slider.horizontal.3", String(localized: "rg_mode"),

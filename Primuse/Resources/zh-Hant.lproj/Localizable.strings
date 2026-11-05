@@ -474,6 +474,9 @@
 "rg_info_cache" = "響度分析快取";
 "rg_info_gain" = "實際增益";
 "rg_info_peak_limited" = "峰值保護已生效";
+"rg_show_badge" = "顯示響度標示";
+"rg_analysis_pending_detail" = "響度分析尚未完成。本次維持原音量，結果會快取，在下次播放時從開頭套用。";
+"rg_analysis_cached_detail" = "為避免音量突然變化，本次仍維持原音量。下次播放這首歌時會從開頭套用快取的增益。";
 "spatial_audio" = "空間音訊";
 "spatial_audio_desc" = "透過 Apple 的空間音訊算繪器，把播放聲場放在前方的虛擬舞台中。";
 "spatial_head_tracking" = "頭部追蹤";

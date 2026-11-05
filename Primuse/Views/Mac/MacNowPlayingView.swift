@@ -100,6 +100,8 @@ struct MacNowPlayingView: View {
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
+    private var showsReplayGainBadge = PlayerAppearancePreferences.showsReplayGainBadgeByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.simulatesWordLyricsKey)
@@ -1646,12 +1648,8 @@ struct MacNowPlayingView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(1.2)
                     .textCase(.uppercase)
-                if player.replayGainPlaybackInfo.showsBadge,
-                   PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) != .off {
-                    NowPlayingAudioTag(
-                        symbol: player.replayGainPlaybackInfo.isActive ? "checkmark" : "clock",
-                        title: "RG", tint: playerFaintColor
-                    )
+                if showsReplayGainBadge, player.replayGainPlaybackInfo.showsBadge {
+                    ReplayGainBadge(info: player.replayGainPlaybackInfo, song: player.currentSong, tint: playerFaintColor)
                 }
             }
             .foregroundStyle(playerFaintColor)

@@ -29,6 +29,7 @@ struct SettingsActionService {
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.exploreWordTiming", "appearance.activityStatus", "lyrics.translationEnabled", "lyrics.bundledTranslation", "lyrics.simulatedWordTiming", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "appearance.playerAlbumInSubtitle", "appearance.artworkLyrics", "appearance.playerProgressGlow",
+        "appearance.replayGainBadge",
         "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly", "player.pinMiniPlayer", "playback.spokenWordSmartRewind"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
@@ -157,6 +158,7 @@ struct SettingsActionService {
         case "lyrics.browseTimeline": preference(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey, fallback: PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault)
         case "lyrics.blurInactive": preference(PlayerAppearancePreferences.blursInactiveLyricsKey, fallback: PlayerAppearancePreferences.blursInactiveLyricsByDefault)
         case "appearance.volumeBar": preference(PlayerAppearancePreferences.showsVolumeBarKey, fallback: PlayerAppearancePreferences.showsVolumeBarByDefault)
+        case "appearance.replayGainBadge": preference(PlayerAppearancePreferences.showsReplayGainBadgeKey, fallback: PlayerAppearancePreferences.showsReplayGainBadgeByDefault)
         case "appearance.playerAlbumInSubtitle": preference(PlayerAppearancePreferences.showsAlbumInSubtitleKey, fallback: PlayerAppearancePreferences.showsAlbumInSubtitleByDefault)
         case "appearance.artworkLyrics": preference(PlayerAppearancePreferences.showsArtworkLyricsKey, fallback: PlayerAppearancePreferences.showsArtworkLyricsByDefault)
         case "appearance.playerProgressGlow": preference(PlayerAppearancePreferences.progressGlowKey, fallback: PlayerAppearancePreferences.progressGlowByDefault)
@@ -204,6 +206,7 @@ struct SettingsActionService {
         case "lyrics.browseTimeline": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
         case "lyrics.blurInactive": defaults.set(enabled, forKey: PlayerAppearancePreferences.blursInactiveLyricsKey)
         case "appearance.volumeBar": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsVolumeBarKey)
+        case "appearance.replayGainBadge": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsReplayGainBadgeKey)
         case "appearance.playerAlbumInSubtitle": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsAlbumInSubtitleKey)
         case "appearance.artworkLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsArtworkLyricsKey)
         case "appearance.playerProgressGlow": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressGlowKey)

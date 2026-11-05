@@ -1136,6 +1136,9 @@
 "rg_info_cache" = "Ses yüksekliği analizi önbelleği";
 "rg_info_gain" = "Uygulanan kazanç";
 "rg_info_peak_limited" = "Tepe koruması etkin";
+"rg_show_badge" = "Ses yüksekliği göstergesini göster";
+"rg_analysis_pending_detail" = "Ses yüksekliği analizi henüz tamamlanmadı. Bu çalmada özgün ses düzeyi korunur. Sonuç önbelleğe alınır ve sonraki çalmanın başından itibaren uygulanır.";
+"rg_analysis_cached_detail" = "Ani ses düzeyi değişimini önlemek için bu çalmada özgün ses düzeyi korunur. Önbelleğe alınan kazanç, bu şarkı bir sonraki kez çalındığında baştan itibaren uygulanır.";
 "lyrics_editor_stamp" = "Zaman damgası ekle";
 "theme_color_hex" = "Değer";
 "theme_color_picker" = "Renk Seçici";

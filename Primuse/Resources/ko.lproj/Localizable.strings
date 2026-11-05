@@ -725,6 +725,9 @@
 "rg_info_cache" = "음량 분석 캐시";
 "rg_info_gain" = "적용된 게인";
 "rg_info_peak_limited" = "피크 보호 적용 중";
+"rg_show_badge" = "음량 상태 표시";
+"rg_analysis_pending_detail" = "음량 분석이 아직 완료되지 않았습니다. 이번 재생은 원래 음량을 유지합니다. 결과를 캐시하여 다음 재생 시 처음부터 적용합니다.";
+"rg_analysis_cached_detail" = "갑작스러운 음량 변화를 방지하기 위해 이번 재생은 원래 음량을 유지합니다. 다음에 이 곡을 재생할 때 캐시된 게인을 처음부터 적용합니다.";
 "spatial_audio" = "공간 음향";
 "spatial_audio_desc" = "Apple의 공간 음향 렌더러를 통해 재생 음향을 전방의 가상 무대에 배치합니다.";
 "spatial_head_tracking" = "헤드 트래킹";

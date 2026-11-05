@@ -725,6 +725,9 @@
 "rg_info_cache" = "Analyse du volume en cache";
 "rg_info_gain" = "Gain appliqué";
 "rg_info_peak_limited" = "Protection des crêtes active";
+"rg_show_badge" = "Afficher l’indicateur de volume";
+"rg_analysis_pending_detail" = "L’analyse du volume n’est pas terminée. Cette lecture conserve le volume original. Le résultat sera mis en cache et appliqué dès le début de la prochaine lecture.";
+"rg_analysis_cached_detail" = "Pour éviter un changement brusque de volume, cette lecture conserve le volume original. Le gain en cache sera appliqué dès le début de la prochaine lecture de ce morceau.";
 "spatial_audio" = "Audio spatialisé";
 "spatial_audio_desc" = "Positionne la lecture sur une scène sonore frontale virtuelle grâce au moteur d'audio spatialisé d'Apple.";
 "spatial_head_tracking" = "Suivi des mouvements de la tête";

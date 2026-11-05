@@ -208,6 +208,8 @@ enum PlayerAppearancePreferences {
     }
     /// 播放页底部那行的音频信息档位(`NowPlayingAudioInfoMode` 的原始值)。
     static let audioInfoModeKey = "primuse.player.audioInfoMode"
+    static let showsReplayGainBadgeKey = "primuse.player.showsReplayGainBadge"
+    static let showsReplayGainBadgeByDefault = true
     /// iPhone 沿用原来只给无损以上标音质的做法;Mac 播放页一直都显示规格,默认始终。
     static var audioInfoModeByDefault: NowPlayingAudioInfoMode {
         #if os(macOS)
