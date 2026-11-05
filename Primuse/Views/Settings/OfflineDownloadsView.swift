@@ -1,5 +1,8 @@
 import PrimuseKit
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// 一次「移除离线下载」要做的事。歌还被开着「始终保持离线」的歌单保持着时,
 /// 单独删掉会被马上重新下载, 所以连那些歌单的开关一起关掉。
@@ -263,6 +266,14 @@ struct OfflineDownloadsView: View {
             }
         }
         #else
+        ToolbarItem {
+            Button("offline_downloads_show_in_finder") {
+                let downloads = AudioCacheManager.shared.downloadStore
+                try? downloads.prepareDirectory()
+                NSWorkspace.shared.open(downloads.directory)
+            }
+            .accessibilityIdentifier("offline.downloads.showInFinder")
+        }
         if showsDoneButton {
             ToolbarItem(placement: .confirmationAction) {
                 Button("done") { dismiss() }

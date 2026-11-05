@@ -33,5 +33,5 @@
 "collapse_ranking" = "收起排行";
 "folder_song_order" = "目录内歌曲顺序";
 "folder_song_order_footer" = "从首页和这里打开的目录都按这个顺序列出和播放歌曲。曲目顺序按碟号、曲号排，没有曲号时看文件名开头的编号。";
-"folder_cache_confirm_format" = "确定缓存「%1$@」及其子目录中的 %2$d 首歌曲？";
-"folder_cache_cancel" = "取消缓存";
+"folder_cache_confirm_format" = "确定下载「%1$@」及其子目录中的 %2$d 首歌曲？";
+"folder_cache_cancel" = "取消下载";

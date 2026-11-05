@@ -1933,6 +1933,19 @@ final class AppServices {
 
         let sourceSnapshot = sourcesStore.allSources
         let songSnapshot = musicLibrary.songs
+        Task { [sourceManager] in
+            await AudioCacheManager.shared.warmUp()
+            let downloadedPaths = (try? AudioCacheManager.shared.downloadStore.paths()) ?? []
+            guard !downloadedPaths.isEmpty else { return }
+            let downloadedSongs = await Task.detached(priority: .utility) {
+                songSnapshot.filter {
+                    downloadedPaths.contains("\($0.sourceID)/" + CacheFileNamePolicy.make(
+                        path: $0.filePath, preferredExtension: $0.fileFormat.rawValue
+                    ))
+                }
+            }.value
+            await sourceManager.registerDownloadNames(for: downloadedSongs)
+        }
         let reconciliation = await Task.detached(priority: .utility) {
             var counts: [String: Int] = [:]
             counts.reserveCapacity(sourceSnapshot.count)
@@ -2645,10 +2658,8 @@ final class AppServices {
                 Task { @MainActor [weak self] in
                     self?.plexServerLinks.applicationDidBecomeActive()
                     self?.serverCatalogAutoRefresh.setApplicationActive(true)
+                    await AudioCacheManager.shared.restoreOfflineEntriesIfCacheCleared()
                     self?.alwaysDownload.setApplicationActive(true)
-                    Task.detached(priority: .utility) {
-                        await AudioCacheManager.shared.restoreOfflineEntriesIfCacheCleared()
-                    }
                     self?.serverRatingSync.resume()
                     #if os(iOS) || os(macOS)
                     // 每次回到前台查一次到期的清单订阅(启动后的等待结束前不算数)。

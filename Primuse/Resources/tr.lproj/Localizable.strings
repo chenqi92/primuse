@@ -471,7 +471,7 @@
 "server_config" = "Sunucu Ayarları";
 "cloud_retry_auth" = "Yetkilendirmeyi yeniden dene";
 "yearly_month_3" = "Mart";
-"source_cache_progress_format" = "%@ önbelleğe alındı, %@ kaldı";
+"source_cache_progress_format" = "%@ indirildi, %@ kaldı";
 "local_import_reason_unsupported" = "Desteklenmeyen format";
 "source_diag_advice_network_message" = "Primuse mevcut ağ üzerinden kaynağa ulaşamadı.";
 "stats_source_local" = "Bu Cihaz";
@@ -746,7 +746,7 @@
 "album_grid_count_sort_format" = "%1$d/%2$d albümleri · %3$@'ye göre sıralanmıştır";
 "immersive_demo_lyric_02" = "Primuse her şarkıyı bir sahneye dönüştürür";
 "ext.tv.certificate.trust" = "Güvenin ve Devam Edin";
-"audio_cache" = "Ses Önbelleği";
+"audio_cache" = "Çalma önbelleği";
 "error_radio_ended_before_audio" = "Radyo akışı, ses verileri alınmadan sona erdi.";
 "Build a song radio from the current Primuse song." = "Mevcut Primuse şarkısından bir şarkı radyosu oluşturun.";
 "ai_privacy_footer" = "API anahtarları Anahtar Zinciri'nde saklanır. Öneri istekleri hiçbir zaman dosya yollarını, tüm dinleme geçmişini veya sesi içermez; yerel HTTP için ayrı onay gerekir.";
@@ -867,7 +867,7 @@
 "auth_error_code_format" = "Hata %d";
 "ai_playlist_prompt_placeholder" = "Örneğin: gece koşusu için daha az vokal içeren yüksek enerjili elektronik müzik";
 "similar_songs_empty_desc" = "Primuse'nin yakındaki parçaları bulmasına yardımcı olmak için sanatçı, albüm, tür veya yıl etiketleri ekleyin.";
-"source_cache_success_title" = "Önbelleğe alma tamamlandı";
+"source_cache_success_title" = "İndirme tamamlandı";
 "Unknown Source" = "Bilinmeyen Kaynak";
 "local_import_progress_committing" = "Tamamlanmış bir içe aktarma partisi kaydediliyor…";
 "cookie_placeholder" = "Çerezi buraya yapıştırın";
@@ -1161,11 +1161,11 @@
 "player_backdrop_footer" = "Yalnızca oynatıcıda geçerlidir. Tam ekran efekti açıkken efekt önceliklidir. Arka kapağı olmayan albümler kapak renklerini korur.";
 "player_backdrop_tv_images_count" = "iPhone veya Mac’ten kod taranarak aktarılan görseller: %lld.";
 "player_backdrop_tv_images_empty" = "Bu Apple TV’de henüz görsel yok. iPhone veya Mac’te Görsellerim’i seçip kodu tarayarak aktarın; görseller de gelir. O zamana kadar kapak renkleri gösterilir.";
-"source_cache_all_short" = "Önbellek";
-"source_cache_stop_hint" = "Önbelleğe almayı durdurmak için dokun";
-"source_cache_stop_title_format" = "“%@” önbelleğe alma durdurulsun mu?";
-"source_cache_stop_message" = "Önbelleğe alınmış şarkılar cihazda kalır, yarım inen dosyalar da saklanır. Kalanlarla devam etmek için daha sonra yine “Önbellek”e dokun.";
-"source_cache_stop_action" = "Önbelleğe almayı durdur";
+"source_cache_all_short" = "İndir";
+"source_cache_stop_hint" = "İndirmeyi durdurmak için dokun";
+"source_cache_stop_title_format" = "“%@” indirme durdurulsun mu?";
+"source_cache_stop_message" = "İndirilmiş şarkılar cihazda kalır, yarım inen dosyalar da saklanır. Kalanlarla devam etmek için daha sonra yine “İndir”e dokun.";
+"source_cache_stop_action" = "İndirmeyi durdur";
 "yearly_time_late_night" = "Gece yarısı";
 "server_share_created" = "Herkese Açık Bağlantı";
 "lyrics_translation_target" = "Çevir";
@@ -1183,7 +1183,7 @@
 "Tracks Indexed" = "Dizinlenmiş Parçalar";
 "Minimum OS" = "Minimum İşletim Sistemi";
 "ai_provider_preset_tencent_tokenhub" = "Tencent TokenHub";
-"source_cache_all_message_with_cached_format" = "%@'de %d çalınabilir şarkılar bulunur. Tahmini indirme boyutu: %@. %d zaten önbelleğe alınmış şarkı(lar) atlanacak.";
+"source_cache_all_message_with_cached_format" = "%@'de %d çalınabilir şarkılar bulunur. Tahmini indirme boyutu: %@. %d zaten indirilmiş şarkı(lar) atlanacak.";
 "Compressor / Limiter" = "Kompresör / Sınırlayıcı";
 "home_artists_subtitle" = "En çok kimi dinliyorsunuz";
 "ssh_key_placeholder" = "PEM özel anahtarını buraya yapıştırın...";
@@ -1260,7 +1260,7 @@
 "a11y_favorite_add" = "Çalma listesine ekle";
 "albums_section" = "Albümler";
 "auth_method" = "Kimlik Doğrulama Yöntemi";
-"source_cache_failed_title" = "Önbelleğe alma başarısız";
+"source_cache_failed_title" = "İndirme başarısız";
 "songs_row_relaxed" = "Rahat";
 "yearly_card_genres_plays_format" = "%d dinleme";
 "tag_editor_lyrics_writeback_sidecar_new" = "Hedef kontrol edildi. Sesin yanına yeni bir %@ yazılacaktır.";
@@ -2456,7 +2456,7 @@
 "ai_recommendation_intent_adjacentDiscovery_detail" = "Tanıdık tarzlardaki farklı sanatçılar";
 "auth_two_factor_required" = "İki adımlı doğrulama gereklidir.";
 "smart_field_fileSize" = "Dosya Boyutu";
-"audio_cache_limit" = "Ses Önbellek Limiti";
+"audio_cache_limit" = "Çalma önbelleği sınırı";
 "Small" = "Küçük";
 "smart_combinator_all_groups_match" = "Tüm gruplar eşleşir (VE)";
 "insecure_http_trust_message %@" = "“%@” ana bilgisayarı şifrelenmemiş HTTP kullanıyor. Ağdaki birisi hesap bilgilerinizi, oturumunuzu ve müzik verilerinizi okuyabilir veya değiştirebilir. Yine de izin ver?";
@@ -2466,7 +2466,7 @@
 "source_diag_advice_network_title" = "Ağa ulaşılamıyor";
 "Metadata scraping" = "Üst veri alma";
 "credentials" = "Kimlik Bilgileri";
-"source_cache_success_message_format" = "%@ önbelleğe alınmış %d/%d şarkıları. Çevrimdışı oynatma için %@ eklendi.";
+"source_cache_success_message_format" = "%@: %d/%d şarkı indirildi. Çevrimdışı çalma için %@ eklendi.";
 "scrobble_queue_section" = "Başarısız Sıra";
 "stats_clear_action" = "Tüm Geçmişi Temizle";
 "lyrics_editor_resplit" = "Yeniden böl";
@@ -2585,20 +2585,20 @@
 "scrape_writeback_local" = "Yalnızca yerel olarak kaydet";
 "playlist_import_search_library" = "Arşiv şarkılarını arayın";
 "source_cache_size_known_plus_unknown_format" = "Boyutu bilinmeyen %@ + %d şarkı(lar)ı";
-"source_cache_stopped_title" = "Önbelleğe alma duraklatıldı";
-"source_cache_stopped_storage_format" = "%@: %d/%d şarkı önbelleğe alındı, %@ eklendi. Cihazda yeterli boş alan yok, kalanlar duraklatıldı. Yer açtıktan sonra devam etmek için yine “Önbellek”e dokun.";
-"source_cache_stopped_network_format" = "%@: %d/%d şarkı önbelleğe alındı, %@ eklendi. Ağ 10 dakikadan uzun süre kesik kaldı, kalanlar duraklatıldı. Bağlanınca yine “Önbellek”e dokun; yarım inen şarkılar kaldığı yerden devam eder.";
-"source_cache_stopped_unreachable_format" = "%@: %d/%d şarkı önbelleğe alındı, %@ eklendi. Art arda birkaç şarkı bu kaynağa bağlanamadı, kalanlar duraklatıldı. Kaynağa ulaşılabildiğinde yine “Önbellek”e dokun; yarım inen şarkılar kaldığı yerden devam eder.";
-"source_cache_stopped_auth_format" = "%@: %d/%d şarkı önbelleğe alındı, %@ eklendi. Hesap veya parola artık geçerli değil, kalanlar duraklatıldı. Kaynakta yeniden oturum açıp “Önbellek”e dokun.";
+"source_cache_stopped_title" = "İndirme duraklatıldı";
+"source_cache_stopped_storage_format" = "%@: %d/%d şarkı indirildi, %@ eklendi. Cihazda yeterli boş alan yok, kalanlar duraklatıldı. Yer açtıktan sonra devam etmek için yine “İndir”e dokun.";
+"source_cache_stopped_network_format" = "%@: %d/%d şarkı indirildi, %@ eklendi. Ağ 10 dakikadan uzun süre kesik kaldı, kalanlar duraklatıldı. Bağlanınca yine “İndir”e dokun; yarım inen şarkılar kaldığı yerden devam eder.";
+"source_cache_stopped_unreachable_format" = "%@: %d/%d şarkı indirildi, %@ eklendi. Art arda birkaç şarkı bu kaynağa bağlanamadı, kalanlar duraklatıldı. Kaynağa ulaşılabildiğinde yine “İndir”e dokun; yarım inen şarkılar kaldığı yerden devam eder.";
+"source_cache_stopped_auth_format" = "%@: %d/%d şarkı indirildi, %@ eklendi. Hesap veya parola artık geçerli değil, kalanlar duraklatıldı. Kaynakta yeniden oturum açıp “İndir”e dokun.";
 "source_cache_failure_reasons_format" = "Nedenler: %@.";
 "source_cache_failure_connectivity_format" = "%d şarkı bağlanamadı veya zaman aşımına uğradı";
 "source_cache_failure_auth_format" = "%d şarkıda hesap veya parola geçersiz";
 "source_cache_failure_denied_format" = "%d şarkı için okuma izni yok";
 "source_cache_failure_storage_format" = "%d şarkı için yer yetmedi";
 "source_cache_failure_other_format" = "%d şarkıda sunucu hatası veya dosya yok";
-"source_cache_waiting_network" = "Ağ yok — geri gelince önbelleğe alma sürer";
+"source_cache_waiting_network" = "Ağ yok — geri gelince indirme sürer";
 "offline_batch_task_title" = "Şarkılar indiriliyor";
-"offline_batch_task_source_title_format" = "“%@” önbelleğe alınıyor";
+"offline_batch_task_source_title_format" = "“%@” indiriliyor";
 "offline_batch_task_progress_format" = "%d / %d şarkı";
 "yearly_personality_efnd_name" = "Gün ışığı gezgini";
 "Auto-check for updates (daily)" = "Güncellemeleri otomatik olarak kontrol et (günlük)";
@@ -2784,7 +2784,7 @@
 "local_import_progress_finishing" = "İçe aktarma tamamlanıyor…";
 "batch_delete_failed_format" = "%d başarısız oldu";
 "synology_download_failed_code_format" = "Synology indirme işlemi başarısız oldu (hata kodu: %d).";
-"source_cache_progress_with_failed_format" = "%@ önbelleğe alındı, %@ kaldı, %d başarısız";
+"source_cache_progress_with_failed_format" = "%@ indirildi, %@ kaldı, %d başarısız";
 "library_title" = "Arşiv";
 "error_lastfm_api_key_missing" = "Last.fm API anahtarı yapılandırılmamış.";
 "lyrics_editor_nudge_later" = "0,1 sn sonraya al";
@@ -2925,7 +2925,7 @@
 "intent_scrape_live_radio_unsupported" = "Canlı radyo alınamıyor.";
 "update_banner_action" = "Güncelleme";
 "error_radio_invalid_response" = "Radyo sunucusu geçersiz bir yanıt döndürdü.";
-"source_cache_all_title" = "Bu kaynak önbelleğe alınsın mı?";
+"source_cache_all_title" = "Bu kaynak indirilsin mı?";
 "relay_share_error_source_read" = "Kaynak, istenenden daha az medya baytı döndürdü.";
 "tag_editor_mac_change_cover" = "Kapağı Değiştir";
 "carplay_songs_title" = "Şarkılar";
@@ -3073,7 +3073,7 @@
 "onboarding_mac_sources_title" = "Her yerden";
 "Your 2026\n847 hours listened" = "2026\n847 saat dinlenmeniz";
 "Restore Defaults" = "Varsayılanları Geri Yükle";
-"source_cache_all_confirm" = "Tümünü Önbelleğe Al";
+"source_cache_all_confirm" = "Tümünü İndir";
 "source_diag_select_dirs" = "Hiçbir tarama dizini seçilmedi.";
 "cloud_guide_default" = "İlgili platformun geliştirici merkezine kaydolun";
 "artist_releases" = "Yayımlar";
@@ -3102,7 +3102,7 @@
 "immersive_demo_lyric_15" = "Son nota mavinin içinde bekliyor";
 "mini_player" = "Mini oynatıcı";
 "Set Repeat Mode" = "Tekrarlama Modunu Ayarla";
-"source_cache_partial_message_format" = "%@ önbelleğe alınmış %d/%d şarkıları; %d başarısız oldu. %@ eklendi. Başarısız olan şarkıları yeniden denemek için Önbelleği yeniden çalıştırın.";
+"source_cache_partial_message_format" = "%@: %d/%d şarkı indirildi; %d başarısız oldu. %@ eklendi. Başarısız şarkıları tekrar denemek için İndir’e dokunun.";
 "smb_error_refused" = "SMB: Sunucu bağlantıyı reddetti (bağlantı noktasını kontrol edin)";
 "onboarding_welcome_subtitle" = "Primuse, kimseye tek bir dosya yüklemeden NAS'nizden, bulut sürücülerinizden ve ev ağınızdan oynatılır.";
 "replay_gain" = "ReplayGain";
@@ -3501,7 +3501,7 @@
 "home_active_scans" = "Tarama";
 "add_trusted_domain_message" = "Bir alan adı girin (ör. nas.example.com). Bu alan adı için SSL sertifika doğrulaması atlanacak.";
 "ssh_key" = "SSH Anahtarı";
-"source_cache_all_loading" = "Önbelleğe alma";
+"source_cache_all_loading" = "İndiriliyor";
 "keyboard_shortcuts_restore_defaults" = "Varsayılanları Geri Yükle";
 "ai_recommendation_custom_remove" = "Odağı Kaldır";
 "share_server_permission_denied" = "Bu hesap sunucudan paylaşım yapamaz";
@@ -3577,7 +3577,7 @@
 "source_diag_advice_auth_title" = "Kimlik doğrulama sorunu";
 "ai_playlist_prompt_footer" = "AI yalnızca arşivinizdeki şarkıları seçer ve AI ayarlarındaki gizlilik iznini kullanır.";
 "song_details_loading_message" = "Süreyi, kapağı ve sanatçıyı çıkarmak için bu şarkının etiket başlığını (~256 KB) buluttan indiriyorum. Bittiğinde oyun kuyruğuna eklenebilir.";
-"source_cache_partial_title" = "Önbelleğe alma kısmen tamamlandı";
+"source_cache_partial_title" = "İndirme kısmen tamamlandı";
 "send_to_tv_confirm_and_send" = "Onayla ve Gönder";
 "search_ai_no_matches_format" = "%@ yanıt verdi ancak arşivinizde eşleşen şarkı yok";
 "no_genres" = "Tür Yok";
@@ -3779,8 +3779,8 @@
 "trust_domain" = "Güven";
 "log_filter_error" = "Hatalar";
 "Failed" = "Başarısız";
-"offline_cache_item" = "Önbelleğe al";
-"offline_remove_cache" = "Önbellekten kaldır";
+"offline_cache_item" = "İndir";
+"offline_remove_cache" = "Çalma önbelleğini kaldır";
 "source_diag_advice_oauth_title" = "Bulut yetkilendirmesinin süresi doldu";
 "Checking for Updates" = "Güncellemeler Kontrol Ediliyor";
 "local_import_progress_validating" = "Geçerli ses dosyası doğrulanıyor…";
@@ -3842,7 +3842,7 @@
 "server_share_password_unsupported_message" = "Standart OpenSubsonic createShare API'de şifre alanı yoktur, dolayısıyla Primuse bir şifre alanı oluşturmaz veya görüntülemez.";
 "yearly_personality_efnm_description" = "Tek bir favori tarzda her türlü yeni şarkıyı bulur ve hava karardıktan sonra dinler.";
 "Ambient Intensity" = "Ortam Yoğunluğu";
-"offline_keep_cached" = "Çevrimdışı kullanım için sakla";
+"offline_keep_cached" = "İndir";
 "ai_provider_preset_volcengine_ark" = "Volcengine Ark";
 "siri_shortcuts_hint" = "“Şarkı Çal”ı test etmek veya cümlesini özelleştirmek için Primuse kısayollarını açın.";
 "siri_spoken_names_title" = "Siri’nin tanıdığı adlar";
@@ -4096,7 +4096,7 @@
 "onboarding_next" = "Devam et";
 "MusicKit Connected" = "MusicKit Bağlı";
 "error_invalid_response" = "Sunucu geçersiz bir yanıt döndürdü.";
-"audio_cache_enabled" = "Ses Önbelleği";
+"audio_cache_enabled" = "Çalma önbelleği";
 "library_browse_switch_loading" = "Görünümler değiştiriliyor…";
 "back" = "Geri";
 "Auto Add to Smart Playlists" = "Akıllı Çalma Listelerine Otomatik Ekle";
@@ -4558,10 +4558,10 @@
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "Kod dönüştürmeyi destekleyen sunucularda (Subsonic / Navidrome, Emby, Jellyfin ve uyumlular) mobil veriden tasarruf etmek için daha düşük bit hızıyla aktarır. “Orijinal”, kaynak dosyayı olduğu gibi gönderir. Kod dönüştürülen bir parça çalmaya başlamadan önce tamamen indirilir; bu yüzden ilk parça ve elle geçtiğiniz her parça kısa bir beklemeden sonra başlar, sıradaki parça ise önceden hazırlanır. Kod dönüştürülen bir parçada indirme bitene kadar ileri sarılamaz, boşluksuz çalma ve çapraz geçişe katılmaz ve çevrimdışı önbelleğe hiçbir zaman kaydedilmez. Ağ değişikliği bir sonraki parçada geçerli olur.";
-"offline_download_quality_section" = "Çevrimdışı önbellek";
-"offline_download_quality" = "Çevrimdışı önbellek kalitesi";
-"offline_download_quality_desc" = "Önbelleğe alınan şarkılar bu cihazda seçilen bit hızında AAC'ye dönüştürülür. Her kaynakta çalışır; bulut sürücü, WebDAV veya NAS'taki kayıpsız dosyalar alanın küçük bir kısmını kaplar. Önce yine özgün dosya indirilir, dönüştürme bitince yalnızca dönüştürülmüş kopya tutulur. Kayıpsız dosyalar her zaman dönüştürülür; kayıplı dosyalar yalnızca bit hızları belirgin biçimde yüksekse. \"Orijinal\" kaynak dosyayı korur. Özgün hâliyle önbellekte olan şarkılar, yeniden indirilmeden \"Önbellekteki şarkıları dönüştür\" ile dönüştürülebilir.";
-"offline_compact_existing" = "Önbellekteki şarkıları dönüştür";
+"offline_download_quality_section" = "Çevrimdışı İndirmeler";
+"offline_download_quality" = "İndirme kalitesi";
+"offline_download_quality_desc" = "İndirilen şarkılar bu cihazda seçilen bit hızında AAC'ye dönüştürülür. Her kaynakta çalışır; bulut sürücü, WebDAV veya NAS'taki kayıpsız dosyalar alanın küçük bir kısmını kaplar. Önce yine özgün dosya indirilir, dönüştürme bitince yalnızca dönüştürülmüş kopya tutulur. Kayıpsız dosyalar her zaman dönüştürülür; kayıplı dosyalar yalnızca bit hızları belirgin biçimde yüksekse. \"Orijinal\" kaynak dosyayı korur. Özgün hâliyle indirilmiş olan şarkılar, yeniden indirilmeden \"İndirilen şarkıları dönüştür\" ile dönüştürülebilir.";
+"offline_compact_existing" = "İndirilen şarkıları dönüştür";
 "offline_compact_existing_action" = "Dönüştür";
 "offline_compact_existing_progress_format" = "Dönüştürülüyor %d / %d";
 "offline_compact_existing_result_format" = "%d şarkı dönüştürüldü, %@ kazanıldı";
@@ -5967,7 +5967,7 @@
 
 // MARK: - Offline Downloads
 "offline_downloads" = "Çevrimdışı İndirmeler";
-"offline_downloads_footer" = "Çevrimdışı indirmeler ayrı saklanır ve ses önbellek limitine sayılmaz. Önbelleği temizlemek bunları silmez, depolama azaldığında sistem de silmez.";
+"offline_downloads_footer" = "İndirilenler ayrı bir Downloads klasöründe saklanır ve Dosyalar veya Finder ile yönetilebilir. Çalma önbelleği sınırına dahil edilmez ve önbellek temizlendiğinde korunur.";
 "offline_downloads_summary_format" = "%1$d şarkı · %2$@";
 "offline_downloads_empty" = "Çevrimdışı İndirme Yok";
 "offline_downloads_empty_hint" = "Bir çalma listesi, albüm veya şarkı menüsünden İndir'i seçin ya da bir çalma listesi için Her Zaman İndir'i açın.";
@@ -7135,6 +7135,8 @@
 "player_carousel_open_artist" = "Sanatçı";
 "player_carousel_song_count %lld" = "%lld şarkı";
 "player_carousel_more_by_artist %@" = "%@ adlı sanatçıdan daha fazlası";
+
+"offline_downloads_show_in_finder" = "İndirilenleri Finder’da göster";
 
 "rg_mode_automatic" = "Otomatik";
 "rg_preamp" = "Ön kazanç";

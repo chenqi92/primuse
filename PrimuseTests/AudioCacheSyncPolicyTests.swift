@@ -186,7 +186,7 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         XCTAssertEqual(result.failedCount, 0)
     }
 
-    func testStreamingCompletionUpdatesNegativeSnapshotAndDownloadedMembership() async throws {
+    func testStreamingCompletionUpdatesAvailabilityWithoutClaimingADownload() async throws {
         let fixture = try await fixture()
         defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
         let entry = fixture.manager.offlineAudioSnapshotEntry(for: fixture.song)
@@ -205,17 +205,31 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         await AudioCacheManager.shared.recordAccess(path: fixture.path)
         try await waitUntil { entry.snapshot.state == .cached }
         let completedIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
-        XCTAssertEqual(completedIDs, [fixture.song.id])
-        XCTAssertGreaterThan(fixture.manager.offlineAudioSnapshotRevision, revision)
+        XCTAssertTrue(completedIDs.isEmpty)
+        XCTAssertEqual(fixture.manager.offlineAudioSnapshotRevision, revision)
+        XCTAssertTrue(entry.snapshot.isAvailableLocally)
     }
 
-    func testCacheRemovalUpdatesDownloadedMembershipWithoutReloadingLibrary() async throws {
+    func testDownloadedFilterAndPlaybackUseRetainedFileWhenCacheAliasIsMissing() async throws {
+        let fixture = try await fixture()
+        defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
+        try Data(repeating: 7, count: 128).write(to: fixture.url)
+        await AudioCacheManager.shared.pin(path: fixture.path, byteCount: 128)
+        let downloaded = try XCTUnwrap(AudioCacheManager.shared.downloadStore.fileURL(for: fixture.path, kind: .original))
+        try FileManager.default.removeItem(at: fixture.url)
+        XCTAssertEqual(fixture.manager.offlineAudioSnapshot(for: fixture.song).state, .pinned)
+        XCTAssertEqual(fixture.manager.cachedPlaybackURL(for: fixture.song), downloaded)
+        let ids = await fixture.manager.downloadedSongIDs(in: [fixture.song])
+        XCTAssertEqual(ids, [fixture.song.id])
+    }
+
+    func testCacheRemovalUpdatesAvailabilityWithoutReloadingLibrary() async throws {
         let fixture = try await fixture()
         defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
         try Data(repeating: 7, count: 128).write(to: fixture.url)
         await AudioCacheManager.shared.recordAccess(path: fixture.path)
         let initialIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
-        XCTAssertEqual(initialIDs, [fixture.song.id])
+        XCTAssertTrue(initialIDs.isEmpty)
         let entry = fixture.manager.offlineAudioSnapshotEntry(for: fixture.song)
 
         await AudioCacheManager.shared.removeEntry(path: fixture.path)
@@ -237,7 +251,7 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         }
         let removedEntry = removed.manager.offlineAudioSnapshotEntry(for: removed.song)
         let retainedEntry = retained.manager.offlineAudioSnapshotEntry(for: retained.song)
-        XCTAssertTrue(removedEntry.snapshot.isDownloaded)
+        XCTAssertTrue(removedEntry.snapshot.isAvailableLocally)
         let removedRevision = removed.manager.offlineAudioSnapshotRevision
         let retainedRevision = retained.manager.offlineAudioSnapshotRevision
         var ids = Set((0..<2_048).map { "unobserved-\($0)" })
@@ -245,8 +259,8 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         NotificationCenter.default.post(name: .primuseSongsRemoved, object: nil,
             userInfo: ["songIDs": ids, "sourceIDs": [removed.song.sourceID]])
         XCTAssertEqual(removedEntry.snapshot.state, .notCached)
-        XCTAssertEqual(removed.manager.offlineAudioSnapshotRevision, removedRevision + 1)
-        XCTAssertTrue(retainedEntry.snapshot.isDownloaded)
+        XCTAssertEqual(removed.manager.offlineAudioSnapshotRevision, removedRevision)
+        XCTAssertTrue(retainedEntry.snapshot.isAvailableLocally)
         XCTAssertEqual(retained.manager.offlineAudioSnapshotRevision, retainedRevision)
     }
 
@@ -274,7 +288,7 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         try Data(repeating: 7, count: 128).write(to: fixture.url, options: .atomic)
         await AudioCacheManager.shared.recordAccess(path: fixture.path)
         try await waitUntil {
-            fixture.manager.offlineAudioSnapshotEntry(for: fixture.song).snapshot.isDownloaded
+            fixture.manager.offlineAudioSnapshotEntry(for: fixture.song).snapshot.isAvailableLocally
         }
     }
 
@@ -291,14 +305,14 @@ final class OfflineAudioSnapshotTests: XCTestCase {
 
         // 成批探测: 一首有完整缓存、一首没有, 两首各得其所。
         let ids = await fixture.manager.downloadedSongIDs(in: [fixture.song, other])
-        XCTAssertEqual(ids, [fixture.song.id])
+        XCTAssertTrue(ids.isEmpty)
         XCTAssertEqual(fixture.manager.offlineAudioSnapshot(for: other).state, .notCached)
 
         // 没缓存的那首仍在观察名单里, 之后下完能自己亮起来。
         let otherEntry = fixture.manager.offlineAudioSnapshotEntry(for: other)
         try Data(repeating: 7, count: 128).write(to: otherURL)
         await AudioCacheManager.shared.recordAccess(path: otherPath)
-        try await waitUntil { otherEntry.snapshot.isDownloaded }
+        try await waitUntil { otherEntry.snapshot.isAvailableLocally }
     }
 
     func testBatchedInvalidationPreservesProtectedAudioAcrossBatchBoundaries() async throws {
@@ -325,7 +339,7 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: urls[2].path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: urls[3].path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.url.path))
-        XCTAssertTrue(fixture.manager.offlineAudioSnapshot(for: songs[128]).isDownloaded)
+        XCTAssertTrue(fixture.manager.offlineAudioSnapshot(for: songs[128]).isAvailableLocally)
         await fixture.manager.deleteLocalCaches(for: [songs[128], fixture.song])?.value
     }
 

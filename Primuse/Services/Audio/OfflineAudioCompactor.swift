@@ -13,7 +13,8 @@ enum OfflineCompactArtifact {
     /// 播放层用它认出「这是转换后的副本」: 那时 `Song` 上的格式、采样率描述的
     /// 是原文件, 不是手上这份 AAC。
     static func isCompactURL(_ url: URL) -> Bool {
-        url.isFileURL && url.path.hasSuffix(OfflineDownloadQualityPolicy.compactFileSuffix)
+        url.isFileURL && (url.path.hasSuffix(OfflineDownloadQualityPolicy.compactFileSuffix)
+            || readRecord(at: url) != nil)
     }
 
     /// 副本可以代表这首歌: 文件在, 且记录的原文件大小与资料库现在的大小对得上。

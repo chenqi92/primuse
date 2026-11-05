@@ -7515,6 +7515,18 @@ final class SourceManager {
         let relativePath = "\(song.sourceID)/\(sanitized)"
         guard audioCacheReadsAreAllowed(for: song.sourceID),
               !blockedUntrustedAudioCachePaths.contains(relativePath) else { return nil }
+        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
+            || contentChangeProtectionPendingPaths.contains(relativePath)
+            || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
+        let downloads = AudioCacheManager.shared.downloadStore
+        if let downloaded = downloads.fileURL(for: relativePath, kind: .original) {
+            guard Self.isUsableCacheFile(at: downloaded, expectedSize: preservesExistingArtifact ? 0 : song.fileSize) else {
+                return nil
+            }
+            Task { await AudioCacheManager.shared.recordAccess(path: relativePath) }
+            return downloaded
+        }
+        guard !downloads.manages(relativePath) else { return nil }
         let fileURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(sanitized)
         migrateLegacyAudioCacheIfUnambiguous(for: song, destination: fileURL)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
@@ -7523,9 +7535,6 @@ final class SourceManager {
         // 引擎播完触发 gapless boundary → 队列死循环。这里把不完整的
         // 缓存当作未命中, 删掉强制重下。 song.fileSize<=0 表示元数据没拿到,
         // 跳过校验避免误删。
-        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
-            || contentChangeProtectionPendingPaths.contains(relativePath)
-            || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
         if !preservesExistingArtifact,
            song.fileSize > 0,
            let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
@@ -7558,14 +7567,20 @@ final class SourceManager {
         let relativePath = audioCacheRelativePath(for: song)
         guard audioCacheReadsAreAllowed(for: song.sourceID),
               !blockedUntrustedAudioCachePaths.contains(relativePath) else { return nil }
+        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
+            || contentChangeProtectionPendingPaths.contains(relativePath)
+            || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
+        let downloads = AudioCacheManager.shared.downloadStore
+        if let downloaded = downloads.fileURL(for: relativePath, kind: .compact) {
+            return OfflineCompactArtifact.isUsable(at: downloaded, expectedOriginalByteCount: song.fileSize,
+                                                    preservesExisting: preservesExistingArtifact) ? downloaded : nil
+        }
+        guard !downloads.manages(relativePath) else { return nil }
         let compactURL = OfflineCompactArtifact.url(
             forCanonical: audioCacheDirectory(for: song.sourceID)
                 .appendingPathComponent(cacheFileName(for: song))
         )
         guard FileManager.default.fileExists(atPath: compactURL.path) else { return nil }
-        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
-            || contentChangeProtectionPendingPaths.contains(relativePath)
-            || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
         guard OfflineCompactArtifact.isUsable(
             at: compactURL,
             expectedOriginalByteCount: song.fileSize,
@@ -7593,6 +7608,16 @@ final class SourceManager {
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
             || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
+        let downloads = AudioCacheManager.shared.downloadStore
+        if downloads.manages(relativePath) {
+            if let original = downloads.fileURL(for: relativePath, kind: .original),
+               Self.isUsableCacheFile(at: original, expectedSize: preservesExistingArtifact ? 0 : song.fileSize) {
+                return true
+            }
+            guard let compact = downloads.fileURL(for: relativePath, kind: .compact) else { return false }
+            return OfflineCompactArtifact.isUsable(at: compact, expectedOriginalByteCount: song.fileSize,
+                                                   preservesExisting: preservesExistingArtifact)
+        }
         if Self.usableCacheArtifactURL(
             at: cacheURL(for: song),
             expectedSize: song.fileSize,
@@ -7790,11 +7815,11 @@ final class SourceManager {
                 }.value
             }
 
-            await AudioCacheManager.shared.markDownloaded(
+            guard await AudioCacheManager.shared.markDownloaded(
                 path: reservation.relativePath,
                 byteCount: reservation.expectedByteCount,
                 pinned: true
-            )
+            ) else { throw CocoaError(.fileWriteUnknown) }
             setOfflineAudioSnapshot(
                 OfflineAudioCacheSnapshot(
                     state: .pinned,
@@ -7839,7 +7864,10 @@ final class SourceManager {
             path: relativePath,
             blockedPaths: blockedUntrustedAudioCachePaths
         ) else { return nil }
-        let target = audioCacheTargetURL(for: song)
+        let downloads = AudioCacheManager.shared.downloadStore
+        let downloaded = downloads.fileURL(for: relativePath, kind: .original)
+        if downloaded == nil, downloads.manages(relativePath) { return nil }
+        let target = downloaded ?? audioCacheTargetURL(for: song)
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
         let expectedSize = preservesExistingArtifact ? 0 : song.fileSize
@@ -7890,7 +7918,12 @@ final class SourceManager {
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
         let snapshot: OfflineAudioCacheSnapshot
-        if let artifact = Self.usableCacheArtifactURL(
+        let downloads = AudioCacheManager.shared.downloadStore
+        let downloadedBytes = downloads.byteCount(for: relativePath)
+        if downloadedBytes > 0 {
+            snapshot = OfflineAudioCacheSnapshot(state: .pinned, progress: nil,
+                                                 byteCount: downloadedBytes, errorMessage: nil)
+        } else if !downloads.manages(relativePath), let artifact = Self.usableCacheArtifactURL(
             at: url,
             expectedSize: song.fileSize,
             preservesExisting: preservesExistingArtifact
@@ -8193,8 +8226,8 @@ final class SourceManager {
     private static let offlineSnapshotProbeBatchSize = 1000
 
     /// Resolves the filter membership after the bounded background probe has
-    /// populated missing cache states. Both ordinary complete cache files and
-    /// explicitly pinned downloads are playable without network access.
+    /// populated missing states. Only explicitly retained downloads belong in
+    /// this filter; incidental playback cache has a separate lifetime.
     func downloadedSongIDs(in songs: [Song]) async -> Set<String> {
         // 歌曲页每次打开都要问一遍整库: 几万首各查两遍状态表(长字符串哈希)放在
         // 主线程上就是一顿。已知状态的在后台按快照分拣, 只有还没探测过的回来探测。
@@ -8704,11 +8737,26 @@ final class SourceManager {
     /// 存储管理里「离线下载」的清单, 最近下载的在前。曲库里已经没有这首歌的
     /// 离线文件不列出。
     func offlineDownloadItems(in songs: [Song]) async -> [OfflineDownloadItem] {
+        await AudioCacheManager.shared.restoreOfflineEntriesIfCacheCleared()
         let entries = await AudioCacheManager.shared.offlineDownloadEntries()
         guard !entries.isEmpty, !songs.isEmpty else { return [] }
-        return await Task.detached(priority: .userInitiated) {
+        let items = await Task.detached(priority: .userInitiated) {
             Self.offlineDownloadItems(entries: entries, songs: songs)
         }.value
+        await registerDownloadNames(for: items.map(\.song))
+        return items
+    }
+
+    func registerDownloadNames(for songs: [Song]) async {
+        let names = await Task.detached(priority: .utility) {
+            Dictionary(songs.map { song in
+                let path = "\(song.sourceID)/" + Self.cacheFileName(for: song)
+                let name = [song.artistName, song.title].compactMap { $0 }
+                    .filter { !$0.isEmpty }.joined(separator: " - ")
+                return (path, name)
+            }, uniquingKeysWith: { first, _ in first })
+        }.value
+        await AudioCacheManager.shared.setDownloadDisplayNames(names)
     }
 
     nonisolated static func offlineDownloadItems(
@@ -9032,11 +9080,14 @@ final class SourceManager {
             let result = await handle.task.value
             guard !Task.isCancelled else { return .cancelled }
             if case .completed(let byteCount) = result {
-                await applyOfflinePin(
+                guard await applyOfflinePin(
                     pinIntent,
                     song: song,
                     byteCount: byteCount
-                )
+                ) else {
+                    return .failed(kind: .transient, message: String(localized: "offline_download_failed"),
+                                   category: .storage)
+                }
                 if compactsAfterPin, !Task.isCancelled {
                     await compactOfflineArtifactIfNeeded(for: song)
                 }
@@ -9147,20 +9198,27 @@ final class SourceManager {
         _ pinIntent: OfflineDownloadPinIntent,
         song: Song,
         byteCount: Int64?
-    ) async {
+    ) async -> Bool {
         let relativePath = audioCacheRelativePath(for: song)
+        await registerDownloadNames(for: [song])
+        let installed: Bool
         switch pinIntent {
         case .manual:
-            await AudioCacheManager.shared.pin(
+            installed = await AudioCacheManager.shared.pin(
                 path: relativePath,
                 byteCount: byteCount
             )
         case .playlists(let playlistIDs):
-            await AudioCacheManager.shared.pin(
+            guard !AudioCacheManager.shared.downloadStore.wasExternallyRemoved(relativePath) else { return false }
+            installed = await AudioCacheManager.shared.pin(
                 path: relativePath,
                 byteCount: byteCount,
                 forPlaylistIDs: playlistIDs
             )
+        }
+        guard installed else {
+            await refreshOfflineAudioSnapshot(for: song)
+            return false
         }
         setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
             state: .pinned,
@@ -9168,6 +9226,7 @@ final class SourceManager {
             byteCount: byteCount,
             errorMessage: nil
         ), for: song.id)
+        return true
     }
 
     private func finishOfflineDownloadTask(taskKey: String, runID: UUID) {
@@ -10083,7 +10142,9 @@ final class SourceManager {
             contentChangeProtectionPendingPaths.remove(relativePath)
             contentChangeInvalidationGenerationByPath[relativePath] = nil
             blockedUntrustedAudioCachePaths.remove(relativePath)
-            await AudioCacheManager.shared.markDownloaded(path: relativePath, byteCount: size, pinned: false)
+            guard await AudioCacheManager.shared.markDownloaded(path: relativePath, byteCount: size, pinned: false) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
             setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                 state: .cached,
                 progress: nil,
@@ -10822,7 +10883,7 @@ final class SourceManager {
 
     /// 后台线程版 ── 整个 audio cache 目录可达 20GB, 同步枚举会冻结主线程,
     /// 所以「存储管理」页走这个: 用 Task.detached 在后台 walk, 主 actor 只
-    /// 拿到最终的 Int64。枚举范围与同步版一致 (含 smbCache)。
+    /// 拿到最终的 Int64。枚举范围与同步版一致，包含 SMB 与播放转码缓存。
     func audioCacheSizeAsync() async -> Int64 {
         let dirs = Self.audioCacheSizeDirs
         return await Task.detached(priority: .utility) {
@@ -10837,6 +10898,7 @@ final class SourceManager {
             FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
                 .appendingPathComponent(audioCacheDirName),
             smbCacheDir,
+            adaptiveTranscodeDirectoryURL(),
         ]
     }
 
@@ -11508,9 +11570,12 @@ final class SourceManager {
         backgroundAudioCacheTasks[song.id]?.task.cancel()
         cancelOfflineCompaction(path: audioCacheRelativePath(for: song))
         let cacheURL = cacheURL(for: song)
+        let relativePath = audioCacheRelativePath(for: song)
+        // Publish removal before unlinking cache aliases. A conversion lease
+        // ending concurrently must not restore or re-publish the removed file.
+        try? AudioCacheManager.shared.downloadStore.remove(relativePath, recordRemoval: true)
         Self.removeCacheFileFamily(at: cacheURL)
         deleteConnectorTempCaches(for: song)
-        let relativePath = audioCacheRelativePath(for: song)
         preservingAutomaticRefreshPaths.remove(relativePath)
         contentChangeProtectionPendingPaths.remove(relativePath)
         contentChangeInvalidationGenerationByPath[relativePath] = nil
@@ -12322,8 +12387,7 @@ final class SourceManager {
         protectedAbsolutePaths: Set<String>
     ) -> Bool {
         if protectedAbsolutePaths.contains(fileURL.path) { return true }
-        guard fileURL.path.hasPrefix(basePath.path + "/") else { return false }
-        let relative = String(fileURL.path.dropFirst(basePath.path.count + 1))
+        guard let relative = AudioCachePathResolver(root: basePath).relativePath(for: fileURL) else { return false }
         // 离线歌曲转成的精简副本跟着它所属原文件路径的固定走。
         let owner = OfflineDownloadQualityPolicy.canonicalRelativePath(forCompact: relative) ?? relative
         return pinnedRelativePaths.contains(owner)

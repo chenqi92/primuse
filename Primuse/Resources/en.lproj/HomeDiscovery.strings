@@ -33,5 +33,5 @@
 "collapse_ranking" = "Show Less";
 "folder_song_order" = "Song Order in Directories";
 "folder_song_order_footer" = "Directories opened from Home and from here list and play their songs in this order. Track order follows disc and track numbers, or the number a file name starts with when a song has none.";
-"folder_cache_confirm_format" = "Cache all %2$d songs in “%1$@” and its subdirectories?";
-"folder_cache_cancel" = "Cancel Caching";
+"folder_cache_confirm_format" = "Download all %2$d songs in “%1$@” and its subdirectories?";
+"folder_cache_cancel" = "Cancel Downloading";

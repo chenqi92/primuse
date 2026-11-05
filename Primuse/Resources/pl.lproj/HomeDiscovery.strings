@@ -33,5 +33,5 @@
 "collapse_ranking" = "Show Less";
 "folder_song_order" = "Kolejność utworów w folderach";
 "folder_song_order_footer" = "Foldery otwierane ze strony głównej lub stąd pokazują i odtwarzają utwory w tej kolejności. Kolejność utworów wynika z numerów płyty i ścieżki, a gdy utwór ich nie ma — z liczby na początku nazwy pliku.";
-"folder_cache_confirm_format" = "Zapisać w pamięci podręcznej wszystkie utwory (%2$d) z „%1$@” i podfolderów?";
-"folder_cache_cancel" = "Anuluj zapisywanie w pamięci podręcznej";
+"folder_cache_confirm_format" = "Pobrać wszystkie utwory (%2$d) z „%1$@” i podfolderów?";
+"folder_cache_cancel" = "Anuluj pobieranie";

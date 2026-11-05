@@ -471,7 +471,7 @@
 "server_config" = "Налаштування сервера";
 "cloud_retry_auth" = "Повторити авторизацію";
 "yearly_month_3" = "березень";
-"source_cache_progress_format" = "У кеші: %@, залишилося: %@";
+"source_cache_progress_format" = "Завантажено: %@, залишилося: %@";
 "local_import_reason_unsupported" = "Формат не підтримується";
 "source_diag_advice_network_message" = "Primuse не вдалося зв’язатися з джерелом через поточну мережу.";
 "stats_source_local" = "Цей пристрій";
@@ -746,7 +746,7 @@
 "album_grid_count_sort_format" = "%1$d/%2$d альбоми · відсортовано за %3$@";
 "immersive_demo_lyric_02" = "Primuse перетворює кожну пісню на сцену";
 "ext.tv.certificate.trust" = "Довіряй і продовжуй";
-"audio_cache" = "Кеш звуку";
+"audio_cache" = "Кеш відтворення";
 "error_radio_ended_before_audio" = "Радіопотік закінчився до отримання аудіоданих.";
 "Build a song radio from the current Primuse song." = "Створіть пісенне радіо з поточної пісні Primuse.";
 "ai_privacy_footer" = "Ключі API зберігаються у В'язці ключів. У запити рекомендацій ніколи не включаються шляхи до файлів, повна історія прослуховування чи аудіо; локальний HTTP потребує окремого дозволу.";
@@ -867,7 +867,7 @@
 "auth_error_code_format" = "Помилка %d";
 "ai_playlist_prompt_placeholder" = "Наприклад: енергійна електронна музика для нічної пробіжки з меншою кількістю вокалу";
 "similar_songs_empty_desc" = "Додайте теги виконавця, альбому, жанру чи року, щоб допомогти Primuse знайти треки поблизу.";
-"source_cache_success_title" = "Кешування завершено";
+"source_cache_success_title" = "Завантаження завершено";
 "Unknown Source" = "Невідоме джерело";
 "local_import_progress_committing" = "Збереження завершеного пакету імпорту…";
 "cookie_placeholder" = "Вставте сюди печиво";
@@ -1161,11 +1161,11 @@
 "player_backdrop_footer" = "Діє лише в плеєрі. Якщо ввімкнено повноекранний ефект, пріоритет має ефект. Для альбомів без задньої обкладинки лишаються кольори обкладинки.";
 "player_backdrop_tv_images_count" = "Зображень, перенесених з iPhone або Mac за кодом: %lld.";
 "player_backdrop_tv_images_empty" = "На цьому Apple TV ще немає зображень. Виберіть «Мої зображення» на iPhone або Mac і передайте їх, відсканувавши код. До того показуються кольори обкладинки.";
-"source_cache_all_short" = "Кеш";
-"source_cache_stop_hint" = "Торкніться, щоб зупинити кешування";
-"source_cache_stop_title_format" = "Зупинити кешування «%@»?";
-"source_cache_stop_message" = "Уже кешовані пісні лишаться на пристрої, частково завантажені файли теж збережуться. Пізніше знову натисніть «Кеш», щоб продовжити з рештою.";
-"source_cache_stop_action" = "Зупинити кешування";
+"source_cache_all_short" = "Завантажити";
+"source_cache_stop_hint" = "Торкніться, щоб зупинити завантаження";
+"source_cache_stop_title_format" = "Зупинити завантаження «%@»?";
+"source_cache_stop_message" = "Уже завантажені пісні лишаться на пристрої, частково завантажені файли теж збережуться. Пізніше знову натисніть «Завантажити», щоб продовжити з рештою.";
+"source_cache_stop_action" = "Зупинити завантаження";
 "yearly_time_late_night" = "Пізня ніч";
 "server_share_created" = "Публічне посилання";
 "lyrics_translation_target" = "Перекласти на";
@@ -1183,7 +1183,7 @@
 "Tracks Indexed" = "Треки проіндексовано";
 "Minimum OS" = "Мінімальна ОС";
 "ai_provider_preset_tencent_tokenhub" = "Tencent TokenHub";
-"source_cache_all_message_with_cached_format" = "%@ має пісні %d, які можна відтворити. Приблизний розмір завантаження: %@. %d вже кешовані пісні буде пропущено.";
+"source_cache_all_message_with_cached_format" = "%@ має пісні %d, які можна відтворити. Приблизний розмір завантаження: %@. %d вже завантажені пісні буде пропущено.";
 "Compressor / Limiter" = "Компресор / Лімітер";
 "home_artists_subtitle" = "Кого ти слухаєш найбільше";
 "ssh_key_placeholder" = "Вставте закритий ключ PEM сюди...";
@@ -1260,7 +1260,7 @@
 "a11y_favorite_add" = "Додати до списку відтворення";
 "albums_section" = "Альбоми";
 "auth_method" = "Метод автентифікації";
-"source_cache_failed_title" = "Не вдалося кешувати";
+"source_cache_failed_title" = "Не вдалося завантажити";
 "songs_row_relaxed" = "Розслаблено";
 "yearly_card_genres_plays_format" = "Грає %d";
 "tag_editor_lyrics_writeback_sidecar_new" = "Ціль перевірено. Новий файл %@ буде записано поруч з аудіофайлом.";
@@ -2456,7 +2456,7 @@
 "ai_recommendation_intent_adjacentDiscovery_detail" = "Різні виконавці в знайомих стилях";
 "auth_two_factor_required" = "Потрібна двоетапна перевірка.";
 "smart_field_fileSize" = "Розмір файлу";
-"audio_cache_limit" = "Ліміт аудіокешу";
+"audio_cache_limit" = "Ліміт кешу відтворення";
 "Small" = "Маленький";
 "smart_combinator_all_groups_match" = "Усі групи збігаються (І)";
 "insecure_http_trust_message %@" = "Хост “%@” використовує незашифрований HTTP. Хтось у мережі міг прочитати або змінити облікові дані вашого облікового запису, сеанс і музичні дані. Все одно дозволити?";
@@ -2466,7 +2466,7 @@
 "source_diag_advice_network_title" = "Мережа недоступна";
 "Metadata scraping" = "Пошук метаданих";
 "credentials" = "Облікові дані";
-"source_cache_success_message_format" = "%@ кешовані пісні %d/%d. Додано %@ для відтворення в автономному режимі.";
+"source_cache_success_message_format" = "%@: завантажено %d/%d пісень. Додано %@ для прослуховування офлайн.";
 "scrobble_queue_section" = "Помилка черги";
 "stats_clear_action" = "Очистити всю історію";
 "lyrics_editor_resplit" = "Розбити знову";
@@ -2585,20 +2585,20 @@
 "scrape_writeback_local" = "Зберегти лише локально";
 "playlist_import_search_library" = "Пошук пісень у бібліотеці";
 "source_cache_size_known_plus_unknown_format" = "%@ + %d пісні з невідомим розміром";
-"source_cache_stopped_title" = "Кешування призупинено";
-"source_cache_stopped_storage_format" = "%@: кешовано %d/%d пісень, додано %@. На пристрої замало вільного місця, тож решту призупинено. Звільніть місце й знову натисніть «Кеш», щоб продовжити.";
-"source_cache_stopped_network_format" = "%@: кешовано %d/%d пісень, додано %@. Мережі не було понад 10 хвилин, тож решту призупинено. Коли з’явиться з’єднання, знову натисніть «Кеш»; частково завантажені пісні продовжаться з того ж місця.";
-"source_cache_stopped_unreachable_format" = "%@: кешовано %d/%d пісень, додано %@. Кілька пісень поспіль не змогли під’єднатися до цього джерела, тож решту призупинено. Коли воно стане доступним, знову натисніть «Кеш»; частково завантажені пісні продовжаться з того ж місця.";
-"source_cache_stopped_auth_format" = "%@: кешовано %d/%d пісень, додано %@. Обліковий запис або пароль більше не дійсні, тож решту призупинено. Увійдіть у джерело знову й натисніть «Кеш».";
+"source_cache_stopped_title" = "Завантаження призупинено";
+"source_cache_stopped_storage_format" = "%@: завантажено %d/%d пісень, додано %@. На пристрої замало вільного місця, тож решту призупинено. Звільніть місце й знову натисніть «Завантажити», щоб продовжити.";
+"source_cache_stopped_network_format" = "%@: завантажено %d/%d пісень, додано %@. Мережі не було понад 10 хвилин, тож решту призупинено. Коли з’явиться з’єднання, знову натисніть «Завантажити»; частково завантажені пісні продовжаться з того ж місця.";
+"source_cache_stopped_unreachable_format" = "%@: завантажено %d/%d пісень, додано %@. Кілька пісень поспіль не змогли під’єднатися до цього джерела, тож решту призупинено. Коли воно стане доступним, знову натисніть «Завантажити»; частково завантажені пісні продовжаться з того ж місця.";
+"source_cache_stopped_auth_format" = "%@: завантажено %d/%d пісень, додано %@. Обліковий запис або пароль більше не дійсні, тож решту призупинено. Увійдіть у джерело знову й натисніть «Завантажити».";
 "source_cache_failure_reasons_format" = "Причини: %@.";
 "source_cache_failure_connectivity_format" = "%d — немає з’єднання або минув час";
 "source_cache_failure_auth_format" = "%d — недійсний обліковий запис або пароль";
 "source_cache_failure_denied_format" = "%d — немає дозволу на читання";
 "source_cache_failure_storage_format" = "%d — забракло місця";
 "source_cache_failure_other_format" = "%d — помилка сервера або файлу немає";
-"source_cache_waiting_network" = "Немає мережі — кешування продовжиться, щойно вона з’явиться";
+"source_cache_waiting_network" = "Немає мережі — завантаження продовжиться, щойно вона з’явиться";
 "offline_batch_task_title" = "Завантаження пісень";
-"offline_batch_task_source_title_format" = "Кешування «%@»";
+"offline_batch_task_source_title_format" = "Завантаження «%@»";
 "offline_batch_task_progress_format" = "%d з %d пісень";
 "yearly_personality_efnd_name" = "Сонячний мандрівник";
 "Auto-check for updates (daily)" = "Автоматична перевірка оновлень (щодня)";
@@ -2784,7 +2784,7 @@
 "local_import_progress_finishing" = "Завершення імпорту…";
 "batch_delete_failed_format" = "%d не вдалося";
 "synology_download_failed_code_format" = "Помилка завантаження Synology (код помилки: %d).";
-"source_cache_progress_with_failed_format" = "У кеші: %@, залишилося: %@, помилок: %d";
+"source_cache_progress_with_failed_format" = "Завантажено: %@, залишилося: %@, помилок: %d";
 "library_title" = "Медіатека";
 "error_lastfm_api_key_missing" = "Ключ Last.fm API не налаштовано.";
 "lyrics_editor_nudge_later" = "На 0,1 с пізніше";
@@ -2925,7 +2925,7 @@
 "intent_scrape_live_radio_unsupported" = "Неможливо отримати живе радіо.";
 "update_banner_action" = "Оновлення";
 "error_radio_invalid_response" = "Радіосервер повернув недійсну відповідь.";
-"source_cache_all_title" = "Кешувати це джерело?";
+"source_cache_all_title" = "Завантажити це джерело?";
 "relay_share_error_source_read" = "Джерело повернуло менше мультимедійних байтів, ніж запитувано.";
 "tag_editor_mac_change_cover" = "Змінити обкладинку";
 "carplay_songs_title" = "Пісні";
@@ -3073,7 +3073,7 @@
 "onboarding_mac_sources_title" = "З будь-якого місця";
 "Your 2026\n847 hours listened" = "Ваші 2026\n847 годин прослуховування";
 "Restore Defaults" = "Відновити налаштування за замовчуванням";
-"source_cache_all_confirm" = "Кешувати все";
+"source_cache_all_confirm" = "Завантажити все";
 "source_diag_select_dirs" = "Каталог сканування не вибрано.";
 "cloud_guide_default" = "Зареєструватися в центрі розробників відповідної платформи";
 "artist_releases" = "Релізи";
@@ -3102,7 +3102,7 @@
 "immersive_demo_lyric_15" = "Остання нота чекає всередині синього";
 "mini_player" = "Міні-плеєр";
 "Set Repeat Mode" = "Встановити режим повтору";
-"source_cache_partial_message_format" = "%@ кешовані пісні %d/%d; %d не вдалося. Додано %@. Знову запустіть кеш, щоб повторити помилкові пісні.";
+"source_cache_partial_message_format" = "%@: завантажено %d/%d пісень; не вдалося: %d. Додано %@. Запустіть завантаження знову, щоб повторити невдалі спроби.";
 "smb_error_refused" = "SMB: сервер відмовив у підключенні (перевірте порт)";
 "onboarding_welcome_subtitle" = "Primuse грає з вашого NAS, хмарних дисків і домашньої мережі — без завантаження жодного файлу нікому.";
 "replay_gain" = "ReplayGain";
@@ -3501,7 +3501,7 @@
 "home_active_scans" = "Сканування";
 "add_trusted_domain_message" = "Введіть ім’я домену (наприклад, nas.example.com). Перевірку сертифіката SSL для цього домену буде пропущено.";
 "ssh_key" = "Ключ SSH";
-"source_cache_all_loading" = "Кешування";
+"source_cache_all_loading" = "Завантаження";
 "keyboard_shortcuts_restore_defaults" = "Відновити налаштування за замовчуванням";
 "ai_recommendation_custom_remove" = "Видалити фокус";
 "share_server_permission_denied" = "Цей обліковий запис не може ділитися з сервера";
@@ -3577,7 +3577,7 @@
 "source_diag_advice_auth_title" = "Проблема автентифікації";
 "ai_playlist_prompt_footer" = "AI вибирає лише пісні з вашої медіатеки та використовує згоду на конфіденційність у налаштуваннях AI.";
 "song_details_loading_message" = "Завантаження заголовка тегу цієї пісні (~256 КБ) із хмари, щоб отримати тривалість, обкладинку та виконавця. Після цього його можна додати до черги відтворення.";
-"source_cache_partial_title" = "Кешування завершено частково";
+"source_cache_partial_title" = "Завантаження завершено частково";
 "send_to_tv_confirm_and_send" = "Підтвердити та надіслати";
 "search_ai_no_matches_format" = "%@ відповів, але у вашій бібліотеці немає відповідних пісень";
 "no_genres" = "Без жанрів";
@@ -3779,8 +3779,8 @@
 "trust_domain" = "Довіра";
 "log_filter_error" = "Помилки";
 "Failed" = "Помилка";
-"offline_cache_item" = "Кешувати";
-"offline_remove_cache" = "Видалити з кешу";
+"offline_cache_item" = "Завантажити";
+"offline_remove_cache" = "Видалити кеш відтворення";
 "source_diag_advice_oauth_title" = "Термін дії хмарної авторизації минув";
 "Checking for Updates" = "Перевірка оновлень";
 "local_import_progress_validating" = "Перевірка поточного аудіофайлу…";
@@ -3842,7 +3842,7 @@
 "server_share_password_unsupported_message" = "Стандартний OpenSubsonic createShare API не має поля пароля, тому Primuse не буде винаходити чи відображати його.";
 "yearly_personality_efnm_description" = "Знаходить різноманітні нові пісні в одному улюбленому стилі та слухає їх у темряві.";
 "Ambient Intensity" = "Інтенсивність навколишнього середовища";
-"offline_keep_cached" = "Зберегти для офлайн-доступу";
+"offline_keep_cached" = "Завантажити";
 "ai_provider_preset_volcengine_ark" = "Volcengine Ark";
 "siri_shortcuts_hint" = "Відкрийте ярлики Primuse, щоб перевірити «Відтворити пісню» або налаштувати її фразу.";
 "siri_spoken_names_title" = "Назви, які розуміє Siri";
@@ -4096,7 +4096,7 @@
 "onboarding_next" = "Продовжуйте";
 "MusicKit Connected" = "MusicKit Підключено";
 "error_invalid_response" = "Сервер повернув недійсну відповідь.";
-"audio_cache_enabled" = "Кеш звуку";
+"audio_cache_enabled" = "Кеш відтворення";
 "library_browse_switch_loading" = "Перемикання переглядів…";
 "back" = "Назад";
 "Auto Add to Smart Playlists" = "Автоматичне додавання до розумних списків відтворення";
@@ -4558,10 +4558,10 @@
 "streaming_quality_192" = "192 кбіт/с";
 "streaming_quality_128" = "128 кбіт/с";
 "streaming_quality_desc" = "На серверах із підтримкою перекодування (Subsonic / Navidrome, Emby, Jellyfin та сумісні) передавати з нижчим бітрейтом, щоб заощадити мобільний трафік. «Оригінал» передає вихідний файл без змін. Перекодований трек повністю завантажується перед початком відтворення, тож перший трек і будь-який, до якого ви перейшли вручну, починається після короткої паузи, а наступний трек готується заздалегідь. Перекодований трек не можна перемотувати, доки не завершиться завантаження, він не бере участі в безперервному відтворенні та кросфейді й ніколи не зберігається в офлайн-кеш. Зміна мережі діє з наступного треку.";
-"offline_download_quality_section" = "Офлайн-кеш";
-"offline_download_quality" = "Якість офлайн-кешу";
-"offline_download_quality_desc" = "Кешовані пісні перекодовуються на цьому пристрої в AAC з вибраним бітрейтом. Це працює для будь-якого джерела, тож файли без втрат із хмарних дисків, WebDAV або NAS займають лише частину місця. Спочатку, як і раніше, завантажується оригінальний файл, а після перекодування лишається тільки перетворена копія. Файли без втрат перекодовуються завжди, файли з втратами — лише якщо їхній бітрейт помітно вищий. «Оригінал» зберігає вихідний файл. Пісні, уже кешовані в оригіналі, можна перекодувати кнопкою «Перекодувати кешовані пісні» без повторного завантаження.";
-"offline_compact_existing" = "Перекодувати кешовані пісні";
+"offline_download_quality_section" = "Офлайн-завантаження";
+"offline_download_quality" = "Якість завантаження";
+"offline_download_quality_desc" = "Завантажені пісні перекодовуються на цьому пристрої в AAC з вибраним бітрейтом. Це працює для будь-якого джерела, тож файли без втрат із хмарних дисків, WebDAV або NAS займають лише частину місця. Спочатку, як і раніше, завантажується оригінальний файл, а після перекодування лишається тільки перетворена копія. Файли без втрат перекодовуються завжди, файли з втратами — лише якщо їхній бітрейт помітно вищий. «Оригінал» зберігає вихідний файл. Пісні, уже завантажені в оригіналі, можна перекодувати кнопкою «Перекодувати завантажені пісні» без повторного завантаження.";
+"offline_compact_existing" = "Перекодувати завантажені пісні";
 "offline_compact_existing_action" = "Перекодувати";
 "offline_compact_existing_progress_format" = "Перекодування %d з %d";
 "offline_compact_existing_result_format" = "Перекодовано пісень: %d, звільнено %@";
@@ -5967,7 +5967,7 @@
 
 // MARK: - Offline Downloads
 "offline_downloads" = "Офлайн-завантаження";
-"offline_downloads_footer" = "Офлайн-завантаження зберігаються окремо й не враховуються в ліміті аудіокешу. Очищення кешу їх не видаляє, і система не стирає їх, коли бракує місця.";
+"offline_downloads_footer" = "Завантаження зберігаються в окремій папці Downloads, доступній у «Файлах» або Finder. Вони не враховуються в ліміті кешу відтворення та зберігаються після його очищення.";
 "offline_downloads_summary_format" = "%1$d пісень · %2$@";
 "offline_downloads_empty" = "Немає офлайн-завантажень";
 "offline_downloads_empty_hint" = "Виберіть «Завантажити» в меню списку відтворення, альбому чи пісні або увімкніть «Завжди завантажувати» для списку відтворення.";
@@ -7135,6 +7135,8 @@
 "player_carousel_open_artist" = "Виконавець";
 "player_carousel_song_count %lld" = "Пісень: %lld";
 "player_carousel_more_by_artist %@" = "Більше від %@";
+
+"offline_downloads_show_in_finder" = "Показати завантаження у Finder";
 
 "rg_mode_automatic" = "Автоматично";
 "rg_preamp" = "Попереднє підсилення";

@@ -120,10 +120,10 @@ final class OfflineDownloadQualityIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: compact.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.canonical.path))
         XCTAssertNil(fixture.manager.cachedURL(for: fixture.song))
-        XCTAssertEqual(
-            fixture.manager.cachedPlaybackURL(for: fixture.song)?.standardizedFileURL,
-            compact.standardizedFileURL
-        )
+        let download = try XCTUnwrap(AudioCacheManager.shared.downloadStore.fileURL(for: fixture.path, kind: .compact))
+        XCTAssertEqual(fixture.manager.cachedPlaybackURL(for: fixture.song)?.standardizedFileURL,
+                       download.standardizedFileURL)
+        XCTAssertTrue(OfflineCompactArtifact.isCompactURL(download))
         XCTAssertTrue(fixture.manager.hasUsableCachedAudioForPlayback(fixture.song))
         XCTAssertEqual(fixture.manager.offlineAudioSnapshot(for: fixture.song).state, .pinned)
         let pinned = await AudioCacheManager.shared.isPinned(path: fixture.path)
@@ -135,7 +135,7 @@ final class OfflineDownloadQualityIntegrationTests: XCTestCase {
         var replaced = fixture.song
         replaced.fileSize = fixture.song.fileSize * 2
         XCTAssertNil(fixture.manager.cachedPlaybackURL(for: replaced))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: compact.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: download.path), "A source revision must not silently delete the user's retained file")
     }
 
     func testOriginalQualityKeepsTheDownloadedFile() async throws {

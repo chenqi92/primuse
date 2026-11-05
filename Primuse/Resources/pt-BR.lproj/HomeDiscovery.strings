@@ -33,5 +33,5 @@
 "collapse_ranking" = "Show Less";
 "folder_song_order" = "Ordem das músicas nas pastas";
 "folder_song_order_footer" = "As pastas abertas no início ou aqui mostram e tocam as músicas nesta ordem. A ordem das faixas segue os números de disco e de faixa, ou o número no começo do nome do arquivo quando a música não tem um.";
-"folder_cache_confirm_format" = "Armazenar em cache as %2$d músicas de “%1$@” e suas subpastas?";
-"folder_cache_cancel" = "Cancelar armazenamento em cache";
+"folder_cache_confirm_format" = "Baixar as %2$d músicas de “%1$@” e suas subpastas?";
+"folder_cache_cancel" = "Cancelar download";

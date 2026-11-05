@@ -280,11 +280,13 @@ struct OfflineAudioCacheSnapshot: Sendable, Equatable {
 
     var isPinned: Bool { state == .pinned }
     var isDownloading: Bool { state == .downloading }
-    var isDownloaded: Bool { state == .cached || state == .pinned }
+    var isDownloaded: Bool { state == .pinned }
+    var isAvailableLocally: Bool { state == .cached || state == .pinned }
 }
 
 extension Notification.Name {
     static let primuseAudioCacheFilesDidChange = Notification.Name("primuse.audioCacheFilesDidChange")
+    static let primuseOfflineDownloadsDidChange = Notification.Name("primuse.offlineDownloadsDidChange")
 }
 
 /// LRU cache manager for audio files. Enforces the configured disk size limit
@@ -315,10 +317,11 @@ actor AudioCacheManager {
     /// 旧版本把离线清单放在缓存目录里, 读到就搬进离线目录。
     private let legacyManifestURL: URL
     private let basePath: URL
-    /// 离线下载在缓存目录之外的另一个入口(同一份数据的硬链接)所在目录。放在
-    /// Application Support 下: 手机空间紧张时系统不会清理, 也不进 iCloud 备份。
-    /// 缓存目录仍是读写的正本, 所以播放、下载、转码这些按缓存路径工作的地方都不用变。
+    /// 旧版离线文件与私有清单。新下载文件由 downloadStore 管理。
     private let offlineBasePath: URL
+    nonisolated let downloadStore: OfflineDownloadFileStore
+    private var downloadDisplayNames: [String: String] = [:]
+    private var downloadReconciliationTask: Task<Void, Never>?
     /// 缓存目录完好的标记。系统清缓存时它跟着没了, 下次启动就知道要从离线目录
     /// 把离线下载的入口链回来。
     private let cacheIntactMarkerURL: URL
@@ -411,12 +414,31 @@ actor AudioCacheManager {
         basePath = caches.appendingPathComponent("primuse_audio_cache")
         offlineBasePath = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
             .appendingPathComponent("primuse_offline_audio")
+        downloadStore = OfflineDownloadFileStore(
+            directory: FileManager.default.primuseDirectoryURL(for: .documentDirectory)
+                .appendingPathComponent("Downloads", isDirectory: true),
+            indexURL: offlineBasePath.appendingPathComponent("downloads-index.json")
+        )
         quarantineBasePath = Self.quarantineDirectoryURL
         logURL = basePath.appendingPathComponent(".access_log.json")
         manifestURL = offlineBasePath.appendingPathComponent(".offline_manifest.json")
         legacyManifestURL = basePath.appendingPathComponent(".offline_manifest.json")
         cacheIntactMarkerURL = basePath.appendingPathComponent(".offline_mirror_intact")
         // Actor init is nonisolated; defer loading to first access
+    }
+
+    init(cacheDirectory: URL, offlineDirectory: URL, downloadsDirectory: URL) {
+        basePath = cacheDirectory
+        offlineBasePath = offlineDirectory
+        downloadStore = OfflineDownloadFileStore(
+            directory: downloadsDirectory,
+            indexURL: offlineDirectory.appendingPathComponent("downloads-index.json")
+        )
+        quarantineBasePath = cacheDirectory.appendingPathComponent("quarantine")
+        logURL = cacheDirectory.appendingPathComponent(".access_log.json")
+        manifestURL = offlineDirectory.appendingPathComponent(".offline_manifest.json")
+        legacyManifestURL = cacheDirectory.appendingPathComponent(".offline_manifest.json")
+        cacheIntactMarkerURL = cacheDirectory.appendingPathComponent(".offline_mirror_intact")
     }
 
     private var initialized = false
@@ -447,6 +469,10 @@ actor AudioCacheManager {
     /// 启动后在后台先读访问记录、清点缓存目录。远端歌第一次起播要拿缓存租约,
     /// 不预热的话那一下要等整个目录走完(#170)。
     func warmUp() {
+        try? downloadStore.prepareDirectory()
+        downloadStore.startObserving { [weak self] in
+            Task { await self?.scheduleDownloadReconciliation() }
+        }
         guard !initialized else { return }
         let startedAt = ProcessInfo.processInfo.systemUptime
         ensureInitialized()
@@ -498,15 +524,16 @@ actor AudioCacheManager {
 
     func snapshot(path: String, fileExists: Bool, byteCount: Int64?) -> OfflineAudioCacheSnapshot {
         ensureInitialized()
-        if let entry = offlineManifest[path], entry.isPinned, fileExists {
+        let downloadBytes = downloadStore.byteCount(for: path)
+        if let entry = offlineManifest[path], entry.isPinned, downloadBytes > 0 {
             return OfflineAudioCacheSnapshot(
                 state: .pinned,
                 progress: nil,
-                byteCount: byteCount ?? entry.byteCount,
+                byteCount: downloadBytes,
                 errorMessage: nil
             )
         }
-        if fileExists {
+        if fileExists, !downloadStore.manages(path) {
             return OfflineAudioCacheSnapshot(
                 state: .cached,
                 progress: nil,
@@ -517,8 +544,10 @@ actor AudioCacheManager {
         return .notCached
     }
 
-    func markDownloaded(path: String, byteCount: Int64?, pinned: Bool) {
+    @discardableResult
+    func markDownloaded(path: String, byteCount: Int64?, pinned: Bool) -> Bool {
         ensureInitialized()
+        reconcileMissingDownload(beforeUsingCacheAt: path)
         refreshTrackedPathFamily(path)
         accessLog[path] = Date()
         var entry = offlineManifest[path] ?? OfflineManifestEntry(
@@ -534,11 +563,33 @@ actor AudioCacheManager {
         offlineManifest[path] = entry
         schedulePersist()
         scheduleManifestPersist()
-        syncOfflineMirror(for: path)
+        if entry.isPinned, !downloadStore.wasExternallyRemoved(path) || pinned {
+            do {
+                try downloadStore.publish(basePath.appendingPathComponent(path), for: path,
+                                          kind: .original, displayName: downloadDisplayNames[path])
+            } catch {
+                plog("⚠️ Offline download publication failed: \(error.localizedDescription)")
+                return false
+            }
+            // The replacement must be durable before retiring the old AAC copy.
+            try? downloadStore.remove(path, kind: .compact)
+            let compact = OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
+            try? FileManager.default.removeItem(at: basePath.appendingPathComponent(compact))
+            for relative in [path, compact] {
+                try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(relative))
+            }
+            refreshTrackedPathFamily(path)
+            scheduleCacheFileChange(path)
+        } else {
+            syncOfflineMirror(for: path)
+        }
+        return true
     }
 
-    func pin(path: String, byteCount: Int64?) {
+    @discardableResult
+    func pin(path: String, byteCount: Int64?) -> Bool {
         ensureInitialized()
+        reconcileMissingDownload(beforeUsingCacheAt: path)
         refreshTrackedPathFamily(path)
         var entry = offlineManifest[path] ?? OfflineManifestEntry(
             isManuallyPinned: true,
@@ -554,12 +605,15 @@ actor AudioCacheManager {
         accessLog[path] = Date()
         schedulePersist()
         scheduleManifestPersist()
-        syncOfflineMirror(for: path)
+        syncOfflineMirror(for: path, publishesCache: downloadStore.wasExternallyRemoved(path))
+        return downloadStore.byteCount(for: path) > 0
     }
 
-    func pin(path: String, byteCount: Int64?, forPlaylistIDs playlistIDs: Set<String>) {
-        guard !playlistIDs.isEmpty else { return }
+    @discardableResult
+    func pin(path: String, byteCount: Int64?, forPlaylistIDs playlistIDs: Set<String>) -> Bool {
         ensureInitialized()
+        reconcileMissingDownload(beforeUsingCacheAt: path)
+        guard !playlistIDs.isEmpty, !downloadStore.wasExternallyRemoved(path) else { return false }
         refreshTrackedPathFamily(path)
         var entry = offlineManifest[path] ?? OfflineManifestEntry(
             isManuallyPinned: false,
@@ -576,7 +630,8 @@ actor AudioCacheManager {
         accessLog[path] = Date()
         schedulePersist()
         scheduleManifestPersist()
-        syncOfflineMirror(for: path)
+        syncOfflineMirror(for: path, publishesCache: downloadStore.wasExternallyRemoved(path))
+        return downloadStore.byteCount(for: path) > 0
     }
 
     /// Replaces only automatic playlist ownership. Manual pins survive, while
@@ -596,6 +651,10 @@ actor AudioCacheManager {
         automaticPlaylistReconciliationGeneration = generation
         var desiredByPath: [String: AutomaticOfflinePinRequest] = [:]
         for request in requests {
+            if downloadStore.manages(request.path), downloadStore.byteCount(for: request.path) == 0 {
+                syncAllOfflineMirrors()
+            }
+            guard !downloadStore.wasExternallyRemoved(request.path) else { continue }
             if let existing = desiredByPath[request.path] {
                 desiredByPath[request.path] = AutomaticOfflinePinRequest(
                     path: request.path,
@@ -635,7 +694,8 @@ actor AudioCacheManager {
                 missingPaths.insert(request.path)
                 continue
             }
-            let fileURL = basePath.appendingPathComponent(request.path)
+            let fileURL = downloadStore.fileURL(for: request.path, kind: .original)
+                ?? basePath.appendingPathComponent(request.path)
             var byteCount = logicalFileSize(at: fileURL)
             var isUsable = byteCount.map { size in
                 if preservedPaths.contains(request.path) { return size > 0 }
@@ -644,7 +704,8 @@ actor AudioCacheManager {
             } ?? false
             if !isUsable {
                 // 按离线缓存音质转过的歌只剩精简副本。
-                let compactURL = OfflineCompactArtifact.url(forCanonical: fileURL)
+                let compactURL = downloadStore.fileURL(for: request.path, kind: .compact)
+                    ?? OfflineCompactArtifact.url(forCanonical: basePath.appendingPathComponent(request.path))
                 if OfflineCompactArtifact.isUsable(
                     at: compactURL,
                     expectedOriginalByteCount: request.expectedByteCount,
@@ -673,6 +734,7 @@ actor AudioCacheManager {
             entry.pinnedAt = entry.isPinned ? (entry.pinnedAt ?? Date()) : nil
             entry.downloadedAt = entry.downloadedAt ?? Date()
             offlineManifest[request.path] = entry
+            changedPaths.insert(request.path)
             if !entryExisted
                 || previous.isManuallyPinned != entry.isManuallyPinned
                 || previous.playlistIDs != entry.playlistIDs
@@ -685,7 +747,12 @@ actor AudioCacheManager {
         }
 
         if manifestChanged { scheduleManifestPersist() }
-        for path in changedPaths { syncOfflineMirror(for: path) }
+        for path in changedPaths {
+            syncOfflineMirror(for: path)
+            if desiredByPath[path] != nil, downloadStore.byteCount(for: path) == 0 {
+                missingPaths.insert(path)
+            }
+        }
         return missingPaths
     }
 
@@ -728,7 +795,7 @@ actor AudioCacheManager {
         originalModifiedAt: Date?
     ) -> OfflineCompactionFinish {
         ensureInitialized()
-        defer { syncOfflineMirror(for: path) }
+        reconcileMissingDownload(beforeUsingCacheAt: path)
         let originalURL = basePath.appendingPathComponent(path)
         let compactPath = OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
         guard var entry = offlineManifest[path],
@@ -742,11 +809,20 @@ actor AudioCacheManager {
             refreshTrackedPathFamily(path)
             return .abandoned
         }
+        do {
+            try downloadStore.publish(basePath.appendingPathComponent(compactPath), for: path,
+                                      kind: .compact, displayName: downloadDisplayNames[path])
+        } catch {
+            return .keptOriginal
+        }
         guard !pathFamilyHasOtherLeases(path: path, excluding: lease) else {
             refreshTrackedPathFamily(path)
             return .keptOriginal
         }
+        do { try downloadStore.remove(path, kind: .original) }
+        catch { return .keptOriginal }
         try? FileManager.default.removeItem(at: originalURL)
+        try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(path))
         refreshTrackedPathFamily(path)
         if let compactBytes = trackedFileSizes[compactPath] {
             entry.byteCount = compactBytes
@@ -762,7 +838,7 @@ actor AudioCacheManager {
         originalByteCount: Int64
     ) -> SupersededOfflineOriginalRemoval {
         ensureInitialized()
-        defer { syncOfflineMirror(for: path) }
+        reconcileMissingDownload(beforeUsingCacheAt: path)
         let originalURL = basePath.appendingPathComponent(path)
         let compactPath = OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
         guard var entry = offlineManifest[path],
@@ -774,7 +850,11 @@ actor AudioCacheManager {
             return .notApplicable
         }
         guard !isPathFamilyLeased(path: path) else { return .inUse }
+        guard downloadStore.fileURL(for: path, kind: .compact) != nil else { return .notApplicable }
+        do { try downloadStore.remove(path, kind: .original) }
+        catch { return .inUse }
         try? FileManager.default.removeItem(at: originalURL)
+        try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(path))
         refreshTrackedPathFamily(path)
         if let compactBytes = trackedFileSizes[compactPath] {
             entry.byteCount = compactBytes
@@ -810,6 +890,7 @@ actor AudioCacheManager {
 
     func clearUnpinnedAccessEntries() {
         ensureInitialized()
+        syncAllOfflineMirrors()
         accessLog = accessLog.filter { path, _ in
             offlineManifest[path]?.isPinned == true
         }
@@ -1051,6 +1132,17 @@ actor AudioCacheManager {
         let basePrefix = basePath.standardizedFileURL.path + "/"
         guard sourceDirectory.path.hasPrefix(basePrefix) else { return false }
 
+        for (path, entry) in offlineManifest where entry.isPinned && path.hasPrefix(prefix) {
+            restoreDownloadAliases(for: path, replacesExisting: true)
+            for kind in [OfflineDownloadFileStore.Kind.original, .compact] {
+                guard let download = downloadStore.fileURL(for: path, kind: kind) else { continue }
+                let relative = kind == .original ? path
+                    : OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
+                guard Self.fileIdentity(at: download) == Self.fileIdentity(at: basePath.appendingPathComponent(relative)) else {
+                    return false
+                }
+            }
+        }
         let accessEntries = accessLog.filter { $0.key.hasPrefix(prefix) }
         let manifestEntries = offlineManifest.filter { $0.key.hasPrefix(prefix) }
         let trackedEntries = trackedFileSizes.filter { $0.key.hasPrefix(prefix) }
@@ -1261,9 +1353,8 @@ actor AudioCacheManager {
     /// Remove a single cache entry by its relative path.
     func removeEntry(path: String) {
         ensureInitialized()
-        let fileURL = basePath.appendingPathComponent(path)
-        try? FileManager.default.removeItem(at: fileURL)
         for familyPath in AudioCachePathFamily.relativePaths(for: path) {
+            try? FileManager.default.removeItem(at: basePath.appendingPathComponent(familyPath))
             removeTrackedPath(familyPath)
         }
         accessLog[path] = nil
@@ -1316,6 +1407,7 @@ actor AudioCacheManager {
     }
 
     func clearAll() {
+        for path in (try? downloadStore.paths()) ?? [] { try? downloadStore.remove(path) }
         accessLog.removeAll()
         offlineManifest.removeAll()
         try? FileManager.default.removeItem(at: logURL)
@@ -1498,9 +1590,10 @@ actor AudioCacheManager {
     }
 
     private func hasOfflineMirror(_ path: String) -> Bool {
-        [path, OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)].contains {
-            FileManager.default.fileExists(atPath: offlineBasePath.appendingPathComponent($0).path)
-        }
+        downloadStore.byteCount(for: path) > 0
+            || [path, OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)].contains {
+                FileManager.default.fileExists(atPath: offlineBasePath.appendingPathComponent($0).path)
+            }
     }
 
     /// 建离线目录并排除出 iCloud 备份: 歌都能从音乐源重新下载, 不该占用户的备份空间。
@@ -1518,14 +1611,19 @@ actor AudioCacheManager {
         }
     }
 
-    private static func fileIdentity(at url: URL) -> OfflineAudioMirrorPolicy.FileIdentity? {
+    private struct OfflineFileIdentity: Equatable {
+        let device: UInt64
+        let inode: UInt64
+    }
+
+    private static func fileIdentity(at url: URL) -> OfflineFileIdentity? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               (attributes[.type] as? FileAttributeType) == .typeRegular,
               let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value,
               let device = (attributes[.systemNumber] as? NSNumber)?.uint64Value else {
             return nil
         }
-        return OfflineAudioMirrorPolicy.FileIdentity(device: device, inode: inode)
+        return OfflineFileIdentity(device: device, inode: inode)
     }
 
     /// 在 `destination` 放一个和 `source` 同一份数据的硬链接, 那里原来有文件就原子地换掉。
@@ -1559,100 +1657,162 @@ actor AudioCacheManager {
         }
     }
 
-    /// 对齐一首歌在缓存目录与离线目录里的入口, 原文件与精简副本各算一份。
     @discardableResult
-    private func syncOfflineMirror(for path: String, cacheDirectoryIntact: Bool = true) -> Int {
+    private func syncOfflineMirror(for path: String, publishesCache: Bool = false) -> Int {
         guard !manifestAwaitingRead else { return 0 }
-        let isPinned = isOfflinePinned(path)
-        var restored = 0
-        for relativePath in [path, OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)] {
-            let cacheURL = basePath.appendingPathComponent(relativePath)
-            let mirrorURL = offlineBasePath.appendingPathComponent(relativePath)
-            switch OfflineAudioMirrorPolicy.action(
-                isPinned: isPinned,
-                cacheFile: Self.fileIdentity(at: cacheURL),
-                mirrorFile: Self.fileIdentity(at: mirrorURL),
-                cacheDirectoryIntact: cacheDirectoryIntact
-            ) {
-            case .keep:
-                break
-            case .mirror:
-                prepareOfflineDirectory()
-                linkReplacing(cacheURL, at: mirrorURL)
-            case .restore:
-                if linkReplacing(mirrorURL, at: cacheURL) {
-                    refreshTrackedPath(relativePath)
-                    restored += 1
+        let pinned = isOfflinePinned(path)
+        let wasManaged = downloadStore.manages(path)
+        if !pinned {
+            // Turning off automatic downloads releases their ownership, while
+            // explicit removal also removes the manifest entry and cache files.
+            if offlineManifest[path] != nil {
+                restoreDownloadAliases(for: path)
+            }
+            if !downloadStore.wasExternallyRemoved(path) { try? downloadStore.remove(path) }
+            for relative in [path, OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)] {
+                try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(relative))
+            }
+            return 0
+        }
+        if downloadStore.wasExternallyRemoved(path), !publishesCache { return 0 }
+        for kind in [OfflineDownloadFileStore.Kind.original, .compact] {
+            let relative = kind == .original ? path
+                : OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
+            let cache = basePath.appendingPathComponent(relative)
+            let legacy = offlineBasePath.appendingPathComponent(relative)
+            let hasLegacyFile = Self.fileIdentity(at: legacy) != nil
+            let input = publishesCache ? cache : (hasLegacyFile ? legacy : cache)
+            if (publishesCache || !wasManaged || hasLegacyFile), Self.fileIdentity(at: input) != nil {
+                do {
+                    try downloadStore.publish(
+                        input, for: path, kind: kind,
+                        displayName: downloadDisplayNames[path]
+                    )
+                    try? FileManager.default.removeItem(at: legacy)
+                    scheduleCacheFileChange(path)
+                } catch {
+                    plog("⚠️ Offline download publication failed: \(error.localizedDescription)")
                 }
-            case .drop:
-                try? FileManager.default.removeItem(at: mirrorURL)
+            }
+        }
+        return restoreDownloadAliases(for: path)
+    }
+
+    @discardableResult
+    private func restoreDownloadAliases(for path: String, replacesExisting: Bool = false) -> Int {
+        var restored = 0
+        for kind in [OfflineDownloadFileStore.Kind.original, .compact] {
+            let relative = kind == .original ? path
+                : OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
+            let cache = basePath.appendingPathComponent(relative)
+            guard (leasedPathCounts[relative] ?? 0) == 0,
+                  let download = downloadStore.fileURL(for: path, kind: kind),
+                  replacesExisting || Self.fileIdentity(at: download) != Self.fileIdentity(at: cache) else { continue }
+            if linkReplacing(download, at: cache) {
+                refreshTrackedPath(relative)
+                restored += 1
             }
         }
         return restored
     }
 
-    /// 启动时(或离线清单终于读得到时)把所有离线下载对齐一遍: 新版第一次启动给
-    /// 已有的离线下载补上离线目录里的入口; 系统清过缓存目录时把入口链回来;
-    /// 离线目录里不再属于任何离线下载的入口删掉。
-    private func syncAllOfflineMirrors() {
-        guard !manifestAwaitingRead else { return }
-        let fileManager = FileManager.default
-        let cacheDirectoryIntact = fileManager.fileExists(atPath: cacheIntactMarkerURL.path)
-        var paths = Set(offlineManifest.compactMap { $0.value.isPinned ? $0.key : nil })
-        let resolver = AudioCachePathResolver(root: offlineBasePath)
-        if let enumerator = fileManager.enumerator(
-            at: offlineBasePath,
-            includingPropertiesForKeys: [.isRegularFileKey]
-        ) {
-            for case let url as URL in enumerator {
-                let name = url.lastPathComponent
-                if name.hasSuffix(Self.offlineMirrorStagingSuffix) {
-                    try? fileManager.removeItem(at: url)
-                    continue
-                }
-                guard !name.hasPrefix("."),
-                      (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
-                      let relative = resolver.relativePath(for: url) else { continue }
-                paths.insert(
-                    OfflineDownloadQualityPolicy.canonicalRelativePath(forCompact: relative) ?? relative
-                )
-            }
-        }
-        var restored = 0
-        for path in paths {
-            restored += syncOfflineMirror(for: path, cacheDirectoryIntact: cacheDirectoryIntact)
-        }
-        if !cacheDirectoryIntact {
-            try? fileManager.createDirectory(at: basePath, withIntermediateDirectories: true)
-            fileManager.createFile(atPath: cacheIntactMarkerURL.path, contents: Data())
-        }
-        if restored > 0 {
-            plog("🗄️ Restored \(restored) offline file(s) after the cache directory was cleared")
+    private func reconcileMissingDownload(beforeUsingCacheAt path: String) {
+        if downloadStore.manages(path), downloadStore.byteCount(for: path) == 0 {
+            // A transfer can finish before the Files notification is delivered.
+            // Reconcile deletion first, retaining the just-completed cache file.
+            syncAllOfflineMirrors(preservingNewCachePaths: [path])
         }
     }
 
-    /// 回到前台时看一眼缓存目录完好的标记: App 挂起期间系统也可能清掉缓存目录,
-    /// 不等下次冷启动就把离线下载的入口链回来。
+    private func syncAllOfflineMirrors(preservingNewCachePaths: Set<String> = []) {
+        guard !manifestAwaitingRead else { return }
+        do {
+            let changed = try downloadStore.reconcile()
+            for path in changed {
+                // Files/Finder owns deletion of the visible file. Discard stale
+                // cache links so playback or the next launch cannot resurrect it.
+                for kind in [OfflineDownloadFileStore.Kind.original, .compact] {
+                    if !preservingNewCachePaths.contains(path),
+                       downloadStore.fileURL(for: path, kind: kind) == nil {
+                        let relative = kind == .original ? path
+                            : OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
+                        try? FileManager.default.removeItem(at: basePath.appendingPathComponent(relative))
+                        removeTrackedPath(relative)
+                    }
+                }
+                if downloadStore.wasExternallyRemoved(path) {
+                    offlineManifest[path] = nil
+                    automaticPlaylistProtectedPaths.subtract(AudioCachePathFamily.relativePaths(for: path))
+                }
+                scheduleCacheFileChange(path)
+            }
+            // The file index is committed before the ownership manifest. Recover
+            // that small crash window without ever discarding a valid download.
+            var recoveredManifest = false
+            for path in try downloadStore.paths() where offlineManifest[path] == nil {
+                offlineManifest[path] = OfflineManifestEntry(
+                    isManuallyPinned: true, byteCount: downloadStore.byteCount(for: path),
+                    pinnedAt: Date(), downloadedAt: Date()
+                )
+                recoveredManifest = true
+            }
+            for (path, entry) in offlineManifest where entry.isPinned {
+                syncOfflineMirror(for: path)
+            }
+            if recoveredManifest || !changed.isEmpty {
+                persistManifestNow()
+                NotificationCenter.default.post(name: .primuseOfflineDownloadsDidChange, object: nil)
+            }
+        } catch {
+            plog("⚠️ Offline download reconciliation deferred: \(error.localizedDescription)")
+        }
+    }
+
     func restoreOfflineEntriesIfCacheCleared() {
         ensureInitialized()
-        guard !manifestAwaitingRead,
-              !FileManager.default.fileExists(atPath: cacheIntactMarkerURL.path) else { return }
         syncAllOfflineMirrors()
-        rebuildTrackedInventory(migrateAccessDates: false)
+        if !FileManager.default.fileExists(atPath: cacheIntactMarkerURL.path) {
+            rebuildTrackedInventory(migrateAccessDates: false)
+            try? FileManager.default.createDirectory(at: basePath, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: cacheIntactMarkerURL.path, contents: Data())
+        }
+    }
+
+    private func scheduleDownloadReconciliation() {
+        downloadReconciliationTask?.cancel()
+        downloadReconciliationTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            restoreOfflineEntriesIfCacheCleared()
+        }
+    }
+
+    func setDownloadDisplayNames(_ names: [String: String]) {
+        ensureInitialized()
+        for (path, name) in names where downloadDisplayNames[path] != name {
+            downloadDisplayNames[path] = name
+            try? downloadStore.setDisplayName(name, for: path)
+        }
     }
 
     #if DEBUG
-    /// 测试用: 像下次启动那样把离线目录整体对齐一遍。
     func resyncOfflineStoreForTesting() {
-        ensureInitialized()
-        syncAllOfflineMirrors()
+        restoreOfflineEntriesIfCacheCleared()
+    }
+
+    func finishOfflineStoreTesting() {
+        persistTask?.cancel()
+        manifestPersistTask?.cancel()
+        downloadReconciliationTask?.cancel()
+        cacheChangeNotificationTask?.cancel()
     }
     #endif
 
     private func removeOfflineMirrorDirectory(forSourcePrefix prefix: String) {
         let sourceID = prefix.hasSuffix("/") ? String(prefix.dropLast()) : prefix
-        guard !sourceID.isEmpty, sourceID != ".", sourceID != "..", !sourceID.contains("/") else {
-            return
+        guard !sourceID.isEmpty, sourceID != ".", sourceID != "..", !sourceID.contains("/") else { return }
+        for path in (try? downloadStore.paths()) ?? [] where path.hasPrefix(sourceID + "/") {
+            try? downloadStore.remove(path)
         }
         try? FileManager.default.removeItem(at: offlineBasePath.appendingPathComponent(sourceID))
     }
@@ -1682,8 +1842,7 @@ actor AudioCacheManager {
         ensureInitialized()
         return offlineManifest.compactMap { path, entry in
             guard entry.isPinned else { return nil }
-            let byteCount = [path, OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)]
-                .reduce(Int64(0)) { $0 + (trackedFileSizes[$1] ?? 0) }
+            let byteCount = downloadStore.byteCount(for: path)
             guard byteCount > 0 else { return nil }
             return OfflineDownloadEntry(
                 path: path,
@@ -1714,10 +1873,13 @@ actor AudioCacheManager {
         guard let data = Self.readPersistedState(
                   at: readsLegacyLocation ? legacyManifestURL : manifestURL,
                   awaitingRead: &manifestAwaitingRead
-              ),
-              let manifest = try? Self.persistedStateDecoder()
-                  .decode([String: OfflineManifestEntry].self, from: data)
+              )
         else { return }
+        guard let manifest = try? Self.persistedStateDecoder()
+            .decode([String: OfflineManifestEntry].self, from: data) else {
+            manifestAwaitingRead = true
+            return
+        }
         // 读不出来那段时间新固定、新下载的条目比盘上的新。
         offlineManifest.merge(manifest) { current, _ in current }
         // 清单跟离线下载一起放进离线目录: 系统清缓存目录时固定记录不能跟着丢。
@@ -1942,6 +2104,9 @@ private actor AlwaysDownloadWorker {
     }
 
     func replaceDesiredSongs(_ desiredSongs: [AlwaysDownloadDesiredSong]) async {
+        let desiredSongs = desiredSongs.filter {
+            !AudioCacheManager.shared.downloadStore.wasExternallyRemoved($0.artifactPath)
+        }
         loadJournalIfNeeded()
         desiredReplacementGeneration += 1
         let replacementGeneration = desiredReplacementGeneration
@@ -2902,6 +3067,7 @@ final class AlwaysDownloadCoordinator {
         }
         if enabled {
             enabledPlaylistIDs.insert(playlistID)
+            allowAutomaticDownloadsAgain(library.storedSongs(forPlaylist: playlistID))
         } else {
             enabledPlaylistIDs.remove(playlistID)
         }
@@ -2941,6 +3107,8 @@ final class AlwaysDownloadCoordinator {
         guard !bookID.isEmpty else { return }
         if enabled {
             enabledBooks[bookID] = AudiobookOfflinePolicy.Record(title: title, songIDs: songIDs)
+            let ids = Set(songIDs)
+            allowAutomaticDownloadsAgain(library.songs.filter { ids.contains($0.id) })
         } else {
             guard enabledBooks.removeValue(forKey: bookID) != nil else { return }
         }
@@ -2998,6 +3166,11 @@ final class AlwaysDownloadCoordinator {
         observeLibraryAndSources()
         observeTransferConditions()
         observePowerAndThermalConditions()
+        resourceObserverTokens.append(NotificationCenter.default.addObserver(
+            forName: .primuseOfflineDownloadsDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.scheduleReconciliation() }
+        })
         Task { [weak self] in
             guard let self else { return }
             await self.worker.start(
@@ -3014,7 +3187,15 @@ final class AlwaysDownloadCoordinator {
         applicationIsActive = active
         Task { [weak self] in
             await self?.worker.setApplicationActive(active)
+            if active { self?.scheduleReconciliation() }
         }
+    }
+
+    private func allowAutomaticDownloadsAgain(_ songs: [Song]) {
+        let paths = songs.map {
+            "\($0.sourceID)/" + CacheFileNamePolicy.make(path: $0.filePath, preferredExtension: $0.fileFormat.rawValue)
+        }
+        try? AudioCacheManager.shared.downloadStore.allowDownloadAgain(paths)
     }
 
     func sourceScanDidComplete() {

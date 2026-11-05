@@ -1127,7 +1127,7 @@ final class AudioCacheSyncService {
         var acceptedItems: [String: AudioCacheSyncWireItem] = [:]
         var alreadyPresentCount = 0
         for (item, song) in candidates {
-            if sourceManager.offlineAudioSnapshot(for: song).isDownloaded {
+            if sourceManager.offlineAudioSnapshot(for: song).isAvailableLocally {
                 alreadyPresentCount += 1
             } else {
                 missingItemIDs.append(item.id)

@@ -33,5 +33,5 @@
 "collapse_ranking" = "Show Less";
 "folder_song_order" = "Klasörlerde şarkı sırası";
 "folder_song_order_footer" = "Ana sayfadan veya buradan açılan klasörler şarkılarını bu sırayla listeler ve çalar. Parça sırası disk ve parça numaralarını izler; numarası olmayan şarkılarda dosya adının başındaki sayı kullanılır.";
-"folder_cache_confirm_format" = "“%1$@” ve alt klasörlerindeki %2$d şarkının tümü önbelleğe alınsın mı?";
-"folder_cache_cancel" = "Önbelleğe Almayı İptal Et";
+"folder_cache_confirm_format" = "“%1$@” ve alt klasörlerindeki %2$d şarkının tümü indirilsin mi?";
+"folder_cache_cancel" = "İndirmeyi iptal et";

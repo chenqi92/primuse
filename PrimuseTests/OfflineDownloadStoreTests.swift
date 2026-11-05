@@ -2,46 +2,30 @@ import XCTest
 import PrimuseKit
 @testable import Primuse
 
-/// 离线下载在缓存目录之外另存一个入口(硬链接), 不计入缓存上限。
+/// All filesystem regressions use an isolated container, never the app's downloads.
 final class OfflineDownloadStoreTests: XCTestCase {
     private struct Fixture {
+        let root: URL
         let relativePath: String
         let cacheURL: URL
-        let mirrorURL: URL
-        let markerURL: URL
-        let sourceDirectories: [URL]
+        let manager: AudioCacheManager
     }
 
     private func makeFixture(byteCount: Int = 64 * 1_024) throws -> Fixture {
-        let sourceID = "offline-store-\(UUID().uuidString)"
-        let relativePath = "\(sourceID)/track.flac"
-        let cacheRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-            .appendingPathComponent("primuse_audio_cache", isDirectory: true)
-        let offlineRoot = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
-            .appendingPathComponent("primuse_offline_audio", isDirectory: true)
-        let cacheURL = cacheRoot.appendingPathComponent(relativePath)
-        try FileManager.default.createDirectory(
-            at: cacheURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Data(repeating: 7, count: byteCount).write(to: cacheURL)
-        return Fixture(
-            relativePath: relativePath,
-            cacheURL: cacheURL,
-            mirrorURL: offlineRoot.appendingPathComponent(relativePath),
-            markerURL: cacheRoot.appendingPathComponent(".offline_mirror_intact"),
-            sourceDirectories: [
-                cacheRoot.appendingPathComponent(sourceID, isDirectory: true),
-                offlineRoot.appendingPathComponent(sourceID, isDirectory: true),
-            ]
-        )
-    }
-
-    private func cleanUp(_ fixture: Fixture) async {
-        await AudioCacheManager.shared.removeEntry(path: fixture.relativePath)
-        for directory in fixture.sourceDirectories {
-            try? FileManager.default.removeItem(at: directory)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("OfflineStoreTests-\(UUID().uuidString)")
+        let cache = root.appendingPathComponent("Caches")
+        let path = "source/track.flac"
+        let file = cache.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 7, count: byteCount).write(to: file)
+        let manager = AudioCacheManager(cacheDirectory: cache,
+            offlineDirectory: root.appendingPathComponent("Private"),
+            downloadsDirectory: root.appendingPathComponent("Downloads"))
+        addTeardownBlock {
+            await manager.finishOfflineStoreTesting()
+            try? FileManager.default.removeItem(at: root)
         }
+        return Fixture(root: root, relativePath: path, cacheURL: file, manager: manager)
     }
 
     private func inode(_ url: URL) -> UInt64? {
@@ -49,77 +33,154 @@ final class OfflineDownloadStoreTests: XCTestCase {
         return (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value
     }
 
-    func testPinnedFileGetsAnOfflineEntryForTheSameBytes() async throws {
+    func testPinnedFileGetsAnIndependentDownloadWithoutDuplicatingBytes() async throws {
         let fixture = try makeFixture()
-        await AudioCacheManager.shared.refreshPathFamily(path: fixture.relativePath)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.mirrorURL.path))
+        let installed = await fixture.manager.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
+        XCTAssertTrue(installed)
+        let download = try XCTUnwrap(fixture.manager.downloadStore.fileURL(for: fixture.relativePath, kind: .original))
+        XCTAssertEqual(inode(download), inode(fixture.cacheURL))
+        await fixture.manager.unpin(path: fixture.relativePath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: download.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+    }
 
-        await AudioCacheManager.shared.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
-        XCTAssertEqual(inode(fixture.mirrorURL), inode(fixture.cacheURL))
+    func testRemovingDownloadAlsoRemovesFileInDownloads() async throws {
+        let fixture = try makeFixture()
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
+        let download = try XCTUnwrap(fixture.manager.downloadStore.fileURL(for: fixture.relativePath, kind: .original))
+        await fixture.manager.removeEntry(path: fixture.relativePath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: download.path))
+    }
 
-        await AudioCacheManager.shared.unpin(path: fixture.relativePath)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.mirrorURL.path))
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: fixture.cacheURL.path),
-            "An unpinned download stays as ordinary cache"
+    func testRemovedDownloadIsNotRecreatedByALateLeaseRelease() async throws {
+        let fixture = try makeFixture()
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 65_536)
+        let activeLease = await fixture.manager.acquirePathFamilyLease(path: fixture.relativePath)
+        let lease = try XCTUnwrap(activeLease)
+        try fixture.manager.downloadStore.remove(fixture.relativePath, recordRemoval: true)
+        try FileManager.default.removeItem(at: fixture.cacheURL)
+        await fixture.manager.releasePathFamilyLease(lease)
+        XCTAssertNil(fixture.manager.downloadStore.fileURL(for: fixture.relativePath, kind: .original))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        await fixture.manager.removeEntry(path: fixture.relativePath)
+        XCTAssertTrue(fixture.manager.downloadStore.wasExternallyRemoved(fixture.relativePath))
+    }
+
+    func testClearingOneCacheFilePreservesDownloadAndListWithoutAMarker() async throws {
+        let fixture = try makeFixture()
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
+        let savedInode = inode(fixture.cacheURL)
+        try FileManager.default.removeItem(at: fixture.cacheURL)
+        let entries = await fixture.manager.offlineDownloadEntries()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertGreaterThan(entries.first?.byteCount ?? 0, 0)
+        await fixture.manager.resyncOfflineStoreForTesting()
+        XCTAssertEqual(inode(fixture.cacheURL), savedInode)
+        let snapshot = await fixture.manager.snapshot(path: fixture.relativePath, fileExists: false, byteCount: nil)
+        XCTAssertTrue(snapshot.isDownloaded)
+    }
+
+    func testDeletingFromFilesRemovesPinAndStaleCacheAlias() async throws {
+        let fixture = try makeFixture()
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
+        let download = try XCTUnwrap(fixture.manager.downloadStore.fileURL(for: fixture.relativePath, kind: .original))
+        try FileManager.default.removeItem(at: download)
+        await fixture.manager.resyncOfflineStoreForTesting()
+        let entries = await fixture.manager.offlineDownloadEntries()
+        XCTAssertTrue(entries.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        XCTAssertTrue(fixture.manager.downloadStore.wasExternallyRemoved(fixture.relativePath))
+    }
+
+    func testLegacyOfflineFileMigratesWhenCacheFileWasAlreadyDeleted() async throws {
+        let fixture = try makeFixture()
+        let legacy = fixture.root.appendingPathComponent("Private/\(fixture.relativePath)")
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: fixture.cacheURL, to: legacy)
+        let manifest: [String: Any] = [fixture.relativePath: ["isManuallyPinned": true, "playlistIDs": [], "byteCount": 65536]]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: fixture.root.appendingPathComponent("Private/.offline_manifest.json"))
+        await fixture.manager.resyncOfflineStoreForTesting()
+        XCTAssertNotNil(fixture.manager.downloadStore.fileURL(for: fixture.relativePath, kind: .original))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+        let entries = await fixture.manager.offlineDownloadEntries()
+        XCTAssertEqual(entries.count, 1)
+    }
+
+    func testPinnedBytesDoNotCountTowardCacheLimit() async throws {
+        let fixture = try makeFixture(byteCount: 256 * 1_024)
+        let cached = await fixture.manager.totalCacheSize()
+        XCTAssertGreaterThanOrEqual(cached, 256 * 1_024)
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 256 * 1_024)
+        let pinned = await fixture.manager.totalCacheSize()
+        XCTAssertEqual(pinned, 0)
+    }
+
+    func testPlaylistDownloadSurvivesClearingTheEntireCache() async throws {
+        let fixture = try makeFixture()
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 65_536, forPlaylistIDs: ["playlist"])
+        try FileManager.default.removeItem(at: fixture.root.appendingPathComponent("Caches"))
+        await fixture.manager.clearUnpinnedAccessEntries()
+        let entries = await fixture.manager.offlineDownloadEntries()
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.playlistIDs, ["playlist"])
+        XCTAssertFalse(entries.first?.isManuallyPinned ?? true)
+        XCTAssertEqual(try Data(contentsOf: fixture.cacheURL), Data(repeating: 7, count: 65_536))
+    }
+
+    func testDownloadSurvivesCacheCleanerEvenIfPinProtectionIsMissing() async throws {
+        let fixture = try makeFixture()
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 65_536, forPlaylistIDs: ["playlist"])
+        let cache = fixture.root.appendingPathComponent("Caches")
+        let result = await SourceManager.removeUnpinnedAudioCacheFiles(
+            dirs: [cache], basePath: cache, removableDirPaths: [],
+            pinnedRelativePaths: [], protectedAbsolutePaths: []
         )
-        await cleanUp(fixture)
-    }
-
-    func testRemovingTheDownloadAlsoRemovesTheOfflineEntry() async throws {
-        let fixture = try makeFixture()
-        await AudioCacheManager.shared.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.mirrorURL.path))
-
-        await AudioCacheManager.shared.removeEntry(path: fixture.relativePath)
+        XCTAssertGreaterThan(result.freedBytes, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.mirrorURL.path))
-        await cleanUp(fixture)
+        await fixture.manager.clearUnpinnedAccessEntries()
+        let entries = await fixture.manager.offlineDownloadEntries()
+        XCTAssertEqual(entries.first?.playlistIDs, ["playlist"])
+        XCTAssertEqual(try Data(contentsOf: fixture.cacheURL), Data(repeating: 7, count: 65_536))
     }
 
-    func testOfflineEntryComesBackAfterTheSystemClearsTheCacheDirectory() async throws {
+    func testExternalDeletionBlocksAutomaticDownloadButAllowsPlaybackCacheAndManualDownload() async throws {
         let fixture = try makeFixture()
-        await AudioCacheManager.shared.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
-        let pinnedInode = inode(fixture.cacheURL)
-
-        // 系统清缓存目录: 文件和「缓存目录完好」标记一起没了。
-        try FileManager.default.removeItem(at: fixture.cacheURL)
-        try? FileManager.default.removeItem(at: fixture.markerURL)
-        await AudioCacheManager.shared.resyncOfflineStoreForTesting()
-
-        XCTAssertEqual(inode(fixture.cacheURL), pinnedInode)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL.path))
-        let isPinned = await AudioCacheManager.shared.isPinned(path: fixture.relativePath)
-        XCTAssertTrue(isPinned)
-        await cleanUp(fixture)
+        await fixture.manager.pin(path: fixture.relativePath, byteCount: 65_536, forPlaylistIDs: ["playlist"])
+        let download = try XCTUnwrap(fixture.manager.downloadStore.fileURL(for: fixture.relativePath, kind: .original))
+        try FileManager.default.removeItem(at: download)
+        try Data(repeating: 9, count: 65_536).write(to: fixture.cacheURL, options: .atomic)
+        await fixture.manager.markDownloaded(path: fixture.relativePath, byteCount: 65_536, pinned: false)
+        let automatic = await fixture.manager.pin(path: fixture.relativePath, byteCount: 65_536, forPlaylistIDs: ["playlist"])
+        XCTAssertFalse(automatic)
+        let cached = await fixture.manager.snapshot(path: fixture.relativePath, fileExists: true, byteCount: 65_536)
+        XCTAssertEqual(cached.state, .cached)
+        let manual = await fixture.manager.pin(path: fixture.relativePath, byteCount: 65_536)
+        XCTAssertTrue(manual)
+        XCTAssertFalse(fixture.manager.downloadStore.wasExternallyRemoved(fixture.relativePath))
     }
 
-    func testDeletingAPinnedFileOnPurposeDoesNotResurrectIt() async throws {
+    func testPlaybackCacheIsAvailableOfflineButNotInDownloadedFilter() {
+        let cached = OfflineAudioCacheSnapshot(state: .cached, progress: nil, byteCount: 10, errorMessage: nil)
+        XCTAssertTrue(cached.isAvailableLocally)
+        XCTAssertFalse(cached.isDownloaded)
+        let downloaded = OfflineAudioCacheSnapshot(state: .pinned, progress: nil, byteCount: 10, errorMessage: nil)
+        XCTAssertTrue(downloaded.isDownloaded)
+    }
+
+    func testCacheClearRecognizesPinnedFilesThroughAnAliasedRoot() throws {
         let fixture = try makeFixture()
-        await AudioCacheManager.shared.pin(path: fixture.relativePath, byteCount: 64 * 1_024)
-        await AudioCacheManager.shared.resyncOfflineStoreForTesting()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.markerURL.path))
-
-        try FileManager.default.removeItem(at: fixture.cacheURL)
-        await AudioCacheManager.shared.resyncOfflineStoreForTesting()
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cacheURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.mirrorURL.path))
-        await cleanUp(fixture)
-    }
-
-    func testPinnedBytesDoNotCountTowardTheCacheLimit() async throws {
-        let byteCount = 256 * 1_024
-        let fixture = try makeFixture(byteCount: byteCount)
-        let before = await AudioCacheManager.shared.totalCacheSize()
-        await AudioCacheManager.shared.refreshPathFamily(path: fixture.relativePath)
-        let cached = await AudioCacheManager.shared.totalCacheSize()
-        XCTAssertGreaterThanOrEqual(cached - before, Int64(byteCount))
-
-        await AudioCacheManager.shared.pin(path: fixture.relativePath, byteCount: Int64(byteCount))
-        let pinned = await AudioCacheManager.shared.totalCacheSize()
-        XCTAssertEqual(pinned, before)
-        await cleanUp(fixture)
+        let alias = fixture.root.appendingPathComponent("CachesAlias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: fixture.root.appendingPathComponent("Caches"))
+        XCTAssertTrue(SourceManager.audioCacheClearShouldSkip(
+            fileURL: fixture.cacheURL, basePath: alias,
+            pinnedRelativePaths: [fixture.relativePath], protectedAbsolutePaths: []
+        ))
+        XCTAssertFalse(SourceManager.audioCacheClearShouldSkip(
+            fileURL: fixture.cacheURL, basePath: alias,
+            pinnedRelativePaths: [], protectedAbsolutePaths: []
+        ))
     }
 
     func testOfflineListCountsASharedFileOnceAndShowsNewestFirst() {

@@ -549,7 +549,7 @@ struct SongRowView: View {
     private var isUnreachableNow: Bool {
         guard sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID),
               song.isPlayable,
-              !offlineSnapshot.isDownloaded else { return false }
+              !offlineSnapshot.isAvailableLocally else { return false }
         // The offline badge only mirrors downloads it was told about. A song
         // that finished caching while it streamed is known to the disk alone,
         // and playback asks the disk, so the row has to ask it as well.
@@ -2663,14 +2663,14 @@ struct SongOfflineActionButtons: View {
             Button(role: .destructive) {
                 sourceManager.removeOfflineDownload(song: song)
             } label: {
-                Label(String(localized: "offline_remove_cache"), systemImage: "trash")
+                Label(String(localized: "offline_remove_download"), systemImage: "trash")
             }
         case .cached:
             if allowsDownload {
                 Button {
                     sourceManager.downloadForOffline(song: song)
                 } label: {
-                    Label(String(localized: "offline_keep_cached"), systemImage: "pin")
+                    Label(String(localized: "offline_download"), systemImage: "arrow.down.circle")
                 }
             }
 
@@ -2698,14 +2698,14 @@ struct SongOfflineActionButtons: View {
                 Button {
                     sourceManager.downloadForOffline(song: song)
                 } label: {
-                    Label(String(localized: "offline_cache_item"), systemImage: "arrow.down.circle")
+                    Label(String(localized: "offline_download"), systemImage: "arrow.down.circle")
                 }
             }
         }
     }
 }
 
-/// 有声书章节、本地播客单集这类不用 `SongRowView` 的行,长按菜单里也给同一组「缓存 / 移除缓存」(#336)。
+/// 有声书章节、本地播客单集这类不用 `SongRowView` 的行,长按菜单里也给同一组下载操作。
 /// 菜单打开时才去读缓存状态就来不及了,行上要挂 `loadsOfflineAudioSnapshot(for:)`。
 struct SongOfflineMenuSection: View {
     let song: Song
