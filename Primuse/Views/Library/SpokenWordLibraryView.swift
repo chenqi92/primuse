@@ -670,7 +670,8 @@ struct SpokenWordShelfContent: View {
         let archived = showsArchived && section == .all ? ordered(snapshot.archived, preferred: preferred).filter(matches) : []
         let nowListening = section.includes(.listening) ? snapshot.nowListening.flatMap { matches($0) ? $0 : nil } : nil
         let listening = section.includes(.listening) ? snapshot.listeningEntries.filter(matches) : []
-        return LazyVStack(alignment: .leading, spacing: 28) {
+        // Only the book collections are lazy; section heights must follow their grids as rows load.
+        return VStack(alignment: .leading, spacing: 28) {
             if !snapshot.isPrepared {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 120)
@@ -760,6 +761,7 @@ struct SpokenWordShelfContent: View {
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
                         .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("spokenWord.finished.heading")
 
                         // 在找书时听完的也直接摊开, 命中的不藏在折叠里。
                         if showsFinished || findQuery != nil {
@@ -3040,6 +3042,10 @@ struct SpokenWordShelfEvidenceHost: View {
             }
             let count = Int(ProcessInfo.processInfo.environment["PRIMUSE_SHELF_COUNT"] ?? "2000") ?? 2000
             let listeningCount = Int(ProcessInfo.processInfo.environment["PRIMUSE_SHELF_LISTENING_COUNT"] ?? "0") ?? 0
+            let finishedCount = Int(ProcessInfo.processInfo.environment["PRIMUSE_SHELF_FINISHED_COUNT"] ?? "0") ?? 0
+            if let layout = ProcessInfo.processInfo.environment["PRIMUSE_SHELF_LAYOUT"] {
+                defaults.set(layout, forKey: "spokenWord.shelf.layout")
+            }
             if let rawStyle = ProcessInfo.processInfo.environment["PRIMUSE_SHELF_CONTINUE_STYLE"],
                let style = SpokenWordContinueStyle(rawValue: rawStyle) {
                 var configuration = HomeSectionLayoutConfiguration()
@@ -3050,11 +3056,14 @@ struct SpokenWordShelfEvidenceHost: View {
                 let items = (0..<count).flatMap { book in
                     (0..<2).map { chapter in
                         SpokenWordBookItem(id: "shelf-\(book)-\(chapter)", title: "第\(chapter + 1)章",
-                                          albumTitle: String(format: "书籍 %04d · 故事", book), trackNumber: chapter,
+                                          albumTitle: String(format: "书籍 %04d · 故事", book)
+                                              + (finishedCount > 0 && book % 3 == 2 ? " · 山间来信与漫长旅途的故事" : ""),
+                                          trackNumber: chapter,
                                           duration: 300,
                                           position: book < listeningCount && chapter == 0 ? 60 : nil,
                                           positionUpdatedAt: book < listeningCount && chapter == 0
-                                              ? Date(timeIntervalSince1970: Double(count - book)) : nil)
+                                              ? Date(timeIntervalSince1970: Double(count - book)) : nil,
+                                          finishedAt: book >= count - finishedCount ? Date(timeIntervalSince1970: 1) : nil)
                     }
                 }
                 return SpokenWordLibrarySnapshot(books: SpokenWordBookGrouping.books(from: items))

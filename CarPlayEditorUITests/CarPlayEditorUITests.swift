@@ -211,6 +211,84 @@ final class SleepTimerUITests: XCTestCase {
 
 @MainActor
 final class CarPlayEditorUITests: XCTestCase {
+    func testRemoveModuleAndRestoreDefaultsSupportUndo() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment = ["PRIMUSE_CARPLAY_UI_TESTS": "1", "PRIMUSE_CARPLAY_RESET": "1",
+                                 "PRIMUSE_DIAGNOSTIC_LOGGING": "off", "PRIMUSE_NO_NOTIFICATION_PROMPT": "1"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["carplay.previewTab.tab.home"].waitForExistence(timeout: 20))
+        app.buttons["carplay.previewTab.tab.home"].tap()
+        let shortcuts = app.buttons["carplay.module.legacy.shortcuts"]
+        XCTAssertTrue(shortcuts.waitForExistence(timeout: 5))
+        shortcuts.swipeLeft()
+        let remove = app.buttons["carplay.removeModule.legacy.shortcuts"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 3))
+        remove.tap()
+        XCTAssertFalse(shortcuts.exists)
+        app.buttons["carplay.undoButton"].tap()
+        XCTAssertTrue(shortcuts.waitForExistence(timeout: 3))
+        app.buttons["carplay.actions"].tap()
+        let restore = app.buttons["恢复默认"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 3))
+        restore.tap()
+        XCTAssertTrue(app.buttons["carplay.module.recommended.shortcuts"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["carplay.module.recommended.forYou"].exists)
+        attach(app, "CarPlay-recommended-defaults")
+        app.buttons["carplay.undoButton"].tap()
+        XCTAssertTrue(shortcuts.waitForExistence(timeout: 3))
+        app.buttons["carplay.back"].tap()
+        let radio = app.buttons["carplay.editTab.tab.radio"]
+        radio.swipeLeft()
+        app.buttons["移除"].tap()
+        XCTAssertFalse(radio.exists)
+        app.buttons["carplay.undoButton"].tap()
+        XCTAssertTrue(radio.waitForExistence(timeout: 3))
+    }
+
+    func testBookshelfGridKeepsLastRowVisibleAtBottom() {
+        checkShelfBottom(layout: "bookshelf")
+    }
+
+    func testBookshelfCoversKeepLastRowVisibleAtBottom() {
+        checkShelfBottom(layout: "covers")
+    }
+
+    private func checkShelfBottom(layout: String) {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment = [
+            "PRIMUSE_VISUAL_EVIDENCE": "spokenWordShelf", "PRIMUSE_SHELF_RESET": "1",
+            "PRIMUSE_SHELF_COUNT": "50", "PRIMUSE_SHELF_FINISHED_COUNT": "2",
+            "PRIMUSE_SHELF_LISTENING_COUNT": "3",
+            "PRIMUSE_SHELF_LAYOUT": layout, "PRIMUSE_DIAGNOSTIC_LOGGING": "off",
+            "PRIMUSE_NO_NOTIFICATION_PROMPT": "1"
+        ]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        defer { app.terminate() }
+        let books = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'spokenWord.book.'"))
+        XCTAssertTrue(books.firstMatch.waitForExistence(timeout: 20))
+        let finished = app.buttons["spokenWord.finished.heading"]
+        let scroll = app.scrollViews.firstMatch
+        for _ in 0..<18 {
+            if finished.exists && finished.isHittable { break }
+            scroll.swipeUp(velocity: .fast)
+        }
+        scroll.swipeUp(velocity: .fast)
+        let last = books.matching(NSPredicate(format: "label CONTAINS %@", "书籍 0047")).firstMatch
+        attach(app, "bookshelf-bottom-" + layout)
+        XCTAssertTrue(finished.exists && finished.isHittable)
+        XCTAssertTrue(last.exists && last.isHittable, "The last row must remain visible above the finished section")
+        XCTAssertLessThan(last.frame.maxY, finished.frame.minY + 1)
+        XCTAssertLessThan(finished.frame.minY - last.frame.maxY, 80, "The shelf must not leave a blank screen before the finished section")
+        scroll.swipeDown(velocity: .fast)
+        scroll.swipeUp(velocity: .fast)
+        XCTAssertTrue(last.isHittable, "Returning to the bottom must not discard visible grid cells")
+    }
+
     func testContinueListeningViewAllOpensCompleteListAndReturns() {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")

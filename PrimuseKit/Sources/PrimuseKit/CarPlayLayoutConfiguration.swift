@@ -170,6 +170,20 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
 
     public init() {}
 
+    public static var recommended: Self {
+        var configuration = Self()
+        configuration.visualStyle = .wall
+        configuration.browseStyle = .covers
+        configuration.blocks = [CarPlayLayoutBlockKind.shortcuts, .recentlyPlayed, .forYou, .playlists].map { kind in
+            var block = CarPlayLayoutBlock(id: "recommended." + kind.rawValue, kind: kind,
+                                          style: kind == .shortcuts ? .list : .covers)
+            block.columns = 2
+            block.itemLimit = kind == .shortcuts ? 4 : 6
+            return block
+        }
+        return configuration
+    }
+
     public func nowPlayingButtons(isSpokenWord: Bool) -> [CarPlayNowPlayingAction] {
         let saved = isSpokenWord ? customSpokenWordButtons : customNowPlayingButtons
         let available = CarPlayNowPlayingAction.available(isSpokenWord: isSpokenWord)
@@ -356,7 +370,7 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
 
     public static func load(from defaults: UserDefaults) -> Self {
         guard let data = defaults.data(forKey: storageKey),
-              let value = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
+              let value = try? JSONDecoder().decode(Self.self, from: data) else { return .recommended }
         return value
     }
 

@@ -3,10 +3,93 @@ import CarPlay
 import PrimuseKit
 import SwiftUI
 import XCTest
+import Observation
+import Synchronization
 @testable import Primuse
 
 @MainActor
 final class CarPlayEditorRenderingTests: XCTestCase {
+    func testLayoutOnlyEditsDoNotInvalidateCatalogInputs() throws {
+        let suite = "CarPlayLiveKindsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = CarPlaySettingsStore(defaults: defaults)
+        let model = CarPlayEditorModel(settings: settings)
+        let invalidations = Mutex(0)
+        withObservationTracking {
+            _ = settings.liveKinds
+        } onChange: {
+            invalidations.withLock { $0 += 1 }
+        }
+        let id = try XCTUnwrap(model.configuration.blocks.first { $0.kind == .forYou }?.id)
+        for index in 1...60 {
+            model.update(id) { $0.itemLimit = index; $0.columns = index % 3 + 2 }
+            model.flush()
+        }
+        model.move(id, before: nil)
+        model.flush()
+        XCTAssertEqual(invalidations.withLock { $0 }, 0)
+        model.update(id) { $0.isVisible = false }
+        model.flush()
+        XCTAssertEqual(invalidations.withLock { $0 }, 1)
+        XCTAssertFalse(settings.liveKinds.contains(.forYou))
+    }
+
+    func testContinuousEditsSaveOnlyOnCompletionEvenWhenGesturePauses() async throws {
+        let suite = "CarPlayContinuousSaveTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = CarPlaySettingsStore(defaults: defaults)
+        let model = CarPlayEditorModel(settings: settings)
+        let original = model.configuration
+        let id = try XCTUnwrap(original.blocks.first?.id)
+        model.continuousChange(true)
+        for limit in 10...40 { model.update(id) { $0.itemLimit = limit } }
+        XCTAssertEqual(model.configuration.blocks.first?.itemLimit, 40)
+        XCTAssertEqual(model.previewConfiguration, original)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(settings.configuration, original)
+        XCTAssertEqual(model.previewConfiguration.blocks.first?.itemLimit, 40)
+        model.update(id) { $0.itemLimit = 50 }
+        model.continuousChange(false)
+        XCTAssertEqual(model.previewConfiguration, model.configuration)
+        XCTAssertEqual(CarPlaySettingsStore(defaults: defaults).configuration.blocks.first?.itemLimit, 50)
+        model.undo()
+        XCTAssertEqual(model.configuration, original)
+        XCTAssertEqual(model.previewConfiguration, original)
+    }
+
+    func testRemoveAndRestoreDefaultsCanBeUndoneAndPersisted() throws {
+        let suite = "CarPlayRestoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = CarPlaySettingsStore(defaults: defaults)
+        let model = CarPlayEditorModel(settings: settings)
+        model.add(.custom)
+        let id = try XCTUnwrap(model.selectedID)
+        model.update(id) { $0.title = "出发就听" }
+        let custom = model.configuration
+        settings.savedLayouts = [.init(name: "我的布局", configuration: custom)]
+        model.remove(id)
+        XCTAssertFalse(model.configuration.blocks.contains { $0.id == id })
+        model.undo()
+        XCTAssertEqual(model.configuration, custom)
+        model.change { $0.tabs = [.init(id: "only", kind: .songs)]; $0.customNowPlayingButtons = [] }
+        let modified = model.configuration
+        model.restoreDefaults()
+        model.flush()
+        XCTAssertEqual(CarPlaySettingsStore(defaults: defaults).configuration, .recommended)
+        XCTAssertEqual(settings.savedLayouts.first?.configuration, custom)
+        model.undo()
+        XCTAssertEqual(model.configuration, modified)
+        model.redo()
+        XCTAssertEqual(model.configuration, .recommended)
+        model.removeTab("tab.radio")
+        XCTAssertFalse(model.configuration.tabs.contains { $0.kind == .radio })
+        model.undo()
+        XCTAssertEqual(model.configuration, .recommended)
+    }
+
     func testNowPlayingButtonsPersistUndoAndRenderWithinNativeImageBudget() async throws {
         let suite = "CarPlayButtonsTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

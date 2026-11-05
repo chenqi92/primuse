@@ -19,15 +19,25 @@ final class CarPlaySettingsStore {
     var configuration: CarPlayLayoutConfiguration {
         didSet {
             guard configuration != oldValue else { return }
+            let kinds = Self.liveKinds(in: configuration)
+            if kinds != liveKinds { liveKinds = kinds }
             configuration.save(to: defaults)
         }
+    }
+
+    private(set) var liveKinds: Set<CarPlayLayoutBlockKind>
+
+    private static func liveKinds(in configuration: CarPlayLayoutConfiguration) -> Set<CarPlayLayoutBlockKind> {
+        Set(configuration.blocks.filter(\.isVisible).map(\.kind).filter(\.keepsLiveContent))
     }
 
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        configuration = CarPlayLayoutConfiguration.load(from: defaults)
+        let configuration = CarPlayLayoutConfiguration.load(from: defaults)
+        self.configuration = configuration
+        liveKinds = Self.liveKinds(in: configuration)
         savedLayouts = defaults.data(forKey: Self.savedLayoutsKey)
             .flatMap { try? JSONDecoder().decode([CarPlaySavedLayout].self, from: $0) } ?? []
     }

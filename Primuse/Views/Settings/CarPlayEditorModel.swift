@@ -16,6 +16,7 @@ extension CarPlayMainTab {
 @MainActor @Observable
 final class CarPlayEditorModel {
     private(set) var configuration: CarPlayLayoutConfiguration
+    private(set) var previewConfiguration: CarPlayLayoutConfiguration
     private(set) var history = CarPlayLayoutHistory()
     var selectedID: String?
     var inspectorVisible = false
@@ -23,11 +24,13 @@ final class CarPlayEditorModel {
     var selectedTabID: String?
     @ObservationIgnored let settings: CarPlaySettingsStore
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
+    @ObservationIgnored private var pendingPreview: Task<Void, Never>?
     @ObservationIgnored private var continuousStart: CarPlayLayoutConfiguration?
 
     init(settings: CarPlaySettingsStore) {
         self.settings = settings
         configuration = settings.configuration
+        previewConfiguration = settings.configuration
         selectedID = configuration.blocks.first?.id
     }
 
@@ -109,6 +112,7 @@ final class CarPlayEditorModel {
         guard next != configuration else { return }
         if continuousStart == nil { history.record(configuration, replacing: next) }
         configuration = next
+        updatePreview()
         scheduleSave()
     }
 
@@ -123,6 +127,8 @@ final class CarPlayEditorModel {
 
     func continuousChange(_ active: Bool) {
         if active {
+            pendingSave?.cancel()
+            pendingSave = nil
             if continuousStart == nil { continuousStart = configuration }
         } else if let start = continuousStart {
             history.record(start, replacing: configuration)
@@ -135,18 +141,28 @@ final class CarPlayEditorModel {
         continuousChange(false)
         guard let value = history.undo(configuration) else { return }
         configuration = value
+        updatePreview()
         reconcileSelection()
         scheduleSave()
     }
 
     func redo() {
+        continuousChange(false)
         guard let value = history.redo(configuration) else { return }
         configuration = value
+        updatePreview()
         reconcileSelection()
         scheduleSave()
     }
 
     func apply(_ style: CarPlayVisualStyle) { change { $0.applyVisualStyle(style) } }
+
+    func restoreDefaults() {
+        continuousChange(false)
+        change { $0 = .recommended }
+        reconcileSelection()
+        inspectorVisible = false
+    }
 
     func apply(_ saved: CarPlaySavedLayout) {
         change { $0 = saved.configuration }
@@ -154,7 +170,6 @@ final class CarPlayEditorModel {
     }
 
     func add(_ kind: CarPlayLayoutBlockKind) {
-        guard configuration.blocks.count < CarPlayLayoutConfiguration.maximumBlockCount else { return }
         homeEditorVisible = true
         selectedTabID = configuration.tabs.first { $0.kind == .home }?.id
         if kind != .custom, let existing = configuration.blocks.first(where: { $0.kind == kind }) {
@@ -162,6 +177,7 @@ final class CarPlayEditorModel {
             update(existing.id) { $0.isVisible = true }
             return
         }
+        guard configuration.blocks.count < CarPlayLayoutConfiguration.maximumBlockCount else { return }
         var block = CarPlayLayoutBlock(kind: kind, style: configuration.browseStyle)
         block.columns = configuration.visualStyle == .wall ? 3 : 2
         block.itemLimit = kind == .shortcuts ? 24 : 12
@@ -237,11 +253,32 @@ final class CarPlayEditorModel {
     func flush() {
         pendingSave?.cancel()
         pendingSave = nil
+        pendingPreview?.cancel()
+        pendingPreview = nil
+        previewConfiguration = configuration
         settings.configuration = configuration
+    }
+
+    private func updatePreview() {
+        guard continuousStart != nil else {
+            pendingPreview?.cancel()
+            pendingPreview = nil
+            previewConfiguration = configuration
+            return
+        }
+        // Keep slider feedback immediate while coalescing the artwork canvas updates.
+        guard pendingPreview == nil else { return }
+        pendingPreview = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard let self else { return }
+            self.previewConfiguration = self.configuration
+            self.pendingPreview = nil
+        }
     }
 
     private func scheduleSave() {
         pendingSave?.cancel()
+        guard continuousStart == nil else { return }
         pendingSave = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
             self?.flush()

@@ -124,6 +124,8 @@ struct CarPlayMainMenuEditor: View {
                     Label("carplay_save_preset", systemImage: "square.and.arrow.down")
                 }
                 .accessibilityIdentifier("carplay.savePresetRow")
+                Button("keyboard_shortcuts_restore_defaults", systemImage: "arrow.counterclockwise", action: model.restoreDefaults)
+                    .accessibilityIdentifier("carplay.restoreDefaultsRow")
             }
         }
         .listStyle(.insetGrouped)
@@ -209,7 +211,14 @@ struct CarPlayMainMenuEditor: View {
         .accessibilityIdentifier("carplay.menuRow." + tab.id)
         .accessibilityAction(named: Text("carplay_move_up")) { model.moveTab(tab.id, by: -1) }
         .accessibilityAction(named: Text("carplay_move_down")) { model.moveTab(tab.id, by: 1) }
-
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("remove", role: .destructive) { model.removeTab(tab.id) }
+                .disabled(tab.isVisible && !canHide)
+        }
+        .contextMenu {
+            Button("remove", systemImage: "trash", role: .destructive) { model.removeTab(tab.id) }
+                .disabled(tab.isVisible && !canHide)
+        }
     }
 }
 
@@ -307,7 +316,13 @@ struct CarPlayModuleList: View {
         )
         .accessibilityAction(named: Text("carplay_move_up")) { model.move(block.id, by: -1) }
         .accessibilityAction(named: Text("carplay_move_down")) { model.move(block.id, by: 1) }
-
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("remove", role: .destructive) { model.remove(block.id) }
+                .accessibilityIdentifier("carplay.removeModule." + block.id)
+        }
+        .contextMenu {
+            Button("remove", systemImage: "trash", role: .destructive) { model.remove(block.id) }
+        }
     }
 
     private func summary(_ block: CarPlayLayoutBlock) -> String {

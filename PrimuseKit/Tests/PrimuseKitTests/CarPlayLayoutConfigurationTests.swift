@@ -3,6 +3,16 @@ import Testing
 @testable import PrimuseKit
 
 struct CarPlayLayoutConfigurationTests {
+    @Test func recommendedLayoutHasCompactShortcutsAndBoundedArtworkRows() throws {
+        let configuration = CarPlayLayoutConfiguration.recommended
+        #expect(configuration.blocks.map(\.kind) == [.shortcuts, .recentlyPlayed, .forYou, .playlists])
+        #expect(configuration.blocks.first?.style == .list)
+        #expect(configuration.blocks.first?.itemLimit == 4)
+        #expect(configuration.blocks.dropFirst().allSatisfy { $0.style == .covers && $0.columns == 2 && $0.itemLimit == 6 })
+        #expect(configuration.visibleTabs(maximumCount: 4).count == 4)
+        #expect(try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: JSONEncoder().encode(configuration)) == configuration)
+    }
+
     @Test func olderLayoutsGainFiveButtonsWithoutChangingTheirPresentation() throws {
         let config = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: Data(#"{"browseStyle":"covers","minimalNowPlaying":true}"#.utf8))
         #expect(config.nowPlayingButtons(isSpokenWord: false) == [.shuffle, .repeatMode, .like, .audioQuality, .queue])
@@ -85,7 +95,7 @@ struct CarPlayLayoutConfigurationTests {
         config.save(to: defaults)
         #expect(CarPlayLayoutConfiguration.load(from: defaults) == config)
         defaults.set(Data("broken".utf8), forKey: CarPlayLayoutConfiguration.storageKey)
-        #expect(CarPlayLayoutConfiguration.load(from: defaults) == CarPlayLayoutConfiguration())
+        #expect(CarPlayLayoutConfiguration.load(from: defaults) == .recommended)
     }
 
     @Test func hiddenSectionsStayHiddenAndShortcutLimitCountsFolders() {

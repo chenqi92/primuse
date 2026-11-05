@@ -204,6 +204,8 @@ struct CarPlaySettingsView: View {
                     }
                     Section {
                         Button("carplay_save_preset_short", systemImage: "square.and.arrow.down") { presetName = ""; savingPreset = true }
+                        Button("keyboard_shortcuts_restore_defaults", systemImage: "arrow.counterclockwise", action: model.restoreDefaults)
+                            .accessibilityIdentifier("carplay.restoreDefaults")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -227,24 +229,8 @@ struct CarPlaySettingsView: View {
     // MARK: - Preview
 
     private var canvas: some View {
-        CarPlayEditorCanvas(blocks: blocks, configuration: model.configuration, selectedID: model.selectedID,
-            editing: model.homeEditorVisible, playerPage: false, wide: false, previewItem: previewItem ?? nowPlaying,
-            select: model.select, activate: { previewItem = $0 },
-            drop: { values, id, _ in model.drop(values, before: id) },
-            addContent: { _ in addingModule = true }, catalog: catalog.snapshot,
-            selectedTabID: model.selectedTabID, selectTab: model.selectTab,
-            moveTab: { values, id in model.dropTab(values, before: id) }, editingMenu: true)
-            .overlay(alignment: .topTrailing) {
-                Button { fullScreen = true } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12, weight: .semibold)).frame(width: 32, height: 32)
-                        .background(.regularMaterial, in: Circle())
-                        .overlay { Circle().strokeBorder(CarPlayEditorTheme.border, lineWidth: 1) }
-                }
-                .buttonStyle(.plain).offset(x: 8, y: -14)
-                .accessibilityLabel("carplay_expand_preview").accessibilityIdentifier("carplay.expand")
-            }
-            .settingsAnchor("carplay.sections")
+        CarPlaySettingsPreview(model: model, catalog: catalog, folders: folders, nowPlaying: nowPlaying,
+                               previewItem: $previewItem, fullScreen: $fullScreen, addingModule: $addingModule)
     }
 
     // MARK: - Panels
@@ -356,6 +342,40 @@ struct CarPlaySettingsView: View {
     }
 }
 
+private struct CarPlaySettingsPreview: View {
+    let model: CarPlayEditorModel
+    let catalog: CarPlayEditorCatalog
+    let folders: CarPlayFolderLibrary
+    let nowPlaying: CarPlayHomeItem?
+    @Binding var previewItem: CarPlayHomeItem?
+    @Binding var fullScreen: Bool
+    @Binding var addingModule: Bool
+
+    var body: some View {
+        let configuration = model.previewConfiguration
+        let blocks = catalog.snapshot.blocks(for: configuration, folders: folders.index, nowPlaying: nowPlaying)
+        CarPlayEditorCanvas(blocks: blocks, configuration: configuration, selectedID: model.selectedID,
+            editing: model.homeEditorVisible, playerPage: false, wide: false, previewItem: previewItem ?? nowPlaying,
+            select: model.select, activate: { previewItem = $0 },
+            drop: { values, id, _ in model.drop(values, before: id) },
+            addContent: { _ in addingModule = true }, catalog: catalog.snapshot,
+            selectedTabID: model.selectedTabID, selectTab: model.selectTab,
+            moveTab: { values, id in model.dropTab(values, before: id) }, editingMenu: true)
+            .overlay(alignment: .topTrailing) {
+                Button { fullScreen = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 12, weight: .semibold)).frame(width: 32, height: 32)
+                        .background(.regularMaterial, in: Circle())
+                        .overlay { Circle().strokeBorder(CarPlayEditorTheme.border, lineWidth: 1) }
+                }
+                .buttonStyle(.plain).offset(x: 8, y: -14)
+                .accessibilityLabel("carplay_expand_preview").accessibilityIdentifier("carplay.expand")
+            }
+            .settingsAnchor("carplay.sections")
+    }
+
+}
+
 struct CarPlayNowPlayingButtonsEditor: View {
     let model: CarPlayEditorModel
     @Binding var isSpokenWord: Bool
@@ -454,6 +474,7 @@ struct CarPlayEditorTestHost: View {
         let defaults = UserDefaults(suiteName: "CarPlayEditorUITests")!
         if ProcessInfo.processInfo.environment["PRIMUSE_CARPLAY_RESET"] == "1" {
             defaults.removePersistentDomain(forName: "CarPlayEditorUITests")
+            CarPlayLayoutConfiguration().save(to: defaults)
         }
         let settings = CarPlaySettingsStore(defaults: defaults)
         let model = CarPlayEditorModel(settings: settings)

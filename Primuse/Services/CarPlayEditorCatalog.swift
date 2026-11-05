@@ -199,9 +199,8 @@ final class CarPlayEditorCatalog {
         load(input, sourceVersion: version)
     }
 
-    /// 布局里放了哪几种要现算内容的模块。编辑器改布局后 300ms 存盘,这里跟着重算。
     private static func wantedLiveKinds() -> Set<CarPlayLayoutBlockKind> {
-        Set(CarPlaySettingsStore.shared.configuration.blocks.map(\.kind).filter(\.keepsLiveContent))
+        CarPlaySettingsStore.shared.liveKinds
     }
 
     private static func intelligentForYouOrder() -> [String] {
