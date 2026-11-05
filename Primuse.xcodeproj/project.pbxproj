@@ -592,6 +592,7 @@
 		4260958BD2DEFA5C80D86EEE /* SimilarTracksService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F82086EB805A0948919DCF /* SimilarTracksService.swift */; };
 		42786BA198C03F835DBF49EC /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
 		4281F357464488B1E4CC9C04 /* PlaylistOperationAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE674A9BB7B7A4FE7603E1C /* PlaylistOperationAvailability.swift */; };
+		42BA5B05C09085E42800E055 /* ReplayGainInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBEAD7284D43EF21A7365CB5 /* ReplayGainInfoView.swift */; };
 		42D2A57D1DE398036B6985AF /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 26DD8E7908AD9D808A2CD73D /* Localizable.strings */; };
 		42D3D23AAADAC9B441E04D87 /* MusicScraperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9081DDAD5B33D4D005479E15 /* MusicScraperProtocol.swift */; };
 		42E967953F2970DAE068FA3A /* WebDAVSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4999BBD97AF63761839AA42 /* WebDAVSource.swift */; };
@@ -725,6 +726,7 @@
 		5059BBCF57B472D7E8BFE619 /* MediaDetailActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3305EA479E0347F99584ABAE /* MediaDetailActionBar.swift */; };
 		507AA6C3F829E444FD797DCD /* FFmpegAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */; };
 		5087F05D0D7C94B494DD6775 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF83CE305219EDE25101007A /* SearchView.swift */; };
+		509FF7DBFD3E642F3F673185 /* ReplayGainInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBEAD7284D43EF21A7365CB5 /* ReplayGainInfoView.swift */; };
 		50B1AAD71370D8BB61C4B15E /* GRDB-dynamic in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 5200B61ECBAC6EE76E9886AF /* GRDB-dynamic */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		50B4FE11D72718B9A2A6DC9D /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		50C46AD573E8AA3D72CBB7BB /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 059B8717F4BD77194FDB5F80 /* AIRequestQuotaTests.swift */; };
@@ -1580,6 +1582,7 @@
 		B075343784EC60A5A09AB40B /* OfflineRangeDownloadRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EBFB113C5765B93854AF59F /* OfflineRangeDownloadRetryTests.swift */; };
 		B090E3A55B2B8A9ED40D791B /* TVIndexedGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A51B76722DAB10978EB91FB /* TVIndexedGrid.swift */; };
 		B0AD422F6BA9EDA5B08D6FA0 /* PrimuseKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		B0EB6983CCCCDDD17ED7A132 /* ReplayGainInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBEAD7284D43EF21A7365CB5 /* ReplayGainInfoView.swift */; };
 		B12030E80FB7A276AE98C080 /* KaraokeRemoteMicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A323DB607FAB5DFC8100D0 /* KaraokeRemoteMicView.swift */; };
 		B13688CE93C1CBDC0F1F8445 /* AlbumRecommendationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13A15DE9BA51C9AB93D6A5A9 /* AlbumRecommendationService.swift */; };
 		B17219BB90BF44AC71EF1275 /* ArtistHeroBackgroundResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5B70DDFFBE693A36434AB1A /* ArtistHeroBackgroundResolver.swift */; };
@@ -4100,6 +4103,7 @@
 		FB66C8ABA2D7F24A53E9EB80 /* CollectionOnlySongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionOnlySongStore.swift; sourceTree = "<group>"; };
 		FB94DFFD5CAD068763D78E9C /* ThemeServicePaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeServicePaletteTests.swift; sourceTree = "<group>"; };
 		FBBD19A2B420E188F62B053C /* KaraokeVocalReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeVocalReducer.swift; sourceTree = "<group>"; };
+		FBEAD7284D43EF21A7365CB5 /* ReplayGainInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayGainInfoView.swift; sourceTree = "<group>"; };
 		FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PrimuseWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC0CD42878698B7234B3A7A6 /* ListeningMood.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningMood.swift; sourceTree = "<group>"; };
 		FC223FE83D573153150EE746 /* LyricsInstalledSystemTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsInstalledSystemTranslator.swift; sourceTree = "<group>"; };
@@ -5928,6 +5932,7 @@
 				9A84D97F97A35EB01DF0F61E /* PMVerticalBar.swift */,
 				8BE8990000EEE4B1133209E1 /* PMVerticalBarChrome.swift */,
 				B4DB999971CA92DDD0B89B9E /* RenderingVisibility.swift */,
+				FBEAD7284D43EF21A7365CB5 /* ReplayGainInfoView.swift */,
 				23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */,
 				9492D5CC5D1370DFED401085 /* ScraperSourceGate.swift */,
 				B2C40237003577948906B518 /* ServerCatalogRefreshFeedback.swift */,
@@ -8147,6 +8152,7 @@
 				E5E97EE6A207711A6BADEBCC /* ReleaseDateLibraryView.swift in Sources */,
 				B3CE57F3DE2E15521F6A61CA /* RenderingVisibility.swift in Sources */,
 				EF0C1D45E98F9916EEF4DBD4 /* ReplayGainAnalysisService.swift in Sources */,
+				B0EB6983CCCCDDD17ED7A132 /* ReplayGainInfoView.swift in Sources */,
 				3FD470459B0416DB4CD1D75E /* RevealableSecureField.swift in Sources */,
 				95F92271D58C499F3DCB120F /* S3Source.swift in Sources */,
 				A875F21264F6C5B8DC612465 /* SFTPBrowserView.swift in Sources */,
@@ -8410,6 +8416,7 @@
 				2B04CDAF1AD194DD23E2852E /* RadioStationsStore.swift in Sources */,
 				788BEB8E88060348328B94B0 /* RenderingVisibility.swift in Sources */,
 				8CFA3B97A6008F37D71BF6D5 /* ReplayGainAnalysisService.swift in Sources */,
+				509FF7DBFD3E642F3F673185 /* ReplayGainInfoView.swift in Sources */,
 				50B4FE11D72718B9A2A6DC9D /* SFTPSource.swift in Sources */,
 				4957D61D66472F3CAD612DBD /* SMBByteReader.swift in Sources */,
 				5113925C793EABC4ED74382E /* SSLTrustStore.swift in Sources */,
@@ -8977,6 +8984,7 @@
 				6A9CC005D03D0B2C5E2A1381 /* ReleaseDateLibraryView.swift in Sources */,
 				BAF49048C4B8E0BEB42DC905 /* RenderingVisibility.swift in Sources */,
 				81104676D4ADEAA55F2FEABF /* ReplayGainAnalysisService.swift in Sources */,
+				42BA5B05C09085E42800E055 /* ReplayGainInfoView.swift in Sources */,
 				C701DD82C4CAA9E2C0B01302 /* RevealableSecureField.swift in Sources */,
 				19C85ED05C09AB735883A8E5 /* S3Source.swift in Sources */,
 				EFAB156F0158347B9BF9C7CD /* SFTPBrowserView.swift in Sources */,

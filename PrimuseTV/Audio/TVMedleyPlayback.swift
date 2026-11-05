@@ -46,6 +46,8 @@ final class TVMedleyPlayback {
     private let nextSong: (String, Set<String>) -> Song?
     private let selected: (Song) -> Void
 
+    var replayGainPlaybackInfo: ReplayGainPlaybackInfo { decks[active].engine.replayGainPlaybackInfo }
+
     init(store: TVStore, requestID: UUID,
          nextSong: @escaping (String, Set<String>) -> Song?, selected: @escaping (Song) -> Void) {
         self.store = store

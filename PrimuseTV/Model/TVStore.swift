@@ -579,6 +579,17 @@ final class TVStore {
     @ObservationIgnored private let snapshotRecovery: @MainActor () throws -> Bool
     @ObservationIgnored private let scanPersistence: @MainActor @Sendable (MusicLibrary) async -> Result<Void, AppleTVTransferFailure>
     @ObservationIgnored let engine = TVAudioEngine()
+    var replayGainPlaybackInfo: ReplayGainPlaybackInfo {
+        let settings = TVReplayGainSettings.shared
+        let song = currentSongID.flatMap { library.song(id: $0) }
+        let sourceType = song.flatMap { sourcesStore.source(id: $0.sourceID) }?.type
+        let isAppleMusic = appleMusicSelection != nil
+            || sourceType == .appleMusic || sourceType == .appleMusicLibrary
+        guard settings.enabled, !isLiveRadio, !isAppleMusic else {
+            return .init(enabled: settings.enabled, supported: !isLiveRadio && !isAppleMusic)
+        }
+        return medleyPlayback?.replayGainPlaybackInfo ?? engine.replayGainPlaybackInfo
+    }
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var activePlaybackRequestID: UUID?

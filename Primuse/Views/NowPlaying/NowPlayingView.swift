@@ -9749,6 +9749,8 @@ struct NowPlayingView: View {
                 outputSampleRate: player.audioEngine.observedOutputSampleRate,
                 allowsOutputDetail: !player.isAppleMusicMode,
                 transcodePlan: player.activeTranscodePlan,
+                replayGain: player.replayGainPlaybackInfo,
+                showsReplayGain: !isSpokenWord && audioInfoMode != .off,
                 tint: appearance.tertiary
             )
         }

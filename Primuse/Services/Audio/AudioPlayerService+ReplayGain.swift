@@ -24,6 +24,16 @@ extension AudioPlayerService {
         song.sourceID + "\u{1f}" + song.id
     }
 
+    var replayGainPlaybackInfo: ReplayGainPlaybackInfo {
+        ReplayGainPlaybackInfo(
+            enabled: playbackSettings.replayGainEnabled,
+            supported: playbackSettings.outputMode == .effects && !isSystemMediaPlaybackActive
+                && !isAppleMusicMode && !isLiveRadio && !isCastingMode,
+            snapshot: currentSong.flatMap { replayGainSnapshots[replayGainSnapshotKey($0)] },
+            preampDB: playbackSettings.replayGainPreampDB
+        )
+    }
+
     func retainReplayGainSnapshot(for song: Song?) {
         replayGainSnapshotGeneration = UUID()
         replayGainSnapshots = replayGainSnapshots.filter { $0.key == song.map(replayGainSnapshotKey) }
@@ -98,9 +108,11 @@ extension AudioPlayerService {
         let storedValues = replayGainValues(from: song, mode: mode)
         var values: ReplayGainValues
         var origin: String
+        var valueMode: ReplayGainMode = .track
         if storedValues.hasValue {
             values = storedValues
             origin = "library"
+            if mode == .album, song.replayGainAlbumGain?.isFinite == true { valueMode = .album }
         } else if !allowFileRead {
             values = storedValues
             origin = "none (streamed; file not read)"
@@ -108,11 +120,15 @@ extension AudioPlayerService {
             let tags = await ReplayGainFileTagCache.shared.tags(for: url)
             values = replayGainValues(from: tags, mode: mode)
             origin = values.hasValue ? "file" : "none (no tags in file)"
+            if mode == .album, tags.albumGain?.isFinite == true { valueMode = .album }
         }
         if !values.hasValue {
             let album = replayGainAlbumSongs(for: song)
-            values = await ReplayGainAnalysisService.cachedAdjustment(for: song, mode: mode, album: album, url: url)
-            if values.hasValue { origin = "analysis" }
+            if let cached = await ReplayGainAnalysisService.cachedSnapshot(for: song, mode: mode, album: album, url: url) {
+                values = cached.values
+                valueMode = cached.mode
+                origin = "analysis"
+            }
             if currentSong?.id == song.id, shouldApplyReplayGain(playbackSettings.snapshot()) {
                 scheduleReplayGainAnalysis(for: song, mode: mode, album: album, url: allowFileRead ? url : nil)
             }
@@ -127,7 +143,7 @@ extension AudioPlayerService {
             // Concurrent resolution may have captured unity before analysis
             // finished. That first answer owns this playback, including seeks.
             if let snapshot = replayGainSnapshots[key] { return snapshot.values }
-            replayGainSnapshots[key] = (mode, values)
+            replayGainSnapshots[key] = .init(mode: valueMode, values: values, origin: origin == "analysis" ? .analysis : .tags)
         }
         return values
     }

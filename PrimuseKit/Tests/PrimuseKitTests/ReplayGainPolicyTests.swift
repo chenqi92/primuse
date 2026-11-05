@@ -4,6 +4,23 @@ import Testing
 
 @Suite("ReplayGain policy")
 struct ReplayGainPolicyTests {
+    @Test("Playback details report the protected gain, not the requested boost")
+    func playbackDetailsUseAppliedGain() throws {
+        let snapshot = ReplayGainPlaybackSnapshot(mode: .album, values: .init(gain: 3, peak: 2), origin: .tags)
+        let info = ReplayGainPlaybackInfo(enabled: true, snapshot: snapshot, preampDB: 6)
+        #expect(info.isActive)
+        #expect(info.isPeakLimited)
+        #expect(abs(try #require(info.appliedGainDB) - (-6.0206)) < 0.001)
+        #expect(info.snapshot?.mode == .album)
+        let bypass = ReplayGainPlaybackInfo(enabled: true, supported: false, snapshot: snapshot, preampDB: 6)
+        #expect(!bypass.showsBadge)
+        #expect(!bypass.isActive)
+        #expect(bypass.appliedGainDB == nil)
+        let off = ReplayGainPlaybackInfo(enabled: false, snapshot: snapshot)
+        #expect(!off.isActive)
+        #expect(off.appliedGainDB == nil)
+    }
+
     @Test("A missing or broken tag plays at unity")
     func missingTagIsUnity() {
         #expect(ReplayGainPolicy.linearGain(gainDB: nil, peak: nil) == 1)

@@ -93,6 +93,7 @@ struct MacNowPlayingView: View {
     @State private var floatingControlsWidth: CGFloat = 0
     @State private var preferences = MacUIPreferences.shared
     @State private var libraryActions = NowPlayingLibraryActions()
+    @State private var showsAudioDetails = false
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
@@ -936,11 +937,7 @@ struct MacNowPlayingView: View {
                 spokenWordDetails(alignment: horizontalAlignment, frameAlignment: frameAlignment, width: coverSize)
             } else {
             VStack(alignment: horizontalAlignment, spacing: 0) {
-                Text(nowPlayingInfoLine)
-                    .font(.system(size: 11, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(playerFaintColor)
-                    .textCase(.uppercase)
+                audioInfoButton
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(player.currentSong?.title ?? "")
                         .font(.system(size: isWindowFullScreen ? 56 : 36, weight: .bold))
@@ -1641,6 +1638,38 @@ struct MacNowPlayingView: View {
     }
 
     // MARK: - Fullscreen cover transport
+
+    private var audioInfoButton: some View {
+        Button { showsAudioDetails = true } label: {
+            HStack(spacing: 8) {
+                Text(nowPlayingInfoLine)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                if player.replayGainPlaybackInfo.showsBadge,
+                   PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) != .off {
+                    NowPlayingAudioTag(
+                        symbol: player.replayGainPlaybackInfo.isActive ? "checkmark" : "clock",
+                        title: "RG", tint: playerFaintColor
+                    )
+                }
+            }
+            .foregroundStyle(playerFaintColor)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("nowPlaying.audioInfo")
+        .accessibilityHint(Text("now_playing_audio_info_hint"))
+        .popover(isPresented: $showsAudioDetails) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(nowPlayingInfoLine).font(.subheadline).foregroundStyle(.secondary)
+                Divider()
+                ReplayGainInfoView(info: player.replayGainPlaybackInfo, song: player.currentSong)
+            }
+            .padding(18)
+            .frame(width: 320)
+        }
+    }
 
     private var nowPlayingInfoLine: String {
         guard let song = player.currentSong else { return "" }

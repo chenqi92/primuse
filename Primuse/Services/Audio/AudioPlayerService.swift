@@ -1429,7 +1429,7 @@ final class AudioPlayerService {
     }
     @ObservationIgnored var replayGainAnalysisTask: Task<Void, Never>?
     @ObservationIgnored var replayGainAnalysisIdentity: String?
-    @ObservationIgnored var replayGainSnapshots: [String: (mode: ReplayGainMode, values: ReplayGainValues)] = [:]
+    var replayGainSnapshots: [String: ReplayGainPlaybackSnapshot] = [:]
     @ObservationIgnored var replayGainSnapshotGeneration = UUID()
     /// 起播计时的起点（`play(song:)` 入口）。`⏱️ play` 行按它报到各阶段的累计
     /// 耗时，用来分清「点了歌好一会儿才出声」的时间花在哪一段（#170）。

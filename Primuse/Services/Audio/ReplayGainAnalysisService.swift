@@ -6,6 +6,16 @@ import SFBAudioEngine
 actor ReplayGainAnalysisService {
     static let shared = ReplayGainAnalysisService()
     private var pending: [String: (UUID, Task<ReplayGainLoudnessMeasurement, Error>)] = [:]
+    private var preparations: [UUID: Set<String>] = [:]
+
+    enum Status: Equatable, Sendable { case unavailable, queued, analyzing, cached }
+
+    func status(for song: Song) async -> Status {
+        if await ReplayGainAnalysisCache.shared.measurement(for: song) != nil { return .cached }
+        let key = ReplayGainAnalysisCache.key(for: song)
+        if pending[key] != nil { return .analyzing }
+        return preparations.values.contains { $0.contains(key) } ? .queued : .unavailable
+    }
 
     /// Produces cache entries only. Playback takes a snapshot before starting
     /// and must never be changed by an analysis finishing later.
@@ -14,9 +24,14 @@ actor ReplayGainAnalysisService {
         knownFiles: [String: URL] = [:],
         audioFile: @MainActor @Sendable (Song) async throws -> KaraokeAudioFile?
     ) async throws {
+        let preparationID = UUID()
+        preparations[preparationID] = Set(songs.map { ReplayGainAnalysisCache.key(for: $0) })
+        defer { preparations[preparationID] = nil }
         for song in songs {
             try Task.checkCancellation()
-            let local = knownFiles[ReplayGainAnalysisCache.key(for: song)]
+            let key = ReplayGainAnalysisCache.key(for: song)
+            defer { preparations[preparationID]?.remove(key) }
+            let local = knownFiles[key]
             if await ReplayGainAnalysisCache.shared.measurement(for: song, fileURL: local) != nil { continue }
             do {
                 guard let file = try await audioFile(song) else { continue }
@@ -48,12 +63,16 @@ actor ReplayGainAnalysisService {
     }
 
     static func cachedAdjustment(for song: Song, mode: ReplayGainMode, album: [Song], url: URL? = nil) async -> ReplayGainAdjustment {
-        guard let track = await ReplayGainAnalysisCache.shared.measurement(for: song, fileURL: url) else { return .init() }
+        await cachedSnapshot(for: song, mode: mode, album: album, url: url)?.values ?? .init()
+    }
+
+    static func cachedSnapshot(for song: Song, mode: ReplayGainMode, album: [Song], url: URL? = nil) async -> ReplayGainPlaybackSnapshot? {
+        guard let track = await ReplayGainAnalysisCache.shared.measurement(for: song, fileURL: url) else { return nil }
         if mode == .album, !album.isEmpty,
            let measurement = await ReplayGainAnalysisCache.shared.albumMeasurement(for: album) {
-            return measurement.adjustment
+            return .init(mode: .album, values: measurement.adjustment, origin: .analysis)
         }
-        return track.adjustment
+        return .init(mode: .track, values: track.adjustment, origin: .analysis)
     }
 }
 

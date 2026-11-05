@@ -294,7 +294,7 @@ final class TVPlaybackCoordinator {
     private var replayGainTask: Task<Void, Never>?
     private var replayGainSelection: (Song, UUID)?
     private var replayGainToken = UUID()
-    private var replayGainSnapshot: (requestID: UUID, mode: ReplayGainMode, values: ReplayGainAdjustment)?
+    private var replayGainSnapshot: (requestID: UUID, value: ReplayGainPlaybackSnapshot)?
     private var replayGainAnalysisIdentity: String?
     private let publishesPresentation: Bool
     private var preparationIssue: TVPlaybackIssue?
@@ -473,6 +473,7 @@ final class TVPlaybackCoordinator {
         replayGainTask = nil
         replayGainSelection = nil
         replayGainSnapshot = nil
+        engine.replayGainPlaybackInfo = .init(enabled: TVReplayGainSettings.shared.enabled)
         replayGainAnalysisIdentity = nil
         replayGainToken = UUID()
         lyricsTask?.cancel()
@@ -1335,25 +1336,32 @@ final class TVPlaybackCoordinator {
         let queue = store.queueSongIDs.compactMap { store.library.song(id: $0) }
         let mode = ReplayGainPolicy.effectiveMode(TVReplayGainSettings.shared.mode, song: song, queue: queue, shuffled: store.shuffleEnabled)
         if let snapshot = replayGainSnapshot, snapshot.requestID == requestID {
-            return snapshot.values
+            return snapshot.value.values
         }
         var values = ReplayGainPolicy.adjustment(for: song, mode: mode)
+        var valueMode: ReplayGainMode = mode == .album && song.replayGainAlbumGain?.isFinite == true ? .album : .track
+        var origin = ReplayGainPlaybackSnapshot.Origin.tags
         if !values.hasValue, let url, url.isFileURL {
             let metadata = await FileMetadataReader.read(from: url)
             if mode == .album, let gain = metadata.replayGainAlbumGain {
                 values = .init(gain: gain, peak: metadata.replayGainAlbumPeak ?? metadata.replayGainTrackPeak)
+                valueMode = .album
             } else {
                 values = .init(gain: metadata.replayGainTrackGain, peak: metadata.replayGainTrackPeak)
             }
         }
         if !values.hasValue {
-            values = await ReplayGainAnalysisService.cachedAdjustment(for: song, mode: mode, album: replayGainAlbum(for: song), url: url)
+            if let cached = await ReplayGainAnalysisService.cachedSnapshot(for: song, mode: mode, album: replayGainAlbum(for: song), url: url) {
+                values = cached.values
+                valueMode = cached.mode
+                origin = .analysis
+            }
         }
         if isCurrent(requestID, store: store) {
             if let snapshot = replayGainSnapshot, snapshot.requestID == requestID {
-                return snapshot.values
+                return snapshot.value.values
             }
-            replayGainSnapshot = (requestID, mode, values)
+            replayGainSnapshot = (requestID, .init(mode: valueMode, values: values, origin: origin))
         }
         return values
     }
@@ -1367,6 +1375,7 @@ final class TVPlaybackCoordinator {
             replayGainTask?.cancel()
             replayGainAnalysisIdentity = nil
             engine.setReplayGain(enabled: false, volume: 1)
+            engine.replayGainPlaybackInfo = .init(enabled: settings.enabled, supported: store?.isLiveRadio != true)
             return
         }
         let values: ReplayGainAdjustment
@@ -1374,6 +1383,7 @@ final class TVPlaybackCoordinator {
         else { values = await initialReplayGain(for: song, requestID: requestID, url: engine.replayGainFileURL) }
         guard replayGainToken == token, isCurrent(requestID, store: store) else { return }
         engine.setReplayGain(enabled: true, volume: ReplayGainPolicy.linearGain(gainDB: values.gain, peak: values.peak, preampDB: settings.preampDB))
+        engine.replayGainPlaybackInfo = .init(enabled: true, snapshot: replayGainSnapshot?.value, preampDB: settings.preampDB)
         scheduleReplayGainAnalysis()
     }
 

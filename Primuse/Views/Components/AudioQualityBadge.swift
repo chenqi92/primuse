@@ -68,6 +68,8 @@ struct NowPlayingAudioTagRow: View {
     let allowsOutputDetail: Bool
     /// 这次播放的取流计划:服务端转码时标签和信息卡按收到的流写,原文件规格只作附注。
     var transcodePlan: SourceTranscodePlan = .original
+    var replayGain: ReplayGainPlaybackInfo = .init(enabled: false)
+    var showsReplayGain = true
     let tint: Color
 
     @State private var showsDetails = false
@@ -91,7 +93,7 @@ struct NowPlayingAudioTagRow: View {
                 )
                 .accessibilityElement(children: .combine)
                 .transition(.opacity)
-            } else if audioTag != nil || taggedSource != nil {
+            } else if audioTag != nil || replayGainTag != nil || taggedSource != nil {
                 Button { showsDetails = true } label: {
                     tags
                         // 牌子只有 17pt 高,命中区往下补到够手指点;上面紧挨着进度条,不往上补。
@@ -106,6 +108,7 @@ struct NowPlayingAudioTagRow: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(verbatim: accessibilityText))
                 .accessibilityHint(Text("now_playing_audio_info_hint"))
+                .accessibilityIdentifier("nowPlaying.audioInfo")
                 // 往上弹,盖在进度条与歌名上,不挡下面的播放键。
                 .popover(isPresented: $showsDetails, arrowEdge: .bottom) {
                     detailsCard
@@ -132,7 +135,14 @@ struct NowPlayingAudioTagRow: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) {
                 audioTag
+                replayGainTag
                 sourceTag
+            }
+            if audioTag != nil || replayGainTag != nil {
+                HStack(spacing: 6) {
+                    audioTag
+                    replayGainTag
+                }
             }
             if let audioTag {
                 audioTag
@@ -153,6 +163,11 @@ struct NowPlayingAudioTagRow: View {
 
     private var taggedSource: NowPlayingSourceLabel? {
         showsSourceTag ? source : nil
+    }
+
+    private var replayGainTag: NowPlayingAudioTag? {
+        guard showsReplayGain, replayGain.showsBadge else { return nil }
+        return NowPlayingAudioTag(symbol: replayGain.isActive ? "checkmark" : "clock", title: "RG", tint: tint)
     }
 
     @ViewBuilder
@@ -193,12 +208,14 @@ struct NowPlayingAudioTagRow: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             }
+            Divider().padding(.vertical, 4)
+            ReplayGainInfoView(info: replayGain, song: song)
         }
         .lineLimit(1)
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .frame(minWidth: 200, alignment: .leading)
-        .fixedSize()
+        .frame(width: 300, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var transcodedStream: NowPlayingAudioInfoTextPolicy.TranscodedStream? {
@@ -267,6 +284,10 @@ struct NowPlayingAudioTagRow: View {
             parts.append(contentsOf: [audioTag.title, audioTag.detail].compactMap { $0 })
         }
         if let taggedSource { parts.append(taggedSource.name) }
+        if replayGainTag != nil {
+            parts.append(String(localized: "replay_gain"))
+            parts.append(String(localized: replayGain.isActive ? "rg_status_active" : "rg_status_original"))
+        }
         return parts.joined(separator: ", ")
     }
 }

@@ -813,6 +813,7 @@ targets:
       - path: Primuse/Services/Metadata/MetadataAssetStore.swift
       - path: Primuse/Services/Metadata/FileMetadataReader.swift
       - path: Primuse/Services/Audio/ReplayGainAnalysisService.swift
+      - path: Primuse/Views/Components/ReplayGainInfoView.swift
       - path: Primuse/Services/Metadata/EmbeddedMetadataWriter.swift
       - path: Primuse/Services/Metadata/LyricsParser.swift
       - path: Primuse/Services/Cloud/CloudKitRuntime.swift

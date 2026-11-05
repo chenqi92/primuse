@@ -57,6 +57,7 @@ struct TVNowPlayingView: View {
 
     @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
     @State private var showOptions = false
+    @State private var showsAudioDetails = false
     /// 播放控制里的「歌词翻译」键打开的面板。
     @State private var showTranslation = false
     @AppStorage(TVLyricsFontLevel.storageKey)
@@ -107,7 +108,7 @@ struct TVNowPlayingView: View {
     private let immersiveIdleThreshold: TimeInterval = 20
 
     private var activePresentationCount: Int {
-        [showOptions, showTranslation, showImmersive, showSpokenWordRate, showSpokenWordSleep, artistLink != nil]
+        [showOptions, showsAudioDetails, showTranslation, showImmersive, showSpokenWordRate, showSpokenWordSleep, artistLink != nil]
             .filter { $0 }.count
     }
 
@@ -227,6 +228,21 @@ struct TVNowPlayingView: View {
         .fullScreenCover(isPresented: $showTranslation) {
             TVLyricsTranslationPanel().environment(store).environment(intelligence)
         }
+        .fullScreenCover(isPresented: $showsAudioDetails, onDismiss: registerInteraction) {
+            VStack(alignment: .leading, spacing: 28) {
+                Text(store.nowPlaying.title).font(.title2).lineLimit(2)
+                Text(metadataLine(store.nowPlaying)).foregroundStyle(.secondary)
+                Divider()
+                ReplayGainInfoView(
+                    info: store.replayGainPlaybackInfo,
+                    song: store.currentSongID.flatMap { store.library.song(id: $0) }
+                )
+                Button("close") { showsAudioDetails = false }
+                    .padding(.top, 20)
+            }
+            .frame(width: 650)
+            .padding(60)
+        }
         #if DEBUG
         .task {
             // 截图用:TV_SCREEN=nowPlayingArtist 模拟在播放页按下歌手名。
@@ -284,7 +300,7 @@ struct TVNowPlayingView: View {
                       !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
                       !store.currentItemIsSpokenWord,
                       fullscreenPlayerEffect != .native,
-                      !showImmersive, !showShelf, !showOptions, !showTranslation,
+                      !showImmersive, !showShelf, !showOptions, !showTranslation, !showsAudioDetails,
                       !scrubberFocused else { continue }
                 if interactionClock.secondsSinceLastInteraction >= immersiveIdleThreshold {
                     presentImmersivePlayer(isUserInitiated: false)
@@ -654,9 +670,7 @@ struct TVNowPlayingView: View {
                     .tvFont(.cardTitle, weight: .regular)
                     .foregroundStyle(.white.opacity(0.74))
                     .padding(.top, 8)
-                Text(metadataLine(np))
-                    .tvFont(.caption)
-                    .foregroundStyle(.white.opacity(0.52))
+                audioInfoButton(np, color: .white.opacity(0.52))
                     .padding(.top, 5)
 
                 Spacer(minLength: 0)
@@ -731,8 +745,7 @@ struct TVNowPlayingView: View {
                     .accessibilityIdentifier("tv.medley.continueFull")
                     .padding(.top, 12)
             }
-            Text(metadataLine(np))
-                .tvFont(.caption).foregroundStyle(TVColor.textFaint).padding(.top, 4)
+            audioInfoButton(np, color: TVColor.textFaint).padding(.top, 4)
 
             TVLibraryReviewControl(subject: .song(np.songID))
                 .padding(.top, 16)
@@ -1033,6 +1046,28 @@ struct TVNowPlayingView: View {
             return [.black.opacity(0.30), .black.opacity(0.12), .black.opacity(0.42)]
         }
         return [TVColor.bg.opacity(0.28), TVColor.bg.opacity(0.08), TVColor.bg.opacity(0.48)]
+    }
+
+    private func audioInfoButton(_ np: TVNowPlaying, color: Color) -> some View {
+        TVFocusButton(radius: 12, scale: 1.025, lift: 0, action: {
+            registerInteraction()
+            showsAudioDetails = true
+        }, onFocusChanged: { focused in
+            if focused { registerInteraction() }
+        }) { focused in
+            HStack(spacing: 12) {
+                Text(metadataLine(np))
+                if store.replayGainPlaybackInfo.showsBadge {
+                    Label("RG", systemImage: store.replayGainPlaybackInfo.isActive ? "checkmark" : "clock")
+                }
+            }
+            .tvFont(.caption)
+            .foregroundStyle(focused ? TVColor.onBrand : color)
+            .padding(8)
+            .background(focused ? TVColor.brand : .clear, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .accessibilityIdentifier("nowPlaying.audioInfo")
+        .accessibilityHint(Text("now_playing_audio_info_hint"))
     }
 
     private func metadataLine(_ np: TVNowPlaying) -> String {

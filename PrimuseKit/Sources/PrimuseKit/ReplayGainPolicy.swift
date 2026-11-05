@@ -18,6 +18,49 @@ public struct ReplayGainAdjustment: Equatable, Sendable {
     public var hasValue: Bool { gain != nil }
 }
 
+public struct ReplayGainPlaybackSnapshot: Equatable, Sendable {
+    public enum Origin: Equatable, Sendable { case tags, analysis }
+    public let mode: ReplayGainMode
+    public let values: ReplayGainAdjustment
+    public let origin: Origin
+
+    public init(mode: ReplayGainMode, values: ReplayGainAdjustment, origin: Origin) {
+        self.mode = mode
+        self.values = values
+        self.origin = origin
+    }
+}
+
+public struct ReplayGainPlaybackInfo: Equatable, Sendable {
+    public let enabled: Bool
+    public let supported: Bool
+    public let snapshot: ReplayGainPlaybackSnapshot?
+    public let preampDB: Double
+
+    public init(enabled: Bool, supported: Bool = true, snapshot: ReplayGainPlaybackSnapshot? = nil, preampDB: Double = 0) {
+        self.enabled = enabled
+        self.supported = supported
+        self.snapshot = snapshot
+        self.preampDB = ReplayGainPolicy.sanitizedPreamp(preampDB)
+    }
+
+    public var isActive: Bool { enabled && supported && snapshot?.values.hasValue == true }
+    public var showsBadge: Bool { enabled && supported }
+
+    /// This is the steady programme gain, independent of crossfade envelopes
+    /// and the hardware volume. A newly cached analysis is not an active gain.
+    public var appliedGainDB: Double? {
+        guard isActive, let snapshot else { return nil }
+        let linear = ReplayGainPolicy.linearGain(gainDB: snapshot.values.gain, peak: snapshot.values.peak, preampDB: preampDB)
+        return linear > 0 ? 20 * log10(Double(linear)) : nil
+    }
+
+    public var isPeakLimited: Bool {
+        guard isActive, let values = snapshot?.values, let gain = values.gain, let peak = values.peak else { return false }
+        return pow(10, (gain + preampDB) / 20) > 1 / peak
+    }
+}
+
 /// Turns ReplayGain tags into player-node volumes and keeps a crossfade on
 /// those volumes, so a transition never passes through unity gain on either
 /// side. Volumes are linear amplitude multipliers, the unit AVAudioPlayerNode

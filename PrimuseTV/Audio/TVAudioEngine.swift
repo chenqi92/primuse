@@ -396,6 +396,7 @@ final class TVAudioEngine {
     @ObservationIgnored private let replayGainControl = TVReplayGainControl()
     @ObservationIgnored private var replayGainEnabled = false
     @ObservationIgnored private var replayGainVolume: Float = 1
+    var replayGainPlaybackInfo = ReplayGainPlaybackInfo(enabled: false)
     @ObservationIgnored private var mixVolume: Float = 1
     /// The karaoke processor sits in the playing item's tap. False on the
     /// SFB / live PCM paths, which karaoke does not cover.
