@@ -48,6 +48,18 @@ public enum ReplayGainPolicy {
         return .init(gain: song.replayGainTrackGain, peak: song.replayGainTrackPeak)
     }
 
+    /// Prepare the imminent songs first; album completion must not hold up
+    /// the next track. Keep CUE tracks distinct even when they share a file.
+    public static func analysisPlan(current: Song, upcoming: [Song], album: [Song], mode: ReplayGainMode) -> [Song] {
+        var seen = Set<String>()
+        return (upcoming + [current] + (mode == .album ? album : [])).filter { song in
+            let itemMode: ReplayGainMode = albumKey(for: song) == albumKey(for: current) ? mode : .track
+            return seen.insert(ReplayGainAnalysisCache.key(for: song)).inserted
+                && !song.isStreamDescriptor
+                && !adjustment(for: song, mode: itemMode).hasValue
+        }
+    }
+
     /// +12 dB. No sane ReplayGain tag asks for more; the cap keeps a corrupt
     /// tag from turning the node into a distortion pedal.
     public static let maximumLinearGain: Float = 4

@@ -4,6 +4,58 @@ import XCTest
 @testable import Primuse
 
 final class ReplayGainPlaybackTests: XCTestCase {
+    @MainActor func testLateAnalysisDoesNotChangeCurrentPlaybackOrSeekButNextStartUsesIt() async throws {
+        let suite = "replaygain-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = PlaybackSettingsStore(defaults: defaults, cloudSync: CloudKVSSync(store: nil, defaults: defaults, observing: nil))
+        settings.replayGainEnabled = true
+        settings.replayGainMode = .track
+        let sessionURL = FileManager.default.temporaryDirectory.appendingPathComponent("replaygain-session-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: sessionURL) }
+        let player = AudioPlayerService(playbackSettings: settings, playbackSessionStore: PlaybackSessionStore(url: sessionURL))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("replaygain-\(UUID()).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try writeFixture(to: url)
+        let song = Song(id: UUID().uuidString, title: "Stable", duration: 3, fileFormat: .wav, filePath: url.path, sourceID: "test")
+        player.currentSong = song
+        player.playID = UUID()
+        let opening = await player.targetProgramVolume(for: song, url: url, allowFileRead: true)
+        XCTAssertEqual(opening, 1)
+        _ = try await ReplayGainAnalysisService.shared.analyze(song, url: url)
+        player.playID = UUID() // A seek rebuilds the transport, not the selection.
+        await player.applyReplayGain(for: song, url: url, mode: .track)
+        XCTAssertEqual(player.audioEngine.primaryProgramVolume, opening)
+        let afterQueueRefill = await player.resolveReplayGainValues(for: song, url: url, mode: .album, allowFileRead: true)
+        XCTAssertEqual(player.programVolume(for: afterQueueRefill), opening)
+        player.retainReplayGainSnapshot(for: nil)
+        let replay = await player.targetProgramVolume(for: song, url: url, allowFileRead: true)
+        XCTAssertLessThan(replay, opening)
+        let measured = await ReplayGainAnalysisService.cachedAdjustment(for: song, mode: .track, album: [])
+        XCTAssertEqual(replay, ReplayGainPolicy.linearGain(gainDB: measured.gain, peak: measured.peak), accuracy: 0.0001)
+    }
+
+    @MainActor func testPreparationCachesUpcomingTracksAndDoesNotReadThemAgain() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("replaygain-\(UUID()).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try writeFixture(to: url)
+        let songs = (0..<2).map { Song(id: UUID().uuidString, title: "Upcoming \($0)", duration: 3,
+                                      fileFormat: .wav, filePath: url.path, sourceID: "test") }
+        var reads = [String]()
+        let files = Dictionary(uniqueKeysWithValues: songs.map { (ReplayGainAnalysisCache.key(for: $0), url) })
+        for _ in 0..<2 {
+            try await ReplayGainAnalysisService.shared.prepare(songs, knownFiles: files) { song in
+                reads.append(song.id)
+                return KaraokeAudioFile(url: url)
+            }
+        }
+        XCTAssertEqual(reads, songs.map(\.id))
+        for song in songs {
+            let cached = await ReplayGainAnalysisService.cachedAdjustment(for: song, mode: .track, album: [])
+            XCTAssertTrue(cached.hasValue)
+        }
+    }
+
     func testExistingSettingsKeepModeAndNewPreampRoundTrips() throws {
         let old = try JSONDecoder().decode(PlaybackSettings.self, from: Data("{\"replayGainEnabled\":true,\"replayGainMode\":\"album\"}".utf8))
         XCTAssertTrue(old.replayGainEnabled)

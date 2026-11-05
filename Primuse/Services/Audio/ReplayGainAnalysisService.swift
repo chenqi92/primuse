@@ -7,6 +7,30 @@ actor ReplayGainAnalysisService {
     static let shared = ReplayGainAnalysisService()
     private var pending: [String: (UUID, Task<ReplayGainLoudnessMeasurement, Error>)] = [:]
 
+    /// Produces cache entries only. Playback takes a snapshot before starting
+    /// and must never be changed by an analysis finishing later.
+    func prepare(
+        _ songs: [Song],
+        knownFiles: [String: URL] = [:],
+        audioFile: @MainActor @Sendable (Song) async throws -> KaraokeAudioFile?
+    ) async throws {
+        for song in songs {
+            try Task.checkCancellation()
+            let local = knownFiles[ReplayGainAnalysisCache.key(for: song)]
+            if await ReplayGainAnalysisCache.shared.measurement(for: song, fileURL: local) != nil { continue }
+            do {
+                guard let file = try await audioFile(song) else { continue }
+                defer { if file.removeAfterDecoding { try? FileManager.default.removeItem(at: file.url) } }
+                try Task.checkCancellation()
+                _ = try await analyze(song, url: file.url)
+                plog("ReplayGain analysis cached for '\(song.title)'")
+            } catch {
+                try Task.checkCancellation()
+                plog("ReplayGain analysis unavailable: \(type(of: error))")
+            }
+        }
+    }
+
     func analyze(_ song: Song, url: URL) async throws -> ReplayGainLoudnessMeasurement {
         if let cached = await ReplayGainAnalysisCache.shared.measurement(for: song, fileURL: url) { return cached }
         let key = ReplayGainAnalysisCache.key(for: song)

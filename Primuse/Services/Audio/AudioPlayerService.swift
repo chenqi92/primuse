@@ -617,6 +617,7 @@ final class AudioPlayerService {
             #endif
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
             if oldValue?.id != currentSong?.id {
+                retainReplayGainSnapshot(for: currentSong)
                 handleSpokenWordItemChange(to: currentSong)
                 // A station replaces the current song without touching the
                 // queue; keep the music it interrupted.
@@ -1428,6 +1429,8 @@ final class AudioPlayerService {
     }
     @ObservationIgnored var replayGainAnalysisTask: Task<Void, Never>?
     @ObservationIgnored var replayGainAnalysisIdentity: String?
+    @ObservationIgnored var replayGainSnapshots: [String: (mode: ReplayGainMode, values: ReplayGainValues)] = [:]
+    @ObservationIgnored var replayGainSnapshotGeneration = UUID()
     /// 起播计时的起点（`play(song:)` 入口）。`⏱️ play` 行按它报到各阶段的累计
     /// 耗时，用来分清「点了歌好一会儿才出声」的时间花在哪一段（#170）。
     @ObservationIgnored private var playStartTimeline: (playID: UUID, startedAt: TimeInterval)?
@@ -4284,6 +4287,7 @@ final class AudioPlayerService {
         // The song after the previous one may already be open, decoded up to
         // its first seconds; this start then only hands that audio to the
         // output. Whatever path leaves without using it releases it.
+        retainReplayGainSnapshot(for: nil)
         var unusedPreparedStart = takePreparedStart(for: song)
         defer {
             if let unused = unusedPreparedStart {
@@ -5106,6 +5110,7 @@ final class AudioPlayerService {
         shouldRecordPlaybackStart: Bool = true
     ) async {
         let song = songApplyingPlaybackRange(song)
+        retainReplayGainSnapshot(for: nil)
         registerPlayIntent()
         let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
             sourceID: song.sourceID
@@ -5790,7 +5795,7 @@ final class AudioPlayerService {
             }
             // 有声内容从记忆位置直接起播时,时钟也从那里读。
             audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? spokenWordOpening ?? 0
-            let initialProgramVolume = await targetProgramVolume(for: song, url: url, allowFileRead: false)
+            let initialProgramVolume = await targetProgramVolume(for: song, url: url, allowFileRead: url.isFileURL)
             guard !Task.isCancelled, playID == id else { await gate.drain(); return }
             audioEngine.applyProgramVolume(initialProgramVolume)
             let didStartPlayback = audioEngine.play()
@@ -5833,24 +5838,6 @@ final class AudioPlayerService {
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
-
-            // Apply ReplayGain in background (don't block playback start).
-            // Streaming URLs use persisted library tags; local files may
-            // fall back to reading embedded tags from disk.
-            let settings = playbackSettings.snapshot()
-            if shouldApplyReplayGain(settings) {
-                let decoderKind = activeDecoderKind
-                Task { [id] in
-                    await self.applyReplayGain(
-                        for: song,
-                        url: url,
-                        mode: settings.replayGainMode,
-                        allowFileRead: decoderKind != .cloudStream && decoderKind != .httpStream,
-                        expectedPlayID: id,
-                        expectedSongID: song.id
-                    )
-                }
-            }
 
             // Background-cache file for offline playback (if enabled).
             // Cloud streaming already writes to the same cache file as
@@ -6387,6 +6374,9 @@ final class AudioPlayerService {
                 return
             }
             audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? 0
+            let initialProgramVolume = await targetProgramVolume(for: song, url: url, allowFileRead: url.isFileURL)
+            guard !Task.isCancelled, playID == id else { await gate.drain(); return }
+            audioEngine.applyProgramVolume(initialProgramVolume)
             let didStartPlayback = audioEngine.play()
             logPlayStage("playing (complete-file download)", playID: id)
             plog("🌊 Engine diagnostics after play: \(audioEngine.diagnosticInfo())")
@@ -7129,6 +7119,7 @@ final class AudioPlayerService {
         if let currentSong { retainedSongIDs.insert(currentSong.id) }
         sourceManager?.cancelBackgroundAudioCaching(keeping: retainedSongIDs)
         refineUpcomingMedleySlices()
+        prefetchReplayGain(upcoming: nextSongs)
         guard !nextSongs.isEmpty else { return }
 
         // A medley blends into each slice mid-file, which only works on audio
@@ -7279,6 +7270,9 @@ final class AudioPlayerService {
                 return
             }
             audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? 0
+            let initialProgramVolume = await targetProgramVolume(for: song, url: url, allowFileRead: url.isFileURL)
+            guard !Task.isCancelled, playID == id else { await gate.drain(); return }
+            audioEngine.applyProgramVolume(initialProgramVolume)
             let didStartPlayback = audioEngine.play()
             logPlayStage("playing (fallback decoder)", playID: id)
 
@@ -7316,20 +7310,6 @@ final class AudioPlayerService {
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
-
-            // Apply ReplayGain in background (don't block playback start)
-            let settings = playbackSettings.snapshot()
-            if shouldApplyReplayGain(settings), url.isFileURL {
-                Task { [id] in
-                    await self.applyReplayGain(
-                        for: song,
-                        url: url,
-                        mode: settings.replayGainMode,
-                        expectedPlayID: id,
-                        expectedSongID: song.id
-                    )
-                }
-            }
 
             // Background-cache file for offline playback
             if !isExternalURLItem(song) {

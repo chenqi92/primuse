@@ -7745,7 +7745,7 @@ final class TVStore {
     }
 
     /// 接下来几首预取的数量;每首依次进行, 下一首拿到约 20 秒的开头。
-    private static let upcomingPrefetchCount = 3
+    static let upcomingPrefetchCount = 3
 
     /// 当前这首真正出声后, 按实际播放顺序给后面几首预取开头, 让自动切到下一首时
     /// 不用等网络。换歌、换电台、串烧都会先停掉上一轮。
@@ -7805,7 +7805,7 @@ final class TVStore {
     }
 
     /// 实际播放顺序里接下来的几首(随机已经体现在 `queue` 里, 列表循环会绕回队首)。
-    private func upcomingPrefetchSongs(limit: Int) -> [Song] {
+    func upcomingPrefetchSongs(limit: Int) -> [Song] {
         guard limit > 0, repeatMode != .one, queue.indices.contains(queueIndex) else { return [] }
         var result: [Song] = []
         var seen: Set<String> = [queue[queueIndex]]

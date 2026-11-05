@@ -27,6 +27,25 @@ struct ReplayGainAnalysisTests {
         #expect(ReplayGainPolicy.sanitizedPreamp(100) == 12)
     }
 
+    @Test func preparationPrioritizesQueueAndSkipsTaggedAndDuplicateSongs() {
+        let current = song("current"), next = song("next"), rest = song("rest")
+        var tagged = song("tagged")
+        tagged.replayGainTrackGain = -4
+        let planned = ReplayGainPolicy.analysisPlan(current: current, upcoming: [next, tagged, next],
+                                                   album: [current, next, rest], mode: .album)
+        #expect(planned.map(\.id) == ["next", "current", "rest"])
+        #expect(ReplayGainPolicy.analysisPlan(current: current, upcoming: [], album: [rest], mode: .track).map(\.id) == ["current"])
+    }
+
+    @Test func preparationKeepsSeparateCUETracksAndDoesNotFetchStreamDescriptors() {
+        var a = song("a"), b = song("b"), stream = song("stream")
+        a.filePath = "disc.flac"; b.filePath = a.filePath
+        a.cueStartTime = 0; a.cueEndTime = 10
+        b.cueStartTime = 10; b.cueEndTime = 20
+        stream.filePath = "station.strm"
+        #expect(ReplayGainPolicy.analysisPlan(current: a, upcoming: [b, stream], album: [], mode: .track).map(\.id) == ["b", "a"])
+    }
+
     @Test func albumFallbackKeepsGainAndPeakPaired() {
         var track = song("a")
         track.replayGainAlbumPeak = 0.9
