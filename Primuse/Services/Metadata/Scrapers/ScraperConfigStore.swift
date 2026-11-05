@@ -263,7 +263,8 @@ final class ScraperConfigStore: @unchecked Sendable {
         for config in configs { try validate(config) }
 
         let endpoints = configs.flatMap { Self.endpoints(in: $0) }
-        let endpointDomains = endpoints.flatMap { endpoint in
+        let fallbacks = configs.compactMap { LegacyScraperCompatibility.lyricsFallback(for: $0) }
+        let endpointDomains = fallbacks.flatMap { Self.hosts(in: $0.url) } + endpoints.flatMap { endpoint in
             Self.hosts(in: endpoint.url)
                 + Self.hosts(in: endpoint.bodyTemplate ?? "")
                 + Self.hosts(in: endpoint.script)
@@ -275,7 +276,7 @@ final class ScraperConfigStore: @unchecked Sendable {
             .flatMap(\.capabilities)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        let methods = endpoints
+        let methods = (fallbacks.isEmpty ? [] : ["GET"]) + endpoints
             .map { $0.method.uppercased() }
             .filter { !$0.isEmpty }
         let includesHeaders = configs.contains { $0.headers?.isEmpty == false }
@@ -320,7 +321,7 @@ final class ScraperConfigStore: @unchecked Sendable {
             sslTrustDomains: Array(Set(sslTrustDomains)).sorted(),
             capabilities: Array(Set(capabilities)).sorted(),
             methods: Array(Set(methods)).sorted(),
-            endpointCount: endpoints.count,
+            endpointCount: endpoints.count + fallbacks.count,
             scriptCharacterCount: scriptCharacterCount,
             includesHeaders: includesHeaders,
             includesCookie: includesCookie,

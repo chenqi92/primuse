@@ -18,6 +18,8 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
     var detail: EndpointConfig?
     var cover: EndpointConfig?
     var lyrics: EndpointConfig?
+    var lyricsFallback: LyricsFallbackConfig?
+    var responseValidation: ScraperResponseValidation?
 
     /// 用户本地的敏感配置（XOR key、加密 magic、二次请求 URL 模板等）。
     /// **decode 时**接受（允许跟主 JSON 一起导入），**encode 时不输出**——
@@ -55,6 +57,8 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         detail: EndpointConfig? = nil,
         cover: EndpointConfig? = nil,
         lyrics: EndpointConfig? = nil,
+        lyricsFallback: LyricsFallbackConfig? = nil,
+        responseValidation: ScraperResponseValidation? = nil,
         secrets: [String: String]? = nil,
         modifiedAt: Date? = nil,
         isDeleted: Bool? = nil,
@@ -74,6 +78,8 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         self.detail = detail
         self.cover = cover
         self.lyrics = lyrics
+        self.lyricsFallback = lyricsFallback
+        self.responseValidation = responseValidation
         self.secrets = secrets
         self.modifiedAt = modifiedAt
         self.isDeleted = isDeleted
@@ -83,7 +89,7 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, name, version, icon, color, rateLimit, headers, capabilities
         case sslTrustDomains, cookie
-        case search, detail, cover, lyrics
+        case search, detail, cover, lyrics, lyricsFallback, responseValidation
         case secrets
         case modifiedAt, isDeleted, deletedAt
     }
@@ -104,6 +110,8 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         self.detail = try c.decodeIfPresent(EndpointConfig.self, forKey: .detail)
         self.cover = try c.decodeIfPresent(EndpointConfig.self, forKey: .cover)
         self.lyrics = try c.decodeIfPresent(EndpointConfig.self, forKey: .lyrics)
+        self.lyricsFallback = try c.decodeIfPresent(LyricsFallbackConfig.self, forKey: .lyricsFallback)
+        self.responseValidation = try c.decodeIfPresent(ScraperResponseValidation.self, forKey: .responseValidation)
         self.secrets = try c.decodeIfPresent([String: String].self, forKey: .secrets)
         self.modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt)
         self.isDeleted = try c.decodeIfPresent(Bool.self, forKey: .isDeleted)
@@ -128,6 +136,8 @@ struct ScraperConfig: Codable, Sendable, Identifiable {
         try c.encodeIfPresent(detail, forKey: .detail)
         try c.encodeIfPresent(cover, forKey: .cover)
         try c.encodeIfPresent(lyrics, forKey: .lyrics)
+        try c.encodeIfPresent(lyricsFallback, forKey: .lyricsFallback)
+        try c.encodeIfPresent(responseValidation, forKey: .responseValidation)
         // secrets 故意省略
         try c.encodeIfPresent(modifiedAt, forKey: .modifiedAt)
         try c.encodeIfPresent(isDeleted, forKey: .isDeleted)
@@ -142,4 +152,79 @@ struct EndpointConfig: Codable, Sendable {
     var headers: [String: String]?   // endpoint-specific headers (merged with global)
     var bodyTemplate: String?        // POST body template (for complex JSON bodies)
     let script: String    // JavaScript parsing script
+}
+
+/// An optional second GET when encrypted lyric parameters are unavailable.
+struct LyricsFallbackConfig: Codable, Sendable {
+    enum ContentEncoding: String, Codable, Sendable {
+        case base64UTF8, utf8
+    }
+    let url: String
+    let contentField: String
+    let encoding: ContentEncoding
+    var requiredVariables: [String] = []
+
+    init(url: String, contentField: String, encoding: ContentEncoding, requiredVariables: [String] = []) {
+        self.url = url
+        self.contentField = contentField
+        self.encoding = encoding
+        self.requiredVariables = requiredVariables
+    }
+
+    private enum CodingKeys: String, CodingKey { case url, contentField, encoding, requiredVariables }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        contentField = try c.decode(String.self, forKey: .contentField)
+        encoding = try c.decode(ContentEncoding.self, forKey: .encoding)
+        requiredVariables = try c.decodeIfPresent([String].self, forKey: .requiredVariables) ?? []
+    }
+}
+
+/// Numeric business status fields; missing fields remain optional for heterogeneous responses.
+struct ScraperResponseValidation: Codable, Sendable {
+    /// Dot-separated JSON paths. A trailing * in a component selects keys by prefix.
+    let codePaths: [String]
+    let successCodes: [Int]
+
+    func firstFailure(in data: Data) -> Int? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        for path in codePaths {
+            var values: [Any] = [json]
+            for component in path.split(separator: ".") {
+                values = values.flatMap { value -> [Any] in
+                    guard let object = value as? [String: Any] else { return [] }
+                    if component.hasSuffix("*") {
+                        let prefix = String(component.dropLast())
+                        return object.keys.sorted().filter { $0.hasPrefix(prefix) }.compactMap { object[$0] }
+                    }
+                    return object[String(component)].map { [$0] } ?? []
+                }
+            }
+            if let code = values.compactMap({ $0 as? Int }).first(where: { !successCodes.contains($0) }) {
+                return code
+            }
+        }
+        return nil
+    }
+}
+
+/// Preserve manifests imported before explicit fallback/validation fields existed.
+/// Resolve at runtime so user files, versions, secrets and CloudKit timestamps stay intact.
+enum LegacyScraperCompatibility {
+    static func lyricsFallback(for config: ScraperConfig) -> LyricsFallbackConfig? {
+        if let configured = config.lyricsFallback { return configured }
+        guard config.id == "kugou" else { return nil }
+        return LyricsFallbackConfig(
+            url: "https://lyrics.kugou.com/download?ver=1&client=pc&id={{id}}&accesskey={{accesskey}}&fmt=lrc&charset=utf8",
+            contentField: "content", encoding: .base64UTF8, requiredVariables: ["id", "accesskey"]
+        )
+    }
+
+    static func responseValidation(for config: ScraperConfig, url: URL?) -> ScraperResponseValidation? {
+        if let configured = config.responseValidation { return configured }
+        guard config.id == "qqmusic" || url?.host?.lowercased() == "u.y.qq.com" else { return nil }
+        return ScraperResponseValidation(codePaths: ["code", "req*.code"], successCodes: [0])
+    }
 }

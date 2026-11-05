@@ -6,10 +6,10 @@ import Testing
 struct LyricSyllableLayoutPolicyTests {
     @Test("A line timed as one block is split into characters that can wrap")
     func wholeLineBlockSplitsIntoCharacters() {
-        let line = [LyricSyllable(text: "我两眼合上失去什么", start: 11, end: 15.5)]
+        let line = [LyricSyllable(text: "小纸船停在蓝色岸边", start: 11, end: 15.5)]
         let units = LyricSyllableLayoutPolicy.layoutSyllables(line)
 
-        #expect(units.map(\.text) == ["我", "两", "眼", "合", "上", "失", "去", "什", "么"])
+        #expect(units.map(\.text) == ["小", "纸", "船", "停", "在", "蓝", "色", "岸", "边"])
         #expect(units.first?.start == 11)
         #expect(units.last?.end == 15.5)
         for index in units.indices.dropLast() {
@@ -47,7 +47,7 @@ struct LyricSyllableLayoutPolicyTests {
         #expect(LyricSyllableLayoutPolicy.units(of: "「你好」") == ["「你", "好」"])
         #expect(LyricSyllableLayoutPolicy.units(of: "ちょっと") == ["ちょっ", "と"])
         #expect(LyricSyllableLayoutPolicy.units(of: "ラーメン……") == ["ラー", "メ", "ン……"])
-        #expect(LyricSyllableLayoutPolicy.units(of: "都为你澎湃!") == ["都", "为", "你", "澎", "湃!"])
+        #expect(LyricSyllableLayoutPolicy.units(of: "纸船到岸边!") == ["纸", "船", "到", "岸", "边!"])
     }
 
     @Test("Punctuation takes no singing time when a block is split")
@@ -63,7 +63,7 @@ struct LyricSyllableLayoutPolicyTests {
 
     @Test("A split block keeps the capped duration the original block would have used")
     func splitKeepsEffectiveDuration() {
-        let block = LyricSyllable(text: "别固执到问一切为何", start: 20, end: 40, endTiming: .inferred)
+        let block = LyricSyllable(text: "蓝色铅笔画出小木桥", start: 20, end: 40, endTiming: .inferred)
         let next = LyricSyllable(text: "是", start: 40, end: 40.4)
         let units = LyricSyllableLayoutPolicy.layoutSyllables([block, next])
 

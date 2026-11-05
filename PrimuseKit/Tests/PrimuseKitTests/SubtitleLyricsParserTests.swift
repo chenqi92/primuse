@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Subtitle lyric documents")
 struct SubtitleLyricsParserTests {
-    /// Real YouTube auto-captions: a lone space opens or closes nearly every
+    /// Synthetic rolling captions: a lone space opens or closes nearly every
     /// cue, and each cue repeats the line that is scrolling off screen.
     private let rollingCaptions = [
         "WEBVTT",
@@ -13,28 +13,28 @@ struct SubtitleLyricsParserTests {
         "",
         "00:00:00.480 --> 00:00:02.869 align:start position:0%",
         " ",
-        "never<00:00:00.880><c> gonna</c><00:00:01.199><c> give</c>"
-            + "<00:00:01.439><c> you</c><00:00:01.760><c> up</c>",
+        "paper<00:00:00.880><c> boats</c><00:00:01.199><c> cross</c>"
+            + "<00:00:01.439><c> the</c><00:00:01.760><c> bay</c>",
         "",
         "00:00:02.869 --> 00:00:02.879 align:start position:0%",
-        "never gonna give you up",
+        "paper boats cross the bay",
         " ",
         "",
         "00:00:02.879 --> 00:00:05.030 align:start position:0%",
-        "never gonna give you up",
-        "never<00:00:03.200><c> gonna</c><00:00:03.520><c> let</c>"
-            + "<00:00:03.840><c> you</c><00:00:04.160><c> down</c>",
+        "paper boats cross the bay",
+        "paper<00:00:03.200><c> boats</c><00:00:03.520><c> mark</c>"
+            + "<00:00:03.840><c> the</c><00:00:04.160><c> bend</c>",
         "",
         "00:00:05.030 --> 00:00:05.040 align:start position:0%",
-        "never gonna let you down",
+        "paper boats mark the bend",
         " ",
         "",
         "00:00:05.040 --> 00:00:07.500 align:start position:0%",
-        "never gonna let you down",
+        "paper boats mark the bend",
         "[Music]",
     ].joined(separator: "\n")
 
-    /// The machine-translated companion of that same video: same cue
+    /// The synthetic translation companion: same cue
     /// structure, same fillers, and no word timing anywhere.
     private let translatedRollingCaptions = [
         "WEBVTT",
@@ -43,23 +43,23 @@ struct SubtitleLyricsParserTests {
         "",
         "00:00:00.480 --> 00:00:02.869 align:start position:0%",
         " ",
-        "永远不会放弃你",
+        "纸船轻轻越海湾",
         "",
         "00:00:02.869 --> 00:00:02.879 align:start position:0%",
-        "永远不会放弃你",
+        "纸船轻轻越海湾",
         " ",
         "",
         "00:00:02.879 --> 00:00:05.030 align:start position:0%",
-        "永远不会放弃你",
-        "永远不会让你失望",
+        "纸船轻轻越海湾",
+        "纸船标出河流转弯",
         "",
         "00:00:05.030 --> 00:00:05.040 align:start position:0%",
-        "永远不会让你失望",
+        "纸船标出河流转弯",
         " ",
         "",
         "00:00:05.040 --> 00:00:07.500 align:start position:0%",
-        "永远不会让你失望",
-        "永远不会到处乱跑",
+        "纸船标出河流转弯",
+        "纸船继续向前漂流",
     ].joined(separator: "\n")
 
     @Test("A byte-order mark and CRLF line endings do not hide the header")
@@ -182,16 +182,16 @@ struct SubtitleLyricsParserTests {
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        never<00:00:01.500><c> gonna</c><00:00:02.000><c> give</c>
+        paper<00:00:01.500><c> boats</c><00:00:02.000><c> cross</c>
         """
 
         let lines = SubtitleLyricsParser.parse(document)
         #expect(lines.count == 1)
-        #expect(lines.first?.text == "never gonna give")
+        #expect(lines.first?.text == "paper boats cross")
 
         let syllables = try #require(lines.first?.syllables)
         let texts = syllables.map(\.text)
-        let expectedTexts = ["never", " gonna", " give"]
+        let expectedTexts = ["paper", " boats", " cross"]
         let starts = syllables.map(\.start)
         let expectedStarts: [TimeInterval] = [1, 1.5, 2]
         let ends = syllables.map(\.end)
@@ -208,22 +208,22 @@ struct SubtitleLyricsParserTests {
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        never<00:00:02.500> gonna<00:00:01.500> give
+        paper<00:00:02.500> boats<00:00:01.500> cross
         """
         let outsideWindow = """
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        never<00:00:05.000> gonna
+        paper<00:00:05.000> boats
         """
 
         let backwardsLines = SubtitleLyricsParser.parse(backwards)
         #expect(backwardsLines.first?.syllables == nil)
-        #expect(backwardsLines.first?.text == "never gonna give")
+        #expect(backwardsLines.first?.text == "paper boats cross")
 
         let outsideLines = SubtitleLyricsParser.parse(outsideWindow)
         #expect(outsideLines.first?.syllables == nil)
-        #expect(outsideLines.first?.text == "never gonna")
+        #expect(outsideLines.first?.text == "paper boats")
     }
 
     @Test("The second singer in a document gets the duet alignment")
@@ -284,19 +284,19 @@ struct SubtitleLyricsParserTests {
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        I remember every single
-        word you said to me
+        We fold another paper boat
+        beside the painted bay
 
         00:00:03.000 --> 00:00:05.000
-        And I will never forget
-        the way you smiled
+        A tiny flag is waiting
+        beside the wooden bridge
         """
 
         let lines = SubtitleLyricsParser.parse(document)
         let texts = lines.map(\.text)
         let expected = [
-            "I remember every single word you said to me",
-            "And I will never forget the way you smiled",
+            "We fold another paper boat beside the painted bay",
+            "A tiny flag is waiting beside the wooden bridge",
         ]
         #expect(texts == expected)
     }
@@ -307,7 +307,7 @@ struct SubtitleLyricsParserTests {
         #expect(lines.count == 2)
 
         let texts = lines.map(\.text)
-        let expectedTexts = ["never gonna give you up", "never gonna let you down"]
+        let expectedTexts = ["paper boats cross the bay", "paper boats mark the bend"]
         #expect(texts == expectedTexts)
         #expect(lines[0].timestamp == 0.48)
         #expect(lines[0].endTimestamp == 2.869)
@@ -330,7 +330,7 @@ struct SubtitleLyricsParserTests {
         #expect(lines.count == 3)
 
         let texts = lines.map(\.text)
-        let expectedTexts = ["永远不会放弃你", "永远不会让你失望", "永远不会到处乱跑"]
+        let expectedTexts = ["纸船轻轻越海湾", "纸船标出河流转弯", "纸船继续向前漂流"]
         #expect(texts == expectedTexts)
 
         let starts = lines.map(\.timestamp)
@@ -365,15 +365,15 @@ struct SubtitleLyricsParserTests {
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        Never gonna give you up
+        Paper boats cross the bay
 
         00:00:03.000 --> 00:00:05.000
-        Never gonna give you up
+        Paper boats cross the bay
         """
 
         let lines = SubtitleLyricsParser.parse(document)
         let texts = lines.map(\.text)
-        let expected = ["Never gonna give you up", "Never gonna give you up"]
+        let expected = ["Paper boats cross the bay", "Paper boats cross the bay"]
         #expect(texts == expected)
     }
 
@@ -420,7 +420,7 @@ struct SubtitleLyricsParserTests {
         <tt xmlns="http://www.w3.org/ns/ttml"><body><div>\
         <p begin="00:00:01.000" end="00:00:02.000">Hi</p></div></body></tt>
         """
-        let lys = "[0]Lately (358,1336)I've (1694,487)been(2181,673)"
+        let lys = "[0]Softly (358,1336)we've (1694,487)sailed(2181,673)"
         let yrc = "[190871,1984](190871,361,0)For (191232,172,0)the"
         let qrc = "[190871,1984]For (190871,361)the (191232,172)first(191404,376)"
 
@@ -440,10 +440,10 @@ struct SubtitleLyricsParserTests {
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        never<00:00:01.500> gonna
+        paper<00:00:01.500> boats
 
         00:00:03.000 --> 00:00:05.000
-        give you up
+        cross the bay
         """
 
         #expect(LyricsContentParser.isSubtitleDocument(document))
@@ -459,13 +459,13 @@ struct SubtitleLyricsParserTests {
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        never<00:00:01.500> gonna
+        paper<00:00:01.500> boats
         """
         let lineTimed = """
         WEBVTT
 
         00:00:01.000 --> 00:00:03.000
-        never gonna
+        paper boats
         """
 
         #expect(LyricsFormat.detect(wordTimed) == .wordLevel)

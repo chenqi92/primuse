@@ -174,6 +174,43 @@ struct AudioDurationPolicyTests {
 
 @Suite("Remote metadata memory policy")
 struct RemoteMetadataReadPolicyTests {
+    @Test("Growing a metadata probe fetches only bytes beyond its existing prefix")
+    func expansionReusesPrefix() async throws {
+        let payload = Data((0..<800_000).map { UInt8(truncatingIfNeeded: $0) })
+        var requests: [Range<Int64>] = []
+        var head = Data(payload.prefix(256 * 1024))
+        for target in [400_000, 800_000] {
+            head = try await RemoteMetadataReadPolicy.extendingHead(head, to: target) { offset, length in
+                requests.append(offset..<(offset + length))
+                return payload.subdata(in: Int(offset)..<Int(offset + length))
+            }
+        }
+        #expect(head == payload)
+        #expect(requests == [262_144..<400_000, 400_000..<800_000])
+    }
+
+    @Test("An empty or oversized range cannot be appended as valid tag bytes")
+    func expansionRejectsInvalidSuffix() async {
+        for suffix in [Data(), Data(repeating: 1, count: 5)] {
+            await #expect(throws: URLError.self) {
+                try await RemoteMetadataReadPolicy.extendingHead(Data([0, 1]), to: 6) { _, _ in suffix }
+            }
+        }
+    }
+
+    @Test("A short range preserves its true extent for the next expansion")
+    func expansionKeepsShortReadOffsets() async throws {
+        let first = try await RemoteMetadataReadPolicy.extendingHead(Data([0, 1]), to: 6) { offset, length in
+            #expect(offset == 2 && length == 4)
+            return Data([2, 3])
+        }
+        let complete = try await RemoteMetadataReadPolicy.extendingHead(first, to: 6) { offset, length in
+            #expect(offset == 4 && length == 2)
+            return Data([4, 5])
+        }
+        #expect(complete == Data(0..<6))
+    }
+
     @Test("Large libraries start with a bounded 256 KB slice")
     func initialReadIsBounded() {
         #expect(RemoteMetadataReadPolicy.initialReadSize(fileSize: 80_000_000) == 256 * 1024)

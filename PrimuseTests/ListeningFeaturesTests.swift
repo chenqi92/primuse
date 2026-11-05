@@ -2324,7 +2324,7 @@ extension ListeningFeaturesTests {
         let lyrics = [LyricLine(id: "title", timestamp: 0, text: "全世界谁倾听你(Live)-林宥嘉(Yoga Lin)"),
                       LyricLine(id: "credit", timestamp: 1, text: "作曲：ASKA"),
                       LyricLine(id: "chinese", timestamp: 10, text: "今天我们一起走在回家的路上"),
-                      LyricLine(id: "english", timestamp: 20, text: "I will always love you")]
+                      LyricLine(id: "english", timestamp: 20, text: "Small boats cross blue bays")]
         let result = try await service.prepare(
             lyrics: lyrics, targetLanguageCode: "zh-Hans", enabled: true,
             songContext: .init(title: "全世界谁倾听你", artist: "林宥嘉")

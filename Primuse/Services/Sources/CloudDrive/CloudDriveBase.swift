@@ -374,12 +374,15 @@ struct CloudDriveHelper: Sendable {
         userAgent: String? = nil,
         referer: String? = nil,
         timeoutSeconds: TimeInterval = 60,
+        resourceTimeoutSeconds: TimeInterval? = nil,
         forceTCP: Bool = false, session: URLSession = Self.rangeSession
     ) async throws -> Data {
         // Range callers already own chunk/short-read recovery. This executor
         // admits one transfer and shares its cooldown without nesting retries.
         let executor = requests.executor(sourceID: sourceID, url: url)
-        return try await executor.execute(timeout: timeoutSeconds, operation: {
+        // The request timeout measures inactivity. A separate total budget lets
+        // slow transfers keep their received bytes while they are making progress.
+        return try await executor.execute(timeout: resourceTimeoutSeconds ?? timeoutSeconds, operation: {
             try await self.performRangeRequest(
                 url: url, offset: offset, length: length, accessToken: accessToken,
                 userAgent: userAgent, referer: referer, timeoutSeconds: timeoutSeconds,

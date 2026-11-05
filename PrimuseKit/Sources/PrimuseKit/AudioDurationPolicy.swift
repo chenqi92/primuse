@@ -473,6 +473,23 @@ public enum ISOBaseMediaMetadataSliceBuilder {
 /// after the first 256 KB. All formats remain bounded, and callers no longer
 /// need to materialize the slice as a temporary file.
 public enum RemoteMetadataReadPolicy {
+    /// Preserve the parsed prefix when a tag declares more bytes than the first probe.
+    public static func extendingHead(
+        _ head: Data,
+        to byteCount: Int,
+        fetch: (Int64, Int64) async throws -> Data
+    ) async throws -> Data {
+        try Task.checkCancellation()
+        guard byteCount > head.count else { return head }
+        let missing = byteCount - head.count
+        let suffix = try await fetch(Int64(head.count), Int64(missing))
+        try Task.checkCancellation()
+        guard !suffix.isEmpty, suffix.count <= missing else { throw URLError(.badServerResponse) }
+        var result = head
+        result.append(suffix)
+        return result
+    }
+
     public static let initialHeadByteCount = 256 * 1024
     public static let maximumHeadByteCount = 4 * 1024 * 1024
     public static let mp3FrameProbeByteCount = 64 * 1024

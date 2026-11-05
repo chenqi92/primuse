@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Subtitle translation tracks")
 struct LyricsTranslationTrackPolicyTests {
-    /// yt-dlp's original track: word timing, rolling cues, sub-frame fillers.
+    /// Synthetic original track: word timing, rolling cues, sub-frame fillers.
     private let originalTrack = [
         "WEBVTT",
         "Kind: captions",
@@ -12,28 +12,28 @@ struct LyricsTranslationTrackPolicyTests {
         "",
         "00:00:00.480 --> 00:00:02.869 align:start position:0%",
         " ",
-        "never<00:00:00.880><c> gonna</c><00:00:01.199><c> give</c>"
-            + "<00:00:01.439><c> you</c><00:00:01.760><c> up</c>",
+        "paper<00:00:00.880><c> boats</c><00:00:01.199><c> cross</c>"
+            + "<00:00:01.439><c> the</c><00:00:01.760><c> bay</c>",
         "",
         "00:00:02.869 --> 00:00:02.879 align:start position:0%",
-        "never gonna give you up",
+        "paper boats cross the bay",
         " ",
         "",
         "00:00:02.879 --> 00:00:05.030 align:start position:0%",
-        "never gonna give you up",
-        "never<00:00:03.200><c> gonna</c><00:00:03.520><c> let</c>"
-            + "<00:00:03.840><c> you</c><00:00:04.160><c> down</c>",
+        "paper boats cross the bay",
+        "paper<00:00:03.200><c> boats</c><00:00:03.520><c> mark</c>"
+            + "<00:00:03.840><c> the</c><00:00:04.160><c> bend</c>",
         "",
         "00:00:05.030 --> 00:00:05.040 align:start position:0%",
-        "never gonna let you down",
+        "paper boats mark the bend",
         " ",
         "",
         "00:00:05.040 --> 00:00:07.500 align:start position:0%",
-        "never gonna let you down",
-        "never<00:00:05.440><c> run</c><00:00:05.760><c> around</c>",
+        "paper boats mark the bend",
+        "paper<00:00:05.440><c> float</c><00:00:05.760><c> onward</c>",
     ].joined(separator: "\n")
 
-    /// The same run's `zh-Hans` track: identical cue windows, no word timing.
+    /// The matching synthetic `zh-Hans` track: identical cue windows, no word timing.
     private let translatedTrack = [
         "WEBVTT",
         "Kind: captions",
@@ -41,23 +41,23 @@ struct LyricsTranslationTrackPolicyTests {
         "",
         "00:00:00.480 --> 00:00:02.869 align:start position:0%",
         " ",
-        "永远不会放弃你",
+        "纸船轻轻越海湾",
         "",
         "00:00:02.869 --> 00:00:02.879 align:start position:0%",
-        "永远不会放弃你",
+        "纸船轻轻越海湾",
         " ",
         "",
         "00:00:02.879 --> 00:00:05.030 align:start position:0%",
-        "永远不会放弃你",
-        "永远不会让你失望",
+        "纸船轻轻越海湾",
+        "纸船标出河流转弯",
         "",
         "00:00:05.030 --> 00:00:05.040 align:start position:0%",
-        "永远不会让你失望",
+        "纸船标出河流转弯",
         " ",
         "",
         "00:00:05.040 --> 00:00:07.500 align:start position:0%",
-        "永远不会让你失望",
-        "永远不会到处乱跑",
+        "纸船标出河流转弯",
+        "纸船继续向前漂流",
     ].joined(separator: "\n")
 
     private func syncedLine(_ timestamp: TimeInterval, _ text: String) -> LyricLine {
@@ -86,7 +86,7 @@ struct LyricsTranslationTrackPolicyTests {
         #expect(texts == originalTexts)
 
         let translations = merged.map { $0.manualTranslation?.text }
-        let expectedTranslations = ["永远不会放弃你", "永远不会让你失望", "永远不会到处乱跑"]
+        let expectedTranslations = ["纸船轻轻越海湾", "纸船标出河流转弯", "纸船继续向前漂流"]
         #expect(translations == expectedTranslations)
 
         let sources = merged.compactMap { $0.manualTranslation?.source }

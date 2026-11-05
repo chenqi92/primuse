@@ -153,7 +153,7 @@ struct LyricTranslationGroupingPolicyTests {
         let groups = LyricTranslationGroupingPolicy.groups(
             candidates: [
                 .init(id: "title", text: title, sourceLanguageCode: source),
-                .init(id: "lyric", text: "多希望有一个像你的人", sourceLanguageCode: "zh-Hans"),
+                .init(id: "lyric", text: "小纸船停在蓝色的岸边", sourceLanguageCode: "zh-Hans"),
             ],
             targetLanguageCode: "zh-Hans",
             fallbackSourceLanguageCode: "zh-Hans"
@@ -230,7 +230,7 @@ struct LyricTranslationGroupingPolicyTests {
 
     @Test func confidentForeignLineCanOverrideWholeLyricsLanguage() {
         let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
-            text: "I will always love you",
+            text: "Small boats cross blue bays",
             detectedLanguageCode: "en-US",
             confidence: 0.99,
             alternativeConfidence: 0.01,
@@ -649,7 +649,7 @@ struct LyricTranslationGroupingPolicyTests {
         let groups = LyricTranslationGroupingPolicy.groups(
             candidates: [
                 .init(id: "target", text: "这是中文歌词", sourceLanguageCode: "zh-Hans"),
-                .init(id: "foreign", text: "I will always love you", sourceLanguageCode: "en"),
+                .init(id: "foreign", text: "Small boats cross blue bays", sourceLanguageCode: "en"),
             ],
             targetLanguageCode: "zh-Hans",
             fallbackSourceLanguageCode: "zh-Hans"

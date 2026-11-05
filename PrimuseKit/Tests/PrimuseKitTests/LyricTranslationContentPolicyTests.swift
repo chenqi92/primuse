@@ -40,7 +40,7 @@ struct LyricTranslationContentPolicyTests {
             "企划营销：梦童娱乐", "监制：三千", "OP：千和世纪",
         ]
         let intro = credits.enumerated().map { line("credit\($0.offset)", $0.element, at: Double($0.offset)) }
-        let body = [line("zh", "我们一起走在回家的路上", at: 19), line("en", "I will always love you", at: 25)]
+        let body = [line("zh", "我们一起走在回家的路上", at: 19), line("en", "Small boats cross blue bays", at: 25)]
         let song = LyricTranslationSongContext(title: "悲歌一首", artist: "蒋家驹[蒋蒋]")
         #expect(LyricTranslationContentPolicy.contentLines(in: intro + body, song: song) == body)
     }
@@ -50,7 +50,7 @@ struct LyricTranslationContentPolicyTests {
         "林宥嘉（Yoga Lin） — 全世界谁倾听你（Live）",
     ])
     func matchesSongIdentityInsteadOfGuessingHeaderLanguage(_ title: String) {
-        let lines = [line("title", title), line("lyric", "多希望有一个像你的人", at: 30)]
+        let lines = [line("title", title), line("lyric", "小纸船停在蓝色的岸边", at: 30)]
         let song = LyricTranslationSongContext(title: "全世界谁倾听你", artist: "林宥嘉")
         #expect(LyricTranslationContentPolicy.contentLines(in: lines, song: song).map(\.id) == ["lyric"])
     }
@@ -70,9 +70,9 @@ struct LyricTranslationContentPolicyTests {
     @Test func separateHeaderFieldsRequireCorroborationAndKeepLaterChoruses() {
         let song = LyricTranslationSongContext(title: "Hello", artist: "Adele")
         let lines = [line("title", "Hello"), line("artist", "Adele", at: 1), line("credit", "Lyrics by: Adele", at: 2),
-                     line("chorus", "Hello", at: 10), line("verse", "I was wondering if you would call", at: 15)]
+                     line("chorus", "Hello", at: 10), line("verse", "I drew a paper boat beside the bridge", at: 15)]
         #expect(LyricTranslationContentPolicy.contentLines(in: lines, song: song).map(\.id) == ["chorus", "verse"])
-        let bareChorus = [line("chorus", "Hello"), line("verse", "I was wondering if you would call", at: 15)]
+        let bareChorus = [line("chorus", "Hello"), line("verse", "I drew a paper boat beside the bridge", at: 15)]
         #expect(LyricTranslationContentPolicy.contentLines(in: bareChorus, song: song) == bareChorus)
     }
 
@@ -98,7 +98,7 @@ struct LyricTranslationContentPolicyTests {
 
     @Test func keepsRealMixedLanguageLyricsAndOrdinaryColons() {
         let lines = [line("title", "Song - Singer"), line("credit", "作词：Singer", at: 2),
-                     line("en", "I will always love you", at: 10), line("zh", "我说：我爱你", at: 15),
+                     line("en", "Small boats cross blue bays", at: 10), line("zh", "我说：我爱你", at: 15),
                      line("jp", "君に会いたい", at: 20), line("fr", "Je voudrais te revoir", at: 25),
                      line("prefix", "曲终人散：我还在原地", at: 30), line("noun", "Music is all I need", at: 35),
                      line("vocals", "Vocals fade: we keep dancing", at: 40),

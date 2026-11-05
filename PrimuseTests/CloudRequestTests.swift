@@ -535,6 +535,33 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertTrue(server.requestHeaders.lowercased().contains("range: bytes=0-3"))
     }
 
+    func testProgressingRangeCanOutliveItsIdleTimeout() async throws {
+        let payload = Data(0..<8)
+        let server = try LocalCloudServer(response: .init(status: 206, body: payload), bodyChunkDelay: 0.25)
+        let url = try await server.start()
+        defer { server.stop() }
+        let started = Date()
+        let data = try await CloudDriveHelper(sourceID: UUID().uuidString).rangeRequest(
+            url: url, offset: 0, length: 8, timeoutSeconds: 1, resourceTimeoutSeconds: 5
+        )
+        XCTAssertEqual(data, payload)
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 1)
+        XCTAssertEqual(server.requestCount, 1, "Progressing bytes must not be discarded and retried")
+    }
+
+    func testProgressingRangeStillHonorsItsTotalBudget() async throws {
+        let server = try LocalCloudServer(response: .init(status: 206, body: Data(0..<8)), bodyChunkDelay: 0.25)
+        let url = try await server.start()
+        defer { server.stop() }
+        do {
+            _ = try await CloudDriveHelper(sourceID: UUID().uuidString).rangeRequest(
+                url: url, offset: 0, length: 8, timeoutSeconds: 1, resourceTimeoutSeconds: 0.5
+            )
+            XCTFail("The total transfer budget must remain bounded")
+        } catch let error as URLError { XCTAssertEqual(error.code, .timedOut) }
+        XCTAssertEqual(server.requestCount, 1)
+    }
+
     func testIgnoredRangeDoesNotBecomeAFullFileResponse() async throws {
         let server = try LocalCloudServer(response: .init(status: 200, body: Data(repeating: 1, count: 65536)))
         let url = try await server.start()
@@ -855,6 +882,7 @@ private final class CloudClock: @unchecked Sendable {
 private final class LocalCloudServer: @unchecked Sendable {
     private let listener: NWListener
     private let response: CloudHTTPFixture.Response
+    private let bodyChunkDelay: TimeInterval?
     private let queue = DispatchQueue(label: "CloudRequestTests.server")
     private let lock = NSLock()
     private var connections: [NWConnection] = []
@@ -863,8 +891,9 @@ private final class LocalCloudServer: @unchecked Sendable {
     var connectionCount: Int { lock.withLock { connections.count } }
     var requestHeaders: String { lock.withLock { headers.joined(separator: "\n") } }
 
-    init(response: CloudHTTPFixture.Response, holdConnections: Bool = false) throws {
+    init(response: CloudHTTPFixture.Response, holdConnections: Bool = false, bodyChunkDelay: TimeInterval? = nil) throws {
         self.response = response
+        self.bodyChunkDelay = bodyChunkDelay
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { connection.cancel(); return }
@@ -899,9 +928,27 @@ private final class LocalCloudServer: @unchecked Sendable {
             var head = "HTTP/1.1 \(self.response.status) Fixture\r\nConnection: close\r\nContent-Length: \(self.response.body.count)\r\n"
             for (key, value) in self.response.headers { head += "\(key): \(value)\r\n" }
             var payload = Data((head + "\r\n").utf8)
+            if let delay = self.bodyChunkDelay {
+                connection.send(content: payload, completion: .contentProcessed { error in
+                    guard error == nil else { connection.cancel(); return }
+                    self.sendBody(connection, index: 0, delay: delay)
+                })
+                return
+            }
             payload.append(self.response.body)
             connection.send(content: payload, contentContext: .finalMessage, isComplete: true,
                             completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+
+    private func sendBody(_ connection: NWConnection, index: Int, delay: TimeInterval) {
+        guard index < response.body.count else { connection.cancel(); return }
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { connection.cancel(); return }
+            connection.send(content: Data([self.response.body[index]]), completion: .contentProcessed { error in
+                guard error == nil else { connection.cancel(); return }
+                self.sendBody(connection, index: index + 1, delay: delay)
+            })
         }
     }
 }

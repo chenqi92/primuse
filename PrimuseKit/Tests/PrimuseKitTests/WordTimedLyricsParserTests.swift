@@ -5,8 +5,8 @@ import Testing
 @Suite("Word-timed lyric formats")
 struct WordTimedLyricsParserTests {
     private let lysDocument = """
-    [0]Lately (358,1336)I've (1694,487)been(2181,673)
-    [4]Dreaming (5245,696)about (5941,471)the (6412,306)things(6718,458)
+    [0]Softly (358,1336)we've (1694,487)sailed(2181,673)
+    [4]Drifting (5245,696)past (5941,471)the (6412,306)docks(6718,458)
     [8](Could (9245,300)be)(9545,400)
     [5]Take (10000,500)it(10500,400)
     """
@@ -46,9 +46,9 @@ struct WordTimedLyricsParserTests {
         let lines = LyricsContentParser.parseText(lysDocument)
 
         #expect(lines.count == 3)
-        #expect(lines[0].text == "Lately I've been")
+        #expect(lines[0].text == "Softly we've sailed")
         #expect(lines[0].timestamp == 0.358)
-        #expect(lines[0].syllables?.map(\.text) == ["Lately ", "I've ", "been"])
+        #expect(lines[0].syllables?.map(\.text) == ["Softly ", "we've ", "sailed"])
         #expect(lines[0].syllables?.map(\.start) == [0.358, 1.694, 2.181])
         #expect(lines[0].syllables?.map(\.end) == [1.694, 2.181, 2.854])
         #expect(lines[0].syllables?.allSatisfy { $0.endTiming == .explicit } == true)

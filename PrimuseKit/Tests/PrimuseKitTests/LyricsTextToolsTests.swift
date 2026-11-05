@@ -38,17 +38,17 @@ struct LyricsTextToolsTests {
     func splitsRunOnLine() {
         // 整首歌被网页复制成一坨的典型形态：一行远超阈值且只有标点可依。
         let result = LyricsTextTools.splitIntoLines(
-            "发过誓要将你赶出心头，谁料到恨你多年又碰头，坏情人眼里尽是害我犯戒的温柔，"
-                + "太多愁想说却哽在寂寞未泪先流，缠绵到手又溜走。"
+            "小纸船载着蓝色的石头，沿着那画在纸上的河流，小木桥旁边画着一排整齐的砖头，"
+                + "把彩色铅笔放在那张方形的桌头，纸船停在桥边头。"
         )
 
         #expect(result.lines.count == 5)
-        #expect(result.lines[0] == "发过誓要将你赶出心头，")
+        #expect(result.lines[0] == "小纸船载着蓝色的石头，")
     }
 
     @Test("A line under the threshold keeps its original shape")
     func keepsShortRunOnLineIntact() {
-        let line = "发过誓要将你赶出心头，谁料到恨你多年又碰头。"
+        let line = "小纸船载着蓝色的石头，沿着那画在纸上的河流。"
         let result = LyricsTextTools.splitIntoLines(line)
         #expect(result.lines == [line])
     }
@@ -107,7 +107,7 @@ struct LyricsTextToolsTests {
     @Test("Timestamped text keeps its lines and skips punctuation splitting")
     func preservesTimestampedText() {
         let result = LyricsTextTools.splitIntoLines("""
-        [00:12.30]发过誓要将你赶出心头，谁料到恨你多年又碰头，坏情人眼里尽是温柔
+        [00:12.30]小纸船载着蓝色的石头，沿着那画在纸上的河流，小木桥旁边画着砖头
         [00:24.10]第二句
         """)
 

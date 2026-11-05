@@ -8,6 +8,64 @@ import XCTest
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     @MainActor
+    func testAliasesOfOneFileCannotRunConcurrentOfflineWriters() async throws {
+        let source = MusicSource(id: UUID().uuidString, name: "Range fixture", type: .baiduPan)
+        let payload = Data(repeating: 0x42, count: 65_536)
+        let gate = BlockingFetchGate()
+        let connector = FixtureRangeConnector(sourceID: source.id, payload: payload, trailingGate: gate)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let first = Song(id: UUID().uuidString, title: "First entry", fileFormat: .mp3,
+                         filePath: "/shared.mp3", sourceID: source.id, fileSize: Int64(payload.count))
+        var alias = first
+        alias.id = UUID().uuidString
+        await manager.ensureOfflineAudioSnapshot(for: first)
+        let firstTask = Task { await manager.cacheForUpcomingPlayback(song: first, prefersCompleteFile: true) }
+        defer { firstTask.cancel(); manager.deleteAudioCache(for: first) }
+        let deadline = Date().addingTimeInterval(5)
+        while !(await gate.hasStarted()), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        let started = await gate.hasStarted()
+        guard started else { await gate.release(); XCTFail("First transfer did not start"); return }
+        let secondTask = Task { await manager.cacheForUpcomingPlayback(song: alias, prefersCompleteFile: true) }
+        defer { secondTask.cancel() }
+        try await Task.sleep(for: .milliseconds(250))
+        let concurrentRequests = await connector.requests()
+        await gate.release()
+        await firstTask.value
+        await secondTask.value
+        XCTAssertEqual(concurrentRequests.count, 1, "Aliases must not share an active staging writer")
+        let requests = await connector.requests()
+        XCTAssertEqual(requests.count, 1, "The waiter should reuse the first completed download")
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(manager.cachedURL(for: alias))), payload)
+    }
+
+    func testSmallPlaybackChunksRetainAlignmentAndReuseCachedBytes() async throws {
+        let sourceID = UUID().uuidString
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("bounded.mp3")
+        let payload = Data((0..<1_048_576).map { UInt8(truncatingIfNeeded: $0) })
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let song = Song(id: sourceID, title: "Bounded read", fileFormat: .mp3,
+                        filePath: "/bounded.mp3", sourceID: sourceID, fileSize: Int64(payload.count))
+        let input = try XCTUnwrap(CloudPlaybackSource.makeInputSource(
+            song: song, totalLength: Int64(payload.count), connector: connector,
+            cacheURL: cacheURL, streamEpoch: CloudPlaybackSource.streamEpochTicket(sourceID: sourceID),
+            prefetchAhead: 0, allowsTrailingFill: false, chunkBytes: 256 * 1024
+        ) as? CloudInputSourceObjC)
+        for offset in [0, 262_140, 262_144, 262_200, 600_000] {
+            let read = Self.read(input, byteCount: 4, offset: offset)
+            XCTAssertTrue(read.success)
+            XCTAssertEqual(read.data, payload.subdata(in: offset..<(offset + 4)))
+        }
+        let requests = await connector.requests()
+        XCTAssertEqual(requests.map(\.offset), [0, 262_144, 524_288])
+        XCTAssertEqual(requests.map(\.length), [262_144, 262_144, 262_144])
+    }
+
+    @MainActor
     func testMusicInterruptionRecoveryAcrossLocalCachedRangeAndRepeatPlayback() async throws {
         guard let path = ProcessInfo.processInfo.environment["PRIMUSE_BUFFERING_MUSIC_FIXTURE"] else {
             throw XCTSkip("Requires an ordinary music WAV fixture for muted playback recovery")

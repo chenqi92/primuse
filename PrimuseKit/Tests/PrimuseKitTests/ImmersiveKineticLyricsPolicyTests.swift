@@ -8,7 +8,7 @@ struct ImmersiveKineticLyricsPolicyTests {
 
     @Test func splitsIdeographsPerCharacterAndWordsWithTheirSpacing() {
         #expect(Policy.units(in: "晴天的雨，") == ["晴", "天", "的", "雨，"])
-        #expect(Policy.units(in: "Shape of you") == ["Shape ", "of ", "you"])
+        #expect(Policy.units(in: "Boats at sea") == ["Boats ", "at ", "sea"])
         #expect(Policy.units(in: "アイドル") == ["ア", "イ", "ド", "ル"])
         // 词中间的撇号、连字符不断开；开头的标点并进第一段。
         #expect(Policy.units(in: "don't rock-n-roll") == ["don't ", "rock-n-roll"])
@@ -167,7 +167,7 @@ struct ImmersiveKineticLyricsPolicyTests {
     @Test func fontSizeShrinksOnlyWhenTheLineDoesNotFit() {
         #expect(Policy.fontSize(for: "短句", base: 36, minimum: 20, availableWidth: 345, maximumLines: 3) == 36)
         // 十三个汉字：一个字一个字号宽，36 号在 345 宽里一行只放得下九个半，两行就放得下。
-        let chinese = "我想就这样牵着你的手不放开"
+        let chinese = "小纸船沿着蓝色的格子向前走"
         #expect(abs(Policy.estimatedWidth(of: chinese) - 13) < 1e-9)
         #expect(Policy.fontSize(for: chinese, base: 36, minimum: 20, availableWidth: 345, maximumLines: 1) < 36)
         #expect(Policy.fontSize(for: chinese, base: 36, minimum: 20, availableWidth: 345, maximumLines: 2) == 36)
@@ -175,7 +175,7 @@ struct ImmersiveKineticLyricsPolicyTests {
         let fitted = Policy.fontSize(for: long, base: 36, minimum: 20, availableWidth: 345, maximumLines: 3)
         #expect(fitted == 20)
         // 拉丁字母窄：同样字数的英文不缩。
-        #expect(Policy.fontSize(for: "Shape of you", base: 36, minimum: 20, availableWidth: 345, maximumLines: 1) == 36)
+        #expect(Policy.fontSize(for: "Boats at sea", base: 36, minimum: 20, availableWidth: 345, maximumLines: 1) == 36)
     }
 
     private func line(_ text: String, start: Double = 10, step: Double = 0.3) -> [Policy.Token] {
@@ -201,13 +201,13 @@ struct ImmersiveKineticLyricsPolicyTests {
         // 只有一两个字的短句：最后一个字是重点字。
         #expect(Policy.strikes(for: line("爱"), accent: .glow, seed: 3) == [.hero])
         // 冲击字的歌只配上下的动作。
-        let slam = Policy.strikes(for: line("我想就这样牵着你的手"), accent: .slam, seed: 9)
+        let slam = Policy.strikes(for: line("小纸船沿着蓝色的格子"), accent: .slam, seed: 9)
         #expect(slam.allSatisfy { [.drop, .rise, .hero].contains($0) })
     }
 
     @Test func strikesAndTheirMotionIgnoreHowLongACharacterIsSung() {
         // 同样的字，唱得长短不同（US12592007B2）：动作和唱到后同一时刻的样子都一样。
-        let short = line("我想就这样牵着你的手", step: 0.2)
+        let short = line("小纸船沿着蓝色的格子", step: 0.2)
         let long = short.map { Policy.Token(text: $0.text, start: $0.start, end: $0.start + 2.5) }
         let strikes = Policy.strikes(for: short, accent: .glow, seed: 5)
         #expect(Policy.strikes(for: long, accent: .glow, seed: 5) == strikes)
@@ -255,7 +255,7 @@ struct ImmersiveKineticLyricsPolicyTests {
     }
 
     @Test func onlyHeroesShakeTheLineUnlessEveryCharacterSlams() {
-        let tokens = line("我想就这样牵着你")
+        let tokens = line("小纸船沿着格子走")
         let strikes = Policy.strikes(for: tokens, accent: .glow, seed: 11)
         let plain = tokens.indices.first { strikes[$0] != .hero }!
         let quiet = Policy.shake(for: tokens, strikes: strikes, at: tokens[plain].start + 0.05, motion: true)

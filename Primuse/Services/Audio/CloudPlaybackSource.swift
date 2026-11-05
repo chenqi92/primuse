@@ -135,7 +135,8 @@ enum CloudPlaybackSource {
         prefetchAhead: Int = Self.prefetchAhead,
         allowsTrailingFill: Bool = true,
         sequentialFetch: SequentialFetch? = nil,
-        readAheadSuspended: Bool = false
+        readAheadSuspended: Bool = false,
+        chunkBytes: Int64? = nil
     ) -> InputSource? {
         let path = song.filePath
         let connectorFetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data = { off, len, priority in
@@ -160,7 +161,8 @@ enum CloudPlaybackSource {
             allowsTrailingFill: allowsTrailingFill,
             connectorFetch: connectorFetch,
             sequentialFetch: sequentialFetch,
-            readAheadSuspended: readAheadSuspended
+            readAheadSuspended: readAheadSuspended,
+            chunkBytes: chunkBytes ?? (connector is BaiduPanSource ? 256 * 1024 : Self.chunkSize)
         )
     }
 
@@ -216,7 +218,8 @@ enum CloudPlaybackSource {
         allowsTrailingFill: Bool,
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data,
         sequentialFetch: SequentialFetch? = nil,
-        readAheadSuspended: Bool = false
+        readAheadSuspended: Bool = false,
+        chunkBytes: Int64 = Self.chunkSize
     ) -> InputSource? {
         guard isCurrentStreamEpoch(sourceID: sourceID, epoch: streamEpoch) else {
             return nil
@@ -296,7 +299,8 @@ enum CloudPlaybackSource {
                     allowsTrailingFill: allowsTrailingFill,
                     connectorFetch: connectorFetch,
                     sequentialFetch: sequentialFetch,
-                    readAheadSuspended: readAheadSuspended
+                    readAheadSuspended: readAheadSuspended,
+                    chunkBytes: chunkBytes
                 )
             }
         ) else { return nil }
@@ -1274,6 +1278,7 @@ private final class State: @unchecked Sendable {
     /// OneDrive keeps a single serialized TCP Range connection, so it uses 0
     /// to keep that connection reserved for foreground decoder reads.
     private let prefetchAhead: Int
+    private let chunkBytes: Int64
     /// A session opened ahead of playback (the prepared next song) reads only
     /// what its decoder asks for, so it does not compete with the song that
     /// is playing, until playback takes it over.
@@ -1382,7 +1387,8 @@ private final class State: @unchecked Sendable {
         allowsTrailingFill: Bool = true,
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data,
         sequentialFetch: CloudPlaybackSource.SequentialFetch? = nil,
-        readAheadSuspended: Bool = false
+        readAheadSuspended: Bool = false,
+        chunkBytes: Int64 = CloudPlaybackSource.chunkSize
     ) {
         self.label = label
         self.sourceID = sourceID
@@ -1395,6 +1401,7 @@ private final class State: @unchecked Sendable {
         self.persistOnComplete = persistOnComplete
         self.cacheRelativePath = cacheRelativePath
         self.prefetchAhead = max(0, prefetchAhead)
+        self.chunkBytes = max(1, min(chunkBytes, CloudPlaybackSource.chunkSize))
         self.allowsTrailingFill = allowsTrailingFill
         self.connectorFetch = connectorFetch
         self.sequentialFetch = sequentialFetch
@@ -1485,7 +1492,7 @@ private final class State: @unchecked Sendable {
             // 推 fetchStart 到 cache 末尾后, 只拉缺失的 [256KB..1MB]。
             let fetchDeadline = DispatchTime.now() + .seconds(30)
             let serveStartedAt = Date()
-            let chunkSize = CloudPlaybackSource.chunkSize
+            let chunkSize = chunkBytes
             let chunkAlign = (offset / chunkSize) * chunkSize
             let chunkEnd = min(chunkAlign + chunkSize, totalLength)
             let chunkStart: Int64 = {
@@ -1779,7 +1786,7 @@ private final class State: @unchecked Sendable {
     private func prefetchIfNeeded(startOffset: Int64) {
         let aheadCount = prefetchAhead
         guard aheadCount > 0, !isReadAheadSuspended() else { return }
-        let chunkSize = CloudPlaybackSource.chunkSize
+        let chunkSize = chunkBytes
         // Round UP to the next chunk boundary — the chunk *containing*
         // startOffset was just fetched (or hit cache). Prefetch the ones
         // after it so SFB doesn't stall when it crosses boundaries.

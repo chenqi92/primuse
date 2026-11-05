@@ -229,7 +229,7 @@ struct LyricsAPIServerPolicyClassifyTests {
         #expect(classify(200, Self.yrcDocument) == .lyrics(lrc: Self.yrcDocument, plain: nil))
         let qrc = #"<?xml version="1.0" encoding="utf-8"?><QrcInfos><LyricInfo LyricCount="1"><Lyric_1 LyricType="1" LyricContent="[0,2000]Hello (0,500)world(500,600)"/></LyricInfo></QrcInfos>"#
         #expect(classify(200, qrc) == .lyrics(lrc: qrc, plain: nil))
-        let lys = "[4]Dreaming (5245,696)about (5941,471)the (6412,306)things(6718,458)"
+        let lys = "[4]Drifting (5245,696)past (5941,471)the (6412,306)docks(6718,458)"
         #expect(classify(200, lys) == .lyrics(lrc: lys, plain: nil))
     }
 

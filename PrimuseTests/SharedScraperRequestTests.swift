@@ -6,6 +6,126 @@ import XCTest
 @testable import Primuse
 
 final class SharedScraperRequestTests: XCTestCase {
+    func testLegacyConfigRoundTripPreservesUserFieldsAndFallback() throws {
+        let original = Data(#"{"id":"kugou","name":"My source","version":6,"cookie":"fixture-cookie","modifiedAt":12345,"sslTrustDomains":["fixture.test"],"capabilities":["lyrics"],"lyrics":{"url":"https://fixture.test/lyrics","method":"GET","script":"return response;"},"secrets":{"testKey":"fixture-secret"}}"#.utf8)
+        let config = try JSONDecoder().decode(ScraperConfig.self, from: original)
+        let encoded = try JSONEncoder().encode(config)
+        let restored = try JSONDecoder().decode(ScraperConfig.self, from: encoded)
+        XCTAssertEqual(restored.id, config.id)
+        XCTAssertEqual(restored.name, config.name)
+        XCTAssertEqual(restored.version, config.version)
+        XCTAssertEqual(restored.cookie, config.cookie)
+        XCTAssertEqual(restored.modifiedAt, config.modifiedAt)
+        XCTAssertEqual(restored.sslTrustDomains, config.sslTrustDomains)
+        XCTAssertEqual(restored.lyrics?.script, config.lyrics?.script)
+        XCTAssertNil(restored.secrets)
+        XCTAssertNil(restored.lyricsFallback)
+        XCTAssertNil(restored.responseValidation)
+        XCTAssertNotNil(LegacyScraperCompatibility.lyricsFallback(for: restored))
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("fixture-secret"))
+    }
+
+    func testConfiguredFallbackRoundTripAndImportPreview() throws {
+        let fixture = ScraperHTTPFixture { _ in .init() }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.lyricsFallback = .init(url: "https://lyrics.fixture.test/get?id={{id}}", contentField: "text",
+                                      encoding: .utf8, requiredVariables: ["id"])
+        config.responseValidation = .init(codePaths: ["status", "operations.*.status"], successCodes: [200])
+        let data = try JSONEncoder().encode(config)
+        let restored = try JSONDecoder().decode(ScraperConfig.self, from: data)
+        XCTAssertEqual(restored.lyricsFallback?.requiredVariables, ["id"])
+        XCTAssertEqual(restored.responseValidation?.successCodes, [200])
+        let summary = try ScraperConfigStore.shared.previewImportFromJSON(String(decoding: data, as: UTF8.self))
+        XCTAssertTrue(summary.domains.contains("lyrics.fixture.test"))
+        XCTAssertEqual(summary.endpointCount, 2)
+    }
+
+    func testConfiguredFallbackSupportsBothEncodingsAndEscapesVariables() async throws {
+        for encoding in [LyricsFallbackConfig.ContentEncoding.utf8, .base64UTF8] {
+            let expected = "[00:01.00]Paper boats cross the bay"
+            let content = encoding == .utf8 ? expected : Data(expected.utf8).base64EncodedString()
+            let body = try JSONSerialization.data(withJSONObject: ["text": content])
+            let fixture = ScraperHTTPFixture { request in
+                request.url?.path == "/lyrics"
+                    ? .init(body: Data(#"{"_fetchLyrics":true,"vars":{"id":"a&other=1"}}"#.utf8))
+                    : .init(body: body)
+            }
+            defer { fixture.close() }
+            // Explicit configuration also overrides the legacy source's default URL.
+            var config = ScraperConfig(id: "kugou", name: "Fixture", version: 7, rateLimit: 0, capabilities: ["lyrics"])
+            config.lyrics = fixture.encryptedConfig().lyrics
+            config.lyricsFallback = .init(url: fixture.url("fallback?id={{id}}"), contentField: "text",
+                                          encoding: encoding, requiredVariables: ["id"])
+            let result = try await ConfigurableScraper(config: config, session: fixture.session).getLyrics(externalId: "song")
+            XCTAssertEqual(result?.lrcContent, expected)
+            let url = try XCTUnwrap(fixture.requests.last?.url)
+            XCTAssertEqual(url.host, URL(string: fixture.url(""))?.host)
+            XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+                           [.init(name: "id", value: "a&other=1")])
+        }
+    }
+
+    func testMissingFallbackVariablesDoNotSendSecondRequest() async throws {
+        let fixture = ScraperHTTPFixture { _ in
+            .init(body: Data(#"{"_fetchLyrics":true,"vars":{"id":"123"}}"#.utf8))
+        }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.lyrics = fixture.encryptedConfig().lyrics
+        config.lyricsFallback = .init(url: fixture.url("fallback"), contentField: "content", encoding: .base64UTF8,
+                                      requiredVariables: ["ticket"])
+        let result = try await ConfigurableScraper(config: config, session: fixture.session).getLyrics(externalId: "song")
+        XCTAssertNil(result)
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testConfiguredBusinessFailureReachesCircuitBreaker() async throws {
+        let fixture = ScraperHTTPFixture { _ in
+            .init(body: Data(#"{"status":200,"operations":{"search":{"status":401}}}"#.utf8))
+        }
+        defer { fixture.close() }
+        var config = fixture.config()
+        config.responseValidation = .init(codePaths: ["status", "operations.*.status"], successCodes: [200])
+        let scraper = ConfigurableScraper(config: config, session: fixture.session, requestPool: ScraperRequestPool())
+        let manager = ScraperManager(scraperFactory: { _ in scraper })
+        let settings = ScraperSettings(sources: [.init(id: config.id, type: .itunes, isEnabled: true, priority: 0)])
+        for index in 0..<8 {
+            _ = await manager.scrapeMetadata(title: "Song \(index)", artist: nil, album: nil, duration: nil,
+                needs: .init(metadata: true, cover: false, lyrics: false), settings: settings)
+        }
+        XCTAssertEqual(fixture.requests.count, 3)
+    }
+
+    func testExplicitBusinessRulesOverrideLegacyDefaults() async throws {
+        let fixture = ScraperHTTPFixture { _ in .init(body: Data(#"{"code":200,"items":[]}"#.utf8)) }
+        defer { fixture.close() }
+        var config = ScraperConfig(id: "qqmusic", name: "Fixture", version: 2, rateLimit: 0, capabilities: ["metadata"])
+        config.search = .init(url: fixture.url("search"), method: "GET", script: "return response.items;")
+        config.responseValidation = .init(codePaths: ["code"], successCodes: [200])
+        let result = try await ConfigurableScraper(config: config, session: fixture.session).search(query: "Song", artist: nil, album: nil, limit: 1)
+        XCTAssertTrue(result.items.isEmpty)
+    }
+
+    func testScriptErrorsAreFailuresWhileExplicitEmptyResultsRemainSuccessful() async throws {
+        let fixture = ScraperHTTPFixture { _ in .init() }
+        defer { fixture.close() }
+        for script in ["throw new Error('fixture');", "return (;", "return missingVariable.value;"] {
+            var config = fixture.config()
+            config.search = .init(url: fixture.url("search"), method: "GET", script: script)
+            do {
+                _ = try await ConfigurableScraper(config: config, session: fixture.session).search(query: "Song", artist: nil, album: nil, limit: 1)
+                XCTFail("Script failure must not become a search miss")
+            } catch ScraperError.parseError { }
+        }
+        for script in ["return null;", "return undefined;", "return [];"] {
+            var config = fixture.config()
+            config.search = .init(url: fixture.url("search"), method: "GET", script: script)
+            let result = try await ConfigurableScraper(config: config, session: fixture.session).search(query: "Song", artist: nil, album: nil, limit: 1)
+            XCTAssertTrue(result.items.isEmpty)
+        }
+    }
+
     func testKugouWithoutPrivateConfigurationFetchesPublicLRC() async throws {
         let expected = "[00:01.00]A line\n[00:02.00]Another line"
         let fixture = ScraperHTTPFixture { request in

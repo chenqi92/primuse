@@ -874,6 +874,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             length: length,
             userAgent: Self.dlinkUserAgent,
             referer: Self.dlinkReferer,
+            resourceTimeoutSeconds: 600,
             session: rangeSession
         )
         plog("☁️ Baidu fetchRange got \(data.count) bytes for \(path) [offset=\(offset)]")

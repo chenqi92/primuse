@@ -3477,6 +3477,7 @@ final class SourceManager {
     /// misleading selected/unselected flash during automatic retries.
     private(set) var lastSuccessfulConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
+    @ObservationIgnored private var offlineTransferGates: [String: (gate: AsyncSlotGate, users: Int)] = [:]
     /// 正在把离线原文件转成精简副本的任务, 按原文件缓存的相对路径单飞。会删掉
     /// 这组文件的操作(移除下载、停用源、换账号、路径迁移)先取消它。
     @ObservationIgnored private var offlineCompactionTasks: [String: OfflineCompactionTaskRecord] = [:]
@@ -9875,6 +9876,21 @@ final class SourceManager {
     ) async -> OfflineDownloadTransferResult {
         let startedAt = Date()
         let relativePath = audioCacheRelativePath(for: song)
+        // Background work is keyed by song ID; CUE tracks and other aliases can
+        // still share one staging file. Hold its slot through validation/rename.
+        var entry = offlineTransferGates[relativePath] ?? (gate: AsyncSlotGate(), users: 0)
+        entry.users += 1
+        offlineTransferGates[relativePath] = entry
+        let acquired = await entry.gate.acquire()
+        defer {
+            if acquired { entry.gate.release() }
+            if let current = offlineTransferGates[relativePath], current.users > 1 {
+                offlineTransferGates[relativePath] = (current.gate, current.users - 1)
+            } else {
+                offlineTransferGates[relativePath] = nil
+            }
+        }
+        guard acquired, !Task.isCancelled else { return .cancelled }
         // 迁移批次正拿着这个目标路径时先等它做完: 中途开工的暂存文件会被
         // 迁移顺手删掉, 然后以 ENOENT 收场。请求本身不会被丢弃。
         await awaitPathKeyedReconcileReservation(for: relativePath)

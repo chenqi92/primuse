@@ -199,9 +199,8 @@ actor ConfigurableScraper: MusicScraper {
         // framework 用 secrets 提供的 URL 模板拉二进制，再用 secrets 提供的
         // magic + xorKey 解密、按相对偏移格式转 A2 LRC。
         //
-        // URL 模板、解密 key 都从用户本地的 `<id>.secrets.json` 旁路加载——
-        // app 二进制不携带任何平台特定常量。
-        if dict["_fetchEncryptedLyrics"] as? Bool == true {
+        // 新配置也可用 _fetchLyrics 标记请求配置中的明文回退。
+        if dict["_fetchEncryptedLyrics"] as? Bool == true || dict["_fetchLyrics"] as? Bool == true {
             // vars 支持两种形式:
             // - dict（单个 candidate）: 直接 fetch
             // - array（多个 candidate）: 依次 try, 选 lrcContent 最长的 (有些
@@ -273,7 +272,9 @@ actor ConfigurableScraper: MusicScraper {
               let magicHex = secrets["lyricsMagicHex"], let magic = Data(hexString: magicHex),
               let xorHex = secrets["lyricsXorKeyHex"], let xorKey = [UInt8](hexString: xorHex)
         else {
-            if config.id == "kugou" { return try await fetchPlainKugouLyrics(vars: vars) }
+            if let fallback = LegacyScraperCompatibility.lyricsFallback(for: config) {
+                return try await fetchFallbackLyrics(fallback, vars: vars)
+            }
             plog("⚠️ Encrypted lyrics: missing secrets, skip")
             return nil
         }
@@ -321,18 +322,14 @@ actor ConfigurableScraper: MusicScraper {
         return ScraperLyricsResult(source: type, lrcContent: final)
     }
 
-    /// The public LRC representation needs only the candidate's download parameters.
-    /// Keep configured encrypted/word-timed sources on their existing path.
-    private func fetchPlainKugouLyrics(vars: [String: Any]) async throws -> ScraperLyricsResult? {
-        guard let id = vars["id"], let accessKey = vars["accesskey"] as? String,
-              !accessKey.isEmpty else { return nil }
-        var url = URLComponents(string: "https://lyrics.kugou.com/download")!
-        url.queryItems = [
-            .init(name: "ver", value: "1"), .init(name: "client", value: "pc"),
-            .init(name: "id", value: String(describing: id)), .init(name: "accesskey", value: accessKey),
-            .init(name: "fmt", value: "lrc"), .init(name: "charset", value: "utf8")
-        ]
-        guard let target = url.url else { return nil }
+    private func fetchFallbackLyrics(_ fallback: LyricsFallbackConfig, vars: [String: Any]) async throws -> ScraperLyricsResult? {
+        let stringVars = vars.mapValues { String(describing: $0) }
+        guard fallback.requiredVariables.allSatisfy({ stringVars[$0]?.isEmpty == false }) else { return nil }
+        let expanded = Self.applyURLTemplate(fallback.url, vars: stringVars)
+        let safe = Self.enforceHTTPPolicy(expanded, trustDomains: config.sslTrustDomains ?? [])
+        guard let target = URL(string: safe),
+              ["http", "https"].contains(target.scheme?.lowercased() ?? ""),
+              !Self.isPlaceholderEndpoint(safe) else { return nil }
         var request = URLRequest(url: target)
         request.timeoutInterval = 10
         let data: Data
@@ -345,10 +342,15 @@ actor ConfigurableScraper: MusicScraper {
             throw ScraperRequestPool.scraperError(error)
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = json["content"] as? String,
-              let decoded = Data(base64Encoded: content),
-              let text = String(data: decoded, encoding: .utf8),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+              let content = json[fallback.contentField] as? String else { return nil }
+        let text: String?
+        switch fallback.encoding {
+        case .base64UTF8:
+            text = Data(base64Encoded: content).flatMap { String(data: $0, encoding: .utf8) }
+        case .utf8:
+            text = content
+        }
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return ScraperLyricsResult(source: type, lrcContent: text)
     }
 
@@ -442,17 +444,9 @@ actor ConfigurableScraper: MusicScraper {
         guard data.count <= Self.maxEndpointResponseBytes else {
             throw ScraperError.networkError("Response too large: \(data.count)B")
         }
-        // The musicu API can return HTTP 200 and outer code 0 even when its
-        // requested operation failed. Preserve that failure for source backoff.
-        if request.url?.host?.lowercased() == "u.y.qq.com" || config.id == "qqmusic",
-           let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let codes = [response["code"] as? Int].compactMap { $0 } + response.compactMap { key, value -> Int? in
-                guard key.hasPrefix("req"), let operation = value as? [String: Any] else { return nil }
-                return operation["code"] as? Int
-            }
-            if let code = codes.first(where: { $0 != 0 }) {
-                throw ScraperError.networkError("QQ Music API error \(code)")
-            }
+        if let validation = LegacyScraperCompatibility.responseValidation(for: config, url: request.url),
+           let code = validation.firstFailure(in: data) {
+            throw ScraperError.networkError("Scraper API error \(code)")
         }
         return data
     }
@@ -695,8 +689,8 @@ actor ConfigurableScraper: MusicScraper {
         ScraperNativeResolvers.register(in: context)
 
         // 把 config.secrets 注入为 JS 全局 `secrets`，让 JSON 配置可以引用
-        // 本地敏感配置（URL 模板 / hash seed 等），而 app 二进制不携带任何
-        // 平台特征。secrets 不存在时 JS 端读到 undefined，需要做 null 检查
+        // 本地敏感配置（URL 模板 / hash seed 等）。
+        // secrets 不存在时 JS 端读到 undefined，需要做 null 检查
         // 走 fallback。
         if let secrets, !secrets.isEmpty {
             context.setObject(secrets, forKeyedSubscript: "secrets" as NSString)
@@ -761,9 +755,8 @@ actor ConfigurableScraper: MusicScraper {
         }
 
         // Handle exceptions
-        context.exceptionHandler = { _, exception in
-            plog("📜 JS error[\(configID)]: \(exception?.toString() ?? "unknown")")
-        }
+        var scriptFailed = false
+        context.exceptionHandler = { _, _ in scriptFailed = true }
 
         // Execute script — wrap in IIFE if not already
         let wrappedScript: String
@@ -773,7 +766,11 @@ actor ConfigurableScraper: MusicScraper {
             wrappedScript = "(function() { \(script) })()"
         }
 
-        guard let result = context.evaluateScript(wrappedScript) else {
+        let evaluated = context.evaluateScript(wrappedScript)
+        guard !scriptFailed, context.exception == nil else {
+            return .failure(ScraperError.parseError("Script execution failed"))
+        }
+        guard let result = evaluated else {
             return .failure(ScraperError.parseError("Script returned nil"))
         }
 

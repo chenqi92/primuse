@@ -5263,12 +5263,12 @@ private struct MacScraperImportPreview {
     var endpointScripts: [String]
 
     static let sample = MacScraperImportPreview(
-        name: "NetEase Music",
+        name: "Example Music",
         version: "1.2.0",
         capabilities: ["metadata", "cover", "lyrics"],
         rateLimitMs: 1000,
-        headers: ["User-Agent": "Primuse/3.8", "Referer": "https://music.163.com"],
-        sslDomains: ["music.163.com", "*.126.net"],
+        headers: ["User-Agent": "Primuse/3.8", "Referer": "https://music.example.com"],
+        sslDomains: [],
         endpointScripts: ["search.js", "detail.js", "cover.js", "lyrics.js"]
     )
 
@@ -5330,7 +5330,7 @@ private struct MacScraperImportPreview {
 
     var headerRows: [String] {
         let rows = headers.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value.replacingOccurrences(of: "https://", with: ""))" }
-        return rows.isEmpty ? ["User-Agent: Primuse/3.8", "Referer: music.163.com"] : rows
+        return rows
     }
 }
 

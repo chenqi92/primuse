@@ -5397,7 +5397,9 @@ final class MetadataBackfillService {
             if (needsDurationExpansion || needsArtworkExpansion || needsArtistExpansion),
                expandedByteCount > headData.count {
                 do {
-                    let expandedHead = try await fetchRange(offset: 0, length: Int64(expandedByteCount))
+                    let expandedHead = try await RemoteMetadataReadPolicy.extendingHead(
+                        metadataInputData, to: expandedByteCount, fetch: fetchRange
+                    )
                     metadataInputData = expandedHead
                     metadata = await extractMetadata(
                         from: expandedHead,
@@ -5427,7 +5429,9 @@ final class MetadataBackfillService {
                     fileSize: song.fileSize,
                     currentData: metadataInputData
                   ) {
-                let expandedHead = try await fetchRange(offset: 0, length: Int64(expandedByteCount))
+                let expandedHead = try await RemoteMetadataReadPolicy.extendingHead(
+                    metadataInputData, to: expandedByteCount, fetch: fetchRange
+                )
                 guard expandedHead.count > metadataInputData.count else {
                     throw BackfillRangeExpansionError(format: "FLAC")
                 }
@@ -5452,7 +5456,9 @@ final class MetadataBackfillService {
                 currentData: metadataInputData,
                 fileExtension: parserExtension
             ) {
-                let expandedHead = try await fetchRange(offset: 0, length: Int64(expandedByteCount))
+                let expandedHead = try await RemoteMetadataReadPolicy.extendingHead(
+                    metadataInputData, to: expandedByteCount, fetch: fetchRange
+                )
                 guard expandedHead.count > metadataInputData.count else {
                     throw BackfillRangeExpansionError(format: parserExtension)
                 }
@@ -5474,7 +5480,9 @@ final class MetadataBackfillService {
                 fileSize: song.fileSize,
                 currentData: metadataInputData
             ) {
-                let expandedHead = try await fetchRange(offset: 0, length: Int64(expandedByteCount))
+                let expandedHead = try await RemoteMetadataReadPolicy.extendingHead(
+                    metadataInputData, to: expandedByteCount, fetch: fetchRange
+                )
                 guard expandedHead.count > metadataInputData.count else {
                     throw BackfillRangeExpansionError(format: parserExtension)
                 }
