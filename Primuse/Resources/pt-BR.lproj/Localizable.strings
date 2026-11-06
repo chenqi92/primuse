@@ -4570,6 +4570,7 @@
 "stream_transcode_format" = "Formato de transcodificação";
 "streaming_quality_original" = "Original";
 "streaming_quality_320" = "320 kbps";
+"streaming_quality_256" = "256 kbps";
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "Em servidores compatíveis com transcodificação (Subsonic / Navidrome, Emby, Jellyfin / Plex e similares), transmite com taxa de bits menor para economizar dados móveis. “Original” envia o arquivo de origem sem alterações. Uma faixa transcodificada é baixada por inteiro antes de começar, então a primeira faixa e qualquer uma para a qual você pular manualmente começa após uma breve espera; a próxima faixa é preparada com antecedência. Uma faixa transcodificada só pode ser navegada após o download terminar, fica fora da reprodução sem intervalos e do crossfade, e nunca é salva no cache off-line. Trocar de rede passa a valer na próxima faixa.";

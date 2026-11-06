@@ -43,6 +43,7 @@ struct OfflineDownloadQualityPolicyTests {
                 == .compact(bitRateKbps: 192))
         }
         #expect(plan(.kbps320) == .compact(bitRateKbps: 320))
+        #expect(plan(.kbps256) == .compact(bitRateKbps: 256))
         #expect(plan(.kbps128) == .compact(bitRateKbps: 128))
     }
 
@@ -58,6 +59,8 @@ struct OfflineDownloadQualityPolicyTests {
         #expect(plan(.kbps192, format: .mp3, bitRate: 239) == .keepOriginal)
         #expect(plan(.kbps192, format: .mp3, bitRate: 192) == .keepOriginal)
         #expect(plan(.kbps320, format: .mp3, bitRate: 320) == .keepOriginal)
+        #expect(plan(.kbps256, format: .mp3, bitRate: 320) == .compact(bitRateKbps: 256))
+        #expect(plan(.kbps256, format: .mp3, bitRate: 319) == .keepOriginal)
         #expect(plan(.kbps128, format: .m4a, bitRate: 256) == .compact(bitRateKbps: 128))
     }
 
@@ -177,6 +180,7 @@ struct OfflineDownloadQualityPolicyTests {
     func encoderBitRates() {
         let stereo = [64_000, 96_000, 128_000, 160_000, 192_000, 256_000, 320_000]
         #expect(OfflineDownloadQualityPolicy.encoderBitRate(targetKbps: 192, channelCount: 2, applicableBitRates: stereo) == 192_000)
+        #expect(OfflineDownloadQualityPolicy.encoderBitRate(targetKbps: 256, channelCount: 2, applicableBitRates: stereo) == 256_000)
         #expect(OfflineDownloadQualityPolicy.encoderBitRate(targetKbps: 320, channelCount: 2, applicableBitRates: [64_000, 128_000, 256_000]) == 256_000)
         #expect(OfflineDownloadQualityPolicy.encoderBitRate(targetKbps: 128, channelCount: 2, applicableBitRates: [160_000, 192_000]) == 160_000)
         #expect(OfflineDownloadQualityPolicy.encoderBitRate(targetKbps: 192, channelCount: 2, applicableBitRates: []) == 192_000)

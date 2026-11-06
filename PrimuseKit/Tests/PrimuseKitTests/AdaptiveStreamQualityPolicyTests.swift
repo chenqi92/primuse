@@ -5,17 +5,18 @@ import Testing
 @Suite("Adaptive Stream Quality Policy")
 struct AdaptiveStreamQualityPolicyTests {
 
-    @Test(arguments: StreamTranscodeFormat.allCases)
-    func selectedFormatSurvivesPlanningAndURLResolution(format: StreamTranscodeFormat) throws {
+    @Test(arguments: StreamTranscodeFormat.allCases, [StreamQualityPreference.kbps128, .kbps256])
+    func selectedFormatSurvivesPlanningAndURLResolution(format: StreamTranscodeFormat, quality: StreamQualityPreference) throws {
+        let bitrate = try #require(quality.targetBitRateKbps)
         let plan = AdaptiveStreamQualityPolicy.plan(
-            wifiPreference: .original, cellularPreference: .kbps128,
+            wifiPreference: .original, cellularPreference: quality,
             isExpensive: true, isConstrained: false,
             formatIsLossless: true, formatRequiresCompleteLocalFile: false,
             sourceBitRateKbps: 1000, fileSize: 30_000_000, duration: 240,
             transcodeFormat: format
         )
-        #expect(plan == .transcode(bitRateKbps: 128, format: format))
-        let url = try #require(URL(string: "https://music.invalid/rest/stream.view?format=\(format.rawValue)&maxBitRate=128&primuse_adaptive=1"))
+        #expect(plan == .transcode(bitRateKbps: bitrate, format: format))
+        let url = try #require(URL(string: "https://music.invalid/rest/stream.view?format=\(format.rawValue)&maxBitRate=\(bitrate)&primuse_adaptive=1"))
         #expect(AdaptiveStreamQualityPolicy.plan(fromResolvedURL: url) == plan)
         let original = AdaptiveStreamQualityPolicy.plan(
             wifiPreference: .original, cellularPreference: .original,
@@ -36,6 +37,12 @@ struct AdaptiveStreamQualityPolicyTests {
         #expect(names.first == legacy)
         #expect(names[1].hasSuffix(".aac"))
         #expect(names[2].hasSuffix(".opus"))
+        let allNames = StreamQualityPreference.allCases.compactMap(\.targetBitRateKbps).flatMap { bitrate in
+            StreamTranscodeFormat.allCases.map {
+                AdaptiveStreamQualityPolicy.transcodeFileName(songID: "same-song", bitRateKbps: bitrate, format: $0)
+            }
+        }
+        #expect(Set(allNames).count == allNames.count)
     }
 
     // 一首典型的无损曲目：FLAC、1000 kbps、40MB、4 分钟。
@@ -79,9 +86,19 @@ struct AdaptiveStreamQualityPolicyTests {
     func originalHasNoTarget() {
         #expect(StreamQualityPreference.original.targetBitRateKbps == nil)
         #expect(StreamQualityPreference.kbps320.targetBitRateKbps == 320)
+        #expect(StreamQualityPreference.kbps256.targetBitRateKbps == 256)
         #expect(StreamQualityPreference.kbps192.targetBitRateKbps == 192)
         #expect(StreamQualityPreference.kbps128.targetBitRateKbps == 128)
-        #expect(StreamQualityPreference.allCases.count == 4)
+        #expect(StreamQualityPreference.allCases == [.original, .kbps320, .kbps256, .kbps192, .kbps128])
+    }
+
+    @Test("256 kbps 可以保存并恢复")
+    func quality256Persists() throws {
+        let decoded = try JSONDecoder().decode(StreamQualityPreference.self, from: Data(#""kbps256""#.utf8))
+        #expect(decoded == .kbps256)
+        let encoded = try JSONEncoder().encode(decoded)
+        #expect(try JSONDecoder().decode(StreamQualityPreference.self, from: encoded) == .kbps256)
+        #expect(losslessPlan(wifi: decoded, cellular: .original) == .transcode(bitRateKbps: 256))
     }
 
     @Test("原始枚举值可以从旧 JSON 之外的字符串安全还原")

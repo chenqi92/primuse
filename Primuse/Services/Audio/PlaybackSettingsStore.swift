@@ -65,6 +65,7 @@ extension StreamQualityPreference {
         switch self {
         case .original: String(localized: "streaming_quality_original")
         case .kbps320: String(localized: "streaming_quality_320")
+        case .kbps256: String(localized: "streaming_quality_256")
         case .kbps192: String(localized: "streaming_quality_192")
         case .kbps128: String(localized: "streaming_quality_128")
         }

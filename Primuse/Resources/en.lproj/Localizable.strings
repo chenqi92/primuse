@@ -4428,6 +4428,7 @@
 "stream_transcode_format" = "Transcoding Format";
 "streaming_quality_original" = "Original";
 "streaming_quality_320" = "320 kbps";
+"streaming_quality_256" = "256 kbps";
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "On servers that support transcoding (Subsonic / Navidrome, Emby, Jellyfin / Plex and compatible), stream at a lower bitrate to save mobile data. Original sends the source file untouched. A transcoded track is downloaded in full before playback starts, so the first track and any track you skip to begins after a short wait; the next track in the queue is prepared ahead of time. A transcoded track cannot be scrubbed until its download finishes, skips gapless and crossfade, and is never saved to the offline cache. Switching networks takes effect on the next track.";

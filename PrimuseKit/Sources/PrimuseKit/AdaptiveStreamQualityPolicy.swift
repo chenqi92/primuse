@@ -8,6 +8,7 @@ import Foundation
 public enum StreamQualityPreference: String, Codable, Sendable, CaseIterable {
     case original
     case kbps320
+    case kbps256
     case kbps192
     case kbps128
 
@@ -18,6 +19,8 @@ public enum StreamQualityPreference: String, Codable, Sendable, CaseIterable {
             return nil
         case .kbps320:
             return 320
+        case .kbps256:
+            return 256
         case .kbps192:
             return 192
         case .kbps128:
