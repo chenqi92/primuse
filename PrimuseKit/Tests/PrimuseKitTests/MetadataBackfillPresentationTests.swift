@@ -145,8 +145,8 @@ struct MetadataBackfillPresentationTests {
         #expect(summary.count(for: .incomplete) == 17)
     }
 
-    @Test("The source card only counts problems the user can see")
-    func sourceCardIgnoresSelfResolvingWork() {
+    @Test("Source cards distinguish pending work from reported failures")
+    func sourceCardDistinguishesWorkFromProblems() {
         let backgroundOnly = MetadataBackfillSourceSummary(
             pendingInspectionCount: 2,
             waitingForWiFiCount: 3,
@@ -156,6 +156,7 @@ struct MetadataBackfillPresentationTests {
         )
         #expect(backgroundOnly.affectedCount > 0)
         #expect(backgroundOnly.cardProblemCount == 0)
+        #expect(backgroundOnly.showsSourceCard(isReading: false))
 
         let visible = MetadataBackfillSourceSummary(
             pendingInspectionCount: 2,
@@ -164,6 +165,26 @@ struct MetadataBackfillPresentationTests {
             unreadableTagsCount: 13
         )
         #expect(visible.cardProblemCount == 31)
+        #expect(visible.showsSourceCard(isReading: false))
+    }
+
+    @Test("Source cards retain active, queued, Wi-Fi and retry progress without failures")
+    func healthyWorkRemainsVisibleOnSourceCards() {
+        let clear = MetadataBackfillSourceSummary()
+        #expect(!clear.showsSourceCard(isReading: false))
+        #expect(clear.showsSourceCard(isReading: true))
+        #expect(clear.showsSourceCard(isReading: false, remainingCount: 694))
+        for summary in [
+            MetadataBackfillSourceSummary(pendingInspectionCount: 694),
+            MetadataBackfillSourceSummary(waitingForWiFiCount: 694),
+            MetadataBackfillSourceSummary(retryPendingCount: 1),
+            MetadataBackfillSourceSummary(stalledCount: 1)
+        ] {
+            #expect(summary.cardProblemCount == 0)
+            #expect(summary.showsSourceCard(isReading: false))
+        }
+        #expect(!MetadataBackfillSourceSummary(playableIncompleteCount: 3)
+            .showsSourceCard(isReading: false))
     }
 
     @Test("Diagnostic display removes signed URL and credential material")

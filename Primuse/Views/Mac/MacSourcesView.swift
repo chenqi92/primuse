@@ -607,11 +607,9 @@ struct MacSourcesView: View {
             appleMusicSyncStatus(songCount: displayedSongCount)
                 .pmAppearFade(.contentAppear)
         } else {
-            let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
-            if metadataSummary.cardProblemCount > 0 {
-                macMetadataStatusButton(source, summary: metadataSummary)
-                    .pmAppearFade(.contentAppear)
-            } else {
+            SourceMetadataStatusCard(sourceID: source.id, openDetails: {
+                inspectingMetadataSource = source
+            }) {
                 HStack(spacing: 6) {
                     if displayedSongCount > 0 {
                         Text(verbatim: displayedSongCount.formatted())
@@ -685,60 +683,6 @@ struct MacSourcesView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Text("local_removals_title"))
         }
-    }
-
-    /// 和 iOS 一样只为看得出来的问题露面，后台排队、重试与降速只在详情页。
-    private func macMetadataStatusButton(
-        _ source: MusicSource,
-        summary: MetadataBackfillSourceSummary
-    ) -> some View {
-        Button {
-            inspectingMetadataSource = source
-        } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Image(systemName: "exclamationmark.circle")
-                    Text("metadata_status_title")
-                        .font(.system(size: 11, weight: .semibold))
-                    Spacer(minLength: 8)
-                    Text("metadata_status_open")
-                        .font(.system(size: 10.5, weight: .semibold))
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                Text(macMetadataSummaryText(summary))
-                    .font(.system(size: 10.5))
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundStyle(PMColor.textMuted)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("metadata_status_open"))
-        .accessibilityValue(Text(macMetadataSummaryText(summary)))
-        .accessibilityIdentifier("sources.metadataStatus.\(source.id)")
-    }
-
-    private func macMetadataSummaryText(_ summary: MetadataBackfillSourceSummary) -> String {
-        var parts: [String] = []
-        let sourceProblems = summary.sourceUnavailableCount + summary.fileUnavailableCount
-        if sourceProblems > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_source_problem_format"),
-                sourceProblems
-            ))
-        }
-        if summary.unreadableTagsCount > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_unreadable_format"),
-                summary.unreadableTagsCount
-            ))
-        }
-        return parts.joined(separator: " · ")
     }
 
     private func scanBox(_ scan: ScanService.ScanState) -> some View {

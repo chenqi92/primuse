@@ -464,6 +464,70 @@ struct MetadataReadingStatusView: View {
     }
 }
 
+struct SourceMetadataStatusCard<IdleContent: View>: View {
+    @Environment(MetadataBackfillService.self) private var backfill
+    let sourceID: String
+    let openDetails: () -> Void
+    @ViewBuilder var idleContent: () -> IdleContent
+
+    var body: some View {
+        let summary = backfill.sourceStatusSummary(forSource: sourceID)
+        let remaining = max(summary.activeQueueCount, backfill.remainingCount(forSource: sourceID))
+        let isReading = backfill.activeSourceIDs.contains(sourceID)
+            || backfill.batchRereadingSourceIDs.contains(sourceID)
+        if summary.showsSourceCard(isReading: isReading, remainingCount: remaining) {
+            Button(action: openDetails) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 7) {
+                        if isReading && backfill.readingMode != .paused {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: summary.cardProblemCount > 0
+                                  ? "exclamationmark.circle" : "clock")
+                        }
+                        Text(title(isReading: isReading, remaining: remaining))
+                            .font(.caption.weight(.semibold))
+                        Spacer(minLength: 8)
+                        Text("metadata_status_open")
+                            .font(.caption2.weight(.semibold))
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    Text(String(format: String(localized: "metadata_status_health_summary_format"),
+                                remaining, summary.problemCount))
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
+                    MetadataReadingStatusView(sourceID: sourceID)
+                }
+                .foregroundStyle(.secondary)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sources.metadataStatus.\(sourceID)")
+        } else {
+            idleContent()
+        }
+    }
+
+    private func title(isReading: Bool, remaining: Int) -> String {
+        if backfill.readingMode == .paused, isReading || remaining > 0 {
+            return MetadataReadingText.string("paused")
+        }
+        switch backfill.activityState(forSource: sourceID) {
+        case .running, .retrying: return String(localized: "backfill_in_progress")
+        case .waitingForWiFi: return String(localized: "backfill_waiting_for_wifi")
+        case .retryPending: return String(localized: "metadata_status_state_retry")
+        case .idle, .pending:
+            return isReading ? String(localized: "backfill_in_progress")
+                : String(localized: "metadata_status_title")
+        }
+    }
+}
+
 /// Standalone sources root for callers that don't already own navigation.
 struct SourcesView: View {
     var body: some View {
@@ -1035,12 +1099,10 @@ struct SourcesContentView: View {
                     }
                 } else if scanning?.failureMessage == nil,
                           scanning?.reconciliationMessage == nil {
-                    // Phase A finished. Only songs whose tags could not be read, or
-                    // whose source or file failed, show here; queued and retrying
-                    // work finishes on its own and stays on the detail page.
-                    let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
-                    if metadataSummary.cardProblemCount > 0 {
-                        metadataStatusButton(source, summary: metadataSummary)
+                    SourceMetadataStatusCard(sourceID: source.id, openDetails: {
+                        inspectingMetadataSource = source
+                    }) {
+                        EmptyView()
                     }
                 }
             }
@@ -1553,61 +1615,6 @@ struct SourcesContentView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Text("local_removals_title"))
         }
-    }
-
-    /// 只在有用户看得出来的问题时出现(`cardProblemCount`)。排队、重试、读取档位和降速
-    /// 这些后台自己会收尾的状态不挂在卡片上，点进详情页才看得到。
-    private func metadataStatusButton(
-        _ source: MusicSource,
-        summary: MetadataBackfillSourceSummary
-    ) -> some View {
-        Button {
-            inspectingMetadataSource = source
-        } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Image(systemName: "exclamationmark.circle")
-                    Text("metadata_status_title")
-                        .font(.caption.weight(.semibold))
-                    Spacer(minLength: 8)
-                    Text("metadata_status_open")
-                        .font(.caption2.weight(.semibold))
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                }
-                Text(metadataSummaryText(summary))
-                    .font(.caption2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundStyle(.secondary)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("metadata_status_open"))
-        .accessibilityValue(Text(metadataSummaryText(summary)))
-        .accessibilityIdentifier("sources.metadataStatus.\(source.id)")
-    }
-
-    private func metadataSummaryText(_ summary: MetadataBackfillSourceSummary) -> String {
-        var parts: [String] = []
-        let sourceProblems = summary.sourceUnavailableCount + summary.fileUnavailableCount
-        if sourceProblems > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_source_problem_format"),
-                sourceProblems
-            ))
-        }
-        if summary.unreadableTagsCount > 0 {
-            parts.append(String(
-                format: String(localized: "metadata_status_card_unreadable_format"),
-                summary.unreadableTagsCount
-            ))
-        }
-        return parts.joined(separator: " · ")
     }
 
     // MARK: - Helpers

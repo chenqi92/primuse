@@ -947,6 +947,58 @@ private struct LibraryPreparingView: View {
     }
 }
 
+struct LibraryStartupSongPreview: View {
+    @Environment(MusicLibrary.self) private var library
+    let sourceIDs: Set<String>
+    let play: (PrimuseKit.Song) -> Void
+    @State private var songs: [PrimuseKit.Song] = []
+
+    var body: some View {
+        Group {
+            if songs.isEmpty {
+                LibraryPreparingView()
+            } else {
+                List {
+                    ForEach(songs) { song in
+                        Button { play(song) } label: {
+                            HStack(spacing: 12) {
+                                CachedArtworkView(
+                                    coverRef: song.coverArtFileName, songID: song.id,
+                                    size: 44, cornerRadius: 7, sourceID: song.sourceID,
+                                    filePath: song.filePath, fileFormat: song.fileFormat
+                                )
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(song.title).foregroundStyle(.primary).lineLimit(1)
+                                    Text(song.artistName ?? "").font(.caption)
+                                        .foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .frame(minHeight: 48)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("library.startup.song.\(song.id)")
+                    }
+                    ProgressView("library_preparing")
+                        .frame(maxWidth: .infinity)
+                        .listRowSeparator(.hidden)
+                }
+                .listStyle(.plain)
+                .accessibilityIdentifier("library.startup.songs")
+            }
+        }
+        .task(id: sourceIDs) {
+            songs = []
+            let preview = await library.prepareStartupSongs(
+                ids: [], sourceIDs: sourceIDs, fallbackToFirstPage: true, musicOnly: true
+            )
+            guard !Task.isCancelled else { return }
+            songs = preview ?? []
+        }
+    }
+}
+
 struct LibraryReadyContent<Content: View>: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
@@ -963,10 +1015,16 @@ struct LibraryReadyContent<Content: View>: View {
 
     var body: some View {
         ZStack {
-            if library.isReady {
+            if library.isReady || startupSection == .radio || startupSection == .podcasts {
                 content()
             } else {
-                LibraryPreparingView()
+                Group {
+                    if startupSection == .songs {
+                        LibraryStartupSongPreview(sourceIDs: sourceIDs, play: playStartupSong)
+                    } else {
+                        LibraryPreparingView()
+                    }
+                }
                     .safeAreaInset(edge: .top) {
                         if startupSection == .songs {
                             VStack(spacing: 8) {
@@ -1000,6 +1058,20 @@ struct LibraryReadyContent<Content: View>: View {
         }
         .onChange(of: sourceIDs) { _, _ in startupPlayback.cancel() }
         .onChange(of: startupSection) { _, _ in startupPlayback.cancel() }
+    }
+
+    private func playStartupSong(_ song: PrimuseKit.Song) {
+        player.registerPlayIntent()
+        startupPlayback.request(
+            shuffled: false, intent: LibraryStartupPlaybackCoordinator.intent(of: player),
+            sourceIDs: sourceIDs,
+            whenReady: { await library.whenReady(timeout: .seconds(60)) },
+            currentIntent: { LibraryStartupPlaybackCoordinator.intent(of: player) },
+            currentSourceIDs: { sourceIDs }
+        ) {
+            guard let current = library.visibleSong(id: song.id), current.isPlayable else { return }
+            await player.play(song: current)
+        }
     }
 }
 
@@ -1560,11 +1632,11 @@ struct ContentView: View {
         case .libraryPlaylists:
             librarySubpane(title: "tab_playlists") { PlaylistListView() }
         case .libraryRadio:
-            librarySubpane(title: "radio_title") { RadioStationsView() }
+            librarySubpane(title: "radio_title", startupSection: .radio) { RadioStationsView() }
         case .libraryReleaseDate:
             librarySubpane(title: "library_release_date_title") { ReleaseDateLibraryView() }
         case .libraryPodcasts:
-            librarySubpane(title: "listening_space_podcast") { PodcastLibraryView() }
+            librarySubpane(title: "listening_space_podcast", startupSection: .podcasts) { PodcastLibraryView() }
         case .search:
             LibraryReadyContent {
                 SearchView(searchText: $searchText, scope: $searchScope,

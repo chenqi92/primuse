@@ -182,7 +182,7 @@ final class AlbumMetadataTests: XCTestCase {
     }
 
     @MainActor
-    func testStartupKeepsNormalLibraryNavigationWithoutTemporarySongRows() async throws {
+    func testStartupShowsCategoriesAndOnlyPreviewsSongsInsideTheSongPage() async throws {
         let suite = "StartupDestinationTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
@@ -192,7 +192,11 @@ final class AlbumMetadataTests: XCTestCase {
             try? FileManager.default.removeItem(at: directory)
         }
         let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
-        try store.replaceAll(with: [song("startup", title: "Startup Sentinel")])
+        var chapter = song("chapter", title: "Hidden Chapter")
+        chapter.genre = "Audiobook"
+        var disabled = song("disabled", title: "Disabled Sentinel")
+        disabled.sourceID = "disabled-source"
+        try store.replaceAll(with: [song("startup", title: "Startup Sentinel"), chapter, disabled])
         try store.markMigrationCompleted(version: 10)
         let library = MusicLibrary.makePreparing(storageDirectory: directory)
         let sources = SourcesStore(storageDirectoryURL: directory)
@@ -215,11 +219,71 @@ final class AlbumMetadataTests: XCTestCase {
                 try await Task.sleep(for: .milliseconds(800))
                 let text = try recognizedText(window, name: "startup-\(section?.rawValue ?? "home")-\(Int(size.width))")
                 XCTAssertFalse(library.isReady)
-                XCTAssertFalse(text.contains("StartupSentinel"), text)
+                XCTAssertEqual(text.contains("StartupSentinel"), section == .songs, text)
+                XCTAssertFalse(text.contains("HiddenChapter"), text)
+                XCTAssertFalse(text.contains("DisabledSentinel"), text)
                 XCTAssertTrue(text.contains("准备资料库"), text)
                 XCTAssertTrue(text.contains(section == .songs ? "歌曲" : section == .albums ? "专辑" : "资料库"), text)
+                if section == nil {
+                    XCTAssertTrue(text.contains("专辑"), text)
+                    XCTAssertTrue(text.contains("艺术家"), text)
+                }
             }
         }
+    }
+
+    @MainActor
+    func testIndependentDestinationsDoNotWaitForTheSongLibrary() async throws {
+        let suite = "StartupIndependentDestinations.\(UUID().uuidString)"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        for section in [LibrarySection.radio, .podcasts] {
+            let view = LibraryReadyContent(startupSection: section) {
+                Text(verbatim: "READY CONTENT")
+            }
+            .environment(library).environment(sources).environment(AppServices.shared.playerService)
+            let window = try show(view, size: CGSize(width: 390, height: 844))
+            defer { window.isHidden = true; window.rootViewController = nil }
+            try await Task.sleep(for: .milliseconds(200))
+            let text = try recognizedText(window, name: "startup-independent-\(section.rawValue)")
+            XCTAssertFalse(library.isReady)
+            XCTAssertTrue(text.contains("READYCONTENT"), text)
+        }
+    }
+
+    @MainActor
+    func testSourceCardShowsHealthyPendingCountsAndKeepsIdleSourcesQuiet() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SourceProgress-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs((0..<694).map {
+            Song(id: "pending-\($0)", title: "Pending \($0)", fileFormat: .flac,
+                 filePath: "pending-\($0).flac", sourceID: "pending-source")
+        })
+        await library.waitForPendingIndex()
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: SourceManager(sourcesProvider: { [] }),
+            backfillableSourceIDs: { ["pending-source"] }, storageDirectory: directory
+        )
+        await backfill.refreshStatusSnapshotOffMain()
+        XCTAssertEqual(backfill.sourceStatusSummary(forSource: "pending-source").activeQueueCount, 694)
+        XCTAssertEqual(backfill.sourceStatusSummary(forSource: "pending-source").cardProblemCount, 0)
+        let view = VStack {
+            SourceMetadataStatusCard(sourceID: "pending-source", openDetails: {}) { EmptyView() }
+            SourceMetadataStatusCard(sourceID: "idle-source", openDetails: {}) {
+                Text(verbatim: "IDLE SOURCE")
+            }
+        }.padding().environment(backfill)
+        let window = try show(view, size: CGSize(width: 390, height: 844))
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await Task.sleep(for: .milliseconds(200))
+        let text = try recognizedText(window, name: "source-progress-without-failures")
+        XCTAssertTrue(text.contains("694"), text)
+        XCTAssertTrue(text.contains("IDLESOURCE"), text)
+        _ = await library.persistNowAndWait()
     }
 
     @MainActor

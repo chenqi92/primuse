@@ -820,31 +820,6 @@ struct LibraryView: View {
                     onActiveSectionChange(nil)
                 }
             }
-            .task(id: library.visibleSongCollectionRevision) {
-                let version = SongListSnapshotVersion(
-                    collectionRevision: library.visibleSongCollectionRevision,
-                    replacementToken: library.songReplacementToken
-                )
-                // 和歌曲页同一份歌：有声书、相声这些在有声那一页。两边共用一个缓存键，
-                // 这里交整库的话，先建好的这份会被歌曲页直接拿去用，章节就混进了歌曲列表。
-                let songsSnapshot = library.musicSongs
-                guard !songsSnapshot.isEmpty else { return }
-                do {
-                    // Coalesce scanner bursts, then prepare the default order
-                    // while the user is still on the library hub. SongListView
-                    // reuses the same in-flight/cached snapshot on navigation.
-                    try await Task.sleep(for: .milliseconds(180))
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                _ = await SongListSnapshotStore.shared.snapshot(
-                    scopeKey: SongListSnapshotStore.libraryScopeKey,
-                    version: version,
-                    order: .title,
-                    songs: songsSnapshot
-                )
-            }
             .sheet(isPresented: $showQuickAccessEditor) {
                 FavoriteCollectionEditor()
                     .environment(favoriteFolderModel)
@@ -861,12 +836,10 @@ struct LibraryView: View {
             }
             .environment(\.libraryStackRegistersCollectionDetails, true)
         } else {
-            readyContent {
-                if hasContent {
-                    libraryHub
-                } else {
-                    emptyLibraryState
-                }
+            if !library.isReady || hasContent {
+                libraryHub
+            } else {
+                emptyLibraryState
             }
         }
     }
@@ -922,6 +895,12 @@ struct LibraryView: View {
         let previewRevision = artworkPreviewRevision
         return ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                if !library.isReady {
+                    ProgressView("library_preparing")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
                 browseLibrarySection
             }
             .padding(.top, 8)
@@ -929,7 +908,7 @@ struct LibraryView: View {
         }
         .pmExtendsUnderVerticalBar()
         .background {
-            if hasFolderFavorites {
+            if library.isReady && hasFolderFavorites {
                 HomeDiscoveryObserver(model: favoriteFolderModel)
             }
         }
@@ -947,6 +926,7 @@ struct LibraryView: View {
                 onActiveSectionChange(nil)
             }
         }
+        .accessibilityIdentifier("library.hub")
     }
 
     private var quickAccessSection: some View {
@@ -1042,6 +1022,7 @@ struct LibraryView: View {
                                                     libraryCategoryRow(section)
                                                 }
                                                 .buttonStyle(.plain)
+                                                .accessibilityIdentifier("library.category.\(section.rawValue)")
                                                 .padding(.horizontal, 16)
                                             }
                                         }
@@ -1076,6 +1057,7 @@ struct LibraryView: View {
 
         for section in visibleLibrarySections {
             if section == .favorites {
+                guard library.isReady else { continue }
                 flushPending()
                 runs.append(LibraryBrowseRun(
                     id: "quickAccess",
@@ -1623,6 +1605,7 @@ struct LibraryView: View {
 
     @MainActor
     private func refreshArtworkPreviews(for revision: String) async {
+        guard library.isReady else { return }
         if artworkPreviewSelection.revision == revision { return }
         if let cached = LibraryArtworkPreviewSessionStore.shared.cachedSelection(
             for: revision
@@ -1796,6 +1779,9 @@ struct LibraryView: View {
     }
 
     private func categoryCountText(_ section: LibrarySection) -> String {
+        if !library.isReady, section != .radio, section != .podcasts {
+            return "—"
+        }
         switch section {
         case .favorites:
             return String(localized: "library_quick_access")
