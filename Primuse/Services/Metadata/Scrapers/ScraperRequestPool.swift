@@ -30,6 +30,11 @@ actor ScraperRequestPool {
         return await executor.isCoolingDown
     }
 
+    func cooldownRemaining(for key: Key) async -> TimeInterval {
+        guard let executor = executors[key] else { return 0 }
+        return await executor.cooldownRemaining
+    }
+
     nonisolated static func resourceKey(source: ScraperSourceConfig?, url: URL? = nil) -> Key {
         if case .custom(let id) = source?.type { return .custom(id) }
         // Built-in image CDNs do not inherit API-specific statuses (e.g. iTunes 403).

@@ -10,6 +10,8 @@ actor MusicBrainzScraper: AlbumMusicScraper {
         policy: .init(minimumInterval: 1, maximumConcurrentRequests: 1)
     )
     private let requestExecutor: RequestExecutor
+    private var aliasesByArtist: [String: [String]] = [:]
+    private var aliasesByRecording: [String: [String]] = [:]
 
     init(session: URLSession? = nil, requestExecutor: RequestExecutor? = nil) {
         self.requestExecutor = requestExecutor ?? Self.serviceRequests
@@ -26,6 +28,11 @@ actor MusicBrainzScraper: AlbumMusicScraper {
     }
 
     // MARK: - MusicScraper
+
+    func cooldownRemaining() async -> TimeInterval {
+        max(await requestExecutor.cooldownRemaining,
+            await ScraperRequestPool.shared.cooldownRemaining(for: .resource(type.rawValue)))
+    }
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
         var queryParts = [Self.literalClause(field: "recording", value: query)]
@@ -47,10 +54,50 @@ actor MusicBrainzScraper: AlbumMusicScraper {
         }
 
         let data = try await throttledRequest(url: url)
-        let result = try JSONDecoder().decode(MBRecordingSearchResult.self, from: data)
-
-        let items = (result.recordings ?? []).map { rec in
-            ScraperSearchItem(
+        var result = try JSONDecoder().decode(MBRecordingSearchResult.self, from: data)
+        if result.recordings?.isEmpty != false {
+            let split = MediaMetadataTextRepair.fileNameIdentity(fromBaseName: query)
+            let fallbackTitle = split.flatMap { split in
+                ExternalTrackMatchPolicy.splitTitle(split.title).markers.isEmpty ? split.title : nil
+            } ?? query
+            // Artist aliases are not reliably indexed by the recording search.
+            // Retrieve by title, then verify the artist's official alias list.
+            if artist?.isEmpty == false || fallbackTitle != query || album?.isEmpty == false {
+                components?.queryItems = [
+                    URLQueryItem(name: "query", value: Self.literalClause(field: "recording", value: fallbackTitle)),
+                    URLQueryItem(name: "fmt", value: "json"),
+                    URLQueryItem(name: "limit", value: String(min(max(limit, 1), 100)))
+                ]
+                if let retryURL = components?.url {
+                    let retryData = try await throttledRequest(url: retryURL)
+                    result = try JSONDecoder().decode(MBRecordingSearchResult.self, from: retryData)
+                }
+            }
+        }
+        var items: [ScraperSearchItem] = []
+        var remainingAliasLookups = 3
+        for rec in result.recordings ?? [] {
+            var aliases = rec.artistCredit?.compactMap { $0.artist?.name } ?? []
+            if artist?.isEmpty == false,
+               !ScraperIdentity.artistMatches(artist, rec.primaryArtistName, aliases: aliases),
+               let artistID = rec.artistCredit?.first?.artist?.id,
+               UUID(uuidString: artistID) != nil {
+                if let cached = aliasesByArtist[artistID] {
+                    aliases += cached
+                } else if remainingAliasLookups > 0 {
+                    remainingAliasLookups -= 1
+                    let url = URL(string: "https://musicbrainz.org/ws/2/artist/\(artistID)?inc=aliases&fmt=json")!
+                    let data = try await throttledRequest(url: url)
+                    let identity = try JSONDecoder().decode(MBArtist.self, from: data)
+                    let names = [identity.name].compactMap { $0 } + (identity.aliases?.map(\.name) ?? [])
+                    if aliasesByArtist.count >= 200 { aliasesByArtist.removeAll(keepingCapacity: true) }
+                    aliasesByArtist[artistID] = names
+                    aliases += names
+                }
+            }
+            if aliasesByRecording.count >= 500 { aliasesByRecording.removeAll(keepingCapacity: true) }
+            aliasesByRecording[rec.id] = aliases
+            items.append(ScraperSearchItem(
                 externalId: rec.id,
                 source: .musicBrainz,
                 title: rec.title ?? "",
@@ -58,8 +105,8 @@ actor MusicBrainzScraper: AlbumMusicScraper {
                 album: rec.releases?.first?.title,
                 year: rec.releaseYear,
                 durationMs: rec.length,
-                genres: rec.tags?.compactMap(\.name)
-            )
+                genres: rec.tags?.compactMap(\.name), artistAliases: aliases
+            ))
         }
         return ScraperSearchResult(items: items, source: .musicBrainz)
     }
@@ -93,7 +140,8 @@ actor MusicBrainzScraper: AlbumMusicScraper {
             artist: rec.primaryArtistName,
             album: rec.releases?.first?.title,
             year: rec.releaseYear,
-            genres: rec.tags?.compactMap(\.name)
+            genres: rec.tags?.compactMap(\.name),
+            artistAliases: aliasesByRecording[rec.id] ?? []
         )
     }
 
@@ -270,6 +318,8 @@ actor MusicBrainzScraper: AlbumMusicScraper {
     struct MBArtist: Codable {
         let id: String
         let name: String?
+        var aliases: [Alias]? = nil
+        struct Alias: Codable { let name: String }
     }
 
     struct MBRelease: Codable {

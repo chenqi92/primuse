@@ -144,7 +144,8 @@ final class MusicScraperService {
 
     private let sourceManager: SourceManager
     private let sourceFileName: (Song) -> String?
-    private let metadataService = MetadataService()
+    private let metadataService: MetadataService
+    private let scrapeRetrySleep: @Sendable (TimeInterval) async throws -> Void
     private var scrapingTask: Task<Void, Never>?
     private var scrapingGeneration = 0
     private var backgroundEnrichmentTask: Task<Void, Never>?
@@ -259,11 +260,16 @@ final class MusicScraperService {
     private var pendingPlaylistCompletions: [String: BatchScrapeCompletion] = [:]
     private var artworkTargetIDs: [String] = []
 
-    init(sourceManager: SourceManager, sourceFileName: @escaping (Song) -> String? = { _ in nil }) {
+    init(sourceManager: SourceManager, metadataService: MetadataService = MetadataService(),
+         checkpointDirectory: URL? = nil,
+         scrapeRetrySleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
+         sourceFileName: @escaping (Song) -> String? = { _ in nil }) {
         self.sourceManager = sourceManager
+        self.metadataService = metadataService
+        self.scrapeRetrySleep = scrapeRetrySleep
         self.sourceFileName = sourceFileName
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
-        let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
+        let directory = checkpointDirectory ?? appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         scrapeCheckpointURL = directory.appendingPathComponent("scrape-checkpoint.json")
         if let data = try? Data(contentsOf: scrapeCheckpointURL) {
@@ -1199,6 +1205,7 @@ final class MusicScraperService {
         beginBackgroundTaskIfNeeded()
 
         scrapingTask = Task {
+            var deferredForSourceFailure = false
             await sidecarCircuitBreaker.resetIdleUnavailableSources()
             defer {
                 let cancelled = Task.isCancelled
@@ -1215,7 +1222,7 @@ final class MusicScraperService {
                     endBackgroundTaskIfHeld()
                     // Fire the completion notification only when the run actually
                     // finished — cancellation (user hit "stop") shouldn't pop one.
-                    if !cancelled {
+                    if !cancelled && !deferredForSourceFailure {
                         let completion = BatchScrapeCompletion(
                             runID: runID,
                             originPlaylistID: runOriginPlaylistID,
@@ -1306,10 +1313,11 @@ final class MusicScraperService {
                 do {
                     let remoteIdentitySeed = Self.batchRemoteIdentity(for: song)
                         .flatMap { remoteMetadataSeeds[$0] }
-                    guard let result = try await processedSongWithAssets(
+                    guard let result = try await processedSongForBatch(
                         song,
                         forceRescrape: forceRescrape,
-                        remoteIdentitySeed: remoteIdentitySeed
+                        remoteIdentitySeed: remoteIdentitySeed,
+                        parts: parts
                     ) else {
                         guard !Task.isCancelled else { return }
                         processedCount += 1
@@ -1500,6 +1508,11 @@ final class MusicScraperService {
                     } else {
                         skippedCount += 1
                     }
+                } catch is BatchScrapeSourceUnavailable {
+                    publishPendingSongBatch()
+                    deferredForSourceFailure = true
+                    plog("Batch scrape deferred: sources unavailable; current song and remaining checkpoint preserved")
+                    return
                 } catch is CancellationError {
                     return
                 } catch {
@@ -1856,6 +1869,26 @@ final class MusicScraperService {
         let song: Song
         let coverData: Data?
         let lyricsLines: [LyricLine]?
+        var unavailableParts: ScrapeParts = []
+        var retryAfter: TimeInterval = 5
+    }
+
+    struct BatchScrapeSourceUnavailable: Error { }
+
+    func processedSongForBatch(
+        _ song: Song, forceRescrape: Bool, remoteIdentitySeed: Song? = nil, parts: ScrapeParts = .all,
+        sleep: ((TimeInterval) async throws -> Void)? = nil
+    ) async throws -> ProcessedResult? {
+        for attempt in 0..<3 {
+            try Task.checkCancellation()
+            let result = try await processedSongWithAssets(song, forceRescrape: forceRescrape,
+                                                          storeAssets: false, remoteIdentitySeed: remoteIdentitySeed)
+            guard let result, !result.unavailableParts.intersection(parts).isEmpty else { return result }
+            guard attempt < 2 else { throw BatchScrapeSourceUnavailable() }
+            if let sleep { try await sleep(max(1, result.retryAfter)) }
+            else { try await scrapeRetrySleep(max(1, result.retryAfter)) }
+        }
+        throw BatchScrapeSourceUnavailable()
     }
 
     /// Conservative per-run identity for byte-identical-looking copies. A
@@ -1939,8 +1972,9 @@ final class MusicScraperService {
                 duration: song.duration
             )
             let merged = filledServerSong(song, with: metadata)
-            guard merged != song else { return nil }
-            return ProcessedResult(song: merged, coverData: nil, lyricsLines: nil)
+            guard merged != song || !metadata.unavailableScrapeParts.isEmpty else { return nil }
+            return ProcessedResult(song: merged, coverData: nil, lyricsLines: nil,
+                                   unavailableParts: metadata.unavailableScrapeParts, retryAfter: metadata.scrapeRetryAfter)
         }
 
         let fallbackTitle = await resolvedScrapeFallbackTitle(for: song)
@@ -2020,7 +2054,8 @@ final class MusicScraperService {
             placeholderTitle: placeholderTitle,
             forceRescrape: forceRescrape
         )
-        return ProcessedResult(song: merged, coverData: metadata.coverArtData, lyricsLines: metadata.lyrics)
+        return ProcessedResult(song: merged, coverData: metadata.coverArtData, lyricsLines: metadata.lyrics,
+                               unavailableParts: metadata.unavailableScrapeParts, retryAfter: metadata.scrapeRetryAfter)
     }
 
     private func runBackgroundEnrichment(in library: MusicLibrary) async {

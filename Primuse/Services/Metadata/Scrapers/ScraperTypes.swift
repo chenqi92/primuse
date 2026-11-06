@@ -193,7 +193,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     }
 
     var supportsManualLyricsCandidates: Bool {
-        self == .amll || self == .lyricsServer
+        self == .amll || self == .lrclib || self == .lyricsServer
     }
 
     /// Built-in scrapers in default order. AMLL 排在 LRCLIB 前面：歌词按顺序问，先拿到

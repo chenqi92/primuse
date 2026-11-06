@@ -1598,8 +1598,12 @@ struct ScrapeOptionsView: View {
             guard canUseSourceInManualSearch(config) else { continue }
             do {
                 let scraper = MusicScraperFactory.create(for: config)
+                let identity = ScraperManager.manualSearchIdentity(
+                    query: manualSearchQuery, title: manualMatchTitle.isEmpty ? song.title : manualMatchTitle,
+                    artist: manualMatchArtist, source: config.type
+                )
                 let result = try await scraper.search(
-                    query: manualSearchQuery, artist: nil, album: nil, limit: searchLimit
+                    query: identity.title, artist: identity.artist, album: nil, limit: searchLimit
                 )
                 guard !Task.isCancelled else { return }
                 for item in result.items {

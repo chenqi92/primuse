@@ -26,123 +26,108 @@ actor LRCLIBScraper: MusicScraper, DirectLyricsLookup {
         await requestExecutor.isCoolingDown
     }
 
+    func cooldownRemaining() async -> TimeInterval { await requestExecutor.cooldownRemaining }
+
     // MARK: - MusicScraper
 
+    private var lyricCache: [String: ScraperLyricsResult] = [:]
+
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
-        .empty(.lrclib) // Lyrics only, no search
+        guard limit > 0 else { return .empty(.lrclib) }
+        let rows = try await searchRows(title: query, artist: artist)
+        let items = rows.filter { row in
+            guard let title = row.trackName else { return false }
+            return ScraperIdentity.titleMatches(query, title) && row.lyrics != nil
+        }.prefix(limit).compactMap { row -> ScraperSearchItem? in
+            guard let id = row.id, let title = row.trackName, let lyrics = row.lyrics else { return nil }
+            let externalID = "lrclib:\(id)"
+            if lyricCache.count >= 100 { lyricCache.removeAll(keepingCapacity: true) }
+            lyricCache[externalID] = lyrics
+            return ScraperSearchItem(externalId: externalID, source: .lrclib, title: title,
+                                     artist: row.artistName, album: row.albumName,
+                                     durationMs: row.duration.flatMap { $0 > 0 && $0.isFinite ? Int($0 * 1000) : nil })
+        }
+        return ScraperSearchResult(items: items, source: .lrclib)
     }
 
-    func getDetail(externalId: String) async throws -> ScraperDetail? {
-        nil
-    }
-
-    func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] {
-        []
-    }
+    func getDetail(externalId: String) async throws -> ScraperDetail? { nil }
+    func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] { [] }
 
     func getLyrics(externalId: String) async throws -> ScraperLyricsResult? {
-        // externalId format: title|artist|album|duration
+        if let cached = lyricCache[externalId] { return cached }
+        if externalId.hasPrefix("lrclib:"), let id = Int64(externalId.dropFirst(7)), id >= 0 {
+            let data = try await throttledRequest(url: URL(string: "https://lrclib.net/api/get/\(id)")!)
+            return try JSONDecoder().decode(LRCLibSearchItem.self, from: data).lyrics
+        }
         let parts = externalId.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 2, !parts[0].isEmpty else { return nil }
-
-        let title = parts[0]
-        let artist: String? = parts[1].isEmpty ? nil : parts[1]
-        let album = parts.count > 2 && !parts[2].isEmpty ? parts[2] : nil
-        let duration = parts.count > 3 ? TimeInterval(parts[3]) : nil
-
-        return try await fetchLyrics(title: title, artist: artist, album: album, duration: duration)
+        return try await fetchLyrics(title: parts[0], artist: parts[1].isEmpty ? nil : parts[1],
+                                     album: parts.count > 2 ? parts[2] : nil,
+                                     duration: parts.count > 3 ? TimeInterval(parts[3]) : nil)
     }
 
-    /// Direct lyrics fetch (used by ScraperManager)
-    /// 有歌手走精确的 `/api/get`；没有歌手（无标签的网盘文件常见）改走 `/api/search`
-    /// 按标题找，再用标题与时长在本地筛选，不再整个跳过。
     func fetchLyrics(title: String, artist: String?, album: String? = nil, duration: TimeInterval? = nil) async throws -> ScraperLyricsResult? {
-        let trimmedArtist = artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmedArtist.isEmpty else {
-            return try await searchLyricsWithoutArtist(title: title, album: album, duration: duration)
+        let artist = artist?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let artist, !artist.isEmpty {
+            var components = URLComponents(string: "https://lrclib.net/api/get")!
+            var items = [URLQueryItem(name: "track_name", value: title), URLQueryItem(name: "artist_name", value: artist)]
+            if let album, !album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                items.append(URLQueryItem(name: "album_name", value: album))
+            }
+            if let duration, duration.isFinite, duration > 0 {
+                items.append(URLQueryItem(name: "duration", value: String(duration.rounded())))
+            }
+            components.queryItems = items
+            do {
+                let data = try await throttledRequest(url: components.url!)
+                let row = try JSONDecoder().decode(LRCLibSearchItem.self, from: data)
+                if let lyrics = row.lyrics { return lyrics }
+                if row.instrumental == true { return nil }
+            } catch ScraperError.notFound {
+                // A signature miss is recoverable; transport/rate-limit failures are not.
+            }
         }
-
-        var components = URLComponents(string: "https://lrclib.net/api/get")!
-        var queryItems = [
-            URLQueryItem(name: "track_name", value: title),
-            URLQueryItem(name: "artist_name", value: trimmedArtist),
-        ]
-        if let album {
-            queryItems.append(URLQueryItem(name: "album_name", value: album))
-        }
-        let safeDuration = duration?.sanitizedDuration ?? 0
-        if safeDuration > 0 {
-            queryItems.append(URLQueryItem(name: "duration", value: String(safeDuration.rounded(.down).finiteInt())))
-        }
-        components.queryItems = queryItems
-
-        guard let url = components.url else { return nil }
-
-        let data = try await throttledRequest(url: url)
-        let result = try JSONDecoder().decode(LRCLibResponse.self, from: data)
-
-        guard result.syncedLyrics != nil || result.plainLyrics != nil else {
-            return nil
-        }
-
-        return ScraperLyricsResult(
-            source: .lrclib,
-            lrcContent: result.syncedLyrics,
-            plainText: result.plainLyrics
-        )
-    }
-
-    private func searchLyricsWithoutArtist(title: String, album: String?, duration: TimeInterval?) async throws -> ScraperLyricsResult? {
-        let wantedTitle = Self.normalizedTitle(title)
-        guard !wantedTitle.isEmpty,
-              var components = URLComponents(string: "https://lrclib.net/api/search")
-        else { return nil }
-        var queryItems = [URLQueryItem(name: "track_name", value: title)]
-        if let album, !album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            queryItems.append(URLQueryItem(name: "album_name", value: album))
-        }
-        components.queryItems = queryItems
-        guard let url = components.url else { return nil }
-
-        let data = try await throttledRequest(url: url)
-        let results = try JSONDecoder().decode([LRCLibSearchItem].self, from: data)
-
-        let safeDuration = duration?.sanitizedDuration ?? 0
-        let matching = results.filter { item in
-            guard let trackName = item.trackName,
-                  Self.normalizedTitle(trackName) == wantedTitle
-            else { return false }
-            if safeDuration > 0 {
-                guard let itemDuration = item.duration, itemDuration.isFinite,
-                      abs(itemDuration - safeDuration) <= 5
-                else { return false }
+        let rows = try await searchRows(title: title, artist: artist)
+        let matching = rows.filter { row in
+            guard let name = row.trackName, ScraperIdentity.titleMatches(title, name) else { return false }
+            if let artist, !artist.isEmpty, !ScraperIdentity.artistMatches(artist, row.artistName) { return false }
+            if let duration, duration.isFinite, duration > 0 {
+                guard let found = row.duration, found.isFinite, abs(found - duration) <= 5 else { return false }
             }
             return true
+        }.sorted { lhs, rhs in
+            let lhsTimed = Self.hasText(lhs.syncedLyrics)
+            let rhsTimed = Self.hasText(rhs.syncedLyrics)
+            if lhsTimed != rhsTimed { return lhsTimed }
+            if let duration {
+                return abs((lhs.duration ?? .infinity) - duration) < abs((rhs.duration ?? .infinity) - duration)
+            }
+            return false
         }
-
-        if let synced = matching.first(where: { Self.hasText($0.syncedLyrics) }) {
-            return ScraperLyricsResult(
-                source: .lrclib,
-                lrcContent: synced.syncedLyrics,
-                plainText: Self.hasText(synced.plainLyrics) ? synced.plainLyrics : nil
-            )
-        }
-        if let plain = matching.first(where: { Self.hasText($0.plainLyrics) }) {
-            return ScraperLyricsResult(source: .lrclib, lrcContent: nil, plainText: plain.plainLyrics)
-        }
-        return nil
+        return matching.compactMap(\.lyrics).first
     }
 
-    /// 小写、去首尾空白、折叠连续空白。
-    private static func normalizedTitle(_ value: String) -> String {
-        value.lowercased()
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
+    private func searchRows(title: String, artist: String?) async throws -> [LRCLibSearchItem] {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        func request(artist: String?) async throws -> [LRCLibSearchItem] {
+            var components = URLComponents(string: "https://lrclib.net/api/search")!
+            var items = [URLQueryItem(name: "track_name", value: title)]
+            if let artist, !artist.isEmpty { items.append(URLQueryItem(name: "artist_name", value: artist)) }
+            components.queryItems = items
+            let data = try await throttledRequest(url: components.url!)
+            return try JSONDecoder().decode([LRCLibSearchItem].self, from: data)
+        }
+        let rows = try await request(artist: artist)
+        if rows.contains(where: { row in
+            row.trackName.map { ScraperIdentity.titleMatches(title, $0) } == true
+                && (artist?.isEmpty != false || ScraperIdentity.artistMatches(artist, row.artistName)) && row.lyrics != nil
+        }) || artist?.isEmpty != false { return rows }
+        // Broaden retrieval only; automatic callers still verify artist/version/duration.
+        return try await request(artist: nil)
     }
 
     private static func hasText(_ value: String?) -> Bool {
-        guard let value else { return false }
-        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     // MARK: - Rate Limiting
@@ -171,17 +156,21 @@ actor LRCLIBScraper: MusicScraper, DirectLyricsLookup {
 
     // MARK: - Models
 
-    private struct LRCLibResponse: Codable {
-        let syncedLyrics: String?
-        let plainLyrics: String?
-    }
-
     private struct LRCLibSearchItem: Decodable {
+        let id: Int64?
         let trackName: String?
         let artistName: String?
         let albumName: String?
         let duration: Double?
+        let instrumental: Bool?
         let syncedLyrics: String?
         let plainLyrics: String?
+
+        var lyrics: ScraperLyricsResult? {
+            guard instrumental != true, LRCLIBScraper.hasText(syncedLyrics) || LRCLIBScraper.hasText(plainLyrics) else { return nil }
+            return ScraperLyricsResult(source: .lrclib,
+                                       lrcContent: LRCLIBScraper.hasText(syncedLyrics) ? syncedLyrics : nil,
+                                       plainText: LRCLIBScraper.hasText(plainLyrics) ? plainLyrics : nil)
+        }
     }
 }

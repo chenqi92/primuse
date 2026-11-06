@@ -4,6 +4,7 @@ protocol MusicScraper: Sendable {
     var type: MusicScraperType { get }
 
     func isCoolingDown() async -> Bool
+    func cooldownRemaining() async -> TimeInterval
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult
 
@@ -16,6 +17,7 @@ protocol MusicScraper: Sendable {
 
 extension MusicScraper {
     func isCoolingDown() async -> Bool { false }
+    func cooldownRemaining() async -> TimeInterval { await isCoolingDown() ? 5 : 0 }
 }
 
 protocol AlbumMusicScraper: MusicScraper {

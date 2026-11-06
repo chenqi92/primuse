@@ -12,6 +12,7 @@ struct ScraperSearchItem: Sendable {
     var coverUrl: String?
     var trackNumber: Int?
     var genres: [String]?
+    var artistAliases: [String] = []
 }
 
 struct ScraperSearchResult: Sendable {
@@ -38,6 +39,7 @@ struct ScraperDetail: Sendable {
     var durationMs: Int?
     var genres: [String]?
     var coverUrl: String?
+    var artistAliases: [String] = []
 }
 
 extension ScrapedMetadataMergePolicy.Candidate {
@@ -85,6 +87,38 @@ struct ScrapeResult: Sendable {
     var coverData: Data?
     var lyrics: [PrimuseKit.LyricLine]?
     var errors: [String]
+    var unavailableParts: ScrapeParts = []
+    var retryAfter: TimeInterval = 5
+}
+
+enum ScraperIdentity {
+    static func normalized(_ text: String?) -> String {
+        ExternalTrackMatchPolicy.normalize(text ?? "")
+    }
+
+    static func artistMatches(_ requested: String?, _ candidate: String?, aliases: [String] = []) -> Bool {
+        let wanted = Set(ExternalTrackMatchPolicy.artistTokens(requested ?? ""))
+        let names = ([candidate].compactMap { $0 } + aliases).flatMap(ExternalTrackMatchPolicy.artistTokens)
+        return !wanted.isEmpty && !wanted.isDisjoint(with: names)
+    }
+
+    static func titleMatches(_ requested: String, _ candidate: String) -> Bool {
+        let lhs = ExternalTrackMatchPolicy.splitTitle(requested)
+        let rhs = ExternalTrackMatchPolicy.splitTitle(candidate)
+        return !lhs.core.isEmpty && lhs.core == rhs.core && lhs.markers == rhs.markers
+    }
+
+    static func containsHan(_ value: String) -> Bool {
+        value.unicodeScalars.contains { (0x3400...0x9fff).contains($0.value) }
+    }
+
+    /// A filename prefix can supply a second spelling, but it must be confirmed
+    /// by a returned artist identity before it is removed from the title.
+    static func filenameTitle(_ title: String, matching artist: String?, aliases: [String] = []) -> String? {
+        guard let split = MediaMetadataTextRepair.fileNameIdentity(fromBaseName: title),
+              artistMatches(split.artist, artist, aliases: aliases) else { return nil }
+        return split.title
+    }
 }
 
 struct ScraperAlbum: Identifiable, Sendable {

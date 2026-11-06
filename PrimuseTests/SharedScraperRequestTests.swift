@@ -1299,3 +1299,270 @@ private final class DiscoveryFixture {
         Task { _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID) }
     }
 }
+
+final class BuiltInScraperRegressionTests: XCTestCase {
+    private static let lyric = "[00:01.00]小船停在清晨的岸边\n[00:03.00]纸灯照亮未写的明天"
+
+    private static func row(id: Int = 1, title: String = "纸灯", artist: String = "林舟", duration: Double = 180) -> [String: Any] {
+        ["id": id, "trackName": title, "artistName": artist, "albumName": "岸边", "duration": duration, "syncedLyrics": lyric]
+    }
+
+    private static func data(_ value: Any) -> Data { try! JSONSerialization.data(withJSONObject: value) }
+    private static func query(_ request: URLRequest, _ key: String) -> String? {
+        URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == key }?.value
+    }
+
+    func testManualMusicBrainzUsesSeparateFieldsAndKeepsLuceneEscaping() async throws {
+        let fixture = ScraperHTTPFixture { _ in .init(body: Data(#"{"recordings":[]}"#.utf8)) }
+        defer { fixture.close() }
+        let identity = ScraperManager.manualSearchIdentity(query: "纸灯 林舟", title: "纸灯", artist: "林舟", source: .musicBrainz)
+        _ = try await MusicBrainzScraper(session: fixture.session, requestExecutor: RequestExecutor()).search(
+            query: identity.title, artist: identity.artist, album: nil, limit: 20)
+        XCTAssertEqual(Self.query(try XCTUnwrap(fixture.requests.first), "query"), "recording:\"纸灯\" AND artist:\"林舟\"")
+        let custom = ScraperManager.manualSearchIdentity(query: "纸灯 林舟", title: "纸灯", artist: "林舟", source: .custom("existing"))
+        XCTAssertEqual(custom.title, "纸灯 林舟")
+        XCTAssertNil(custom.artist)
+    }
+
+    func testLRCLIBManualCandidatesUseRealIDsAndCachedLyrics() async throws {
+        let fixture = ScraperHTTPFixture { _ in .init(body: Self.data([Self.row(), Self.row(id: 2, title: "纸灯 (Live)")])) }
+        defer { fixture.close() }
+        let scraper = LRCLIBScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let manager = ScraperManager(scraperFactory: { _ in scraper })
+        let results = await manager.manualLyricsCandidates(title: "纸灯", artist: "林舟", album: nil, duration: 180,
+            settings: .init(sources: [.init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 0)]))
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.item.externalId, "lrclib:1")
+        XCTAssertEqual(results.first?.lyrics.count, 2)
+        XCTAssertEqual(fixture.requests.count, 1, "Search already returns lyrics; selecting candidates must not refetch them")
+    }
+
+    func testLRCLIBExactMissFallsBackWithoutAlbumAndRejectsWrongArtistVersionAndDuration() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            if request.url?.path == "/api/get" { return .init(status: 404) }
+            return .init(body: Self.data([
+                Self.row(id: 1, artist: "别的歌手"), Self.row(id: 2, title: "纸灯 (Live)"),
+                Self.row(id: 3, duration: 240), Self.row(id: 4, title: "紙燈", artist: "林舟", duration: 182)
+            ]))
+        }
+        defer { fixture.close() }
+        let result = try await LRCLIBScraper(session: fixture.session, requestExecutor: RequestExecutor()).fetchLyrics(
+            title: "纸灯", artist: "林舟", album: "本地文件夹名称", duration: 180)
+        XCTAssertEqual(result?.lrcContent, Self.lyric)
+        XCTAssertEqual(fixture.requests.map(\.url?.path), ["/api/get", "/api/search"])
+        XCTAssertNil(Self.query(fixture.requests[1], "album_name"))
+    }
+
+    func testLRCLIBFailureDoesNotTriggerBroaderSearch() async throws {
+        for status in [429, 500] {
+            let fixture = ScraperHTTPFixture { _ in .init(status: status, headers: ["Retry-After": "60"]) }
+            defer { fixture.close() }
+            do {
+                _ = try await LRCLIBScraper(session: fixture.session, requestExecutor: RequestExecutor()).fetchLyrics(title: "纸灯", artist: "林舟")
+                XCTFail("A service failure must remain distinguishable from a miss")
+            } catch { }
+            XCTAssertEqual(fixture.requests.count, 1)
+        }
+    }
+
+    func testLRCLIBWrongArtistIsNeverAcceptedByAutomaticFallback() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            request.url?.path == "/api/get" ? .init(status: 404)
+                : .init(body: Self.data([Self.row(artist: "别的歌手")]))
+        }
+        defer { fixture.close() }
+        let result = try await LRCLIBScraper(session: fixture.session, requestExecutor: RequestExecutor()).fetchLyrics(title: "纸灯", artist: "林舟", duration: 180)
+        XCTAssertNil(result)
+    }
+
+    func testAppleChineseStorefrontSurvivesDetailLookupAndTraditionalNamesMatch() async throws {
+        let fixture = ScraperHTTPFixture { _ in
+            .init(body: Self.data(["resultCount": 1, "results": [["trackId": 7, "artistId": 8, "trackName": "紙燈", "artistName": "林舟", "trackTimeMillis": 180000]]]))
+        }
+        defer { fixture.close() }
+        let scraper = ITunesScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let result = try await scraper.search(query: "纸灯", artist: "林舟", album: nil, limit: 15)
+        XCTAssertEqual(fixture.requests.count, 1)
+        XCTAssertEqual(Self.query(fixture.requests[0], "country"), "TW")
+        XCTAssertTrue(ScraperManager.isConfidentAutoMatch(try XCTUnwrap(result.items.first), title: "纸灯", artist: "林舟", durationMs: 180000))
+        let reopened = ITunesScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        _ = try await reopened.getDetail(externalId: try XCTUnwrap(result.items.first?.externalId))
+        XCTAssertEqual(Self.query(fixture.requests.last!, "country"), "TW")
+        XCTAssertEqual(Self.query(fixture.requests.last!, "id"), "7")
+    }
+
+    func testAppleFallbackVerifiesAliasByArtistIDAndRepairsFilenameTitle() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            let artist = Self.query(request, "country") == "TW" ? "林舟" : "Paper Boat"
+            return .init(body: Self.data(["resultCount": 1, "results": [["trackId": 7, "artistId": 8, "trackName": "纸灯", "artistName": artist, "trackTimeMillis": 180000]]]))
+        }
+        defer { fixture.close() }
+        let scraper = ITunesScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let result = try await scraper.search(query: "林舟 - 纸灯", artist: "Paper Boat", album: nil, limit: 15)
+        let item = try XCTUnwrap(result.items.first)
+        XCTAssertEqual(Set(item.artistAliases), ["林舟", "Paper Boat"])
+        XCTAssertTrue(ScraperManager.isConfidentAutoMatch(item, title: "林舟 - 纸灯", artist: "Paper Boat", durationMs: 180000))
+        XCTAssertFalse(ScraperManager.isConfidentAutoMatch(item, title: "纸灯", artist: "另一歌手", durationMs: 180000))
+    }
+
+    func testAppleDifferentArtistIDsDoNotCreateAliases() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            let native = Self.query(request, "country") == "TW"
+            return .init(body: Self.data(["resultCount": 1, "results": [["trackId": native ? 9 : 7, "artistId": native ? 10 : 8,
+                                                                       "trackName": "纸灯", "artistName": native ? "林舟" : "Paper Boat"]]]))
+        }
+        defer { fixture.close() }
+        let scraper = ITunesScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let result = try await scraper.search(query: "林舟 - 纸灯", artist: "Paper Boat", album: nil, limit: 15)
+        XCTAssertFalse(result.items.contains { ScraperManager.isConfidentAutoMatch($0, title: "林舟 - 纸灯", artist: "Paper Boat", durationMs: 180000) })
+    }
+
+    func testMusicBrainzArtistAliasesRemainAttachedToDetail() async throws {
+        let artistID = "10000000-0000-0000-0000-000000000001"
+        let recordingID = "20000000-0000-0000-0000-000000000001"
+        let fixture = ScraperHTTPFixture { request in
+            if request.url?.path.contains("/artist/") == true {
+                return .init(body: Self.data(["id": artistID, "name": "林舟", "aliases": [["name": "Paper Boat"]]]))
+            }
+            let recording: [String: Any] = ["id": recordingID, "title": "纸灯", "length": 180000,
+                                            "artist-credit": [["name": "林舟", "artist": ["id": artistID, "name": "林舟"]]]]
+            let isSearch = request.url?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "ws/2/recording"
+            let searchesAlias = Self.query(request, "query")?.contains("artist:") == true
+            let body: [String: Any] = isSearch ? ["recordings": searchesAlias ? [] : [recording]] : recording
+            return .init(body: Self.data(body))
+        }
+        defer { fixture.close() }
+        let scraper = MusicBrainzScraper(session: fixture.session, requestExecutor: RequestExecutor())
+        let result = try await scraper.search(query: "纸灯", artist: "Paper Boat", album: nil, limit: 15)
+        XCTAssertTrue(ScraperManager.isConfidentAutoMatch(try XCTUnwrap(result.items.first), title: "纸灯", artist: "Paper Boat", durationMs: 180000))
+        let detail = try await scraper.getDetail(externalId: recordingID)
+        XCTAssertTrue(detail?.artistAliases.contains("Paper Boat") == true)
+    }
+
+    func testNativeAutomaticMatchDoesNotReplaceLiveWithStudio() {
+        let candidate = ScraperSearchItem(externalId: "7", source: .itunes, title: "纸灯", artist: "林舟", durationMs: 180000)
+        XCTAssertFalse(ScraperManager.isConfidentAutoMatch(candidate, title: "纸灯", artist: "林舟", durationMs: 180000, writtenTitle: "纸灯 (Live)"))
+    }
+
+    func testCooldownIsReportedWithoutSendingRequests() async throws {
+        let clock = ScraperTestClock()
+        let fixture = ScraperHTTPFixture { _ in .init(status: 429, headers: ["Retry-After": "600"]) }
+        defer { fixture.close() }
+        let scraper = LRCLIBScraper(session: fixture.session, requestExecutor: RequestExecutor(timing: clock.timing))
+        do { _ = try await scraper.fetchLyrics(title: "纸灯", artist: "林舟") } catch { }
+        let manager = ScraperManager(scraperFactory: { _ in scraper })
+        let result = await manager.scrapeMetadata(title: "纸灯", artist: "林舟", album: nil, duration: 180,
+            needs: .init(metadata: false, cover: false, lyrics: true),
+            settings: .init(sources: [.init(id: "lrclib", type: .lrclib, isEnabled: true, priority: 0)]))
+        XCTAssertEqual(result.unavailableParts, .lyrics)
+        XCTAssertEqual(result.retryAfter, 600, accuracy: 0.01)
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+}
+
+@MainActor
+final class BatchScraperRecoveryTests: XCTestCase {
+    func testTransientFailureRetriesCurrentSongAndReturnsLyrics() async throws {
+        try await withFixture(failures: 1) { service, _, song, _, _, _ in
+            var delays: [TimeInterval] = []
+            let result = try await service.processedSongForBatch(song, forceRescrape: true, parts: .lyrics,
+                                                                 sleep: { delays.append($0) })
+            XCTAssertEqual(result?.lyricsLines?.count, 2)
+            XCTAssertEqual(delays, [5])
+            XCTAssertTrue(result?.unavailableParts.isEmpty == true)
+        }
+    }
+
+    func testUnavailableBatchPreservesCheckpointAndCanResumeAfterRestart() async throws {
+        try await withFixture(failures: .max) { service, _, song, root, source, library in
+            var second = song
+            second.id = UUID().uuidString
+            library.addSongs([song, second])
+            _ = service.scrapeMissingMetadata(songs: [song, second], in: library, parts: .lyrics)
+            await service.waitUntilScrapeIdle()
+            XCTAssertTrue(service.hasPendingScrape)
+            XCTAssertEqual(service.processedCount, 0)
+            XCTAssertEqual(service.skippedCount, 0)
+            XCTAssertNil(service.lastCompletion)
+            let checkpoint = try Data(contentsOf: root.appendingPathComponent("checkpoint/scrape-checkpoint.json"))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: checkpoint) as? [String: Any])
+            XCTAssertEqual(json["nextSongIndex"] as? Int, 0)
+            let healthy = RecoveryLyricsProbe(failures: 0, returnsLyrics: false)
+            let resumed = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }),
+                metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in healthy })),
+                checkpointDirectory: root.appendingPathComponent("checkpoint"), scrapeRetrySleep: { _ in })
+            resumed.resumePendingScrape(in: library)
+            await resumed.waitUntilScrapeIdle()
+            XCTAssertFalse(resumed.hasPendingScrape)
+            XCTAssertEqual(resumed.lastCompletion?.processedSongCount, 2)
+            XCTAssertEqual(resumed.lastCompletion?.skippedCount, 2, "Confirmed misses may complete; unavailable lookups may not")
+        }
+    }
+
+    func testCancellationDuringRetryDoesNotTryAnotherSong() async throws {
+        try await withFixture(failures: .max) { service, probe, song, _, _, _ in
+            do {
+                _ = try await service.processedSongForBatch(song, forceRescrape: true, parts: .lyrics,
+                    sleep: { _ in throw CancellationError() })
+                XCTFail("Cancellation must leave the request pending")
+            } catch is CancellationError { }
+            let requests = await probe.requests
+            XCTAssertEqual(requests, 1)
+        }
+    }
+
+    func testUnrequestedLyricsFailureDoesNotBlockMetadataBatch() async throws {
+        try await withFixture(failures: .max) { service, _, song, _, _, _ in
+            let result = try await service.processedSongForBatch(song, forceRescrape: true, parts: .metadata,
+                sleep: { _ in XCTFail("Unrequested assets must not hold this batch") })
+            XCTAssertNotNil(result)
+        }
+    }
+
+    private func withFixture(failures: Int, body: (MusicScraperService, RecoveryLyricsProbe, Song, URL, MusicSource, MusicLibrary) async throws -> Void) async throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: ScraperSettings.defaultsKey)
+        defer {
+            if let previous { defaults.set(previous, forKey: ScraperSettings.defaultsKey) }
+            else { defaults.removeObject(forKey: ScraperSettings.defaultsKey) }
+        }
+        var settings = ScraperSettings.load()
+        for index in settings.sources.indices { settings.sources[index].isEnabled = settings.sources[index].type == .lrclib }
+        settings.save()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("scrape-recovery-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var wav = Data("RIFF".utf8)
+        func u32(_ value: UInt32) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+        wav.append(u32(196)); wav.append(Data("WAVEfmt ".utf8)); wav.append(u32(16)); wav.append(contentsOf: [1, 0, 1, 0])
+        wav.append(u32(8000)); wav.append(u32(16000)); wav.append(contentsOf: [2, 0, 16, 0])
+        wav.append(Data("data".utf8)); wav.append(u32(160)); wav.append(Data(repeating: 0, count: 160))
+        try wav.write(to: root.appendingPathComponent("Paper Lantern.wav"))
+        let source = MusicSource(id: UUID().uuidString, name: "Recovery fixture", type: .local, basePath: root.path)
+        let probe = RecoveryLyricsProbe(failures: failures)
+        let service = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }),
+            metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in probe })),
+            checkpointDirectory: root.appendingPathComponent("checkpoint"), scrapeRetrySleep: { _ in })
+        let song = Song(id: UUID().uuidString, title: "Paper Lantern", fileFormat: .wav, filePath: "/Paper Lantern.wav", sourceID: source.id)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        defer { service.cancel() }
+        try await body(service, probe, song, root, source, library)
+    }
+}
+
+private actor RecoveryLyricsProbe: MusicScraper, DirectLyricsLookup {
+    let type = MusicScraperType.lrclib
+    private var failures: Int
+    private let returnsLyrics: Bool
+    private(set) var requests = 0
+    init(failures: Int, returnsLyrics: Bool = true) { self.failures = failures; self.returnsLyrics = returnsLyrics }
+    func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult { .empty(.lrclib) }
+    func getDetail(externalId: String) async throws -> ScraperDetail? { nil }
+    func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] { [] }
+    func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
+    func fetchLyrics(title: String, artist: String?, album: String?, duration: TimeInterval?) async throws -> ScraperLyricsResult? {
+        requests += 1
+        if failures > 0 { failures -= 1; throw URLError(.timedOut) }
+        return returnsLyrics ? .init(source: .lrclib, lrcContent: "[00:01.00]Paper lights along the shore\n[00:03.00]Footsteps find an open door") : nil
+    }
+}

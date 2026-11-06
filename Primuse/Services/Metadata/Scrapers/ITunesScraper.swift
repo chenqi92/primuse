@@ -36,40 +36,66 @@ actor ITunesScraper: AlbumMusicScraper {
 
     // MARK: - MusicScraper
 
+    func cooldownRemaining() async -> TimeInterval {
+        let api = if let requestExecutor { await requestExecutor.cooldownRemaining }
+            else { await quotaRegistry.cooldownRemaining(for: Self.quota) }
+        return max(api, await ScraperRequestPool.shared.cooldownRemaining(for: .resource(type.rawValue)))
+    }
+
+    private var countryByTrack: [String: String] = [:]
+    private var aliasesByArtist: [Int: Set<String>] = [:]
+
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
-        var keyword = query
-        if let artist, !artist.isEmpty { keyword += " \(artist)" }
-        if let album, !album.isEmpty { keyword += " \(album)" }
-
-        var components = URLComponents(string: "https://itunes.apple.com/search")!
-        components.queryItems = [
-            URLQueryItem(name: "term", value: keyword),
-            URLQueryItem(name: "media", value: "music"),
-            URLQueryItem(name: "entity", value: "song"),
-            URLQueryItem(name: "limit", value: String(limit)),
-        ]
-
-        guard let url = components.url else { return .empty(.itunes) }
-
-        let data = try await throttledRequest(url: url)
-        let result = try JSONDecoder().decode(ITunesSearchResult.self, from: data)
-
-        let items = result.results.compactMap { track -> ScraperSearchItem? in
+        guard limit > 0 else { return .empty(.itunes) }
+        let firstCountry = ScraperIdentity.containsHan(artist ?? "") ? "TW" : "US"
+        let first = try await searchTracks(query: query, artist: artist, album: album, country: firstCountry, limit: limit)
+        remember(first, country: firstCountry)
+        var tracks = first
+        func compatible(_ track: ITunesTrack) -> Bool {
+            let aliases = track.artistId.flatMap { aliasesByArtist[$0] }.map(Array.init) ?? []
+            let title = ScraperIdentity.filenameTitle(query, matching: track.artistName, aliases: aliases) ?? query
+            return ScraperIdentity.titleMatches(title, track.trackName ?? "")
+                && (artist?.isEmpty != false || ScraperIdentity.artistMatches(artist, track.artistName, aliases: aliases))
+        }
+        if !tracks.contains(where: compatible) {
+            let secondCountry = firstCountry == "US" ? "TW" : "US"
+            let second = try await searchTracks(query: query, artist: artist, album: album, country: secondCountry, limit: limit)
+            remember(second, country: secondCountry)
+            var ids = Set(tracks.compactMap(\.trackId))
+            tracks += second.filter { $0.trackId.map { ids.insert($0).inserted } == true }
+        }
+        let items = tracks.compactMap { track -> ScraperSearchItem? in
             guard let trackId = track.trackId else { return nil }
             return ScraperSearchItem(
-                externalId: String(trackId),
-                source: .itunes,
-                title: track.trackName ?? "",
-                artist: track.artistName,
-                album: track.collectionName,
-                year: track.releaseYear,
-                durationMs: track.trackTimeMillis,
-                coverUrl: track.coverURL(size: 300),
-                trackNumber: track.trackNumber,
-                genres: track.primaryGenreName.map { [$0] }
+                externalId: "\(countryByTrack[String(trackId)] ?? firstCountry):\(trackId)", source: .itunes, title: track.trackName ?? "",
+                artist: track.artistName, album: track.collectionName, year: track.releaseYear,
+                durationMs: track.trackTimeMillis, coverUrl: track.coverURL(size: 300),
+                trackNumber: track.trackNumber, genres: track.primaryGenreName.map { [$0] },
+                artistAliases: track.artistId.flatMap { aliasesByArtist[$0] }.map { $0.sorted() } ?? []
             )
         }
         return ScraperSearchResult(items: items, source: .itunes)
+    }
+
+    private func searchTracks(query: String, artist: String?, album: String?, country: String, limit: Int) async throws -> [ITunesTrack] {
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            URLQueryItem(name: "term", value: [query, artist, album].compactMap { $0 }.joined(separator: " ")),
+            URLQueryItem(name: "media", value: "music"), URLQueryItem(name: "entity", value: "song"),
+            URLQueryItem(name: "limit", value: String(min(max(limit, 1), 200))),
+            URLQueryItem(name: "country", value: country)
+        ]
+        let data = try await throttledRequest(url: components.url!)
+        return try JSONDecoder().decode(ITunesSearchResult.self, from: data).results
+    }
+
+    private func remember(_ tracks: [ITunesTrack], country: String) {
+        if countryByTrack.count > 500 { countryByTrack.removeAll(keepingCapacity: true) }
+        if aliasesByArtist.count > 500 { aliasesByArtist.removeAll(keepingCapacity: true) }
+        for track in tracks {
+            if let id = track.trackId, countryByTrack[String(id)] == nil { countryByTrack[String(id)] = country }
+            if let id = track.artistId, let name = track.artistName { aliasesByArtist[id, default: []].insert(name) }
+        }
     }
 
     func getDetail(externalId: String) async throws -> ScraperDetail? {
@@ -86,7 +112,8 @@ actor ITunesScraper: AlbumMusicScraper {
             discNumber: track.discNumber,
             durationMs: track.trackTimeMillis,
             genres: track.primaryGenreName.map { [$0] },
-            coverUrl: track.coverURL(size: 600)
+            coverUrl: track.coverURL(size: 600),
+            artistAliases: track.artistId.flatMap { aliasesByArtist[$0] }.map { $0.sorted() } ?? []
         )
     }
 
@@ -147,8 +174,12 @@ actor ITunesScraper: AlbumMusicScraper {
     // MARK: - Private
 
     private func lookup(id: String) async throws -> ITunesTrack? {
+        let parts = id.split(separator: ":", maxSplits: 1).map(String.init)
+        let scoped = parts.count == 2 && ["US", "TW"].contains(parts[0])
+        let trackID = scoped ? parts[1] : id
         var components = URLComponents(string: "https://itunes.apple.com/lookup")!
-        components.queryItems = [URLQueryItem(name: "id", value: id)]
+        components.queryItems = [URLQueryItem(name: "id", value: trackID),
+                                URLQueryItem(name: "country", value: scoped ? parts[0] : countryByTrack[id] ?? "US")]
         guard let url = components.url else { return nil }
 
         let data = try await throttledRequest(url: url)
@@ -190,6 +221,7 @@ actor ITunesScraper: AlbumMusicScraper {
         let collectionId: Int?
         let trackCount: Int?
         let trackId: Int?
+        let artistId: Int?
         let trackName: String?
         let artistName: String?
         let collectionName: String?

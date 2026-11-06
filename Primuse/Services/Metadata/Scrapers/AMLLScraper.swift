@@ -29,6 +29,8 @@ actor AMLLScraper: MusicScraper, DirectLyricsLookup {
         await requestExecutor.isCoolingDown
     }
 
+    func cooldownRemaining() async -> TimeInterval { await requestExecutor.cooldownRemaining }
+
     // MARK: - MusicScraper
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {

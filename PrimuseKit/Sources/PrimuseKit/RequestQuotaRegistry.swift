@@ -105,6 +105,11 @@ public actor RequestQuotaRegistry {
         self.timing = timing
     }
 
+    public func cooldownRemaining(for quota: RequestQuota) async -> TimeInterval {
+        guard let entry = entries[quota.key] else { return 0 }
+        return await entry.executor.cooldownRemaining
+    }
+
     public func isCoolingDown(for quota: RequestQuota) async -> Bool {
         guard let entry = entries[quota.key] else { return false }
         return await entry.executor.isCoolingDown

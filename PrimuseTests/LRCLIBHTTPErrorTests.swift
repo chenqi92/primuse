@@ -133,8 +133,10 @@ final class LRCLIBHTTPErrorTests: XCTestCase {
             let result = await scrape(manager, index: index)
             XCTAssertNil(result.lyrics)
             XCTAssertEqual(result.errors.count, 1)
+            XCTAssertTrue(result.unavailableParts.isEmpty, "Confirmed misses must not pause batch scraping")
         }
-        XCTAssertEqual(fixture.requests.count, 5, "A genuine miss must not trip the provider circuit")
+        XCTAssertEqual(fixture.requests.count, 10, "Each signature miss may search once without tripping the provider circuit")
+        XCTAssertEqual(fixture.requests.map(\.url?.path), Array(repeating: ["/api/get", "/api/search"], count: 5).flatMap { $0 })
     }
 
     func testManagerSkipsFollowingSongsDuringLRCLIBBackoff() async {
@@ -145,10 +147,12 @@ final class LRCLIBHTTPErrorTests: XCTestCase {
                 let manager = fixture.manager()
                 let first = await scrape(manager, index: 0)
                 XCTAssertEqual(first.errors.count, 1)
+                XCTAssertEqual(first.unavailableParts, .lyrics)
                 for index in 1...3 {
                     let subsequent = await scrape(manager, index: index)
                     XCTAssertNil(subsequent.lyrics)
                     XCTAssertTrue(subsequent.errors.isEmpty, "A skipped provider must not make a failing request")
+                    XCTAssertEqual(subsequent.unavailableParts, .lyrics, "Batch scraping must retain songs skipped during backoff")
                 }
                 XCTAssertEqual(fixture.requests.count, 1, "HTTP \(status) must pause LRCLIB across songs")
             }

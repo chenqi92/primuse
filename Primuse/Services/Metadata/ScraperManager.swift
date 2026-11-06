@@ -95,6 +95,23 @@ actor ScraperManager {
         registerFailure(error, config: config)
     }
 
+    private func recordUnavailable(_ config: ScraperSourceConfig, part: ScrapeParts,
+                                   error: Error? = nil, result: inout ScrapeResult) async {
+        if let error {
+            if isCancellation(error) { return }
+            if case ScraperError.notFound = error { return }
+        }
+        result.unavailableParts.formUnion(part)
+        var delay = await getScraper(for: config).cooldownRemaining()
+        if let until = failureStates[config.id]?.circuitOpenUntil {
+            let remaining = ContinuousClock.now.duration(to: until).components
+            delay = max(delay, Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18)
+        }
+        if let error, case ScraperError.rateLimited(let seconds) = error { delay = max(delay, Double(seconds ?? 5)) }
+        if let failure = error as? HTTPResponseFailure { delay = max(delay, failure.retryAfter ?? 5) }
+        result.retryAfter = max(result.retryAfter, delay)
+    }
+
     func scrapeMetadata(
         title: String,
         artist: String?,
@@ -110,7 +127,7 @@ actor ScraperManager {
 
         // Clean title for search; also split "歌手 - 标题" 文件名(云盘无标签歌曲常见)
         // 推出 effectiveArtist,避免用整串脏标题去搜导致错配。
-        let (cleanedTitle, effectiveArtist) = Self.searchTitleArtist(title, artist: artist)
+        var (cleanedTitle, effectiveArtist) = Self.searchTitleArtist(title, artist: artist)
         guard !cleanedTitle.isEmpty else {
             // Some remote items have an empty title (or a filename made only
             // of bracketed noise that cleanTitle removes). Sending an empty
@@ -132,6 +149,7 @@ actor ScraperManager {
             metadataSourceLoop: for (sourceOrder, config) in metadataSources {
                 if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🔍 Skipping \(config.type.displayName) metadata — temporarily unavailable")
+                    await recordUnavailable(config, part: .metadata, result: &result)
                     continue
                 }
                 do {
@@ -198,6 +216,7 @@ actor ScraperManager {
                         plog("🔍 \(config.type.displayName) detail FAILED: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                         handleFailure(error, config: config)
+                        await recordUnavailable(config, part: .metadata, error: error, result: &result)
                         result.errors.append("[\(config.type.displayName)] metadata detail: \(error.localizedDescription)")
                     }
                 } catch {
@@ -205,6 +224,7 @@ actor ScraperManager {
                     plog("🔍 \(config.type.displayName) FAILED: \(error.localizedDescription)")
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     handleFailure(error, config: config)
+                    await recordUnavailable(config, part: .metadata, error: error, result: &result)
                     result.errors.append("[\(config.type.displayName)] metadata: \(error.localizedDescription)")
                 }
             }
@@ -233,17 +253,27 @@ actor ScraperManager {
                         plog("🔍 \(candidate.config.type.displayName) fallback detail FAILED: \(error.localizedDescription)")
                         await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                         handleFailure(error, config: candidate.config)
+                        await recordUnavailable(candidate.config, part: .metadata, error: error, result: &result)
                         result.errors.append("[\(candidate.config.type.displayName)] metadata detail: \(error.localizedDescription)")
                     }
                 }
             }
             result.detail = selectedDetail?.detail
+            if let detail = result.detail, detail.source.isBuiltIn {
+                // Only a confidence-checked identity can repair a filename title
+                // or supply the source's localized artist spelling to lyrics.
+                cleanedTitle = Self.cleanTitle(detail.title)
+                effectiveArtist = detail.artist ?? effectiveArtist
+            }
         }
 
         // Scrape cover from first successful source
         if needs.cover {
             for config in enabledSources where config.type.supportsCover {
-                if await isBackingOff(config) || isCircuitOpen(config) { continue }
+                if await isBackingOff(config) || isCircuitOpen(config) {
+                    await recordUnavailable(config, part: .cover, result: &result)
+                    continue
+                }
                 do {
                     let scraper = getScraper(for: config)
 
@@ -280,6 +310,7 @@ actor ScraperManager {
                     if isCancellation(error) { return result }
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     handleFailure(error, config: config)
+                    await recordUnavailable(config, part: .cover, error: error, result: &result)
                     result.errors.append("[\(config.type.displayName)] cover: \(error.localizedDescription)")
                 }
             }
@@ -297,6 +328,7 @@ actor ScraperManager {
                 guard requiresWordTiming ? pick.level != .word : pick.wantsNextSource else { break }
                 if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🎤 Skipping \(config.type.displayName) lyrics — temporarily unavailable")
+                    await recordUnavailable(config, part: .lyrics, result: &result)
                     continue
                 }
                 await lyricsProgress?(config.displayName, index, lyricsSources.count)
@@ -311,8 +343,8 @@ actor ScraperManager {
                         guard let directScraper = scraper as? any DirectLyricsLookup else {
                             throw ScraperError.parseError("\(config.type.displayName) scraper cache type mismatch")
                         }
-                        let lyricsIdentity = config.type == .amll
-                            ? Self.searchTitleArtist(title, artist: artist, preservingVersionMarkers: true)
+                        let lyricsIdentity = config.type.isBuiltIn
+                            ? Self.searchTitleArtist(result.detail?.title ?? title, artist: effectiveArtist, preservingVersionMarkers: true)
                             : (title: cleanedTitle, artist: effectiveArtist)
                         let fetchedLyrics = try await directScraper.fetchLyrics(
                             title: lyricsIdentity.title, artist: lyricsIdentity.artist, album: album, duration: duration
@@ -366,6 +398,7 @@ actor ScraperManager {
                                 if isCancellation(error) { return result }
                                 plog("🎤 [\(config.type.displayName)] getLyrics failed for '\(candidate.title)': \(error.localizedDescription)")
                                 handleFailure(error, config: config)
+                                await recordUnavailable(config, part: .lyrics, error: error, result: &result)
                                 if await isBackingOff(config) || isCircuitOpen(config) { break }
                             }
                         }
@@ -382,6 +415,7 @@ actor ScraperManager {
                     plog("🎤 [\(config.type.displayName)] lyrics tier ERROR: \(error.localizedDescription)")
                     await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
                     handleFailure(error, config: config)
+                    await recordUnavailable(config, part: .lyrics, error: error, result: &result)
                     result.errors.append("[\(config.type.displayName)] lyrics: \(error.localizedDescription)")
                 }
                 // `result.lyrics` 跟着选中的那份走，后面的源被取消时提前返回也带着它。
@@ -401,6 +435,9 @@ actor ScraperManager {
             plog("🎤 Lyrics tier: needs.lyrics=false, skipped")
         }
 
+        if result.detail != nil { result.unavailableParts.remove(.metadata) }
+        if result.coverData != nil { result.unavailableParts.remove(.cover) }
+        if result.lyrics != nil { result.unavailableParts.remove(.lyrics) }
         return result
     }
 
@@ -456,22 +493,35 @@ actor ScraperManager {
         durationMs targetMs: Int?,
         writtenTitle: String? = nil
     ) -> Bool {
-        let requestedTitle = normalizeComparableText(title)
+        let identityTitle = item.source.isBuiltIn
+            ? ScraperIdentity.filenameTitle(title, matching: item.artist, aliases: item.artistAliases) ?? title
+            : title
+        if item.source.isBuiltIn {
+            let written = ScraperIdentity.filenameTitle(writtenTitle ?? title, matching: item.artist, aliases: item.artistAliases)
+                ?? writtenTitle ?? title
+            guard ExternalTrackMatchPolicy.splitTitle(written).markers == ExternalTrackMatchPolicy.splitTitle(item.title).markers else {
+                return false
+            }
+        }
+        let requestedTitle = normalizeComparableText(identityTitle)
         let candidateTitle = normalizeComparableText(item.title)
+        let titleMatches = item.source.isBuiltIn
+            ? candidateTitle == requestedTitle
+            : (candidateTitle == requestedTitle || candidateTitle.contains(requestedTitle)
+                || requestedTitle.contains(candidateTitle))
         guard !requestedTitle.isEmpty,
               !candidateTitle.isEmpty,
-              candidateTitle == requestedTitle
-                || candidateTitle.contains(requestedTitle)
-                || requestedTitle.contains(candidateTitle) else {
+              titleMatches else {
             return false
         }
 
         let requestedArtist = normalizeComparableText(artist)
         let candidateArtist = normalizeComparableText(item.artist)
-        let artistMatches = !candidateArtist.isEmpty
-            && (candidateArtist == requestedArtist
+        let artistMatches = item.source.isBuiltIn
+            ? ScraperIdentity.artistMatches(artist, item.artist, aliases: item.artistAliases)
+            : (!candidateArtist.isEmpty && (candidateArtist == requestedArtist
             || candidateArtist.contains(requestedArtist)
-            || requestedArtist.contains(candidateArtist))
+            || requestedArtist.contains(candidateArtist)))
         let durationMatches: Bool = if let targetMs,
                                        targetMs > 0,
                                        let candidateMs = item.durationMs {
@@ -554,12 +604,15 @@ actor ScraperManager {
         artist: String?,
         durationMs: Int?
     ) -> ScrapeCandidateRank {
-        ScrapeCandidateRankingPolicy.rank(
-            requestedTitle: title,
-            requestedArtist: artist,
+        let title = item.source.isBuiltIn
+            ? ScraperIdentity.filenameTitle(title, matching: item.artist, aliases: item.artistAliases) ?? title : title
+        return ScrapeCandidateRankingPolicy.rank(
+            requestedTitle: normalizeComparableText(title),
+            requestedArtist: normalizeComparableText(artist),
             targetDurationMs: durationMs,
-            candidateTitle: item.title,
-            candidateArtist: item.artist,
+            candidateTitle: normalizeComparableText(item.title),
+            candidateArtist: item.source.isBuiltIn && ScraperIdentity.artistMatches(artist, item.artist, aliases: item.artistAliases)
+                ? normalizeComparableText(artist) : normalizeComparableText(item.artist),
             candidateDurationMs: item.durationMs,
             candidateAlbum: item.album,
             candidateYear: item.year,
@@ -679,7 +732,8 @@ actor ScraperManager {
             discNumber: preferredPositiveInt(detail?.discNumber, fallback: nil),
             durationMs: preferredPositiveInt(detail?.durationMs, fallback: searchItem.durationMs),
             genres: meaningfulGenres(detail?.genres) ?? meaningfulGenres(searchItem.genres),
-            coverUrl: preferredText(detail?.coverUrl, fallback: searchItem.coverUrl)
+            coverUrl: preferredText(detail?.coverUrl, fallback: searchItem.coverUrl),
+            artistAliases: Array(Set((detail?.artistAliases ?? []) + searchItem.artistAliases))
         )
     }
 
@@ -694,7 +748,7 @@ actor ScraperManager {
             durationMs: detail.durationMs,
             coverUrl: detail.coverUrl,
             trackNumber: detail.trackNumber,
-            genres: detail.genres
+            genres: detail.genres, artistAliases: detail.artistAliases
         )
     }
 
@@ -761,10 +815,10 @@ actor ScraperManager {
             if await isBackingOff(config) || isCircuitOpen(config) { continue }
             let scraper = getScraper(for: config)
             do {
-                if config.type == .amll {
+                if config.type == .amll || config.type == .lrclib {
                     let search = try await scraper.search(
                         query: title, artist: artist, album: album,
-                        limit: AMLLLyricsLookupPolicy.maximumLyricsFetches
+                        limit: config.type == .lrclib ? 20 : AMLLLyricsLookupPolicy.maximumLyricsFetches
                     )
                     registerSuccess(config)
                     for item in search.items {
@@ -772,12 +826,12 @@ actor ScraperManager {
                         let fetched = try await scraper.getLyrics(externalId: item.externalId)
                         registerSuccess(config)
                         guard let fetched, let lines = parseLyrics(fetched), !lines.isEmpty,
-                              AMLLLyricsLookupPolicy.lyricsFit(
+                              (config.type == .lrclib || AMLLLyricsLookupPolicy.lyricsFit(
                                 lastLyricEnd: lines.compactMap(\.endTime).max(),
                                 songDuration: duration,
                                 // 手动候选由用户确认歌手别名；仍拦截明显不合时长的版本。
                                 artistKnown: true
-                              ) else { continue }
+                              )) else { continue }
                         candidates.append(ManualLyricsCandidate(config: config, item: item, lyrics: lines))
                     }
                 } else if let directScraper = scraper as? any DirectLyricsLookup {
@@ -818,13 +872,20 @@ actor ScraperManager {
             let head = cleanTitle(String(trimmed[..<range.lowerBound])
                 .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—·"))),
                 preservingVersionMarkers: true)
-            if !head.isEmpty { return (head, knownArtist) }
+            if !head.isEmpty {
+                let identity = searchTitleArtist(head, artist: nil, preservingVersionMarkers: true)
+                return (identity.title, identity.artist ?? knownArtist)
+            }
         }
         if !knownArtist.isEmpty,
            normalizeComparableText(trimmed) == normalizeComparableText(title) {
             return (cleanTitle(trimmed, preservingVersionMarkers: true), knownArtist)
         }
         return searchTitleArtist(trimmed, artist: nil, preservingVersionMarkers: true)
+    }
+
+    static func manualSearchIdentity(query: String, title: String, artist: String?, source: MusicScraperType) -> (title: String, artist: String?) {
+        source.isBuiltIn ? lyricsLookupIdentity(query: query, title: title, artist: artist) : (query, nil)
     }
 
     // MARK: - Helpers
@@ -986,8 +1047,6 @@ actor ScraperManager {
 
     private static func normalizeComparableText(_ text: String?) -> String {
         guard let text else { return "" }
-        return cleanTitle(text)
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[\\s·•・_\\-–—]+", with: "", options: .regularExpression)
+        return ScraperIdentity.normalized(cleanTitle(text))
     }
 }

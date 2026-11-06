@@ -2,10 +2,16 @@ import Foundation
 import PrimuseKit
 
 actor MetadataService {
-    private let scraperManager = ScraperManager()
+    private let scraperManager: ScraperManager
     private let assetStore = MetadataAssetStore.shared
 
+    init(scraperManager: ScraperManager = ScraperManager()) {
+        self.scraperManager = scraperManager
+    }
+
     struct SongMetadata {
+        var unavailableScrapeParts: ScrapeParts = []
+        var scrapeRetryAfter: TimeInterval = 5
         var contentMetadata: SongContentMetadata? = nil
         var title: String
         var artist: String? = nil
@@ -462,8 +468,9 @@ actor MetadataService {
             settings: settings
         )
 
-        // Apply metadata from detail. 合并规则与 Apple TV 共用
-        // (`ScrapedMetadataMergePolicy`)。
+        result.unavailableScrapeParts = scrapeResult.unavailableParts
+        result.scrapeRetryAfter = scrapeResult.retryAfter
+        // Apply metadata from detail. 合并规则与 Apple TV 共用 (`ScrapedMetadataMergePolicy`)。
         if let detail = scrapeResult.detail {
             let merged = ScrapedMetadataMergePolicy.merged(
                 ScrapedMetadataMergePolicy.Fields(

@@ -169,6 +169,7 @@ public actor RequestExecutor {
     /// Schedulers can skip unavailable sources without duplicating or shortening
     /// this executor's cooldown deadline.
     public var isCoolingDown: Bool { cooldownUntil > timing.now() }
+    public var cooldownRemaining: TimeInterval { max(0, cooldownUntil - timing.now()) }
 
     /// An idle registry entry still owns pacing reservations after a success.
     /// Dropping it before that reservation expires would allow an early request.
