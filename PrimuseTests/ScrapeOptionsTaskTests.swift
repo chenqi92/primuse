@@ -1,5 +1,6 @@
 import Foundation
 import PrimuseKit
+import UIKit
 import XCTest
 @testable import Primuse
 
@@ -130,6 +131,125 @@ final class ScrapeContentSelectionTests: XCTestCase {
         candidate.discNumber = 1
         candidate.genre = "Rock"
         return candidate
+    }
+}
+
+@MainActor
+final class ExistingCoverScrapeTests: XCTestCase {
+    func testAutomaticScrapeKeepsSourceCoverWhenLocalAudioCopyHasNoImage() async throws {
+        try await withFixture { service, probe, song, _ in
+            let processed = try await service.processedSongWithAssets(song, forceRescrape: false)
+            let result = try XCTUnwrap(processed)
+            XCTAssertEqual(result.song.coverArtFileName, song.coverArtFileName)
+            XCTAssertNil(result.coverData)
+            XCTAssertEqual(result.song.year, 2026, "Missing metadata must still be filled")
+            let coverRequests = await probe.coverRequests
+            XCTAssertEqual(coverRequests, 0, "A known source cover must suppress online cover matching")
+        }
+    }
+
+    func testAutomaticScrapeDoesNotReturnAnotherLocalImageAsReplacement() async throws {
+        try await withFixture { service, _, song, root in
+            let data = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+            }.pngData()
+            try XCTUnwrap(data).write(to: root.appendingPathComponent("cover.png"))
+            let processed = try await service.processedSongWithAssets(song, forceRescrape: false)
+            let result = try XCTUnwrap(processed)
+            XCTAssertEqual(result.song.coverArtFileName, song.coverArtFileName)
+            XCTAssertNil(result.coverData, "Reading another image must not bypass fill-only application")
+        }
+    }
+
+    func testExplicitRescrapeCanStillRequestAReplacementCover() async throws {
+        try await withFixture { service, probe, song, _ in
+            _ = try await service.processedSongWithAssets(song, forceRescrape: true)
+            let coverRequests = await probe.coverRequests
+            XCTAssertEqual(coverRequests, 1)
+        }
+    }
+
+    func testBackgroundPublicationPreservesCoverDiscoveredWhileScraping() async throws {
+        try await withFixture { _, _, song, root in
+            let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+            var latest = song
+            latest.coverArtFileName = "/Album/newly-discovered-cover.jpg"
+            library.addSongs([latest])
+            var pending = song
+            pending.coverArtFileName = "scraped-" + String(repeating: "a", count: 64) + ".jpg"
+            pending.year = 2026
+            let result = MusicScraperService.rebasedOntoLatestUserEdits(
+                [pending], in: library, preservingExistingArtwork: true
+            )[0]
+            XCTAssertEqual(result.coverArtFileName, latest.coverArtFileName)
+            XCTAssertEqual(result.year, 2026)
+            XCTAssertEqual(MusicScraperService.rebasedOntoLatestUserEdits([pending], in: library)[0].coverArtFileName,
+                           pending.coverArtFileName, "Explicit replacement must retain its existing semantics")
+        }
+    }
+
+    private func withFixture(
+        _ body: (MusicScraperService, CoverScrapeProbe, Song, URL) async throws -> Void
+    ) async throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: ScraperSettings.defaultsKey)
+        defer {
+            if let previous { defaults.set(previous, forKey: ScraperSettings.defaultsKey) }
+            else { defaults.removeObject(forKey: ScraperSettings.defaultsKey) }
+        }
+        var settings = ScraperSettings.load()
+        for index in settings.sources.indices {
+            settings.sources[index].isEnabled = settings.sources[index].type == .itunes
+        }
+        settings.onlyFillMissingFields = true
+        settings.save()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var wav = Data("RIFF".utf8)
+        func u32(_ value: UInt32) -> Data {
+            withUnsafeBytes(of: value.littleEndian) { Data($0) }
+        }
+        wav.append(u32(36 + 160))
+        wav.append(Data("WAVEfmt ".utf8))
+        wav.append(u32(16))
+        wav.append(contentsOf: [1, 0, 1, 0])
+        wav.append(u32(8_000))
+        wav.append(u32(16_000))
+        wav.append(contentsOf: [2, 0, 16, 0])
+        wav.append(Data("data".utf8))
+        wav.append(u32(160))
+        wav.append(Data(repeating: 0, count: 160))
+        try wav.write(to: root.appendingPathComponent("Window at Dawn.wav"))
+        let source = MusicSource(id: UUID().uuidString, name: "Fixture", type: .local, basePath: root.path)
+        let probe = CoverScrapeProbe()
+        let service = MusicScraperService(
+            sourceManager: SourceManager(sourcesProvider: { [source] }),
+            metadataService: MetadataService(scraperManager: ScraperManager(scraperFactory: { _ in probe }))
+        )
+        let song = Song(id: UUID().uuidString, title: "Window at Dawn", albumTitle: "Quiet Windows",
+                        artistName: "Paper Harbor", fileFormat: .wav, filePath: "/Window at Dawn.wav",
+                        sourceID: source.id, coverArtFileName: "/Album/cover.jpg")
+        try await body(service, probe, song, root)
+    }
+
+    private actor CoverScrapeProbe: MusicScraper {
+        let type = MusicScraperType.itunes
+        private(set) var coverRequests = 0
+        func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
+            .init(items: [.init(externalId: "track", source: .itunes, title: "Window at Dawn",
+                                artist: "Paper Harbor", album: "Quiet Windows", durationMs: 10)], source: .itunes)
+        }
+        func getDetail(externalId: String) async throws -> ScraperDetail? {
+            .init(externalId: externalId, source: .itunes, title: "Window at Dawn",
+                  artist: "Paper Harbor", album: "Quiet Windows", year: 2026, genres: ["Ambient"])
+        }
+        func getCoverArt(externalId: String) async throws -> [ScraperCoverResult] {
+            coverRequests += 1
+            return []
+        }
+        func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
     }
 }
 

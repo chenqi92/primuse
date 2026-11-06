@@ -10,6 +10,70 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testAlbumArtworkPrefersFolderCoverOverScrapedAlbumCache() async throws {
+        try await verifyAlbumCoverPriority(sourceExists: true, uploaded: false)
+    }
+
+    func testAlbumArtworkUsesCachedCoverWhenFolderCoverCannotBeRead() async throws {
+        try await verifyAlbumCoverPriority(sourceExists: false, uploaded: false)
+    }
+
+    func testAlbumArtworkKeepsExplicitUploadAboveFolderCover() async throws {
+        try await verifyAlbumCoverPriority(sourceExists: true, uploaded: true)
+    }
+
+    private func verifyAlbumCoverPriority(sourceExists: Bool, uploaded: Bool) async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: UUID().uuidString, name: "Cover fixture", type: .local, basePath: root.path)
+        let manager = SourceManager(sourcesProvider: { [source] })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let song = Song(id: UUID().uuidString, title: "Window at Dawn", albumTitle: UUID().uuidString,
+                        artistName: "Paper Harbor", fileFormat: .flac, filePath: "/Album/track.flac",
+                        sourceID: source.id, coverArtFileName: "/Album/cover.jpg")
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+        let album = try XCTUnwrap(library.visibleAlbums.first)
+        XCTAssertFalse(MetadataAssetStore.shared.hasAlbumCover(forAlbumID: album.id))
+        XCTAssertTrue(MusicScraperService.albumHasArtwork(album.id, in: library),
+                      "A source cover must count as existing artwork before any album cache is created")
+        if sourceExists {
+            let folder = root.appendingPathComponent("Album")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try image(color: .green).write(to: folder.appendingPathComponent("cover.jpg"))
+        }
+        _ = await MetadataAssetStore.shared.storeAlbumCover(try image(color: .red), forAlbumID: album.id)
+        let customFile = uploaded ? try installHeroTestArtwork(
+            image(color: .blue), library: library, owner: LibraryArtworkOwner(kind: .album, id: album.id)
+        ) : nil
+        defer {
+            MetadataAssetStore.shared.removeAlbumCoverSync(forAlbumID: album.id)
+            MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: song.id)
+            for size in [480, 1536] {
+                if let key = SourceArtworkPolicy.cacheID(sourceID: source.id, reference: song.coverArtFileName, maximumPixels: size) {
+                    MetadataAssetStore.shared.invalidateCoverCacheSync(forSongID: key)
+                }
+            }
+            if let customFile { try? FileManager.default.removeItem(at: customFile) }
+        }
+        let view = AlbumArtworkView(album: album, size: 120, cornerRadius: 0)
+            .frame(width: 120, height: 120).ignoresSafeArea()
+            .environment(library).environment(manager).environment(\.scenePhase, .inactive)
+        let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 120, height: 120))
+        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+        var actual = (0, 0, 0)
+        let expected = uploaded ? 2 : (sourceExists ? 1 : 0)
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(100))
+            actual = try rgb(heroTestSnapshot(host.view), x: 60, y: 60)
+            let channels = [actual.0, actual.1, actual.2]
+            if channels[expected] > 220 && channels.enumerated().allSatisfy({ $0.offset == expected || $0.element < 35 }) {
+                return
+            }
+        }
+        XCTFail("Expected cover channel \(expected), got \(actual)")
+    }
+
     func testLocalNowPlayingPublishesCachedCoverAndKeepsItDuringLyricsUpdates() async throws {
         try await withArtworkPlayer { player, _, sourceID in
             let song = Song(id: UUID().uuidString, title: "Cached cover", fileFormat: .flac,

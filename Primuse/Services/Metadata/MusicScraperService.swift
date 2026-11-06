@@ -515,10 +515,16 @@ final class MusicScraperService {
     /// dryRun: if true, returns updated song without writing to library
     /// 刮削结果是按开始时取的那一行算的。那之后这首歌又被手改过(本机,或别的设备同步来的),
     /// 手改的字段以库里现在的为准,不能拿旧行盖回去、把标记也抹掉。
-    static func rebasedOntoLatestUserEdits(_ songs: [Song], in library: MusicLibrary) -> [Song] {
+    static func rebasedOntoLatestUserEdits(
+        _ songs: [Song], in library: MusicLibrary, preservingExistingArtwork: Bool = false
+    ) -> [Song] {
         songs.map { song in
-            guard let live = library.storedSong(id: song.id),
-                  let liveMarker = live.userMetadataEditedAt,
+            guard let live = library.storedSong(id: song.id) else { return song }
+            var song = song
+            if preservingExistingArtwork, live.coverArtFileName?.isEmpty == false {
+                song.coverArtFileName = live.coverArtFileName
+            }
+            guard let liveMarker = live.userMetadataEditedAt,
                   (song.userMetadataEditedAt ?? .distantPast) < liveMarker else { return song }
             return SongUserMetadataPolicy.preservingUserEdits(from: live, in: song)
         }
@@ -1556,7 +1562,7 @@ final class MusicScraperService {
                 targetIDs = resumedTargetIDs
             } else {
                 let albumIDs = albumsInScope.compactMap { album -> String? in
-                    guard forceRescrape || !assetStore.hasAlbumCover(forAlbumID: album.id) else { return nil }
+                    guard forceRescrape || !Self.albumHasArtwork(album.id, in: library) else { return nil }
                     return Self.albumArtworkTargetID(album.id)
                 }
                 let artistIDs = artistsInScope.compactMap { artist -> String? in
@@ -1570,7 +1576,7 @@ final class MusicScraperService {
             var availableIDs = Set<String>()
             if !forceRescrape {
                 for targetID in targetIDs {
-                    if Self.isArtworkAvailable(targetID: targetID, in: assetStore) {
+                    if Self.isArtworkAvailable(targetID: targetID, in: assetStore, library: library) {
                         availableIDs.insert(targetID)
                     }
                 }
@@ -1605,7 +1611,8 @@ final class MusicScraperService {
             await scrapeAlbumAndArtistCovers(
                 in: library,
                 albumsNeedingCover: albumsNeedingCover,
-                artistsNeedingImage: artistsNeedingImage
+                artistsNeedingImage: artistsNeedingImage,
+                forceRescrape: forceRescrape
             )
         }
         return .started(runID: runID, songCount: logicalSongCount)
@@ -1793,7 +1800,8 @@ final class MusicScraperService {
     private func scrapeAlbumAndArtistCovers(
         in library: MusicLibrary,
         albumsNeedingCover: [Album],
-        artistsNeedingImage: [Artist]
+        artistsNeedingImage: [Artist],
+        forceRescrape: Bool
     ) async {
         let artworkService = ArtworkFetchService.shared
         let assetStore = MetadataAssetStore.shared
@@ -1804,6 +1812,10 @@ final class MusicScraperService {
             currentSongTitle = String(localized: "scraping_album_covers")
             for album in albumsNeedingCover {
                 guard !Task.isCancelled else { return }
+                if !forceRescrape, Self.albumHasArtwork(album.id, in: library) {
+                    recordArtworkResult(isAvailable: true)
+                    continue
+                }
                 currentSongTitle = album.title
                 _ = await artworkService.fetchAlbumCover(
                     albumTitle: album.title, artistName: album.artistName, albumID: album.id
@@ -1843,15 +1855,26 @@ final class MusicScraperService {
 
     private static func isArtworkAvailable(
         targetID: String,
-        in assetStore: MetadataAssetStore
+        in assetStore: MetadataAssetStore,
+        library: MusicLibrary
     ) -> Bool {
         if targetID.hasPrefix("album:") {
-            return assetStore.hasAlbumCover(forAlbumID: String(targetID.dropFirst(6)))
+            return albumHasArtwork(String(targetID.dropFirst(6)), in: library)
         }
         if targetID.hasPrefix("artist:") {
             return assetStore.hasArtistImage(forArtistID: String(targetID.dropFirst(7)))
         }
         return false
+    }
+
+    static func albumHasArtwork(_ albumID: String, in library: MusicLibrary) -> Bool {
+        if library.preferredArtworkSong(forAlbumID: albumID)?.coverArtFileName?.isEmpty == false {
+            return true
+        }
+        let presentation = library.artworkPresentation(for: LibraryArtworkOwner(kind: .album, id: albumID))
+        return presentation.uploadedContentID != nil
+            || presentation.selectedSong?.coverArtFileName?.isEmpty == false
+            || MetadataAssetStore.shared.hasAlbumCover(forAlbumID: albumID)
     }
 
     private func recordArtworkResult(isAvailable: Bool) {
@@ -2011,7 +2034,8 @@ final class MusicScraperService {
                 cacheKey: storeAssets ? song.id : nil,
                 trustedSource: false,
                 fallbackTitle: fallbackTitle,
-                forceOnlineRefresh: forceRescrape
+                forceOnlineRefresh: forceRescrape,
+                existingCoverReference: song.coverArtFileName
             )
         } else {
             // Range/HTTP-backed sources resolve to a streaming URL, not a
@@ -2064,7 +2088,9 @@ final class MusicScraperService {
         var pendingSongUpdates: [Song] = []
         @MainActor func publishPendingSongUpdates() {
             guard !pendingSongUpdates.isEmpty else { return }
-            library.replaceSongs(Self.rebasedOntoLatestUserEdits(pendingSongUpdates, in: library))
+            library.replaceSongs(Self.rebasedOntoLatestUserEdits(
+                pendingSongUpdates, in: library, preservingExistingArtwork: true
+            ))
             pendingSongUpdates.removeAll(keepingCapacity: true)
         }
 
@@ -2140,13 +2166,14 @@ final class MusicScraperService {
                     // 必须在 replaceSong 前把 coverData/lyricsLines 真正写进 hash cache,
                     // 否则库里的 ref 会指向不存在的文件, 且数据被丢弃。
                     var enrichedSong = result.song
-                    if let coverData = result.coverData,
+                    let existingCover = library.storedSong(id: song.id)?.coverArtFileName ?? song.coverArtFileName
+                    if existingCover?.isEmpty != false, let coverData = result.coverData,
                        let reference = await MetadataAssetStore.shared.storeAttributedCover(coverData, songID: enrichedSong.id, origin: .scraped) {
                         enrichedSong.coverArtFileName = reference
                         CachedArtworkView.invalidateCache(for: enrichedSong.id)
                     } else {
                         // 没拿到新封面、或者图存不下 —— 别把占位 ref 持久化, 退回原始 ref。
-                        enrichedSong.coverArtFileName = song.coverArtFileName
+                        enrichedSong.coverArtFileName = existingCover
                     }
                     var lyricsCached = false
                     if let lyricsLines = result.lyricsLines, !lyricsLines.isEmpty {

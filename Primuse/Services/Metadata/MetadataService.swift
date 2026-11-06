@@ -69,6 +69,7 @@ actor MetadataService {
         trustedSource: Bool = true,
         fallbackTitle: String? = nil,
         forceOnlineRefresh: Bool = false,
+        existingCoverReference: String? = nil,
         discoverSidecars: Bool = true,
         storesLyrics: Bool = true
     ) async -> SongMetadata {
@@ -208,7 +209,8 @@ actor MetadataService {
             fieldsAreMissing: fieldsAreMissing,
             forceRefresh: forceOnlineRefresh
         )
-        let needsCover = forceOnlineRefresh || result.coverArtData == nil
+        let preservesExistingCover = !forceOnlineRefresh && existingCoverReference?.isEmpty == false
+        let needsCover = !preservesExistingCover && (forceOnlineRefresh || result.coverArtData == nil)
         let needsLyrics = forceOnlineRefresh || result.lyrics == nil
 
         if allowOnlineFetch && (needsMetadata || needsCover || needsLyrics) {
@@ -219,6 +221,14 @@ actor MetadataService {
                 needsLyrics: needsLyrics,
                 overwriteMetadata: forceOnlineRefresh
             )
+        }
+
+        // A cached audio file may have no neighbouring image even though the
+        // library already points to a cover in the source directory.
+        if preservesExistingCover {
+            result.coverArtFileName = existingCoverReference
+            result.coverArtData = nil
+            result.artworkOrigin = nil
         }
 
         if let cacheKey {

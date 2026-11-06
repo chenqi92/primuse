@@ -594,9 +594,8 @@ private struct PlaylistArtworkWatch: Sendable {
 }
 
 /// Album artwork follows the same user override policy as playlists. The
-/// album resolver stays above a deterministic song fallback, so a missing
-/// album image can still use sidecar, embedded, remote, or MusicKit artwork
-/// from one of its tracks.
+/// Known song artwork takes precedence over an automatically scraped album
+/// image. User uploads and explicit song selections remain authoritative.
 struct AlbumArtworkView: View {
     let album: PrimuseKit.Album
     var size: CGFloat? = nil
@@ -721,11 +720,13 @@ struct AlbumArtworkView: View {
         Group {
             if presentationRole == .staticFirstFrame,
                uploadedContentID == nil, selectedSong == nil {
-                // A static card has one visible source. Only start the song
-                // fallback after proving the higher-priority album cache empty.
-                // Animated heroes retain their separate source/animation policy.
                 let identity = staticAlbumIdentity
-                if missingCachedAlbumIdentity == identity, fallbackSong != nil {
+                if let song = fallbackSong,
+                   song.coverArtFileName?.isEmpty == false,
+                   !failedFallbacks.hasFailed(identity: fallbackArtworkIdentity(for: song)) {
+                    sourceFallbackArtwork(side: side, isAnimationVisible: false,
+                                          showsPlaceholder: showsPlaceholder)
+                } else if missingCachedAlbumIdentity == identity, fallbackSong != nil {
                     sourceFallbackArtwork(side: side, isAnimationVisible: false,
                                           showsPlaceholder: showsPlaceholder)
                 } else {
