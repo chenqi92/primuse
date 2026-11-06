@@ -203,13 +203,19 @@ public enum ServerCatalogRefreshWorkPolicy {
         hasSeriousThermalPressure: Bool,
         availableDiskBytes: Int64,
         isPlaybackBusy: Bool,
-        requiresNetwork: Bool = true
+        requiresNetwork: Bool = true,
+        continuingScanInBackground: Bool = false
     ) -> ServerCatalogRefreshEligibility {
-        guard applicationIsActive else { return .deferred(.applicationInactive) }
+        guard applicationIsActive || continuingScanInBackground else { return .deferred(.applicationInactive) }
         guard !requiresNetwork || hasDeterminedNetwork else { return .deferred(.networkUndetermined) }
         guard !requiresNetwork || isReachable else { return .deferred(.networkUnavailable) }
         guard availableDiskBytes >= minimumFreeDiskBytes else {
             return .deferred(.insufficientDiskSpace)
+        }
+        // Lifecycle code only resumes unfinished scans while iOS permits work.
+        // Playback can provide that time; it must not also veto the continuation.
+        if continuingScanInBackground {
+            return hasSeriousThermalPressure ? .deferred(.thermalPressure) : .allowed
         }
         if trigger.isUserInitiated { return .allowed }
         guard !requiresNetwork || isOnUnmeteredNetwork else { return .deferred(.meteredNetwork) }

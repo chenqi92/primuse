@@ -152,6 +152,16 @@ struct ScanContinuedProcessingPolicyTests {
         #expect(!ScanContinuedProcessingPolicy.Interruption.stalled.pausesScan(isApplicationActive: true))
     }
 
+    @Test("Slow server requests keep running under background audio but system cancellation still wins")
+    func backgroundPlaybackSurvivesProgressWatchdog() {
+        #expect(!ScanContinuedProcessingPolicy.Interruption.stalled.pausesScan(
+            isApplicationActive: false, isBackgroundPlaybackActive: true
+        ))
+        #expect(ScanContinuedProcessingPolicy.Interruption.systemExpiration.pausesScan(
+            isApplicationActive: false, isBackgroundPlaybackActive: true
+        ))
+    }
+
     @Test("An unknown total reports indeterminate progress")
     func unknownTotalStaysIndeterminate() {
         let units = ScanContinuedProcessingPolicy.progressUnits(scannedCount: 1234, totalCount: 0)

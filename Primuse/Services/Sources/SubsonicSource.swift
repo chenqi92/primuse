@@ -74,6 +74,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var legacyAlbumSearchScopes = Set<String>()
     private var usesLegacyAlbumWalk = false
     private var prefetchedSongPage: (path: String, offset: Int, size: Int, task: Task<[SubsonicChild], Error>)?
+    private var songSearchRequestPageSizeLimit: Int?
 
     private struct LibraryScope {
         /// nil = 不带 `musicFolderId`(读全部);空数组 = 全排除了。
@@ -756,6 +757,33 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private func search3SongPage(offset: Int, path: String, pageSize: Int? = nil) async throws -> [SubsonicChild] {
+        let width = pageSize ?? SubsonicCatalogPagingPolicy.songPageSize(serverType: serverType)
+        if songSearchRequestPageSizeLimit == nil || width <= SubsonicCatalogPagingPolicy.pageSize {
+            do {
+                return try await requestSearch3Songs(offset: offset, path: path, pageSize: width)
+            } catch let error as URLError where error.code == .timedOut && width > SubsonicCatalogPagingPolicy.pageSize {
+                try Task.checkCancellation()
+                songSearchRequestPageSizeLimit = SubsonicCatalogPagingPolicy.pageSize
+                plog("Subsonic song page timed out; using smaller requests source=\(sourceID.prefix(8)) offset=\(offset) size=\(SubsonicCatalogPagingPolicy.pageSize)")
+            }
+        }
+        // Keep the logical page boundaries and first-page receipt unchanged,
+        // including when a later launch resumes with the original page width.
+        var children: [SubsonicChild] = []
+        while children.count < width {
+            try Task.checkCancellation()
+            let requestSize = min(songSearchRequestPageSizeLimit ?? width, width - children.count)
+            let chunk = try await requestSearch3Songs(
+                offset: offset + children.count, path: path, pageSize: requestSize
+            )
+            guard chunk.count <= requestSize else { throw PagedSongCatalogError.snapshotChangedDuringPagination }
+            guard !chunk.isEmpty else { break }
+            children += chunk
+        }
+        return children
+    }
+
+    private func requestSearch3Songs(offset: Int, path: String, pageSize: Int) async throws -> [SubsonicChild] {
         let includedLibraryIDs = libraryScope?.includedLibraryIDs
         if includedLibraryIDs?.isEmpty == true { return [] }
         do {
@@ -765,7 +793,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     songOffset: offset,
                     musicFolderID: musicFolderID(from: path),
                     musicFolderIDs: includedLibraryIDs ?? [],
-                    pageSize: pageSize ?? SubsonicCatalogPagingPolicy.songPageSize(serverType: serverType)
+                    pageSize: pageSize
                 )
             )
             guard let result = container.searchResult3 else {
@@ -2482,6 +2510,25 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private func responseJSON<C: SubsonicResponseContainer>(
         _ method: String,
         query: [URLQueryItem] = []
+    ) async throws -> C {
+        let startedAt = Date()
+        do {
+            return try await performResponseJSON(method, query: query)
+        } catch {
+            if !OperationCancellationPolicy.isCancellation(error) {
+                let failure = error as NSError
+                let paging = query.filter {
+                    ["songCount", "songOffset", "albumCount", "albumOffset", "size", "offset"].contains($0.name)
+                }.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: " ")
+                plog("Subsonic request failed source=\(sourceID.prefix(8)) method=\(method) \(paging) elapsedMS=\(Int(Date().timeIntervalSince(startedAt) * 1000)) error=\(failure.domain):\(failure.code)")
+            }
+            throw error
+        }
+    }
+
+    private func performResponseJSON<C: SubsonicResponseContainer>(
+        _ method: String,
+        query: [URLQueryItem]
     ) async throws -> C {
         guard let url = buildRESTURL(method: method, query: query) else {
             throw SourceError.connectionFailed("Invalid URL for \(method)")

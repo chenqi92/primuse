@@ -835,13 +835,20 @@ final class ServerCatalogAutoRefreshCoordinator {
         return AutomaticOfflineFailureClassifier.classify(error) == .authentication
     }
 
-    func automaticWorkIsAllowed(requiresNetwork: Bool = true) -> Bool {
-        workEligibility(for: .retry, requiresNetwork: requiresNetwork) == .allowed
+    func automaticWorkIsAllowed(
+        requiresNetwork: Bool = true,
+        continuingScanInBackground: Bool = false
+    ) -> Bool {
+        workEligibility(
+            for: .retry, requiresNetwork: requiresNetwork,
+            continuingScanInBackground: continuingScanInBackground
+        ) == .allowed
     }
 
     private func workEligibility(
         for trigger: ServerCatalogRefreshTrigger,
-        requiresNetwork: Bool = true
+        requiresNetwork: Bool = true,
+        continuingScanInBackground: Bool = false
     ) -> ServerCatalogRefreshEligibility {
         let network = NetworkMonitor.shared
         return ServerCatalogRefreshWorkPolicy.eligibility(
@@ -854,7 +861,8 @@ final class ServerCatalogAutoRefreshCoordinator {
             hasSeriousThermalPressure: Self.hasSeriousThermalPressure,
             availableDiskBytes: Self.availableDiskBytes(),
             isPlaybackBusy: player.isPlaybackActive || player.isLoading,
-            requiresNetwork: requiresNetwork
+            requiresNetwork: requiresNetwork,
+            continuingScanInBackground: continuingScanInBackground
         )
     }
 
@@ -1431,8 +1439,10 @@ final class AppServices {
             player: player
         )
         scanService.automaticServerCatalogWorkAllowedHandler = {
-            [weak serverCatalogAutoRefresh] in
-            serverCatalogAutoRefresh?.automaticWorkIsAllowed() ?? false
+            [weak serverCatalogAutoRefresh] context in
+            serverCatalogAutoRefresh?.automaticWorkIsAllowed(
+                continuingScanInBackground: context == .background
+            ) ?? false
         }
         scanService.automaticRefreshEnabledHandler = { [weak serverCatalogAutoRefresh] sourceID in
             serverCatalogAutoRefresh?.isEnabled(for: sourceID) ?? false

@@ -166,7 +166,8 @@ struct ServerCatalogRefreshWorkPolicyTests {
         hot: Bool = false,
         disk: Int64 = 10 * 1_024 * 1_024 * 1_024,
         playing: Bool = false,
-        requiresNetwork: Bool = true
+        requiresNetwork: Bool = true,
+        continuingScanInBackground: Bool = false
     ) -> ServerCatalogRefreshEligibility {
         ServerCatalogRefreshWorkPolicy.eligibility(
             trigger: trigger,
@@ -178,7 +179,8 @@ struct ServerCatalogRefreshWorkPolicyTests {
             hasSeriousThermalPressure: hot,
             availableDiskBytes: disk,
             isPlaybackBusy: playing,
-            requiresNetwork: requiresNetwork
+            requiresNetwork: requiresNetwork,
+            continuingScanInBackground: continuingScanInBackground
         )
     }
 
@@ -206,6 +208,24 @@ struct ServerCatalogRefreshWorkPolicyTests {
         #expect(eligibility(.foreground, hot: true, requiresNetwork: false) == .deferred(.thermalPressure))
         #expect(eligibility(.foreground, playing: true, requiresNetwork: false) == .deferred(.playbackActive))
         #expect(eligibility(.foreground, active: false, requiresNetwork: false) == .deferred(.applicationInactive))
+    }
+
+    @Test func unfinishedScansCanUseBackgroundPlaybackTime() {
+        #expect(eligibility(.retry, active: false, unmetered: false, lowPower: true, playing: true,
+                            continuingScanInBackground: true) == .allowed)
+        #expect(eligibility(.retry, active: false, playing: true) == .deferred(.applicationInactive))
+        #expect(eligibility(.retry, playing: true) == .deferred(.playbackActive))
+    }
+
+    @Test func backgroundContinuationStillNeedsNetworkDiskAndSafeTemperature() {
+        #expect(eligibility(.retry, active: false, determined: false,
+                            continuingScanInBackground: true) == .deferred(.networkUndetermined))
+        #expect(eligibility(.retry, active: false, reachable: false,
+                            continuingScanInBackground: true) == .deferred(.networkUnavailable))
+        #expect(eligibility(.retry, active: false, disk: 1_024,
+                            continuingScanInBackground: true) == .deferred(.insufficientDiskSpace))
+        #expect(eligibility(.retry, active: false, hot: true,
+                            continuingScanInBackground: true) == .deferred(.thermalPressure))
     }
 }
 

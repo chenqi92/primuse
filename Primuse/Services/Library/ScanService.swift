@@ -459,7 +459,7 @@ final class ScanService {
     @ObservationIgnored var serverFavoriteSyncHandler: ((MusicSource, ServerMirrorApplyFence) async -> Void)?
     /// AppServices supplies live playback/network/power pressure for automatic
     /// paged server catalogues. Explicit user scans keep their existing policy.
-    @ObservationIgnored var automaticServerCatalogWorkAllowedHandler: (() -> Bool)?
+    @ObservationIgnored var automaticServerCatalogWorkAllowedHandler: ((BaiduSnapshotExecutionContext) -> Bool)?
     @ObservationIgnored var automaticRefreshEnabledHandler: ((String) -> Bool)?
     @ObservationIgnored var automaticRefreshIntervalHandler: ((String) -> SourceAutomaticRefreshInterval)?
     @ObservationIgnored var automaticRefreshDidStartHandler: ((String) -> Void)?
@@ -1130,7 +1130,7 @@ final class ScanService {
         guard folderTopologyRebuildTask == nil else { return }
         guard !Self.shouldDeferAutomaticServerCatalogWork(
             context: .foregroundResume,
-            resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+            resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?(.foregroundResume) ?? true
         ) else { return }
         let populatedSourceIDs = Set(library.songCountsBySourceID().filter { $0.value > 0 }.map(\.key))
         let sourceIDs = sourceStore.sources
@@ -1161,7 +1161,7 @@ final class ScanService {
             for sourceID in sourceIDs {
                 guard !Self.shouldDeferAutomaticServerCatalogWork(
                     context: .foregroundResume,
-                    resourcesAllowWork: self.automaticServerCatalogWorkAllowedHandler?() ?? true
+                    resourcesAllowWork: self.automaticServerCatalogWorkAllowedHandler?(.foregroundResume) ?? true
                 ) else { return }
                 guard !Task.isCancelled,
                       let source = sourceStore.source(id: sourceID),
@@ -1187,7 +1187,7 @@ final class ScanService {
                       MusicSourceScopeFingerprint.make(for: current) == MusicSourceScopeFingerprint.make(for: source),
                       !Self.shouldDeferAutomaticServerCatalogWork(
                         context: .foregroundResume,
-                        resourcesAllowWork: self.automaticServerCatalogWorkAllowedHandler?() ?? true
+                        resourcesAllowWork: self.automaticServerCatalogWorkAllowedHandler?(.foregroundResume) ?? true
                       ) else { continue }
                 guard self.scanSource(
                     source,
@@ -1292,7 +1292,7 @@ final class ScanService {
         if Self.requiresAutomaticServerCatalogResourceGate(source.type),
            Self.shouldDeferAutomaticServerCatalogWork(
                context: snapshotExecutionContext,
-               resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+               resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?(snapshotExecutionContext) ?? true
            ) {
             recordScanInterruption(sourceID: source.id)
             return false
@@ -1637,7 +1637,8 @@ final class ScanService {
                       self.continuedScanSessions[sourceID]?.identifier == identifier else { return }
                 self.continuedScanSessions[sourceID] = nil
                 guard reason.pausesScan(
-                    isApplicationActive: UIApplication.shared.applicationState == .active
+                    isApplicationActive: UIApplication.shared.applicationState == .active,
+                    isBackgroundPlaybackActive: self.backgroundPlaybackProfileActive
                 ) else { return }
                 // expiration 也可能来自用户点取消，不能在前台继续或自动重启。
                 self.cancelScan(for: sourceID, automaticallyResumes: reason != .systemExpiration)
@@ -2609,7 +2610,7 @@ final class ScanService {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
                     context: snapshotExecutionContext,
-                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?(snapshotExecutionContext) ?? true
                 ) {
                     try await waitForCheckpointPersistence()
                     try checkScanCommitFence(
@@ -3447,7 +3448,7 @@ final class ScanService {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
                     context: snapshotExecutionContext,
-                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?(snapshotExecutionContext) ?? true
                 ) {
                     try await waitForCheckpointPersistence()
                     guard scanFenceIsValid() else { return }
@@ -4180,7 +4181,7 @@ final class ScanService {
                 )
                 if Self.shouldDeferAutomaticServerCatalogWork(
                     context: snapshotExecutionContext,
-                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?(snapshotExecutionContext) ?? true
                 ) {
                     try await waitForCheckpointPersistence()
                     guard pagedFenceIsValid() else { return true }
@@ -4334,7 +4335,7 @@ final class ScanService {
                     )
                     if Self.shouldDeferAutomaticServerCatalogWork(
                         context: snapshotExecutionContext,
-                        resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                        resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?(snapshotExecutionContext) ?? true
                     ) {
                         try await waitForCheckpointPersistence()
                         guard pagedFenceIsValid() else { return true }
@@ -4586,7 +4587,7 @@ final class ScanService {
                 )
                 if Self.shouldDeferAutomaticServerCatalogWork(
                     context: snapshotExecutionContext,
-                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?() ?? true
+                    resourcesAllowWork: automaticServerCatalogWorkAllowedHandler?(snapshotExecutionContext) ?? true
                 ) {
                         try await waitForCheckpointPersistence()
                         guard pagedFenceIsValid() else { return true }

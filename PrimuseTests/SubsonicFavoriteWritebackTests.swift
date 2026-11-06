@@ -670,6 +670,57 @@ final class SubsonicServerScanTests: XCTestCase {
         XCTAssertLessThanOrEqual(calls, 12)
     }
 
+    func testTimedOutWidePagesRecoverWithoutChangingCheckpointBoundaries() async throws {
+        let host = "server-wide-timeout.invalid"
+        SubsonicServerScanURLProtocol.configure(host: host, mode: .widePageTimeout)
+        let (source, session) = makeSource(host: host)
+        defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
+        var offset = 0
+        var ids: [String] = []
+        var sizes: [Int] = []
+        while true {
+            let page = try await source.songCatalogPage(from: "/", offset: offset, pageSize: 2_000)
+            sizes.append(page.itemIDs.count)
+            ids += page.itemIDs
+            guard let next = page.nextOffset else { break }
+            offset = next
+            XCTAssertLessThan(sizes.count, 5)
+        }
+        XCTAssertEqual(sizes, [2_000, 2_000, 501, 0])
+        XCTAssertEqual(ids, (0..<4_501).map { "song-\($0)" })
+        let repeatedFirst = try await source.songCatalogPage(from: "/", offset: 0, pageSize: 2_000)
+        XCTAssertEqual(repeatedFirst.itemIDs, Array(ids.prefix(2_000)))
+        let widths = songRequestWidths(host: host)
+        XCTAssertEqual(widths.first, 2_000)
+        XCTAssertEqual(widths.filter { $0 == 2_000 }.count, 1)
+        XCTAssertTrue(widths.dropFirst().allSatisfy { $0 <= 500 })
+    }
+
+    func testSongPageFallbackIsBoundedAndDoesNotRetryCancellationOrConnectivityFailures() async throws {
+        for code in [URLError.timedOut, .cancelled, .notConnectedToInternet] {
+            let host = "server-page-failure-\(code.rawValue).invalid"
+            SubsonicServerScanURLProtocol.configure(host: host, mode: .songPageFailure(code))
+            let (source, session) = makeSource(host: host)
+            defer { Task { await source.disconnect(); session.invalidateAndCancel() } }
+            do {
+                _ = try await source.songCatalogPage(from: "/", offset: 0, pageSize: 2_000)
+                XCTFail("Expected the page failure to remain visible")
+            } catch let error as URLError {
+                XCTAssertEqual(error.code, code)
+            }
+            XCTAssertEqual(songRequestWidths(host: host), code == .timedOut ? [2_000, 500] : [2_000])
+        }
+    }
+
+    private func songRequestWidths(host: String) -> [Int] {
+        SubsonicServerScanURLProtocol.requests(host: host).compactMap { request in
+            guard let url = request.url, url.lastPathComponent == "search3.view" else { return nil }
+            let width = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "songCount" }?.value.flatMap(Int.init)
+            return width.flatMap { $0 > 0 ? $0 : nil }
+        }
+    }
+
     func testFailedServerScanCannotAuthorizeCatalogSnapshot() async throws {
         let host = "server-failed-scan.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .failedScanStatus)
@@ -716,6 +767,8 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
         case applicationUnsupported
         case pagedCatalog
         case widePagedCatalog
+        case widePageTimeout
+        case songPageFailure(URLError.Code)
         case repeatedCatalog
         case failedScanStatus
         case httpStatus(Int)
@@ -770,7 +823,7 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
         }
         if url.path == "/rest/getScanStatus.view" {
             switch state.mode {
-            case .pagedCatalog, .widePagedCatalog, .repeatedCatalog:
+            case .pagedCatalog, .widePagedCatalog, .widePageTimeout, .songPageFailure, .repeatedCatalog:
                 respond(json: #"{"subsonic-response":{"status":"ok","scanStatus":{"scanning":false,"count":501,"lastScan":"2026-08-31T04:00:00Z"}}}"#)
                 return
             case .failedScanStatus:
@@ -784,7 +837,11 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             respond(statusCode: status, json: "{}")
             return
         }
-        if url.path == "/rest/search3.view", [.pagedCatalog, .widePagedCatalog, .repeatedCatalog].contains(state.mode) {
+        if url.path == "/rest/search3.view", case .songPageFailure(let code) = state.mode {
+            fail(code)
+            return
+        }
+        if url.path == "/rest/search3.view", [.pagedCatalog, .widePagedCatalog, .widePageTimeout, .repeatedCatalog].contains(state.mode) {
             let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
             let offset = items?
                 .first(where: { $0.name == "songOffset" })?
@@ -795,8 +852,13 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
                 respond(json: #"{"subsonic-response":{"status":"ok","searchResult3":{"album":[]}}}"#)
                 return
             }
-            let total = state.mode == .widePagedCatalog ? 4_501 : 501
-            let limit = state.mode == .widePagedCatalog ? requested : 500
+            if state.mode == .widePageTimeout, requested > 500 {
+                fail(.timedOut)
+                return
+            }
+            let wideCatalog = state.mode == .widePagedCatalog || state.mode == .widePageTimeout
+            let total = wideCatalog ? 4_501 : 501
+            let limit = wideCatalog ? requested : 500
             let range = state.mode == .repeatedCatalog ? 0..<2 : min(offset, total)..<min(offset + limit, total)
             let songs = range.map { index in
                 #"{"id":"song-\#(index)","title":"Song \#(index)","suffix":"mp3","path":"Artist/Album/Song \#(index).mp3","size":1024,"duration":180,"playCount":\#(index)}"#
@@ -817,7 +879,7 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             respond(json: failedResponse(code: 40, message: "Wrong credentials"))
         case .applicationUnsupported:
             respond(json: failedResponse(code: 0, message: "Unknown method startScan"))
-        case .pagedCatalog, .widePagedCatalog, .repeatedCatalog, .failedScanStatus:
+        case .pagedCatalog, .widePagedCatalog, .widePageTimeout, .songPageFailure, .repeatedCatalog, .failedScanStatus:
             fail(.unsupportedURL)
         case .httpStatus(let statusCode):
             respond(statusCode: statusCode, json: "{}")

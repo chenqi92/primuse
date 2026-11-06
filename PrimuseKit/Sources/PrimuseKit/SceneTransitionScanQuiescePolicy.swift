@@ -120,10 +120,13 @@ public enum ScanContinuedProcessingPolicy {
         case systemExpiration
         case stalled
 
-        public func pausesScan(isApplicationActive: Bool) -> Bool {
+        public func pausesScan(
+            isApplicationActive: Bool,
+            isBackgroundPlaybackActive: Bool = false
+        ) -> Bool {
             switch self {
             case .systemExpiration: true
-            case .stalled: !isApplicationActive
+            case .stalled: !isApplicationActive && !isBackgroundPlaybackActive
             }
         }
     }

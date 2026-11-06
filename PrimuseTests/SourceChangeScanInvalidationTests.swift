@@ -336,6 +336,38 @@ private actor PausableScanConnector: MusicSourceConnector {
 /// 删除证词按它去重，之后每次完整走查都算同一份证词，提示「下一次扫描再次确认」却永远确认不了。
 @MainActor
 final class ServerCatalogDeletionScanTests: XCTestCase {
+    func testInterruptedCatalogResumesInBackgroundThroughAllPages() async throws {
+        let fixture = try makeFixture(songCount: 2_501)
+        await fixture.connector.configurePaging(preferred: 2_000, cap: nil)
+        XCTAssertTrue(fixture.scan.scanSource(fixture.source, sourceManager: fixture.manager,
+                                             library: fixture.library, sourceStore: fixture.store))
+        fixture.scan.cancelScan(for: fixture.source.id, automaticallyResumes: true)
+        await fixture.scan.waitForActiveScansToComplete()
+
+        var resourcesAllowWork = false
+        var contexts: [BaiduSnapshotExecutionContext] = []
+        fixture.scan.automaticServerCatalogWorkAllowedHandler = { context in
+            contexts.append(context)
+            return resourcesAllowWork && context == .background
+        }
+        fixture.scan.resumePendingScans(context: .background, sourceManager: fixture.manager,
+                                        library: fixture.library, sourceStore: fixture.store,
+                                        scraperService: nil)
+        XCTAssertFalse(fixture.scan.hasActiveScans)
+        XCTAssertTrue(fixture.scan.scanStates[fixture.source.id]?.canResume == true)
+
+        resourcesAllowWork = true
+        fixture.scan.resumePendingScans(context: .background, sourceManager: fixture.manager,
+                                        library: fixture.library, sourceStore: fixture.store,
+                                        scraperService: nil)
+        await fixture.scan.waitForActiveScansToComplete()
+        await fixture.library.waitForPendingIndex()
+        XCTAssertEqual(fixture.songIDs().count, 2_501)
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.failureMessage)
+        XCTAssertGreaterThan(contexts.count, 3)
+        XCTAssertTrue(contexts.allSatisfy { $0 == .background })
+    }
+
     func testLargeAndCappedPagesCommitTheCompleteCatalog() async throws {
         for cap in [nil, 500] as [Int?] {
             let fixture = try makeFixture(songCount: 2_501)
