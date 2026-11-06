@@ -600,7 +600,7 @@ actor SynologyScanner {
             && PrimuseConstants.supportedVirtualTrackExtensions.contains((cueItem.name as NSString).pathExtension.lowercased()) {
             let cue: CueSheet
             if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
-                guard let parsed = try await SACDISOReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [api] offset, length in
+                guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [api] offset, length in
                     try await api.downloadFileRange(path: cueItem.path, offset: offset, length: Int(length))
                 }) else { continue }
                 cue = parsed
@@ -610,7 +610,7 @@ actor SynologyScanner {
                 cue = parsed
             }
 
-            for cueFile in cue.files {
+            for cueFile in cue.filesForScanning(sheetFileName: cueItem.name) {
                 let referencedName = (cueFile.name.replacingOccurrences(of: "\\", with: "/") as NSString)
                     .lastPathComponent
                 guard let audioItem = filesByName[referencedName.lowercased()] else {
@@ -630,11 +630,11 @@ actor SynologyScanner {
                         CueTrackDescriptor(
                             cuePath: cueItem.path,
                             cueName: cueItem.name,
-                            albumTitle: cue.title,
-                            albumPerformer: cue.performer,
+                            albumTitle: track.isoAudioTrack?.albumTitle ?? cue.title,
+                            albumPerformer: track.isoAudioTrack?.albumArtist ?? cue.performer,
                             genre: cue.genre,
                             year: cue.year,
-                            format: format,
+                            format: track.isoAudioTrack?.format ?? format,
                             track: track
                         )
                     )
@@ -692,11 +692,11 @@ actor SynologyScanner {
         cueImageCount: Int
     ) async -> [Song] {
         var physical: Song
-        if descriptors.first?.format == .sacdISO {
+        if (item.name as NSString).pathExtension.lowercased() == "iso" {
             physical = Song(
                 id: generateID(sourceID: sourceID, path: item.path), title: item.name,
                 duration: 0, fileFormat: .sacdISO, filePath: item.path,
-                sourceID: sourceID, fileSize: item.size, sampleRate: 2_822_400, bitDepth: 1,
+                sourceID: sourceID, fileSize: item.size,
                 lastModified: item.modifiedTime,
                 revision: SynologyFileRevisionPolicy.revision(size: item.size, modifiedDate: item.modifiedTime)
             )
@@ -738,7 +738,7 @@ actor SynologyScanner {
             let artist = descriptor.track.performer
                 ?? descriptor.albumPerformer
                 ?? physical.artistName
-            let album = descriptor.albumTitle ?? physical.albumTitle
+            let album = descriptor.track.isoAudioTrack?.albumTitle ?? descriptor.albumTitle ?? physical.albumTitle
             let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: descriptor.albumPerformer ?? physical.albumArtistName,
                 trackArtistName: artist
@@ -746,7 +746,7 @@ actor SynologyScanner {
             var song = physical
             song.id = generateID(
                 sourceID: sourceID,
-                path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
+                path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.identityKey)"
             )
             song.title = descriptor.track.title
                 ?? String(
@@ -777,6 +777,11 @@ actor SynologyScanner {
             song.cueStartTime = start
             song.cueEndTime = end
             song.sacdTrackNumber = descriptor.format == .sacdISO ? descriptor.track.number : nil
+            song.isoAudioTrack = descriptor.track.isoAudioTrack
+            if let selector = song.isoAudioTrack {
+                song.sampleRate = selector.sampleRate
+                song.bitDepth = selector.bitDepth
+            }
             if let trackLyrics = trackLyricsBySheet[descriptor.cuePath]?[descriptor.track.number] {
                 song.lyricsFileName = trackLyrics
             }

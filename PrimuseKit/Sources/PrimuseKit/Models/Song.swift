@@ -230,6 +230,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { rare.values.sacdTrackNumber }
         set { updateRare { $0.sacdTrackNumber = newValue } }
     }
+    public var isoAudioTrack: ISOAudioTrack? {
+        get { rare.values.isoAudioTrack }
+        set { updateRare { $0.isoAudioTrack = newValue } }
+    }
     /// Track boundaries inside `filePath`, expressed on the decoded PCM
     /// timeline. INDEX 01 is used for the start; the next INDEX 01 in the same
     /// FILE block is used for the end.
@@ -315,6 +319,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         cueStartTime: TimeInterval? = nil,
         cueEndTime: TimeInterval? = nil,
         sacdTrackNumber: Int? = nil,
+        isoAudioTrack: ISOAudioTrack? = nil,
         revision: String? = nil,
         titlePinyin: String? = nil,
         artistPinyin: String? = nil,
@@ -369,7 +374,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainTrackPeak = replayGainTrackPeak
         self.replayGainAlbumGain = replayGainAlbumGain
         self.replayGainAlbumPeak = replayGainAlbumPeak
-        if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil || sacdTrackNumber != nil
+        if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil || sacdTrackNumber != nil || isoAudioTrack != nil
             || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
             || serverDateAdded != nil || serverAlbumDateAdded != nil || contentMetadata != nil || serverCatalogAlbum != nil {
             var values = SongRareFields.Values()
@@ -379,6 +384,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             values.cueStartTime = cueStartTime
             values.cueEndTime = cueEndTime
             values.sacdTrackNumber = sacdTrackNumber
+            values.isoAudioTrack = isoAudioTrack
             values.lyricsText = lyricsText
             values.userMetadataEditedAt = userMetadataEditedAt
             values.audioVariants = audioVariants
@@ -398,7 +404,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         case bitRate, sampleRate, bitDepth, genre, year, lastModified, dateAdded, serverPlayCount
         case coverArtFileName, artistArtworkFileName, lyricsFileName, mvPath
         case replayGainTrackGain, replayGainTrackPeak, replayGainAlbumGain, replayGainAlbumPeak
-        case cueSheetPath, cueStartTime, cueEndTime, sacdTrackNumber, revision, titlePinyin, artistPinyin, albumPinyin
+        case cueSheetPath, cueStartTime, cueEndTime, sacdTrackNumber, isoAudioTrack, revision, titlePinyin, artistPinyin, albumPinyin
         case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID, audioCodec
         case effectiveBitDepth
         case serverDateAdded, serverAlbumDateAdded, contentMetadata, serverCatalogAlbum
@@ -442,6 +448,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             cueStartTime: try container.decodeIfPresent(TimeInterval.self, forKey: .cueStartTime),
             cueEndTime: try container.decodeIfPresent(TimeInterval.self, forKey: .cueEndTime),
             sacdTrackNumber: try container.decodeIfPresent(Int.self, forKey: .sacdTrackNumber),
+            isoAudioTrack: try container.decodeIfPresent(ISOAudioTrack.self, forKey: .isoAudioTrack),
             revision: try container.decodeIfPresent(String.self, forKey: .revision),
             titlePinyin: try container.decodeIfPresent(String.self, forKey: .titlePinyin),
             artistPinyin: try container.decodeIfPresent(String.self, forKey: .artistPinyin),
@@ -501,6 +508,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(cueStartTime, forKey: .cueStartTime)
         try container.encodeIfPresent(cueEndTime, forKey: .cueEndTime)
         try container.encodeIfPresent(sacdTrackNumber, forKey: .sacdTrackNumber)
+        try container.encodeIfPresent(isoAudioTrack, forKey: .isoAudioTrack)
         try container.encodeIfPresent(revision, forKey: .revision)
         try container.encodeIfPresent(titlePinyin, forKey: .titlePinyin)
         try container.encodeIfPresent(artistPinyin, forKey: .artistPinyin)
@@ -643,6 +651,7 @@ private final class SongRareFields: Hashable, Sendable {
         var cueStartTime: TimeInterval?
         var cueEndTime: TimeInterval?
         var sacdTrackNumber: Int?
+        var isoAudioTrack: ISOAudioTrack?
         var lyricsText: String?
         var userMetadataEditedAt: Date?
         var audioVariants: [AudioVariant]?
@@ -1365,6 +1374,8 @@ public extension Song {
             (filePath as NSString).pathExtension.lowercased()
         )
     }
+
+    var isDiscImageTrack: Bool { isSACDTrack || isoAudioTrack != nil }
 
     var isSACDTrack: Bool { fileFormat == .sacdISO && isCueTrack && sacdTrackNumber != nil }
 

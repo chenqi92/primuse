@@ -71,15 +71,16 @@ public enum SACDISOReader {
         guard master[8] == 1 else { throw Failure.invalidTable }
         var title: String?
         var performer: String?
-        if master[128] > 0 {
-            let text = try await exact(Int64(511 * layout.size + layout.offset), 2048, read: read)
+        for language in 0..<min(Int(master[128]), 8) {
+            let text = try await exact(Int64((511 + language) * layout.size + layout.offset), 2048, read: read)
             if matches(text, 0, "SACDText") {
-                let charset = Int(master[138] & 7)
-                title = string(text, at: be16(text, 16), charset: charset)
+                let charset = Int(master[138 + language * 4] & 7)
+                title = title ?? string(text, at: be16(text, 16), charset: charset)
                     ?? string(text, at: be16(text, 32), charset: charset)
-                performer = string(text, at: be16(text, 18), charset: charset)
+                performer = performer ?? string(text, at: be16(text, 18), charset: charset)
                     ?? string(text, at: be16(text, 34), charset: charset)
             }
+            if title != nil, performer != nil { break }
         }
         // Prefer the stereo programme; use the multichannel programme only when no stereo area exists.
         let groups = [[be32(master, 64), be32(master, 68)], [be32(master, 72), be32(master, 76)]]
@@ -87,6 +88,9 @@ public enum SACDISOReader {
         for candidates in groups {
             for sector in candidates where sector > 0 {
                 do {
+                    guard size <= 0 || Int64(sector * layout.size + layout.offset + 2048) <= size else {
+                        throw Failure.invalidTable
+                    }
                     let header = try await exact(Int64(sector * layout.size + layout.offset), 2048, read: read)
                     guard matches(header, 0, "TWOCHTOC") || matches(header, 0, "MULCHTOC") else {
                         throw Failure.invalidTable
@@ -121,14 +125,16 @@ public enum SACDISOReader {
 
     private static func parseTracks(_ area: Data, imageSize: Int64, stride: Int) throws -> [Track] {
         let count = Int(area[69])
-        let charset = Int(area[90] & 7)
         var offsets: Int?
         var times: Int?
-        var text: Int?
+        var texts: [Int] = []
+        var boundaries: [Int] = []
         for position in Swift.stride(from: 2048, to: area.count, by: 2048) {
             if matches(area, position, "SACDTRL1") { offsets = position }
             if matches(area, position, "SACDTRL2") { times = position }
-            if text == nil, matches(area, position, "SACDTTxt") { text = position }
+            if matches(area, position, "SACDTTxt") { texts.append(position) }
+            if ["SACDTTxt", "SACDTRL1", "SACDTRL2", "SACD_IGL", "SACD_ACC", "SACD_Ind", "SACD_WLL", "SACDPLAY"]
+                .contains(where: { matches(area, position, $0) }) { boundaries.append(position) }
         }
         guard count > 0, let offsets, let times else { throw Failure.invalidTable }
         let first = be32(area, 72), last = be32(area, 76)
@@ -143,30 +149,45 @@ public enum SACDISOReader {
                 throw Failure.invalidTable
             }
             var title: String?, performer: String?
-            if let text {
-                let relative = be16(area, text + 8 + index * 2)
-                let limit = min(text + 2048, area.count)
-                var cursor = text + relative
-                if relative >= 8 + count * 2, cursor + 4 <= limit {
-                    let fields = Int(area[cursor])
-                    cursor += 4
-                    for _ in 0..<fields {
-                        guard cursor + 2 < limit else { break }
-                        let kind = area[cursor]
-                        cursor += 2
-                        guard let end = area[cursor..<limit].firstIndex(of: 0) else { break }
-                        let value = decode(area.subdata(in: cursor..<end), charset: charset)
-                        if kind == 1 { title = value }
-                        if kind == 2 { performer = value }
-                        cursor = end + 1
-                        while cursor < limit, area[cursor] == 0 { cursor += 1 }
-                    }
-                }
+            for (language, text) in texts.prefix(10).enumerated() {
+                let limit = boundaries.first(where: { $0 > text }) ?? area.count
+                let values = trackText(area, at: text, limit: limit, index: index, count: count,
+                                       charset: Int(area[90 + language * 4] & 7))
+                title = title ?? values.title
+                performer = performer ?? values.performer
+                if title != nil, performer != nil { break }
             }
             result.append(Track(number: index + 1, title: title, performer: performer,
                                 firstSector: start, sectorCount: length, startFrame: startFrame, frameCount: duration))
         }
         return result
+    }
+
+    private static func trackText(_ area: Data, at text: Int, limit: Int, index: Int, count: Int,
+                                  charset: Int) -> (title: String?, performer: String?) {
+        let positions = (0..<count).map { be16(area, text + 8 + $0 * 2) }
+        let relative = positions[index]
+        // Text offsets are relative to the text table, not restricted to its first sector.
+        // Bound each record independently so a damaged field count cannot consume another track.
+        let end = min(limit, text + (positions.filter { $0 > relative }.min() ?? (limit - text)))
+        var cursor = text + relative
+        guard relative >= 8 + count * 2, cursor + 4 <= end else { return (nil, nil) }
+        let fields = Int(area[cursor])
+        var title: String?, performer: String?
+        cursor += 4
+        for _ in 0..<fields {
+            guard cursor + 2 < end else { break }
+            let kind = area[cursor]
+            cursor += 2
+            guard let terminator = area[cursor..<end].firstIndex(of: 0) else { break }
+            if let value = decode(area.subdata(in: cursor..<terminator), charset: charset) {
+                if kind == 1 { title = title ?? value }
+                if kind == 2 { performer = performer ?? value }
+            }
+            cursor = terminator + 1
+            while cursor < end, area[cursor] == 0 { cursor += 1 }
+        }
+        return (title, performer)
     }
 
     /// Writes only the selected track, preserving DSD or DST bytes in a DSDIFF container.
@@ -185,12 +206,14 @@ public enum SACDISOReader {
         var frame = Data(), frameTime: Int?, compression: Bool?
         var chunkSizeOffset: UInt64 = 0, dataStart: UInt64 = 0, frameCountOffset: UInt64 = 0
         var writtenFrames = 0
+        var remainingDSTPackets = 0
         func emit() throws {
             guard let time = frameTime, !frame.isEmpty else { return }
             guard time >= track.startFrame, time < track.startFrame + track.frameCount else { return }
             guard time == track.startFrame + writtenFrames else { throw Failure.invalidPacket }
             guard compression == true || frame.count == disc.channels * 4704 else { throw Failure.invalidPacket }
             if compression == true {
+                guard remainingDSTPackets == 0 else { throw Failure.truncated }
                 try output.write(contentsOf: chunk("DSTF", frame))
             } else {
                 try output.write(contentsOf: frame)
@@ -222,7 +245,15 @@ public enum SACDISOReader {
                     if high & 0x80 != 0 {
                         try emit()
                         guard frameIndex < starts else { throw Failure.invalidPacket }
-                        frameTime = try Self.frameTime(data, base + 1 + packets * 2 + frameIndex * infoSize)
+                        let info = base + 1 + packets * 2 + frameIndex * infoSize
+                        frameTime = try Self.frameTime(data, info)
+                        if dst {
+                            let details = data[info + 3]
+                            let channels = details & 3 == 1 ? 5 : details & 3 == 2 ? 6 : 2
+                            guard details & 3 != 3, channels == disc.channels else { throw Failure.unsupportedAudio }
+                            remainingDSTPackets = Int((details >> 2) & 31)
+                            guard remainingDSTPackets > 0 else { throw Failure.invalidPacket }
+                        }
                         frameIndex += 1
                         frame.removeAll(keepingCapacity: true)
                         if let compression {
@@ -237,6 +268,11 @@ public enum SACDISOReader {
                         }
                     }
                     if frameTime != nil {
+                        guard compression == dst else { throw Failure.unsupportedAudio }
+                        if dst {
+                            guard remainingDSTPackets > 0 else { throw Failure.invalidPacket }
+                            remainingDSTPackets -= 1
+                        }
                         guard frame.count + length <= 65536 else { throw Failure.invalidPacket }
                         frame.append(data.subdata(in: payload..<(payload + length)))
                     }
@@ -310,7 +346,8 @@ public enum SACDISOReader {
         return decode(data.subdata(in: offset..<end), charset: charset)
     }
     private static func decode(_ data: Data, charset: Int) -> String? {
-        let encodings: [CFStringEncoding] = [0x0600, 0x0600, 0x0201, 0x0a01, 0x0940, 0x0630, 0x0a03, 0x0201]
+        // Foundation supports GB18030 (a superset of GB2312), but not the GB2312 NSString encoding.
+        let encodings: [CFStringEncoding] = [0x0600, 0x0600, 0x0201, 0x0a01, 0x0940, 0x0632, 0x0a03, 0x0201]
         let encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(encodings[charset & 7]))
         let text = (String(data: data, encoding: encoding) ?? String(data: data, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)

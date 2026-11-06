@@ -46,6 +46,8 @@ public struct CueTrack: Equatable, Sendable {
     public var songwriter: String?
     public var startTime: TimeInterval?
     public var endTime: TimeInterval?
+    public var isoAudioTrack: ISOAudioTrack?
+    public var identityKey: String { isoAudioTrack?.key ?? String(number) }
 
     public init(
         number: Int,
@@ -54,7 +56,8 @@ public struct CueTrack: Equatable, Sendable {
         performer: String? = nil,
         songwriter: String? = nil,
         startTime: TimeInterval? = nil,
-        endTime: TimeInterval? = nil
+        endTime: TimeInterval? = nil,
+        isoAudioTrack: ISOAudioTrack? = nil
     ) {
         self.number = number
         self.type = type
@@ -63,14 +66,24 @@ public struct CueTrack: Equatable, Sendable {
         self.songwriter = songwriter
         self.startTime = startTime
         self.endTime = endTime
+        self.isoAudioTrack = isoAudioTrack
     }
 }
 
 public extension CueSheet {
+    /// SACD tracks have independent extracted timelines; an external CUE's whole-image
+    /// offsets cannot split them. Their authoritative track list comes from the ISO itself.
+    func filesForScanning(sheetFileName: String) -> [CueFile] {
+        if (sheetFileName as NSString).pathExtension.lowercased() == "iso" { return files }
+        return files.filter {
+            ($0.name.replacingOccurrences(of: "\\", with: "/") as NSString).pathExtension.lowercased() != "iso"
+        }
+    }
+
     /// 按音频文件名(不分大小写;CUE 里带目录的写法只看最后一段)和起点找回一轨,
     /// 起点对不上时退回轨号。曲库里的轨号可能被刮削改过,起点不会。按 ID 寻址的网盘
     /// 上曲库里只有文件 ID、对不上名字,表里只有一个 FILE 时就是它。
-    func track(audioFileName: String, startTime: TimeInterval?, number: Int?) -> CueTrack? {
+    func track(audioFileName: String, startTime: TimeInterval?, number: Int?, imageTrackKey: String? = nil) -> CueTrack? {
         var matchedFiles = files.filter { file in
             let referenced = (file.name.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
             return referenced.caseInsensitiveCompare(audioFileName) == .orderedSame
@@ -79,6 +92,7 @@ public extension CueSheet {
         let tracks = matchedFiles
             .flatMap(\.tracks)
             .filter { $0.type == "AUDIO" && $0.startTime != nil }
+        if let imageTrackKey { return tracks.first { $0.isoAudioTrack?.key == imageTrackKey } }
         if let startTime,
            let match = tracks.first(where: { abs(($0.startTime ?? -1) - startTime) < 0.01 }) {
             return match
@@ -103,8 +117,8 @@ public struct CueTrackIdentity: Equatable, Sendable {
     public init(sheet: CueSheet, track: CueTrack) {
         title = Self.trimmedNonEmpty(track.title)
         artist = Self.trimmedNonEmpty(track.performer) ?? Self.trimmedNonEmpty(sheet.performer)
-        albumTitle = Self.trimmedNonEmpty(sheet.title)
-        albumArtist = Self.trimmedNonEmpty(sheet.performer) ?? artist
+        albumTitle = Self.trimmedNonEmpty(track.isoAudioTrack?.albumTitle) ?? Self.trimmedNonEmpty(sheet.title)
+        albumArtist = Self.trimmedNonEmpty(track.isoAudioTrack?.albumArtist) ?? Self.trimmedNonEmpty(sheet.performer) ?? artist
         trackNumber = track.number
         genre = Self.trimmedNonEmpty(sheet.genre)
         year = sheet.year

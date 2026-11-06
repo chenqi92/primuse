@@ -2250,6 +2250,9 @@
 		FFA8A0D80B2614FB9E78AE03 /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		FFB6F3076CD8D107E17A9C33 /* ServerCatalogIncrementalSyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BADBBDCE4D75C75C46571A8 /* ServerCatalogIncrementalSyncPolicy.swift */; };
 		FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
+		778C921A5D5F7D2230EEB3D7 /* DiscImageFileSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41E904F3AC98CEF455AA6A4 /* DiscImageFileSystem.swift */; };
+		93A20CCE077FDC41E1B99B1D /* DVDAudioReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DA60EA31FE93A19734F9F43 /* DVDAudioReader.swift */; };
+		52364EAE767DCED82E1D56F6 /* ISOAudioReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 023673DCDEB35896E33BD5E8 /* ISOAudioReader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -4129,6 +4132,9 @@
 		FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDownloadDecoder.swift; sourceTree = "<group>"; };
 		FF9694CD231B4175BED85BEA /* ScraperResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperResult.swift; sourceTree = "<group>"; };
 		FFCB474474519BE89590D828 /* MacRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRoute.swift; sourceTree = "<group>"; };
+		E41E904F3AC98CEF455AA6A4 /* DiscImageFileSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscImageFileSystem.swift; sourceTree = "<group>"; };
+		2DA60EA31FE93A19734F9F43 /* DVDAudioReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DVDAudioReader.swift; sourceTree = "<group>"; };
+		023673DCDEB35896E33BD5E8 /* ISOAudioReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOAudioReader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -5606,6 +5612,9 @@
 				6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */,
 				6B3B233454438ABE7810B89F /* MetadataTitleResolutionPolicy.swift */,
 				A5397B46E995B8933B64D4CE /* MP4IndexPairAtom.swift */,
+				E41E904F3AC98CEF455AA6A4 /* DiscImageFileSystem.swift */,
+				2DA60EA31FE93A19734F9F43 /* DVDAudioReader.swift */,
+				023673DCDEB35896E33BD5E8 /* ISOAudioReader.swift */,
 				4397B8CABB182943E8246B21 /* SACDISOReader.swift */,
 				ED8DB929200967C8A786EA12 /* SACDTrackCache.swift */,
 				D5FC654DD15E1F0196E017AE /* SharedFileRangeMemo.swift */,
@@ -7491,6 +7500,9 @@
 				E9B04DF862FAB55FDCF6B292 /* RequestQuotaRegistry.swift in Sources */,
 				29450CDECCC58A4F4C8D4FE9 /* RunningAppEnvironment.swift in Sources */,
 				055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */,
+				778C921A5D5F7D2230EEB3D7 /* DiscImageFileSystem.swift in Sources */,
+				93A20CCE077FDC41E1B99B1D /* DVDAudioReader.swift in Sources */,
+				52364EAE767DCED82E1D56F6 /* ISOAudioReader.swift in Sources */,
 				ADC1E38757746B8E8FA851DB /* SACDISOReader.swift in Sources */,
 				355FB9D59BD2017918C7988E /* SACDTrackCache.swift in Sources */,
 				12C7978BCBFE0B91090B8657 /* SSDPNetworkInterfaces.swift in Sources */,

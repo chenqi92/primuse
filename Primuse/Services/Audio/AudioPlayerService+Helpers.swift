@@ -1046,6 +1046,7 @@ extension AudioPlayerService {
                 return url
             } catch {
                 plog("🔗 resolveURL failed for '\(song.title)': \(error), filePath=\(song.filePath.prefix(80))")
+                if song.isDiscImageTrack { throw error }
                 if let localURL = PrimuseSandboxPathResolver.existingURL(
                     forStoredAbsolutePath: song.filePath
                 ) {

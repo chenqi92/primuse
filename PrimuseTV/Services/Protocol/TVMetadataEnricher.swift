@@ -389,7 +389,7 @@ enum TVMetadataEnricher {
         readerPool: TVMetadataReaderPool
     ) async throws -> Song {
         try Task.checkCancellation()
-        if song.isSACDTrack {
+        if song.isDiscImageTrack {
             return try await attachAssets(
                 song: song, embeddedLyrics: nil, embeddedCover: nil,
                 sidecars: sidecars, readerPool: readerPool

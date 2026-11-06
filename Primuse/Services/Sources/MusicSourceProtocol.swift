@@ -1292,15 +1292,15 @@ enum LyricsSidecarTargetPolicy {
         items: [RemoteFileItem],
         using connector: any MusicSourceConnector
     ) async throws -> LyricsSidecarTarget? {
-        guard let trackNumber = song.sacdTrackNumber ?? song.trackNumber,
+        guard let trackNumber = song.sacdTrackNumber ?? song.isoAudioTrack?.track ?? song.trackNumber,
               let cuePath = song.cueSheetPath,
               let sheet = items.first(where: { !$0.isDirectory && $0.path == cuePath }) else {
             return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
         }
         let cue: CueSheet?
         do {
-            if song.isSACDTrack {
-                cue = try await SACDISOReader.sheet(fileName: sheet.name, size: sheet.size) { offset, length in
+            if song.isDiscImageTrack {
+                cue = try await ISOAudioReader.sheet(fileName: sheet.name, size: sheet.size) { offset, length in
                     try await connector.fetchMetadataRange(path: sheet.path, offset: offset, length: length)
                 }
             } else {
@@ -1332,7 +1332,10 @@ enum LyricsSidecarTargetPolicy {
                     performer: track.performer ?? cue.performer
                 )
             }
-        guard let track = tracks.first(where: { $0.number == trackNumber }) else {
+        let immutableNumber = song.isoAudioTrack.flatMap { selector in
+            cueFile.tracks.first { $0.isoAudioTrack?.key == selector.key }?.number
+        } ?? trackNumber
+        guard let track = tracks.first(where: { $0.number == immutableNumber }) else {
             return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
         }
 

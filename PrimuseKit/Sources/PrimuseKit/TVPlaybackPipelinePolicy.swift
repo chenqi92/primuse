@@ -82,10 +82,16 @@ public enum TVPlaybackFormatRoutingPolicy {
         for format: AudioFormat,
         isVideo: Bool,
         serverTranscodesWMA: Bool,
-        wavProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome? = nil
+        wavProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome? = nil,
+        isDiscImageTrack: Bool = false
     ) -> TVPlaybackDelivery {
         if isVideo {
             return .avPlayer(fileExtension: format.rawValue)
+        }
+        if isDiscImageTrack {
+            return .decodedTemporaryFile(fileExtension: format == .sacdISO ? "dff" : format.rawValue,
+                                         decoder: format == .wav ? .ffmpeg : TVLocalDecoder(format: format),
+                                         inspectWAVAfterDownload: false)
         }
         if format == .wma, serverTranscodesWMA {
             return .avPlayer(fileExtension: AudioFormat.mp3.rawValue)

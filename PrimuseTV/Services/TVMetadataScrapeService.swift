@@ -718,8 +718,8 @@ final class TVMetadataScrapeService {
         let sheet: CueSheet
         if let cached = sheets[cuePath] {
             sheet = cached
-        } else if song.isSACDTrack {
-            guard let parsed = try? await SACDISOReader.sheet(
+        } else if song.isDiscImageTrack {
+            guard let parsed = try? await ISOAudioReader.sheet(
                 fileName: (song.filePath as NSString).lastPathComponent, size: song.fileSize,
                 read: { offset, length in
                     try await readerPool.read(path: song.filePath, size: song.fileSize, offset: offset, length: length)
@@ -743,8 +743,9 @@ final class TVMetadataScrapeService {
         }
         guard let track = sheet.track(
             audioFileName: (song.filePath as NSString).lastPathComponent,
-            startTime: song.isSACDTrack ? nil : song.cueStartTime,
-            number: song.sacdTrackNumber ?? song.trackNumber
+            startTime: song.isDiscImageTrack ? nil : song.cueStartTime,
+            number: song.sacdTrackNumber ?? song.trackNumber,
+            imageTrackKey: song.isoAudioTrack?.key
         ) else { return nil }
         let identity = CueTrackIdentity(sheet: sheet, track: track)
         var restored = song

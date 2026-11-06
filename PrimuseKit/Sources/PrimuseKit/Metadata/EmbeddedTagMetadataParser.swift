@@ -166,6 +166,10 @@ public enum EmbeddedTagMetadataParser {
         var result = EmbeddedTagMetadata()
 
         switch ext {
+        case "flac":
+            if let parsed = parseFLACComments(head) {
+                result.fillMissing(from: parsed)
+            }
         case "ogg", "opus", "speex":
             if let parsed = parseOggComments(head) {
                 result.fillMissing(from: parsed)
@@ -492,6 +496,24 @@ public enum EmbeddedTagMetadataParser {
             return scan.packets.count >= 2 && !scan.isTruncated
         }
         return scan.packets.count >= 3 || (!scan.isTruncated && !scan.packets.isEmpty)
+    }
+
+    private static func parseFLACComments(_ data: Data) -> EmbeddedTagMetadata? {
+        guard data.starts(with: Data("fLaC".utf8)) else { return nil }
+        var cursor = 4
+        while cursor + 4 <= data.count {
+            let header = data[cursor]
+            let count = Int(data[cursor + 1]) << 16 | Int(data[cursor + 2]) << 8 | Int(data[cursor + 3])
+            cursor += 4
+            guard count <= data.count - cursor else { return nil }
+            if header & 0x7f == 4 {
+                guard let comments = parseVorbisCommentList(data.subdata(in: cursor..<(cursor + count))) else { return nil }
+                return metadata(from: comments)
+            }
+            cursor += count
+            if header & 0x80 != 0 { break }
+        }
+        return nil
     }
 
     private static func parseOggComments(_ data: Data) -> EmbeddedTagMetadata? {

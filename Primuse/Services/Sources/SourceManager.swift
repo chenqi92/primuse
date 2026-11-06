@@ -5329,7 +5329,7 @@ final class SourceManager {
             isConstrained: monitor.isConstrained,
             underlyingCellularOnly: monitor.routePathCondition.underlyingCellularOnly,
             formatIsLossless: song.codecFormat.isLossless,
-            formatRequiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat),
+            formatRequiresCompleteLocalFile: (song.isDiscImageTrack || FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)),
             isCueTrack: song.isCueTrack,
             sourceBitRateKbps: song.bitRate,
             fileSize: song.fileSize,
@@ -5621,7 +5621,7 @@ final class SourceManager {
         acquirePlaybackCacheLease: Bool = true,
         transcodePlanOverride: SourceTranscodePlan? = nil
     ) async throws -> URL {
-        if song.isSACDTrack {
+        if song.isDiscImageTrack {
             let sources = try await sourcesProvider()
             guard let source = sources.first(where: { $0.id == song.sourceID }) else {
                 throw SourceError.fileNotFound(song.filePath)
@@ -5629,19 +5629,21 @@ final class SourceManager {
             let expectedScope = Self.audioCacheScopeSignature(for: source)
             let streamEpoch = CloudPlaybackSource.streamEpochTicket(sourceID: source.id)
             try await ensureCurrentPlaybackResolutionScope(sourceID: source.id, expectedScope: expectedScope, streamEpoch: streamEpoch)
-            if let cached = SACDTrackCache.cachedURL(song: song) { return cached }
+            if let cached = ISOAudioTrackCache.cachedURL(song: song, scope: expectedScope) { return cached }
+            if source.type != .local { _ = await ensureAudioCacheScopeValidated(for: source.id) }
+            try await ensureCurrentPlaybackResolutionScope(sourceID: source.id, expectedScope: expectedScope, streamEpoch: streamEpoch)
             let conn = connector(for: source)
             let result: URL
             if let image = cachedURL(for: song) {
                 let file = try FileHandle(forReadingFrom: image)
                 defer { try? file.close() }
-                result = try await SACDTrackCache.shared.materialize(song: song) { offset, length in
+                result = try await ISOAudioTrackCache.shared.materialize(song: song, scope: expectedScope) { offset, length in
                     try file.seek(toOffset: UInt64(offset))
                     return try file.read(upToCount: Int(length)) ?? Data()
                 }
             } else {
                 try await conn.connect()
-                result = try await SACDTrackCache.shared.materialize(song: song) { offset, length in
+                result = try await ISOAudioTrackCache.shared.materialize(song: song, scope: expectedScope) { offset, length in
                     try await conn.fetchRange(path: song.filePath, offset: offset, length: length)
                 }
             }
@@ -5831,7 +5833,7 @@ final class SourceManager {
     /// transport context. Only a genuinely external STRM target may remain an
     /// HTTP(S) URL; configured source paths are materialized by their connector.
     func resolveFullDownloadSourceURL(for song: Song) async throws -> URL {
-        if song.isSACDTrack { return try await resolveURL(for: song) }
+        if song.isDiscImageTrack { return try await resolveURL(for: song) }
         if let cached = await cachedURLWithPlaybackLease(for: song) {
             return cached
         }
@@ -7379,7 +7381,7 @@ final class SourceManager {
     private nonisolated static func cacheFileName(for song: Song) -> String {
         CacheFileNamePolicy.make(
             path: song.filePath,
-            preferredExtension: song.fileFormat.rawValue
+            preferredExtension: song.isDiscImageTrack ? "iso" : song.fileFormat.rawValue
         )
     }
 
@@ -7558,7 +7560,11 @@ final class SourceManager {
     /// 按离线缓存音质转出来的精简副本。读标签、读内嵌歌词、拖动时整曲物化这些
     /// 要原文件字节的地方继续用 `cachedURL(for:)`。
     func cachedPlaybackURL(for song: Song) -> URL? {
-        if song.isSACDTrack { return SACDTrackCache.cachedURL(song: song) }
+        if song.isDiscImageTrack {
+            guard audioCacheReadsAreAllowed(for: song.sourceID),
+                  let scope = recordedAudioCacheScopeSignatures[song.sourceID] else { return nil }
+            return ISOAudioTrackCache.cachedURL(song: song, scope: scope)
+        }
         if let original = cachedURL(for: song) { return original }
         return cachedCompactURL(for: song)
     }
@@ -7633,6 +7639,7 @@ final class SourceManager {
     /// complete cache file on explicit user seek so the decoder can use true
     /// random access without decoding and discarding minutes of PCM at 100% CPU.
     func materializeCachedURLForSeeking(for song: Song) async -> URL? {
+        if song.isDiscImageTrack { return try? await resolveURL(for: song) }
         if let cached = cachedURL(for: song) { return cached }
 
         let wasPinned = offlineAudioSnapshot(for: song).state == .pinned
@@ -8772,7 +8779,7 @@ final class SourceManager {
         for song in songs {
             let path = "\(song.sourceID)/" + CacheFileNamePolicy.make(
                 path: song.filePath,
-                preferredExtension: song.fileFormat.rawValue
+                preferredExtension: song.isDiscImageTrack ? "iso" : song.fileFormat.rawValue
             )
             guard let entry = entriesByPath[path] else { continue }
             items.append(OfflineDownloadItem(
@@ -9774,7 +9781,7 @@ final class SourceManager {
             ) else { continue }
             let fileName = CacheFileNamePolicy.make(
                 path: song.filePath,
-                preferredExtension: song.fileFormat.rawValue
+                preferredExtension: song.isDiscImageTrack ? "iso" : song.fileFormat.rawValue
             )
             let path = "\(song.sourceID)/\(fileName)"
             guard pinnedPaths.contains(path), !seenPaths.contains(path) else { continue }
@@ -12513,7 +12520,7 @@ final class SourceManager {
         // 需要完整本地文件的格式 (DTS / FFmpeg) 根本不适合稀疏种子, 直接在
         // 登记之前剔除: 否则这条只做种子的记录会被随后的 prefetch 加入,
         // 让那首歌的完整下载在本轮被跳过。
-        var songs = songs.filter { !FileFormatRouter.requiresCompleteLocalFile($0.fileFormat) }
+        var songs = songs.filter { !$0.isDiscImageTrack && !FileFormatRouter.requiresCompleteLocalFile($0.fileFormat) }
         guard automaticAudioCachingEnabled, !songs.isEmpty else { return }
         // 按流量计费的网络上只热恢复的那首和它后面一首。
         let meteredLimit = UpcomingPlaybackPrefetchPolicy.plannedSongCount(
@@ -12593,7 +12600,7 @@ final class SourceManager {
             record.task.cancel()
             return
         }
-        let requiresCompleteFile = FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+        let requiresCompleteFile = (song.isDiscImageTrack || FileFormatRouter.requiresCompleteLocalFile(song.fileFormat))
             || song.fileSize <= 0
             || song.isStreamDescriptor
         let decision = UpcomingPlaybackPrefetchPolicy.joinDecision(
@@ -12639,7 +12646,7 @@ final class SourceManager {
         prefersCompleteFile: Bool = false,
         queueRank: Int? = nil
     ) -> Task<Void, Never>? {
-        guard !song.isSACDTrack, cacheEnabled,
+        guard !song.isDiscImageTrack, cacheEnabled,
               automaticAudioCachingEnabled,
               audioCacheReadsAreAllowed(for: song.sourceID),
               cachedPlaybackURL(for: song) == nil,
@@ -12750,7 +12757,7 @@ final class SourceManager {
                 supportsRangeStreaming: source.supportsRangeStreaming,
                 hasKnownFileSize: song.fileSize > 0,
                 usesRangeStreamingForPlayback: usesRangeStreaming,
-                requiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+                requiresCompleteLocalFile: (song.isDiscImageTrack || FileFormatRouter.requiresCompleteLocalFile(song.fileFormat))
             )
             guard mode != .disabled else {
                 plog("⏩ Cache: skip full prefetch for '\(song.title)' (\(source.type.displayName) demand-stream policy)")
@@ -12950,7 +12957,7 @@ final class SourceManager {
         source: MusicSource,
         plan: SourceTranscodePlan
     ) -> RangeStreamingPrefetchPolicy.UpcomingPlaybackTransport {
-        if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) || song.isStreamDescriptor {
+        if (song.isDiscImageTrack || FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)) || song.isStreamDescriptor {
             return .completeFile
         }
         if shouldUseRangeStreamingForPlayback(source: source, song: song, plan: plan) {
@@ -14049,7 +14056,7 @@ final class SourceManager {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }
         let expectedScope = Self.audioCacheScopeSignature(for: source)
-        guard !song.isStreamDescriptor else { return nil }
+        guard !song.isStreamDescriptor, !song.isDiscImageTrack else { return nil }
         let conn = connector(for: source)
         try await conn.connect()
         guard song.fileSize > 0,
@@ -14796,7 +14803,7 @@ final class SourceManager {
         // a DTS-CD WAV, risk treating the compressed bitstream as PCM noise.
         // Fall through to a direct HTTP URL (full-download decoder) or the
         // connector's localURL download instead.
-        if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return false }
+        if (song.isDiscImageTrack || FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)) { return false }
         // 计划只解一次往下传 —— 每算一遍都是一次 PlaybackSettings 的 JSON 解码。
         let resolvedPlan = plan ?? transcodePlan(for: song, source: source)
         // 服务端转码源: 需要服务端转码的格式(WMA), 以及本次按网络策略选择了
@@ -14879,7 +14886,7 @@ final class SourceManager {
             song: song,
             plan: plan
         )
-        guard !FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+        guard !(song.isDiscImageTrack || FileFormatRouter.requiresCompleteLocalFile(song.fileFormat))
                 || usesServerTranscodedStream else {
             return false
         }
@@ -14934,7 +14941,7 @@ final class SourceManager {
             plan: plan
         )
         return ConfiguredSourceDirectURLPolicy.permitsDirectURL(
-            requiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat),
+            requiresCompleteLocalFile: (song.isDiscImageTrack || FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)),
             usesServerTranscodedStream: usesServerTranscodedStream,
             hasMultipleConnectionRoutes: source.connectionConfiguration != nil
                 && source.connectionCandidates.count > 1,

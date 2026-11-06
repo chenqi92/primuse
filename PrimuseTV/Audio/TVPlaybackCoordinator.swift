@@ -593,7 +593,7 @@ final class TVPlaybackCoordinator {
         let format = AudioFormat.from(fileExtension: asset.fileExtension)
             ?? playbackSong.fileFormat
         let wavProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome?
-        if !asset.isVideo, format == .wav {
+        if !asset.isVideo, !playbackSong.isDiscImageTrack, format == .wav {
             let probe = await probeWAVPayload(
                 asset: asset,
                 source: source,
@@ -622,7 +622,8 @@ final class TVPlaybackCoordinator {
             for: format,
             isVideo: asset.isVideo,
             serverTranscodesWMA: serverTranscodesWMA,
-            wavProbeOutcome: wavProbeOutcome
+            wavProbeOutcome: wavProbeOutcome,
+            isDiscImageTrack: playbackSong.isDiscImageTrack
         )
 
         if case .decodedTemporaryFile(let decoderExtension, let decoder, let inspectWAV) = delivery {
@@ -811,6 +812,7 @@ final class TVPlaybackCoordinator {
         var videoSong = song
         videoSong.filePath = path
         videoSong.fileFormat = AudioFormat.from(fileExtension: ext) ?? song.fileFormat
+        videoSong.isoAudioTrack = nil
         // sidecar MV 的 size 未知(目录列举给的是音频的), 置 0 让下游自己探;
         // 独立 MV 的 fileSize 就是视频本身, 保留供 range 读取用。
         videoSong.fileSize = song.isStandaloneMusicVideo ? song.fileSize : 0
@@ -1821,7 +1823,7 @@ final class TVPlaybackCoordinator {
         let temporaryDirectory = fileManager.temporaryDirectory
         let tmp = TVDecodedTemporaryFilePolicy.makeURL(
             in: temporaryDirectory,
-            fileExtension: song.isSACDTrack ? "dff" : ext
+            fileExtension: song.isSACDTrack ? "dff" : (song.isoAudioTrack?.format.rawValue ?? ext)
         )
         var shouldKeepFile = false
         defer {
@@ -1838,6 +1840,26 @@ final class TVPlaybackCoordinator {
                 try ensureCurrent(requestID, store: store)
             } else {
                 try Task.checkCancellation()
+            }
+        }
+        if let track = song.isoAudioTrack {
+            let pool = TVMetadataReaderPool(source: source, credential: credential)
+            do {
+                let reader = try await pool.reader(path: song.filePath, size: song.fileSize)
+                let size = try await reader.contentLength()
+                let budget = await Self.decodedDownloadBudget(in: temporaryDirectory)
+                guard track.byteCount <= (Int64.max - 104) / 2 else { throw DiscImageFileSystem.Failure.excessiveSize }
+                try Self.validateDownloadSize(track.byteCount * 2 + 104, budget: budget)
+                try await ISOAudioReader.extract(track: track, size: size, to: tmp) { offset, length in
+                    try await reader.read(offset: offset, length: length)
+                }
+                await pool.closeAll()
+                try ensureWanted()
+                shouldKeepFile = true
+                return tmp
+            } catch {
+                await pool.closeAll()
+                throw error
             }
         }
         if song.isSACDTrack, let number = song.sacdTrackNumber {
@@ -2144,7 +2166,7 @@ final class TVPlaybackCoordinator {
             }
             // 本机接收的文件本来就在电视上。FTP 每首预取用自己的一条控制连接,预取完就关。
             guard source.type != .local,
-                  !song.isStreamDescriptor, !song.isSACDTrack else { continue }
+                  !song.isStreamDescriptor, !song.isDiscImageTrack else { continue }
             let asset = playbackAsset(for: song, preferMusicVideo: store.isMusicVideoModeEnabled)
             guard !asset.isVideo, asset.directStream == nil else { continue }
             let format = AudioFormat.from(fileExtension: asset.fileExtension) ?? song.fileFormat

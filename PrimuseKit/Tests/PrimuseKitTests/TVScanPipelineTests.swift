@@ -3,6 +3,47 @@ import Testing
 @testable import PrimuseKit
 
 struct TVScanPipelineTests {
+    @Test func failedSACDReadPreservesLastVerifiedTracksAndMetadata() throws {
+        var prior = Song(id: String(repeating: "a", count: 64), title: "Edited title", trackNumber: 99,
+                         duration: 180, fileFormat: .sacdISO, filePath: "album-id", sourceID: "source",
+                         fileSize: 2_000_000, sampleRate: 2_822_400, bitDepth: 1,
+                         lastModified: Date(timeIntervalSince1970: 100),
+                         cueSheetPath: "album-id", cueStartTime: 0, cueEndTime: 180,
+                         sacdTrackNumber: 2, revision: "verified-revision")
+        prior.userMetadataEditedAt = Date(timeIntervalSince1970: 200)
+        prior.lyricsFileName = "02.lrc"
+        let wholeImage = Song(id: "unparsed", title: "Album", fileFormat: .sacdISO,
+                              filePath: "album-id", sourceID: "source")
+        let retained = TVScanPipelinePolicy.sacdScanCandidates(
+            parsedTracks: [], previousTracks: [prior, wholeImage], readFailed: true
+        )
+        #expect(retained.count == 1)
+        #expect(retained.first?.id == String(repeating: "a", count: 32))
+        var expected = prior
+        expected.id = String(repeating: "a", count: 32)
+        #expect(retained.first == expected)
+        let candidate = try #require(retained.first)
+        #expect(TVScanPipelinePolicy.reconciledSkeleton(existing: expected, candidate: candidate) == expected)
+    }
+
+    @Test func successfulSACDReadReplacesPriorTrackListAndUnknownImagesStayAbsent() {
+        let prior = Song(id: "old-track", title: "Old", duration: 180, fileFormat: .sacdISO,
+                         filePath: "/Album.iso", sourceID: "source", cueSheetPath: "/Album.iso",
+                         cueStartTime: 0, cueEndTime: 180, sacdTrackNumber: 2)
+        var current = prior
+        current.id = "current-track"
+        current.sacdTrackNumber = 1
+        #expect(TVScanPipelinePolicy.sacdScanCandidates(
+            parsedTracks: [current], previousTracks: [prior], readFailed: false
+        ) == [current])
+        #expect(TVScanPipelinePolicy.sacdScanCandidates(
+            parsedTracks: [], previousTracks: [prior], readFailed: false
+        ).isEmpty)
+        #expect(TVScanPipelinePolicy.sacdScanCandidates(
+            parsedTracks: [], previousTracks: [], readFailed: true
+        ).isEmpty)
+    }
+
     @Test func incrementalScanKeepsPreviousScopeAndSupportsOpaqueProviderDirectories() {
         #expect(TVScanMode.incremental.savedDirectories(previous: ["/"], scanned: ["/New"], sourceType: .baiduPan) == ["/"])
         #expect(TVScanMode.incremental.savedDirectories(previous: ["/Old"], scanned: ["/New"], sourceType: .baiduPan) == ["/Old", "/New"])

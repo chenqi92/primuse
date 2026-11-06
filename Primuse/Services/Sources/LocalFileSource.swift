@@ -949,7 +949,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             ), values.isRegularFile == true else { continue }
             let cue: CueSheet
             if cueURL.pathExtension.lowercased() == "iso" {
-                guard let parsed = try await SACDISOReader.localSheet(url: cueURL) else { continue }
+                guard let parsed = try await ISOAudioReader.localSheet(url: cueURL) else { continue }
                 cue = parsed
             } else {
                 guard (values.fileSize ?? 0) <= 1024 * 1024,
@@ -958,7 +958,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 cue = parsed
             }
 
-            for cueFile in cue.files {
+            for cueFile in cue.filesForScanning(sheetFileName: cueURL.lastPathComponent) {
                 let referencedPath = cueFile.name.replacingOccurrences(of: "\\", with: "/")
                 let candidate = cueURL.deletingLastPathComponent()
                     .appendingPathComponent(referencedPath)
@@ -987,11 +987,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                             cuePath: relativePath(for: cueURL),
                             cueName: cueURL.lastPathComponent,
                             cueRevision: cueRevision,
-                            albumTitle: cue.title,
-                            albumPerformer: cue.performer,
+                            albumTitle: track.isoAudioTrack?.albumTitle ?? cue.title,
+                            albumPerformer: track.isoAudioTrack?.albumArtist ?? cue.performer,
                             genre: cue.genre,
                             year: cue.year,
-                            format: format,
+                            format: track.isoAudioTrack?.format ?? format,
                             track: track
                         )
                     )
@@ -1040,7 +1040,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let physicalID = Self.generateID(sourceID: sourceID, path: item.path)
         let fallbackTitle = ((item.name as NSString).lastPathComponent as NSString).deletingPathExtension
         let metadata = fileURL.pathExtension.lowercased() == "iso"
-            ? MetadataService.SongMetadata(title: fallbackTitle, sampleRate: 2_822_400, bitDepth: 1)
+            ? MetadataService.SongMetadata(title: fallbackTitle)
             : await metadataService.loadMetadata(
             for: fileURL,
             cacheKey: physicalID,
@@ -1052,21 +1052,21 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let needsFFmpegProbe = Self.ffmpegMetadataProbeExtensions.contains(ext) || descriptors.contains {
             FileFormatRouter.decoder(for: $0.format) is FFmpegAudioDecoder
         }
-        let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
+        let ffmpegInfo = needsFFmpegProbe && ext != "iso" ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
         let physicalDuration = Self.preferredPositive(ffmpegInfo?.duration, fallback: metadata.duration)
 
         return descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
             let end = descriptor.track.endTime ?? (physicalDuration > start ? physicalDuration : nil)
             let artist = descriptor.track.performer ?? descriptor.albumPerformer ?? metadata.artist
-            let album = descriptor.albumTitle ?? metadata.albumTitle
+            let album = descriptor.track.isoAudioTrack?.albumTitle ?? descriptor.albumTitle ?? metadata.albumTitle
             let albumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: descriptor.albumPerformer ?? metadata.albumArtist,
                 trackArtistName: artist
             )
             let trackID = Self.generateID(
                 sourceID: sourceID,
-                path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
+                path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.identityKey)"
             )
             let song = Song(
                 id: trackID,
@@ -1092,11 +1092,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 sourceID: sourceID,
                 fileSize: item.size,
                 bitRate: ffmpegInfo?.bitRate ?? metadata.bitRate,
-                sampleRate: Self.preferredPositiveInt(
+                sampleRate: descriptor.track.isoAudioTrack?.sampleRate ?? (descriptor.format == .sacdISO ? 2_822_400 : nil) ?? Self.preferredPositiveInt(
                     ffmpegInfo.map { Int($0.sampleRate) },
                     fallback: metadata.sampleRate
                 ),
-                bitDepth: Self.preferredPositiveInt(
+                bitDepth: descriptor.track.isoAudioTrack?.bitDepth ?? (descriptor.format == .sacdISO ? 1 : nil) ?? Self.preferredPositiveInt(
                     ffmpegInfo?.bitDepth,
                     fallback: metadata.bitDepth
                 ),
@@ -1114,6 +1114,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 cueStartTime: start,
                 cueEndTime: end,
                 sacdTrackNumber: descriptor.format == .sacdISO ? descriptor.track.number : nil,
+                isoAudioTrack: descriptor.track.isoAudioTrack,
                 revision: combinedRevision,
                 audioCodec: ContainerAudioCodecPolicy.storedCodec(
                     metadata.audioCodec, container: descriptor.format

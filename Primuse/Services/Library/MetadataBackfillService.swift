@@ -5311,6 +5311,23 @@ final class MetadataBackfillService {
         if request.containerCodecOnly {
             return try await Self.probeContainerCodec(for: song, stored: request.storedSong, fetch: fetchRange)
         }
+        if let selector = song.isoAudioTrack {
+            let sheet = try await ISOAudioReader.sheet(fileName: "disc.iso", size: song.fileSize) { offset, length in
+                try await reader.fetch(offset: offset, length: length, intent: rangeReadIntent)
+            }
+            guard let track = sheet?.files.flatMap(\.tracks).first(where: { $0.isoAudioTrack?.key == selector.key }),
+                  let current = track.isoAudioTrack else { throw DiscImageFileSystem.Failure.missingFile }
+            var metadata = MetadataService.SongMetadata(
+                title: track.title ?? song.title, artist: track.performer ?? song.artistName,
+                albumTitle: current.albumTitle ?? song.albumTitle, albumArtist: current.albumArtist ?? song.albumArtistName,
+                trackNumber: song.trackNumber, duration: current.duration ?? song.duration,
+                sampleRate: current.sampleRate, bitDepth: current.bitDepth
+            )
+            metadata.hasTechnicalProperties = current.duration != nil
+            let merged = mergeSong(bare: song, metadata: metadata)
+            return BackfillOutcome(song: merged, markFailed: false, completionKind: .embeddedTags,
+                                   titleInspected: true, artistInspected: true, artworkGivenUp: true)
+        }
         if song.isSACDTrack, let number = song.sacdTrackNumber {
             let disc = try await SACDISOReader.open(size: song.fileSize) { offset, length in
                 try await reader.fetch(offset: offset, length: length, intent: rangeReadIntent)
@@ -6283,6 +6300,7 @@ final class MetadataBackfillService {
             cueStartTime: bare.cueStartTime,
             cueEndTime: bare.cueEndTime,
             sacdTrackNumber: bare.sacdTrackNumber,
+            isoAudioTrack: bare.isoAudioTrack,
             revision: bare.revision,
             titlePinyin: mergedTitle == bare.title ? bare.titlePinyin : nil,
             artistPinyin: mergedArtist == bare.artistName ? bare.artistPinyin : nil,

@@ -1431,7 +1431,7 @@ actor ConnectorScanner {
             ) {
             let cue: CueSheet
             if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
-                guard let parsed = try await SACDISOReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [connector] offset, length in
+                guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [connector] offset, length in
                     try await connector.fetchMetadataRange(path: cueItem.path, offset: offset, length: length)
                 }) else { continue }
                 cue = parsed
@@ -1440,7 +1440,7 @@ actor ConnectorScanner {
                 guard let parsed = CueSheetParser.parse(data: data) else { continue }
                 cue = parsed
             }
-            for cueFile in cue.files {
+            for cueFile in cue.filesForScanning(sheetFileName: cueItem.name) {
                 let referencedName = (cueFile.name.replacingOccurrences(of: "\\", with: "/") as NSString)
                     .lastPathComponent
                 guard let audioItem = siblings.first(where: {
@@ -1456,11 +1456,11 @@ actor ConnectorScanner {
                     result[audioItem.path, default: []].append(CueTrackDescriptor(
                         cuePath: cueItem.path,
                         cueName: cueItem.name,
-                        albumTitle: cue.title,
-                        albumPerformer: cue.performer,
+                        albumTitle: track.isoAudioTrack?.albumTitle ?? cue.title,
+                        albumPerformer: track.isoAudioTrack?.albumArtist ?? cue.performer,
                         genre: cue.genre,
                         year: cue.year,
-                        format: format,
+                        format: track.isoAudioTrack?.format ?? format,
                         track: track
                     ))
                 }
@@ -1569,14 +1569,14 @@ actor ConnectorScanner {
                     is any StableProviderSongIdentityConnector
             )
             let songID = hash(
-                "\(sourceID):\(itemIdentity)#cue:\(descriptor.cuePath)#track:\(descriptor.track.number)"
+                "\(sourceID):\(itemIdentity)#cue:\(descriptor.cuePath)#track:\(descriptor.track.identityKey)"
             )
             return Song(
                 id: songID,
                 title: descriptor.track.title ?? fallbackTitle,
                 albumID: albumID,
                 artistID: artistID,
-                albumTitle: descriptor.albumTitle,
+                albumTitle: descriptor.track.isoAudioTrack?.albumTitle ?? descriptor.albumTitle,
                 artistName: artist,
                 albumArtistName: albumArtist,
                 trackNumber: descriptor.track.number,
@@ -1585,8 +1585,8 @@ actor ConnectorScanner {
                 filePath: item.path,
                 sourceID: sourceID,
                 fileSize: item.size,
-                sampleRate: descriptor.format == .sacdISO ? 2_822_400 : nil,
-                bitDepth: descriptor.format == .sacdISO ? 1 : nil,
+                sampleRate: descriptor.track.isoAudioTrack?.sampleRate ?? (descriptor.format == .sacdISO ? 2_822_400 : nil),
+                bitDepth: descriptor.track.isoAudioTrack?.bitDepth ?? (descriptor.format == .sacdISO ? 1 : nil),
                 genre: descriptor.genre,
                 year: descriptor.year,
                 lastModified: item.modifiedDate,
@@ -1598,6 +1598,7 @@ actor ConnectorScanner {
                 cueStartTime: start,
                 cueEndTime: end,
                 sacdTrackNumber: descriptor.format == .sacdISO ? descriptor.track.number : nil,
+                isoAudioTrack: descriptor.track.isoAudioTrack,
                 revision: item.revision
             )
         }
@@ -1621,10 +1622,13 @@ actor ConnectorScanner {
         existingSong: (String) -> Song?
     ) {
         let priorSongs = priorSongIDs.compactMap(existingSong)
-        let grouped = Dictionary(grouping: priorSongs) { $0.sacdTrackNumber ?? $0.trackNumber }
+        func trackKey(_ song: Song) -> String? {
+            song.isoAudioTrack?.key ?? (song.sacdTrackNumber ?? song.trackNumber).map(String.init)
+        }
+        let grouped = Dictionary(grouping: priorSongs, by: trackKey)
         for index in incoming.indices {
-            guard let trackNumber = incoming[index].sacdTrackNumber ?? incoming[index].trackNumber,
-                  let matches = grouped[trackNumber],
+            guard let key = trackKey(incoming[index]),
+                  let matches = grouped[key],
                   matches.count == 1,
                   let existing = matches.first else { continue }
             incoming[index].id = existing.id
@@ -1659,6 +1663,7 @@ actor ConnectorScanner {
         refreshed.cueStartTime = cueSong.cueStartTime
         refreshed.cueEndTime = cueSong.cueEndTime
         refreshed.sacdTrackNumber = cueSong.sacdTrackNumber
+        refreshed.isoAudioTrack = cueSong.isoAudioTrack
         return refreshed
     }
 

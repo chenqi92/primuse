@@ -59,6 +59,22 @@ public enum TVFolderRescanPolicy {
 public enum TVScanPipelinePolicy {
     public static let publicationBatchSize = 20
 
+    /// A failed TOC read is not evidence that the image's tracks disappeared.
+    /// Keep their last verified metadata and revision until a successful scan replaces them.
+    public static func sacdScanCandidates(
+        parsedTracks: [Song],
+        previousTracks: [Song],
+        readFailed: Bool
+    ) -> [Song] {
+        if !parsedTracks.isEmpty { return parsedTracks }
+        guard readFailed else { return [] }
+        return previousTracks.filter(\.isDiscImageTrack).map { previous in
+            var retained = previous
+            retained.id = canonicalSongID(previous.id)
+            return retained
+        }
+    }
+
     /// 扫描中途把攒下的行交给曲库的门槛。扫描器每 20 首发布一批;远端读标签慢到
     /// 一首一秒时,原来「满 200 首或隔 1.5 秒」的规则等于每批都提交一次,每次都要
     /// 过一遍整库。按数量或时间上限合并,数据库写入与整库维护都降到十几秒一次。
@@ -94,7 +110,8 @@ public enum TVScanPipelinePolicy {
         providerID: String? = nil,
         usesStableProviderIdentity: Bool = false,
         cuePath: String,
-        trackNumber: Int
+        trackNumber: Int,
+        imageTrackKey: String? = nil
     ) -> String {
         let itemIdentity = SourceSongIdentityMaterialPolicy.itemIdentity(
             path: path,
@@ -102,7 +119,7 @@ public enum TVScanPipelinePolicy {
             usesStableProviderIdentity: usesStableProviderIdentity
         )
         return hash32(
-            "\(sourceID):\(itemIdentity)#cue:\(cuePath)#track:\(trackNumber)"
+            "\(sourceID):\(itemIdentity)#cue:\(cuePath)#track:\(imageTrackKey ?? String(trackNumber))"
         )
     }
 
@@ -188,6 +205,7 @@ public enum TVScanPipelinePolicy {
             result.cueStartTime = candidate.cueStartTime
             result.cueEndTime = candidate.cueEndTime
             result.sacdTrackNumber = candidate.sacdTrackNumber
+            result.isoAudioTrack = candidate.isoAudioTrack
             if let video = candidate.mvPath { result.mvPath = video }
         }
         result.dateAdded = existing.dateAdded

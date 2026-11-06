@@ -1880,8 +1880,23 @@ final class TVSourceScanner {
                     }
                     let ext = (entry.name as NSString).pathExtension.lowercased()
                     var candidates: [Song] = []
-                    if ext == "iso", cueLoad.tracksByAudioPath[entry.path]?.isEmpty != false { continue }
-                    if PrimuseConstants.supportedAudioExtensions.contains(ext)
+                    if ext == "iso" {
+                        let parsed = cueLoad.tracksByAudioPath[entry.path].map { descriptors in
+                            Self.makeCueSongs(
+                                entry: entry,
+                                descriptors: descriptors,
+                                source: source,
+                                usesStableProviderIdentity: lister.usesStableProviderSongIdentity,
+                                sidecars: sidecars,
+                                cueImageCount: cueLoad.tracksByAudioPath.count
+                            )
+                        } ?? []
+                        candidates = TVScanPipelinePolicy.sacdScanCandidates(
+                            parsedTracks: parsed,
+                            previousTracks: existingCueSongsByPath[entry.path] ?? [],
+                            readFailed: cueLoad.failedISOPaths.contains(entry.path)
+                        )
+                    } else if PrimuseConstants.supportedAudioExtensions.contains(ext)
                         || PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext) {
                         if let descriptors = cueLoad.tracksByAudioPath[entry.path],
                            !descriptors.isEmpty {
@@ -3146,13 +3161,14 @@ final class TVSourceScanner {
                     providerID: entry.providerID,
                     usesStableProviderIdentity: usesStableProviderIdentity,
                     cuePath: descriptor.cuePath,
-                    trackNumber: descriptor.track.number
+                    trackNumber: descriptor.track.number,
+                    imageTrackKey: descriptor.track.isoAudioTrack?.key
                 ),
                 title: descriptor.track.title
                     ?? PMString("cue_track_title_format", descriptor.track.number),
                 albumID: albumID,
                 artistID: artistID,
-                albumTitle: descriptor.albumTitle,
+                albumTitle: descriptor.track.isoAudioTrack?.albumTitle ?? descriptor.albumTitle,
                 artistName: artist,
                 albumArtistName: albumArtist,
                 trackNumber: descriptor.track.number,
@@ -3161,8 +3177,8 @@ final class TVSourceScanner {
                 filePath: entry.path,
                 sourceID: source.id,
                 fileSize: entry.size,
-                sampleRate: descriptor.format == .sacdISO ? 2_822_400 : nil,
-                bitDepth: descriptor.format == .sacdISO ? 1 : nil,
+                sampleRate: descriptor.track.isoAudioTrack?.sampleRate ?? (descriptor.format == .sacdISO ? 2_822_400 : nil),
+                bitDepth: descriptor.track.isoAudioTrack?.bitDepth ?? (descriptor.format == .sacdISO ? 1 : nil),
                 genre: descriptor.genre,
                 year: descriptor.year,
                 lastModified: entry.modifiedDate,
@@ -3174,6 +3190,7 @@ final class TVSourceScanner {
                 cueStartTime: start,
                 cueEndTime: end,
                 sacdTrackNumber: descriptor.format == .sacdISO ? descriptor.track.number : nil,
+                isoAudioTrack: descriptor.track.isoAudioTrack,
                 revision: Self.revision(for: entry, source: source)
             )
         }
@@ -3191,10 +3208,12 @@ final class TVSourceScanner {
         cache: CueSheetScanCache
     ) async throws -> (
         tracksByAudioPath: [String: [CueTrackDescriptor]],
-        failureMessage: String?
+        failureMessage: String?,
+        failedISOPaths: Set<String>
     ) {
         var result: [String: [CueTrackDescriptor]] = [:]
         var failureMessage: String?
+        var failedISOPaths: Set<String> = []
         for cueItem in siblings where !cueItem.isDir
             && PrimuseConstants.supportedVirtualTrackExtensions.contains(
                 (cueItem.name as NSString).pathExtension.lowercased()
@@ -3203,7 +3222,7 @@ final class TVSourceScanner {
                 try Task.checkCancellation()
                 let cue: CueSheet
                 if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
-                    guard let parsed = try await SACDISOReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { offset, length in
+                    guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { offset, length in
                         try await readerPool.read(path: cueItem.path, size: cueItem.size, offset: offset, length: length)
                     }) else { continue }
                     cue = parsed
@@ -3244,7 +3263,7 @@ final class TVSourceScanner {
                     }
                     cue = parsed
                 }
-                for cueFile in cue.files {
+                for cueFile in cue.filesForScanning(sheetFileName: cueItem.name) {
                     let referencedName = (
                         cueFile.name.replacingOccurrences(of: "\\", with: "/")
                             as NSString
@@ -3265,11 +3284,11 @@ final class TVSourceScanner {
                             CueTrackDescriptor(
                                 cuePath: cueItem.path,
                                 cueName: cueItem.name,
-                                albumTitle: cue.title,
-                                albumPerformer: cue.performer,
+                                albumTitle: track.isoAudioTrack?.albumTitle ?? cue.title,
+                                albumPerformer: track.isoAudioTrack?.albumArtist ?? cue.performer,
                                 genre: cue.genre,
                                 year: cue.year,
-                                format: format,
+                                format: track.isoAudioTrack?.format ?? format,
                                 track: track
                             )
                         )
@@ -3278,11 +3297,14 @@ final class TVSourceScanner {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
+                    failedISOPaths.insert(cueItem.path)
+                }
                 failureMessage = failureMessage
                     ?? "\(cueItem.name): \(error.localizedDescription)"
             }
         }
-        return (result, failureMessage)
+        return (result, failureMessage, failedISOPaths)
     }
 
     private nonisolated static func isMissingPathError(_ error: Error) -> Bool {
