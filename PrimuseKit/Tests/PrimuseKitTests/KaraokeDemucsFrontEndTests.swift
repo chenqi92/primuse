@@ -69,4 +69,61 @@ struct KaraokeDemucsFrontEndTests {
         #expect(plan.segments.count == 42)
         #expect(plan.segments.last.map { $0.offset + $0.length } == 44_100 * 240)
     }
+
+    @Test("Streaming stitching matches the Demucs reference fixture")
+    func streamingStitching() {
+        let left = Array(Self.mix[0..<131]), right = Array(Self.mix[131...])
+        let plan = KaraokeSeparationPlan(totalLength: 131, layout: Self.tiny)
+        var accumulator = KaraokeStreamingSeparationAccumulator(plan: plan)
+        var completedLeft: [Float] = [], completedRight: [Float] = []
+        for segment in plan.segments {
+            let mock: ([Float]) -> [Float] = { window in
+                window.enumerated().map { 0.5 * $0.element + Float($0.offset) / 100 }
+            }
+            let completed = accumulator.add(
+                segment,
+                left: mock(plan.window(segment, of: left)),
+                right: mock(plan.window(segment, of: right))
+            )
+            completedLeft += completed.left
+            completedRight += completed.right
+        }
+        #expect(Self.maxError(completedLeft + completedRight, Self.stitched) < 1e-5)
+        #expect(accumulator.bufferedFrameCount == 0)
+    }
+
+    @Test("Streaming output preserves overlap and short tails with bounded storage")
+    func streamingBoundaries() {
+        for overlap in [0.0, 0.25, 0.5, 0.9] {
+            var layout = Self.tiny
+            layout.overlap = overlap
+            for count in [1, 29, 59, 60, 61, 89, 90, 91, 131, 20_003] {
+                let input = (0..<count).map { Float(sin(Double($0) * 0.37)) }
+                let plan = KaraokeSeparationPlan(totalLength: count, layout: layout)
+                var reference = KaraokeSeparationAccumulator(plan: plan)
+                var streaming = KaraokeStreamingSeparationAccumulator(plan: plan)
+                var completedLeft: [Float] = [], completedRight: [Float] = []
+                for (index, segment) in plan.segments.enumerated() {
+                    let window = plan.window(segment, of: input)
+                    let left = window.enumerated().map {
+                        $0.element * 0.6 + Float($0.offset) * 0.001 + Float(index % 13) * 0.004
+                    }
+                    let right = left.map { -$0 * 0.3 }
+                    reference.add(segment, left: left, right: right)
+                    let completed = streaming.add(segment, left: left, right: right)
+                    completedLeft += completed.left
+                    completedRight += completed.right
+                    let nextOffset = index + 1 < plan.segments.count
+                        ? plan.segments[index + 1].offset : count
+                    #expect(completedLeft.count == nextOffset)
+                    #expect(streaming.bufferedFrameCount <= layout.segmentLength)
+                    #expect(streaming.storageFrameCapacity == min(count, layout.segmentLength))
+                }
+                let expected = reference.finish()
+                #expect(completedLeft == expected.left)
+                #expect(completedRight == expected.right)
+                #expect(streaming.bufferedFrameCount == 0)
+            }
+        }
+    }
 }

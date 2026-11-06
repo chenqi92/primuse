@@ -649,7 +649,7 @@ private struct KaraokeMixerCard: View {
                     state = String(localized: "karaoke_ai_unsupported_short")
                 case .failed:
                     state = String(localized: "karaoke_ai_failed")
-                case .idle, nil:
+                case .preparing, .idle, nil:
                     state = String(localized: "karaoke_ai_preparing")
                 }
             }
@@ -1063,7 +1063,7 @@ private struct KaraokeAISeparationRow: View {
         guard session.aiSeparationEnabled else { return true }
         guard session.separation.modelState == .ready else { return false }
         switch session.currentSeparationState {
-        case .separating, .idle, nil: return true
+        case .preparing, .separating, .idle, nil: return true
         case .ready, .unsupported, .failed: return false
         }
     }
@@ -1114,6 +1114,11 @@ private struct KaraokeAISeparationRow: View {
             reasonText(session.currentSeparationFailureReason.map {
                 String(format: String(localized: "karaoke_ai_failed_format"), $0)
             } ?? String(localized: "karaoke_ai_failed"))
+        case .preparing:
+            HStack(spacing: 6) {
+                ProgressView().tint(.white)
+                Text(isCooling ? "karaoke_ai_cooling" : "karaoke_ai_preparing")
+            }
         case .idle, nil:
             Text("karaoke_ai_preparing")
         }
@@ -1200,7 +1205,7 @@ private struct KaraokeStageMenu: View {
             } label: {
                 Label("karaoke_export_menu", systemImage: "square.and.arrow.up")
             }
-        case .separating:
+        case .preparing, .separating:
             Divider()
             Button {} label: {
                 Label("karaoke_export_waiting", systemImage: "square.and.arrow.up")

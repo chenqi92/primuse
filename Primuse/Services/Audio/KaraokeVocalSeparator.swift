@@ -1,4 +1,5 @@
 import CoreML
+import AVFoundation
 import Foundation
 import PrimuseKit
 
@@ -43,24 +44,106 @@ actor KaraokeVocalSeparator {
     func separateVocals(
         left: [Float],
         right: [Float],
+        songID: String? = nil,
         progress: @Sendable (Double) -> Void = { _ in },
         hold: @Sendable () async throws -> Void = {}
     ) async throws -> Stem {
         precondition(left.count == right.count)
         let plan = KaraokeSeparationPlan(totalLength: left.count, layout: layout)
         var accumulator = KaraokeSeparationAccumulator(plan: plan)
+        let startedAt = Date()
+        let logID = songID.map { String($0.prefix(8)) } ?? "unknown"
+        var workSeconds: TimeInterval = 0
+        var waitSeconds: TimeInterval = 0
         for (index, segment) in plan.segments.enumerated() {
             try Task.checkCancellation()
+            let waitStartedAt = Date()
             try await hold()
+            waitSeconds += Date().timeIntervalSince(waitStartedAt)
+            let segmentStartedAt = Date()
             let windowLeft = plan.window(segment, of: left)
             let windowRight = plan.window(segment, of: right)
             let output = try predict(left: windowLeft, right: windowRight)
             accumulator.add(segment, left: output.left, right: output.right)
+            let segmentSeconds = Date().timeIntervalSince(segmentStartedAt)
+            workSeconds += segmentSeconds
+            if index == 0 || (index + 1).isMultiple(of: 10) || index + 1 == plan.segments.count {
+                plog("🎤 Karaoke: \(logID) segment=\(index + 1)/\(plan.segments.count) seconds=\(String(format: "%.2f", segmentSeconds)) work=\(String(format: "%.2f", workSeconds))s wait=\(String(format: "%.2f", waitSeconds))s elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
+            }
             progress(Double(index + 1) / Double(plan.segments.count))
             await Task.yield()
         }
         let stem = accumulator.finish()
         return Stem(left: stem.left, right: stem.right)
+    }
+
+    func separateVocals(
+        file: KaraokeModelAudioFile,
+        outputURL: URL,
+        songID: String,
+        progress: @Sendable (Double) -> Void,
+        hold: @Sendable () async throws -> Void
+    ) async throws {
+        let input = try AVAudioFile(forReading: file.url)
+        let plan = KaraokeSeparationPlan(totalLength: file.frames, layout: layout)
+        var accumulator = KaraokeStreamingSeparationAccumulator(plan: plan)
+        let writer = try KaraokeStemFile.Writer(url: outputURL, sampleRate: layout.sampleRate, frames: file.frames)
+        let startedAt = Date()
+        let logID = String(songID.prefix(8))
+        var workSeconds: TimeInterval = 0
+        var waitSeconds: TimeInterval = 0
+        for (index, segment) in plan.segments.enumerated() {
+            try Task.checkCancellation()
+            let waitStartedAt = Date()
+            try await hold()
+            waitSeconds += Date().timeIntervalSince(waitStartedAt)
+            try Task.checkCancellation()
+            let segmentStartedAt = Date()
+            let completed = try autoreleasepool {
+                let window = try Self.readWindow(from: input, segment: segment, totalLength: file.frames, layout: layout)
+                let output = try predict(left: window.left, right: window.right)
+                try Task.checkCancellation()
+                return accumulator.add(segment, left: output.left, right: output.right)
+            }
+            try writer.append(left: completed.left, right: completed.right)
+            let seconds = Date().timeIntervalSince(segmentStartedAt)
+            workSeconds += seconds
+            if index == 0 || (index + 1).isMultiple(of: 10) || index + 1 == plan.segments.count {
+                plog("🎤 Karaoke: \(logID) segment=\(index + 1)/\(plan.segments.count) seconds=\(String(format: "%.2f", seconds)) work=\(String(format: "%.2f", workSeconds))s wait=\(String(format: "%.2f", waitSeconds))s elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
+            }
+            progress(Double(index + 1) / Double(plan.segments.count))
+            await Task.yield()
+        }
+        try Task.checkCancellation()
+        try writer.finish()
+    }
+
+    nonisolated static func readWindow(
+        from file: AVAudioFile,
+        segment: KaraokeSeparationPlan.Segment,
+        totalLength: Int,
+        layout: KaraokeDemucsLayout = .standard
+    ) throws -> Stem {
+        var left = [Float](repeating: 0, count: layout.segmentLength)
+        var right = left
+        let lower = max(0, segment.windowStart)
+        let upper = min(totalLength, segment.windowStart + layout.segmentLength)
+        guard lower < upper else { return Stem(left: left, right: right) }
+        let count = upper - lower
+        guard file.processingFormat.channelCount == 2,
+              abs(file.processingFormat.sampleRate - layout.sampleRate) < 0.5,
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(count)) else {
+            throw KaraokeSeparationError.unreadableAudio
+        }
+        file.framePosition = AVAudioFramePosition(lower)
+        try file.read(into: buffer, frameCount: AVAudioFrameCount(count))
+        guard Int(buffer.frameLength) == count, let channels = buffer.floatChannelData else {
+            throw KaraokeSeparationError.unreadableAudio
+        }
+        let offset = lower - segment.windowStart
+        left.withUnsafeMutableBufferPointer { $0.baseAddress!.advanced(by: offset).update(from: channels[0], count: count) }
+        right.withUnsafeMutableBufferPointer { $0.baseAddress!.advanced(by: offset).update(from: channels[1], count: count) }
+        return Stem(left: left, right: right)
     }
 
     /// One model call: vocals for a full-length segment window.

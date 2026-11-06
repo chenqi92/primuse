@@ -198,6 +198,7 @@ final class StandardLibrarySectionTabsTests: XCTestCase {
         window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         let host = UIHostingController(rootView: LibraryView()
             .environment(library)
+            .environment(SourcesStore(storageDirectoryURL: directory))
             .environment(AppServices.shared.playerService)
             .environment(radio)
             .environment(AppServices.shared.sourceManager)

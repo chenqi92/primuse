@@ -199,6 +199,50 @@ struct KaraokeAudioFile: Sendable {
     var removeAfterDecoding = false
 }
 
+struct KaraokeModelAudioFile: Sendable {
+    let url: URL
+    let frames: Int
+}
+
+@MainActor
+final class KaraokePreparationGate {
+    private var active: UUID?
+    private var waiting: [(UUID, CheckedContinuation<Void, Error>)] = []
+
+    func acquire(_ id: UUID) async throws {
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { continuation in
+                if active == nil {
+                    active = id
+                    continuation.resume()
+                } else {
+                    waiting.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelWaiting(id) }
+        }
+        do { try Task.checkCancellation() }
+        catch { release(id); throw error }
+    }
+
+    func release(_ id: UUID) {
+        guard active == id else { return }
+        active = nil
+        if !waiting.isEmpty {
+            let next = waiting.removeFirst()
+            active = next.0
+            next.1.resume()
+        }
+    }
+
+    private func cancelWaiting(_ id: UUID) {
+        guard let index = waiting.firstIndex(where: { $0.0 == id }) else { return }
+        waiting.remove(at: index).1.resume(throwing: CancellationError())
+    }
+}
+
 /// Separates songs' vocals with the AI model and keeps the results.
 /// Shared by every karaoke session so a separation started for one visit to
 /// the stage is still there on the next.
@@ -217,6 +261,7 @@ final class KaraokeSeparationService {
 
     enum SongState: Equatable {
         case idle
+        case preparing
         case separating(Double)
         case ready
         /// The file cannot be decoded here or is too long; the classic
@@ -260,11 +305,12 @@ final class KaraokeSeparationService {
     /// download removes it first instead of finding it "already there".
     @ObservationIgnored private var replacesModelOnDownload = false
     @ObservationIgnored private var jobs: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var jobIDs: [String: UUID] = [:]
+    @ObservationIgnored private let preparationGate = KaraokePreparationGate()
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
 
-    /// Songs longer than this are not separated: the whole song is held in
-    /// memory while the model runs.
+    /// Bounds the work and temporary disk space for one separation.
     nonisolated static let maximumDuration: TimeInterval = 15 * 60
     nonisolated static let modelSampleRate = KaraokeDemucsLayout.standard.sampleRate
 
@@ -367,39 +413,68 @@ final class KaraokeSeparationService {
     func prepare(_ song: Song, audioFile: @escaping @MainActor () async throws -> KaraokeAudioFile) {
         guard modelState == .ready, jobs[song.id] == nil else { return }
         switch state(for: song) {
-        case .ready, .separating, .unsupported: return
+        case .ready, .preparing, .separating, .unsupported: return
         case .idle, .failed: break
         }
         if song.duration > Self.maximumDuration {
             songStates[song.id] = .unsupported
             return
         }
-        songStates[song.id] = .separating(0)
+        let jobID = UUID()
+        jobIDs[song.id] = jobID
+        songStates[song.id] = .preparing
         songFailureReasons[song.id] = nil
         let destination = Self.stemURL(for: song)
         let startedAt = Date()
-        plog("🎤 Karaoke: separating \(song.id.prefix(8))…")
+        let logID = String(song.id.prefix(8))
+        plog("🎤 Karaoke: separating \(logID)…")
         jobs[song.id] = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                if self.jobIDs[song.id] == jobID {
+                    self.jobs[song.id] = nil
+                    self.jobIDs[song.id] = nil
+                    self.holdReasons[song.id] = nil
+                }
+            }
             do {
-                // Loading the model already takes the GPU.
+                try await self.preparationGate.acquire(jobID)
+                defer { self.preparationGate.release(jobID) }
+                try Task.checkCancellation()
+                plog("🎤 Karaoke: \(logID) stage=queue ready elapsed=\(String(format: "%.2f", Date().timeIntervalSince(startedAt)))s")
+                let modelStartedAt = Date()
+                plog("🎤 Karaoke: \(logID) stage=model begin")
                 try await self.holdWhileUnavailable(song.id)
                 let separator = try await self.loadSeparator()
+                plog("🎤 Karaoke: \(logID) stage=model ready elapsed=\(String(format: "%.2f", Date().timeIntervalSince(modelStartedAt)))s")
                 try Task.checkCancellation()
+                let audioStartedAt = Date()
+                plog("🎤 Karaoke: \(logID) stage=audio begin")
                 let file = try await audioFile()
-                let audio = try await Self.decodeForModel(
-                    file: file,
-                    start: song.cueStartTime,
-                    end: song.cueEndTime
+                plog("🎤 Karaoke: \(logID) stage=audio ready elapsed=\(String(format: "%.2f", Date().timeIntervalSince(audioStartedAt)))s ownership=\(file.removeAfterDecoding ? "temporary" : "borrowed")")
+                let decodeStartedAt = Date()
+                plog("🎤 Karaoke: \(logID) stage=decode begin")
+                let audio = try await Self.decodeModelAudioFile(
+                    file: file, start: song.cueStartTime, end: song.cueEndTime
                 )
+                defer { try? FileManager.default.removeItem(at: audio.url) }
+                plog("🎤 Karaoke: \(logID) stage=decode ready elapsed=\(String(format: "%.2f", Date().timeIntervalSince(decodeStartedAt)))s audio=\(String(format: "%.2f", Double(audio.frames) / Self.modelSampleRate))s")
                 try Task.checkCancellation()
+                guard self.jobIDs[song.id] == jobID else { throw CancellationError() }
+                self.songStates[song.id] = .separating(0)
                 let songID = song.id
-                let stem = try await separator.separateVocals(
-                    left: audio.left,
-                    right: audio.right,
+                let inferenceStartedAt = Date()
+                plog("🎤 Karaoke: \(logID) stage=inference begin")
+                try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let temporaryStem = destination.deletingLastPathComponent()
+                    .appendingPathComponent("\(jobID.uuidString).partial")
+                defer { try? FileManager.default.removeItem(at: temporaryStem) }
+                try await separator.separateVocals(
+                    file: audio, outputURL: temporaryStem, songID: songID,
                     progress: { fraction in
                         Task { @MainActor [weak self] in
-                            guard let self, case .separating = self.songStates[songID] else { return }
+                            guard let self, self.jobIDs[songID] == jobID,
+                                  case .separating = self.songStates[songID] else { return }
                             self.songStates[songID] = .separating(fraction)
                         }
                     },
@@ -407,32 +482,37 @@ final class KaraokeSeparationService {
                         try await self?.holdWhileUnavailable(songID)
                     }
                 )
+                plog("🎤 Karaoke: \(logID) stage=inference ready elapsed=\(String(format: "%.2f", Date().timeIntervalSince(inferenceStartedAt)))s")
                 try Task.checkCancellation()
-                try await Self.write(stem: stem, to: destination)
+                guard self.jobIDs[song.id] == jobID else { throw CancellationError() }
+                let writeStartedAt = Date()
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporaryStem)
+                } else {
+                    try FileManager.default.moveItem(at: temporaryStem, to: destination)
+                }
+                plog("🎤 Karaoke: \(logID) stage=write ready elapsed=\(String(format: "%.2f", Date().timeIntervalSince(writeStartedAt)))s")
                 self.songStates[song.id] = .ready
-                plog("🎤 Karaoke: separated \(song.id.prefix(8))… in \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s")
-            } catch KaraokeSeparationError.unreadableAudio {
-                self.songStates[song.id] = .unsupported
-            } catch KaraokeSeparationError.tooLong {
-                self.songStates[song.id] = .unsupported
-            } catch KaraokeSeparationError.modelIncomplete {
-                // No song can be separated until the model is downloaded
-                // again; the retry button does that, and this song starts
-                // over once it is back.
-                self.songStates[song.id] = nil
-                self.replacesModelOnDownload = true
-                self.modelFailureReason = KaraokeSeparationError.modelIncomplete.localizedDescription
-                self.modelState = .failed
-            } catch is CancellationError {
-                self.songStates[song.id] = nil
+                plog("🎤 Karaoke: separated \(logID)… in \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s")
             } catch {
-                let nsError = error as NSError
-                plog("⚠️ Karaoke: separation failed for \(song.id.prefix(8)) domain=\(nsError.domain) code=\(nsError.code): \(String(describing: error))")
-                self.songFailureReasons[song.id] = error.localizedDescription
-                self.songStates[song.id] = .failed
+                guard self.jobIDs[song.id] == jobID else { return }
+                switch error {
+                case is CancellationError:
+                    self.songStates[song.id] = nil
+                case KaraokeSeparationError.unreadableAudio, KaraokeSeparationError.tooLong:
+                    self.songStates[song.id] = .unsupported
+                case KaraokeSeparationError.modelIncomplete:
+                    self.songStates[song.id] = nil
+                    self.replacesModelOnDownload = true
+                    self.modelFailureReason = KaraokeSeparationError.modelIncomplete.localizedDescription
+                    self.modelState = .failed
+                default:
+                    let nsError = error as NSError
+                    plog("⚠️ Karaoke: separation failed for \(logID) domain=\(nsError.domain) code=\(nsError.code): \(String(describing: error))")
+                    self.songFailureReasons[song.id] = error.localizedDescription
+                    self.songStates[song.id] = .failed
+                }
             }
-            self.jobs[song.id] = nil
-            self.holdReasons[song.id] = nil
         }
     }
 
@@ -476,29 +556,100 @@ final class KaraokeSeparationService {
     /// The cached stem resampled to the playback graph's rate.
     #if !os(tvOS)
     func loadStem(for song: Song, graphSampleRate: Double) async -> KaraokeStemTrack? {
-        guard let samples = await loadStemSamples(for: song, graphSampleRate: graphSampleRate) else { return nil }
-        return await Task.detached(priority: .userInitiated) {
-            KaraokeStemTrack(left: samples.left, right: samples.right, sampleRate: graphSampleRate)
-        }.value
+        let url = Self.stemURL(for: song)
+        let task = Task.detached(priority: .userInitiated) { () -> KaraokeStemTrack? in
+            do {
+                let reader = try KaraokeStemPCMReader(url: url)
+                guard graphSampleRate.isFinite, graphSampleRate > 0 else { return nil }
+                let capacity = Int(ceil(Double(reader.frames) * graphSampleRate / reader.sampleRate)) + 4096
+                return try KaraokeStemTrack(sampleRate: graphSampleRate, frameCapacity: capacity) { storage in
+                    var offset = 0
+                    return try Self.readStemPCM(reader, sampleRate: graphSampleRate) { left, right, count in
+                        guard offset + count <= capacity else { throw KaraokeSeparationError.unreadableAudio }
+                        for index in 0..<count {
+                            storage[(offset + index) * 2] = Int16(max(-32_768, min(32_767, (left[index] * 32_767).rounded())))
+                            storage[(offset + index) * 2 + 1] = Int16(max(-32_768, min(32_767, (right[index] * 32_767).rounded())))
+                        }
+                        offset += count
+                    }
+                }
+            } catch { return nil }
+        }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
     #endif
 
     func loadStemSamples(for song: Song, graphSampleRate: Double) async -> (left: [Float], right: [Float])? {
         let url = Self.stemURL(for: song)
-        return await Task.detached(priority: .userInitiated) { () -> (left: [Float], right: [Float])? in
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-                  let stem = KaraokeStemFile.decode(data) else { return nil }
-            if abs(stem.header.sampleRate - graphSampleRate) < 0.5 {
-                return (stem.left, stem.right)
+        let task = Task.detached(priority: .userInitiated) { () -> (left: [Float], right: [Float])? in
+            do {
+                let reader = try KaraokeStemPCMReader(url: url)
+                guard graphSampleRate.isFinite, graphSampleRate > 0 else { return nil }
+                let capacity = Int(ceil(Double(reader.frames) * graphSampleRate / reader.sampleRate)) + 4096
+                var left: [Float] = [], right: [Float] = []
+                left.reserveCapacity(capacity)
+                right.reserveCapacity(capacity)
+                _ = try Self.readStemPCM(reader, sampleRate: graphSampleRate) { l, r, count in
+                    left.append(contentsOf: UnsafeBufferPointer(start: l, count: count))
+                    right.append(contentsOf: UnsafeBufferPointer(start: r, count: count))
+                }
+                return (left, right)
+            } catch { return nil }
+        }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
+    private nonisolated static func readStemPCM(
+        _ reader: KaraokeStemPCMReader,
+        sampleRate: Double,
+        consume: (UnsafePointer<Float>, UnsafePointer<Float>, Int) throws -> Void
+    ) throws -> Int {
+        var written = 0
+        func emit(_ buffer: AVAudioPCMBuffer) throws {
+            try Task.checkCancellation()
+            guard let channels = buffer.floatChannelData else { throw KaraokeSeparationError.unreadableAudio }
+            try consume(channels[0], channels[1], Int(buffer.frameLength))
+            written += Int(buffer.frameLength)
+        }
+        if abs(reader.sampleRate - sampleRate) < 0.5 {
+            while let buffer = try reader.read(frames: 8192) { try emit(buffer) }
+        } else {
+            guard let target = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2),
+                  let converter = AVAudioConverter(from: reader.format, to: target),
+                  let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 8192) else {
+                throw KaraokeSeparationError.unreadableAudio
             }
-            guard let resampled = Self.resample(
-                left: stem.left,
-                right: stem.right,
-                from: stem.header.sampleRate,
-                to: graphSampleRate
-            ) else { return nil }
-            return resampled
-        }.value
+            var emptyPasses = 0
+            while true {
+                try Task.checkCancellation()
+                output.frameLength = 0
+                var conversionError: NSError?
+                let status = converter.convert(to: output, error: &conversionError) { count, inputStatus in
+                    do {
+                        guard let buffer = try reader.read(frames: count) else {
+                            inputStatus.pointee = .endOfStream
+                            return nil
+                        }
+                        inputStatus.pointee = .haveData
+                        return buffer
+                    } catch {
+                        reader.failure = error
+                        inputStatus.pointee = .endOfStream
+                        return nil
+                    }
+                }
+                if let failure = reader.failure { throw failure }
+                if let conversionError { throw conversionError }
+                guard status != .error else { throw KaraokeSeparationError.unreadableAudio }
+                if output.frameLength > 0 {
+                    try emit(output)
+                    emptyPasses = 0
+                } else { emptyPasses += 1 }
+                if status == .endOfStream { break }
+                guard emptyPasses < 3 else { throw KaraokeSeparationError.unreadableAudio }
+            }
+        }
+        return written
     }
 
     /// Syllable onsets of a separated song's vocal, for timing line-level
@@ -509,9 +660,8 @@ final class KaraokeSeparationService {
         let url = Self.stemURL(for: song)
         let onsets = await Task.detached(priority: .utility) { () -> [KaraokeOnset]? in
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-                  let stem = KaraokeStemFile.decode(data) else { return nil }
-            let mono = zip(stem.left, stem.right).map { ($0 + $1) * 0.5 }
-            return KaraokeOnsetDetector.onsets(in: mono, sampleRate: stem.header.sampleRate)
+                  let stem = KaraokeStemFile.decodeMono(data) else { return nil }
+            return KaraokeOnsetDetector.onsets(in: stem.samples, sampleRate: stem.header.sampleRate)
         }.value
         if let onsets {
             if onsetCache.count > 20 { onsetCache.removeAll() }
@@ -549,6 +699,7 @@ final class KaraokeSeparationService {
     func clearCache() {
         for job in jobs.values { job.cancel() }
         jobs.removeAll()
+        jobIDs.removeAll()
         songStates.removeAll()
         songFailureReasons.removeAll()
         holdReasons.removeAll()
@@ -595,14 +746,6 @@ final class KaraokeSeparationService {
         }
     }
 
-    private nonisolated static func write(stem: KaraokeVocalSeparator.Stem, to url: URL) async throws {
-        try await Task.detached(priority: .utility) {
-            let data = KaraokeStemFile.encode(left: stem.left, right: stem.right, sampleRate: modelSampleRate)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
-        }.value
-    }
-
     /// Apple's FLAC parser rejects a file carrying a metadata block of the
     /// forbidden type 127, which libFLAC plays past. Such a file is read with
     /// that block retagged as padding: in place when it is this job's own
@@ -631,101 +774,201 @@ final class KaraokeSeparationService {
         return (audioFile, repairedCopy)
     }
 
-    /// Decodes the song (or its CUE slice) to 44.1 kHz stereo.
+    nonisolated static func decodeModelAudioFile(
+        file: KaraokeAudioFile,
+        start: TimeInterval?,
+        end: TimeInterval?
+    ) async throws -> KaraokeModelAudioFile {
+        defer {
+            if file.removeAfterDecoding { try? FileManager.default.removeItem(at: file.url) }
+        }
+        try Task.checkCancellation()
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("karaoke-model-audio-\(UUID().uuidString).caf")
+        let task = Task.detached(priority: .utility) {
+            var completed = false
+            defer { if !completed { try? FileManager.default.removeItem(at: destination) } }
+            try Task.checkCancellation()
+            guard let opened = openForDecoding(file) else { throw KaraokeSeparationError.unreadableAudio }
+            defer {
+                if let repairedCopy = opened.repairedCopy { try? FileManager.default.removeItem(at: repairedCopy) }
+            }
+            let sourceFile = opened.audioFile
+            let rate = sourceFile.processingFormat.sampleRate
+            let firstFrame = AVAudioFramePosition(((start ?? 0) * rate).rounded())
+            let lastFrame = end.map { AVAudioFramePosition(($0 * rate).rounded()) } ?? sourceFile.length
+            let frames = max(0, min(sourceFile.length, lastFrame) - firstFrame)
+            guard firstFrame >= 0, frames > 0 else { throw KaraokeSeparationError.unreadableAudio }
+            guard Double(frames) / rate <= maximumDuration else { throw KaraokeSeparationError.tooLong }
+            sourceFile.framePosition = firstFrame
+            let reader = try KaraokeModelAudioReader(file: sourceFile, remaining: frames)
+            guard let targetFormat = AVAudioFormat(standardFormatWithSampleRate: modelSampleRate, channels: 2) else {
+                throw KaraokeSeparationError.unreadableAudio
+            }
+            let outputFile = try AVAudioFile(forWriting: destination, settings: targetFormat.settings)
+            var written = 0
+            if abs(rate - modelSampleRate) < 0.5 {
+                while let buffer = try reader.read(frames: 8192) {
+                    try Task.checkCancellation()
+                    try outputFile.write(from: buffer)
+                    written += Int(buffer.frameLength)
+                }
+            } else {
+                guard let converter = AVAudioConverter(from: reader.stereoFormat, to: targetFormat),
+                      let output = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 8192) else {
+                    throw KaraokeSeparationError.unreadableAudio
+                }
+                var emptyPasses = 0
+                while true {
+                    try Task.checkCancellation()
+                    output.frameLength = 0
+                    var conversionError: NSError?
+                    let status = converter.convert(to: output, error: &conversionError) { count, inputStatus in
+                        do {
+                            guard let buffer = try reader.read(frames: count) else {
+                                inputStatus.pointee = .endOfStream
+                                return nil
+                            }
+                            inputStatus.pointee = .haveData
+                            return buffer
+                        } catch {
+                            reader.failure = error
+                            inputStatus.pointee = .endOfStream
+                            return nil
+                        }
+                    }
+                    if let failure = reader.failure { throw failure }
+                    if let conversionError { throw conversionError }
+                    guard status != .error else { throw KaraokeSeparationError.unreadableAudio }
+                    if output.frameLength > 0 {
+                        try outputFile.write(from: output)
+                        written += Int(output.frameLength)
+                        emptyPasses = 0
+                    } else {
+                        emptyPasses += 1
+                    }
+                    if status == .endOfStream { break }
+                    guard emptyPasses < 3 else { throw KaraokeSeparationError.unreadableAudio }
+                }
+            }
+            try Task.checkCancellation()
+            guard written > 0 else { throw KaraokeSeparationError.unreadableAudio }
+            completed = true
+            return KaraokeModelAudioFile(url: destination, frames: written)
+        }
+        do {
+            let result = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: { task.cancel() }
+            try Task.checkCancellation()
+            return result
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+    }
+
+    /// Full-buffer access remains for stem export; separation reads the prepared file by segment.
     nonisolated static func decodeForModel(
         file: KaraokeAudioFile,
         start: TimeInterval?,
         end: TimeInterval?
     ) async throws -> (left: [Float], right: [Float]) {
-        defer {
-            if file.removeAfterDecoding { try? FileManager.default.removeItem(at: file.url) }
+        let prepared = try await decodeModelAudioFile(file: file, start: start, end: end)
+        defer { try? FileManager.default.removeItem(at: prepared.url) }
+        let task = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            let file = try AVAudioFile(forReading: prepared.url)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(prepared.frames)) else {
+                throw KaraokeSeparationError.unreadableAudio
+            }
+            try file.read(into: buffer)
+            try Task.checkCancellation()
+            guard let channels = buffer.floatChannelData else { throw KaraokeSeparationError.unreadableAudio }
+            return (
+                left: Array(UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))),
+                right: Array(UnsafeBufferPointer(start: channels[1], count: Int(buffer.frameLength)))
+            )
         }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+
+}
+
+private final class KaraokeModelAudioReader: @unchecked Sendable {
+    let stereoFormat: AVAudioFormat
+    var failure: Error?
+    private let file: AVAudioFile
+    private let input: AVAudioPCMBuffer
+    private let stereo: AVAudioPCMBuffer
+    private var remaining: AVAudioFramePosition
+
+    init(file: AVAudioFile, remaining: AVAudioFramePosition) throws {
+        self.file = file
+        self.remaining = remaining
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: file.processingFormat.sampleRate, channels: 2),
+              let input = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 8192),
+              let stereo = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else {
+            throw KaraokeSeparationError.unreadableAudio
+        }
+        stereoFormat = format
+        self.input = input
+        self.stereo = stereo
+    }
+
+    func read(frames requested: AVAudioFrameCount) throws -> AVAudioPCMBuffer? {
         try Task.checkCancellation()
-        return try await Task.detached(priority: .utility) {
-            guard let opened = openForDecoding(file) else { throw KaraokeSeparationError.unreadableAudio }
-            defer {
-                if let repairedCopy = opened.repairedCopy { try? FileManager.default.removeItem(at: repairedCopy) }
-            }
-            let file = opened.audioFile
-            let format = file.processingFormat
-            let rate = format.sampleRate
-            let firstFrame = AVAudioFramePosition(((start ?? 0) * rate).rounded())
-            let lastFrame = end.map { AVAudioFramePosition(($0 * rate).rounded()) } ?? file.length
-            let frameCount = max(0, min(file.length, lastFrame) - firstFrame)
-            guard frameCount > 0 else { throw KaraokeSeparationError.unreadableAudio }
-            guard Double(frameCount) / rate <= maximumDuration else { throw KaraokeSeparationError.tooLong }
-            file.framePosition = firstFrame
-            guard let source = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else {
-                throw KaraokeSeparationError.unreadableAudio
-            }
-            try file.read(into: source, frameCount: AVAudioFrameCount(frameCount))
-            guard let channels = source.floatChannelData else { throw KaraokeSeparationError.unreadableAudio }
-            let count = Int(source.frameLength)
-            var left = Array(UnsafeBufferPointer(start: channels[0], count: count))
-            var right: [Float]
-            if format.channelCount >= 2 {
-                right = Array(UnsafeBufferPointer(start: channels[1], count: count))
-                if format.channelCount > 2 {
-                    // Fold the centre into both sides; surrounds are ignored.
-                    let centre = Array(UnsafeBufferPointer(start: channels[2], count: count))
-                    for i in 0..<count {
-                        left[i] += 0.707 * centre[i]
-                        right[i] += 0.707 * centre[i]
-                    }
-                }
-            } else {
-                right = left
-            }
-            if abs(rate - modelSampleRate) < 0.5 { return (left, right) }
-            guard let resampled = resample(left: left, right: right, from: rate, to: modelSampleRate) else {
-                throw KaraokeSeparationError.unreadableAudio
-            }
-            return resampled
-        }.value
+        guard remaining > 0 else { return nil }
+        let count = AVAudioFrameCount(min(remaining, AVAudioFramePosition(min(8192, requested))))
+        guard count > 0 else { throw KaraokeSeparationError.unreadableAudio }
+        try file.read(into: input, frameCount: count)
+        guard input.frameLength > 0, let channels = input.floatChannelData,
+              let output = stereo.floatChannelData else { throw KaraokeSeparationError.unreadableAudio }
+        remaining -= AVAudioFramePosition(input.frameLength)
+        stereo.frameLength = input.frameLength
+        let right = input.format.channelCount >= 2 ? channels[1] : channels[0]
+        for index in 0..<Int(input.frameLength) {
+            let center: Float = input.format.channelCount > 2 ? channels[2][index] * 0.707 : 0
+            output[0][index] = channels[0][index] + center
+            output[1][index] = right[index] + center
+        }
+        return stereo
+    }
+}
+
+private final class KaraokeStemPCMReader: @unchecked Sendable {
+    let format: AVAudioFormat
+    let frames: Int
+    let sampleRate: Double
+    var failure: Error?
+    private let data: Data
+    private let buffer: AVAudioPCMBuffer
+    private var offset = 0
+
+    init(url: URL) throws {
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard let header = KaraokeStemFile.header(of: data), header.sampleRate > 0,
+              let format = AVAudioFormat(standardFormatWithSampleRate: header.sampleRate, channels: 2),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else {
+            throw KaraokeSeparationError.unreadableAudio
+        }
+        self.data = data
+        self.format = format
+        self.buffer = buffer
+        frames = header.frames
+        sampleRate = header.sampleRate
     }
 
-    /// Whole-buffer stereo sample-rate conversion.
-    private nonisolated static func resample(
-        left: [Float],
-        right: [Float],
-        from sourceRate: Double,
-        to targetRate: Double
-    ) -> (left: [Float], right: [Float])? {
-        guard let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: sourceRate, channels: 2),
-              let targetFormat = AVAudioFormat(standardFormatWithSampleRate: targetRate, channels: 2),
-              let converter = AVAudioConverter(from: sourceFormat, to: targetFormat),
-              let input = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(left.count)) else {
-            return nil
-        }
-        input.frameLength = AVAudioFrameCount(left.count)
-        left.withUnsafeBufferPointer { input.floatChannelData![0].update(from: $0.baseAddress!, count: left.count) }
-        right.withUnsafeBufferPointer { input.floatChannelData![1].update(from: $0.baseAddress!, count: right.count) }
-        let capacity = AVAudioFrameCount(Double(left.count) * targetRate / sourceRate) + 4_096
-        guard let output = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return nil }
-        let pending = PendingBuffer(input)
-        var error: NSError?
-        let status = converter.convert(to: output, error: &error) { _, inputStatus in
-            guard let buffer = pending.take() else {
-                inputStatus.pointee = .endOfStream
-                return nil
-            }
-            inputStatus.pointee = .haveData
-            return buffer
-        }
-        guard status != .error, let channels = output.floatChannelData else { return nil }
-        let count = Int(output.frameLength)
-        return (
-            Array(UnsafeBufferPointer(start: channels[0], count: count)),
-            Array(UnsafeBufferPointer(start: channels[1], count: count))
-        )
-    }
-
-    private final class PendingBuffer: @unchecked Sendable {
-        private var buffer: AVAudioPCMBuffer?
-        init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
-        func take() -> AVAudioPCMBuffer? {
-            defer { buffer = nil }
-            return buffer
-        }
+    func read(frames requested: AVAudioFrameCount) throws -> AVAudioPCMBuffer? {
+        try Task.checkCancellation()
+        guard offset < frames else { return nil }
+        let count = min(frames - offset, Int(min(8192, requested)))
+        guard count > 0, let samples = KaraokeStemFile.decodeFrames(data, range: offset..<(offset + count)),
+              let channels = buffer.floatChannelData else { throw KaraokeSeparationError.unreadableAudio }
+        samples.left.withUnsafeBufferPointer { channels[0].update(from: $0.baseAddress!, count: count) }
+        samples.right.withUnsafeBufferPointer { channels[1].update(from: $0.baseAddress!, count: count) }
+        buffer.frameLength = AVAudioFrameCount(count)
+        offset += count
+        return buffer
     }
 }

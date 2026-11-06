@@ -81,6 +81,21 @@ final class KaraokeStemTrack: @unchecked Sendable {
     let sampleRate: Double
     let samples: UnsafeMutablePointer<Int16>
 
+    init(sampleRate: Double, frameCapacity: Int, fill: (UnsafeMutableBufferPointer<Int16>) throws -> Int) throws {
+        guard frameCapacity >= 0, frameCapacity <= Int.max / 2 else { throw CocoaError(.fileReadCorruptFile) }
+        let storage = UnsafeMutablePointer<Int16>.allocate(capacity: max(1, frameCapacity * 2))
+        do {
+            let count = try fill(UnsafeMutableBufferPointer(start: storage, count: frameCapacity * 2))
+            guard count >= 0, count <= frameCapacity else { throw CocoaError(.fileReadCorruptFile) }
+            frames = count
+            self.sampleRate = sampleRate
+            samples = storage
+        } catch {
+            storage.deallocate()
+            throw error
+        }
+    }
+
     init(left: [Float], right: [Float], sampleRate: Double) {
         precondition(left.count == right.count)
         frames = left.count

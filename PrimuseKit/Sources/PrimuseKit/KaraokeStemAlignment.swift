@@ -133,21 +133,87 @@ public enum KaraokeStemFile {
 
     public static func encode(left: [Float], right: [Float], sampleRate: Double) -> Data {
         precondition(left.count == right.count)
-        var data = Data(capacity: headerSize + left.count * 4)
+        var data = encodedHeader(sampleRate: sampleRate, frames: left.count)
+        data.reserveCapacity(headerSize + left.count * 4)
+        var samples = [Int16](repeating: 0, count: left.count * 2)
+        for i in 0..<left.count {
+            samples[2 * i] = quantize(left[i]).littleEndian
+            samples[2 * i + 1] = quantize(right[i]).littleEndian
+        }
+        samples.withUnsafeBytes { data.append(contentsOf: $0) }
+        return data
+    }
+
+    private static func encodedHeader(sampleRate: Double, frames: Int) -> Data {
+        var data = Data(capacity: headerSize)
         func append<T: FixedWidthInteger>(_ value: T) {
             withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
         }
         append(magic)
         append(formatVersion)
         append(UInt32(sampleRate.rounded()))
-        append(UInt32(left.count))
-        var samples = [Int16](repeating: 0, count: left.count * 2)
-        for i in 0..<left.count {
-            samples[2 * i] = quantize(left[i])
-            samples[2 * i + 1] = quantize(right[i])
-        }
-        samples.withUnsafeBytes { data.append(contentsOf: $0) }
+        append(UInt32(frames))
         return data
+    }
+
+    public final class Writer {
+        public enum Failure: Error, Equatable {
+            case invalidHeader
+            case invalidFrameCount
+            case alreadyFinished
+        }
+
+        private var handle: FileHandle?
+        private let expectedFrames: Int
+        public private(set) var writtenFrames = 0
+
+        public init(url: URL, sampleRate: Double, frames: Int) throws {
+            guard sampleRate.isFinite, sampleRate.rounded() > 0,
+                  sampleRate.rounded() <= Double(UInt32.max),
+                  frames >= 0, frames <= Int(UInt32.max) else {
+                throw Failure.invalidHeader
+            }
+            expectedFrames = frames
+            try encodedHeader(sampleRate: sampleRate, frames: frames)
+                .write(to: url, options: .withoutOverwriting)
+            let file = try FileHandle(forWritingTo: url)
+            try file.seekToEnd()
+            handle = file
+        }
+
+        deinit {
+            try? handle?.close()
+        }
+
+        public func append(left: [Float], right: [Float]) throws {
+            guard let handle else { throw Failure.alreadyFinished }
+            guard left.count == right.count, left.count <= expectedFrames - writtenFrames else {
+                throw Failure.invalidFrameCount
+            }
+            let capacity = min(left.count, 8_192)
+            var samples = [Int16](repeating: 0, count: capacity * 2)
+            var offset = 0
+            while offset < left.count {
+                let count = min(capacity, left.count - offset)
+                for i in 0..<count {
+                    samples[i * 2] = quantize(left[offset + i]).littleEndian
+                    samples[i * 2 + 1] = quantize(right[offset + i]).littleEndian
+                }
+                try samples.withUnsafeBytes { bytes in
+                    try handle.write(contentsOf: Data(bytes.prefix(count * 4)))
+                }
+                offset += count
+            }
+            writtenFrames += left.count
+        }
+
+        public func finish() throws {
+            guard let handle else { throw Failure.alreadyFinished }
+            guard writtenFrames == expectedFrames else { throw Failure.invalidFrameCount }
+            try handle.synchronize()
+            try handle.close()
+            self.handle = nil
+        }
     }
 
     @inline(__always)
@@ -180,6 +246,37 @@ public enum KaraokeStemFile {
             }
         }
         return (header, left, right)
+    }
+
+    public static func decodeFrames(_ data: Data, range: Range<Int>) -> (left: [Float], right: [Float])? {
+        guard let header = header(of: data),
+              range.lowerBound >= 0, range.upperBound <= header.frames else { return nil }
+        var left = [Float](repeating: 0, count: range.count)
+        var right = left
+        let scale: Float = 1 / 32_767
+        data.withUnsafeBytes { raw in
+            for (i, frame) in range.enumerated() {
+                let base = headerSize + frame * 4
+                left[i] = Float(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: base, as: Int16.self))) * scale
+                right[i] = Float(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: base + 2, as: Int16.self))) * scale
+            }
+        }
+        return (left, right)
+    }
+
+    public static func decodeMono(_ data: Data) -> (header: Header, samples: [Float])? {
+        guard let header = header(of: data) else { return nil }
+        var samples = [Float](repeating: 0, count: header.frames)
+        let scale: Float = 1 / 32_767
+        data.withUnsafeBytes { raw in
+            for i in 0..<header.frames {
+                let base = headerSize + i * 4
+                let left = Float(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: base, as: Int16.self))) * scale
+                let right = Float(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: base + 2, as: Int16.self))) * scale
+                samples[i] = (left + right) * 0.5
+            }
+        }
+        return (header, samples)
     }
 }
 

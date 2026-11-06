@@ -577,7 +577,7 @@ final class KaraokeSession {
             autoRetriedSeparationSongIDs.insert(wanted.id)
             plog("🎤 Karaoke: retrying failed separation once \(wanted.id.prefix(8))")
             separation.prepare(wanted, sourceManager: sourceManager)
-        case .separating, .unsupported:
+        case .preparing, .separating, .unsupported:
             break
         }
     }

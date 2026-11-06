@@ -161,7 +161,10 @@ final class AlbumMetadataTests: XCTestCase {
             }.tabItem { Label("home_title", systemImage: "house") }.tag(0)
             Text("Settings").onAppear { probe.settingsAppeared = true }
                 .tabItem { Label("settings_title", systemImage: "gearshape") }.tag(1)
-        }.environment(library)
+        }
+        .environment(library)
+        .environment(AppServices.shared.playerService)
+        .environment(AppServices.shared.sourcesStore)
         let window = try show(view, size: CGSize(width: 390, height: 844))
         defer { window.isHidden = true; window.rootViewController = nil }
         try await Task.sleep(for: .milliseconds(600))
@@ -179,7 +182,7 @@ final class AlbumMetadataTests: XCTestCase {
     }
 
     @MainActor
-    func testStartupOnlyShowsSongRowsAtSongsDestination() async throws {
+    func testStartupKeepsNormalLibraryNavigationWithoutTemporarySongRows() async throws {
         let suite = "StartupDestinationTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
@@ -203,30 +206,124 @@ final class AlbumMetadataTests: XCTestCase {
 
         for size in [CGSize(width: 390, height: 844), CGSize(width: 1024, height: 768)] {
             for section: LibrarySection? in [nil, .albums, .songs] {
-                let view = LibraryReadyContent(startupSection: section) {
-                    Text("Remembered Content")
-                }
-                .environment(library)
-                .environment(sources)
-                .environment(player)
-                .environment(AppServices.shared.sourceManager)
+                let view = startupLibraryView(
+                    LibraryView(rootSection: section), library: library,
+                    sources: sources, player: player, defaults: defaults, directory: directory
+                )
                 let window = try show(view, size: size)
                 defer { window.isHidden = true; window.rootViewController = nil }
                 try await Task.sleep(for: .milliseconds(800))
                 let text = try recognizedText(window, name: "startup-\(section?.rawValue ?? "home")-\(Int(size.width))")
                 XCTAssertFalse(library.isReady)
-                XCTAssertFalse(text.contains("RememberedContent"), text)
-                if section == .songs {
-                    XCTAssertTrue(text.contains("StartupSentinel"), text)
-                    XCTAssertTrue(text.contains("歌曲"), text)
-                } else {
-                    XCTAssertFalse(text.contains("StartupSentinel"), text)
-                    XCTAssertFalse(text.contains("首页"), text)
-                    XCTAssertFalse(text.contains("歌曲"), text)
-                    XCTAssertTrue(text.contains("准备资料库"), text)
-                }
+                XCTAssertFalse(text.contains("StartupSentinel"), text)
+                XCTAssertTrue(text.contains("准备资料库"), text)
+                XCTAssertTrue(text.contains(section == .songs ? "歌曲" : section == .albums ? "专辑" : "资料库"), text)
             }
         }
+    }
+
+    @MainActor
+    func testRememberedLibraryDetailWaitsForPublicationAndYieldsToNavigation() async throws {
+        for navigationOverride: LibrarySection? in [nil, .albums] {
+            let suite = "StartupRestorationTests.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer {
+                defaults.removePersistentDomain(forName: suite)
+                try? FileManager.default.removeItem(at: directory)
+            }
+            var local = song("restored", title: "Restored Track")
+            local.albumTitle = "Restored Album"
+            local.artistName = "Archive Artist"
+            local.albumArtistName = "Archive Artist"
+            MusicLibrary.fillDerivedIDs(&local)
+            let pageID = "album:\(try XCTUnwrap(local.albumID))"
+            defaults.set(pageID, forKey: "primuse.navigation.libraryPage.v1")
+            let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+            try store.replaceAll(with: [local])
+            try store.markMigrationCompleted(version: 10)
+            let library = MusicLibrary.makePreparing(storageDirectory: directory)
+            let sources = SourcesStore(storageDirectoryURL: directory)
+            sources.add(MusicSource(id: "source", name: "Startup Source", type: .local))
+            let player = AudioPlayerService(
+                library: library,
+                playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+                activateAudioSession: { _ in XCTFail("Restoring navigation must not play audio") }
+            )
+            let probe = LoadingNavigationProbe()
+            let view = startupLibraryView(
+                LibraryView(deepLink: Binding(get: { probe.deepLink }, set: { probe.deepLink = $0 }),
+                            onActiveSectionChange: { probe.activeSection = $0 }),
+                library: library, sources: sources, player: player, defaults: defaults, directory: directory
+            )
+            let window = try show(view, size: CGSize(width: 390, height: 844))
+            defer { window.isHidden = true; window.rootViewController = nil }
+            try await Task.sleep(for: .milliseconds(600))
+            XCTAssertEqual(defaults.string(forKey: "primuse.navigation.libraryPage.v1"), pageID)
+            if let navigationOverride {
+                probe.deepLink = .section(navigationOverride)
+                try await Task.sleep(for: .milliseconds(350))
+                XCTAssertEqual(probe.activeSection, navigationOverride)
+                XCTAssertEqual(defaults.string(forKey: "primuse.navigation.libraryPage.v1"), "section:\(navigationOverride.rawValue)")
+            }
+            library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory))
+            XCTAssertTrue(library.isReady)
+            try await waitForLibraryPush(in: window)
+            let text = try recognizedText(window, name: "startup-restored-\(navigationOverride?.rawValue ?? "album")")
+            XCTAssertFalse(text.contains("准备资料库"), text)
+            if let navigationOverride {
+                XCTAssertEqual(probe.activeSection, navigationOverride)
+                XCTAssertEqual(defaults.string(forKey: "primuse.navigation.libraryPage.v1"), "section:\(navigationOverride.rawValue)")
+            } else {
+                XCTAssertEqual(defaults.string(forKey: "primuse.navigation.libraryPage.v1"), pageID)
+                XCTAssertTrue(text.contains("RestoredAlbum"), text)
+            }
+        }
+    }
+
+    @MainActor
+    private func waitForLibraryPush(in window: UIWindow) async throws {
+        func navigationController(in controller: UIViewController) -> UINavigationController? {
+            if let navigation = controller as? UINavigationController { return navigation }
+            return controller.children.lazy.compactMap { navigationController(in: $0) }.first
+        }
+        let root = try XCTUnwrap(window.rootViewController)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < deadline {
+            if let navigation = navigationController(in: root),
+               navigation.viewControllers.count == 2,
+               navigation.visibleViewController === navigation.topViewController,
+               navigation.topViewController?.view.window === window,
+               navigation.transitionCoordinator == nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let navigation = try XCTUnwrap(navigationController(in: root))
+        XCTAssertEqual(navigation.viewControllers.count, 2, "The remembered destination must finish pushing")
+        XCTAssertTrue(navigation.visibleViewController === navigation.topViewController)
+        XCTAssertTrue(navigation.topViewController?.view.window === window)
+        XCTAssertNil(navigation.transitionCoordinator, "Library restoration must not leave a transition pending")
+    }
+
+    @MainActor
+    private func startupLibraryView<Content: View>(
+        _ content: Content, library: MusicLibrary, sources: SourcesStore,
+        player: AudioPlayerService, defaults: UserDefaults, directory: URL
+    ) -> some View {
+        let services = AppServices.shared
+        return content
+            .environment(library).environment(sources).environment(player)
+            .environment(RadioStationsStore(storeURL: directory.appendingPathComponent("radio.json")))
+            .environment(services.sourceManager).environment(services.scanService)
+            .environment(services.metadataBackfill).environment(services.scraperService)
+            .environment(services.scraperSettingsStore).environment(services.themeService)
+            .environment(services.batchRemoval).environment(services.musicIntelligence)
+            .environment(services.playbackSettingsStore).environment(services.coverTintProvider)
+            .environment(\.appNavigationMode, .standard)
+            .defaultAppStorage(defaults)
     }
 
     @MainActor
@@ -323,4 +420,6 @@ private final class LoadingNavigationProbe {
     var selection = 0
     var libraryAppeared = false
     var settingsAppeared = false
+    var deepLink: LibraryDeepLink?
+    var activeSection: LibrarySection?
 }

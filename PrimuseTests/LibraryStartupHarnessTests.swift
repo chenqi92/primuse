@@ -20,6 +20,136 @@ import XCTest
 @MainActor
 final class LibraryStartupHarnessTests: XCTestCase {
 
+    private static func folderFixture() async throws -> (URL, [Song], AlbumArtistFolderIndex) {
+        let directory = try makeStorageDirectory()
+        let sourceID = "folder-fixture-\(UUID().uuidString)"
+        let songs = (0..<4).map { index in
+            Song(id: "\(sourceID)-\(index)", title: "Track \(index)",
+                 albumTitle: index == 3 ? "Another Album" : "Shared Album",
+                 artistName: index < 2 ? "North" : "South",
+                 duration: 180, fileFormat: .flac, filePath: "item-\(index)", sourceID: sourceID,
+                 dateAdded: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let folders = AlbumArtistFolderIndex(parentsBySource: [sourceID: [
+            "item-0": "shared-folder", "item-1": "shared-folder",
+            "item-2": "shared-folder", "item-3": "other-folder"
+        ]])
+        let seed = MusicLibrary(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        seed.addSongs(songs, affectedSourceIDs: [sourceID])
+        await seed.waitForPendingIndex()
+        guard case .success = await seed.persistNowAndWait() else {
+            throw XCTSkip("The folder fixture did not persist")
+        }
+        await drainLaunchCacheWrites(seed)
+        let migrated = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        migrated.publish(await MusicLibrary.prepareStartup(storageDirectory: directory, artistNameConfiguration: .defaultValue))
+        migrated.updateAlbumArtistFolders(folders)
+        await migrated.waitForPendingIndex()
+        guard case .success = await migrated.persistNowAndWait() else {
+            throw XCTSkip("The folder fixture did not finish its migration")
+        }
+        await drainLaunchCacheWrites(migrated)
+        return (directory, songs, folders)
+    }
+
+    func testMatchingCachedFoldersDoNotRebuildAfterColdLaunch() async throws {
+        let (directory, songs, folders) = try await Self.folderFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory, artistNameConfiguration: .defaultValue))
+        let generation = library.indexRebuildGenerationForTesting
+        library.updateAlbumArtistFolders(folders)
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.indexRebuildGenerationForTesting, generation)
+        XCTAssertEqual(library.albumArtistFolders, folders)
+        XCTAssertEqual(library.albums, MusicLibrary.computeAlbumsAndArtists(songs: songs, folders: folders).albums)
+        XCTAssertEqual(Set(library.songs.map(\.id)), Set(songs.map(\.id)))
+        await Self.drainLaunchCacheWrites(library)
+    }
+
+    func testChangedCachedFoldersRebuildAndPersistTheNewGrouping() async throws {
+        let (directory, songs, folders) = try await Self.folderFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var changedParents = folders.parentsBySource
+        changedParents[songs[0].sourceID]?["item-2"] = "solo-folder"
+        let changed = AlbumArtistFolderIndex(parentsBySource: changedParents)
+        let expected = MusicLibrary.computeAlbumsAndArtists(songs: songs, folders: changed).albums
+        XCTAssertNotEqual(expected, MusicLibrary.computeAlbumsAndArtists(songs: songs, folders: folders).albums)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory, artistNameConfiguration: .defaultValue))
+        let generation = library.indexRebuildGenerationForTesting
+        library.updateAlbumArtistFolders(changed)
+        await library.waitForPendingIndex()
+        XCTAssertGreaterThan(library.indexRebuildGenerationForTesting, generation)
+        XCTAssertEqual(library.albums, expected)
+        await Self.drainLaunchCacheWrites(library)
+
+        let reopened = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        reopened.publish(await MusicLibrary.prepareStartup(storageDirectory: directory, artistNameConfiguration: .defaultValue))
+        let reopenedGeneration = reopened.indexRebuildGenerationForTesting
+        reopened.updateAlbumArtistFolders(changed)
+        await reopened.waitForPendingIndex()
+        XCTAssertEqual(reopened.indexRebuildGenerationForTesting, reopenedGeneration)
+        XCTAssertEqual(reopened.albums, expected)
+        await Self.drainLaunchCacheWrites(reopened)
+    }
+
+    func testChangedSongsCannotReuseAnOldFolderValidation() async throws {
+        let (directory, songs, folders) = try await Self.folderFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        var updated = songs[2]
+        updated.albumTitle = "Changed Album"
+        try store.apply(upserts: [updated])
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory, artistNameConfiguration: .defaultValue))
+        let generation = library.indexRebuildGenerationForTesting
+        library.updateAlbumArtistFolders(folders)
+        await library.waitForPendingIndex()
+        XCTAssertGreaterThan(library.indexRebuildGenerationForTesting, generation)
+        XCTAssertEqual(library.song(id: updated.id)?.albumTitle, "Changed Album")
+        let expected = MusicLibrary.computeAlbumsAndArtists(songs: library.songs, folders: folders).albums
+        XCTAssertEqual(library.albums, expected)
+        await Self.drainLaunchCacheWrites(library)
+    }
+
+    func testMatchingSongSignatureStillUsesNewerFolderIndex() async throws {
+        let (directory, songs, folders) = try await Self.folderFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let startupURL = directory.appendingPathComponent("library-startup-cache.plist")
+        var earlier = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: Data(contentsOf: startupURL), format: nil
+        ) as? [String: Any])
+        var parents = folders.parentsBySource
+        parents[songs[0].sourceID]?["item-2"] = "solo-folder"
+        let changed = AlbumArtistFolderIndex(parentsBySource: parents)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory, artistNameConfiguration: .defaultValue))
+        library.updateAlbumArtistFolders(changed)
+        await library.waitForPendingIndex()
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The updated folder index did not persist")
+        }
+        await Self.drainLaunchCacheWrites(library)
+        let current = try XCTUnwrap(PropertyListSerialization.propertyList(
+            from: Data(contentsOf: startupURL), format: nil
+        ) as? [String: Any])
+        XCTAssertEqual(earlier["derivedIndexSignature"] as? String, current["derivedIndexSignature"] as? String)
+        XCTAssertNotEqual(earlier["folderSignature"] as? String, current["folderSignature"] as? String)
+        earlier["snapshotFingerprint"] = current["snapshotFingerprint"]
+        try PropertyListSerialization.data(fromPropertyList: earlier, format: .binary, options: 0).write(to: startupURL)
+
+        let reopened = MusicLibrary.makePreparing(storageDirectory: directory, artistNameConfiguration: .defaultValue)
+        reopened.publish(await MusicLibrary.prepareStartup(storageDirectory: directory, artistNameConfiguration: .defaultValue))
+        XCTAssertEqual(reopened.albums, library.albums)
+        let generation = reopened.indexRebuildGenerationForTesting
+        reopened.updateAlbumArtistFolders(changed)
+        await reopened.waitForPendingIndex()
+        XCTAssertEqual(reopened.indexRebuildGenerationForTesting, generation)
+        await Self.drainLaunchCacheWrites(reopened)
+    }
+
+
     // MARK: - 规模
 
     /// 默认 10_000。`TEST_RUNNER_` 前缀由 xcodebuild 转交给测试进程。

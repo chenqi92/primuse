@@ -88,6 +88,123 @@ struct KaraokeStemAlignmentTests {
         #expect(KaraokeStemFile.decode(Data(data.prefix(100))) == nil)
         #expect(KaraokeStemFile.decode(Data("nope".utf8)) == nil)
     }
+
+    @Test("Incremental stem files are byte-identical across arbitrary chunk boundaries")
+    func incrementalStemFile() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".kvst")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let left = Self.noise(count: 25_003, seed: 31).map { $0 * 1.5 }
+        let right = left.map { -$0 * 0.75 }
+        let writer = try KaraokeStemFile.Writer(url: url, sampleRate: 44_100, frames: left.count)
+        for range in [0..<1, 1..<8_191, 8_191..<8_192, 8_192..<25_003] {
+            try writer.append(left: Array(left[range]), right: Array(right[range]))
+        }
+        try writer.finish()
+        let data = try Data(contentsOf: url)
+        #expect(data == KaraokeStemFile.encode(left: left, right: right, sampleRate: 44_100))
+        #expect(writer.writtenFrames == left.count)
+        #expect(KaraokeStemFile.header(of: data) == .init(sampleRate: 44_100, frames: left.count))
+        #expect(throws: KaraokeStemFile.Writer.Failure.alreadyFinished) {
+            try writer.append(left: [], right: [])
+        }
+    }
+
+    @Test("An incomplete stem cannot finish or pass the cache header check")
+    func incompleteIncrementalStem() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".kvst")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = try KaraokeStemFile.Writer(url: url, sampleRate: 48_000, frames: 3)
+        try writer.append(left: [0.1], right: [-0.1])
+        #expect(throws: KaraokeStemFile.Writer.Failure.invalidFrameCount) { try writer.finish() }
+        #expect(KaraokeStemFile.header(of: try Data(contentsOf: url)) == nil)
+        #expect(throws: KaraokeStemFile.Writer.Failure.invalidFrameCount) {
+            try writer.append(left: [0.2, 0.3], right: [0.2])
+        }
+        #expect(throws: KaraokeStemFile.Writer.Failure.invalidFrameCount) {
+            try writer.append(left: [0.2, 0.3, 0.4], right: [-0.2, -0.3, -0.4])
+        }
+        #expect(writer.writtenFrames == 1)
+        try writer.append(left: [0.2, 0.3], right: [-0.2, -0.3])
+        try writer.finish()
+        #expect(try Data(contentsOf: url) == KaraokeStemFile.encode(
+            left: [0.1, 0.2, 0.3], right: [-0.1, -0.2, -0.3], sampleRate: 48_000
+        ))
+    }
+
+    @Test("A stem writer refuses to overwrite an existing file")
+    func incrementalStemPreservesExistingFile() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".kvst")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let original = Data("existing stem".utf8)
+        try original.write(to: url)
+        #expect(throws: (any Error).self) {
+            _ = try KaraokeStemFile.Writer(url: url, sampleRate: 44_100, frames: 3)
+        }
+        #expect(try Data(contentsOf: url) == original)
+    }
+
+    @Test("Mono stem decoding matches stereo averaging without retaining both channels")
+    func monoStemFile() throws {
+        let left = Self.noise(count: 5_013, seed: 23)
+        let right = Self.noise(count: 5_013, seed: 47)
+        let data = KaraokeStemFile.encode(left: left, right: right, sampleRate: 44_100)
+        let stereo = try #require(KaraokeStemFile.decode(data))
+        let mono = try #require(KaraokeStemFile.decodeMono(data))
+        #expect(mono.header == stereo.header)
+        #expect(mono.samples == zip(stereo.left, stereo.right).map { ($0 + $1) * 0.5 })
+        #expect(KaraokeStemFile.decodeMono(Data(data.dropLast())) == nil)
+        var foreign = data
+        foreign[0] ^= 0xff
+        #expect(KaraokeStemFile.decodeMono(foreign) == nil)
+    }
+
+    @Test("Chunked stem decoding matches complete decoding across frame boundaries")
+    func stemFrameChunks() throws {
+        let left = Self.noise(count: 20_003, seed: 71)
+        let right = Self.noise(count: 20_003, seed: 17)
+        let data = KaraokeStemFile.encode(left: left, right: right, sampleRate: 44_100)
+        let complete = try #require(KaraokeStemFile.decode(data))
+        var decodedLeft: [Float] = [], decodedRight: [Float] = []
+        for range in [0..<17, 17..<8_192, 8_192..<8_193, 8_193..<20_003] {
+            let chunk = try #require(KaraokeStemFile.decodeFrames(data, range: range))
+            #expect(chunk.left.count == range.count)
+            #expect(chunk.right.count == range.count)
+            decodedLeft += chunk.left
+            decodedRight += chunk.right
+        }
+        #expect(decodedLeft == complete.left)
+        #expect(decodedRight == complete.right)
+    }
+
+    @Test("Stem frame reads validate ranges and allow empty reads within the file")
+    func stemFrameRanges() throws {
+        let data = KaraokeStemFile.encode(left: [0.1, 0.2, 0.3], right: [-0.1, -0.2, -0.3], sampleRate: 48_000)
+        for range in [0..<0, 1..<1, 3..<3] {
+            let chunk = try #require(KaraokeStemFile.decodeFrames(data, range: range))
+            #expect(chunk.left.isEmpty && chunk.right.isEmpty)
+        }
+        for range in [-1..<0, -1..<1, 0..<4, 4..<4] {
+            #expect(KaraokeStemFile.decodeFrames(data, range: range) == nil)
+        }
+        #expect(KaraokeStemFile.decodeFrames(Data(data.dropLast()), range: 0..<1) == nil)
+        #expect(KaraokeStemFile.decodeFrames(Data("foreign".utf8), range: 0..<0) == nil)
+    }
+
+    @Test("A writer rejects invalid headers before creating a file")
+    func incrementalStemInvalidHeader() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".kvst")
+        defer { try? FileManager.default.removeItem(at: url) }
+        for rate in [Double.nan, .infinity, 0, -1, Double(UInt32.max) + 1] {
+            #expect(throws: KaraokeStemFile.Writer.Failure.invalidHeader) {
+                _ = try KaraokeStemFile.Writer(url: url, sampleRate: rate, frames: 1)
+            }
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+        }
+        #expect(throws: KaraokeStemFile.Writer.Failure.invalidHeader) {
+            _ = try KaraokeStemFile.Writer(url: url, sampleRate: 44_100, frames: -1)
+        }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
 }
 
 @Suite("Karaoke stem lock policy")

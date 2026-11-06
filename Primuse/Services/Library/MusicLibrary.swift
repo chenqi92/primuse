@@ -4618,6 +4618,10 @@ final class MusicLibrary {
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
+    @ObservationIgnored private var derivedIndexFolderSignature: String?
+    @ObservationIgnored private var startupFolderValidationSignature: String?
+    @ObservationIgnored private var startupFolderValidationTask: Task<Void, Never>?
+    @ObservationIgnored private var startupFolderValidationGeneration: UInt64 = 0
     /// 2: 启动缓存不再带歌曲数组, 歌曲总是从 SQLite 读。1 是带整库歌曲的旧格式,
     /// 仍然读得懂, 读到后按 2 重写一次。
     private nonisolated static let startupCacheFormatVersion = 2
@@ -9145,8 +9149,8 @@ final class MusicLibrary {
 
     /// 目录只影响专辑归属: 整库派生重建会按新目录重算专辑艺术家, 纠正并落盘
     /// 每首歌的 albumID, 所以这里只换掉目录再触发一次重建。准备期间照配置的
-    /// 例外处理, 发布后对账; 启动装载时没有目录, 所以网盘用户每次启动都会在
-    /// 这里补一次后台重建。
+    /// 例外处理, 发布后对账。启动缓存自带分组时验证过的目录指纹, 相同目录
+    /// 直接接入; 目录确实变化或旧缓存没有指纹时才补一次重建。
     func updateAlbumArtistFolders(_ value: AlbumArtistFolderIndex) {
         if sourceRemovalInProgress {
             deferredMutations.append { [weak self] in self?.updateAlbumArtistFolders(value) }
@@ -9156,9 +9160,32 @@ final class MusicLibrary {
             preparingAlbumArtistFolders = value
             return
         }
-        guard albumArtistFolders != value else { return }
+        guard albumArtistFolders != value || startupFolderValidationSignature != nil else { return }
         albumArtistFolders = value
-        rebuildIndex()
+        startupFolderValidationGeneration &+= 1
+        let validationGeneration = startupFolderValidationGeneration
+        startupFolderValidationTask?.cancel()
+        startupFolderValidationTask = nil
+        guard let expected = startupFolderValidationSignature else {
+            rebuildIndex()
+            return
+        }
+        startupFolderValidationSignature = nil
+        let mutationGeneration = songMutationGeneration
+        let indexGeneration = rebuildIndexGeneration
+        startupFolderValidationTask = Task { [weak self] in
+            let signature = await Task.detached(priority: .utility) {
+                Self.albumArtistFolderSignature(value)
+            }.value
+            guard let self, !Task.isCancelled,
+                  self.startupFolderValidationGeneration == validationGeneration else { return }
+            self.startupFolderValidationTask = nil
+            // 其它修改已经按新目录请求过重建, 不再重复安排同一份工作。
+            guard self.rebuildIndexGeneration == indexGeneration else { return }
+            if signature != expected || self.songMutationGeneration != mutationGeneration {
+                self.rebuildIndex()
+            }
+        }
     }
 
     func recentlyAddedAlbums(limit: Int = 10) -> [Album] {
@@ -13443,6 +13470,7 @@ final class MusicLibrary {
 
     private struct DerivedIndexComputation: Sendable {
         let signature: String
+        let folderSignature: String
         let albums: [Album]
         let artists: [Artist]
         let albumIDCorrections: [String: String]
@@ -13461,6 +13489,7 @@ final class MusicLibrary {
 
     private var rebuildIndexTask: Task<Void, Never>?
     private var rebuildIndexGeneration: Int = 0
+    var indexRebuildGenerationForTesting: Int { rebuildIndexGeneration }
     private var rebuildIndexWorkState = LatestOnlyLibraryIndexWorkState()
     private var pendingRebuildIndexRequest: DerivedIndexRequest?
     private var deferredLibraryMaintenancePending = false
@@ -13571,6 +13600,7 @@ final class MusicLibrary {
             deferredMutations.append { [weak self] in self?.rebuildIndex() }
             return
         }
+        startupFolderValidationSignature = nil
         rebuildIndexGeneration &+= 1
         let request = DerivedIndexRequest(
             generation: rebuildIndexGeneration,
@@ -13648,6 +13678,7 @@ final class MusicLibrary {
                     if !Task.isCancelled {
                         computation = DerivedIndexComputation(
                             signature: signature,
+                            folderSignature: Self.albumArtistFolderSignature(request.albumArtistFolders),
                             albums: result.albums,
                             artists: result.artists,
                             albumIDCorrections: result.albumIDCorrections,
@@ -13714,10 +13745,13 @@ final class MusicLibrary {
            rebuildIndexGeneration == request.generation,
            songMutationGeneration == request.songMutationGeneration,
            disabledSourceIDs == request.disabledSourceIDs,
-           artistNameConfiguration == request.artistNameConfiguration {
+           artistNameConfiguration == request.artistNameConfiguration,
+           albumArtistFolders == request.albumArtistFolders,
+           request.spokenWordClassification == SpokenWordStore.shared.classificationSnapshot {
             albums = computation.albums
             artists = computation.artists
             derivedIndexSignature = computation.signature
+            derivedIndexFolderSignature = computation.folderSignature
             applyPreparedVisibleCache(
                 computation.visibleCache,
                 unchanged: computation.unchangedCollections
@@ -13776,6 +13810,7 @@ final class MusicLibrary {
     /// 启动 / 测试场景下需要"调用即生效"的同步重建。比异步版本贵 (会卡
     /// main actor 一下), 但只在 init / migration 等 UI 还没起来的路径用。
     private func rebuildIndexSync(precomputedSignature: String? = nil) {
+        startupFolderValidationSignature = nil
         let result = MusicLibrary.computeAlbumsAndArtists(
             songs: songs,
             configuration: artistNameConfiguration,
@@ -13788,6 +13823,7 @@ final class MusicLibrary {
                 for: songs,
                 configuration: artistNameConfiguration
             )
+        derivedIndexFolderSignature = Self.albumArtistFolderSignature(albumArtistFolders)
         applyAlbumIDCorrections(result.albumIDCorrections)
         rebuildVisibleCache()
         migrateLegacyArtistIdentities(artists: artists)
@@ -13886,6 +13922,9 @@ final class MusicLibrary {
     /// A scan must not publish completion while its visible catalogue still
     /// represents the preceding generation.
     func waitForPendingIndex() async {
+        while let validation = startupFolderValidationTask {
+            await validation.value
+        }
         flushDeferredLibraryMaintenance(force: true)
         while let task = rebuildIndexTask {
             await task.value
@@ -13928,6 +13967,7 @@ final class MusicLibrary {
                 }
                 return DerivedIndexComputation(
                     signature: Self.derivedIndexSignature(for: remapped, configuration: configuration),
+                    folderSignature: Self.albumArtistFolderSignature(folders),
                     albums: result.albums,
                     artists: result.artists,
                     albumIDCorrections: result.albumIDCorrections,
@@ -13942,7 +13982,9 @@ final class MusicLibrary {
             await waitForSourceRemoval()
             guard isReady, generation == songMutationGeneration,
                   visibilityGeneration == visibleCacheGeneration,
-                  configuration == artistNameConfiguration, hidden == disabledSourceIDs else { continue }
+                  configuration == artistNameConfiguration, hidden == disabledSourceIDs,
+                  folders == albumArtistFolders,
+                  classification == SpokenWordStore.shared.classificationSnapshot else { continue }
             applySongIDRemapping(replacements, preparedIndex: prepared)
             return true
         }
@@ -14000,6 +14042,7 @@ final class MusicLibrary {
             albums = preparedIndex.albums
             artists = preparedIndex.artists
             derivedIndexSignature = preparedIndex.signature
+            derivedIndexFolderSignature = preparedIndex.folderSignature
             applyPreparedVisibleCache(preparedIndex.visibleCache)
             applyAlbumIDCorrections(preparedIndex.albumIDCorrections)
             migrateLegacyArtistIdentities(artists: preparedIndex.artists)
@@ -14085,6 +14128,8 @@ final class MusicLibrary {
         var songStoreRequiresReplacement = false
         var pendingSnapshotImportID: String?
         var derivedIndexSignature: String?
+        var derivedIndexFolderSignature: String?
+        var albumArtistFolders: AlbumArtistFolderIndex?
         var visibleCache: PreparedVisibleCache?
         var shouldWriteStartupCache = false
         var shouldWriteDerivedCache = false
@@ -14169,15 +14214,16 @@ final class MusicLibrary {
             precomputedSignature: String,
             inferredAlbumArtists: [String: String]? = nil
         ) {
-            // 启动阶段还没有网盘父目录, 见 `migrateLoadedSongs`。
             let result = MusicLibrary.computeAlbumsAndArtists(
                 songs: songs,
                 configuration: artistNameConfiguration,
+                folders: albumArtistFolders ?? .empty,
                 inferredAlbumArtists: inferredAlbumArtists
             )
             albums = result.albums
             artists = result.artists
             derivedIndexSignature = precomputedSignature
+            derivedIndexFolderSignature = MusicLibrary.albumArtistFolderSignature(albumArtistFolders ?? .empty)
             applyAlbumIDCorrections(result.albumIDCorrections)
             rebuildVisibleCache()
         }
@@ -14509,54 +14555,54 @@ final class MusicLibrary {
             let usedCurrentStartupCache = usedPortableStartupCache
                 && portableStartupCache?.formatVersion == MusicLibrary.startupCacheFormatVersion
             let derivedStartupCache = startupCache ?? (usedCurrentStartupCache ? portableStartupCache : nil)
-            // 签名只用来确认启动缓存里的专辑/艺术家还能用, 而命中是常态: 签名放到
-            // 另一个核上算, 这边同时按命中建可见缓存; 对不上时下面照原路重建。
-            let signatureSongs = loadedSongs
-            let signatureConfiguration = artistNameConfiguration
-            let signatureComputation = LaunchBackgroundComputation {
-                let startedAt = ProcessInfo.processInfo.systemUptime
-                let signature = MusicLibrary.derivedIndexSignature(
-                    for: signatureSongs,
-                    configuration: signatureConfiguration
-                )
-                return (signature, ProcessInfo.processInfo.systemUptime - startedAt)
+            // 扫描未收尾时歌曲可能比派生缓存新。先核对签名，避免旧索引失效时
+            // 为整库构造两遍可见缓存；大曲库的每一遍都可能占用数秒 CPU。
+            let signatureStartedAt = ProcessInfo.processInfo.systemUptime
+            let currentDerivedSignature = MusicLibrary.derivedIndexSignature(
+                for: loadedSongs, configuration: artistNameConfiguration
+            )
+            let signatureSeconds = ProcessInfo.processInfo.systemUptime - signatureStartedAt
+            let expectedFolderSignature = albumArtistFolders.map { MusicLibrary.albumArtistFolderSignature($0) }
+            let speculativeStartupCache = derivedStartupCache.flatMap { cache in
+                migration.changedSongs.isEmpty
+                    && (expectedFolderSignature == nil || cache.folderSignature == expectedFolderSignature)
+                    ? cache : nil
             }
-            let speculativeStartupCache = migration.changedSongs.isEmpty ? derivedStartupCache : nil
-            if let speculativeStartupCache {
-                albums = speculativeStartupCache.albums
-                artists = speculativeStartupCache.artists
+            let matchingStartupIndex = speculativeStartupCache.flatMap { cache in
+                cache.derivedIndexSignature == currentDerivedSignature
+                    ? DerivedIndexCache(signature: currentDerivedSignature, albums: cache.albums,
+                                        artists: cache.artists, folderSignature: cache.folderSignature)
+                    : nil
+            }
+            let cachedIndex = loadDerivedIndexCache(
+                matching: currentDerivedSignature, reusing: matchingStartupIndex
+            ).flatMap { cache in
+                expectedFolderSignature == nil || cache.folderSignature == expectedFolderSignature ? cache : nil
+            }
+            // 目录可能在便携快照写完后才到达。此时歌曲签名不变, 但独立派生缓存
+            // 已经保存了按目录重分的结果, 优先复用它携带的验证指纹。
+            let chosenIndex = cachedIndex?.folderSignature != nil ? cachedIndex : (matchingStartupIndex ?? cachedIndex)
+            let reusedSpeculation = matchingStartupIndex != nil
+                && matchingStartupIndex?.signature == chosenIndex?.signature
+                && matchingStartupIndex?.folderSignature == chosenIndex?.folderSignature
+            let speculationOutcome = speculativeStartupCache == nil ? "none" : (reusedSpeculation ? "used" : "discarded")
+            if let chosenIndex {
+                albums = chosenIndex.albums
+                artists = chosenIndex.artists
                 rebuildVisibleCache()
-            }
-            let (currentDerivedSignature, signatureSeconds) = signatureComputation.wait()
-            let speculationOutcome: String
-            if let speculativeStartupCache {
-                speculationOutcome = speculativeStartupCache.derivedIndexSignature == currentDerivedSignature
-                    ? "used" : "discarded"
-            } else {
-                speculationOutcome = "none"
-            }
-            if let speculativeStartupCache,
-               speculativeStartupCache.derivedIndexSignature == currentDerivedSignature {
                 derivedIndexSignature = currentDerivedSignature
+                derivedIndexFolderSignature = chosenIndex.folderSignature
+                if usedCurrentStartupCache, derivedStartupCache?.folderSignature != chosenIndex.folderSignature {
+                    shouldWriteStartupCache = true
+                }
                 usedDerivedIndexCache = true
             } else {
-                if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
-                    albums = cachedIndex.albums
-                    artists = cachedIndex.artists
-                    derivedIndexSignature = currentDerivedSignature
-                    rebuildVisibleCache()
-                    usedDerivedIndexCache = true
-                } else {
-                    // The cache is disposable. An old installation pays the grouping
-                    // cost once, then subsequent launches decode the compact binary
-                    // index instead of sorting the whole library before the first frame.
-                    rebuildIndexSync(
-                        precomputedSignature: currentDerivedSignature,
-                        inferredAlbumArtists: migration.inferredAlbumArtists
-                    )
-                    shouldWriteDerivedCache = true
-                    usedDerivedIndexCache = false
-                }
+                rebuildIndexSync(
+                    precomputedSignature: currentDerivedSignature,
+                    inferredAlbumArtists: albumArtistFolders == nil ? migration.inferredAlbumArtists : nil
+                )
+                shouldWriteDerivedCache = true
+                usedDerivedIndexCache = false
             }
             let indexFinishedAt = ProcessInfo.processInfo.systemUptime
             plog("🚀 library load stage=indexed ms=\(Int((indexFinishedAt - loadStartedAt) * 1_000))")
@@ -14668,23 +14714,30 @@ final class MusicLibrary {
         private func loadStartupCache(
             snapshotFingerprint: SnapshotFileFingerprint?
         ) -> StartupCache? {
-            guard let data = try? Data(contentsOf: startupCacheURL),
-                  let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
-                  cache.formatVersion == MusicLibrary.startupCacheFormatVersion
-                    || cache.formatVersion == MusicLibrary.legacyStartupCacheFormatVersion,
-                  cache.snapshotFingerprint == snapshotFingerprint else {
-                return nil
+            autoreleasepool {
+                guard let data = try? Data(contentsOf: startupCacheURL),
+                      let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
+                      cache.formatVersion == MusicLibrary.startupCacheFormatVersion
+                        || cache.formatVersion == MusicLibrary.legacyStartupCacheFormatVersion,
+                      cache.snapshotFingerprint == snapshotFingerprint else {
+                    return nil
+                }
+                return cache
             }
-            return cache
         }
 
-        private func loadDerivedIndexCache(matching signature: String) -> DerivedIndexCache? {
-            guard let data = try? Data(contentsOf: derivedIndexCacheURL),
-                  let cache = try? PropertyListDecoder().decode(DerivedIndexCache.self, from: data),
-                  cache.signature == signature else {
-                return nil
+        private func loadDerivedIndexCache(
+            matching signature: String,
+            reusing startupIndex: DerivedIndexCache? = nil
+        ) -> DerivedIndexCache? {
+            autoreleasepool {
+                guard let data = try? Data(contentsOf: derivedIndexCacheURL) else { return nil }
+                let decoder = PropertyListDecoder()
+                decoder.userInfo[DerivedIndexCacheRead.reuseKey] = startupIndex
+                guard let cache = try? decoder.decode(DerivedIndexCacheRead.self, from: data).value,
+                      cache.signature == signature else { return nil }
+                return cache
             }
-            return cache
         }
 
         mutating func loadDeviceLocalExclusions() {
@@ -14738,6 +14791,8 @@ final class MusicLibrary {
         storage.songStoreRequiresReplacement = songStoreRequiresReplacement
         storage.pendingSnapshotImportID = pendingSnapshotImportID
         storage.derivedIndexSignature = derivedIndexSignature
+        storage.derivedIndexFolderSignature = derivedIndexFolderSignature
+        storage.albumArtistFolders = isReady ? albumArtistFolders : nil
         storage.songIndexByID = songIndexByID
         storage.previousVisibleSongs = visibleSongs
         storage.spokenWordClassification = SpokenWordStore.shared.classificationSnapshot
@@ -14868,6 +14923,12 @@ final class MusicLibrary {
             songStoreRequiresReplacement = storage.songStoreRequiresReplacement
             pendingSnapshotImportID = storage.pendingSnapshotImportID
             derivedIndexSignature = storage.derivedIndexSignature
+            derivedIndexFolderSignature = storage.derivedIndexFolderSignature
+            startupFolderValidationGeneration &+= 1
+            startupFolderValidationTask?.cancel()
+            startupFolderValidationTask = nil
+            startupFolderValidationSignature = storage.albumArtistFolders == nil
+                ? storage.derivedIndexFolderSignature : nil
             if let visibleCache = storage.visibleCache {
                 applyPreparedVisibleCache(visibleCache)
             }
@@ -15292,7 +15353,8 @@ final class MusicLibrary {
             snapshot: snapshot,
             albums: albums,
             artists: artists,
-            derivedIndexSignature: derivedIndexSignature
+            derivedIndexSignature: derivedIndexSignature,
+            folderSignature: derivedIndexFolderSignature
         )
         let url = startupCacheURL
         startupCacheWriter.schedule {
@@ -15328,7 +15390,8 @@ final class MusicLibrary {
         let cache = DerivedIndexCache(
             signature: derivedIndexSignature,
             albums: albums,
-            artists: artists
+            artists: artists,
+            folderSignature: derivedIndexFolderSignature
         )
         let url = derivedIndexCacheURL
         derivedIndexCacheWriter.schedule {
@@ -15550,6 +15613,7 @@ final class MusicLibrary {
         let cachedAlbums = albums
         let cachedArtists = artists
         let cachedDerivedSignature = derivedIndexSignature
+        let cachedFolderSignature = derivedIndexFolderSignature
         let cacheFormatVersion = Self.startupCacheFormatVersion
         let previous = persistWriteTask
         let previousStartupCacheWrite = startupCacheWriter.task
@@ -15578,7 +15642,8 @@ final class MusicLibrary {
                 snapshot: snapshot,
                 albums: cachedAlbums,
                 artists: cachedArtists,
-                derivedIndexSignature: cachedDerivedSignature
+                derivedIndexSignature: cachedDerivedSignature,
+                folderSignature: cachedFolderSignature
             )
             await LibraryCacheEncodingGate.shared.write {
                 Self.writeStartupCache(cache, to: cacheURL)
@@ -17530,6 +17595,27 @@ final class MusicLibrary {
         data.append(contentsOf: value.utf8)
     }
 
+    private nonisolated static func albumArtistFolderSignature(_ folders: AlbumArtistFolderIndex) -> String {
+        var hasher = SHA256()
+        var input = Data()
+        input.reserveCapacity(1 << 16)
+        appendStableString("album-artist-folders-v1", to: &input)
+        for sourceID in folders.parentsBySource.keys.sorted() {
+            guard let parents = folders.parentsBySource[sourceID] else { continue }
+            for path in parents.keys.sorted() {
+                appendStableString(sourceID, to: &input)
+                appendStableString(path, to: &input)
+                appendStableString(parents[path], to: &input)
+                if input.count >= 1 << 16 {
+                    hasher.update(data: input)
+                    input.removeAll(keepingCapacity: true)
+                }
+            }
+        }
+        hasher.update(data: input)
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     private nonisolated static func appendStableInteger<T: FixedWidthInteger>(
         _ value: T,
         to data: inout Data
@@ -17544,6 +17630,35 @@ final class MusicLibrary {
         let signature: String
         let albums: [Album]
         let artists: [Artist]
+        let folderSignature: String?
+    }
+
+    private struct DerivedIndexCacheRead: Decodable {
+        static let reuseKey = CodingUserInfoKey(rawValue: "Primuse.derivedIndexReuse")!
+        let value: DerivedIndexCache
+
+        private enum CodingKeys: String, CodingKey {
+            case signature, albums, artists, folderSignature
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let signature = try container.decode(String.self, forKey: .signature)
+            let folderSignature = try container.decodeIfPresent(String.self, forKey: .folderSignature)
+            // 同一歌曲签名和目录指纹决定同一份派生结果。先读这两个小字段，
+            // 避免命中两份启动缓存时再次解码、持有和比较全部专辑与艺人。
+            if let existing = decoder.userInfo[Self.reuseKey] as? DerivedIndexCache,
+               existing.signature == signature, existing.folderSignature == folderSignature {
+                value = existing
+            } else {
+                value = DerivedIndexCache(
+                    signature: signature,
+                    albums: try container.decode([Album].self, forKey: .albums),
+                    artists: try container.decode([Artist].self, forKey: .artists),
+                    folderSignature: folderSignature
+                )
+            }
+        }
     }
 
     private struct SnapshotFileFingerprint: Codable, Equatable, Sendable {
@@ -17569,6 +17684,7 @@ final class MusicLibrary {
         let albums: [Album]
         let artists: [Artist]
         let derivedIndexSignature: String?
+        let folderSignature: String?
 
         init(
             formatVersion: Int,
@@ -17577,7 +17693,8 @@ final class MusicLibrary {
             snapshot: Snapshot,
             albums: [Album],
             artists: [Artist],
-            derivedIndexSignature: String?
+            derivedIndexSignature: String?,
+            folderSignature: String?
         ) {
             var songlessSnapshot = snapshot
             songlessSnapshot.songs = []
@@ -17588,6 +17705,7 @@ final class MusicLibrary {
             self.albums = albums
             self.artists = artists
             self.derivedIndexSignature = derivedIndexSignature
+            self.folderSignature = folderSignature
         }
     }
 

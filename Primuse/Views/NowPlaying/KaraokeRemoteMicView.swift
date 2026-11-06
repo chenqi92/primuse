@@ -36,6 +36,7 @@ final class KaraokeRemoteMicController {
         case none
         case needsModel
         case downloadingModel(Double)
+        case preparing
         case separating(Double)
         case sending
         case sent
@@ -202,7 +203,9 @@ final class KaraokeRemoteMicController {
                         return
                     case .idle:
                         separation.prepare(song, sourceManager: services.sourceManager)
-                        self.stemStatus = .separating(0)
+                        self.stemStatus = .preparing
+                    case .preparing:
+                        self.stemStatus = .preparing
                     case .separating(let fraction):
                         self.stemStatus = .separating(fraction)
                         let progress = KaraokeMicLink.PhoneMessage.separationProgress(songID: songID, fraction: fraction)
@@ -404,6 +407,9 @@ struct KaraokeRemoteMicView: View {
             .tint(.white)
         case .downloadingModel(let fraction):
             progressRow(String(localized: "karaoke_ai_downloading"), fraction)
+        case .preparing:
+            ProgressView(String(localized: "karaoke_remote_ai_preparing"))
+                .tint(.white)
         case .separating(let fraction):
             progressRow(String(localized: "karaoke_remote_ai_preparing"), fraction)
             // 这台手机在当前系统上改走慢的那条路时，说明电视为什么要等这么久。

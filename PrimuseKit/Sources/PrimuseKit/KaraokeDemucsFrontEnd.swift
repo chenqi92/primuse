@@ -301,3 +301,62 @@ public struct KaraokeSeparationAccumulator: Sendable {
         return (l, r)
     }
 }
+
+/// Emits completed samples while retaining only the overlap needed by the next segment.
+public struct KaraokeStreamingSeparationAccumulator: Sendable {
+    public let plan: KaraokeSeparationPlan
+    public private(set) var bufferedFrameCount = 0
+    public var storageFrameCapacity: Int { left.count }
+
+    private var left: [Float]
+    private var right: [Float]
+    private var weights: [Float]
+    private var head = 0
+    private var nextSegmentIndex = 0
+
+    public init(plan: KaraokeSeparationPlan) {
+        self.plan = plan
+        let capacity = min(plan.totalLength, plan.layout.segmentLength)
+        left = [Float](repeating: 0, count: capacity)
+        right = left
+        weights = left
+    }
+
+    public mutating func add(
+        _ segment: KaraokeSeparationPlan.Segment,
+        left outLeft: [Float],
+        right outRight: [Float]
+    ) -> (left: [Float], right: [Float]) {
+        precondition(plan.segments.indices.contains(nextSegmentIndex))
+        precondition(segment == plan.segments[nextSegmentIndex])
+        precondition(outLeft.count == plan.layout.segmentLength && outRight.count == outLeft.count)
+        let capacity = left.count
+        for i in 0..<segment.length {
+            let slot = (head + i) % capacity
+            let weight = plan.weight[i]
+            left[slot] += weight * outLeft[segment.trim + i]
+            right[slot] += weight * outRight[segment.trim + i]
+            weights[slot] += weight
+        }
+        nextSegmentIndex += 1
+        let nextOffset = nextSegmentIndex < plan.segments.count
+            ? plan.segments[nextSegmentIndex].offset
+            : plan.totalLength
+        let count = nextOffset - segment.offset
+        var completedLeft = [Float](repeating: 0, count: count)
+        var completedRight = completedLeft
+        for i in 0..<count {
+            let slot = (head + i) % capacity
+            if weights[slot] > 0 {
+                completedLeft[i] = left[slot] / weights[slot]
+                completedRight[i] = right[slot] / weights[slot]
+            }
+            left[slot] = 0
+            right[slot] = 0
+            weights[slot] = 0
+        }
+        head = (head + count) % capacity
+        bufferedFrameCount = segment.offset + segment.length - nextOffset
+        return (completedLeft, completedRight)
+    }
+}

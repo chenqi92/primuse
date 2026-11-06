@@ -170,6 +170,160 @@ enum LibraryDisplayConfiguration {
     }
 }
 
+enum LibraryStartupNavigationHint {
+    static let defaultsKey = "primuse.library.startupNavigation.v1"
+
+    private struct Snapshot: Codable, Equatable {
+        let sourceIDs: [String]
+        let hasSpokenWord: Bool
+    }
+
+    static func showsSpokenWord(
+        isReady: Bool, hasSpokenWord: Bool, enabledSourceIDs: Set<String>,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        if isReady { return hasSpokenWord }
+        guard let data = defaults.data(forKey: defaultsKey),
+              let saved = try? JSONDecoder().decode(Snapshot.self, from: data),
+              Set(saved.sourceIDs) == enabledSourceIDs else { return false }
+        return saved.hasSpokenWord
+    }
+
+    static func record(
+        isReady: Bool, hasSpokenWord: Bool, enabledSourceIDs: Set<String>,
+        defaults: UserDefaults = .standard
+    ) {
+        guard isReady else { return }
+        let next = Snapshot(sourceIDs: enabledSourceIDs.sorted(), hasSpokenWord: hasSpokenWord)
+        if let data = defaults.data(forKey: defaultsKey),
+           (try? JSONDecoder().decode(Snapshot.self, from: data)) == next { return }
+        guard let data = try? JSONEncoder().encode(next) else { return }
+        defaults.set(data, forKey: defaultsKey)
+    }
+}
+
+struct LibraryStartupPlaybackIntent: Equatable {
+    let commandGeneration: UInt64
+    let queueRequest: UInt64
+    let playID: UUID?
+}
+
+@MainActor
+@Observable
+final class LibraryStartupPlaybackCoordinator {
+    struct Request: Equatable {
+        let id = UUID()
+        let shuffled: Bool
+        let intent: LibraryStartupPlaybackIntent
+        let sourceIDs: Set<String>
+    }
+
+    private(set) var pending: Request?
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var isVisible = false
+    @ObservationIgnored private var isActive = false
+
+    static func intent(of player: AudioPlayerService) -> LibraryStartupPlaybackIntent {
+        .init(commandGeneration: player.castingCommandGeneration,
+              queueRequest: player.queueRequestToken, playID: player.playID)
+    }
+
+    func setContext(isVisible: Bool, isActive: Bool) {
+        self.isVisible = isVisible
+        self.isActive = isActive
+        if !isVisible || !isActive { cancel() }
+    }
+
+    func cancel() {
+        guard pending != nil else { return }
+        pending = nil
+        task?.cancel()
+        task = nil
+    }
+
+    func cancelIfSuperseded(by intent: LibraryStartupPlaybackIntent) {
+        if let pending, pending.intent != intent { cancel() }
+    }
+
+    func start(
+        shuffled: Bool, library: MusicLibrary, player: AudioPlayerService,
+        sourceIDs: Set<String>, currentSourceIDs: @escaping @MainActor () -> Set<String>
+    ) {
+        guard isVisible, isActive else { return }
+        player.registerPlayIntent()
+        request(
+            shuffled: shuffled, intent: Self.intent(of: player), sourceIDs: sourceIDs,
+            whenReady: { await library.whenReady(timeout: .seconds(60)) },
+            currentIntent: { Self.intent(of: player) }, currentSourceIDs: currentSourceIDs
+        ) {
+            let ids = library.musicSongIDsExcludingDisliked
+            guard !ids.isEmpty else { return }
+            player.shuffleEnabled = false
+            await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven)
+        }
+    }
+
+    func request(
+        shuffled: Bool, intent: LibraryStartupPlaybackIntent, sourceIDs: Set<String>,
+        whenReady: @escaping @MainActor () async -> Bool,
+        currentIntent: @escaping @MainActor () -> LibraryStartupPlaybackIntent,
+        currentSourceIDs: @escaping @MainActor () -> Set<String>,
+        play: @escaping @MainActor () async -> Void
+    ) {
+        cancel()
+        guard isVisible, isActive else { return }
+        let request = Request(shuffled: shuffled, intent: intent, sourceIDs: sourceIDs)
+        pending = request
+        task = Task { [weak self] in
+            let ready = await whenReady()
+            guard let self, self.pending?.id == request.id else { return }
+            guard ready, !Task.isCancelled, self.isVisible, self.isActive,
+                  currentIntent() == request.intent, currentSourceIDs() == request.sourceIDs else {
+                self.cancel()
+                return
+            }
+            // Consume before invoking playback; its own intent changes must not cancel the accepted action.
+            self.pending = nil
+            self.task = nil
+            await play()
+        }
+    }
+}
+
+struct LibraryStartupPlaybackControls: View {
+    let coordinator: LibraryStartupPlaybackCoordinator
+    let play: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button { play(false) } label: {
+                Label("play_all", systemImage: "play.fill").frame(maxWidth: .infinity)
+            }
+            .accessibilityIdentifier("library.startup.playAll")
+            Button { play(true) } label: {
+                Label("shuffle_all", systemImage: "shuffle").frame(maxWidth: .infinity)
+            }
+            .accessibilityIdentifier("library.startup.shuffleAll")
+        }
+        .buttonStyle(.bordered)
+        .disabled(coordinator.pending != nil)
+    }
+}
+
+struct LibraryStartupPlaybackFeedback: View {
+    let coordinator: LibraryStartupPlaybackCoordinator
+
+    var body: some View {
+        if coordinator.pending != nil {
+            HStack(spacing: 12) {
+                ProgressView()
+                Button("cancel") { coordinator.cancel() }
+                    .accessibilityIdentifier("library.startup.cancelPlay")
+            }
+        }
+    }
+}
+
 /// 资料库分类入口的图标画法。「彩色」是白色符号压在各分类自己颜色的方块上;「简洁」去掉方块,
 /// 符号统一跟主题色、能填充的用填充版,像系统音乐、图书 App 的资料库列表。
 enum LibraryIconStyle: String, CaseIterable, Identifiable, Sendable {
@@ -462,6 +616,7 @@ private struct LibraryBrowseRun: Identifiable {
 }
 
 struct LibraryView: View {
+    @Environment(SourcesStore.self) private var startupSourcesStore
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(RadioStationsStore.self) private var radioStationsStore
@@ -545,7 +700,10 @@ struct LibraryView: View {
         )
         // 「有声内容」只在真的有的时候出现: 绝大多数曲库一本有声书也没有,
         // 给它们摆一个永远空着的入口是噪音。
-        .filter { $0 != .spokenWord || library.hasSpokenWordContent }
+        .filter { $0 != .spokenWord || LibraryStartupNavigationHint.showsSpokenWord(
+            isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
+            enabledSourceIDs: Set(startupSourcesStore.sources.filter(\.isEnabled).map(\.id))
+        ) }
     }
     private var artworkPreviewRevision: String {
         // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
@@ -593,25 +751,31 @@ struct LibraryView: View {
                 sectionDestination(section)
             }
             .navigationDestination(for: Album.self) { album in
-                AlbumDetailView(album: album)
-                    .mediaZoomDestination(.album, id: album.id)
-                    .onAppear {
-                        persistedPageID = "album:\(album.id)"
-                    }
+                readyContent {
+                    AlbumDetailView(album: album)
+                        .mediaZoomDestination(.album, id: album.id)
+                }
+                .onAppear {
+                    persistedPageID = "album:\(album.id)"
+                }
             }
             .navigationDestination(for: Artist.self) { artist in
-                ArtistDetailView(artist: artist)
-                    .mediaZoomDestination(.artist, id: artist.id)
-                    .onAppear {
-                        persistedPageID = "artist:\(artist.id)"
-                    }
+                readyContent {
+                    ArtistDetailView(artist: artist)
+                        .mediaZoomDestination(.artist, id: artist.id)
+                }
+                .onAppear {
+                    persistedPageID = "artist:\(artist.id)"
+                }
             }
             .navigationDestination(for: Playlist.self) { playlist in
-                PlaylistDetailView(playlist: playlist)
-                    .mediaZoomDestination(.playlist, id: playlist.id)
-                    .onAppear {
-                        persistedPageID = "playlist:\(playlist.id)"
-                    }
+                readyContent {
+                    PlaylistDetailView(playlist: playlist)
+                        .mediaZoomDestination(.playlist, id: playlist.id)
+                }
+                .onAppear {
+                    persistedPageID = "playlist:\(playlist.id)"
+                }
             }
             // 流派、智能歌单的详情也登记在栈根上（分类页里的那份让出来，见
             // `libraryStackRegistersCollectionDetails`）。登记在分类页里面时，极简模式下点流派
@@ -631,6 +795,10 @@ struct LibraryView: View {
             }
             .onChange(of: deepLink) { _, newValue in
                 applyDeepLink(newValue)
+            }
+            .onChange(of: library.isReady) { _, ready in
+                guard ready, rootSection == nil, deepLink == nil else { return }
+                restorePersistedPageIfNeeded()
             }
             #if DEBUG
             .onReceive(NotificationCenter.default.publisher(for: LibraryDebugNavigation.notification)) { note in
@@ -688,17 +856,37 @@ struct LibraryView: View {
     @ViewBuilder
     private var rootContent: some View {
         if let rootSection {
-            destination(for: rootSection)
-                .environment(\.libraryStackRegistersCollectionDetails, true)
-        } else if hasContent {
-            libraryHub
+            readyContent(section: rootSection) {
+                destination(for: rootSection)
+            }
+            .environment(\.libraryStackRegistersCollectionDetails, true)
         } else {
-            emptyLibraryState
+            readyContent {
+                if hasContent {
+                    libraryHub
+                } else {
+                    emptyLibraryState
+                }
+            }
         }
     }
 
+    @ViewBuilder
+    private func readyContent<Content: View>(
+        section: LibrarySection? = nil,
+        @ViewBuilder _ content: @escaping () -> Content
+    ) -> some View {
+        #if os(iOS)
+        LibraryReadyContent(startupSection: section, content: content)
+        #else
+        content()
+        #endif
+    }
+
     private func sectionDestination(_ section: LibrarySection) -> some View {
-        destination(for: section)
+        readyContent(section: section) {
+            destination(for: section)
+        }
             #if os(iOS)
             .minimalSafeAreaBar(edge: .top) {
                 standardSectionTabs(selection: section)
@@ -1805,6 +1993,11 @@ struct LibraryView: View {
 
     private func restorePersistedPageIfNeeded() {
         guard !didRestorePersistedPage else { return }
+        if !library.isReady {
+            guard let rawValue = identifier(in: persistedPageID, after: "section:"),
+                  let section = LibrarySection(rawValue: rawValue),
+                  visibleLibrarySections.contains(section) else { return }
+        }
         didRestorePersistedPage = true
         var path = NavigationPath()
         if let rawValue = identifier(in: persistedPageID, after: "section:"),
@@ -1830,7 +2023,12 @@ struct LibraryView: View {
             persistedPageID = ""
             return
         }
-        navigationPath = path
+        // 恢复位置没有用户点击的封面来源，不启动卡片 zoom 转场。
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            navigationPath = path
+        }
     }
 
     private func identifier(in value: String, after prefix: String) -> String? {

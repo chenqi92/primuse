@@ -947,131 +947,59 @@ private struct LibraryPreparingView: View {
     }
 }
 
-/// Only the songs destination can browse bounded pages before its indexes are ready.
-private struct LibraryStartupSongsView: View {
+struct LibraryReadyContent<Content: View>: View {
     @Environment(MusicLibrary.self) private var library
-    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AudioPlayerService.self) private var player
-    @State private var pages: LibraryStartupSongPages?
-    @State private var firstVisibleRow = 0
-    @State private var viewportHeight: CGFloat = 720
-    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 72
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var startupPlayback = LibraryStartupPlaybackCoordinator()
+    @State private var isVisible = false
+    var startupSection: LibrarySection? = nil
+    @ViewBuilder let content: () -> Content
 
     private var sourceIDs: Set<String> {
         Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
     }
 
-    private struct PageRequest: Equatable {
-        let readerID: UUID?
-        let page: Int
-    }
-
-    private struct Viewport: Equatable {
-        let firstRow: Int
-        let height: Int
-    }
-
     var body: some View {
         ZStack {
-            Color(.systemBackground)
-                .ignoresSafeArea()
-            if let pages, !pages.isUnavailable {
-                songPages(pages)
+            if library.isReady {
+                content()
             } else {
                 LibraryPreparingView()
-            }
-        }
-        .task(id: sourceIDs) {
-            pages = nil
-            firstVisibleRow = 0
-            pages = await library.prepareStartupSongPages(sourceIDs: sourceIDs)
-        }
-        .task(id: PageRequest(readerID: pages?.id, page: firstVisibleRow / IncrementalSongPageReader.pageSize)) {
-            await pages?.load(around: firstVisibleRow)
-        }
-    }
-
-    private func songPages(_ pages: LibraryStartupSongPages) -> some View {
-        let range = SongListScrollWindow.range(
-            totalCount: pages.count, firstVisibleRow: firstVisibleRow,
-            viewportHeight: Double(viewportHeight), rowHeight: Double(rowHeight)
-        )
-        return ScrollView {
-            VStack(spacing: 0) {
-                Color.clear.frame(height: CGFloat(range.lowerBound) * rowHeight)
-                    .accessibilityHidden(true)
-                ForEach(range, id: \.self) { position in
-                    Group {
-                        if let song = pages.window.song(at: position) {
-                            Button {
-                                Task { await player.play(queue: [song], startingAt: 0) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    CachedArtworkView(
-                                        coverRef: song.coverArtFileName, songID: song.id,
-                                        size: 48, cornerRadius: 6, sourceID: song.sourceID,
-                                        filePath: song.filePath, fileFormat: song.fileFormat
-                                    )
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(song.title).font(.body).foregroundStyle(.primary)
-                                        if let artist = song.artistName {
-                                            Text(artist).font(.subheadline).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    if player.currentSong?.id == song.id {
-                                        Image(systemName: "speaker.wave.2.fill").foregroundStyle(.tint)
-                                    }
+                    .safeAreaInset(edge: .top) {
+                        if startupSection == .songs {
+                            VStack(spacing: 8) {
+                                LibraryStartupPlaybackControls(coordinator: startupPlayback) { shuffled in
+                                    startupPlayback.start(shuffled: shuffled, library: library, player: player,
+                                        sourceIDs: sourceIDs, currentSourceIDs: { sourceIDs })
                                 }
-                                .contentShape(Rectangle())
+                                .disabled(sourceIDs.isEmpty)
+                                LibraryStartupPlaybackFeedback(coordinator: startupPlayback)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(!song.isPlayable)
-                            .accessibilityIdentifier("library.startup.song.\(song.id)")
-                        } else {
-                            ProgressView().frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(.regularMaterial)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .frame(height: rowHeight)
-                }
-                Color.clear.frame(height: CGFloat(pages.count - range.upperBound) * rowHeight)
-                    .accessibilityHidden(true)
             }
         }
-        .onScrollGeometryChange(for: Viewport.self) { geometry in
-            let row = Int(max(0, geometry.visibleRect.minY) / max(1, rowHeight))
-            return Viewport(firstRow: row / SongListScrollWindow.rowStride * SongListScrollWindow.rowStride,
-                            height: Int(geometry.containerSize.height))
-        } action: { _, viewport in
-            firstVisibleRow = viewport.firstRow
-            viewportHeight = CGFloat(viewport.height)
+        .onAppear {
+            isVisible = true
+            startupPlayback.setContext(isVisible: true, isActive: scenePhase == .active)
         }
-    }
-}
-
-struct LibraryReadyContent<Content: View>: View {
-    @Environment(MusicLibrary.self) private var library
-    var startupSection: LibrarySection? = nil
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        if library.isReady {
-            content()
-        } else {
-            NavigationStack {
-                if startupSection == .songs {
-                    LibraryStartupSongsView()
-                        .navigationTitle(LibrarySection.songs.title)
-                        .toolbarTitleDisplayMode(.inlineLarge)
-                        .minimalNavigationRoot()
-                } else {
-                    LibraryPreparingView()
-                        .minimalNavigationRoot()
-                }
-            }
+        .onDisappear {
+            isVisible = false
+            startupPlayback.setContext(isVisible: false, isActive: false)
         }
+        .onChange(of: scenePhase) { _, phase in
+            startupPlayback.setContext(isVisible: isVisible, isActive: phase == .active)
+        }
+        .onChange(of: LibraryStartupPlaybackCoordinator.intent(of: player)) { _, intent in
+            startupPlayback.cancelIfSuperseded(by: intent)
+        }
+        .onChange(of: sourceIDs) { _, _ in startupPlayback.cancel() }
+        .onChange(of: startupSection) { _, _ in startupPlayback.cancel() }
     }
 }
 
@@ -1107,7 +1035,6 @@ struct ContentView: View {
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
-    @AppStorage("primuse.navigation.libraryPage.v1") private var storedLibraryPageID = ""
     @AppStorage(PlayerAppearancePreferences.pinsMiniPlayerKey)
     private var pinsMiniPlayer = PlayerAppearancePreferences.pinsMiniPlayerByDefault
     /// iPad sidebar 当前选中项。iPhone 不用,sidebar 隐藏。值跟 selectedTab
@@ -1215,7 +1142,10 @@ struct ContentView: View {
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
         // 没有有声内容时不摆这个入口。
-        .filter { $0 != .spokenWord || library.hasSpokenWordContent }
+        .filter { $0 != .spokenWord || LibraryStartupNavigationHint.showsSpokenWord(
+            isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
+            enabledSourceIDs: Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+        ) }
     }
 
     private var minimalMusicSections: [LibrarySection] {
@@ -1268,23 +1198,6 @@ struct ContentView: View {
         visibleLibrarySections.map(SidebarItem.libraryChild(for:))
     }
 
-    private var libraryStartupSection: LibrarySection? {
-        if let libraryDeepLink {
-            if case .section(let section) = libraryDeepLink { return section }
-            return nil
-        }
-        let section: LibrarySection?
-        if navigationMode == .minimal {
-            section = minimalLibrarySection ?? LibrarySection(rawValue: minimalStoredSectionRaw)
-        } else {
-            let prefix = "section:"
-            section = storedLibraryPageID.hasPrefix(prefix)
-                ? LibrarySection(rawValue: String(storedLibraryPageID.dropFirst(prefix.count)))
-                : nil
-        }
-        return section.flatMap { visibleLibrarySections.contains($0) ? $0 : nil }
-    }
-
     private var searchTabRole: TabRole {
         #if compiler(>=6.4)
         // iOS 27 no longer separates a search tab unless it activates search.
@@ -1328,16 +1241,14 @@ struct ContentView: View {
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryReadyContent(startupSection: libraryStartupSection) {
-                    LibraryView(
-                        deepLink: $libraryDeepLink,
-                        onActiveSectionChange: { section in
-                            guard navigationMode == .minimal else { return }
-                            minimalLibrarySection = section
-                            if let section { rememberMinimalSection(section) }
-                        }
-                    )
-                }
+                LibraryView(
+                    deepLink: $libraryDeepLink,
+                    onActiveSectionChange: { section in
+                        guard navigationMode == .minimal else { return }
+                        minimalLibrarySection = section
+                        if let section { rememberMinimalSection(section) }
+                    }
+                )
                 .environment(\.minimalNavigationDetailScope, .library)
                 .environment(\.librarySearchTab, 1)
                 .toolbar(systemTabBarVisibility, for: .tabBar)
@@ -1560,16 +1471,7 @@ struct ContentView: View {
             .navigationTitle("Primuse")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
-            Group {
-                if sidebarSelection == .settings || sidebarSelection == .home {
-                    padDetail(for: sidebarSelection)
-                } else {
-                    LibraryReadyContent(startupSection: sidebarSelection == .librarySongs
-                        ? .songs : (sidebarSelection == .library ? libraryStartupSection : nil)) {
-                        padDetail(for: sidebarSelection)
-                    }
-                }
-            }
+            padDetail(for: sidebarSelection)
                 .environment(\.librarySearchTab, sidebarSelection.rawValueTab)
                 .navigationStackBottomReserve(miniPlayerVisible ? padAccessoryHeight : 0)
         }
@@ -1646,7 +1548,7 @@ struct ContentView: View {
         case .libraryStatistics:
             librarySubpane(title: "stats_title") { ListeningStatsScreen() }
         case .librarySongs:
-            librarySubpane(title: "tab_songs") { SongListView() }
+            librarySubpane(title: "tab_songs", startupSection: .songs) { SongListView() }
         case .librarySpokenWord:
             librarySubpane(title: "tab_spoken_word") { SpokenWordLibraryView() }
         case .libraryAlbums:
@@ -1664,9 +1566,11 @@ struct ContentView: View {
         case .libraryPodcasts:
             librarySubpane(title: "listening_space_podcast") { PodcastLibraryView() }
         case .search:
-            SearchView(searchText: $searchText, scope: $searchScope,
+            LibraryReadyContent {
+                SearchView(searchText: $searchText, scope: $searchScope,
                            activatesSearchField: $searchFieldActivationRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
+            }
         case .settings:
             SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
         }
@@ -1675,10 +1579,11 @@ struct ContentView: View {
     @ViewBuilder
     private func librarySubpane<Content: View>(
         title: LocalizedStringKey,
-        @ViewBuilder _ content: () -> Content
+        startupSection: LibrarySection? = nil,
+        @ViewBuilder _ content: @escaping () -> Content
     ) -> some View {
         NavigationStack {
-            content()
+            LibraryReadyContent(startupSection: startupSection, content: content)
                 .navigationTitle(title)
                 .navigationDestination(for: Album.self) {
                     AlbumDetailView(album: $0)
@@ -1698,8 +1603,15 @@ struct ContentView: View {
         .mediaZoomNamespace(librarySubpaneZoomNamespace)
     }
 
+    private func recordStartupNavigationHint() {
+        LibraryStartupNavigationHint.record(
+            isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
+            enabledSourceIDs: Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
+        )
+    }
+
     var body: some View {
-        // 导航先出现，各内容页等资料库发布后再挂载，避免把加载误呈现为空资料库。
+        // 导航保持挂载，只让依赖资料库的数据区域等待发布。
         #if DEBUG
         let _ = PlayerUIUpdateDiagnostics.body("root")
         #endif
@@ -1721,6 +1633,10 @@ struct ContentView: View {
                     }
                     .onChange(of: library.isReady, initial: true) { _, ready in
                         LaunchDiagnostics.mark(ready ? .homeFirstFrame : .preparingLibrary)
+                        recordStartupNavigationHint()
+                    }
+                    .onChange(of: library.hasSpokenWordContent) { _, _ in
+                        recordStartupNavigationHint()
                     }
             }
         }

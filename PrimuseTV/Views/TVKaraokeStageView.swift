@@ -328,6 +328,12 @@ struct TVKaraokeStageContent: View {
                 case .ready:
                     Text(String(localized: session.usesLocalStem ? "karaoke_ai_active" : "karaoke_ai_preparing"))
                         .tvFont(.caption)
+                case .preparing:
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(String(localized: session.separation.coolingSongIDs.contains(song.id)
+                            ? "karaoke_ai_cooling" : "karaoke_ai_preparing")).tvFont(.caption)
+                    }
                 case .idle:
                     Text(String(localized: "karaoke_ai_preparing")).tvFont(.caption)
                 }

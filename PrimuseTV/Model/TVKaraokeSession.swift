@@ -526,7 +526,7 @@ final class TVKaraokeSession {
                 self.inferWordTiming(from: track)
                 self.applySettings()
             }
-        case .separating, .unsupported, .failed:
+        case .preparing, .separating, .unsupported, .failed:
             break
         }
     }

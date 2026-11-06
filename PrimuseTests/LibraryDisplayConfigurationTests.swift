@@ -3989,3 +3989,140 @@ final class SongListAppearanceLayoutTests: XCTestCase {
     }
 }
 #endif
+
+
+@MainActor
+final class LibraryStartupNavigationTests: XCTestCase {
+    func testNavigationHintRequiresCompletedPublicationAndExactEnabledSources() {
+        let name = "LibraryStartupNavigationTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let sources: Set<String> = ["nas", "cloud"]
+        LibraryStartupNavigationHint.record(isReady: false, hasSpokenWord: true,
+                                            enabledSourceIDs: sources, defaults: defaults)
+        XCTAssertFalse(LibraryStartupNavigationHint.showsSpokenWord(isReady: false, hasSpokenWord: false,
+            enabledSourceIDs: sources, defaults: defaults))
+        LibraryStartupNavigationHint.record(isReady: true, hasSpokenWord: true,
+                                            enabledSourceIDs: sources, defaults: defaults)
+        XCTAssertTrue(LibraryStartupNavigationHint.showsSpokenWord(isReady: false, hasSpokenWord: false,
+            enabledSourceIDs: ["cloud", "nas"], defaults: defaults))
+        XCTAssertFalse(LibraryStartupNavigationHint.showsSpokenWord(isReady: false, hasSpokenWord: false,
+            enabledSourceIDs: ["nas"], defaults: defaults))
+        XCTAssertFalse(LibraryStartupNavigationHint.showsSpokenWord(isReady: false, hasSpokenWord: false,
+            enabledSourceIDs: ["nas", "replacement"], defaults: defaults))
+        XCTAssertFalse(LibraryStartupNavigationHint.showsSpokenWord(isReady: true, hasSpokenWord: false,
+            enabledSourceIDs: sources, defaults: defaults))
+        LibraryStartupNavigationHint.record(isReady: true, hasSpokenWord: false,
+                                            enabledSourceIDs: sources, defaults: defaults)
+        XCTAssertFalse(LibraryStartupNavigationHint.showsSpokenWord(isReady: false, hasSpokenWord: true,
+            enabledSourceIDs: sources, defaults: defaults))
+    }
+
+    func testStartupPlaybackWaitsAndConsumesOnlyLatestRequestOnce() async {
+        let coordinator = LibraryStartupPlaybackCoordinator()
+        coordinator.setContext(isVisible: true, isActive: true)
+        let gate = ReadinessGate()
+        let intent = LibraryStartupPlaybackIntent(commandGeneration: 0, queueRequest: 0, playID: nil)
+        var plays: [Bool] = []
+        for shuffled in [false, true] {
+            coordinator.request(shuffled: shuffled, intent: intent, sourceIDs: ["nas"],
+                whenReady: { await gate.wait() }, currentIntent: { intent }, currentSourceIDs: { ["nas"] }) {
+                    plays.append(shuffled)
+                }
+        }
+        XCTAssertNotNil(coordinator.pending)
+        XCTAssertTrue(plays.isEmpty)
+        gate.release()
+        await drain()
+        XCTAssertNil(coordinator.pending)
+        XCTAssertEqual(plays, [true])
+        gate.release()
+        await drain()
+        XCTAssertEqual(plays, [true])
+    }
+
+    func testLeavingPageBackgroundingOrExplicitCancelNeverStartsPendingPlayback() async {
+        for cancellation in 0..<3 {
+            let coordinator = LibraryStartupPlaybackCoordinator()
+            coordinator.setContext(isVisible: true, isActive: true)
+            let gate = ReadinessGate()
+            let intent = LibraryStartupPlaybackIntent(commandGeneration: 0, queueRequest: 0, playID: nil)
+            var plays = 0
+            coordinator.request(shuffled: false, intent: intent, sourceIDs: ["nas"],
+                whenReady: { await gate.wait() }, currentIntent: { intent }, currentSourceIDs: { ["nas"] }) {
+                    plays += 1
+                }
+            await drain()
+            switch cancellation {
+            case 0: coordinator.setContext(isVisible: false, isActive: true)
+            case 1: coordinator.setContext(isVisible: true, isActive: false)
+            default: coordinator.cancel()
+            }
+            coordinator.setContext(isVisible: true, isActive: true)
+            gate.release()
+            await drain()
+            XCTAssertNil(coordinator.pending)
+            XCTAssertEqual(plays, 0)
+        }
+    }
+
+    func testNewTransportIntentQueueOrSourceChangeInvalidatesWaitingPlay() async {
+        for change in 0..<4 {
+            let coordinator = LibraryStartupPlaybackCoordinator()
+            coordinator.setContext(isVisible: true, isActive: true)
+            let gate = ReadinessGate()
+            var intent = LibraryStartupPlaybackIntent(commandGeneration: 7, queueRequest: 3, playID: nil)
+            var sources: Set<String> = ["nas"]
+            var plays = 0
+            coordinator.request(shuffled: false, intent: intent, sourceIDs: sources,
+                whenReady: { await gate.wait() }, currentIntent: { intent }, currentSourceIDs: { sources }) {
+                    plays += 1
+                }
+            await drain()
+            switch change {
+            case 0: intent = .init(commandGeneration: 8, queueRequest: 3, playID: nil)
+            case 1: intent = .init(commandGeneration: 7, queueRequest: 4, playID: nil)
+            case 2: intent = .init(commandGeneration: 7, queueRequest: 3, playID: UUID())
+            default: sources = ["cloud"]
+            }
+            gate.release()
+            await drain()
+            XCTAssertNil(coordinator.pending)
+            XCTAssertEqual(plays, 0)
+        }
+    }
+
+    func testReadinessFailureDoesNotStartPlayback() async {
+        let coordinator = LibraryStartupPlaybackCoordinator()
+        coordinator.setContext(isVisible: true, isActive: true)
+        let intent = LibraryStartupPlaybackIntent(commandGeneration: 0, queueRequest: 0, playID: nil)
+        var plays = 0
+        coordinator.request(shuffled: false, intent: intent, sourceIDs: ["nas"], whenReady: { false },
+            currentIntent: { intent }, currentSourceIDs: { ["nas"] }) { plays += 1 }
+        await drain()
+        XCTAssertNil(coordinator.pending)
+        XCTAssertEqual(plays, 0)
+    }
+
+    private func drain() async {
+        for _ in 0..<12 { await Task.yield() }
+    }
+
+    @MainActor
+    private final class ReadinessGate {
+        var isReady = false
+        var waiters: [CheckedContinuation<Bool, Never>] = []
+
+        func wait() async -> Bool {
+            if isReady { return true }
+            return await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func release() {
+            isReady = true
+            let pending = waiters
+            waiters = []
+            pending.forEach { $0.resume(returning: true) }
+        }
+    }
+}
