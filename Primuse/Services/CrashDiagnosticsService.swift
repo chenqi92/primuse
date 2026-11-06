@@ -8,6 +8,8 @@ import UIKit
 
 private let crashLog = Logger(subsystem: "com.welape.yuanyin", category: "Crash")
 
+/// 开发版和 TestFlight 接收 MetricKit 的 crash / hang 与每日指标报告；
+/// App Store 正式版只保留有上限的文件日志和内存压力处理。
 /// 系统 MetricKit 接收上一次 launch 留下的 crash / hang 诊断报告。完全跑在
 /// 系统侧、隐私边界内,不需要第三方 SDK,也不会主动外发数据 —— 报告全部
 /// 落本地 (App Group container),用户在设置里能查看 + 通过分享面板手动
@@ -48,11 +50,13 @@ final class CrashDiagnosticsService: NSObject {
     private nonisolated(unsafe) var memoryWarningObserver: NSObjectProtocol?
     private var lastMemoryPressureHandledAt: Date?
     private let directoryOverride: URL?
+    nonisolated let collectsSystemReports: Bool
 
-    init(directory: URL? = nil) {
+    init(directory: URL? = nil, channel: AppDistributionChannel? = nil) {
         directoryOverride = directory
+        collectsSystemReports = (channel ?? Bundle.main.distributionChannel) != .appStore
         super.init()
-        pruneExpiredReports()
+        if collectsSystemReports { pruneExpiredReports() }
     }
 
     deinit {
@@ -65,9 +69,10 @@ final class CrashDiagnosticsService: NSObject {
     func register() {
         guard !isRegistered else { return }
         isRegistered = true
+        startMemoryPressureMonitoring()
+        guard collectsSystemReports else { return }
         MXMetricManager.shared.add(self)
         crashLog.notice("CrashDiagnosticsService subscribed to MetricKit payloads")
-        startMemoryPressureMonitoring()
     }
 
     // MARK: - 内存压力
@@ -132,6 +137,7 @@ final class CrashDiagnosticsService: NSObject {
     }
 
     private func collectReports(now: Date = Date(), _ includesFilename: (String) -> Bool) -> [DiagnosticReport] {
+        guard collectsSystemReports else { return [] }
         guard let dir = reportsDirectory() else { return [] }
         let fm = FileManager.default
         let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey], options: [.skipsHiddenFiles])) ?? []
@@ -188,6 +194,7 @@ final class CrashDiagnosticsService: NSObject {
     }
 
     func persistData(_ data: Data, prefix: String) {
+        guard collectsSystemReports else { return }
         guard let dir = reportsDirectory() else { return }
         let stamp = Int(Date().timeIntervalSince1970)
         let unique = UUID().uuidString.prefix(8)
@@ -217,6 +224,7 @@ final class CrashDiagnosticsService: NSObject {
 
 extension CrashDiagnosticsService: MXMetricManagerSubscriber {
     nonisolated func didReceive(_ payloads: [MXMetricPayload]) {
+        guard collectsSystemReports else { return }
         // `applicationExitMetrics` 是唯一能把"闪退"分类的数据: 前后台各自的
         // 内存上限终止、watchdog、非正常退出、真崩溃分别多少次; `memoryMetrics`
         // 还带当天的内存峰值。这两项决定了一份"进主页就退出"的反馈到底该往
@@ -232,6 +240,7 @@ extension CrashDiagnosticsService: MXMetricManagerSubscriber {
     }
 
     nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        guard collectsSystemReports else { return }
         // payload.jsonRepresentation() 给完整结构化数据,可直接写盘
         let datas = payloads.map { $0.jsonRepresentation() }
         Task { @MainActor [weak self] in

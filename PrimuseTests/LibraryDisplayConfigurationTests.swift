@@ -2916,7 +2916,7 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertTrue(wasCancelled)
     }
 
-    func testStagedSourceCacheDeletionPreservesReplacementDirectory() throws {
+    func testStagedSourceCacheDeletionPreservesReplacementDirectory() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "PrimuseSourceCacheDeletionTests-\(UUID().uuidString)",
             isDirectory: true
@@ -2929,6 +2929,14 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         try Data("old".utf8).write(
             to: sourceDirectory.appendingPathComponent("old.cache")
         )
+        let nested = sourceDirectory.appendingPathComponent("nested/deeper", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("nested".utf8).write(to: nested.appendingPathComponent("old.cache"))
+        let outside = root.appendingPathComponent("retained", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let retained = outside.appendingPathComponent("keep.cache")
+        try Data("retained".utf8).write(to: retained)
+        try FileManager.default.createSymbolicLink(at: nested.appendingPathComponent("link"), withDestinationURL: outside)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let staged = SourceManager.stageCacheDirectoriesForDeletion([sourceDirectory])
@@ -2942,9 +2950,10 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         let replacement = sourceDirectory.appendingPathComponent("new.cache")
         try Data("new".utf8).write(to: replacement)
 
-        SourceManager.deleteStagedCacheDirectories(staged)
+        await SourceManager.deleteStagedCacheDirectories(staged)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: replacement.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retained.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged[0].path))
     }
 

@@ -7,6 +7,31 @@ import XCTest
 @testable import Primuse
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
+    func testLegacySourceCleanupOnlyRemovesExistingFamiliesAndPreservesScopedCaches() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let song = Song(id: "removed", title: "Cache fixture", fileFormat: .mp3,
+                        filePath: "/album/song.mp3", sourceID: "removed-source")
+        let name = CacheFileNamePolicy.legacySanitized(path: song.filePath)
+        let family = AudioCachePathFamily.relativePaths(for: name)
+        for file in family { try Data("old".utf8).write(to: root.appendingPathComponent(file)) }
+        let retained = root.appendingPathComponent("another-source", isDirectory: true)
+        try FileManager.default.createDirectory(at: retained, withIntermediateDirectories: true)
+        let retainedFile = retained.appendingPathComponent(name)
+        try Data("keep".utf8).write(to: retainedFile)
+        let unrelated = root.appendingPathComponent("unrelated.mp3")
+        try Data("keep".utf8).write(to: unrelated)
+        let uncached = (0..<512).map {
+            Song(id: "missing-\($0)", title: "Missing", fileFormat: .mp3,
+                 filePath: "/missing/\($0).mp3", sourceID: song.sourceID)
+        }
+        await SourceManager.removeLegacyWebDAVCaches(for: uncached + [song], root: root)
+        XCTAssertTrue(family.allSatisfy { !FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) })
+        XCTAssertEqual(try Data(contentsOf: retainedFile), Data("keep".utf8))
+        XCTAssertEqual(try Data(contentsOf: unrelated), Data("keep".utf8))
+    }
+
     @MainActor
     func testAliasesOfOneFileCannotRunConcurrentOfflineWriters() async throws {
         let source = MusicSource(id: UUID().uuidString, name: "Range fixture", type: .baiduPan)

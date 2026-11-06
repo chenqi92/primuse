@@ -4,6 +4,51 @@ import Foundation
 import Network
 import NIOCore
 import PrimuseKit
+#if canImport(UIKit)
+import UIKit
+#endif
+
+/// Cache reclamation is optional work: leave CPU time for playback and stop
+/// reclaiming while the application is inactive, including the lock screen.
+nonisolated struct CacheCleanupPacer {
+    var isPaused: @MainActor @Sendable () -> Bool = {
+        #if canImport(UIKit)
+        UIApplication.shared.applicationState != .active
+        #else
+        false
+        #endif
+    }
+    private var processed = 0
+    private var batchStarted: ContinuousClock.Instant?
+
+    mutating func checkpoint() async throws {
+        try Task.checkCancellation()
+        if processed == 0 || processed >= 128 {
+            if let batchStarted {
+                try await Task.sleep(for: max(.milliseconds(5), batchStarted.duration(to: .now) * 3))
+            }
+            while await isPaused() {
+                try await Task.sleep(for: .seconds(1))
+            }
+            batchStarted = .now
+            processed = 0
+        }
+        processed += 1
+    }
+}
+
+@MainActor
+private enum SourceCacheReclamationQueue {
+    private static var tail: Task<Void, Never>?
+
+    static func enqueue(_ work: @escaping @Sendable () async -> Void) {
+        let previous = tail
+        tail = Task.detached(priority: .background) {
+            await previous?.value
+            await work()
+        }
+    }
+}
 
 extension SourceFileDeletionFailureReason {
     nonisolated static func classify(_ error: Error, depth: Int = 0) -> Self {
@@ -11852,23 +11897,49 @@ final class SourceManager {
 
         let legacyWebDAVRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_webdav_cache")
-        Task.detached(priority: .background) { [songs, legacyWebDAVRoot] in
-            guard FileManager.default.fileExists(atPath: legacyWebDAVRoot.path) else { return }
-            for song in songs {
-                if Task.isCancelled { return }
-                autoreleasepool {
-                    let target = Self.cacheFileURL(legacyWebDAVRoot, [
-                        CacheFileNamePolicy.legacySanitized(path: song.filePath)
-                    ])
-                    Self.removeCacheFileFamily(at: target)
-                }
-            }
+        let removedAt = Date()
+        SourceCacheReclamationQueue.enqueue { [songs, legacyWebDAVRoot] in
+            await Self.removeLegacyWebDAVCaches(for: songs, root: legacyWebDAVRoot)
         }
-        Task.detached(priority: .background) { [songIDs] in
+        SourceCacheReclamationQueue.enqueue { [songIDs, removedAt] in
+            guard !Task.isCancelled else { return }
             await MetadataAssetStore.shared.invalidateCaches(
-                forSongIDs: Array(songIDs)
+                forSongIDs: Array(songIDs), lastWrittenBefore: removedAt
             )
         }
+    }
+
+    nonisolated static func removeLegacyWebDAVCaches(for songs: [Song], root: URL) async {
+        let fm = FileManager.default
+        var pacer = CacheCleanupPacer()
+        do {
+            let entries = (try? fm.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
+            )) ?? []
+            var remaining = Set<String>()
+            for entry in entries {
+                try await pacer.checkpoint()
+                if (try? entry.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                    remaining.insert(entry.lastPathComponent)
+                }
+            }
+            for song in songs {
+                guard !remaining.isEmpty else { return }
+                try await pacer.checkpoint()
+                autoreleasepool {
+                    let name = CacheFileNamePolicy.legacySanitized(path: song.filePath)
+                    let matches = AudioCachePathFamily.relativePaths(for: name).intersection(remaining)
+                    guard !matches.isEmpty else { return }
+                    let target = cacheFileURL(root, [name])
+                    CloudPlaybackSource.detachSessionFromCache(partialPath: target.path + ".partial")
+                    for match in matches {
+                        try? fm.removeItem(at: cacheFileURL(root, [match]))
+                        remaining.remove(match)
+                    }
+                }
+            }
+        } catch is CancellationError { return }
+        catch { plog("Source cache cleanup deferred: \(error.localizedDescription)") }
     }
 
     private func deleteConnectorTempCaches(for song: Song) {
@@ -12006,11 +12077,13 @@ final class SourceManager {
         // then create a fresh canonical directory that this cleanup cannot
         // accidentally remove.
         let stagedPaths = Self.stageCacheDirectoriesForDeletion(paths)
-        Task.detached(priority: .background) { [stagedPaths, sourceIDs] in
+        Task { [sourceIDs] in
             await AudioCacheManager.shared.removeAllEntries(
                 forSourcePrefixes: sourceIDs.map { "\($0)/" }
             )
-            Self.deleteStagedCacheDirectories(stagedPaths)
+        }
+        SourceCacheReclamationQueue.enqueue { [stagedPaths] in
+            await Self.deleteStagedCacheDirectories(stagedPaths)
         }
     }
 
@@ -12036,23 +12109,49 @@ final class SourceManager {
         return staged
     }
 
-    nonisolated static func deleteStagedCacheDirectories(_ paths: [URL]) {
+    nonisolated static func deleteStagedCacheDirectories(_ paths: [URL]) async {
         let fileManager = FileManager.default
-        for path in paths {
-            autoreleasepool {
-                try? fileManager.removeItem(at: path)
+        var pacer = CacheCleanupPacer()
+        do {
+            for path in paths where SourceFileCacheLayout.isStagedDeletion(entryName: path.lastPathComponent) {
+                try await pacer.checkpoint()
+                if (try? path.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                    _ = path.path.withCString { unlink($0) }
+                    continue
+                }
+                guard let enumerator = fileManager.enumerator(
+                    at: path, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+                ) else { continue }
+                var directories = [path]
+                while let entry = enumerator.nextObject() as? URL {
+                    try await pacer.checkpoint()
+                    autoreleasepool {
+                        let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                        if values?.isDirectory == true && values?.isSymbolicLink != true {
+                            directories.append(entry)
+                        } else {
+                            _ = entry.path.withCString { unlink($0) }
+                        }
+                    }
+                }
+                for directory in directories.reversed() {
+                    try await pacer.checkpoint()
+                    // Only remove empty directories; never fall back to an
+                    // unbounded recursive delete after yielding to other work.
+                    _ = directory.path.withCString { rmdir($0) }
+                }
             }
-        }
+        } catch is CancellationError { return }
+        catch { plog("Source cache cleanup deferred: \(error.localizedDescription)") }
     }
 
-    /// 改了名待删的缓存目录由后台任务递归删除, 进程中途被挂起或杀掉就一直留着。
-    /// 它们是隐藏的, 存储管理统计不到、清除也碰不到。启动后把上次没删完的清掉;
-    /// 碰上本进程刚改名、后台正在删的目录, 也只是两边一起删同一棵树。
+    /// Retry detached cache trees left by an interrupted reclamation pass.
+    /// The worker pauses when the app leaves the foreground.
     func sweepInterruptedCacheDeletions() {
         let parents = Array(Set(
             Self.perSourceCacheDirs(sourceID: "_").map { $0.deletingLastPathComponent() }
         ))
-        Task.detached(priority: .background) {
+        SourceCacheReclamationQueue.enqueue {
             let fileManager = FileManager.default
             var staged: [URL] = []
             for parent in parents {
@@ -12062,9 +12161,7 @@ final class SourceManager {
                 }
             }
             guard !staged.isEmpty else { return }
-            let bytes = staged.reduce(Int64(0)) { $0 + Self.allocatedFileBytes(under: $1) }
-            Self.deleteStagedCacheDirectories(staged)
-            plog("🧹 Swept \(staged.count) interrupted cache deletions (\(bytes / 1024 / 1024)MB)")
+            await Self.deleteStagedCacheDirectories(staged)
         }
     }
 

@@ -1018,23 +1018,48 @@ actor MetadataAssetStore {
         return invalidateLyricsCache(forSongID: songID)
     }
 
-    /// Batch invalidation stays on this actor's executor and avoids creating
-    /// two Tasks/actor hops per song when a large source is removed.
-    func invalidateCaches(forSongIDs songIDs: [String]) {
-        for songID in songIDs {
-            autoreleasepool {
-                let cover = hashedFileName(for: songID, pathExtension: "jpg")
-                try? FileManager.default.removeItem(at: artworkDirectory.appendingPathComponent(cover))
-                if lyricsMutationReservations[songID] == nil {
-                    let lyrics = hashedFileName(for: songID, pathExtension: "json")
-                    try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
+    /// Shared legacy directories cannot be dropped with a source's cache tree.
+    /// Inventory real files once instead of issuing four failed deletes per
+    /// uncached song, and release the actor between bounded cleanup batches.
+    func invalidateCaches(forSongIDs songIDs: [String], lastWrittenBefore cleanupStartedAt: Date = Date()) async {
+        guard !songIDs.isEmpty else { return }
+        var pacer = CacheCleanupPacer()
+        let fm = FileManager.default
+        do {
+            try await pacer.checkpoint()
+            var artworkNames = Set((try? fm.contentsOfDirectory(atPath: artworkDirectory.path)) ?? [])
+                .filter { $0.hasSuffix(".jpg") }
+            var lyricsNames = Set((try? fm.contentsOfDirectory(atPath: lyricsDirectory.path)) ?? [])
+                .filter { $0.hasSuffix(".json") || $0.hasSuffix(".recheck") }
+            for songID in songIDs {
+                guard !artworkNames.isEmpty || !lyricsNames.isEmpty else { return }
+                try await pacer.checkpoint()
+                autoreleasepool {
+                    let base = hashedBaseName(for: songID)
+                    let cover = base + ".jpg"
+                    if artworkNames.remove(cover) != nil {
+                        removeCacheAsset(artworkDirectory.appendingPathComponent(cover, isDirectory: false),
+                                         lastWrittenBefore: cleanupStartedAt)
+                    }
+                    for suffix in [".json", ".embedded.json", ".recheck"] {
+                        let name = base + suffix
+                        guard lyricsNames.remove(name) != nil else { continue }
+                        if suffix == ".json", lyricsMutationReservations[songID] != nil { continue }
+                        removeCacheAsset(lyricsDirectory.appendingPathComponent(name, isDirectory: false),
+                                         lastWrittenBefore: cleanupStartedAt)
+                    }
                 }
-                let embedded = hashedFileName(for: songID, pathExtension: "embedded.json")
-                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(embedded))
-                let recheck = hashedFileName(for: songID, pathExtension: "recheck")
-                try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(recheck))
             }
-        }
+        } catch is CancellationError { return }
+        catch { plog("Metadata cache cleanup deferred: \(error.localizedDescription)") }
+    }
+
+    private func removeCacheAsset(_ url: URL, lastWrittenBefore cutoff: Date) {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let modified = attributes[.modificationDate] as? Date,
+              modified <= cutoff else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// A content-change scan may already have written fresh embedded/sidecar
@@ -1118,9 +1143,19 @@ actor MetadataAssetStore {
     // MARK: - hashedFileName needs to be nonisolated for sync callers
 
     nonisolated private func hashedFileName(for key: String, pathExtension ext: String) -> String {
+        "\(hashedBaseName(for: key)).\(ext)"
+    }
+
+    nonisolated private func hashedBaseName(for key: String) -> String {
         let digest = SHA256.hash(data: Data(key.utf8))
-        let base = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
-        return "\(base).\(ext)"
+        let hex = Array("0123456789abcdef".utf8)
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(32)
+        for byte in digest.prefix(16) {
+            bytes.append(hex[Int(byte >> 4)])
+            bytes.append(hex[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     func clearAll() {

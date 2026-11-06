@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import ImageIO
 import MediaPlayer
 import PrimuseKit
@@ -10,6 +11,53 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testCacheCleanupPreservesAssetsRewrittenAfterCleanupStarted() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root)
+        let songID = "readded-song"
+        let name = SHA256.hash(data: Data(songID.utf8)).prefix(16)
+            .map { String(format: "%02x", $0) }.joined() + ".json"
+        let file = store.lyricsDirectoryURL.appendingPathComponent(name)
+        try Data("old".utf8).write(to: file)
+        let removedAt = Date()
+        try await Task.sleep(for: .milliseconds(30))
+        try Data("new".utf8).write(to: file, options: .atomic)
+        await store.invalidateCaches(forSongIDs: [songID], lastWrittenBefore: removedAt)
+        XCTAssertEqual(try Data(contentsOf: file), Data("new".utf8))
+    }
+
+    func testRemovedSongCacheCleanupPreservesOtherSongsAndReservedLyrics() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = MetadataAssetStore(storageDirectory: root)
+        func legacyName(_ id: String, _ suffix: String) -> String {
+            SHA256.hash(data: Data(id.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined() + suffix
+        }
+        let removedID = "removed-song"
+        let reservedID = "reserved-song"
+        let reservation = await store.beginLyricsMutation(forSongID: reservedID, expectedFingerprint: nil)
+        XCTAssertNotNil(reservation)
+        var removedFiles = [URL]()
+        for id in [removedID, reservedID, "retained-song"] {
+            for suffix in [".jpg", ".json", ".embedded.json", ".recheck"] {
+                let parent = suffix == ".jpg" ? store.artworkDirectoryURL : store.lyricsDirectoryURL
+                let file = parent.appendingPathComponent(legacyName(id, suffix))
+                try Data("cache".utf8).write(to: file)
+                if id == removedID || (id == reservedID && suffix != ".json") { removedFiles.append(file) }
+            }
+        }
+        let missingIDs = (0..<512).map { "uncached-\($0)" }
+        await store.invalidateCaches(forSongIDs: missingIDs + [removedID, reservedID])
+        XCTAssertTrue(removedFiles.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.lyricsDirectoryURL
+            .appendingPathComponent(legacyName(reservedID, ".json")).path))
+        for suffix in [".jpg", ".json", ".embedded.json", ".recheck"] {
+            let parent = suffix == ".jpg" ? store.artworkDirectoryURL : store.lyricsDirectoryURL
+            XCTAssertTrue(FileManager.default.fileExists(atPath: parent.appendingPathComponent(legacyName("retained-song", suffix)).path))
+        }
+    }
+
     func testAlbumArtworkPrefersFolderCoverOverScrapedAlbumCache() async throws {
         try await verifyAlbumCoverPriority(sourceExists: true, uploaded: false)
     }

@@ -7,6 +7,54 @@ import XCTest
 
 final class LifecycleRegressionTests: XCTestCase {
     @MainActor
+    func testAppStoreDoesNotCreateOrExposeSystemReports() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CrashDiagnosticsService(directory: directory, channel: .appStore)
+        service.persistData(Data("{}".utf8))
+        service.persistData(Data("{}".utf8), prefix: CrashDiagnosticsService.metricFilePrefix)
+        XCTAssertFalse(service.collectsSystemReports)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let previousReport = directory.appendingPathComponent("crash-old.json")
+        try Data("{}".utf8).write(to: previousReport)
+        XCTAssertTrue(service.reports().isEmpty)
+        XCTAssertTrue(service.metricReports().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: previousReport.path))
+    }
+
+    @MainActor
+    func testTestFlightKeepsSystemReports() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CrashDiagnosticsService(directory: directory, channel: .testFlight)
+        service.persistData(Data("{}".utf8))
+        service.persistData(Data("{}".utf8), prefix: CrashDiagnosticsService.metricFilePrefix)
+        XCTAssertEqual(service.reports().count, 1)
+        XCTAssertEqual(service.metricReports().count, 1)
+    }
+
+    func testCacheCleanupRemainsPausedAndCanBeCancelled() async throws {
+        let task = Task {
+            var pacer = CacheCleanupPacer()
+            pacer.isPaused = { true }
+            do {
+                try await pacer.checkpoint()
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                return false
+            }
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        task.cancel()
+        let cancelledWhilePaused = await task.value
+        XCTAssertTrue(cancelledWhilePaused)
+    }
+
+    @MainActor
     func testDiagnosticReportsPreserveBothJSONFormatsWithoutOverwriting() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

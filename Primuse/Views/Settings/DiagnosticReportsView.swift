@@ -67,8 +67,10 @@ struct DiagnosticReportsView: View {
 
     private var reportsList: some View {
         List {
-            reportSection(reports, title: String(localized: "diagnostics_crash_reports"))
-            reportSection(metricReports, title: String(localized: "diagnostics_metric_reports"))
+            if service.collectsSystemReports {
+                reportSection(reports, title: String(localized: "diagnostics_crash_reports"))
+                reportSection(metricReports, title: String(localized: "diagnostics_metric_reports"))
+            }
             if !reports.isEmpty || !metricReports.isEmpty {
                 Section {
                     Button("diagnostics_clear", role: .destructive) { showClearConfirm = true }
