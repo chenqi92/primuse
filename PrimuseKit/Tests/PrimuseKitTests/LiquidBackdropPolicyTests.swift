@@ -104,9 +104,48 @@ import Testing
         #expect(has { $0.red > 0.8 && $0.green > 0.7 })                    // 黄
     }
 
-    @Test func flatOrTinyImagesFallBack() {
-        #expect(LiquidBackdropPalettePolicy.palette(fromRGB: image([((90, 90, 90), 1000)])).isEmpty)
+    @Test func solidArtworkKeepsItsColorAndTinyImagesFallBack() {
+        let gray = LiquidBackdropPalettePolicy.palette(fromRGB: image([((90, 90, 90), 1000)]))
+        #expect(gray.count == 1)
+        #expect(abs(gray[0].red - 90.0 / 255) < 0.00001)
+        #expect(gray[0].red == gray[0].green && gray[0].green == gray[0].blue)
         #expect(LiquidBackdropPalettePolicy.palette(fromRGB: image([((90, 10, 10), 4)])).isEmpty)
+    }
+
+    @Test func vividArtworkRetainsBlueCyanAndPurpleWithoutWhiteDominating() {
+        let palette = LiquidBackdropPalettePolicy.palette(fromRGB: image([
+            ((240, 240, 240), 1000), ((20, 55, 145), 500),
+            ((30, 150, 190), 350), ((150, 110, 190), 200)
+        ]))
+        let vivid = MeshBackdropPalettePolicy.vividPalette(from: palette)
+        #expect(vivid.count >= 3)
+        #expect(vivid.count <= 4)
+        #expect(vivid.allSatisfy { $0.hsl.saturation > 0.18 })
+        #expect(vivid.contains { $0.blue > $0.green && $0.green > $0.red })
+        #expect(vivid.contains { $0.blue > $0.red && $0.red > $0.green })
+    }
+
+    @Test func vividMonochromeStaysNeutral() {
+        let palette = [0.0, 0.2, 0.7, 1.0].map { LiquidBackdropColor(red: $0, green: $0, blue: $0) }
+        for color in MeshBackdropPalettePolicy.vividPalette(from: palette) {
+            #expect(abs(color.red - color.green) < 1e-9)
+            #expect(abs(color.green - color.blue) < 1e-9)
+        }
+        #expect(MeshBackdropPalettePolicy.vividPalette(from: []).isEmpty)
+    }
+
+    @Test func vividStopsProtectWhiteTextWithoutAFullScreenScrim() {
+        for contrast in [false, true] {
+            for red in stride(from: 0.0, through: 1.0, by: 0.1) {
+                for green in stride(from: 0.0, through: 1.0, by: 0.1) {
+                    for blue in stride(from: 0.0, through: 1.0, by: 0.1) {
+                        let vivid = MeshBackdropPalettePolicy.vividPalette(
+                            from: [.init(red: red, green: green, blue: blue)], usesIncreasedContrast: contrast)
+                        #expect(MeshBackdropPalettePolicy.maximumLuminance(in: vivid) <= (contrast ? 0.06 : 0.12) + 1e-9)
+                    }
+                }
+            }
+        }
     }
 
     @Test func lightnessStaysInsideTheLegibleBand() {

@@ -4538,6 +4538,24 @@ public enum MetadataBackfillExecutionPolicy {
             snapshot = playing ? 8 : 24
             delay = max(delay, preference == .fast ? 0 : (playing ? 1.5 : 0.75))
         }
+        if mode != .userInitiated, preference != .fast,
+           environment.thermalState == .nominal || environment.thermalState == .fair {
+            let warm = environment.thermalState == .fair
+            // 每个读取位独立等待, 预算须计入并发数, 否则本地文件多开几个位
+            // 就会把休息时间抵消。自动队列在系统报热之前也留出 CPU 余量。
+            let rest = preference == .automatic
+                ? MetadataReadingThermalRest(
+                    multiplier: warm ? 7 : Double(max(1, 2 * workers - 1)),
+                    floor: warm ? 0.75 : 0.15 * Double(workers),
+                    ceiling: 1.5
+                )
+                : MetadataReadingThermalRest(
+                    multiplier: warm ? 14 : 10,
+                    floor: warm ? 1 : 0.75,
+                    ceiling: 3
+                )
+            delay = max(delay, rest.cooldown(recentProcessingDuration: recentProcessingDuration))
+        }
         switch environment.thermalState {
         case .nominal: break
         case .fair:

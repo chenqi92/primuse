@@ -37,6 +37,259 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
         )
     }
 
+    private func deltaFixture(in directory: URL, count: Int = 40) async throws -> MusicLibrary {
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs((0..<count).map { Self.makeSong(id: "delta-\($0)") }, affectedSourceIDs: [Self.sourceID])
+        await library.waitForPendingIndex()
+        guard case .success = await library.persistNowAndWait() else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return library
+    }
+
+    func testSmallStateUpdatesKeepTheFullSnapshotAndStartupCacheAcrossRestart() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        let base = try Data(contentsOf: snapshotURL(in: directory))
+        let cacheURL = directory.appendingPathComponent("library-startup-cache.plist")
+        let cache = try Data(contentsOf: cacheURL)
+        let deltaURL = directory.appendingPathComponent("library-cache.delta.plist")
+        for index in 0..<6 {
+            library.recordPlayback(of: "delta-\(index)")
+            guard case .success = await library.persistNowAndWait(materializePortableSnapshot: false) else {
+                return XCTFail("incremental state did not persist")
+            }
+            XCTAssertLessThan(try Data(contentsOf: deltaURL).count, 8_192)
+        }
+        XCTAssertEqual(try Data(contentsOf: snapshotURL(in: directory)), base)
+        XCTAssertEqual(try Data(contentsOf: cacheURL), cache)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertEqual(reopened.recentlyPlayedSongs().map(\.id), (0..<6).reversed().map { "delta-\($0)" })
+        reopened.recordPlayback(of: "delta-6")
+        _ = await reopened.persistNowAndWait(materializePortableSnapshot: false)
+        XCTAssertEqual(try Data(contentsOf: snapshotURL(in: directory)), base)
+        let again = MusicLibrary(storageDirectory: directory)
+        await again.whenReady()
+        XCTAssertEqual(again.recentlyPlayedSongs().first?.id, "delta-6")
+    }
+
+    func testSceneTransitionDoesNotPromoteLowPriorityHistoryToATwoSecondWrite() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        library.beginSceneTransitionQuiescence()
+        library.recordPlayback(of: "delta-2")
+        library.endSceneTransitionQuiescence()
+        try await Task.sleep(for: .milliseconds(2_300))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("library-cache.delta.plist").path))
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertEqual(reopened.recentlyPlayedSongs().first?.id, "delta-2")
+    }
+
+    func testDeltaKeepsEarlierFieldsAndClearsHistoryWithoutResurrectingIt() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        let playlist = library.createPlaylist(name: "Delta list", songIDs: ["delta-1", "delta-2"])
+        library.recordPlayback(of: "delta-3")
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+        library.clearPlaybackHistory()
+        library.add(songID: "delta-4", toPlaylist: playlist.id)
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertTrue(reopened.recentlyPlayedSongs().isEmpty)
+        XCTAssertEqual(reopened.songIDs(forPlaylist: playlist.id), ["delta-1", "delta-2", "delta-4"])
+    }
+
+    func testExplicitMaterializationIncludesDeltaAndRetiresIt() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        library.recordPlayback(of: "delta-2")
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+        let deltaURL = directory.appendingPathComponent("library-cache.delta.plist")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: deltaURL.path))
+        _ = await library.persistNowAndWait()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: deltaURL.path))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: snapshotURL(in: directory))) as? [String: Any])
+        XCTAssertEqual(object["recentPlaybackSongIDs"] as? [String], ["delta-2"])
+    }
+
+    func testChangingOnePlaylistDoesNotRewriteOtherPlaylistMembers() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory, count: 1_500)
+        let large = library.createPlaylist(name: "Large catalog", songIDs: library.songs.map(\.id))
+        _ = await library.persistNowAndWait()
+        let base = try Data(contentsOf: snapshotURL(in: directory))
+        library.toggleLiked(songID: "delta-1")
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+        XCTAssertEqual(try Data(contentsOf: snapshotURL(in: directory)), base)
+        XCTAssertLessThan(try Data(contentsOf: directory.appendingPathComponent("library-cache.delta.plist")).count, 4_096)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertTrue(reopened.isLiked(songID: "delta-1"))
+        XCTAssertEqual(reopened.songIDs(forPlaylist: large.id).count, 1_500)
+    }
+
+    func testUnchangedTombstonesDoNotBecomeAWholeSetWriteAfterRestart() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        _ = try await deltaFixture(in: directory)
+        let url = snapshotURL(in: directory)
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let identities = (0..<2_000).map { "removed-source:/old/catalog/removed-track-\($0).flac" }
+        object["deletedSongIdentities"] = identities
+        let base = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        try base.write(to: url, options: .atomic)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        reopened.recordPlayback(of: "delta-3")
+        _ = await reopened.persistNowAndWait(materializePortableSnapshot: false)
+        XCTAssertEqual(try Data(contentsOf: url), base)
+        XCTAssertLessThan(try Data(contentsOf: directory.appendingPathComponent("library-cache.delta.plist")).count, 4_096)
+        let merged = try XCTUnwrap(try JSONSerialization.jsonObject(with: MusicLibrary.persistedSnapshotData(at: url)) as? [String: Any])
+        XCTAssertEqual(Set(merged["deletedSongIdentities"] as? [String] ?? []), Set(identities))
+        reopened.deleteSongs([try XCTUnwrap(reopened.song(id: "delta-4"))])
+        await reopened.waitForPendingIndex()
+        _ = await reopened.persistNowAndWait(materializePortableSnapshot: false)
+        XCTAssertEqual(try Data(contentsOf: url), base)
+        XCTAssertLessThan(try Data(contentsOf: directory.appendingPathComponent("library-cache.delta.plist")).count, 4_096)
+        let afterDelete = MusicLibrary(storageDirectory: directory)
+        await afterDelete.whenReady()
+        XCTAssertNil(afterDelete.song(id: "delta-4"))
+        let deleted = try XCTUnwrap(try JSONSerialization.jsonObject(with: MusicLibrary.persistedSnapshotData(at: url)) as? [String: Any])
+        XCTAssertEqual((deleted["deletedSongIdentities"] as? [String])?.count, identities.count + 1)
+    }
+
+    func testSongMetadataUpdatesAdvanceTheUploadIdentityWithoutRewritingTheBase() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        let url = snapshotURL(in: directory)
+        let base = try Data(contentsOf: url)
+        let before = MusicLibrary.snapshotDeltaIdentity(for: url)
+        var changed = try XCTUnwrap(library.song(id: "delta-1"))
+        changed.duration = 193
+        library.replaceSong(changed)
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+        XCTAssertEqual(try Data(contentsOf: url), base)
+        XCTAssertNotEqual(MusicLibrary.snapshotDeltaIdentity(for: url), before)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertEqual(reopened.song(id: changed.id)?.duration, 193)
+    }
+
+    func testExternalMergeReadsDeltaAndRejectsAnOlderBaseline() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        let before = MusicLibrary.snapshotDeltaIdentity(for: snapshotURL(in: directory))
+        library.recordPlayback(of: "delta-4")
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+        let after = MusicLibrary.snapshotDeltaIdentity(for: snapshotURL(in: directory))
+        XCTAssertNotEqual(before, after)
+        let data = try MusicLibrary.persistedSnapshotData(at: snapshotURL(in: directory))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["recentPlaybackSongIDs"] as? [String], ["delta-4"])
+        // 原子替换完整基线后，即便旧增量仍在，也不能把旧设备的状态写回来。
+        var replacement = object
+        replacement["recentPlaybackSongIDs"] = ["delta-7"]
+        try JSONSerialization.data(withJSONObject: replacement).write(to: snapshotURL(in: directory), options: .atomic)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertEqual(reopened.recentlyPlayedSongs().first?.id, "delta-7")
+    }
+
+    func testCorruptDeltaDoesNotOverwriteTheRecoveryFiles() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        let base = try Data(contentsOf: snapshotURL(in: directory))
+        let deltaURL = directory.appendingPathComponent("library-cache.delta.plist")
+        let corrupt = Data("unfinished delta".utf8)
+        try corrupt.write(to: deltaURL)
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        reopened.recordPlayback(of: "delta-1")
+        guard case .failure = await reopened.persistNowAndWait() else { return XCTFail("corrupt state must be protected") }
+        XCTAssertEqual(reopened.songs.count, library.songs.count)
+        XCTAssertEqual(try Data(contentsOf: snapshotURL(in: directory)), base)
+        XCTAssertEqual(try Data(contentsOf: deltaURL), corrupt)
+    }
+
+    func testCachePressurePreservesResultsAndBoundsMaterializedSongCopies() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory, count: 128)
+        var second = Self.makeSong(id: "other-source")
+        second.sourceID = "source-b"
+        library.addSongs([second], affectedSourceIDs: [second.sourceID])
+        await library.waitForPendingIndex()
+        let sourceIDs = library.visibleSongs(forSourceID: Self.sourceID).map(\.id)
+        let album = try XCTUnwrap(library.songs.first?.albumID)
+        let albumIDs = library.songs(forAlbum: album).map(\.id)
+        XCTAssertGreaterThan(library.materializedSongRowCount, 0)
+        library.releaseRebuildableCaches()
+        XCTAssertEqual(library.materializedSongRowCount, 0)
+        XCTAssertEqual(library.visibleSongs(forSourceID: Self.sourceID).map(\.id), sourceIDs)
+        XCTAssertEqual(library.songs(forAlbum: album).map(\.id), albumIDs)
+        XCTAssertLessThanOrEqual(library.materializedSongRowCount, 2 * MusicLibrary.materializedSongRowLimit)
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+    }
+
+    func testUnrepresentedDisabledSourceDoesNotCopyTheWholeSongArray() {
+        let songs = (0..<100).map { Self.makeSong(id: "sharing-\($0)") }
+        let visible = MusicLibrary.visibleSongs(songs, excluding: ["absent-source"])
+        songs.withUnsafeBufferPointer { original in
+            visible.withUnsafeBufferPointer { filtered in XCTAssertEqual(original.baseAddress, filtered.baseAddress) }
+        }
+        XCTAssertTrue(MusicLibrary.visibleSongs(songs, excluding: [Self.sourceID]).isEmpty)
+    }
+
+    func testSourceListStateResolvesCurrentRowsWithoutMaterializingOnRegistration() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory)
+        let state = library.sourceSongListState(for: Self.sourceID)
+        XCTAssertEqual(library.materializedSongRowCount, 0)
+        XCTAssertTrue(library.sourceSongListState(for: Self.sourceID) === state)
+        library.releaseRebuildableCaches()
+        XCTAssertEqual(state.songs.map(\.id), library.songs.map(\.id))
+    }
+
+    func testLargeSourceAndAlbumSlicesAreNotRetained() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = try await deltaFixture(in: directory, count: MusicLibrary.materializedSongRowLimit + 1)
+        var other = Self.makeSong(id: "other")
+        other.sourceID = "source-b"
+        library.addSongs([other], affectedSourceIDs: [other.sourceID])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.visibleSongs(forSourceID: Self.sourceID).count, MusicLibrary.materializedSongRowLimit + 1)
+        let album = try XCTUnwrap(library.songs.first?.albumID)
+        XCTAssertGreaterThan(library.songs(forAlbum: album).count, MusicLibrary.materializedSongRowLimit)
+        XCTAssertEqual(library.materializedSongRowCount, 0)
+        _ = await library.persistNowAndWait(materializePortableSnapshot: false)
+    }
+
+    func testHiddenOrThrottledLiquidBackdropCannotAnimateColorChanges() {
+        XCTAssertTrue(LiquidArtworkBackdrop.allowsAnimation(isVisible: true, isSceneActive: true,
+                                                             reduceMotion: false, lowPower: false, thermalState: .nominal))
+        for blocked in 0..<5 {
+            XCTAssertFalse(LiquidArtworkBackdrop.allowsAnimation(
+                isVisible: blocked != 0, isSceneActive: blocked != 1,
+                reduceMotion: blocked == 2, lowPower: blocked == 3,
+                thermalState: blocked == 4 ? .serious : .nominal
+            ))
+        }
+    }
+
     private func snapshotURL(in directory: URL) -> URL {
         directory.appendingPathComponent("library-cache.json")
     }

@@ -2,6 +2,156 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
+@Suite("Podcast video feeds")
+struct PodcastVideoFeedTests {
+    private let feedURL = URL(string: "https://feeds.example.com/show.xml")!
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private let podcastID = "0123456789abcdef01234567"
+    private let episodeID = "0123456789abcdef01234568"
+
+    @Test func alternateVideoRetainsAudioAndSurvivesLibraryMerge() throws {
+        let xml = """
+        <rss xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><title>Window Studio</title><item>
+        <guid>conversation-1</guid><title>A walk through the observatory</title>
+        <podcast:alternateEnclosure type="video/mp4" rel="commentary"><podcast:source uri="https://media.example.com/commentary.mp4"/></podcast:alternateEnclosure>
+        <podcast:alternateEnclosure type="video/mp4"><podcast:source uri="https://media.example.com/episode.mp4"/></podcast:alternateEnclosure>
+        <podcast:alternateEnclosure type="application/x-mpegURL" default="true">
+          <podcast:source uri="ipfs://unavailable"/>
+          <podcast:source uri="https://media.example.com/episode.torrent" contentType="application/x-bittorrent"/>
+          <podcast:source uri="https://media.example.com/master.m3u8"/>
+          <podcast:source uri="https://backup.example.com/master.m3u8"/>
+        </podcast:alternateEnclosure>
+        <enclosure url="https://media.example.com/episode.mp3" type="audio/mpeg" length="1234"/>
+        </item></channel></rss>
+        """
+        let feed = try PodcastFeedParser.parse(Data(xml.utf8), feedURL: feedURL)
+        let result = PodcastFeedMerge.subscribe(feed: feed, feedURL: feedURL, now: now)
+        let episode = try #require(result.episodes.first)
+        #expect(episode.enclosureURL.absoluteString == "https://media.example.com/episode.mp3")
+        #expect(episode.enclosureLength == 1234)
+        #expect(episode.videoURL?.absoluteString == "https://media.example.com/master.m3u8")
+        #expect(episode.videoType == "application/x-mpegURL")
+        #expect(episode.playsAsVideo)
+        let song = PodcastPlaybackSong.song(for: episode, show: result.show)
+        #expect(song.filePath == episode.enclosureURL.absoluteString)
+        #expect(song.mvPath == episode.videoURL?.absoluteString)
+
+        var updated = feed
+        updated.items[0].videoURL = nil
+        updated.items[0].videoType = nil
+        let refreshed = PodcastFeedMerge.refresh(show: result.show, existing: result.episodes, feed: updated, now: now.addingTimeInterval(60))
+        #expect(refreshed.episodes.first?.id == episode.id)
+        #expect(refreshed.episodes.first?.videoURL == nil)
+    }
+
+    @Test func multipleEnclosuresAndMediaRSSDoNotLoseVideo() throws {
+        let xml = """
+        <rss xmlns:media="http://search.yahoo.com/mrss/"><channel><title>Window Studio</title>
+        <item><guid>one</guid><enclosure url="https://media.example.com/one.mp4" type="video/mp4"/>
+          <enclosure url="https://media.example.com/one.m4a" type="audio/mp4"/></item>
+        <item><guid>two</guid><enclosure url="https://media.example.com/two.mp3" type="audio/mpeg"/>
+          <media:content url="https://media.example.com/poster.jpg" type="image/jpeg" medium="image"/>
+          <media:content url="https://media.example.com/two.mov" type="video/quicktime"/></item>
+        <item><guid>three</guid><enclosure url="https://media.example.com/three.mp3" type="audio/mpeg"/></item>
+        </channel></rss>
+        """
+        let feed = try PodcastFeedParser.parse(Data(xml.utf8), feedURL: feedURL)
+        #expect(feed.items[0].enclosureURL?.pathExtension == "m4a")
+        #expect(feed.items[0].videoURL?.pathExtension == "mp4")
+        #expect(feed.items[1].enclosureURL?.pathExtension == "mp3")
+        #expect(feed.items[1].videoURL?.pathExtension == "mov")
+        #expect(feed.items[2].videoURL == nil)
+    }
+
+    @Test func atomCompanionVideoKeepsAudioEnclosure() throws {
+        let xml = """
+        <feed xmlns="http://www.w3.org/2005/Atom"><title>Studio</title><entry><id>one</id>
+          <link rel="enclosure" href="https://media.example.com/one.mp4" type="video/mp4"/>
+          <link rel="enclosure" href="https://media.example.com/one.mp3" type="audio/mpeg"/>
+        </entry></feed>
+        """
+        let item = try #require(PodcastFeedParser.parse(Data(xml.utf8)).items.first)
+        #expect(item.enclosureURL?.pathExtension == "mp3")
+        #expect(item.videoURL?.pathExtension == "mp4")
+    }
+
+    @Test(arguments: [true, false])
+    func publicFreeXiaoyuzhouNextDataDoesNotBecomeFeed(isEpisode: Bool) throws {
+        let path = isEpisode ? "episode/\(episodeID)" : "podcast/\(podcastID)"
+        let url = URL(string: "https://www.xiaoyuzhoufm.com/\(path)")!
+        for (fileExtension, mediaType) in [("m4a", "audio/mp4"), ("mp4", "video/mp4")] {
+            let html = try webPage(isEpisode: isEpisode, mediaExtension: fileExtension,
+                                   mediaType: mediaType, privateMedia: false, payType: "FREE")
+            #expect(throws: PodcastFeedError.notAFeed) {
+                try PodcastFeedParser.parse(html, feedURL: url)
+            }
+        }
+    }
+
+    @Test func publicFreeHTMLVideoSourcesDoNotBecomeFeed() throws {
+        let url = URL(string: "https://www.xiaoyuzhoufm.com/episode/\(episodeID)")!
+        let markup: [(head: String, body: String)] = [
+            ("", "<video src='https://media.example.com/observatory.mp4'></video>"),
+            ("", "<video><source src='/media/observatory.m3u8?edition=1&amp;quality=auto' type='application/vnd.apple.mpegurl'/></video>"),
+            ("<meta property='og:video' content='https://media.example.com/observatory.mp4'/><meta property='og:video:type' content='video/mp4'/>", ""),
+            ("<meta property='og:video:secure_url' content='https://media.example.com/observatory.m3u8'/>", "")
+        ]
+        for content in markup {
+            let html = try webPage(isEpisode: true, head: content.head, nativeVideo: content.body)
+            #expect(throws: PodcastFeedError.notAFeed) {
+                try PodcastFeedParser.parse(html, feedURL: url)
+            }
+        }
+    }
+
+    @Test func applePodcastSharePageDoesNotBecomeFeed() {
+        let url = URL(string: "https://podcasts.apple.com/us/podcast/window-studio/id123456789?i=1000123456789")!
+        let html = """
+        <html><head><title>Window Studio</title>
+          <link rel="alternate" type="application/rss+xml" href="https://feeds.example.com/show.xml"/>
+          <meta property="og:video" content="https://media.example.com/observatory.mp4"/>
+        </head><body><video><source src="https://media.example.com/observatory.mp4" type="video/mp4"/></video></body></html>
+        """
+        #expect(throws: PodcastFeedError.notAFeed) {
+            try PodcastFeedParser.parse(Data(html.utf8), feedURL: url)
+        }
+    }
+
+    @Test func privatePaidAndForeignPagesAreNotImported() throws {
+        let url = URL(string: "https://www.xiaoyuzhoufm.com/episode/\(episodeID)")!
+        for (privateMedia, payType) in [(true, "FREE"), (false, "PAY") ] {
+            let html = try webPage(isEpisode: true, privateMedia: privateMedia, payType: payType)
+            #expect(throws: PodcastFeedError.notAFeed) { try PodcastFeedParser.parse(html, feedURL: url) }
+        }
+        let html = try webPage(isEpisode: true, nativeVideo: "<video src='javascript:alert(1)'></video>")
+        #expect(throws: PodcastFeedError.notAFeed) { try PodcastFeedParser.parse(html, feedURL: url) }
+        #expect(throws: PodcastFeedError.notAFeed) {
+            try PodcastFeedParser.parse(html, feedURL: URL(string: "https://xiaoyuzhoufm.com.example.com/episode/\(episodeID)")!)
+        }
+    }
+
+    private func webPage(
+        isEpisode: Bool, head: String = "", nativeVideo: String = "", mediaExtension: String = "m4a",
+        mediaType: String = "audio/mp4", privateMedia: Bool = false, payType: String = "FREE"
+    ) throws -> Data {
+        var podcast: [String: Any] = [
+            "pid": podcastID, "title": "Window Studio", "author": "The Studio",
+            "image": ["picUrl": "https://images.example.com/studio.jpg"]
+        ]
+        let mediaURL = "https://media.example.com/observatory.\(mediaExtension)"
+        let episode: [String: Any] = [
+            "eid": episodeID, "pid": podcastID, "title": "A walk through the observatory", "duration": 720,
+            "pubDate": "2026-10-01T12:00:00.000Z", "payType": payType, "isPrivateMedia": privateMedia, "status": "NORMAL",
+            "enclosure": ["url": mediaURL], "media": ["mimeType": mediaType, "size": 12345, "source": ["mode": "PUBLIC", "url": mediaURL]],
+            "podcast": podcast
+        ]
+        podcast["episodes"] = [episode]
+        let page: [String: Any] = isEpisode ? ["episode": episode] : ["podcast": podcast]
+        let json = try JSONSerialization.data(withJSONObject: ["props": ["pageProps": page]])
+        return Data("<html><head>\(head)</head><body>\(nativeVideo)<script type='application/json' id='__NEXT_DATA__'>\(String(decoding: json, as: UTF8.self))</script></body></html>".utf8)
+    }
+}
+
 @Suite("Podcast feeds")
 struct PodcastFeedTests {
     private let feedURL = URL(string: "https://feeds.example.com/show.xml")!

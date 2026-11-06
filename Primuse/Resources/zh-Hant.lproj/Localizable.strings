@@ -6962,6 +6962,7 @@
 
 "home_filter_bar_appearance" = "頂部區域樣式";
 "home_filter_bar_swipe" = "左右滑動切換";
+"home_filter_bar_monochrome" = "黑白單色";
 "home_filter_style_classic" = "經典膠囊（預設）";
 "home_filter_style_underline" = "文字底線";
 "home_filter_style_segmented" = "一體分段";
@@ -7026,7 +7027,8 @@
 "chapter_generation_daily_limit" = "今天的章節生成額度已用完，請明天再試。";
 "chapter_generation_monthly_limit" = "本月的章節生成額度已用完，請下個月再試。";
 
-"album_show_track_artwork" = "顯示歌曲封面";
+"album_show_track_artwork" = "歌曲封面";
+"home_play_latest_album" = "播放最新專輯";
 "content_explicit" = "含露骨內容";
 "content_rating" = "內容分級";
 "copyright_label" = "版權";
@@ -7223,6 +7225,18 @@
 "player_carousel_open_artist" = "藝人";
 "player_carousel_song_count %lld" = "%lld 首歌曲";
 "player_carousel_more_by_artist %@" = "%@ 的更多歌曲";
+
+"mini_player_show_lyrics" = "迷你歌詞";
+
+"player_vivid_mesh" = "鮮明 Mesh";
+
+"lyrics_pip_title" = "子母畫面歌詞";
+
+"lyrics_pip_start" = "開啟子母畫面";
+
+"lyrics_pip_stop" = "關閉子母畫面";
+
+"lyrics_pip_start_failed" = "暫時無法開啟子母畫面，請稍後再試。";
 
 "offline_downloads_show_in_finder" = "在 Finder 中顯示下載目錄";
 

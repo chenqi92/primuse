@@ -401,7 +401,7 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
                 HStack(spacing: 10) {
                     if let number = label.number {
                         Text(verbatim: number)
-                            .font(.body.weight(.semibold).monospacedDigit())
+                            .font(.title3.weight(.semibold).monospacedDigit())
                             .fixedSize()
                         Rectangle()
                             .fill(style.tertiary)
@@ -409,7 +409,7 @@ struct AudiobookCurrentPartRow<Accessory: View>: View {
                             .accessibilityHidden(true)
                     }
                     Text(verbatim: label.title)
-                        .font(.body.weight(style.isNocturne ? .medium : .regular))
+                        .font(.title3.weight(style.isNocturne ? .semibold : .medium))
                         .lineLimit(1)
                 }
                 .foregroundStyle(style.primary)
@@ -480,6 +480,7 @@ struct AudiobookProgressBar: View {
         if followsProgressStyle {
             var track = ProgressSlider.TrackStyle.forProgressStyle(selected, glows: glows)
             track.trackColor = trackColor
+            track.verticalOffset = -6
             return track
         }
         // 按住时和音乐页一样明显加粗、圆点放大(PRIM-45)。
@@ -489,7 +490,8 @@ struct AudiobookProgressBar: View {
                 draggingHeight: 6,
                 trackColor: trackColor,
                 isWave: true,
-                glows: glows
+                glows: glows,
+                verticalOffset: -6
             )
         }
         return ProgressSlider.TrackStyle(
@@ -498,7 +500,8 @@ struct AudiobookProgressBar: View {
             trackColor: trackColor,
             knobDiameter: 9,
             knobGrowth: 5,
-            glows: glows
+            glows: glows,
+            verticalOffset: -6
         )
     }
 
@@ -539,7 +542,7 @@ struct AudiobookProgressBar: View {
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(style.tertiary)
-            .padding(.top, -8)
+            .padding(.top, -14)
         }
     }
 }

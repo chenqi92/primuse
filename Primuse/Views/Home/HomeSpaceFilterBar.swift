@@ -36,6 +36,7 @@ struct HomeSpaceFilterBar: View {
     let selection: ListeningSpace?
     var labelStyle: HomeFilterBarLabelStyle = .automatic
     var appearance: HomeFilterBarAppearance = .classic
+    var monochrome = false
     var motion: HomeFilterSwipeMotion?
     let onSelect: (ListeningSpace) -> Void
 
@@ -55,7 +56,12 @@ struct HomeSpaceFilterBar: View {
         let widest = spaces.map { textWidth($0, size: 16) }.max() ?? 0
         return (widest + 26 * typeScale + 24) * CGFloat(spaces.count) <= viewportWidth - 32
     }
-    private var accent: Color { selection?.tint ?? .accentColor }
+    private var accent: Color { monochrome ? .primary : selection?.tint ?? .accentColor }
+    private var decorativeAccent: Color { monochrome ? .primary : theme.uiAccentColor }
+
+    private func tint(for space: ListeningSpace) -> Color {
+        monochrome ? .primary : space.tint
+    }
     private var selectedIndex: CGFloat? {
         if let tuningIndex { return tuningIndex }
         guard let selection, let index = spaces.firstIndex(of: selection) else { return nil }
@@ -91,7 +97,8 @@ struct HomeSpaceFilterBar: View {
         Group {
             if appearance == .classic {
                 ClassicHomeSpaceFilterBar(spaces: spaces, selection: selection,
-                                          labelStyle: labelStyle, onSelect: onSelect)
+                                          labelStyle: labelStyle, monochrome: monochrome,
+                                          onSelect: onSelect)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -143,7 +150,10 @@ struct HomeSpaceFilterBar: View {
     private func inlineLabel(_ space: ListeningSpace, size: CGFloat = 16) -> some View {
         HStack(spacing: 5) {
             if labelStyle == .iconOnly || labelStyle == .iconAndTitle || automaticInlineIcons {
-                Image(systemName: space.systemImage).font(.system(size: size * typeScale))
+                Image(systemName: space.systemImage)
+                    .symbolVariant(selection == space ? .fill : .none)
+                    .font(.system(size: size * typeScale))
+                    .foregroundStyle(selection == space ? tint(for: space) : .secondary)
             }
             if showsTitle {
                 Text(space.titleKey).font(.system(size: size * typeScale, weight: .semibold))
@@ -185,7 +195,7 @@ struct HomeSpaceFilterBar: View {
             ForEach(spaces, id: \.self) { space in
                 item(space) {
                     inlineLabel(space, size: 15)
-                        .foregroundStyle(selection == space ? AnyShapeStyle(.text(on: space.tint)) : AnyShapeStyle(.primary))
+                        .foregroundStyle(selection == space ? Color.primary : Color.secondary)
                         .frame(width: width / CGFloat(spaces.count), height: 44 * typeScale)
                 }
             }
@@ -193,14 +203,15 @@ struct HomeSpaceFilterBar: View {
         .background {
             if let selectedIndex {
                 GeometryReader { geometry in
-                    Capsule().fill(accent.gradient)
+                    Capsule().fill(colorScheme == .dark ? Color.white.opacity(0.16) : Color.white.opacity(0.70))
+                        .overlay { Capsule().strokeBorder(.white.opacity(colorScheme == .dark ? 0.20 : 0.80), lineWidth: 0.5) }
                         .frame(width: width / CGFloat(spaces.count), height: 44 * typeScale)
                         .position(x: physicalPosition(selectedIndex, in: width), y: geometry.size.height / 2)
                 }
             }
         }
         .padding(3)
-        .background(.quaternary.opacity(0.55), in: Capsule())
+        .modifier(HomeFilterGlassSurface(shape: Capsule()))
     }
 
     private func designTitle(_ space: ListeningSpace) -> LocalizedStringKey {
@@ -223,17 +234,15 @@ struct HomeSpaceFilterBar: View {
                 item(space) {
                     VStack(spacing: 7) {
                         Image(systemName: designIcon(space))
+                            .symbolVariant(amount > 0.5 ? .fill : .none)
                             .font(.system(size: 23 * typeScale, weight: .regular))
-                            .foregroundStyle(amount > 0.5 ? AnyShapeStyle(.text(on: space.tint)) : AnyShapeStyle(Color.primary.opacity(0.66)))
+                            .foregroundStyle(amount > 0.5 ? tint(for: space) : Color.primary.opacity(0.66))
                             .frame(width: 49 * typeScale, height: 49 * typeScale)
-                            .background {
-                                Circle().fill(.quaternary.opacity(0.55))
-                                Circle().fill(space.tint.gradient).opacity(amount)
-                            }
+                            .modifier(HomeFilterGlassSurface(shape: Circle()))
                             .accessibilityIdentifier("home.filterIcon.\(space.rawValue)")
                         Text(designTitle(space))
                             .font(.system(size: 14 * typeScale, weight: .medium))
-                            .foregroundStyle(amount > 0.5 ? space.tint : .primary.opacity(0.76))
+                            .foregroundStyle(amount > 0.5 ? Color.primary : .primary.opacity(0.76))
                             .fixedSize()
                     }
                     .frame(width: width / CGFloat(spaces.count), alignment: .top)
@@ -255,7 +264,7 @@ struct HomeSpaceFilterBar: View {
                         .foregroundStyle(amount > 0.5
                             ? AnyShapeStyle(LinearGradient(stops: [
                                 .init(color: .primary, location: 0.55),
-                                .init(color: theme.uiAccentColor, location: 1)
+                                .init(color: decorativeAccent, location: 1)
                             ], startPoint: .top, endPoint: .bottom))
                             : AnyShapeStyle(Color.secondary))
                         .fixedSize()
@@ -267,7 +276,7 @@ struct HomeSpaceFilterBar: View {
         .frame(minWidth: viewportWidth - 32, alignment: .leading)
         .frame(height: 108 * typeScale, alignment: .center)
         .background(alignment: .topLeading) {
-            theme.uiAccentColor
+            decorativeAccent
                 .mask {
                     Image("HomeFilterSilk")
                         .resizable()
@@ -354,6 +363,7 @@ struct HomeSpaceFilterBar: View {
                 self.tuningIndex = nil
                 if spaces.indices.contains(index), spaces[index] != selection { onSelect(spaces[index]) }
             })
+        .saturation(monochrome ? 0 : 1)
     }
 
     private func paperTint(_ space: ListeningSpace) -> Color {
@@ -435,8 +445,37 @@ struct HomeSpaceFilterBar: View {
                 .offset(y: 4)
                 .allowsHitTesting(false)
         }
+        .saturation(monochrome ? 0 : 1)
     }
 
+}
+
+private struct HomeFilterGlassSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            content.glassEffect(.regular, in: shape)
+        } else {
+            content
+                .background {
+                    if reduceTransparency {
+                        #if os(iOS)
+                        shape.fill(Color(uiColor: .secondarySystemBackground))
+                        #else
+                        shape.fill(Color(nsColor: .controlBackgroundColor))
+                        #endif
+                    } else {
+                        shape.fill(.regularMaterial)
+                    }
+                }
+                .overlay {
+                    shape.strokeBorder(.primary.opacity(0.06), lineWidth: 0.5)
+                        .allowsHitTesting(false)
+                }
+        }
+    }
 }
 
 private struct HomeFilterMaterialImage: View {
@@ -600,6 +639,7 @@ struct HomeTabDoubleTapObserver: UIViewControllerRepresentable {
 
 struct HomeFilterBarStylePicker: View {
     @Binding var selection: HomeFilterBarAppearance
+    var monochrome = false
 
     var body: some View {
         List {
@@ -616,7 +656,7 @@ struct HomeFilterBarStylePicker: View {
                             }
                         }
                         HomeSpaceFilterBar(spaces: HomeFilterBarConfiguration.defaultOrder,
-                                           selection: .music, appearance: style) { _ in }
+                                           selection: .music, appearance: style, monochrome: monochrome) { _ in }
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                             .padding(.horizontal, -16)
@@ -640,6 +680,7 @@ private struct ClassicHomeSpaceFilterBar: View {
     let spaces: [ListeningSpace]
     let selection: ListeningSpace?
     var labelStyle: HomeFilterBarLabelStyle = .automatic
+    var monochrome = false
     let onSelect: (ListeningSpace) -> Void
 
     /// 两侧留白与胶囊间距。
@@ -754,6 +795,7 @@ private struct ClassicHomeSpaceFilterBar: View {
                 Image(systemName: space.systemImage)
                     .symbolVariant(isSelected ? .fill : .none)
                     .font(.footnote.weight(.semibold))
+                    .foregroundStyle(isSelected && !monochrome ? space.tint : .primary)
                     .transition(.scale.combined(with: .opacity))
             }
             if content.showsTitle {
@@ -771,13 +813,10 @@ private struct ClassicHomeSpaceFilterBar: View {
             }
         }
         .font(.subheadline.weight(isSelected ? .semibold : .medium))
-        .foregroundStyle(isSelected ? AnyShapeStyle(.text(on: space.tint)) : AnyShapeStyle(.primary))
+        .foregroundStyle(.primary)
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .background {
-            Capsule()
-                .fill(isSelected ? AnyShapeStyle(space.tint.gradient) : AnyShapeStyle(.quaternary.opacity(0.7)))
-        }
+        .modifier(HomeFilterGlassSurface(shape: Capsule()))
         .contentShape(Capsule())
     }
 }

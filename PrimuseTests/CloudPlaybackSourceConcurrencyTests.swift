@@ -2494,10 +2494,12 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         await library.waitForPendingIndex()
 
         for song in songs {
-            let result = await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id)
+            let reference = try XCTUnwrap(library.song(id: song.id)?.coverArtFileName)
+            let result = await MetadataAssetStore.shared.coverData(named: reference)
             XCTAssertEqual(result, coverData)
-            XCTAssertNotNil(library.song(id: song.id)?.coverArtFileName)
         }
+        XCTAssertEqual(library.song(id: songs[0].id)?.coverArtFileName,
+                       library.song(id: songs[1].id)?.coverArtFileName)
         let firstReads = await connector.localURLRequestCount(for: paths[0])
         let secondReads = await connector.localURLRequestCount(for: paths[1])
         XCTAssertEqual(firstReads, 2)

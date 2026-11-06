@@ -1468,7 +1468,8 @@ struct MacHomeView: View {
         VStack(alignment: .leading, spacing: PMSpace.m) {
             sectionHeader(title: LocalizedStringKey(HomeDiscoveryText.string("recent_albums")),
                           subtitle: "home_recently_added_subtitle",
-                          destination: .recentlyAdded)
+                          destination: .recentlyAdded,
+                          onPlay: playLatestAlbum)
 
             LazyVGrid(
                 columns: Array(repeating: GridItem(.adaptive(minimum: 130, maximum: 160),
@@ -1485,6 +1486,15 @@ struct MacHomeView: View {
                 }
             }
         }
+    }
+
+    private func playLatestAlbum() {
+        guard let album = model.snapshot.recentlyAddedAlbums.first else { return }
+        let queue = library.songs(forAlbum: album.id).filteredPlayable()
+        guard !queue.isEmpty else { return }
+        player.shuffleEnabled = false
+        SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: false)
+        Task { await player.play(queue: queue, startingAt: 0) }
     }
 
     private func albumCard(_ album: Album) -> some View {
@@ -1632,7 +1642,12 @@ struct MacHomeView: View {
         }
     }
 
-    private func sectionHeader(title: LocalizedStringKey, subtitle: LocalizedStringKey?, destination: HomeSectionDestination? = nil) -> some View {
+    private func sectionHeader(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey?,
+        destination: HomeSectionDestination? = nil,
+        onPlay: (() -> Void)? = nil
+    ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(title)
                 .font(.system(size: 17, weight: .semibold))
@@ -1644,6 +1659,19 @@ struct MacHomeView: View {
                     .foregroundStyle(PMColor.textFaint)
             }
             Spacer()
+            if let onPlay {
+                Button(action: onPlay) {
+                    Label("home_play_latest_album", systemImage: "play.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(PMColor.brand)
+                .help(Text("home_play_latest_album"))
+                .accessibilityIdentifier("home.recentAlbums.playLatest")
+            }
             if let destination {
                 Button {
                     pmWithAnimation(.list) {

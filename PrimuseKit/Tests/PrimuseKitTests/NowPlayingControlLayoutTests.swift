@@ -397,4 +397,20 @@ import Testing
         #expect(future.hiddenMenuItems == [.medley])
         #expect(future.settingMenuItem(.share, visible: false).encoded().contains("futureItem"))
     }
+
+    @Test func floatingLyricsAndWeightVisibilityAreIndependentOfDisplayAndPlayback() {
+        let existing = Layout.default.settingMenuItem(.lyricsDisplay, visible: false)
+        let hidden = existing.settingMenuItem(.miniPlayerLyrics, visible: false)
+            .settingMenuItem(.lyricsWeight, visible: false)
+        let restored = Layout.decode(hidden.encoded())
+        #expect(!restored.showsMenuItem(.miniPlayerLyrics))
+        #expect(!restored.showsMenuItem(.lyricsWeight))
+        #expect(!restored.showsMenuItem(.lyricsDisplay))
+        #expect(restored.showsMenuItem(.floatingLyrics))
+        #expect(restored.bar == existing.bar)
+        let shown = restored.settingMenuItem(.miniPlayerLyrics, visible: true)
+        #expect(shown.showsMenuItem(.miniPlayerLyrics))
+        #expect(!shown.showsMenuItem(.lyricsWeight))
+        #expect(shown.showingAllMenuItems().hiddenMenuItems.isEmpty)
+    }
 }

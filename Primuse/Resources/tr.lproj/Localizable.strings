@@ -6891,6 +6891,7 @@
 
 "home_filter_bar_appearance" = "Üst alan stili";
 "home_filter_bar_swipe" = "Kategoriler arasında kaydır";
+"home_filter_bar_monochrome" = "Siyah beyaz";
 "home_filter_style_classic" = "Klasik kapsüller (varsayılan)";
 "home_filter_style_underline" = "Altı çizili metin";
 "home_filter_style_segmented" = "Bölümlü çubuk";
@@ -6955,7 +6956,8 @@
 "chapter_generation_daily_limit" = "Bugünkü bölüm oluşturma kotası doldu. Yarın tekrar deneyin.";
 "chapter_generation_monthly_limit" = "Bu ayki bölüm oluşturma kotası doldu. Gelecek ay tekrar deneyin.";
 
-"album_show_track_artwork" = "Şarkı kapaklarını göster";
+"album_show_track_artwork" = "Şarkı kapakları";
+"home_play_latest_album" = "Son eklenen albümü çal";
 "content_explicit" = "Uygunsuz İçerik";
 "content_rating" = "İçerik Derecelendirmesi";
 "copyright_label" = "Telif Hakkı";
@@ -7152,6 +7154,18 @@
 "player_carousel_open_artist" = "Sanatçı";
 "player_carousel_song_count %lld" = "%lld şarkı";
 "player_carousel_more_by_artist %@" = "%@ adlı sanatçıdan daha fazlası";
+
+"mini_player_show_lyrics" = "Mini Şarkı Sözleri";
+
+"player_vivid_mesh" = "Canlı Mesh";
+
+"lyrics_pip_title" = "Resim İçinde Resim Şarkı Sözleri";
+
+"lyrics_pip_start" = "Resim İçinde Resim Başlat";
+
+"lyrics_pip_stop" = "Resim İçinde Resim Durdur";
+
+"lyrics_pip_start_failed" = "Resim İçinde Resim başlatılamadı. Lütfen tekrar deneyin.";
 
 "offline_downloads_show_in_finder" = "İndirilenleri Finder’da göster";
 

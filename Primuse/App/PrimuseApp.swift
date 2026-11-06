@@ -1136,7 +1136,7 @@ private final class LifecycleSnapshotUploadCoordinator {
             }
             guard !Task.isCancelled else { return }
             if library.hasPendingPortableSnapshotChanges,
-               case .failure = await library.persistNowAndWait() {
+               case .failure = await library.persistNowAndWait(materializePortableSnapshot: false) {
                 return
             }
             _ = await LibrarySnapshotSync.shared.uploadAutomaticallyIfNeeded()
@@ -1158,7 +1158,7 @@ private final class LifecycleSnapshotUploadCoordinator {
             }
             guard !Task.isCancelled else { return }
             if library.hasPendingPortableSnapshotChanges,
-               case .failure = await library.persistNowAndWait() {
+               case .failure = await library.persistNowAndWait(materializePortableSnapshot: false) {
                 return
             }
             _ = await LibrarySnapshotSync.shared.uploadAutomaticallyIfNeeded()
@@ -1965,7 +1965,9 @@ struct PrimuseApp: App {
                 }
                 // 别的设备把某条改成了有声或音乐:重新分一次,标签页和列表跟着变。
                 .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordClassificationDidChange)) { _ in
-                    AppServices.shared.musicLibrary.refreshContentClassification()
+                    Task { @MainActor in
+                        await AppServices.shared.musicLibrary.refreshContentClassificationInBackground()
+                    }
                 }
                 .onOpenURL { url in
                     plog("🔗 onOpenURL: scheme=\(url.scheme ?? "?") host=\(url.host ?? "?")")

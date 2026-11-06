@@ -58,14 +58,14 @@ struct PlaylistEntryMatcher: Sendable {
         in songs: [Song], matching subjects: [ExternalTrackMatchPolicy.Subject],
         isCancelled: () -> Bool
     ) -> [Song] {
-        let titles = Set(subjects.map { ExternalTrackMatchPolicy.splitTitle($0.title).core })
+        let titles = Set(subjects.map { ExternalTrackMatchPolicy.normalizedCoreTitle($0.title) })
             .subtracting([""])
         guard !titles.isEmpty else { return [] }
         var candidates: [Song] = []
         for (offset, song) in songs.enumerated() {
             if offset.isMultiple(of: 64), isCancelled() { return [] }
             let matches = autoreleasepool {
-                titles.contains(ExternalTrackMatchPolicy.splitTitle(song.title).core)
+                titles.contains(ExternalTrackMatchPolicy.normalizedCoreTitle(song.title))
             }
             if matches { candidates.append(song) }
         }

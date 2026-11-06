@@ -1,7 +1,201 @@
 import XCTest
 
 @MainActor
+final class LibraryLaunchPerformanceUITests: XCTestCase {
+    func testInstalledLibraryShowsPlaybackAndSpaceControlsDuringLaunch() throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_INSTALLED_LIBRARY_AUDIT"] == "1" else {
+            throw XCTSkip("Requires a selected device with an existing library")
+        }
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchEnvironment["PRIMUSE_NO_NOTIFICATION_PROMPT"] = "1"
+        app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "home"
+        app.launchArguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+            "-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0",
+            "-primuse.navigation.sidebarItem.v1", "home", "-primuse.home.filter", "music"
+        ]
+        addTeardownBlock { @MainActor in app.terminate() }
+        let started = ProcessInfo.processInfo.systemUptime
+        app.launch()
+        let play = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@", "library.startup.playAll", "全部播放"
+        )).firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        let playAt = ProcessInfo.processInfo.systemUptime - started
+        let books = app.buttons["home.spaceFilter.spokenWord"]
+        XCTAssertTrue(books.waitForExistence(timeout: 5))
+        print(String(format: "LOAD_MATRIX launch-controls play=%.3fs books=%.3fs", playAt,
+                     ProcessInfo.processInfo.systemUptime - started))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "large-library-launch-controls"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let radio = app.buttons["home.spaceFilter.radio"]
+        XCTAssertTrue(radio.exists)
+        radio.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["home.page.radio"].firstMatch.waitForExistence(timeout: 5))
+    }
+}
+
+@MainActor
 final class HomeTopSwitchingUITests: XCTestCase {
+    func testCircularPagingAndInterruptedSwipesStayCentered() {
+        continueAfterFailure = false
+        let app = configuredHomeRegressionApp()
+        let baseArguments = app.launchArguments
+        app.launchArguments += [
+            "-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0",
+            "-primuse.navigation.sidebarItem.v1", "home",
+            "-primuse.home.filterBar.v1",
+            stringDefaultArgument(#"{"order":["radio","podcast","music","spokenWord"],"hidden":["podcast","spokenWord"],"appearance":"segmented"}"#)
+        ]
+        restoreHomeAfterTest(app, arguments: baseArguments)
+        app.launch()
+
+        let radio = app.buttons["home.spaceFilter.radio"]
+        let music = app.buttons["home.spaceFilter.music"]
+        XCTAssertTrue(radio.waitForExistence(timeout: 30))
+        if !radio.isSelected { radio.tap() }
+        XCTAssertTrue(radio.isSelected)
+        XCTAssertFalse(app.buttons["home.spaceFilter.podcast"].exists)
+        XCTAssertFalse(app.buttons["home.spaceFilter.spokenWord"].exists)
+        let radioPage = homePage(app, "radio")
+        XCTAssertTrue(radioPage.waitForExistence(timeout: 5))
+        let expectedMidX = radioPage.frame.midX
+
+        // The custom order starts at radio and ends at music; hidden categories must be skipped.
+        swipeHomePage(app, forward: false)
+        assertSelected(music)
+        assertPageCentered(homePage(app, "music"), midX: expectedMidX)
+        swipeHomePage(app, forward: true)
+        assertSelected(radio)
+        assertPageCentered(radioPage, midX: expectedMidX)
+
+        let y = homeSwipeY(app)
+        let contentFrame = homeContentFrame(app)
+        let start = homeCoordinate(app, x: contentFrame.minX + contentFrame.width * 0.45, y: y)
+        let shortEnd = start.withOffset(CGVector(dx: 35, dy: 0))
+        start.press(forDuration: 0.05, thenDragTo: shortEnd, withVelocity: .slow, thenHoldForDuration: 0.1)
+        assertSelected(radio)
+        assertPageCentered(radioPage, midX: expectedMidX)
+
+        for _ in 0..<6 {
+            music.tap()
+            radio.tap()
+        }
+        assertSelected(radio)
+        assertPageCentered(radioPage, midX: expectedMidX)
+        radio.tap()
+        for _ in 0..<3 {
+            music.doubleTap()
+            radio.doubleTap()
+        }
+        XCTAssertFalse(music.isSelected)
+        XCTAssertFalse(radio.isSelected)
+        radio.tap()
+        assertSelected(radio)
+        assertPageCentered(radioPage, midX: expectedMidX)
+        attach(app, "home-rapid-switching-centered")
+
+        swipeHomePage(app, forward: false)
+        assertSelected(music)
+        assertPageCentered(homePage(app, "music"), midX: expectedMidX)
+        music.tap()
+        XCTAssertFalse(music.isSelected)
+        XCTAssertTrue(homePage(app, "overview").waitForExistence(timeout: 5))
+    }
+
+    func testPullHoldReturnsToOverviewWithoutShortPullExit() {
+        continueAfterFailure = false
+        let app = configuredHomeRegressionApp()
+        let baseArguments = app.launchArguments
+        app.launchArguments += [
+            "-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0",
+            "-primuse.navigation.sidebarItem.v1", "home",
+            "-primuse.home.filterBar.v1",
+            stringDefaultArgument(#"{"order":["music","radio","spokenWord","podcast"],"hidden":[],"appearance":"segmented"}"#),
+            "-primuse.home.subtabs.pullDown.v1", "NO"
+        ]
+        restoreHomeAfterTest(app, arguments: baseArguments)
+        app.launch()
+        let radio = app.buttons["home.spaceFilter.radio"]
+        XCTAssertTrue(radio.waitForExistence(timeout: 30))
+        if !radio.isSelected { radio.tap() }
+        XCTAssertTrue(radio.isSelected)
+
+        pullHomePage(app, holdDuration: 0.15)
+        assertSelected(radio)
+        XCTAssertFalse(homePage(app, "overview").exists)
+        attach(app, "home-short-pull-keeps-category")
+
+        pullHomePage(app, holdDuration: 1.5)
+        let overview = homePage(app, "overview")
+        XCTAssertTrue(overview.waitForExistence(timeout: 5))
+        for space in ["music", "radio", "spokenWord", "podcast"] {
+            let button = app.buttons["home.spaceFilter.\(space)"]
+            if button.exists { XCTAssertFalse(button.isSelected) }
+        }
+        XCTAssertTrue(app.descendants(matching: .any)["home.returnOverview.progress"].firstMatch.waitForNonExistence(timeout: 5))
+        attach(app, "home-long-pull-returns-overview")
+        radio.tap()
+        assertSelected(radio)
+        XCTAssertTrue(homePage(app, "radio").waitForExistence(timeout: 5))
+    }
+
+    func testMonochromePreferencePersists() {
+        continueAfterFailure = false
+        let app = configuredHomeRegressionApp()
+        let baseArguments = app.launchArguments
+        restoreHomeAfterTest(app, arguments: baseArguments)
+        app.launchArguments += [
+            "-primuse.navigation.mode.v1", "standard"
+        ]
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
+        app.launch()
+        openFilterEditor(app)
+        let monochrome = app.switches["home.filterBar.monochrome"]
+        XCTAssertTrue(monochrome.waitForExistence(timeout: 5))
+        let originalValue = monochrome.value as? String
+        XCTAssertTrue(["0", "1"].contains(originalValue ?? ""))
+        let persistedValue = originalValue == "1" ? "0" : "1"
+        addTeardownBlock { @MainActor in
+            self.continueAfterFailure = true
+            app.terminate()
+            app.launchArguments = baseArguments + [
+                "-primuse.navigation.mode.v1", "standard"
+            ]
+            app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "home.order"
+            app.launch()
+            self.openFilterEditor(app)
+            if monochrome.waitForExistence(timeout: 5), let originalValue {
+                self.setSwitchValue(monochrome, to: originalValue)
+            }
+        }
+        setSwitchValue(monochrome, to: persistedValue)
+        app.terminate()
+        app.launch()
+        openFilterEditor(app)
+        XCTAssertTrue(monochrome.waitForExistence(timeout: 5))
+        XCTAssertEqual(monochrome.value as? String, persistedValue, "The changed setting must survive a fresh app process")
+        attach(app, "home-monochrome-setting-persisted")
+        setSwitchValue(monochrome, to: "1")
+
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        for appearance in ["light", "dark"] {
+            app.launchArguments = baseArguments + [
+                "-primuse.navigation.mode.v1", "standard",
+                "-primuse.appearance", appearance
+            ]
+            app.launch()
+            openHome(app)
+            attach(app, "home-monochrome-\(appearance)")
+            app.terminate()
+        }
+    }
+
     func testHomeSubtabsVisibilityAndGestures() {
         continueAfterFailure = false
         let app = configuredApp()
@@ -303,6 +497,152 @@ final class HomeTopSwitchingUITests: XCTestCase {
             "-primuse.launch.safeModeLatched", "NO"
         ]
         return app
+    }
+
+    private func configuredHomeRegressionApp() -> XCUIApplication {
+        let app = configuredApp()
+        // XCTest terminates processes before the eight-second launch sentinel settles.
+        app.launchArguments += ["-primuse.launch.backgroundLaunchRepairDone", "NO"]
+        return app
+    }
+
+    private func stringDefaultArgument(_ value: String) -> String {
+        // NSArgumentDomain parses a property-list string, not a raw JSON object.
+        String(decoding: try! JSONEncoder().encode(value), as: UTF8.self)
+    }
+
+    private func homePage(_ app: XCUIApplication, _ space: String) -> XCUIElement {
+        app.descendants(matching: .any)["home.page.\(space)"].firstMatch
+    }
+
+    private func assertSelected(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isSelected == true"), object: element
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed, file: file, line: line)
+    }
+
+    private func assertPageCentered(_ page: XCUIElement, midX: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
+        let centered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            page.exists && !page.frame.isEmpty && abs(page.frame.midX - midX) <= 2
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [centered], timeout: 5), .completed, "The active page must settle at its original horizontal position", file: file, line: line)
+    }
+
+    private func homeSwipeY(_ app: XCUIApplication) -> CGFloat {
+        for identifier in ["home.radioWall.streamInfo", "home.allFavorites", "home.startListening.all", "home.recentAlbums.viewAll"] {
+            let header = app.buttons[identifier]
+            if header.exists, header.isHittable { return header.frame.midY }
+        }
+        for title in ["还没有电台", "欢迎使用 Primuse"] {
+            let label = app.staticTexts[title]
+            if label.exists, label.isHittable { return label.frame.midY }
+        }
+        let bar = app.descendants(matching: .any)["home.spaceFilter"].firstMatch
+        return min(bar.frame.maxY + 380, app.frame.maxY - 180)
+    }
+
+    private func homeContentFrame(_ app: XCUIApplication) -> CGRect {
+        let spaces = ["music", "radio", "spokenWord", "podcast"]
+        let selected = spaces.first { space in
+            let button = app.buttons["home.spaceFilter.\(space)"]
+            return button.exists && button.isSelected
+        }
+        let frame = homePage(app, selected ?? "overview").frame.intersection(app.frame)
+        XCTAssertFalse(frame.isNull)
+        XCTAssertGreaterThan(frame.width, 100)
+        return frame
+    }
+
+    private func homeCoordinate(_ app: XCUIApplication, x: CGFloat, y: CGFloat) -> XCUICoordinate {
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: x - app.frame.minX, dy: y - app.frame.minY))
+    }
+
+    private func swipeHomePage(_ app: XCUIApplication, forward: Bool) {
+        let y = homeSwipeY(app)
+        let frame = homeContentFrame(app)
+        let right = homeCoordinate(app, x: frame.minX + frame.width * 0.9, y: y)
+        let left = homeCoordinate(app, x: frame.minX + frame.width * 0.1, y: y)
+        let start = forward ? right : left
+        let end = forward ? left : right
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
+    private func pullHomePage(_ app: XCUIApplication, holdDuration: TimeInterval) {
+        let bar = app.descendants(matching: .any)["home.spaceFilter"].firstMatch
+        let start = homeCoordinate(app, x: homeContentFrame(app).midX, y: bar.frame.maxY + 70)
+        let end = start.withOffset(CGVector(dx: 0, dy: 150))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: holdDuration)
+    }
+
+    private func setSwitchValue(_ control: XCUIElement, to value: String, file: StaticString = #filePath, line: UInt = #line) {
+        if control.value as? String != value {
+            // The edit-mode List exposes the whole row as a switch; tap its actual control.
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        }
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            control.value as? String == value
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, file: file, line: line)
+    }
+
+    private func openFilterEditor(_ app: XCUIApplication) {
+        let editor = app.buttons["home.edit.filterBar"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 30))
+        editor.tap()
+        XCTAssertTrue(app.buttons["home.filterBar.appearance"].waitForExistence(timeout: 5))
+    }
+
+    private func openHome(_ app: XCUIApplication) {
+        let homeIsVisible = NSPredicate { _, _ in
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.page.")).firstMatch.exists
+                && !app.buttons["interfaceEditor.home.restore"].exists
+        }
+        if homeIsVisible.evaluate(with: nil) { return }
+
+        let destinations = [
+            app.tabBars.buttons["首页"],
+            app.cells.containing(.staticText, identifier: "首页").firstMatch,
+            app.buttons.matching(identifier: "首页").firstMatch
+        ]
+        var timeout: TimeInterval = 30
+        if let destination = destinations.first(where: { $0.exists && $0.isHittable }) {
+            destination.tap()
+        } else {
+            // A collapsed iPad sidebar has no hittable destination; use the existing debug route.
+            app.terminate()
+            app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "home"
+            app.launch()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_PAGE")
+            timeout = 90
+        }
+        let opened = XCTNSPredicateExpectation(predicate: homeIsVisible, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [opened], timeout: timeout), .completed)
+    }
+
+    private func restoreHomeAfterTest(_ app: XCUIApplication, arguments: [String]) {
+        addTeardownBlock { @MainActor in
+            self.continueAfterFailure = true
+            self.restoreHome(app, arguments: arguments)
+        }
+    }
+
+    private func restoreHome(_ app: XCUIApplication, arguments: [String]) {
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launchArguments = arguments + [
+            "-primuse.navigation.mode.v1", "standard"
+        ]
+        app.launch()
+        openHome(app)
+        for space in ["music", "radio", "spokenWord", "podcast"] {
+            let button = app.buttons["home.spaceFilter.\(space)"]
+            if button.exists, button.isSelected { button.tap() }
+        }
+        XCTAssertTrue(homePage(app, "overview").waitForExistence(timeout: 5))
+        app.terminate()
     }
 
     func testIconsWithSavedTextOnlyPreference() {

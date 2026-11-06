@@ -60,6 +60,7 @@ extension AudioPlayerService {
     func preparePodcastEpisodeForPlayback(_ song: Song) async -> Song {
         guard PodcastPlaybackSong.isEpisode(song) else { return song }
         let song = withPodcastVideoReference(song)
+        if PodcastPlaybackSong.hasSeparateVideo(song), usesVideoPipeline(for: song) { return song }
         if let local = PodcastDownloadStore.shared.localURL(for: song.id) {
             let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? Int64) ?? song.fileSize
             return replacingPodcastFileSize(song, with: size)
@@ -109,15 +110,14 @@ extension AudioPlayerService {
         return true
     }
 
-    /// 升级前存下的队列(冷启动恢复、播客队列记忆)里,视频单集还没带 `mvPath`;
-    /// 按单集现在的样子补上,放画面还是只放声音才有得选(#365)。
+    /// 恢复队列时使用单集当前的视频地址，补齐旧快照并更新刷新后变化的视频链接。
     private func withPodcastVideoReference(_ song: Song) -> Song {
-        guard song.mvPath == nil,
-              let found = PodcastStore.shared.episode(id: song.id),
-              found.episode.playsAsVideo,
+        guard let found = PodcastStore.shared.episode(id: song.id),
+              let videoURL = found.episode.videoPlaybackURL,
+              song.mvPath != videoURL.absoluteString,
               found.episode.enclosureURL.absoluteString == song.filePath else { return song }
         var updated = song
-        updated.mvPath = song.filePath
+        updated.mvPath = videoURL.absoluteString
         return replacingPodcastSong(updated)
     }
 
@@ -135,6 +135,25 @@ extension AudioPlayerService {
         if let local = PodcastDownloadStore.shared.localURL(for: song.id) { return local }
         if let probe = PodcastEnclosureProbeCache.shared.probe(forEpisodeID: song.id) { return probe.finalURL }
         return URL(string: song.filePath)
+    }
+
+    /// 独立视频版本不能误用音频下载或音频探测后的 CDN 地址。
+    func resolvedPodcastVideoURL(for song: Song) -> URL? {
+        guard PodcastPlaybackSong.isVideoEpisode(song) else { return nil }
+        if PodcastPlaybackSong.hasSeparateVideo(song), let path = song.mvPath {
+            guard let url = URL(string: path), ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+            return url
+        }
+        return resolvedPodcastURL(for: song)
+    }
+
+    func prefersNativePodcastAudioPlayback(for song: Song, url: URL) -> Bool {
+        guard PodcastPlaybackSong.isVideoEpisode(song),
+              !PodcastPlaybackSong.hasSeparateVideo(song),
+              !usesVideoPipeline(for: song),
+              song.cueStartTime == nil, song.cueEndTime == nil,
+              song.appliedPlaybackRange == nil else { return false }
+        return url.isFileURL || ["https", "http"].contains(url.scheme?.lowercased() ?? "")
     }
 
     /// 下一集提前探好,换集时少等一个来回。

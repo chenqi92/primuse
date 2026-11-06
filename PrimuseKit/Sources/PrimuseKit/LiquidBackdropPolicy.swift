@@ -60,6 +60,44 @@ public struct LiquidBackdropColor: Equatable, Hashable, Sendable {
 }
 
 public enum MeshBackdropPalettePolicy {
+    /// A compact palette for white player controls. Tone each stop separately so a
+    /// pale highlight cannot force a black scrim over every other cover color.
+    public static func vividPalette(from palette: [LiquidBackdropColor], usesIncreasedContrast: Bool = false) -> [LiquidBackdropColor] {
+        let chromatic = palette.filter {
+            $0.hsl.saturation >= 0.18 && max($0.red, $0.green, $0.blue) - min($0.red, $0.green, $0.blue) >= 0.07
+        }
+        let candidates = chromatic.isEmpty ? palette : chromatic
+        var selected: [LiquidBackdropColor] = []
+        for color in candidates {
+            let hsl = color.hsl
+            let distinct = !selected.contains { existing in
+                let other = existing.hsl
+                let hueDistance = min(abs(hsl.hue - other.hue), 1 - abs(hsl.hue - other.hue))
+                return hueDistance < 0.04 && abs(hsl.lightness - other.lightness) < 0.12
+            }
+            if distinct { selected.append(color) }
+            if selected.count == 4 { break }
+        }
+        return selected.map { color in
+            let hsl = color.hsl
+            let toned = LiquidBackdropColor(hue: hsl.hue, saturation: hsl.saturation,
+                                           lightness: min(max(hsl.lightness, 0.20), 0.60))
+            let components = [toned.red, toned.green, toned.blue].map(linear)
+            let luminance = components[0] * 0.2126 + components[1] * 0.7152 + components[2] * 0.0722
+            let ceiling = usesIncreasedContrast ? 0.06 : 0.12
+            let scale = luminance > ceiling ? ceiling / luminance : 1
+            func encoded(_ value: Double) -> Double {
+                let value = value * scale
+                return value <= 0.0031308 ? value * 12.92 : 1.055 * pow(value, 1 / 2.4) - 0.055
+            }
+            return LiquidBackdropColor(red: encoded(components[0]), green: encoded(components[1]), blue: encoded(components[2]))
+        }
+    }
+
+    private static func linear(_ value: Double) -> Double {
+        value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+    }
+
     public static func colors(for palette: [LiquidBackdropColor]) -> [LiquidBackdropColor] {
         guard !palette.isEmpty else { return [] }
         // 九个顶点容纳全部七种代表色，主色重复在左上和中央。
@@ -147,7 +185,7 @@ public enum LiquidBackdropPalettePolicy {
     ]
 
     /// - Parameter pixels: 小图的像素,每个是 0…255 的 RGB。透明的像素调用方先去掉。
-    /// - Returns: 2…7 个颜色,主色在最前;像素太少、或全是一个颜色时返回空数组,调用方用主题色兜底。
+    /// - Returns: 1…7 个颜色,主色在最前;像素太少时返回空数组。纯色封面保留原色。
     public static func palette(fromRGB pixels: [(UInt8, UInt8, UInt8)], maximumCount: Int = 7) -> [LiquidBackdropColor] {
         guard pixels.count >= 16 else { return [] }
         // 每通道 4 位量化,同一格取平均。
@@ -205,7 +243,7 @@ public enum LiquidBackdropPalettePolicy {
         let colors = picked.prefix(maximumCount).map { clamped($0.color) }
         var distinct: [LiquidBackdropColor] = []
         for color in colors where !distinct.contains(color) { distinct.append(color) }
-        return distinct.count >= 2 ? distinct : []
+        return distinct
     }
 
     /// 底色:前两个颜色混一下,压暗、降一点饱和度,铺在色块下面。

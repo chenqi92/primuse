@@ -162,6 +162,39 @@ struct HomeFilterBarConfigurationTests {
         #expect(following == .followingSections)
     }
 
+    @Test("黑白单色独立保存，旧偏好继续使用彩色")
+    func monochromePreservesExistingPreferences() {
+        let legacy = #"{"order":["podcast","music","radio","spokenWord"],"hidden":["radio"],"labelStyle":"iconOnly","appearance":"segmented","swipeEnabled":false}"#
+        var configuration = HomeFilterBarConfiguration.decode(legacy)
+        #expect(!configuration.monochrome)
+        #expect(!configuration.encoded().contains("monochrome"))
+        configuration.monochrome = true
+        let decoded = HomeFilterBarConfiguration.decode(configuration.encoded())
+        #expect(decoded == configuration)
+        #expect(decoded.order.first == .podcast)
+        #expect(decoded.hidden == [.radio])
+        #expect(decoded.labelStyle == .iconOnly)
+        #expect(decoded.appearance == .segmented)
+        #expect(!decoded.swipeEnabled)
+        #expect(decoded.followingSectionsAgain().monochrome)
+    }
+
+    @Test("只改单色不改变首页显隐，重新跟随区块时保留单色")
+    func monochromeAloneKeepsFollowingSections() {
+        var configuration = HomeFilterBarConfiguration.followingSections
+        configuration.monochrome = true
+        let decoded = HomeFilterBarConfiguration.decode(configuration.encoded())
+        #expect(decoded.followsSections)
+        #expect(decoded.monochrome)
+        #expect(decoded.visibleSpaces(sectionShown: { $0 != .radio }, isAvailable: { _ in true }) == [.music, .spokenWord, .podcast])
+        let customized = decoded.customized { $0 != .radio }
+        #expect(customized.monochrome)
+        #expect(customized.hidden == [.radio])
+        #expect(customized.followingSectionsAgain().monochrome)
+        configuration.monochrome = false
+        #expect(configuration.encoded().isEmpty)
+    }
+
     // MARK: 自动退让
 
     /// 中文在 iPhone 13 mini / 15 Pro Max 上大致的胶囊宽度:图标加文字、只留文字、只留图标;选中多一个 ✕。
@@ -324,16 +357,18 @@ struct HomeFaceSwipePolicyTests {
         #expect(!unknown.swipeEnabled)
     }
 
-    @Test("翻页遵循可见顺序、跳过隐藏项且不首尾循环")
+    @Test("翻页遵循可见顺序、跳过隐藏项并首尾循环")
     func pagesFollowVisibleOrder() {
         let spaces: [ListeningSpace] = [.podcast, .music, .radio]
         #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: nil, forward: true) == .podcast)
         #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: nil, forward: false) == .radio)
         #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .podcast, forward: true) == .music)
         #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .radio, forward: false) == .music)
-        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .podcast, forward: false) == nil)
-        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .radio, forward: true) == nil)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .podcast, forward: false) == .radio)
+        #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .radio, forward: true) == .podcast)
         #expect(HomeFilterPagingPolicy.neighbor(in: [], selection: .music, forward: true) == nil)
+        #expect(HomeFilterPagingPolicy.neighbor(in: [.music], selection: .music, forward: true) == nil)
+        #expect(HomeFilterPagingPolicy.neighbor(in: [.music], selection: nil, forward: false) == nil)
         #expect(HomeFilterPagingPolicy.neighbor(in: spaces, selection: .spokenWord, forward: true) == .podcast)
     }
 

@@ -331,6 +331,28 @@ import Testing
 }
 
 @Suite struct ExternalTrackMatchPolicyTests {
+    @Test func titleBucketsPreserveAnnotationsAndUnicodeNormalization() {
+        let cases: [(String, String)] = [
+            ("夜航 (Live)", "夜航"), ("夜航（现场[嘉宾]）尾声", "夜航尾声"),
+            ("Ｎｉｇｈｔ - Remastered", "night"), ("A - B", "ab"),
+            ("後來【現場】", "后来"), ("未完（备注", "未完"),
+            ("Live Forever", "liveforever"), ("Night－伴奏", "night"),
+            ("Café [2024] – Acoustic", "cafe"), ("夜航现场版", "夜航现场版"),
+            ("（Live）", ""), ("", "")
+        ]
+        for (title, expected) in cases {
+            #expect(ExternalTrackMatchPolicy.normalizedCoreTitle(title) == expected)
+            #expect(ExternalTrackMatchPolicy.splitTitle(title).core == expected)
+        }
+        for title in ["Night", "後來", "Ｎｉｇｈｔ", "Café", "夜航现场版"] {
+            for suffix in ["", " (Live)", "【伴奏】", " (outer [inner])", " - Live", " – Remastered", "－B", " (未闭合"] {
+                let annotated = title + suffix
+                #expect(ExternalTrackMatchPolicy.normalizedCoreTitle(annotated)
+                    == ExternalTrackMatchPolicy.splitTitle(annotated).core)
+            }
+        }
+    }
+
     private func key(_ title: String, _ artists: [String], _ duration: Double?) -> ExternalTrackMatchPolicy.Key {
         .init(.init(title: title, artists: artists, duration: duration))
     }

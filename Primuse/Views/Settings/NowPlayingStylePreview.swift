@@ -157,6 +157,13 @@ struct NowPlayingStylePreview: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var alwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
+    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
+    private var usesVividMesh: Bool {
+        let backdrop = PlayerBackdropSettingsStore.shared
+        return PlayerAppearancePreferences.usesVividMesh(
+            enabled: vividMesh, source: backdrop.effectiveSource, style: backdrop.settings.ambientStyle
+        )
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -176,7 +183,7 @@ struct NowPlayingStylePreview: View {
                 .frame(width: canvas.size.width, height: canvas.size.height)
                 .clipShape(RoundedRectangle(cornerRadius: canvas.cornerRadius, style: .continuous))
                 // 全屏效果页本来就固定深色;其余按「播放页始终用深色」。
-                .environment(\.colorScheme, surface == .effect || alwaysDark ? .dark : systemColorScheme)
+                .environment(\.colorScheme, surface == .effect || alwaysDark || usesVividMesh ? .dark : systemColorScheme)
                 .scaleEffect(scale)
                 .frame(width: geometry.size.width, height: geometry.size.height)
         }

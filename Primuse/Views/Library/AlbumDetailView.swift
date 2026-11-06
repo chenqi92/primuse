@@ -409,7 +409,6 @@ struct AlbumDetailView: View {
     /// 收藏在头图那一行的心上，播放与随机也在那里。
     @ViewBuilder
     private var albumMoreMenuContent: some View {
-        AlbumReleaseCategoryMenu(album: album)
         let playable = albumSongs.filteredPlayable()
         let downloads = downloadableSongs
         PMMenuQuickActions {
@@ -452,7 +451,11 @@ struct AlbumDetailView: View {
             }
         }
 
-        Toggle("album_show_track_artwork", isOn: $showsTrackArtwork)
+        AlbumReleaseCategoryMenu(album: album)
+
+        Toggle(isOn: $showsTrackArtwork) {
+            Label("album_show_track_artwork", systemImage: "photo")
+        }
 
         if !isCatalogAlbum {
             Section {

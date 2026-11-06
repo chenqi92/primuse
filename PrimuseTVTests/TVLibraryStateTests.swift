@@ -9,6 +9,28 @@ import UIKit
 
 @MainActor
 final class TVLibraryStateTests: XCTestCase {
+    func testSnapshotDeltaParticipatesInTheInstallBaselineAndSurvivesImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let song = fixture.song("delta-song")
+        fixture.library.addSongs([song])
+        await fixture.library.waitForPendingIndex()
+        _ = await fixture.library.persistNowAndWait()
+        let sync = LibrarySnapshotSync.shared
+        let before = try XCTUnwrap(sync.readTVPayloadInstallBaseline(destinationDirectory: fixture.directory))
+        fixture.library.recordPlayback(of: song.id)
+        _ = await fixture.library.persistNowAndWait(materializePortableSnapshot: false)
+        let after = try XCTUnwrap(sync.readTVPayloadInstallBaseline(destinationDirectory: fixture.directory))
+        XCTAssertFalse(SnapshotBaselineGate.isStillValid(captured: before.libraryIdentity, current: after.libraryIdentity))
+        let data = try XCTUnwrap(after.existingLibraryData)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["recentPlaybackSongIDs"] as? [String], [song.id])
+        XCTAssertTrue(sync.installTVPayload(try fixture.payload(songs: [song]), credentialReference: nil,
+                                           destinationDirectory: fixture.directory))
+        let reopened = MusicLibrary(storageDirectory: fixture.directory, preferExternalSnapshot: true)
+        XCTAssertEqual(reopened.recentPlaybackSongIDsForSync, [song.id])
+    }
+
     func testCorruptMetadataMergesArtistsAndRefreshesSearchOnImportAndReload() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

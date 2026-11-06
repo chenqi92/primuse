@@ -514,6 +514,14 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         for audioPath in cueTracksByAudioPath.keys {
             cueImageCountByDirectory[(audioPath as NSString).deletingLastPathComponent, default: 0] += 1
         }
+        var existingCueOffsetsByPath: [String: [Int]] = [:]
+        if !cueTracksByAudioPath.isEmpty {
+            for offset in existingSongs.indices where existingSongs[offset].isCueTrack {
+                let path = existingSongs[offset].filePath
+                guard cueTracksByAudioPath[path] != nil else { continue }
+                existingCueOffsetsByPath[path, default: []].append(offset)
+            }
+        }
         let existingByID = Dictionary(
             existingSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -594,9 +602,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                                 cueRevisions: descriptors.map(\.cueRevision)
                                     + trackLyrics.values.flatMap(\.values).compactMap(\.revision)
                             )
-                            let existingTracks = existingSongs.filter {
-                                $0.filePath == item.path && $0.isCueTrack
-                            }
+                            let existingTracks = (existingCueOffsetsByPath[item.path] ?? []).map { existingSongs[$0] }
                             if !existingTracks.isEmpty,
                                existingTracks.allSatisfy({
                                    $0.revision == expectedRevision

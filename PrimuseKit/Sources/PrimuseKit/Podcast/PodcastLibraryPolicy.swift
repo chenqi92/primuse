@@ -89,6 +89,8 @@ public enum PodcastFeedMerge {
                 enclosureURL: enclosure,
                 enclosureType: item.enclosureType,
                 enclosureLength: item.enclosureLength,
+                videoURL: item.videoURL,
+                videoType: item.videoType,
                 artworkURL: item.artworkURL,
                 season: item.season,
                 number: item.number,

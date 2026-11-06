@@ -193,8 +193,13 @@ struct MetadataReadSchedulerTests {
     @Test func foregroundEntrypointsShareTheSelectedBudget() {
         for preference in MetadataReadingMode.automaticCases {
             let scan = MetadataBackfillExecutionPolicy.limits(for: .foregroundAfterSourceScan, preference: preference)
-            #expect(scan == MetadataBackfillExecutionPolicy.limits(for: .userInitiated, preference: preference))
             #expect(scan == MetadataBackfillExecutionPolicy.limits(for: .standard, preference: preference))
+            let explicit = MetadataBackfillExecutionPolicy.limits(for: .userInitiated, preference: preference)
+            #expect(scan.workerCount == explicit.workerCount)
+            #expect(scan.snapshotLimit == explicit.snapshotLimit)
+            #expect(scan.interRequestDelay >= explicit.interRequestDelay)
+            #expect(scan.flushInterval == explicit.flushInterval)
+            #expect(scan.flushBatchSize == explicit.flushBatchSize)
         }
     }
 
@@ -407,7 +412,7 @@ struct MetadataReadSchedulerTests {
                     continuedProcessing: true, recentProcessingDuration: 0.2
                 )
                 let foreground = MetadataBackfillExecutionPolicy.limits(
-                    for: .userInitiated, preference: preference,
+                    for: .standard, preference: preference,
                     environment: .init(playbackActive: playing), recentProcessingDuration: 0.2
                 )
                 #expect(background == foreground)

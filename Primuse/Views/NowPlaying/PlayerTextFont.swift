@@ -734,13 +734,15 @@ struct LyricsWeightPicker: View {
     private var rawValue = PlayerLyricsWeight.automatic.rawValue
 
     var body: some View {
-        Picker("lyrics_weight", selection: Binding(
+        Picker(selection: Binding(
             get: { PlayerLyricsWeight.resolved(rawValue) },
             set: { rawValue = $0.rawValue }
         )) {
             ForEach(PlayerLyricsWeight.allCases) { weight in
                 Text(LocalizedStringKey(weight.titleKey)).tag(weight)
             }
+        } label: {
+            Label("lyrics_weight", systemImage: "bold")
         }
         .onChange(of: rawValue) { _, _ in
             CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.lyricsWeightKey)

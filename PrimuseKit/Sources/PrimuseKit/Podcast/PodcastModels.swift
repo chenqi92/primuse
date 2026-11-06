@@ -325,6 +325,9 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
     public var enclosureURL: URL
     public var enclosureType: String?
     public var enclosureLength: Int64?
+    /// 与音频 enclosure 对应的独立视频版本；下载和只听声音仍使用 enclosure。
+    public var videoURL: URL?
+    public var videoType: String?
     public var artworkURL: URL?
     public var season: Int?
     public var number: Int?
@@ -352,6 +355,8 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
         enclosureURL: URL,
         enclosureType: String? = nil,
         enclosureLength: Int64? = nil,
+        videoURL: URL? = nil,
+        videoType: String? = nil,
         artworkURL: URL? = nil,
         season: Int? = nil,
         number: Int? = nil,
@@ -375,6 +380,8 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
         self.enclosureURL = enclosureURL
         self.enclosureType = enclosureType
         self.enclosureLength = enclosureLength
+        self.videoURL = videoURL
+        self.videoType = videoType
         self.artworkURL = artworkURL
         self.season = season
         self.number = number
@@ -390,7 +397,7 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, showID, guid, title, subtitle, showNotes, publishedAt, duration
-        case enclosureURL, enclosureType, enclosureLength, artworkURL, season, number, kind, link
+        case enclosureURL, enclosureType, enclosureLength, videoURL, videoType, artworkURL, season, number, kind, link
         case chaptersURL, chapters, transcriptURL, transcriptType, isExplicit, firstSeenAt
     }
 
@@ -407,6 +414,8 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
         enclosureURL = try c.decode(URL.self, forKey: .enclosureURL)
         enclosureType = try c.decodeIfPresent(String.self, forKey: .enclosureType)
         enclosureLength = try c.decodeIfPresent(Int64.self, forKey: .enclosureLength)
+        videoURL = try c.decodeIfPresent(URL.self, forKey: .videoURL)
+        videoType = try c.decodeIfPresent(String.self, forKey: .videoType)
         artworkURL = try c.decodeIfPresent(URL.self, forKey: .artworkURL)
         season = try c.decodeIfPresent(Int.self, forKey: .season)
         number = try c.decodeIfPresent(Int.self, forKey: .number)
@@ -424,7 +433,7 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
     public var audioFileExtension: String {
         let pathExtension = enclosureURL.pathExtension.lowercased()
         if PodcastIdentity.knownAudioExtensions.contains(pathExtension) { return pathExtension }
-        switch enclosureType?.lowercased() {
+        switch Self.normalizedMIMEType(enclosureType) {
         case "audio/mp4", "audio/x-m4a", "audio/m4a", "audio/aac", "audio/x-m4b": return "m4a"
         case "audio/ogg", "audio/opus": return "ogg"
         case "audio/flac", "audio/x-flac": return "flac"
@@ -438,18 +447,38 @@ public struct PodcastEpisode: Codable, Hashable, Sendable, Identifiable {
 
     /// 视频播客(enclosure 是视频),列表上标出来。
     public var isVideo: Bool {
-        if let type = enclosureType?.lowercased(), type.hasPrefix("video/") { return true }
+        if alternateVideoPlaybackURL != nil { return true }
+        if let type = Self.normalizedMIMEType(enclosureType), type.hasPrefix("video/") { return true }
         return ["mp4", "m4v", "mov"].contains(enclosureURL.pathExtension.lowercased())
-            && enclosureType?.lowercased().hasPrefix("audio/") != true
+            && Self.normalizedMIMEType(enclosureType)?.hasPrefix("audio/") != true
     }
 
-    /// 能放画面的视频单集:MP4/M4V/MOV,放画面和只放声音都行(`SpokenWordVideoPolicy`)。
-    /// 别的视频格式照旧只放声音。
-    public var playsAsVideo: Bool {
-        isVideo && SpokenWordVideoPolicy.supportsAudioOnly(
-            path: enclosureURL.absoluteString,
-            fallbackExtension: audioFileExtension
-        )
+    public var videoPlaybackURL: URL? {
+        if let alternateVideoPlaybackURL { return alternateVideoPlaybackURL }
+        guard isVideo, SpokenWordVideoPolicy.supportsAudioOnly(
+            path: enclosureURL.absoluteString, fallbackExtension: audioFileExtension
+        ) else { return nil }
+        return enclosureURL
+    }
+
+    public var playsAsVideo: Bool { videoPlaybackURL != nil }
+
+    private var alternateVideoPlaybackURL: URL? {
+        guard let videoURL, ["https", "http"].contains(videoURL.scheme?.lowercased() ?? "") else { return nil }
+        if let format = VideoFormat.from(fileExtension: videoURL.pathExtension) {
+            return format.isNativelyPlayable ? videoURL : nil
+        }
+        switch Self.normalizedMIMEType(videoType) {
+        case "video/mp4", "video/x-m4v", "video/quicktime", "application/vnd.apple.mpegurl", "application/x-mpegurl":
+            return videoURL
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizedMIMEType(_ value: String?) -> String? {
+        value?.split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 

@@ -144,6 +144,13 @@ enum PlayerLyricsWeight: String, CaseIterable, Identifiable {
 }
 
 enum PlayerAppearancePreferences {
+    static let miniPlayerLyricsKey = "primuse.player.miniPlayerLyrics"
+    static let vividMeshKey = "primuse.player.vividMesh"
+
+    static func usesVividMesh(enabled: Bool, source: PlayerBackdropSource, style: PlayerAmbientStyle) -> Bool {
+        enabled && source == .coverAmbient && style == .mesh
+    }
+
     static let pinsMiniPlayerKey = "primuse.player.pinsMiniPlayer"
     static let pinsMiniPlayerByDefault = false
 

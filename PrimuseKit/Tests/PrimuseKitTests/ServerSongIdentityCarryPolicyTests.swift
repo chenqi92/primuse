@@ -44,6 +44,43 @@ struct NavidromeCanonicalIDPolicyTests {
             == "7N42dgm5tFLK9N8MT7fHC7")
     }
 
+    @Test func overflowBoundaryAndInvalidSuffixKeepServerSemantics() {
+        for id in ["7N42dgm5tFLK9N8MT7fHC6", "7N42dgm5tFLK9N8MT7fHC7", "ZZZZZZZZZZZZZZZZZZZZZ!"] {
+            #expect(canonical(id) == id)
+        }
+        var hashes = 0
+        let result = NavidromeCanonicalIDPolicy.canonicalID("7N42dgm5tFLK9N8MT7fHC8") { _ in
+            hashes += 1
+            return Data(repeating: 0, count: 16)
+        }
+        #expect(hashes == 1)
+        #expect(result == String(repeating: "0", count: 22))
+    }
+
+    @Test func encodingMatchesBytewiseLongDivision() {
+        let alphabet = Array("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".utf8)
+        var state: UInt64 = 0x1254_bacd_7689_ef01
+        for _ in 0..<256 {
+            let bytes = (0..<16).map { _ -> UInt8 in
+                state = state &* 6_364_136_223_846_793_005 &+ 1
+                return UInt8(truncatingIfNeeded: state >> 32)
+            }
+            var remainderBytes = bytes.map(Int.init)
+            var expected: [UInt8] = []
+            while remainderBytes.contains(where: { $0 != 0 }) {
+                var carry = 0
+                for index in remainderBytes.indices {
+                    let value = carry * 256 + remainderBytes[index]
+                    remainderBytes[index] = value / 62
+                    carry = value % 62
+                }
+                expected.append(alphabet[carry])
+            }
+            while expected.count < 22 { expected.append(alphabet[0]) }
+            #expect(NavidromeCanonicalIDPolicy.encode(bytes) == String(decoding: expected.reversed(), as: UTF8.self))
+        }
+    }
+
     @Test func overflowingRandomIDsAreRemappedThroughMD5() {
         var hashedInput: Data?
         let result = NavidromeCanonicalIDPolicy.canonicalID(

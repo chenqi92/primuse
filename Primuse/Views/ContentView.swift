@@ -1622,6 +1622,7 @@ struct ContentView: View {
                 LaunchSafeModeView()
             } else {
                 mainContent
+                    .modifier(FloatingLyricsRootModifier())
                     .environment(\.openLibraryDestination, { link in
                         showNowPlaying = false
                         openLibraryDeepLink(link)
@@ -2321,6 +2322,13 @@ struct PlayerOverlay: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(PlayerAppearancePreferences.alwaysDarkKey)
     private var playerAlwaysDark = PlayerAppearancePreferences.alwaysDarkByDefault
+    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
+    private var usesDarkPlayer: Bool {
+        let backdrop = PlayerBackdropSettingsStore.shared
+        return playerAlwaysDark || PlayerAppearancePreferences.usesVividMesh(
+            enabled: vividMesh, source: backdrop.effectiveSource, style: backdrop.settings.ambientStyle
+        )
+    }
     @State private var presentationPhase = PresentationPhase.staging
     /// 第一次入场停稳后一直为真:推迟的内容(歌词、大图)建好以后休眠也留着。
     @State private var presentationHasSettled = false
@@ -2381,11 +2389,11 @@ struct PlayerOverlay: View {
                 .equatable()
                 // 「播放页始终用深色」(#313):只给播放页这一层换成深色,底下的 App 不跟着变。
                 // 状态栏的字色另外换(见下面的 `PlayerLightStatusBar`)。
-                .environment(\.colorScheme, playerAlwaysDark ? .dark : systemColorScheme)
+                .environment(\.colorScheme, usesDarkPlayer ? .dark : systemColorScheme)
                 // 全屏文稿等页面「跟随系统」时看这个:播放页上面那行可能已把 colorScheme 换成深色。
                 .environment(\.appColorScheme, systemColorScheme)
                 // 播放页里弹出的页面据此整页换成深色(`playerPresentationColorScheme`),不然白字压在浅色底上。
-                .environment(\.playerForcesDarkAppearance, playerAlwaysDark)
+                .environment(\.playerForcesDarkAppearance, usesDarkPlayer)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 // Keep eagerly decoded artwork and its shadow inside the same
                 // off-screen presentation surface as the rest of the player.
@@ -2414,7 +2422,7 @@ struct PlayerOverlay: View {
         // 展开着的时候换成白字,开始收起就交还给底下的 App。
         .background {
             PlayerLightStatusBar(
-                isActive: playerAlwaysDark && systemColorScheme == .light && presentationPhase == .visible
+                isActive: usesDarkPlayer && systemColorScheme == .light && presentationPhase == .visible
             )
             .frame(width: 0, height: 0)
         }

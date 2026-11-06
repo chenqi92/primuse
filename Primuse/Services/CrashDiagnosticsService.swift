@@ -112,6 +112,7 @@ final class CrashDiagnosticsService: NSObject {
         plog("🧠 memory pressure \(level); dropping decoded artwork cache")
         crashLog.notice("Memory pressure \(level, privacy: .public); dropping decoded artwork cache")
         CachedArtworkView.purgeDecodedImageCache()
+        NotificationCenter.default.post(name: .primuseMemoryPressure, object: nil)
     }
 
     /// 列出已收集的崩溃 / 卡顿报告(给 Settings 视图渲染列表用),按时间倒序。

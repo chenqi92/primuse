@@ -20,6 +20,66 @@ import XCTest
 @MainActor
 final class LibraryStartupHarnessTests: XCTestCase {
 
+    func testUnchangedMirrorSkipsRematchingButNewSongsStillResolve() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PendingMatch-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let sourceID = UUID().uuidString
+        let playlistID = ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: "mirror")
+        let entry = PlaylistPendingEntry(title: "Orbit Window", artists: ["Paper Satellites"], duration: 180,
+                                         origin: "jellyfin", externalID: "target", serverSourceID: sourceID)
+        library.addSongs([Song(id: "existing", title: "Quiet Compass", fileFormat: .flac,
+                               filePath: "/items/existing.flac", sourceID: sourceID)])
+        await library.waitForPendingIndex()
+        library.ensurePlaylist(id: playlistID, name: "Mirror")
+        library.replaceMirrorPlaylistSongs(playlistID: playlistID, songIDs: [entry.id],
+                                           coverArtPath: nil, pendingEntries: [entry])
+        await library.waitForPendingPlaylistResolution()
+        let passes = library.playlistPendingMatchPassCount
+        XCTAssertEqual(passes, 1)
+        XCTAssertNotNil(library.pendingEntry(id: entry.id))
+
+        for _ in 0..<3 {
+            library.replaceMirrorPlaylistSongs(playlistID: playlistID, songIDs: [entry.id],
+                                               coverArtPath: nil, pendingEntries: [entry])
+        }
+        await library.waitForPendingPlaylistResolution()
+        XCTAssertEqual(library.playlistPendingMatchPassCount, passes)
+
+        library.addSongs([Song(id: "arrived", title: entry.title, fileFormat: .flac,
+                               filePath: "/items/target.flac", sourceID: sourceID)])
+        await library.waitForPendingIndex()
+        await library.waitForPendingPlaylistResolution()
+        XCTAssertGreaterThan(library.playlistPendingMatchPassCount, passes)
+        XCTAssertEqual(library.songIDs(forPlaylist: playlistID), ["arrived"])
+        XCTAssertNil(library.pendingEntry(id: entry.id))
+        await Self.drainLaunchCacheWrites(library)
+    }
+
+    private actor ClassificationPreparationGate {
+        private var started = false
+        private var released = false
+        private var startWaiter: CheckedContinuation<Void, Never>?
+        private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+        func pause() async {
+            started = true
+            startWaiter?.resume()
+            startWaiter = nil
+            if !released { await withCheckedContinuation { releaseWaiter = $0 } }
+        }
+
+        func waitUntilStarted() async {
+            if !started { await withCheckedContinuation { startWaiter = $0 } }
+        }
+
+        func release() {
+            released = true
+            releaseWaiter?.resume()
+            releaseWaiter = nil
+        }
+    }
+
     private static func folderFixture() async throws -> (URL, [Song], AlbumArtistFolderIndex) {
         let directory = try makeStorageDirectory()
         let sourceID = "folder-fixture-\(UUID().uuidString)"
@@ -149,6 +209,54 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await Self.drainLaunchCacheWrites(reopened)
     }
 
+    func testBackgroundClassificationKeepsEditsMadeDuringPreparation() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let song = Song(id: UUID().uuidString, title: "A Story", duration: 180,
+                        fileFormat: .flac, filePath: "/story.flac", sourceID: "classification-fixture")
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([song], affectedSourceIDs: [song.sourceID])
+        await library.waitForPendingIndex()
+        let store = SpokenWordStore.shared
+        defer { store.setKind(nil, forSongIDs: [song.id]) }
+        store.setKind(.spokenWord, forSongIDs: [song.id])
+        let gate = ClassificationPreparationGate()
+        library.contentClassificationPreparationForTesting = { await gate.pause() }
+        let refresh = Task { await library.refreshContentClassificationInBackground() }
+        await gate.waitUntilStarted()
+        library.updateLyricsText([song.id: "A paper boat crosses the quiet pond."])
+        await gate.release()
+        await refresh.value
+        XCTAssertEqual(library.spokenWordSongs.map(\.id), [song.id])
+        XCTAssertEqual(library.spokenWordSongs.first?.lyricsText, "A paper boat crosses the quiet pond.")
+        XCTAssertTrue(library.musicSongs.isEmpty)
+        await Self.drainLaunchCacheWrites(library)
+    }
+
+    func testExplicitClassificationSupersedesAnOlderBackgroundResult() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let song = Song(id: UUID().uuidString, title: "A Story", duration: 180,
+                        fileFormat: .flac, filePath: "/story.flac", sourceID: "classification-fixture")
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([song], affectedSourceIDs: [song.sourceID])
+        await library.waitForPendingIndex()
+        let store = SpokenWordStore.shared
+        defer { store.setKind(nil, forSongIDs: [song.id]) }
+        store.setKind(.spokenWord, forSongIDs: [song.id])
+        let gate = ClassificationPreparationGate()
+        library.contentClassificationPreparationForTesting = { await gate.pause() }
+        let refresh = Task { await library.refreshContentClassificationInBackground() }
+        await gate.waitUntilStarted()
+        store.setKind(.podcast, forSongIDs: [song.id])
+        library.refreshContentClassification()
+        await gate.release()
+        await refresh.value
+        XCTAssertTrue(library.spokenWordSongs.isEmpty)
+        XCTAssertEqual(library.localPodcastSongs.map(\.id), [song.id])
+        XCTAssertEqual(library.songs.map(\.id), [song.id])
+        await Self.drainLaunchCacheWrites(library)
+    }
 
     // MARK: - 规模
 
@@ -620,6 +728,52 @@ final class LibraryStartupHarnessTests: XCTestCase {
         await Self.drainLaunchCacheWrites(settle)
     }
 
+    func testScaleFixtureSmallStateWritesAndIdleCPU() async throws {
+        guard let directory = Self.scaleDirectory,
+              FileManager.default.fileExists(atPath: directory.appendingPathComponent("library-songs.sqlite").path) else {
+            throw XCTSkip("Build the scale fixture first (PRIMUSE_SCALE_DIR)")
+        }
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        library.publish(await MusicLibrary.prepareStartup(storageDirectory: directory))
+        await library.waitForPendingIndex()
+        let ids = library.songs.map(\.id)
+        guard ids.count >= 10 else { return XCTFail("scale fixture is too small") }
+        _ = library.createPlaylist(name: "Scale full catalog", songIDs: ids)
+        _ = library.createPlaylist(name: "Scale catalog subset", songIDs: Array(ids.prefix(ids.count / 4)))
+        _ = await library.persistNowAndWait()
+        await Self.drainLaunchCacheWrites(library)
+        let baseURL = directory.appendingPathComponent("library-cache.json")
+        let cacheURL = directory.appendingPathComponent("library-startup-cache.plist")
+        let deltaURL = directory.appendingPathComponent("library-cache.delta.plist")
+        let base = try baseURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let cache = try cacheURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let cpu = ImportLoadMatrixTests.cpuSeconds()
+        let started = ProcessInfo.processInfo.systemUptime
+        var deltaBytes = 0
+        for id in ids.prefix(6) {
+            library.recordPlayback(of: id)
+            guard case .success = await library.persistNowAndWait(materializePortableSnapshot: false) else {
+                return XCTFail("scale delta did not persist")
+            }
+            deltaBytes += try deltaURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        }
+        XCTAssertEqual(try baseURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                       base.contentModificationDate)
+        XCTAssertEqual(try cacheURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                       cache.contentModificationDate)
+        print(String(format: "REPORT_SCALE_WRITE songs=%d baseBytes=%d cacheBytes=%d sixDeltaBytes=%d wall=%.3f cpu=%.3f memoryMB=%.1f",
+                     ids.count, base.fileSize ?? 0, cache.fileSize ?? 0, deltaBytes,
+                     ProcessInfo.processInfo.systemUptime - started, ImportLoadMatrixTests.cpuSeconds() - cpu, Self.megabytes(Self.residentFootprint().current)))
+        let idleCPU = ImportLoadMatrixTests.cpuSeconds()
+        let idleStarted = ProcessInfo.processInfo.systemUptime
+        try await Task.sleep(for: .seconds(30))
+        print(String(format: "REPORT_SCALE_IDLE wall=%.3f cpu=%.3f memoryMB=%.1f",
+                     ProcessInfo.processInfo.systemUptime - idleStarted, ImportLoadMatrixTests.cpuSeconds() - idleCPU,
+                     Self.megabytes(Self.residentFootprint().current)))
+        library.releaseRebuildableCaches()
+        print(String(format: "REPORT_SCALE_PRESSURE memoryMB=%.1f materializedRows=%d", Self.megabytes(Self.residentFootprint().current), library.materializedSongRowCount))
+    }
+
     func testScaleFixtureFootprint() async throws {
         guard let directory = Self.scaleDirectory,
               FileManager.default.fileExists(atPath: directory.appendingPathComponent("library-songs.sqlite").path) else {
@@ -745,4 +899,438 @@ final class LibraryStartupHarnessTests: XCTestCase {
         XCTAssertGreaterThan(songCount, 0)
     }
 
+}
+
+
+@MainActor
+final class ImportLoadMatrixTests: XCTestCase {
+    private final class IsolatedFileManager: FileManager, @unchecked Sendable {
+        let root: URL
+        init(root: URL) { self.root = root; super.init() }
+        override func urls(for directory: FileManager.SearchPathDirectory,
+                           in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
+    }
+
+    @MainActor private final class Pulse {
+        var maximumGap: TimeInterval = 0
+        private var task: Task<Void, Never>?
+        func start() {
+            task = Task { @MainActor [weak self] in
+                var last = ProcessInfo.processInfo.systemUptime
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(20))
+                    let now = ProcessInfo.processInfo.systemUptime
+                    self?.maximumGap = max(self?.maximumGap ?? 0, now - last)
+                    last = now
+                }
+            }
+        }
+        func stop() { task?.cancel(); task = nil }
+    }
+
+    fileprivate static func cpuSeconds() -> Double {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec)
+            + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
+    }
+
+    private static func footprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : -1
+    }
+
+    private func measured<T>(_ label: String, operation: () async throws -> T) async rethrows -> T {
+        let pulse = Pulse()
+        pulse.start()
+        let started = ProcessInfo.processInfo.systemUptime
+        let cpu = Self.cpuSeconds()
+        let thermal = ProcessInfo.processInfo.thermalState.rawValue
+        defer {
+            pulse.stop()
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            print(String(format: "LOAD_MATRIX %@ wall=%.3fs cpu=%.3fs mainGap=%.1fms memory=%.1fMB thermal=%d->%d",
+                         label, elapsed, Self.cpuSeconds() - cpu, pulse.maximumGap * 1_000,
+                         Self.footprintMB(), thermal, ProcessInfo.processInfo.thermalState.rawValue))
+        }
+        return try await operation()
+    }
+
+    private func root() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ImportLoadMatrix-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
+    private func wave(seed: Int) -> Data {
+        let frames = 22_050
+        var data = Data()
+        func u16(_ v: UInt16) { var v = v.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
+        func u32(_ v: UInt32) { var v = v.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
+        data.append(contentsOf: "RIFF".utf8); u32(UInt32(36 + frames * 2))
+        data.append(contentsOf: "WAVEfmt ".utf8); u32(16); u16(1); u16(1)
+        u32(22_050); u32(44_100); u16(2); u16(16)
+        data.append(contentsOf: "data".utf8); u32(UInt32(frames * 2))
+        for index in 0..<frames { u16(UInt16(truncatingIfNeeded: (index * 13 + seed * 97) % 8192)) }
+        return data
+    }
+
+    private func files(in root: URL, count: Int, offset: Int = 0) throws -> [URL] {
+        try (0..<count).map { index in
+            let folder = root.appendingPathComponent("Group \(index % 4)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent("曲目 \(index + offset).wav")
+            try wave(seed: index + offset).write(to: file)
+            return file
+        }
+    }
+
+    private func scan(_ source: MusicSource, connector: any MusicSourceConnector,
+                      root: URL, library: MusicLibrary, store: SourcesStore,
+                      scan: ScanService, manager: SourceManager) async throws {
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        let deadline = Date().addingTimeInterval(240)
+        while scan.scanStates[source.id]?.isScanning == true, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        if scan.scanStates[source.id]?.isScanning == true {
+            scan.cancelScan(for: source.id, automaticallyResumes: false)
+            XCTFail("Source scan did not finish within its test budget")
+        }
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        await scan.waitForActiveScansToComplete()
+        await library.waitForPendingIndex()
+    }
+
+    private func copyFiles(_ files: [URL]) async -> LocalImportService.CopyResult {
+        let session = LocalImportService.copySession(files)
+        for await event in session.events {
+            if case .finished(let result) = event { return result }
+        }
+        XCTFail("Import session ended without a final result")
+        return .init()
+    }
+
+    private func exercisePlayback(_ songs: [Song], manager: SourceManager, label: String) async throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_LIVE_PLAYBACK"] == "1", !songs.isEmpty else { return }
+        let root = try root()
+        let suite = "ImportLoadPlayback.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("Library"))
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let player = AudioPlayerService(sourceManager: manager, library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: root.appendingPathComponent("Playback.json")))
+        player.audioEngine.setVolume(0, persist: false)
+        defer { player.stop() }
+        await measured("play-start-\(label)") { await player.play(queue: songs, startingAt: 0) }
+        let deadline = Date().addingTimeInterval(30)
+        while !player.isPlaying, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(player.isPlaying, "Playback did not start: \(label)")
+        XCTAssertEqual(player.currentSong?.id, songs[0].id)
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertGreaterThan(player.currentTime, 0)
+        player.pause()
+        XCTAssertFalse(player.isPlaying)
+        player.resume()
+        let resumeDeadline = Date().addingTimeInterval(30)
+        while !player.isPlaying, Date() < resumeDeadline { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(player.isPlaying)
+        let seekTarget = min(5, max(0, player.duration / 2))
+        player.seek(to: seekTarget, startPlaying: true)
+        let seekDeadline = Date().addingTimeInterval(30)
+        while (player.isLoading || !player.isPlaying), Date() < seekDeadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertGreaterThanOrEqual(player.currentTime, seekTarget - 1)
+        if songs.count > 1 {
+            let next = await measured("play-next-\(label)") { await player.next() }
+            XCTAssertTrue(next)
+            XCTAssertEqual(player.currentSong?.id, songs[1].id)
+        }
+        player.stop()
+        await library.beginExternalSnapshotWrite(); library.endExternalSnapshotWrite()
+    }
+
+    func testLocalImportCopyRescanBackfillCancelAndResume() async throws {
+        let root = try root()
+        let target = root.appendingPathComponent("Imported")
+        let key = "PRIMUSE_LOCAL_MUSIC_DIR"
+        let previous = ProcessInfo.processInfo.environment[key]
+        let requestedCount = Int(ProcessInfo.processInfo.environment["PRIMUSE_LOCAL_MATRIX_COUNT"] ?? "32") ?? 32
+        let usesInstalledFiles = ProcessInfo.processInfo.environment["PRIMUSE_INSTALLED_LOCAL_IMPORT"] == "1"
+        let originals: [URL]
+        if let fixturePath = ProcessInfo.processInfo.environment["PRIMUSE_LOCAL_MATRIX_FIXTURE"] {
+            let fixtureRoot = fixturePath.hasPrefix("/") ? URL(fileURLWithPath: fixturePath)
+                : FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(fixturePath)
+            let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: fixtureRoot,
+                includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]))
+            originals = enumerator.compactMap { $0 as? URL }.filter {
+                AudioFormat.from(fileExtension: $0.pathExtension) != nil
+            }.sorted { $0.path < $1.path }.prefix(requestedCount).map { $0 }
+            XCTAssertFalse(originals.isEmpty)
+        } else if usesInstalledFiles {
+            let services = AppServices.shared
+            let ready = await services.musicLibrary.whenReady(timeout: .seconds(180))
+            XCTAssertTrue(ready)
+            let originalSource = try XCTUnwrap(services.sourcesStore.sources.first { $0.type == .local && $0.isEnabled })
+            let originalConnector = try XCTUnwrap(services.sourceManager.connector(for: originalSource) as? LocalFileSource)
+            try await originalConnector.connect()
+            var urls: [URL] = []
+            for song in services.musicLibrary.songs.lazy.filter({ $0.sourceID == originalSource.id && $0.isPlayable }).prefix(requestedCount) {
+                urls.append(try await originalConnector.localURL(for: song.filePath))
+            }
+            originals = urls
+            XCTAssertFalse(originals.isEmpty)
+        } else {
+            originals = try files(in: root.appendingPathComponent("Input"), count: requestedCount)
+        }
+        setenv(key, target.path, 1)
+        defer { if let previous { setenv(key, previous, 1) } else { unsetenv(key) } }
+        let count = originals.count
+        let first = await measured("local-copy-\(count)") { await copyFiles(originals) }
+        XCTAssertEqual(first.copied + first.duplicateSkipped, count)
+        XCTAssertGreaterThan(first.copied, 0)
+        XCTAssertEqual(first.failed, 0)
+        let duplicate = await measured("local-duplicate-\(count)") {
+            await copyFiles(originals)
+        }
+        XCTAssertEqual(duplicate.copied, 0)
+        XCTAssertEqual(duplicate.duplicateSkipped, count)
+
+        let additional = try files(in: root.appendingPathComponent("Additional"), count: 64, offset: 10_000)
+        setenv("PRIMUSE_IMPORT_DELAY_MS", "5", 1)
+        let session = LocalImportService.copySession(additional)
+        var cancelled = false
+        for await event in session.events {
+            switch event {
+            case .progress(let progress): if progress.copied >= 3 { session.cancel() }
+            case .finished(let result): cancelled = result.cancelled
+            }
+        }
+        unsetenv("PRIMUSE_IMPORT_DELAY_MS")
+        XCTAssertTrue(cancelled)
+        let resumed = await copyFiles([root.appendingPathComponent("Additional")])
+        XCTAssertEqual(resumed.copied + resumed.duplicateSkipped, 64)
+        XCTAssertEqual(resumed.failed, 0)
+
+        let source = MusicSource(id: UUID().uuidString, name: "Local matrix", type: .local, basePath: target.path)
+        let connector = LocalFileSource(sourceID: source.id, basePath: target)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("Library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("Sources"))
+        store.add(source)
+        let scanner = ScanService(fileManager: IsolatedFileManager(root: root.appendingPathComponent("Scan")),
+                                  connectorProvider: { _ in connector })
+        let importedCount = first.copied + 64
+        try await measured("local-first-scan-\(importedCount)") {
+            try await scan(source, connector: connector, root: root, library: library,
+                           store: store, scan: scanner, manager: manager)
+        }
+        XCTAssertEqual(library.songs.count, importedCount)
+        let ids = Set(library.songs.map(\.id))
+        try await measured("local-rescan-\(importedCount)") {
+            try await scan(source, connector: connector, root: root, library: library,
+                           store: store, scan: scanner, manager: manager)
+        }
+        XCTAssertEqual(Set(library.songs.map(\.id)), ids)
+        let backfill = MetadataBackfillService(library: library, sourceManager: manager,
+            backfillableSourceIDs: { [source.id] }, offlineReadableSourceIDs: { [source.id] },
+            localFileSourceIDs: { [source.id] }, directFileSourceIDs: { [source.id] },
+            storageDirectory: root.appendingPathComponent("Backfill"))
+        defer { backfill.stop() }
+        backfill.automaticWorkIsAllowed = { true }
+        await measured("local-backfill-\(importedCount)") {
+            backfill.start()
+            print("LOAD_MATRIX local-backfill-mode=\(backfill.readingMode.rawValue)")
+            await backfill.waitUntilIdle()
+        }
+        backfill.refreshStatusSnapshot()
+        XCTAssertEqual(backfill.remainingCount(forSource: source.id), 0)
+        XCTAssertEqual(library.songs.filter { $0.duration > 0 }.count, importedCount)
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+        let restarted = MusicLibrary.makePreparing(storageDirectory: root.appendingPathComponent("Library"))
+        await measured("local-reopen-\(importedCount)") {
+            restarted.publish(await MusicLibrary.prepareStartup(storageDirectory: root.appendingPathComponent("Library")))
+        }
+        XCTAssertEqual(Set(restarted.songs.map(\.id)), ids)
+        XCTAssertEqual(Set(restarted.musicSongIDsExcludingDisliked), Set(library.musicSongIDsExcludingDisliked))
+        await connector.disconnect()
+        await library.beginExternalSnapshotWrite(); library.endExternalSnapshotWrite()
+        await restarted.beginExternalSnapshotWrite(); restarted.endExternalSnapshotWrite()
+    }
+
+
+    func testConfiguredRemoteScanRescanAndAudioReads() async throws {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_LIVE_CREDENTIALS_FILE"] else {
+            throw XCTSkip("Requires the local test-account file")
+        }
+        let text = try String(contentsOfFile: path, encoding: .utf8)
+        var sections: [String: [String: String]] = [:]
+        var section = ""
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") { section = String(line.dropFirst().dropLast()); continue }
+            guard !line.hasPrefix("#"), let split = line.firstIndex(of: "=") else { continue }
+            sections[section, default: [:]][line[..<split].trimmingCharacters(in: .whitespaces).lowercased()] =
+                line[line.index(after: split)...].trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        }
+        let requested = Set((ProcessInfo.processInfo.environment["PRIMUSE_LIVE_SOURCE_KINDS"]
+            ?? "fnMusic,jellyfin,ftp,smb,webdav").split(separator: ",").map(String.init))
+        for kind in ["fnMusic", "jellyfin", "ftp", "smb", "webdav", "alist"] where requested.contains(kind) {
+            let root = try root()
+            let id = "load-matrix-\(kind)-\(UUID())"
+            let nas = sections["jellyfin_lan_20260928"] ?? [:]
+            let config = sections[kind == "fnMusic" ? "fn_music_lan_playlist_20260928" :
+                                  kind == "alist" ? "primuse-qa-alist-tv-20261018" : "jellyfin_lan_20260928"] ?? [:]
+            let address = URLComponents(string: config["base_url"] ?? config["login_url"] ?? "")
+            let host = ["fnMusic", "jellyfin", "alist"].contains(kind) ? (address?.host ?? "") : (nas["fnos_qa_host"] ?? "")
+            let type: MusicSourceType = kind == "fnMusic" ? .fnMusic : kind == "jellyfin" ? .jellyfin :
+                kind == "ftp" ? .ftp : kind == "smb" ? .smb : .webdav
+            let port = kind == "ftp" ? 2121 : kind == "smb" ? 445 : kind == "webdav" ? 3211 : address?.port
+            var source = MusicSource(id: id, name: "Load matrix \(kind)", type: type, host: host, port: port,
+                                     useSsl: address?.scheme == "https", authType: .none)
+            if type == .ftp || type == .webdav {
+                source.extraConfig = MusicSource.encodeScannedDirectories(["/"], into: nil, type: type)
+            }
+            if kind == "smb" {
+                source.shareName = "Media"
+                source.extraConfig = MusicSource.encodeScannedDirectories(["/Music"], into: nil, type: .smb)
+            }
+            let configuredSource = source
+            let manager = SourceManager(sourcesProvider: { [configuredSource] }, connectorFactory: { _ in
+                switch kind {
+            case "fnMusic":
+                return FnMusicSource(sourceID: id, host: host, port: port, useSSL: configuredSource.useSsl,
+                    basePath: nil, connectionMode: .address, accessCode: nil,
+                    username: config["username"] ?? "", password: config["password"] ?? "")
+            case "jellyfin":
+                return MediaServerSource(sourceID: id, kind: .jellyfin, host: host, port: port,
+                    useSsl: configuredSource.useSsl, basePath: nil, username: config["username"] ?? "",
+                    secret: config["password"] ?? "", authType: .password)
+            case "ftp":
+                return FTPSource(sourceID: id, host: host, port: port,
+                    username: nas["ftp_qa_username"] ?? "", password: nas["ftp_qa_password"] ?? "", encryption: .none)
+            case "smb":
+                return SMBSource(sourceID: id, host: host, sharePath: "Media",
+                    username: nas["fnos_qa_user"] ?? "", password: nas["fnos_qa_password"] ?? "")
+            default:
+                return WebDAVSource(sourceID: id, host: host, port: port, useSsl: configuredSource.useSsl,
+                    basePath: kind == "alist" ? "/dav" : nil,
+                    username: kind == "alist" ? (config["username"] ?? "") : "",
+                    password: kind == "alist" ? (config["password"] ?? "") : "")
+                }
+            })
+            let connector = manager.connector(for: configuredSource)
+            let library = MusicLibrary(storageDirectory: root.appendingPathComponent("Library"))
+            let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("Sources"))
+            store.add(source)
+            let scanner = ScanService(fileManager: IsolatedFileManager(root: root.appendingPathComponent("Scan")),
+                                      connectorProvider: { _ in connector })
+            do {
+                try await measured("live-connect-\(kind)") { try await connector.connect() }
+                try await measured("live-first-scan-\(kind)") {
+                    try await scan(source, connector: connector, root: root, library: library,
+                                   store: store, scan: scanner, manager: manager)
+                }
+                XCTAssertFalse(library.songs.isEmpty, "Live fixture must contain songs: \(kind)")
+                let ids = Set(library.songs.map(\.id))
+                print("LOAD_MATRIX live-rows \(kind)=\(ids.count)")
+                try await measured("live-rescan-\(kind)") {
+                    try await scan(source, connector: connector, root: root, library: library,
+                                   store: store, scan: scanner, manager: manager)
+                }
+                XCTAssertEqual(Set(library.songs.map(\.id)), ids)
+                try await exercisePlayback(Array(library.songs.filter { $0.isPlayable && $0.duration > 10 }.prefix(2)),
+                                           manager: manager, label: kind)
+                for (index, song) in library.songs.filter({ $0.isPlayable }).prefix(3).enumerated() {
+                    let bytes = try await measured("live-audio-window-\(kind)-\(index)") {
+                        try await connector.fetchRange(path: song.filePath, offset: 0, length: 65_536)
+                    }
+                    XCTAssertFalse(bytes.isEmpty)
+                    XCTAssertLessThanOrEqual(bytes.count, 65_536)
+                }
+                guard case .success = await library.persistNowAndWait() else { return XCTFail("Live fixture persistence failed") }
+                let restored = MusicLibrary.makePreparing(storageDirectory: root.appendingPathComponent("Library"))
+                await measured("live-reopen-\(kind)") {
+                    restored.publish(await MusicLibrary.prepareStartup(storageDirectory: root.appendingPathComponent("Library")))
+                }
+                XCTAssertEqual(Set(restored.songs.map(\.id)), ids)
+                await restored.beginExternalSnapshotWrite(); restored.endExternalSnapshotWrite()
+            } catch {
+                XCTFail("Live \(kind) failed: \(String(reflecting: Swift.type(of: error)))")
+            }
+            await connector.disconnect()
+            await library.beginExternalSnapshotWrite(); library.endExternalSnapshotWrite()
+        }
+    }
+
+    func testInstalledLibraryIdleAndSourceReads() async throws {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_INSTALLED_LIBRARY_AUDIT"] == "1" else {
+            throw XCTSkip("Requires an explicitly selected device library")
+        }
+        let services = AppServices.shared
+        let ready = await services.musicLibrary.whenReady(timeout: .seconds(180))
+        XCTAssertTrue(ready)
+        let sources = services.sourcesStore.sources
+        print("LOAD_MATRIX installed songs=\(services.musicLibrary.songs.count) sources=\(sources.count)")
+        try await measured("installed-idle-120s") {
+            for interval in 1...4 {
+                print("LOAD_MATRIX idle-interval=\(interval) scanning=\(services.scanService.hasActiveScans)")
+                try await measured("installed-idle-30s-\(interval)") { try await Task.sleep(for: .seconds(30)) }
+            }
+        }
+        let requested = Set((ProcessInfo.processInfo.environment["PRIMUSE_LIVE_SOURCE_IDS"] ?? "").split(separator: ",").map(String.init))
+        for source in sources where requested.contains(source.id) {
+            do {
+                let connector = services.sourceManager.connector(for: source)
+                try await measured("installed-connect-\(source.type.rawValue)") { try await connector.connect() }
+                var candidates = Array(services.musicLibrary.songs.lazy.filter {
+                    $0.sourceID == source.id && $0.isPlayable && $0.duration > 0
+                }.prefix(3))
+                if candidates.isEmpty {
+                    var directories = source.scannedDirectories.isEmpty ? ["/"] : source.scannedDirectories
+                    var visited = Set<String>()
+                    while let path = directories.first, candidates.count < 3, visited.count < 64 {
+                        directories.removeFirst()
+                        guard visited.insert(path).inserted else { continue }
+                        for item in try await connector.listFiles(at: path) {
+                            if item.isDirectory {
+                                if !visited.contains(item.path) { directories.append(item.path) }
+                            } else if let format = AudioFormat.from(fileExtension: (item.name as NSString).pathExtension),
+                                      candidates.count < 3 {
+                                candidates.append(Song(id: UUID().uuidString, title: item.name,
+                                    fileFormat: format, filePath: item.path, sourceID: source.id, fileSize: item.size))
+                            }
+                        }
+                    }
+                    print("LOAD_MATRIX installed-browse-\(source.type.rawValue) folders=\(visited.count) files=\(candidates.count)")
+                }
+                XCTAssertFalse(candidates.isEmpty, "Selected source needs playable fixtures: \(source.type.rawValue)")
+                for (index, song) in candidates.enumerated() {
+                    let data = try await measured("installed-read-\(source.type.rawValue)-\(index)") {
+                        try await connector.fetchRange(path: song.filePath, offset: 0, length: 65_536)
+                    }
+                    XCTAssertFalse(data.isEmpty)
+                    XCTAssertLessThanOrEqual(data.count, 65_536)
+                }
+                try await exercisePlayback(Array(candidates.prefix(2)), manager: services.sourceManager,
+                                           label: source.type.rawValue)
+            } catch {
+                XCTFail("Installed \(source.type.rawValue) failed: \(String(reflecting: Swift.type(of: error)))")
+            }
+        }
+        XCTAssertEqual(services.sourcesStore.sources.map(\.id), sources.map(\.id))
+    }
 }

@@ -18,6 +18,13 @@ struct SnapshotBaselineGateTests {
         #expect(!SnapshotBaselineGate.isStillValid(captured: baseline, current: touched))
     }
 
+    @Test func anAuxiliaryWriteInvalidatesAnOtherwiseUnchangedBaseline() {
+        let updated = SnapshotFileIdentity(size: baseline.size, modificationNanoseconds: baseline.modificationNanoseconds,
+                                           fileNumber: baseline.fileNumber, auxiliaryIdentity: "delta-2")
+        #expect(!SnapshotBaselineGate.isStillValid(captured: baseline, current: updated))
+        #expect(SnapshotBaselineGate.isStillValid(captured: updated, current: updated))
+    }
+
     @Test func replaceByRenameInvalidatesTheBaselineEvenAtTheSameSizeAndTime() {
         let replaced = SnapshotFileIdentity(size: 1024, modificationNanoseconds: 42, fileNumber: 8)
         #expect(!SnapshotBaselineGate.isStillValid(captured: baseline, current: replaced))

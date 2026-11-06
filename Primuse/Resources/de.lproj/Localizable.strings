@@ -6985,6 +6985,7 @@
 
 "home_filter_bar_appearance" = "Stil des oberen Bereichs";
 "home_filter_bar_swipe" = "Kategorien durch Wischen wechseln";
+"home_filter_bar_monochrome" = "Schwarzweiß";
 "home_filter_style_classic" = "Klassische Kapseln (Standard)";
 "home_filter_style_underline" = "Unterstrichener Text";
 "home_filter_style_segmented" = "Segmentleiste";
@@ -7049,7 +7050,8 @@
 "chapter_generation_daily_limit" = "Das heutige Kontingent zur Kapitelerstellung ist aufgebraucht. Versuche es morgen erneut.";
 "chapter_generation_monthly_limit" = "Das monatliche Kontingent zur Kapitelerstellung ist aufgebraucht. Versuche es nächsten Monat erneut.";
 
-"album_show_track_artwork" = "Titelcover anzeigen";
+"album_show_track_artwork" = "Titelcover";
+"home_play_latest_album" = "Neuestes Album abspielen";
 "content_explicit" = "Explizite Inhalte";
 "content_rating" = "Inhaltsbewertung";
 "copyright_label" = "Copyright";
@@ -7246,6 +7248,18 @@
 "player_carousel_open_artist" = "Künstler";
 "player_carousel_song_count %lld" = "%lld Titel";
 "player_carousel_more_by_artist %@" = "Mehr von %@";
+
+"mini_player_show_lyrics" = "Mini-Songtext";
+
+"player_vivid_mesh" = "Kräftiges Mesh";
+
+"lyrics_pip_title" = "Bild-in-Bild-Liedtext";
+
+"lyrics_pip_start" = "Bild-in-Bild starten";
+
+"lyrics_pip_stop" = "Bild-in-Bild beenden";
+
+"lyrics_pip_start_failed" = "Bild-in-Bild konnte nicht gestartet werden. Bitte erneut versuchen.";
 
 "offline_downloads_show_in_finder" = "Downloads im Finder anzeigen";
 

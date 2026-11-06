@@ -56,35 +56,156 @@ extension View {
     /// first frame, so this does not flip during launch.
     func serverCatalogPullToRefresh(
         isEnabled: Bool = true,
+        shouldRefresh: (@MainActor () -> Bool)? = nil,
         alsoRefresh: (@MainActor () async -> Void)? = nil
     ) -> some View {
         modifier(ServerCatalogPullToRefreshModifier(
             isEnabled: isEnabled,
-            alsoRefresh: alsoRefresh
+            alsoRefresh: alsoRefresh,
+            shouldRefresh: shouldRefresh
         ))
+    }
+
+    func homePullToOverview(
+        state: HomePullToOverviewState,
+        isEnabled: Bool,
+        onReturn: @escaping @MainActor () -> Void
+    ) -> some View {
+        modifier(HomePullToOverviewModifier(state: state, isEnabled: isEnabled, onReturn: onReturn))
     }
 }
 
 private struct ServerCatalogPullToRefreshModifier: ViewModifier {
     let isEnabled: Bool
     let alsoRefresh: (@MainActor () async -> Void)?
+    let shouldRefresh: (@MainActor () -> Bool)?
 
     func body(content: Content) -> some View {
         let coordinator = AppServices.shared.serverCatalogAutoRefresh
         let progressSync = AppServices.shared.tingReaderProgressSync
         if isEnabled, coordinator.hasCheckableSources || progressSync.hasSources {
             content.refreshable {
+                guard await shouldRefresh?() ?? true else { return }
                 await alsoRefresh?()
                 await progressSync.refresh(manual: true)
                 await coordinator.refreshNow()
             }
         } else if let alsoRefresh {
             content.refreshable {
+                guard await shouldRefresh?() ?? true else { return }
                 await alsoRefresh()
             }
         } else {
             content
         }
+    }
+}
+
+@Observable @MainActor
+final class HomePullToOverviewState {
+    private(set) var holdStartedAt: Date?
+    @ObservationIgnored private var policy = HomeOverviewPullPolicy()
+    @ObservationIgnored private var holdTask: Task<Void, Never>?
+    @ObservationIgnored private var pullDistance: Double = 0
+    @ObservationIgnored private var isInteracting = false
+
+    func shouldRefresh() -> Bool { !policy.suppressesRefresh }
+
+    fileprivate func update(
+        distance: Double? = nil,
+        interacting: Bool? = nil,
+        enabled: Bool,
+        onReturn: @escaping @MainActor () -> Void
+    ) {
+        if let distance { pullDistance = distance }
+        if let interacting { isInteracting = interacting }
+        let triggered = policy.update(
+            pullDistance: pullDistance,
+            isInteracting: isInteracting,
+            isEnabled: enabled,
+            now: ProcessInfo.processInfo.systemUptime
+        )
+        if triggered {
+            holdTask?.cancel()
+            holdTask = nil
+            holdStartedAt = nil
+            #if os(iOS)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            #endif
+            onReturn()
+        } else if policy.holdStartedAt == nil {
+            holdTask?.cancel()
+            holdTask = nil
+            holdStartedAt = nil
+        } else if holdTask == nil {
+            holdStartedAt = Date()
+            holdTask = Task { @MainActor [weak self] in
+                do { try await Task.sleep(for: .seconds(HomeOverviewPullPolicy.holdDuration)) }
+                catch { return }
+                guard let self else { return }
+                self.update(enabled: enabled, onReturn: onReturn)
+            }
+        }
+    }
+
+    fileprivate func cancel() {
+        holdTask?.cancel()
+        holdTask = nil
+        holdStartedAt = nil
+        isInteracting = false
+        policy.update(pullDistance: 0, isInteracting: false, isEnabled: false,
+                      now: ProcessInfo.processInfo.systemUptime)
+    }
+}
+
+private struct HomePullToOverviewModifier: ViewModifier {
+    let state: HomePullToOverviewState
+    let isEnabled: Bool
+    let onReturn: @MainActor () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Double.self) { geometry in
+                Double(max(0, -geometry.contentOffset.y - geometry.contentInsets.top))
+            } action: { _, distance in
+                state.update(distance: distance, enabled: isEnabled, onReturn: onReturn)
+            }
+            .onScrollPhaseChange { _, phase in
+                state.update(interacting: phase == .interacting, enabled: isEnabled, onReturn: onReturn)
+            }
+            .overlay(alignment: .top) {
+                if let startedAt = state.holdStartedAt {
+                    HomeOverviewPullProgress(startedAt: startedAt)
+                        .padding(.top, 10)
+                        .allowsHitTesting(false)
+                }
+            }
+            .onChange(of: isEnabled) { _, enabled in
+                if !enabled { state.cancel() }
+            }
+            .onDisappear { state.cancel() }
+    }
+}
+
+private struct HomeOverviewPullProgress: View {
+    let startedAt: Date
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
+            let progress = min(max(timeline.date.timeIntervalSince(startedAt) / HomeOverviewPullPolicy.holdDuration, 0), 1)
+            ZStack {
+                Circle().stroke(.secondary.opacity(0.22), lineWidth: 2.5)
+                Circle().trim(from: 0, to: progress)
+                    .stroke(.primary, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 24, height: 24)
+            .padding(9)
+            .background(.regularMaterial, in: Circle())
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("home_title"))
+        .accessibilityIdentifier("home.returnOverview.progress")
     }
 }
 

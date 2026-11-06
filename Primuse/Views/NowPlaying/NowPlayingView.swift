@@ -409,6 +409,7 @@ extension View {
 /// (封面模糊 / 专辑封底 / 自选图片)。播放页和设置里「播放页样式与按钮」那张预览共用,
 /// 预览里看到的就是播放页的背景。
 struct NowPlayingAmbientBackdrop: View {
+    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
     private enum AmbientBackdropTuning {
         static let transitionDuration = 0.5
     }
@@ -440,11 +441,15 @@ struct NowPlayingAmbientBackdrop: View {
         let usesLiquid = backdropSource == .liquid
         let usesMesh = backdropSource == .coverAmbient
             && PlayerBackdropSettingsStore.shared.settings.ambientStyle == .mesh
-        let meshPalette = theme.liquidPalette
+        let usesVividMesh = usesMesh && vividMesh && !appearance.isLight
+        let meshPalette = usesVividMesh
+            ? MeshBackdropPalettePolicy.vividPalette(from: theme.liquidPalette,
+                usesIncreasedContrast: colorSchemeContrast == .increased)
+            : theme.liquidPalette
         let hasArtworkTheme = theme.hasArtworkAmbient
             || (usesMesh && theme.coverDrivenAmbient && !theme.artworkLiquidPalette.isEmpty)
         let meshLuma = MeshBackdropPalettePolicy.minimumLuma(in: meshPalette)
-        var accentOpacity = (hasArtworkTheme
+        var accentOpacity = usesVividMesh ? strength : (hasArtworkTheme
             ? appearance.artworkAccentOpacity
             : appearance.fallbackAccentOpacity) * strength
         var lowerAccentOpacity = (hasArtworkTheme
@@ -533,7 +538,8 @@ struct NowPlayingAmbientBackdrop: View {
                     isPlaying: isPlaying,
                     paletteVibrancy: theme.artworkVibrancy,
                     paletteLuminance: theme.artworkLuminance,
-                    meshPalette: usesMesh ? meshPalette : []
+                    meshPalette: usesMesh ? meshPalette : [],
+                    usesVividPalette: usesVividMesh
                 )
             }
 
@@ -563,7 +569,7 @@ struct NowPlayingAmbientBackdrop: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-            } else {
+            } else if !usesVividMesh {
                 // Bright covers receive a little more local protection while
                 // the extracted color field remains visible around the art.
                 LinearGradient(
@@ -673,6 +679,7 @@ struct AdaptiveNowPlayingBackdrop: View {
     let paletteVibrancy: Double
     let paletteLuminance: Double
     var meshPalette: [LiquidBackdropColor] = []
+    var usesVividPalette = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var runtimeRevision: UInt = 0
@@ -828,6 +835,7 @@ struct AdaptiveNowPlayingBackdrop: View {
     }
 
     private var paletteOpacityScale: Double {
+        if usesVividPalette { return 1 }
         let vibrancy = min(max(paletteVibrancy, 0), 1)
         let luminance = min(max(paletteLuminance, 0), 1)
         let saturationRestraint = 1 - max(0, vibrancy - 0.72) * 0.28
@@ -1112,6 +1120,7 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
     var bottomFade: CGFloat
     var trailingFade: CGFloat
     let renderSize: CGFloat
+    var usesShadowSprite = false
 
     nonisolated var animatableData: AnimatablePair<
         AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>,
@@ -1140,6 +1149,7 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
     func body(content: Content) -> some View {
         let scale = max(rect.width, rect.height, 1) / renderSize
         let visible = CGSize(width: max(rect.width, 0) / scale, height: max(rect.height, 0) / scale)
+        let shadowScale = renderSize / 320
         content
             .frame(width: renderSize, height: renderSize)
             .clipShape(LyricsArtworkClipShape(size: visible, cornerRadius: max(0, cornerRadius) / scale))
@@ -1150,8 +1160,23 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
                     .mask { Self.fadeGradient(trailingFade, startPoint: .leading, endPoint: .trailing) }
                     .frame(width: visible.width, height: visible.height)
             }
+            .background {
+                // 播客封面层常驻，阴影也用同一张固定尺寸贴图随封面缩放，往返文字稿不重建模糊。
+                if usesShadowSprite {
+                    Color.clear
+                        .frame(width: renderSize, height: renderSize)
+                        .modifier(LyricsCoverShadowSprite(
+                            side: renderSize,
+                            cornerRadius: 12 * shadowScale,
+                            shadow: .init(opacity: 1, radius: 20 * shadowScale, y: 8 * shadowScale)
+                        ))
+                        .opacity(max(0, shadow.opacity))
+                }
+            }
             .scaleEffect(scale)
-            .shadow(color: .black.opacity(max(0, shadow.opacity)), radius: max(0, shadow.radius), y: shadow.y)
+            .if(!usesShadowSprite) { view in
+                view.shadow(color: .black.opacity(max(0, shadow.opacity)), radius: max(0, shadow.radius), y: shadow.y)
+            }
             .position(x: rect.midX, y: rect.midY)
             // 外层已经按矩形逐帧插值，内部缩放和裁切不能再分别追赶目标尺寸。
             .transaction { $0.animation = nil }
@@ -3468,6 +3493,17 @@ struct NowPlayingView: View {
     private func playerArtworkOverlays(anchors: LyricsArtworkAnchorKey.Value) -> some View {
         ZStack {
             lyricsArtworkOverlay(anchors: anchors)
+            if currentItemIsPodcast, player.offersSpokenWordVideoToggle,
+               !player.isMusicVideoPlaybackActive, !showLyrics {
+                GeometryReader { geometry in
+                    if let anchor = anchors[.cover] {
+                        let rect = geometry[anchor.bounds]
+                        spokenWordVideoToggleButton(showsVideo: false, compact: rect.width < 220)
+                            .frame(width: rect.width, height: rect.height, alignment: .topLeading)
+                            .position(x: rect.midX, y: rect.midY)
+                    }
+                }
+            }
             compactLandscapeLiftedChrome(anchors: anchors)
         }
     }
@@ -4296,7 +4332,8 @@ struct NowPlayingView: View {
         }
         .onChange(of: player.isMusicVideoModeEnabled) { _, enabled in
             // 独立 MV 不受模式开关影响(始终播视频), 关模式不退全屏
-            if !enabled, player.currentSong?.isStandaloneMusicVideo != true {
+            if !enabled, player.currentSong?.isStandaloneMusicVideo != true,
+               !PodcastPlaybackSong.isVideoEpisode(player.currentSong) {
                 dismissMusicVideoFullScreen()
             }
         }
@@ -8210,8 +8247,7 @@ struct NowPlayingView: View {
             && PlayerAppearancePreferences.artworkStyle(rawValue: radioArtworkStyleRawValue) == .fullBleed
     }
 
-    /// `receivesFullBleedArtwork`:封面那一面是铺满的(播客也可以选),小封面和音乐一样用槽位,
-    /// 让铺满的封面缩进来;否则有声内容沿用书封那套匹配几何。
+    /// 播客和音乐共用常驻封面层；只有书封与视频仍在两端交接视图。
     @ViewBuilder
     private func lyricsThumbnailArtwork(
         size: CGFloat,
@@ -8219,7 +8255,8 @@ struct NowPlayingView: View {
         shadow: LyricsArtworkShadow = .init(),
         receivesFullBleedArtwork: Bool = false
     ) -> some View {
-        if (usesSpokenWordTransport && !receivesFullBleedArtwork) || player.isMusicVideoPlaybackActive {
+        if (usesSpokenWordTransport && !currentItemIsPodcast && !receivesFullBleedArtwork)
+            || player.isMusicVideoPlaybackActive {
             CachedArtworkView(
                 coverRef: player.currentSong?.coverArtFileName,
                 songID: player.currentSong?.id ?? "",
@@ -8272,9 +8309,7 @@ struct NowPlayingView: View {
                     sourceID: player.currentSong?.sourceID,
                     filePath: player.currentSong?.filePath,
                     fileFormat: player.currentSong?.fileFormat,
-                    placeholderIcon: PodcastPlaybackSong.isEpisode(player.currentSong)
-                        ? "antenna.radiowaves.left.and.right"
-                        : "music.note",
+                    placeholderIcon: currentItemIsPodcast ? "antenna.radiowaves.left.and.right" : "music.note",
                     presentationRole: usesSpokenWordTransport ? .staticFirstFrame : .animatedHero,
                     animationRequiresPlayback: true,
                     isPlaying: player.isPlaying,
@@ -8289,7 +8324,8 @@ struct NowPlayingView: View {
                     shadow: anchor.shadow,
                     bottomFade: fullBleedMiddleSoftening ? anchor.bottomFade : 0,
                     trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
-                    renderSize: renderSize
+                    renderSize: renderSize,
+                    usesShadowSprite: currentItemIsPodcast
                 ))
                 .animation(standardLyricsAnimation, value: placement)
                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
@@ -8383,16 +8419,12 @@ struct NowPlayingView: View {
             .if(drawsCoverShadow) { view in
                 view.shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
             }
-        } else if usesSpokenWordTransport {
+        } else if usesSpokenWordTransport && !currentItemIsPodcast {
             // 书封放进方形书框:方图直接铺满,竖版或横版的原图整张放进去、空出来的边用它自己的模糊放大垫上,
             // 和书架、书页是同一个零件。占的仍是原来那块方形槽位,别的布局不用跟着改。
             // 暂停时的缩小直接算进尺寸(和音乐那一支一样),别在匹配几何外面再套 scaleEffect:
             // 那样飞向小封面的起点和终点都会被一起缩向中心, 交接时跳一下。
-            // 播客的方形封面圆角跟音乐一致, 不按书缩小。
-            let isPodcastEpisode = currentItemIsPodcast
-            let coverCornerRadius = isPodcastEpisode
-                ? displayedCornerRadius
-                : max(6, displayedCornerRadius * 0.6)
+            let coverCornerRadius = max(6, displayedCornerRadius * 0.6)
             SpokenWordBookCover(
                 song: player.currentSong,
                 width: SpokenWordCoverLayout.width(forHeight: displayedSize),
@@ -8407,7 +8439,7 @@ struct NowPlayingView: View {
             .if(drawsCoverShadow) { view in
                 view.modifier(LyricsCoverShadowSprite(
                     side: SpokenWordCoverLayout.width(forHeight: size),
-                    cornerRadius: isPodcastEpisode ? cornerRadius : max(6, cornerRadius * 0.6),
+                    cornerRadius: max(6, cornerRadius * 0.6),
                     shadow: shadow
                 ))
             }
@@ -8477,7 +8509,8 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func musicVideoToggleButton(font: Font, trailing: CGFloat) -> some View {
         // 独立 MV 始终走视频管线, 模式开关对它无意义, 不显示
-        if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true {
+        if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true,
+           !PodcastPlaybackSong.isVideoEpisode(player.currentSong) {
             Button { player.toggleMusicVideoMode() } label: {
                 Image(systemName: player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle")
                     .font(font)
@@ -8556,7 +8589,8 @@ struct NowPlayingView: View {
             fullScreenMusicVideoPlayer = nil
             return
         }
-        guard player.isMusicVideoModeEnabled || player.currentSong?.isStandaloneMusicVideo == true,
+        guard player.isMusicVideoModeEnabled || player.currentSong?.isStandaloneMusicVideo == true
+                || PodcastPlaybackSong.isVideoEpisode(player.currentSong),
               player.currentSong != nil,
               player.currentSong?.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             dismissMusicVideoFullScreen()
@@ -8855,6 +8889,7 @@ struct NowPlayingView: View {
             appleMusicCatalogURL: shows(.openInAppleMusic) ? appleMusicCatalogURL : nil,
             // 有声内容没有文字时歌词页是空的, 字号与翻译无从调起。
             showsLyricsPreferences: showLyrics && (!isSpokenWord || !lyrics.isEmpty) && shows(.lyricsDisplay),
+            showsLyricsWeight: showLyrics && (!isSpokenWord || !lyrics.isEmpty) && shows(.lyricsWeight),
             showsFullScreenAction: !isSpokenWord && !isLyricsImmersive && !isFullscreenPlayerPresented
                 && !menuSuppressed.contains(.fullScreen) && shows(.fullScreen),
             albumID: currentAlbum?.id,
@@ -11745,6 +11780,8 @@ struct ProgressSlider: View {
         var isWave = false
         /// 播放过的那段和播放头外面一圈同色的光晕(#319)。
         var glows = false
+        /// 轨道在固定命中区内上移，让章节标题贴近进度条而不缩小拖动区域。
+        var verticalOffset: CGFloat = 0
 
         func applyingThickness(_ thickness: PlayerTrackThickness) -> Self {
             var result = self
@@ -11977,6 +12014,7 @@ struct ProgressSlider: View {
                         .modifier(progressGlow)
                 }
             }
+            .offset(y: trackStyle.verticalOffset)
             .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
             .contentShape(Rectangle())
             .gesture(
@@ -13449,6 +13487,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let canDeleteSourceFile: Bool
     let appleMusicCatalogURL: URL?
     let showsLyricsPreferences: Bool
+    let showsLyricsWeight: Bool
     let showsFullScreenAction: Bool
     let albumID: String?
     let artistID: String?
@@ -14077,6 +14116,10 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
+            #if os(iOS)
+            Section { FloatingLyricsMenuItems() }
+            #endif
+
             if let videoShown = snapshot.spokenWordVideoShown {
                 Section {
                     Button { onSetShowsSpokenWordVideo(!videoShown) } label: {
@@ -14338,10 +14381,14 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if snapshot.showsLyricsPreferences {
+            if snapshot.showsLyricsWeight {
                 Section {
                     LyricsWeightPicker().pickerStyle(.menu)
+                }
+            }
 
+            if snapshot.showsLyricsPreferences {
+                Section {
                     Picker(selection: $lyricsFontScale) {
                         Text("lyrics_font_small").tag(0.85)
                         Text("lyrics_font_medium").tag(1.0)

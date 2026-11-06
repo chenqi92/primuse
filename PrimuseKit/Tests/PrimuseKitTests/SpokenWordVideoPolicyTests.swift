@@ -120,4 +120,47 @@ struct SpokenWordVideoPolicyTests {
         #expect(!webm.playsAsVideo)
         #expect(PodcastPlaybackSong.song(for: webm, show: nil).mvPath == nil)
     }
+    @Test func alternateVideoKeepsTheAudioEnclosureAndSurvivesPersistence() throws {
+        let audioURL = URL(string: "https://cdn.example.com/audio.mp3")!
+        let videoURL = URL(string: "https://video.example.com/index.m3u8")!
+        let episode = PodcastEpisode(
+            id: "podcast:alternate", showID: "s", guid: "alternate", title: "Alternate video",
+            enclosureURL: audioURL, enclosureType: "audio/mpeg",
+            videoURL: videoURL, videoType: "application/vnd.apple.mpegurl", firstSeenAt: t0
+        )
+        let restored = try JSONDecoder().decode(PodcastEpisode.self, from: JSONEncoder().encode(episode))
+        #expect(restored.videoPlaybackURL == videoURL)
+        #expect(restored.isVideo)
+        #expect(restored.playsAsVideo)
+        let song = PodcastPlaybackSong.song(for: restored, show: nil)
+        #expect(song.filePath == audioURL.absoluteString)
+        #expect(song.fileFormat == .mp3)
+        #expect(song.mvPath == videoURL.absoluteString)
+        #expect(PodcastPlaybackSong.isVideoEpisode(song))
+        #expect(PodcastPlaybackSong.hasSeparateVideo(song))
+
+        var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(episode)) as? [String: Any])
+        legacy.removeValue(forKey: "videoURL")
+        legacy.removeValue(forKey: "videoType")
+        let old = try JSONDecoder().decode(PodcastEpisode.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(old.videoURL == nil)
+        #expect(!old.playsAsVideo)
+        #expect(old.enclosureURL == audioURL)
+    }
+
+    @Test func alternateVideoUsesMIMEWithoutTreatingUnsupportedContainersAsMP4() {
+        var episode = PodcastEpisode(
+            id: "podcast:mime", showID: "s", guid: "mime", title: "Video type",
+            enclosureURL: URL(string: "https://cdn.example.com/audio.m4a")!, enclosureType: "audio/mp4",
+            videoURL: URL(string: "https://video.example.com/play?id=1")!,
+            videoType: "Video/MP4; codecs=avc1", firstSeenAt: t0
+        )
+        #expect(episode.playsAsVideo)
+        #expect(episode.audioFileExtension == "m4a")
+        episode.videoURL = URL(string: "https://video.example.com/movie.mkv")!
+        #expect(!episode.playsAsVideo)
+        episode.videoURL = URL(string: "file:///private/movie.mp4")!
+        #expect(!episode.playsAsVideo)
+    }
+
 }

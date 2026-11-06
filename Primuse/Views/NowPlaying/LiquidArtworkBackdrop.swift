@@ -34,7 +34,7 @@ struct LiquidArtworkBackdrop: View {
         let moves = shouldMove
         TimelineView(.animation(
             minimumInterval: frameInterval,
-            paused: !(moves || transitionStart != nil)
+            paused: !canAnimate || !(moves || transitionStart != nil)
         )) { context in
             Canvas(rendersAsynchronously: true) { canvas, size in
                 draw(in: &canvas, size: size, date: context.date)
@@ -51,11 +51,15 @@ struct LiquidArtworkBackdrop: View {
         .onChange(of: moves) { _, running in
             updateClock(running: running, at: .now)
         }
+        .onChange(of: canAnimate) { _, allowed in
+            if !allowed { finishColorTransition() }
+        }
         .onChange(of: palette) { _, newPalette in
             beginColorTransition(to: newPalette, at: .now)
         }
         .onDisappear {
             updateClock(running: false, at: .now)
+            finishColorTransition()
         }
         .task(id: transitionStart) {
             guard transitionStart != nil else { return }
@@ -81,9 +85,19 @@ struct LiquidArtworkBackdrop: View {
     // MARK: 什么时候动
 
     private var shouldMove: Bool {
-        guard isVisible, isSceneActive, isPlaying, !reduceMotion,
-              !ProcessInfo.processInfo.isLowPowerModeEnabled else { return false }
-        switch ProcessInfo.processInfo.thermalState {
+        canAnimate && isPlaying
+    }
+
+    private var canAnimate: Bool {
+        Self.allowsAnimation(isVisible: isVisible, isSceneActive: isSceneActive,
+                             reduceMotion: reduceMotion, lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+                             thermalState: ProcessInfo.processInfo.thermalState)
+    }
+
+    static func allowsAnimation(isVisible: Bool, isSceneActive: Bool, reduceMotion: Bool,
+                                lowPower: Bool, thermalState: ProcessInfo.ThermalState) -> Bool {
+        guard isVisible, isSceneActive, !reduceMotion, !lowPower else { return false }
+        switch thermalState {
         case .nominal, .fair: return true
         default: return false
         }
@@ -119,9 +133,19 @@ struct LiquidArtworkBackdrop: View {
     private func beginColorTransition(to newPalette: [LiquidBackdropColor], at date: Date) {
         let target = LiquidBackdropPalettePolicy.blobColors(for: newPalette)
         guard target != toColors else { return }
+        guard canAnimate else {
+            toColors = target
+            finishColorTransition()
+            return
+        }
         fromColors = currentColors(at: date)
         toColors = target
         transitionStart = date
+    }
+
+    private func finishColorTransition() {
+        fromColors = toColors
+        transitionStart = nil
     }
 
     private func currentColors(at date: Date) -> [LiquidBackdropColor] {

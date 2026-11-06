@@ -936,12 +936,12 @@ struct LibraryView: View {
         .task(id: previewRevision) {
             await refreshArtworkPreviews(for: previewRevision)
         }
-        .serverCatalogPullToRefresh {
+        .serverCatalogPullToRefresh(alsoRefresh: {
             LibraryArtworkPreviewSessionStore.shared.invalidateForManualRefresh()
             artworkPreviewSelection = LibraryArtworkPreviewSelection()
             artworkPreviewBuiltAt = nil
             await refreshArtworkPreviews(for: artworkPreviewRevision)
-        }
+        })
         .onAppear {
             if navigationPath.isEmpty {
                 onActiveSectionChange(nil)

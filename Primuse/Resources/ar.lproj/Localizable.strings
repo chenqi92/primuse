@@ -6891,6 +6891,7 @@
 
 "home_filter_bar_appearance" = "نمط المنطقة العلوية";
 "home_filter_bar_swipe" = "السحب للتبديل بين الفئات";
+"home_filter_bar_monochrome" = "أحادي اللون";
 "home_filter_style_classic" = "كبسولات كلاسيكية (افتراضي)";
 "home_filter_style_underline" = "نص تحته خط";
 "home_filter_style_segmented" = "شريط مقسّم";
@@ -6955,7 +6956,8 @@
 "chapter_generation_daily_limit" = "تم استنفاد حصة إنشاء الفصول اليوم. حاول مرة أخرى غدًا.";
 "chapter_generation_monthly_limit" = "تم استنفاد حصة إنشاء الفصول لهذا الشهر. حاول مرة أخرى الشهر المقبل.";
 
-"album_show_track_artwork" = "إظهار صور الأغاني";
+"album_show_track_artwork" = "صور الأغاني";
+"home_play_latest_album" = "تشغيل أحدث ألبوم";
 "content_explicit" = "محتوى صريح";
 "content_rating" = "تصنيف المحتوى";
 "copyright_label" = "حقوق النشر";
@@ -7152,6 +7154,18 @@
 "player_carousel_open_artist" = "الفنان";
 "player_carousel_song_count %lld" = "%lld أغنية";
 "player_carousel_more_by_artist %@" = "المزيد من %@";
+
+"mini_player_show_lyrics" = "كلمات المشغّل المصغّر";
+
+"player_vivid_mesh" = "Mesh زاهٍ";
+
+"lyrics_pip_title" = "الكلمات في صورة داخل صورة";
+
+"lyrics_pip_start" = "بدء صورة داخل صورة";
+
+"lyrics_pip_stop" = "إيقاف صورة داخل صورة";
+
+"lyrics_pip_start_failed" = "تعذّر بدء صورة داخل صورة. حاول مرة أخرى.";
 
 "offline_downloads_show_in_finder" = "إظهار التنزيلات في Finder";
 

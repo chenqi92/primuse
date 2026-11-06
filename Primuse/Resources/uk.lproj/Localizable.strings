@@ -6891,6 +6891,7 @@
 
 "home_filter_bar_appearance" = "Стиль верхньої області";
 "home_filter_bar_swipe" = "Перемикати категорії гортанням";
+"home_filter_bar_monochrome" = "Монохромний";
 "home_filter_style_classic" = "Класичні капсули (типово)";
 "home_filter_style_underline" = "Підкреслений текст";
 "home_filter_style_segmented" = "Сегменти";
@@ -6955,7 +6956,8 @@
 "chapter_generation_daily_limit" = "Денний ліміт створення розділів вичерпано. Спробуйте завтра.";
 "chapter_generation_monthly_limit" = "Місячний ліміт створення розділів вичерпано. Спробуйте наступного місяця.";
 
-"album_show_track_artwork" = "Показувати обкладинки композицій";
+"album_show_track_artwork" = "Обкладинки композицій";
+"home_play_latest_album" = "Відтворити останній альбом";
 "content_explicit" = "Ненормативна лексика";
 "content_rating" = "Маркування вмісту";
 "copyright_label" = "Авторські права";
@@ -7152,6 +7154,18 @@
 "player_carousel_open_artist" = "Виконавець";
 "player_carousel_song_count %lld" = "Пісень: %lld";
 "player_carousel_more_by_artist %@" = "Більше від %@";
+
+"mini_player_show_lyrics" = "Мінітекст";
+
+"player_vivid_mesh" = "Насичений Mesh";
+
+"lyrics_pip_title" = "Текст пісні у вікні";
+
+"lyrics_pip_start" = "Увімкнути «Картинка в картинці»";
+
+"lyrics_pip_stop" = "Вимкнути «Картинка в картинці»";
+
+"lyrics_pip_start_failed" = "Не вдалося запустити «Картинка в картинці». Спробуйте ще раз.";
 
 "offline_downloads_show_in_finder" = "Показати завантаження у Finder";
 

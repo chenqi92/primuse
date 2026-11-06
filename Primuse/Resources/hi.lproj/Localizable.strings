@@ -6891,6 +6891,7 @@
 
 "home_filter_bar_appearance" = "ऊपरी क्षेत्र की शैली";
 "home_filter_bar_swipe" = "स्वाइप करके श्रेणी बदलें";
+"home_filter_bar_monochrome" = "एकरंगी";
 "home_filter_style_classic" = "क्लासिक कैप्सूल (डिफ़ॉल्ट)";
 "home_filter_style_underline" = "रेखांकित पाठ";
 "home_filter_style_segmented" = "खंडित पट्टी";
@@ -6955,7 +6956,8 @@
 "chapter_generation_daily_limit" = "आज की अध्याय बनाने की सीमा पूरी हो गई है। कल फिर कोशिश करें।";
 "chapter_generation_monthly_limit" = "इस महीने की अध्याय बनाने की सीमा पूरी हो गई है। अगले महीने फिर कोशिश करें।";
 
-"album_show_track_artwork" = "गानों के कवर दिखाएँ";
+"album_show_track_artwork" = "गानों के कवर";
+"home_play_latest_album" = "नवीनतम एल्बम चलाएँ";
 "content_explicit" = "अश्लील सामग्री";
 "content_rating" = "सामग्री रेटिंग";
 "copyright_label" = "कॉपीराइट";
@@ -7152,6 +7154,18 @@
 "player_carousel_open_artist" = "कलाकार";
 "player_carousel_song_count %lld" = "%lld गाने";
 "player_carousel_more_by_artist %@" = "%@ के और गाने";
+
+"mini_player_show_lyrics" = "मिनी गीत-बोल";
+
+"player_vivid_mesh" = "जीवंत Mesh";
+
+"lyrics_pip_title" = "पिक्चर इन पिक्चर में गीत के बोल";
+
+"lyrics_pip_start" = "पिक्चर इन पिक्चर शुरू करें";
+
+"lyrics_pip_stop" = "पिक्चर इन पिक्चर बंद करें";
+
+"lyrics_pip_start_failed" = "पिक्चर इन पिक्चर शुरू नहीं हो सका। फिर से कोशिश करें।";
 
 "offline_downloads_show_in_finder" = "डाउनलोड Finder में दिखाएँ";
 

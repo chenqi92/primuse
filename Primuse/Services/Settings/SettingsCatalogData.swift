@@ -150,6 +150,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.audioInfo", titleKey: "player_audio_info_title", iosPage: .player, macPage: .appearance, keywords: ["sample rate", "bit depth", "bitrate", "Hi-Res", "lossless", "采样率", "位深", "码率", "无损", "音质", "重采样"]),
         SettingDefinition(id: "appearance.replayGainBadge", titleKey: "rg_show_badge", iosPage: .player, macPage: .appearance, keywords: ["ReplayGain", "RG", "loudness", "响度", "标识", "回放增益"]),
         SettingDefinition(id: "appearance.playerAlwaysDark", titleKey: "player_always_dark_title", iosPage: .playerStyle, macPage: nil, keywords: ["深色", "暗色", "黑色", "浅色", "播放页", "dark", "always dark", "player"]),
+        SettingDefinition(id: "appearance.vividMesh", titleKey: "player_vivid_mesh", iosPage: .playerStyle, macPage: nil, keywords: ["鲜艳", "取色", "封面", "mesh", "vivid"]),
+        SettingDefinition(id: "player.miniPlayerLyrics", titleKey: "mini_player_show_lyrics", iosPage: .player, macPage: nil, keywords: ["底部", "歌词", "小播放器", "mini player", "lyrics"]),
         SettingDefinition(id: "appearance.playerProgressThickness", titleKey: "player_progress_thickness", iosPage: .playerStyle, macPage: .appearance, keywords: ["粗细", "进度条", "thickness", "seek bar"]),
         SettingDefinition(id: "appearance.playerVolumeThickness", titleKey: "player_volume_thickness", iosPage: .playerStyle, macPage: .appearance, keywords: ["粗细", "音量条", "thickness", "volume"]),
         SettingDefinition(id: "appearance.playerProgressStyle", titleKey: "player_progress_style_title", iosPage: .playerStyle, macPage: .appearance, keywords: ["进度条", "波浪", "圆点", "样式", "progress", "wave", "squiggly", "seek bar"]),

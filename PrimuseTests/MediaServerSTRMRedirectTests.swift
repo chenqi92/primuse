@@ -7,6 +7,25 @@ import XCTest
 @testable import Primuse
 
 final class MediaServerSTRMRedirectTests: XCTestCase {
+    func testCompleteDownloadRecreatesEvictedTemporaryCacheDirectory() async throws {
+        let host = uniqueHost("evicted-download")
+        let content = Data("fLaC-media-fixture".utf8)
+        MediaServerRedirectURLProtocol.configure(host: host) { request in
+            if request.url?.path == "/Users/Me" { return .json(#"{"Id":"user"}"#) }
+            return .init(headers: ["Content-Type": "audio/flac"], body: content)
+        }
+        let source = makeSource(host: host)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse_media_server_cache_\(host)")
+        try FileManager.default.removeItem(at: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let downloaded = try await source.localURL(for: "/items/song.flac")
+        XCTAssertEqual(try Data(contentsOf: downloaded), content)
+        let cached = try await source.localURL(for: "/items/song.flac")
+        XCTAssertEqual(cached, downloaded)
+        await source.disconnect()
+    }
+
     func testAdaptiveTranscodingUsesRequestedCodecAndRestoresPlaybackPlan() async throws {
         for kind in [MediaServerSource.Kind.jellyfin, .emby, .plex] {
             let host = uniqueHost("transcode")

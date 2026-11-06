@@ -263,6 +263,80 @@ final class PlayerBackdropImagingTests: XCTestCase {
         }
     }
 
+    func testAudiobookProgressMovesTrackWithoutShrinkingScrubArea() async throws {
+        let suite = "AudiobookProgress-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(PlayerTrackThickness.standard.rawValue, forKey: PlayerAppearancePreferences.progressThicknessKey)
+
+        func trackDisplacement(_ chapter: ProgressSlider.TrackStyle) async throws -> Double {
+            var centered = chapter
+            centered.verticalOffset = 0
+            func slider(_ style: ProgressSlider.TrackStyle) -> some View {
+                ProgressSlider(value: 80, total: 200,
+                               fillTint: Color(.sRGB, red: 1, green: 0, blue: 0, opacity: 1),
+                               trackStyle: style, onSeek: { _ in })
+                    .frame(width: 200)
+            }
+            let pair = VStack(spacing: 0) {
+                slider(centered)
+                slider(chapter)
+            }
+            .environment(ThemeService())
+            .defaultAppStorage(defaults)
+            .transaction { $0.disablesAnimations = true }
+            .ignoresSafeArea()
+            let host = UIHostingController(rootView: pair)
+            let fitted = host.sizeThatFits(in: CGSize(width: 200, height: 200))
+            XCTAssertEqual(fitted.height, 88, accuracy: 0.5)
+            let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+            let window = UIWindow(windowScene: scene)
+            window.frame = CGRect(origin: .zero, size: fitted)
+            window.rootViewController = host
+            window.isHidden = false
+            defer { window.isHidden = true; window.rootViewController = nil }
+            try await Task.sleep(for: .milliseconds(150))
+            host.view.layoutIfNeeded()
+            for y in [CGFloat(1), CGFloat(43), CGFloat(45), CGFloat(87)] {
+                XCTAssertNotNil(host.view.hitTest(CGPoint(x: 100, y: y), with: nil))
+            }
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = window.screen.scale
+            let rendered = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+                XCTAssertTrue(host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true))
+            }
+            let image = try XCTUnwrap(rendered.cgImage)
+            XCTAssertEqual(Double(image.height) / Double(format.scale), 88, accuracy: 0.5)
+            let pixels = try rgbaPixels(of: image)
+            func center(in range: Range<Int>) throws -> Double {
+                let rows = range.filter { row in
+                    let offset = (row * image.width + Int(40 * format.scale)) * 4
+                    return pixels[offset] > 180 && pixels[offset + 1] < 30 && pixels[offset + 3] > 180
+                }
+                return Double(try XCTUnwrap(rows.first) + XCTUnwrap(rows.last)) / (2 * Double(format.scale))
+            }
+            let split = Int(44 * format.scale)
+            let displacement = try center(in: 0..<split) - (center(in: split..<image.height) - 44)
+            if abs(displacement - 6) > 0.5 {
+                let attachment = XCTAttachment(image: rendered)
+                attachment.name = "Progress track pair offset \(chapter.verticalOffset)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            return displacement
+        }
+
+        for selected in NowPlayingProgressStyle.allCases {
+            for follows in [false, true] {
+                let chapter = AudiobookProgressBar.trackStyle(selected: selected, glows: false,
+                                                              followsProgressStyle: follows, trackColor: .clear)
+                let displacement = try await trackDisplacement(chapter)
+                XCTAssertEqual(displacement, 6, accuracy: 0.5,
+                               "style=\(selected), follows=\(follows)")
+            }
+        }
+    }
+
     func testMiddleSofteningDoesNotChangeTopAndSwitchesIndependently() throws {
         let suite = "PlayerSoftening-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

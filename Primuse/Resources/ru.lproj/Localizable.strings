@@ -6891,6 +6891,7 @@
 
 "home_filter_bar_appearance" = "Стиль верхней области";
 "home_filter_bar_swipe" = "Переключать категории смахиванием";
+"home_filter_bar_monochrome" = "Монохромный";
 "home_filter_style_classic" = "Классические капсулы (по умолчанию)";
 "home_filter_style_underline" = "Текст с подчёркиванием";
 "home_filter_style_segmented" = "Сегменты";
@@ -6955,7 +6956,8 @@
 "chapter_generation_daily_limit" = "Дневной лимит создания глав исчерпан. Попробуйте завтра.";
 "chapter_generation_monthly_limit" = "Месячный лимит создания глав исчерпан. Попробуйте в следующем месяце.";
 
-"album_show_track_artwork" = "Показывать обложки треков";
+"album_show_track_artwork" = "Обложки треков";
+"home_play_latest_album" = "Воспроизвести последний альбом";
 "content_explicit" = "Ненормативная лексика";
 "content_rating" = "Возрастная маркировка";
 "copyright_label" = "Авторские права";
@@ -7152,6 +7154,18 @@
 "player_carousel_open_artist" = "Исполнитель";
 "player_carousel_song_count %lld" = "Песен: %lld";
 "player_carousel_more_by_artist %@" = "Ещё от %@";
+
+"mini_player_show_lyrics" = "Мини-текст";
+
+"player_vivid_mesh" = "Насыщенный Mesh";
+
+"lyrics_pip_title" = "Текст песни в окне";
+
+"lyrics_pip_start" = "Включить «Картинка в картинке»";
+
+"lyrics_pip_stop" = "Выключить «Картинка в картинке»";
+
+"lyrics_pip_start_failed" = "Не удалось запустить «Картинка в картинке». Повторите попытку.";
 
 "offline_downloads_show_in_finder" = "Показать загрузки в Finder";
 

@@ -1793,7 +1793,8 @@ struct MacNowPlayingView: View {
             }
 
             // 独立 MV 始终走视频管线, 模式开关对它无意义, 不显示
-            if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true {
+            if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true,
+               !PodcastPlaybackSong.isVideoEpisode(player.currentSong) {
                 Button { player.toggleMusicVideoMode() } label: {
                     circleIcon(player.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
                                tint: player.isMusicVideoModeEnabled ? theme.onAccent : nil,

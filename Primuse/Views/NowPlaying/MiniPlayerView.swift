@@ -124,6 +124,7 @@ private struct MiniPlayerLandingPop: ViewModifier {
 }
 
 struct MiniPlayerSwipeContent: View {
+    @AppStorage(PlayerAppearancePreferences.miniPlayerLyricsKey) private var miniPlayerLyrics = false
     var onTap: () -> Void
     var artworkSize: CGFloat
     var artworkCornerRadius: CGFloat
@@ -184,7 +185,7 @@ struct MiniPlayerSwipeContent: View {
                         .foregroundStyle(.primary)
                         .contentTransition(.opacity)
 
-                    if showsSubtitle, let error = player.lastPlaybackError {
+                    if showsSubtitle || miniPlayerLyrics, let error = player.lastPlaybackError {
                         // A song picked from a list can fail with the player
                         // closed; this line is the only place left to say why.
                         Text(verbatim: error)
@@ -192,7 +193,7 @@ struct MiniPlayerSwipeContent: View {
                             .lineLimit(1)
                             .foregroundStyle(.orange)
                             .contentTransition(.opacity)
-                    } else if showsSubtitle, isDownloadingFromICloud {
+                    } else if showsSubtitle || miniPlayerLyrics, isDownloadingFromICloud {
                         Label("playback_icloud_downloading", systemImage: "icloud.and.arrow.down")
                             .font(.caption2)
                             .lineLimit(1)
@@ -203,15 +204,8 @@ struct MiniPlayerSwipeContent: View {
                         MiniPlayerSpokenWordSubtitle()
                     } else if showsProgress, player.isLiveRadio {
                         MiniPlayerLiveRadioSubtitle()
-                    } else if showsSubtitle,
-                       let song = player.currentSong,
-                       let artist = library.artistDisplayName(for: song),
-                       !artist.isEmpty {
-                        Text(artist)
-                            .font(.caption2)
-                            .lineLimit(1)
-                            .foregroundStyle(.secondary)
-                            .contentTransition(.opacity)
+                    } else if showsSubtitle || miniPlayerLyrics, let song = player.currentSong {
+                        MiniPlayerLyricsSubtitle(artist: library.artistDisplayName(for: song) ?? "")
                     }
 
                     if showsProgress, !player.isLiveRadio {
@@ -267,14 +261,18 @@ struct MiniPlayerSwipeContent: View {
         if isSpokenWord, let part = SpokenWordPlayerText.partTitle(player) {
             parts.append(part)
         }
-        if showsSubtitle, let error = player.lastPlaybackError {
+        if showsSubtitle || miniPlayerLyrics, let error = player.lastPlaybackError {
             return (parts + [error]).filter { !$0.isEmpty }.joined(separator: ": ")
         }
-        if showsSubtitle, isDownloadingFromICloud {
+        if showsSubtitle || miniPlayerLyrics, isDownloadingFromICloud {
             parts.append(String(localized: "playback_icloud_downloading"))
             return parts.filter { !$0.isEmpty }.joined(separator: ": ")
         }
-        if showsSubtitle,
+        if miniPlayerLyrics, !isSpokenWord, !player.isLiveRadio,
+           FloatingLyricsService.shared.songID == player.currentSong?.id,
+           let line = FloatingLyricsService.shared.presentation.current {
+            parts.append(line)
+        } else if showsSubtitle || miniPlayerLyrics,
            let song = player.currentSong,
            let artist = library.artistDisplayName(for: song),
            !artist.isEmpty {
@@ -374,6 +372,7 @@ private struct MiniPlayerMenuItems: View {
 
     var body: some View {
         if let song = player.currentSong {
+            Section { FloatingLyricsMenuItems() }
             Section {
                 if !player.isLiveRadio {
                     Button { toggleLike(song) } label: {

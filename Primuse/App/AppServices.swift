@@ -1130,7 +1130,7 @@ final class AppServices {
     /// 有声内容那份账都没变就沿用,不再整库分组。
     private var siriCatalogBooks: (inputs: SiriCatalogBookInputs, books: [SpokenWordBook])?
     private var siriCatalogRefreshTask: Task<Void, Never>?
-    private var siriCatalogForcePending = false
+    private var siriCatalogRefreshSchedule = SiriCatalogRefreshSchedule()
     #if os(iOS)
     private let siriSongSuggestions = SiriSongSuggestionCache()
     private(set) var siriShortcutSongs: [Song] = []
@@ -1855,7 +1855,7 @@ final class AppServices {
             startupPublication = Task { @MainActor [library] in
                 library.publish(await preparation.value)
                 // Cloud corrections can arrive while the disk snapshot is loading.
-                library.refreshContentClassification()
+                await library.refreshContentClassificationInBackground()
                 plog(String(
                     format: "🚀 library published %.0fms after launch services",
                     (ProcessInfo.processInfo.systemUptime - startupFinishedAt) * 1_000
@@ -2457,15 +2457,33 @@ final class AppServices {
     /// a second during a scan, so only a different set is sent; `force`
     /// re-sends it once Siri permission has just been granted.
     ///
-    /// 每次回到前台、扫描时每批音乐源变化都会走到这里:合并成一次,书在后台分组
-    /// (几千章的有声库整库分一次要几百毫秒,原先就在主线程上分)。
+    /// 标签回填每隔数秒就发布一批结果。除去抖外还限制准备和注册的频率,
+    /// 避免每批都触发系统重新查询所有快捷指令参数; 首次与授权后仍及时更新。
     func refreshSiriCatalog(force: Bool = false) {
-        if force { siriCatalogForcePending = true }
+        guard let delay = siriCatalogRefreshSchedule.request(
+            at: ProcessInfo.processInfo.systemUptime,
+            force: force
+        ) else { return }
+        scheduleSiriCatalogRefresh(after: delay)
+    }
+
+    private func scheduleSiriCatalogRefresh(after delay: TimeInterval) {
         siriCatalogRefreshTask?.cancel()
         siriCatalogRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled, let self,
-                  let books = await self.siriCatalogBookList(),
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            guard let force = self.siriCatalogRefreshSchedule.begin(
+                at: ProcessInfo.processInfo.systemUptime
+            ) else { return }
+            var succeeded = false
+            defer {
+                let delay = self.siriCatalogRefreshSchedule.complete(
+                    at: ProcessInfo.processInfo.systemUptime, succeeded: succeeded
+                )
+                self.siriCatalogRefreshTask = nil
+                if let delay { self.scheduleSiriCatalogRefresh(after: delay) }
+            }
+            guard let books = await self.siriCatalogBookList(),
                   !Task.isCancelled else { return }
             let stations = self.siriShortcutRadioStations
             let shows = Array(PodcastStore.shared.shows.prefix(50))
@@ -2488,8 +2506,8 @@ final class AppServices {
             }.value
             guard !Task.isCancelled else { return }
             #endif
-            guard self.siriCatalogForcePending || signature != self.siriRadioCatalogSignature else { return }
-            self.siriCatalogForcePending = false
+            succeeded = true
+            guard force || signature != self.siriRadioCatalogSignature else { return }
             self.siriRadioCatalogSignature = signature
             SiriMediaInteractionDonor.refreshCatalog(
                 stationNames: stations.map(\.name),

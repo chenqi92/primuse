@@ -224,6 +224,7 @@ struct PlayerAudiobookToggleRow<Hint: View>: View {
 
 /// iPhone / iPad 设置里的「播放页背景」，和封面取色放在同一页。
 struct PlayerBackdropSettingsSections: View {
+    @AppStorage(PlayerAppearancePreferences.vividMeshKey) private var vividMesh = false
     @State private var store = PlayerBackdropSettingsStore.shared
     @Environment(ThemeService.self) private var themeService
     @State private var pickerItems: [PhotosPickerItem] = []
@@ -248,6 +249,11 @@ struct PlayerBackdropSettingsSections: View {
                     }
                 }
                 .accessibilityIdentifier("playerBackdrop.ambientStyle")
+                if settings.ambientStyle == .mesh {
+                    Toggle("player_vivid_mesh", isOn: $vividMesh)
+                        .settingsAnchor("appearance.vividMesh")
+                        .accessibilityIdentifier("playerBackdrop.vividMesh")
+                }
             }
 
             if settings.source == .customImages {

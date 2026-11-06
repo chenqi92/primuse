@@ -141,6 +141,15 @@ enum PodcastPlaybackLauncher {
                     return
                 } catch {}
             }
+            if let videoURL = episode.videoPlaybackURL, videoURL != episode.enclosureURL,
+               player.usesVideoPipeline(for: PodcastPlaybackSong.song(for: episode, show: nil)) {
+                do {
+                    _ = try await PodcastNetwork.reachableURL(for: videoURL)
+                } catch PodcastNetwork.Failure.insecureHTTP(let host) {
+                    needsInsecureConsent(host)
+                    return
+                } catch {}
+            }
             await player.playPodcast(episode, continuing: continuing, from: position)
         }
     }

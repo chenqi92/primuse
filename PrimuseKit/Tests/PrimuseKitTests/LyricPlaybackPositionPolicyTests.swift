@@ -3,6 +3,26 @@ import Testing
 
 @Suite("Lyric playback positioning")
 struct LyricPlaybackPositionPolicyTests {
+    @Test func floatingLyricsFollowSeekingAndClearDuringInterludes() {
+        let lines = FloatingLyricsPresentation.synchronizedLines([
+            LyricLine(timestamp: 14, text: "纸船载着星光回航"),
+            LyricLine(timestamp: 3, text: "晚风点亮窗边的灯", endTimestamp: 6),
+            LyricLine(timestamp: 3, text: "The evening lights a little lamp"),
+            LyricLine(timestamp: 9, text: ""),
+            LyricLine(timestamp: 0, text: "A plain note", isSynchronized: false)
+        ])
+        #expect(FloatingLyricsPresentation(lines: lines, time: 0).current == nil)
+        #expect(FloatingLyricsPresentation(lines: lines, time: 0).next == "晚风点亮窗边的灯")
+        #expect(FloatingLyricsPresentation(lines: lines, time: 4).current == "晚风点亮窗边的灯")
+        #expect(FloatingLyricsPresentation(lines: lines, time: 4).next == "纸船载着星光回航")
+        #expect(FloatingLyricsPresentation(lines: lines, time: 7).current == nil)
+        #expect(FloatingLyricsPresentation(lines: lines, time: 10).current == nil)
+        #expect(FloatingLyricsPresentation(lines: lines, time: 15).current == "纸船载着星光回航")
+        #expect(FloatingLyricsPresentation(lines: lines, time: 4).current == "晚风点亮窗边的灯")
+        #expect(FloatingLyricsPresentation(lines: lines, time: .nan).current == nil)
+        #expect(FloatingLyricsPresentation(lines: [], time: 15).current == nil)
+    }
+
     @Test("Companion rows do not deactivate the source word timeline")
     func deactivationSkipsTheCurrentTimestampGroup() throws {
         let lyrics = [

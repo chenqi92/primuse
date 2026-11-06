@@ -6986,6 +6986,7 @@
 
 "home_filter_bar_appearance" = "上部エリアのスタイル";
 "home_filter_bar_swipe" = "スワイプでカテゴリを切り替える";
+"home_filter_bar_monochrome" = "モノクロ";
 "home_filter_style_classic" = "クラシックカプセル（デフォルト）";
 "home_filter_style_underline" = "下線付きテキスト";
 "home_filter_style_segmented" = "セグメントバー";
@@ -7050,7 +7051,8 @@
 "chapter_generation_daily_limit" = "本日のチャプター生成の上限に達しました。明日もう一度お試しください。";
 "chapter_generation_monthly_limit" = "今月のチャプター生成の上限に達しました。来月もう一度お試しください。";
 
-"album_show_track_artwork" = "曲のアートワークを表示";
+"album_show_track_artwork" = "曲のアートワーク";
+"home_play_latest_album" = "最新のアルバムを再生";
 "content_explicit" = "露骨な表現を含む";
 "content_rating" = "コンテンツレーティング";
 "copyright_label" = "著作権";
@@ -7247,6 +7249,18 @@
 "player_carousel_open_artist" = "アーティスト";
 "player_carousel_song_count %lld" = "%lld 曲";
 "player_carousel_more_by_artist %@" = "%@ のその他の曲";
+
+"mini_player_show_lyrics" = "ミニ歌詞";
+
+"player_vivid_mesh" = "鮮やかな Mesh";
+
+"lyrics_pip_title" = "ピクチャ・イン・ピクチャの歌詞";
+
+"lyrics_pip_start" = "ピクチャ・イン・ピクチャを開始";
+
+"lyrics_pip_stop" = "ピクチャ・イン・ピクチャを終了";
+
+"lyrics_pip_start_failed" = "ピクチャ・イン・ピクチャを開始できませんでした。もう一度お試しください。";
 
 "offline_downloads_show_in_finder" = "ダウンロードを Finder で表示";
 

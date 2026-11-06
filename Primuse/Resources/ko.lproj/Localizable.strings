@@ -6985,6 +6985,7 @@
 
 "home_filter_bar_appearance" = "상단 영역 스타일";
 "home_filter_bar_swipe" = "쓸어서 카테고리 전환";
+"home_filter_bar_monochrome" = "흑백";
 "home_filter_style_classic" = "기본 캡슐 (기본값)";
 "home_filter_style_underline" = "밑줄 텍스트";
 "home_filter_style_segmented" = "분할 막대";
@@ -7049,7 +7050,8 @@
 "chapter_generation_daily_limit" = "오늘의 챕터 생성 한도를 모두 사용했습니다. 내일 다시 시도하세요.";
 "chapter_generation_monthly_limit" = "이번 달의 챕터 생성 한도를 모두 사용했습니다. 다음 달에 다시 시도하세요.";
 
-"album_show_track_artwork" = "곡 아트워크 표시";
+"album_show_track_artwork" = "곡 아트워크";
+"home_play_latest_album" = "최근 추가한 앨범 재생";
 "content_explicit" = "유해 콘텐츠";
 "content_rating" = "콘텐츠 등급";
 "copyright_label" = "저작권";
@@ -7246,6 +7248,18 @@
 "player_carousel_open_artist" = "아티스트";
 "player_carousel_song_count %lld" = "노래 %lld곡";
 "player_carousel_more_by_artist %@" = "%@의 다른 노래";
+
+"mini_player_show_lyrics" = "미니 가사";
+
+"player_vivid_mesh" = "선명한 Mesh";
+
+"lyrics_pip_title" = "화면 속 화면 가사";
+
+"lyrics_pip_start" = "화면 속 화면 시작";
+
+"lyrics_pip_stop" = "화면 속 화면 종료";
+
+"lyrics_pip_start_failed" = "화면 속 화면을 시작할 수 없습니다. 다시 시도해 주세요.";
 
 "offline_downloads_show_in_finder" = "Finder에서 다운로드 보기";
 

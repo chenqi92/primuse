@@ -154,6 +154,9 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case openInAppleMusic
     case cast
     case lyricsDisplay
+    case lyricsWeight
+    case miniPlayerLyrics
+    case floatingLyrics
     case lyricsMotion
     case sleepTimer
     case equalizer

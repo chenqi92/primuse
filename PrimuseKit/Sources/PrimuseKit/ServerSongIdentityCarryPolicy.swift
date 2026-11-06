@@ -15,6 +15,7 @@ public enum NavidromeCanonicalIDPolicy {
     )
     private static let canonicalLength = 22
     private static let dash = UInt8(ascii: "-")
+    private static let maximum128BitDigits = Array("7N42dgm5tFLK9N8MT7fHC7".utf8).map { base62Digit($0)! }
 
     /// Unrecognized shapes pass through unchanged, as on the server. `md5` is
     /// only consulted for a 22-character id whose value overflows 128 bits.
@@ -22,7 +23,7 @@ public enum NavidromeCanonicalIDPolicy {
         let bytes = Array(id.utf8)
         switch bytes.count {
         case canonicalLength:
-            guard let limbs = base62Limbs(bytes), limbs[4] != 0 else { return id }
+            guard exceeds128Bits(bytes) else { return id }
             let digest = md5(Data(bytes))
             guard digest.count == 16 else { return id }
             return encode(Array(digest))
@@ -44,40 +45,36 @@ public enum NavidromeCanonicalIDPolicy {
 
     /// `fmt.Sprintf("%022s", new(big.Int).SetBytes(b).Text(62))`.
     static func encode(_ value: [UInt8]) -> String {
-        var limbs = [UInt32](repeating: 0, count: 4)
-        for (offset, byte) in value.reversed().enumerated() where offset < 16 {
-            limbs[offset / 4] |= UInt32(byte) << (8 * UInt32(offset % 4))
+        var high: UInt64 = 0
+        var low: UInt64 = 0
+        for byte in value.suffix(16) {
+            high = (high << 8) | (low >> 56)
+            low = (low << 8) | UInt64(byte)
         }
         var output: [UInt8] = []
-        while limbs.contains(where: { $0 != 0 }) {
-            var remainder: UInt64 = 0
-            for index in limbs.indices.reversed() {
-                let current = (remainder << 32) | UInt64(limbs[index])
-                limbs[index] = UInt32(current / 62)
-                remainder = current % 62
-            }
-            output.append(digits[Int(remainder)])
+        output.reserveCapacity(canonicalLength)
+        while high != 0 || low != 0 {
+            let division = UInt64(62).dividingFullWidth((high: high % 62, low: low))
+            high /= 62
+            low = division.quotient
+            output.append(digits[Int(division.remainder)])
         }
         while output.count < canonicalLength { output.append(digits[0]) }
         return String(decoding: output.reversed(), as: UTF8.self)
     }
 
-    /// Little-endian 32-bit limbs; five of them hold any 22-digit value
-    /// (62^22 < 2^131). Nil when a byte is outside the alphabet — the server's
-    /// `SetString` fails the same way, and a sign prefix passes through there
-    /// too.
-    private static func base62Limbs(_ bytes: [UInt8]) -> [UInt32]? {
-        var limbs = [UInt32](repeating: 0, count: 5)
-        for byte in bytes {
-            guard let digit = base62Digit(byte) else { return nil }
-            var carry = UInt64(digit)
-            for index in limbs.indices {
-                let product = UInt64(limbs[index]) * 62 + carry
-                limbs[index] = UInt32(truncatingIfNeeded: product)
-                carry = product >> 32
+    /// 等长的有效 base62 数字可直接比较位值，无须逐条构造大整数。
+    /// 即使前几位已超过上限，也要检查尾部，保持非法字符原样返回。
+    private static func exceeds128Bits(_ bytes: [UInt8]) -> Bool {
+        var comparison = 0
+        for (offset, byte) in bytes.enumerated() {
+            guard let digit = base62Digit(byte) else { return false }
+            let maximum = maximum128BitDigits[offset]
+            if comparison == 0, digit != maximum {
+                comparison = digit > maximum ? 1 : -1
             }
         }
-        return limbs
+        return comparison > 0
     }
 
     private static func base62Digit(_ byte: UInt8) -> UInt32? {
@@ -152,6 +149,7 @@ public enum SubsonicSongIdentityCarryPolicy {
         canonicalID: (String) -> String
     ) -> [String: String] {
         var result: [String: String] = [:]
+        result.reserveCapacity(songs.count)
         var ambiguous = Set<String>()
         func claim(_ key: String, for songID: String) {
             guard !ambiguous.contains(key) else { return }

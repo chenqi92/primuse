@@ -748,6 +748,7 @@ final class AudioPlayerService {
 
     @ObservationIgnored private var systemAudioPlayer: AVPlayer?
     @ObservationIgnored private var systemAudioStreamingLoader: SystemAudioStreamingLoader?
+    @ObservationIgnored private var systemAudioUsesNativePodcastStream = false
     @ObservationIgnored var systemAudioStartupWatchdog: Task<Void, Never>?
     @ObservationIgnored var systemAudioPlaybackDidStart = false
     @ObservationIgnored var pendingSystemAudioSeek: (
@@ -1070,7 +1071,8 @@ final class AudioPlayerService {
     /// 这条视频能不能只放声音:音频管线打得开的容器才行(`SpokenWordVideoPolicy`)。
     func spokenWordVideoSupportsAudioOnly(_ song: Song) -> Bool {
         guard let mvPath = song.mvPath, !mvPath.isEmpty else { return false }
-        return SpokenWordVideoPolicy.supportsAudioOnly(path: mvPath, fallbackExtension: song.fileFormat.rawValue)
+        return PodcastPlaybackSong.hasSeparateVideo(song)
+            || SpokenWordVideoPolicy.supportsAudioOnly(path: mvPath, fallbackExtension: song.fileFormat.rawValue)
     }
 
     /// 这一条开播时走视频管线(AVPlayer 放画面)还是音频管线。音乐 MV 照旧,有声内容的视频听播放页上的选择。
@@ -1078,8 +1080,8 @@ final class AudioPlayerService {
         guard let mvPath = song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !mvPath.isEmpty else { return false }
         return SpokenWordVideoPolicy.usesVideoPipeline(
-            isStandaloneVideo: song.isStandaloneMusicVideo,
-            hasSidecarVideo: !song.isStandaloneMusicVideo,
+            isStandaloneVideo: song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
+            hasSidecarVideo: !song.isStandaloneMusicVideo && !PodcastPlaybackSong.isVideoEpisode(song),
             isSpokenWord: SpokenWordStore.shared.isSpokenWord(song),
             showsSpokenWordVideo: showsSpokenWordVideo,
             musicVideoModeEnabled: isMusicVideoModeEnabled,
@@ -1093,7 +1095,7 @@ final class AudioPlayerService {
     var offersSpokenWordVideoToggle: Bool {
         guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio, !isAppleMusicMode else { return false }
         return SpokenWordVideoPolicy.offersToggle(
-            isStandaloneVideo: song.isStandaloneMusicVideo,
+            isStandaloneVideo: song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
             isSpokenWord: true,
             supportsAudioOnly: spokenWordVideoSupportsAudioOnly(song),
             forcesAudioOnly: shouldForceAudioOnly,
@@ -1942,12 +1944,12 @@ final class AudioPlayerService {
     }
 
     /// 同步当前 playbackRate 与升降调到 engine. 设置变化或新歌开播都会调它。
-    /// 两者都写同一个 TimePitch 节点, 一起套; 系统播放器那条路两样都做不了, 退回 PCM。
+    /// 两者都写同一个 TimePitch 节点; 视频播客的纯音频流由 AVPlayer 自己变速。
     func applyPlaybackRate() {
         let requestedRate = requestedPlaybackRate
         let requestedPitch = requestedPitchSemitones
         if isSystemAudioPlaybackActive,
-           abs(requestedRate - 1) >= 0.001 || requestedPitch != 0,
+           (!systemAudioUsesNativePodcastStream && abs(requestedRate - 1) >= 0.001) || requestedPitch != 0,
            let id = playID {
             Task { @MainActor [weak self] in
                 await self?.fallbackSystemAudioToPCM(playID: id, error: nil)
@@ -1957,7 +1959,8 @@ final class AudioPlayerService {
         audioEngine.applyPlaybackRate(requestedRate)
         audioEngine.applyUserPitch(cents: PlaybackPitchPolicy.cents(forSemitones: requestedPitch))
         // 视频管线自己变速(升降调做不了,和以前一样不管)。
-        if isMusicVideoPlaybackActive, let player = musicVideoPlayer {
+        if isMusicVideoPlaybackActive || systemAudioUsesNativePodcastStream,
+           let player = activeSystemMediaPlayer {
             player.defaultRate = requestedRate
             if player.rate != 0 { player.rate = requestedRate }
         }
@@ -3236,7 +3239,7 @@ final class AudioPlayerService {
             return
         }
         // 独立 MV 不受模式开关影响(始终走视频管线), 只记开关不重启播放。
-        if song.isStandaloneMusicVideo {
+        if song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song) {
             isMusicVideoModeEnabled = enabled
             return
         }
@@ -3490,15 +3493,21 @@ final class AudioPlayerService {
         sourceStreamEpoch: UInt64
     ) async -> Bool {
         let requestedPlaybackRate = self.requestedPlaybackRate(for: song)
-        // The established PCM graph owns variable-speed playback. Keep that
-        // path whenever the user requests a non-default rate so the UI and
-        // audible transport cannot disagree about elapsed time.
-        guard abs(requestedPlaybackRate - 1) < 0.001 else { return false }
+        let nativePodcastAudio = prefersNativePodcastAudioPlayback(for: song, url: url)
+        // Multichannel music uses the PCM graph for variable speed; podcast
+        // video audio keeps AVPlayer's native rate handling.
+        guard nativePodcastAudio || abs(requestedPlaybackRate - 1) < 0.001 else { return false }
         // 升降调同理: 系统播放器没有变调节点。
         guard requestedPitchSemitones(for: song) == 0 else { return false }
         guard !isKaraokeSessionActive else { return false }
-        guard let profile = await preferredSystemAudioProfile(for: song, url: url),
-              playID == id,
+        let profile: ISOBaseMediaAudioProfile?
+        if nativePodcastAudio {
+            profile = nil
+        } else {
+            guard let preferred = await preferredSystemAudioProfile(for: song, url: url) else { return false }
+            profile = preferred
+        }
+        guard playID == id,
               isLocalTransportStartAuthorized(
                 playID: id,
                 itemID: song.id,
@@ -3507,7 +3516,16 @@ final class AudioPlayerService {
 
         var loader: SystemAudioStreamingLoader?
         let asset: AVURLAsset
-        if url.scheme == SourceManager.cloudStreamingScheme {
+        if nativePodcastAudio {
+            // 视频文件常有数 GB。只听它的音轨由 AVPlayer 按需取流，不能先为整段视频预留音频缓存。
+            do {
+                asset = AVURLAsset(url: try await PodcastNetwork.reachableURL(for: url))
+            } catch {
+                guard playID == id else { return false }
+                suspendPlaybackAfterFailure(reason: "podcast-audio-url-unavailable", message: error.localizedDescription)
+                return true
+            }
+        } else if url.scheme == SourceManager.cloudStreamingScheme {
             guard let manager = sourceManager,
                   let inputSource = try? await manager.makeStreamingInputSource(
                     for: song,
@@ -3560,21 +3578,30 @@ final class AudioPlayerService {
         let player = AVPlayer(playerItem: item)
         player.automaticallyWaitsToMinimizeStalling = true
         player.volume = audioEngine.userVolume
+        player.defaultRate = requestedPlaybackRate
+        let openingPosition = nativePodcastAudio ? spokenWordOpeningPosition(for: song) : nil
+        if nativePodcastAudio { item.audioTimePitchAlgorithm = .timeDomain }
+        if let openingPosition { Self.seekBeforeStart(player, to: openingPosition) }
         systemAudioPlayer = player
         systemAudioStreamingLoader = loader
+        systemAudioUsesNativePodcastStream = nativePodcastAudio
         systemAudioFallbackContext = (song, url, sourceStreamEpoch)
         systemAudioPlaybackDidStart = false
         pendingSystemAudioSeek = nil
         isSystemAudioPlaybackActive = true
         isAtTrackEnd = false
-        currentTime = 0
+        currentTime = openingPosition ?? 0
         duration = song.duration.sanitizedDuration
         isLoading = true
         isPlaying = false
         hasPreparedLocalPlayback = false
         activeDecoderKind = .native
         configureMusicVideoObservers(for: player, playID: id)
-        plog("System multichannel audio: codec=\(profile.codecFourCC) channels=\(profile.channelCount) transport=AVPlayer")
+        if let profile {
+            plog("System multichannel audio: codec=\(profile.codecFourCC) channels=\(profile.channelCount) transport=AVPlayer")
+        } else {
+            plog("Podcast video audio: transport=AVPlayer direct-stream")
+        }
 
         player.play()
         armSystemAudioStartupWatchdog(player: player, playID: id)
@@ -3648,6 +3675,11 @@ final class AudioPlayerService {
         let alreadyRecordedPlaybackStart = systemAudioPlaybackDidStart
         let shouldResume = pendingSeek?.shouldStart
             ?? interruptionResumePolicy.playbackIsIntended
+        if systemAudioUsesNativePodcastStream, let error {
+            suspendPlaybackPreservingSelection(reason: "podcast-audio-stream-unavailable", resumeTime: resumeTime)
+            showPlaybackError(error.localizedDescription, automaticallyDismiss: false)
+            return
+        }
         plog(
             "System multichannel playback unavailable; using PCM fallback at "
                 + "\(String(format: "%.2f", resumeTime))s: "
@@ -3728,8 +3760,11 @@ final class AudioPlayerService {
         do {
             let resolved: MusicVideoPlaybackAsset?
             if isPodcastEpisode {
-                // 播客单集不在音乐源里:和音频一样,下载了放本机文件,否则放探到的最终地址。
-                resolved = resolvedPodcastURL(for: song).map { MusicVideoPlaybackAsset.url($0) }
+                if let url = resolvedPodcastVideoURL(for: song) {
+                    resolved = .url(try await PodcastNetwork.reachableURL(for: url))
+                } else {
+                    resolved = nil
+                }
             } else if let sourceManager {
                 resolved = try await sourceManager.resolveVideoAsset(for: song)
             } else {
@@ -3966,7 +4001,7 @@ final class AudioPlayerService {
         }
         // 有声内容的视频放不起来时只放声音接着听(这一条先不再试画面),不报错也不跳走。
         if let song = currentSong,
-           song.isStandaloneMusicVideo,
+           song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
            SpokenWordStore.shared.isSpokenWord(song),
            spokenWordVideoSupportsAudioOnly(song) {
             plog("🎞️ Spoken word video failed for '\(song.title)'; continuing with audio only")
@@ -4021,7 +4056,7 @@ final class AudioPlayerService {
         guard song.mvPath != nil else { return }
         // 独立 MV 的 mvPath 就是文件本身 —— 404 意味着整首歌已不存在,
         // 清 mvPath 只会把它变成解不开的"音频", 留给下次扫描整体移除。
-        guard song.isStandaloneMusicVideo == false else { return }
+        guard !song.isStandaloneMusicVideo, !PodcastPlaybackSong.isVideoEpisode(song) else { return }
         library?.updateMusicVideoReference(songID: song.id, mvPath: nil)
         if currentSong?.id == song.id {
             currentSong?.mvPath = nil
@@ -4073,6 +4108,7 @@ final class AudioPlayerService {
         }
         isMusicVideoPlaybackActive = false
         isSystemAudioPlaybackActive = false
+        systemAudioUsesNativePodcastStream = false
         systemAudioPlaybackDidStart = false
     }
 
@@ -4482,7 +4518,7 @@ final class AudioPlayerService {
             }
             if case .cancelled = musicVideoStartResult { return }
             if case .needsAudioFallback = musicVideoStartResult,
-               song.isStandaloneMusicVideo,
+               song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song),
                SpokenWordStore.shared.isSpokenWord(song) {
                 // 有声内容的视频这次放不了:先只放声音,继续播放时别每次都再去试画面。
                 spokenWordVideoFailedSongID = song.id
@@ -7002,7 +7038,8 @@ final class AudioPlayerService {
         let sanitized = resolved.sanitizedDuration
         duration = sanitized
 
-        guard var song = currentSong, song.isStandaloneMusicVideo else { return }
+        guard var song = currentSong,
+              song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song) else { return }
         // The metadata backfill may have refreshed currentSong before this
         // observer fires, while the already-created scrobble session still
         // retains its original nil duration. Always offer the resolved value;
@@ -7823,7 +7860,7 @@ final class AudioPlayerService {
         // 有声内容的视频不看 MV 开关,走下面那一支。
         if isMusicVideoModeEnabled,
            canPlayMusicVideo,
-           !(currentItemIsSpokenWord && song.isStandaloneMusicVideo),
+           !(currentItemIsSpokenWord && (song.isStandaloneMusicVideo || PodcastPlaybackSong.isVideoEpisode(song))),
            !isSystemMediaPlaybackActive {
             let resumeTime = currentTime
             let resumeGeneration = playbackAdvancePolicy.generation

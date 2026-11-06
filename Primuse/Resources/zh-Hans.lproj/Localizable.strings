@@ -7078,6 +7078,7 @@
 
 "home_filter_bar_appearance" = "顶部区域样式";
 "home_filter_bar_swipe" = "左右滑动切换";
+"home_filter_bar_monochrome" = "黑白单色";
 "home_filter_style_classic" = "经典胶囊（默认）";
 "home_filter_style_underline" = "文字下划线";
 "home_filter_style_segmented" = "一体分段";
@@ -7142,7 +7143,8 @@
 "chapter_generation_daily_limit" = "今天的章节生成额度已用完，请明天再试。";
 "chapter_generation_monthly_limit" = "本月的章节生成额度已用完，请下个月再试。";
 
-"album_show_track_artwork" = "显示歌曲封面";
+"album_show_track_artwork" = "歌曲封面";
+"home_play_latest_album" = "播放最新专辑";
 "content_explicit" = "含露骨内容";
 "content_rating" = "内容分级";
 "copyright_label" = "版权";
@@ -7339,6 +7341,18 @@
 "player_carousel_open_artist" = "艺人";
 "player_carousel_song_count %lld" = "%lld 首歌曲";
 "player_carousel_more_by_artist %@" = "%@ 的更多歌曲";
+
+"mini_player_show_lyrics" = "迷你歌词";
+
+"player_vivid_mesh" = "鲜明 Mesh";
+
+"lyrics_pip_title" = "画中画歌词";
+
+"lyrics_pip_start" = "开启画中画";
+
+"lyrics_pip_stop" = "关闭画中画";
+
+"lyrics_pip_start_failed" = "暂时无法开启画中画，请稍后重试。";
 
 "offline_downloads_show_in_finder" = "在 Finder 中显示下载目录";
 

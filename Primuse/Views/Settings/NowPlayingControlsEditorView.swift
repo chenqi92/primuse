@@ -170,7 +170,7 @@ struct NowPlayingControlsEditorView: View {
         "appearance.playerOrientationButton", "appearance.playerFollowsDeviceOrientation",
         "appearance.playerProgressStyle", "appearance.playerProgressThickness", "appearance.playerProgressGlow",
         "appearance.volumeBar", "appearance.playerVolumeStyle", "appearance.playerVolumeThickness",
-        "appearance.playerControlTint", "appearance.playerAlwaysDark",
+        "appearance.playerControlTint", "appearance.playerAlwaysDark", "appearance.vividMesh",
         "appearance.playerBackdrop", "appearance.ambientStrength",
     ]
 
@@ -1960,7 +1960,8 @@ private struct NowPlayingMenuItemsEditor: View {
             .editTags, .editLyrics, .exportText,
         ]),
         ("player_menu_group_go", [.songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
-        ("player_menu_group_playback", [.cast, .lyricsDisplay, .lyricsMotion, .sleepTimer, .equalizer, .playbackSpeed]),
+        ("player_menu_group_playback", [.cast, .miniPlayerLyrics, .floatingLyrics, .lyricsDisplay, .lyricsWeight,
+                                       .lyricsMotion, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
 
     var body: some View {
@@ -1991,7 +1992,7 @@ private struct SpokenWordMenuItemsEditor: View {
             .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
             .reloadLyrics,
         ]),
-        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
+        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .lyricsWeight, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
 
     private static let podcastGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
@@ -2001,7 +2002,7 @@ private struct SpokenWordMenuItemsEditor: View {
             .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
             .reloadLyrics,
         ]),
-        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
+        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .lyricsWeight, .sleepTimer, .equalizer, .playbackSpeed]),
     ]
 
     var body: some View {
@@ -2082,6 +2083,9 @@ extension NowPlayingMenuItem {
         case .openInAppleMusic: "arrow.up.right.square"
         case .cast: "airplayaudio"
         case .lyricsDisplay: "textformat.size"
+        case .lyricsWeight: "bold"
+        case .miniPlayerLyrics: "captions.bubble"
+        case .floatingLyrics: "pip"
         case .lyricsMotion: "text.line.first.and.arrowtriangle.forward"
         case .sleepTimer: "moon.zzz"
         case .equalizer: "slider.vertical.3"
@@ -2122,6 +2126,9 @@ extension NowPlayingMenuItem {
         case .openInAppleMusic: "apple_music_open_in_app"
         case .cast: "cast_to_device"
         case .lyricsDisplay: "player_menu_item_lyrics_display"
+        case .lyricsWeight: "lyrics_weight"
+        case .miniPlayerLyrics: "mini_player_show_lyrics"
+        case .floatingLyrics: "lyrics_pip_title"
         case .lyricsMotion: "immersive_lyrics_motion_title"
         case .sleepTimer: "sleep_timer"
         case .equalizer: "equalizer"

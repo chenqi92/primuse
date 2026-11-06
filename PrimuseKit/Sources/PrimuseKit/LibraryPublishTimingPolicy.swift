@@ -66,7 +66,9 @@ public enum LibraryPublishTimingPolicy {
         return .hold
     }
 
-    /// 从这个规模起补读交付要拉开间隔。再小的库一次交付很便宜, 节奏保持原样。
+    /// 小曲库也会触发首页、索引和系统建议更新，快读时仍需合并发布。
+    public static let minimumPublishSpacing: TimeInterval = 10
+    /// 从这个规模起按曲库大小继续拉开间隔。
     public static let largeLibrarySongCount = 10_000
     /// 每千首歌至少隔一秒交付一次: 一次交付的代价跟着曲库线性涨, 间隔也跟着涨,
     /// 交付占的总开销就不随曲库变大而变大。
@@ -76,14 +78,13 @@ public enum LibraryPublishTimingPolicy {
 
     /// 两次补读交付之间至少隔多久(收尾那一批除外)。
     public static func minimumBackfillPublishSpacing(librarySongCount: Int) -> TimeInterval {
-        guard librarySongCount >= largeLibrarySongCount else { return 0 }
+        guard librarySongCount >= largeLibrarySongCount else { return minimumPublishSpacing }
         let scaled = TimeInterval(librarySongCount) / 1000 * spacingPerThousandSongs
         return min(maximumLargeLibrarySpacing, scaled)
     }
 
     /// 补读攒下的结果是否到了该交付的时候(不算滑动; 收尾那一批调用方自己放行)。
-    /// 原有两个闸门照旧: 攒满一批, 或离上次交付超过档位的间隔; 大曲库再加一道
-    /// 最小间隔, 否则读得快的时候(全速读内网 NAS)几秒就整库交付一次。
+    /// 攒满一批或到达档位间隔后，还要满足最小间隔，避免快读时反复更新派生内容。
     public static func isBackfillPublishDue(
         pendingCount: Int,
         batchSize: Int,
@@ -95,5 +96,20 @@ public enum LibraryPublishTimingPolicy {
             return false
         }
         return sinceLastPublish >= minimumBackfillPublishSpacing(librarySongCount: librarySongCount)
+    }
+}
+
+public enum SearchIndexWorkPacing {
+    /// 按实际处理时间让出 CPU；仅 yield 或固定几毫秒无法约束慢批次的占用。
+    public static func delay(workSeconds: TimeInterval, thermalLevel: Int) -> TimeInterval {
+        guard workSeconds.isFinite, workSeconds > 0 else { return 0 }
+        let idleRatio: Double
+        switch thermalLevel {
+        case 0: idleRatio = 4
+        case 1: idleRatio = 9
+        case 2: idleRatio = 39
+        default: idleRatio = 99
+        }
+        return min(30, workSeconds * idleRatio)
     }
 }

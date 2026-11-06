@@ -13,6 +13,191 @@ import XCTest
 /// these check the wiring into the player, the stores and the library.
 @MainActor
 final class ListeningFeaturesTests: XCTestCase {
+    func testAlternatePodcastVideoUsesItsOwnURLAndSpokenWordPreference() throws {
+        let audioURL = URL(string: "https://audio.example.com/episode.mp3")!
+        let audioCDN = URL(string: "https://audio-cdn.example.com/resolved.mp3")!
+        let videoURL = URL(string: "https://video.example.com/episode.m3u8")!
+        let episode = PodcastEpisode(id: "podcast:" + UUID().uuidString, showID: "alternate-show",
+            guid: "alternate", title: "Alternate video", enclosureURL: audioURL,
+            enclosureType: "audio/mpeg", videoURL: videoURL, videoType: "application/vnd.apple.mpegurl",
+            firstSeenAt: Date())
+        let song = PodcastPlaybackSong.song(for: episode, show: nil)
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: try makeDefaults()),
+            playbackSessionStore: PlaybackSessionStore(url: makeDirectory().appendingPathComponent("session.json"))
+        )
+        let previous = UserDefaults.standard.object(forKey: SpokenWordVideoPolicy.preferenceKey)
+        defer {
+            player.currentSong = nil
+            player.stop()
+            PodcastEnclosureProbeCache.shared.invalidate(episodeID: song.id)
+            UserDefaults.standard.set(previous, forKey: SpokenWordVideoPolicy.preferenceKey)
+        }
+        PodcastEnclosureProbeCache.shared.store(.init(finalURL: audioCDN, totalLength: 1_000,
+            supportsRange: true, probedAt: Date()), forEpisodeID: song.id)
+        player.setShowsSpokenWordVideo(true)
+        player.currentSong = song
+        XCTAssertTrue(player.usesVideoPipeline(for: song))
+        XCTAssertTrue(player.offersSpokenWordVideoToggle)
+        XCTAssertTrue(player.spokenWordVideoSupportsAudioOnly(song))
+        XCTAssertEqual(player.resolvedPodcastVideoURL(for: song), videoURL)
+        XCTAssertEqual(player.resolvedPodcastURL(for: song), audioCDN)
+        player.spokenWordVideoFailedSongID = song.id
+        XCTAssertFalse(player.usesVideoPipeline(for: song), "A failed alternate video must fall back to its audio enclosure")
+        player.currentSong = nil
+        player.spokenWordVideoFailedSongID = nil
+        player.setShowsSpokenWordVideo(false)
+        player.currentSong = song
+        XCTAssertFalse(player.usesVideoPipeline(for: song))
+        XCTAssertTrue(player.offersSpokenWordVideoToggle)
+    }
+
+    func testLiveVideoPodcastPreviewPlaysFramesAndKeepsPositionAcrossAudioSwitches() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let feedAddress = environment["PRIMUSE_VIDEO_PODCAST_FEED_URL"], !feedAddress.isEmpty else {
+            throw XCTSkip("Set PRIMUSE_VIDEO_PODCAST_FEED_URL to opt into real network playback")
+        }
+        let feedURL = try XCTUnwrap(URL(string: feedAddress))
+        XCTAssertTrue(["https", "http"].contains(feedURL.scheme ?? ""))
+        XCTAssertTrue(PodcastAvailabilityService.shared.allowsCustomFeeds,
+                      "Use PRIMUSE_DEBUG_PODCAST_STOREFRONT=USA for a feed preview")
+        let title = environment["PRIMUSE_VIDEO_PODCAST_EPISODE_TITLE"] ?? "Apple Event — September 9"
+        let store = PodcastStore(defaults: try makeDefaults(), directory: makeDirectory())
+        let show = try await store.preview(feedURL: feedURL)
+        var episode = try XCTUnwrap(store.episodes(forShowID: show.id).first { $0.title == title },
+                                    "The live feed must contain the requested episode: \(title)")
+        XCTAssertTrue(episode.playsAsVideo)
+        XCTAssertNotNil(episode.videoPlaybackURL)
+        XCTAssertTrue(store.subscribedShows.isEmpty)
+        XCTAssertFalse(store.isSubscribed(show.id))
+        // Clearing progress keeps a sync tombstone; reuse one reserved ID instead of growing one per run.
+        episode.id = "podcast:live-video-playback-validation"
+
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: try makeDefaults()),
+            playbackSessionStore: PlaybackSessionStore(url: makeDirectory().appendingPathComponent("session.json"))
+        )
+        let defaults = UserDefaults.standard
+        let savedPreferences = [SpokenWordVideoPolicy.preferenceKey, "primuse.spokenWord.selectedItem.v1"]
+            .map { (key: $0, value: defaults.object(forKey: $0)) }
+        let previousHistorySuspension = PlayHistoryStore.shared.isRecordingSuspended
+        let previousScrobblingSuspension = ScrobbleService.shared.isSuspended
+        let previousPositionSuppression = PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID
+        let previousOutroEpisode = PodcastPlaybackState.shared.outroHandledEpisodeID
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = episode.id
+        defer {
+            player.pause()
+            player.stop()
+            let progress = SpokenWordStore.shared
+            progress.clearPosition(forSongID: episode.id)
+            progress.markFinished(false, songIDs: [episode.id])
+            progress.persistLocally()
+            XCTAssertNil(progress.positions[episode.id], "Live playback must not leave resumable test progress")
+            XCTAssertFalse(progress.isFinished(songID: episode.id))
+            PodcastEnclosureProbeCache.shared.invalidate(episodeID: episode.id)
+            PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = previousPositionSuppression
+            PodcastPlaybackState.shared.outroHandledEpisodeID = previousOutroEpisode
+            for preference in savedPreferences { defaults.set(preference.value, forKey: preference.key) }
+            PlayHistoryStore.shared.isRecordingSuspended = previousHistorySuspension
+            ScrobbleService.shared.isSuspended = previousScrobblingSuspension
+        }
+
+        func waitFor(_ stage: String, timeout: TimeInterval = 45, until condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(timeout)
+            while !condition() {
+                guard Date() < deadline else {
+                    let details = "\(stage): playing=\(player.isPlaying), loading=\(player.isLoading), "
+                        + "video=\(player.isSpokenWordVideoShown), time=\(player.currentTime), "
+                        + "error=\(player.lastPlaybackError ?? String(describing: player.activeSystemMediaPlayer?.currentItem?.error))"
+                    throw LivePodcastPlaybackFailure(description: details)
+                }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+        }
+
+        func assertPlayingVideoAndCaptureFrame(_ stage: String) async throws {
+            try await waitFor("\(stage) ready and playing") {
+                player.isSpokenWordVideoShown && !player.isLoading
+                    && player.pendingSpokenWordResumeSongID == nil
+                    && player.musicVideoPlayer?.currentItem?.status == .readyToPlay
+                    && player.musicVideoPlayer?.timeControlStatus == .playing
+            }
+            let videoPlayer = try XCTUnwrap(player.musicVideoPlayer)
+            let item = try XCTUnwrap(videoPlayer.currentItem)
+            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ])
+            item.add(output)
+            defer { item.remove(output) }
+            var frame: CVPixelBuffer?
+            try await waitFor("\(stage) decoded frame") {
+                let time = videoPlayer.currentTime()
+                guard output.hasNewPixelBuffer(forItemTime: time) else { return false }
+                frame = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+                return frame != nil
+            }
+            let pixels = try XCTUnwrap(frame)
+            XCTAssertGreaterThan(CVPixelBufferGetWidth(pixels), 100)
+            XCTAssertGreaterThan(CVPixelBufferGetHeight(pixels), 100)
+            let image = CIImage(cvPixelBuffer: pixels)
+            let rendered = try XCTUnwrap(CIContext().createCGImage(image, from: image.extent))
+            let attachment = XCTAttachment(image: UIImage(cgImage: rendered))
+            attachment.name = "\(stage) at \(String(format: "%.2f", videoPlayer.currentTime().seconds))s"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let videoStart = videoPlayer.currentTime().seconds
+            let reportedStart = player.currentTime
+            try await waitFor("\(stage) video and player clocks advance", timeout: 15) {
+                videoPlayer.currentTime().seconds >= videoStart + 1
+                    && player.currentTime >= reportedStart + 1
+            }
+        }
+
+        player.setShowsSpokenWordVideo(true)
+        let playbackStart = Task { await player.playPodcast(episode, from: 30) }
+        defer { playbackStart.cancel() }
+        try await assertPlayingVideoAndCaptureFrame("Initial video")
+        XCTAssertGreaterThanOrEqual(player.currentTime, 29)
+        XCTAssertEqual(player.currentSong?.id, episode.id)
+        XCTAssertTrue(player.offersSpokenWordVideoToggle)
+        XCTAssertNil(player.spokenWordVideoFailedSongID)
+
+        let videoPosition = player.currentTime
+        player.setShowsSpokenWordVideo(false)
+        try await waitFor("Audio transport starts at saved position") {
+            !player.isSpokenWordVideoShown && player.isPlaying && !player.isLoading
+                && player.pendingSpokenWordResumeSongID == nil
+                && (player.audioEngine.isActuallyPlaying
+                    || (player.isSystemAudioPlaybackActive && player.activeSystemMediaPlayer?.timeControlStatus == .playing))
+        }
+        XCTAssertGreaterThanOrEqual(player.currentTime, videoPosition - 1)
+        XCTAssertLessThanOrEqual(player.currentTime, videoPosition + 6)
+        if !PodcastPlaybackSong.hasSeparateVideo(player.currentSong) {
+            XCTAssertTrue(player.isSystemAudioPlaybackActive)
+            let audioAsset = try XCTUnwrap(player.activeSystemMediaPlayer?.currentItem?.asset as? AVURLAsset)
+            XCTAssertEqual(audioAsset.url, player.resolvedPodcastURL(for: try XCTUnwrap(player.currentSong)))
+        }
+        let audioPosition = player.currentTime
+        try await waitFor("Audio clock advances", timeout: 15) { player.currentTime >= audioPosition + 1 }
+
+        let resumedPosition = player.currentTime
+        player.setShowsSpokenWordVideo(true)
+        try await waitFor("Video transport resumes at saved position") {
+            player.isSpokenWordVideoShown && !player.isLoading
+                && player.pendingSpokenWordResumeSongID == nil
+                && player.musicVideoPlayer?.currentItem?.status == .readyToPlay
+                && player.musicVideoPlayer?.timeControlStatus == .playing
+        }
+        XCTAssertGreaterThanOrEqual(player.currentTime, resumedPosition - 1)
+        XCTAssertLessThanOrEqual(player.currentTime, resumedPosition + 6)
+        try await assertPlayingVideoAndCaptureFrame("Video after audio switch")
+        XCTAssertEqual(player.currentSong?.id, episode.id)
+        XCTAssertNil(player.spokenWordVideoFailedSongID)
+        XCTAssertTrue(store.subscribedShows.isEmpty)
+    }
+
     func testLocalPodcastCanSwitchToVideoAtCurrentPosition() async throws {
         let directory = makeDirectory()
         let url = directory.appendingPathComponent("本地视频播客.mp4")
@@ -239,12 +424,24 @@ final class ListeningFeaturesTests: XCTestCase {
     }
 
     private var cleanups: [() -> Void] = []
+    private struct LivePodcastPlaybackFailure: Error, LocalizedError, CustomStringConvertible {
+        let description: String
+        var errorDescription: String? { description }
+    }
+    private var initialHistorySuspension = false
+    private var initialScrobblingSuspension = false
+
+    override func setUp() {
+        super.setUp()
+        initialHistorySuspension = PlayHistoryStore.shared.isRecordingSuspended
+        initialScrobblingSuspension = ScrobbleService.shared.isSuspended
+    }
 
     override func tearDown() {
         cleanups.reversed().forEach { $0() }
         cleanups = []
-        PlayHistoryStore.shared.isRecordingSuspended = false
-        ScrobbleService.shared.isSuspended = false
+        PlayHistoryStore.shared.isRecordingSuspended = initialHistorySuspension
+        ScrobbleService.shared.isSuspended = initialScrobblingSuspension
         super.tearDown()
     }
 

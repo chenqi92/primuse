@@ -88,9 +88,84 @@ final class LibraryStartupPreparationTests: XCTestCase {
         let excluded = await library.prepareStartupSongPages(sourceIDs: ["source"])
         XCTAssertNil(excluded)
         let excludedSelection = await library.prepareStartupSongs(ids: [song.id], sourceIDs: ["source"])
-        XCTAssertNil(excludedSelection)
+        XCTAssertEqual(excludedSelection, [])
         XCTAssertFalse(library.isReady)
         XCTAssertEqual(try store.loadSongs(), persistedSongs)
+    }
+
+    func testStartupPreviewFiltersBothExclusionIdentitiesWithoutBlockingOtherSources() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        let songs = [
+            Self.makeSong(id: "account-hidden", sourceID: "cloud"),
+            Self.makeSong(id: "source-hidden", sourceID: "nas"),
+            Self.makeSong(id: "visible", sourceID: "cloud"),
+            Self.makeSong(id: "disabled", sourceID: "disabled")
+        ]
+        try store.replaceAll(with: songs)
+        try store.markMigrationCompleted(version: 10)
+        let revision = try store.startupState().contentRevision
+        let ledger = SongLocalRemovalLedger(identities: [
+            "account:\(songs[0].filePath)", "nas:\(songs[1].filePath)"
+        ])
+        let ledgerURL = directory.appendingPathComponent("library-device-local-excluded-songs.json")
+        let ledgerData = try JSONEncoder().encode(ledger)
+        try ledgerData.write(to: ledgerURL)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, disabledSourceIDs: ["disabled"])
+        library.sourceIdentityResolver = { $0 == "cloud" ? "account" : nil }
+        let preview = await library.prepareStartupSongs(
+            ids: songs.map(\.id), sourceIDs: ["cloud", "nas", "disabled"]
+        )
+        XCTAssertEqual(preview?.map(\.id), ["visible"])
+        let fallback = await library.prepareStartupSongs(
+            ids: ["account-hidden", "source-hidden"], sourceIDs: ["cloud", "nas"], fallbackToFirstPage: true
+        )
+        XCTAssertEqual(fallback?.map(\.id), ["visible"])
+        XCTAssertFalse(library.isReady)
+        XCTAssertEqual(try Data(contentsOf: ledgerURL), ledgerData)
+        XCTAssertEqual(try store.startupState().contentRevision, revision)
+    }
+
+    func testStartupMusicPreviewContinuesPastAnInitialBookPage() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        let books = (0..<240).map {
+            Self.makeSong(id: "startup-book-\($0)", sourceID: "mixed", filePath: "/Books/\($0).m4b")
+        }
+        let music = Self.makeSong(id: "startup-music", sourceID: "mixed", filePath: "/Music/Evening.flac")
+        try store.replaceAll(with: books + [music])
+        try store.markMigrationCompleted(version: 10)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let preview = await library.prepareStartupSongs(
+            ids: [books[0].id], sourceIDs: ["mixed"], fallbackToFirstPage: true, musicOnly: true
+        )
+        XCTAssertEqual(preview?.map(\.id), [music.id])
+        XCTAssertTrue(library.songs.isEmpty)
+        XCTAssertFalse(library.isReady)
+    }
+
+    func testStartupPreviewDoesNotScanAnEntireBookOnlyLibraryOrIgnoreAnUnreadableLedger() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try IncrementalSongStore(path: directory.appendingPathComponent("library-songs.sqlite").path)
+        let books = (0..<1_601).map {
+            Self.makeSong(id: "bounded-book-\($0)", sourceID: "mixed", filePath: "/Books/\($0).m4b")
+        }
+        let distantMusic = Self.makeSong(id: "distant-music", sourceID: "mixed")
+        try store.replaceAll(with: books + [distantMusic])
+        try store.markMigrationCompleted(version: 10)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let bounded = await library.prepareStartupSongs(
+            ids: [], sourceIDs: ["mixed"], fallbackToFirstPage: true, musicOnly: true
+        )
+        XCTAssertEqual(bounded, [])
+        let selected = await library.prepareStartupSongs(ids: [distantMusic.id], sourceIDs: ["mixed"], musicOnly: true)
+        XCTAssertEqual(selected?.map(\.id), [distantMusic.id])
+        try Data("invalid".utf8).write(to: directory.appendingPathComponent("library-device-local-excluded-songs.json"))
+        let unreadable = await library.prepareStartupSongs(ids: [distantMusic.id], sourceIDs: ["mixed"])
+        XCTAssertNil(unreadable)
     }
 
     // MARK: - Fixtures

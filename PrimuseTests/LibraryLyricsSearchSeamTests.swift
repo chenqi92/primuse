@@ -3,6 +3,60 @@ import PrimuseKit
 import XCTest
 @testable import Primuse
 
+private actor DeferredSnapshotGate {
+    private var open = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if open { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func release() {
+        open = true
+        for waiter in waiters { waiter.resume() }
+        waiters.removeAll()
+    }
+}
+
+@MainActor
+final class DeferredLibrarySnapshotWorkTests: XCTestCase {
+    @MainActor private final class State {
+        var value = 1
+        var captures = 0
+        var results: [Int] = []
+    }
+
+    func testCancelledRecoveryNeverCapturesOrRetainsTheQueuedLibrarySnapshot() async {
+        let state = State()
+        let gate = DeferredSnapshotGate()
+        let previous = Task { await gate.wait() }
+        let task = DeferredLibrarySnapshotWork.schedule(after: previous, capture: {
+            state.captures += 1
+            return state.value
+        }, perform: { value in await MainActor.run { state.results.append(value) } })
+        task.cancel()
+        await gate.release()
+        await task.value
+        XCTAssertEqual(state.captures, 0)
+        XCTAssertTrue(state.results.isEmpty)
+    }
+
+    func testRecoveryCapturesTheCurrentStateOnlyAfterEarlierWritesFinish() async {
+        let state = State()
+        let gate = DeferredSnapshotGate()
+        let previous = Task { await gate.wait() }
+        let task = DeferredLibrarySnapshotWork.schedule(after: previous, capture: {
+            state.captures += 1
+            return state.value
+        }, perform: { value in await MainActor.run { state.results.append(value) } })
+        XCTAssertEqual(state.captures, 0)
+        state.value = 2
+        await gate.release()
+        await task.value
+        XCTAssertEqual(state.captures, 1)
+        XCTAssertEqual(state.results, [2])
+    }
+}
+
 /// 歌词缓存通知的记录器。转义闭包不能捕获可变局部变量, 所以用一个主线程
 /// 隔离的引用类型收集顺序。`storedGeneration` 是回调发生那一刻偏好存储里的
 /// 代际值 —— 代际分配与入链之间一旦插进异步跳转, 它就会跑在 `generation`

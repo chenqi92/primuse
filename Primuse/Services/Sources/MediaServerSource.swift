@@ -469,6 +469,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 try? FileManager.default.removeItem(at: temporaryURL)
             } else {
+                try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
                 try FileManager.default.moveItem(at: temporaryURL, to: fileURL)
             }
         } catch {

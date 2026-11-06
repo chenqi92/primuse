@@ -78,19 +78,135 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(userInitiated.snapshotPassLimit == nil)
         #expect(deviceLocal.workerCount == 3)
         #expect(deviceLocal.snapshotLimit == foreground.snapshotLimit)
-        #expect(deviceLocal.interRequestDelay == 0)
+        #expect(deviceLocal.interRequestDelay > 0)
         #expect(deviceLocal.snapshotPassLimit == nil)
         #expect(foreground.workerCount == 2)
         #expect(foreground.snapshotLimit > background.snapshotLimit)
-        #expect(foreground.interRequestDelay == 0)
+        #expect(foreground.interRequestDelay > 0)
         #expect(foreground.snapshotPassLimit == nil)
         #expect(background.workerCount == 1)
         #expect(background.snapshotPassLimit == nil)
         #expect(playback.workerCount == 1)
         #expect(playback.snapshotLimit < background.snapshotLimit)
-        #expect(playback.interRequestDelay > background.interRequestDelay)
+        #expect(playback.interRequestDelay >= background.interRequestDelay)
         #expect(playback.flushInterval >= background.flushInterval)
         #expect(playback.snapshotPassLimit == nil)
+    }
+
+    @Test("Automatic reads reserve CPU time even before the device becomes warm")
+    func automaticReadsRestAcrossLocalAndRemoteConcurrency() {
+        let devices: [MetadataReadingDeviceProfile] = [
+            .init(platform: .mobile, activeProcessorCount: 2, physicalMemory: 1_024 * 1_024 * 1_024),
+            .baseline,
+            .init(platform: .mobile, activeProcessorCount: 10, physicalMemory: 12 * 1_024 * 1_024 * 1_024)
+        ]
+        var observedWorkers: Set<Int> = []
+        for device in devices {
+            for offline in [false, true] {
+                for mode in [MetadataBackfillExecutionMode.standard, .foregroundAfterSourceScan, .foregroundDeviceLocal] {
+                    for cost in [0.0, 0.02, 0.1, 0.2] {
+                        let limits = MetadataBackfillExecutionPolicy.limits(
+                            for: mode, preference: .automatic,
+                            environment: .init(offlineSource: offline, device: device),
+                            recentProcessingDuration: cost
+                        )
+                        observedWorkers.insert(limits.workerCount)
+                        #expect(limits.interRequestDelay > 0)
+                        #expect(limits.snapshotPassLimit == nil)
+                        let combinedCPUDuty = Double(limits.workerCount) * cost / (cost + limits.interRequestDelay)
+                        #expect(combinedCPUDuty <= 0.5 + 0.000_001)
+                    }
+                }
+            }
+        }
+        #expect(observedWorkers.contains(1))
+        #expect(observedWorkers.contains(4))
+    }
+
+    @Test("Sustained automatic work adapts to CPU cost and bounds invalid samples")
+    func sustainedRestHandlesLightHeavyAndUnavailableSamples() {
+        for preference in [MetadataReadingMode.automatic, .energySaving] {
+            func delay(_ cost: Double?) -> Double {
+                MetadataBackfillExecutionPolicy.limits(
+                    for: .standard, preference: preference,
+                    recentProcessingDuration: cost
+                ).interRequestDelay
+            }
+            let light = delay(0.02)
+            let heavy = delay(0.2)
+            let maximum = delay(Double.greatestFiniteMagnitude)
+            #expect(light > 0)
+            #expect(heavy > light)
+            #expect(maximum.isFinite && maximum >= heavy)
+            #expect(maximum <= (preference == .automatic ? 1.5 : 3))
+            for invalid: Double? in [nil, .nan, .infinity, -.infinity, -1] {
+                #expect(delay(invalid) == maximum)
+            }
+        }
+    }
+
+    @Test("Warming and power constraints never undo the sustained rest budget")
+    func sustainedRestRemainsOrderedAcrossConstraints() {
+        let device = MetadataReadingDeviceProfile(
+            platform: .mobile, activeProcessorCount: 10, physicalMemory: 12 * 1_024 * 1_024 * 1_024
+        )
+        for offline in [false, true] {
+            for cost: Double? in [nil, 0, 0.02, 0.2, 0.5, 2] {
+                for preference in [MetadataReadingMode.automatic, .energySaving] {
+                    func limits(_ thermal: MetadataReadingThermalState) -> MetadataBackfillExecutionLimits {
+                        MetadataBackfillExecutionPolicy.limits(
+                            for: .foregroundAfterSourceScan, preference: preference,
+                            environment: .init(thermalState: thermal, offlineSource: offline, device: device),
+                            recentProcessingDuration: cost
+                        )
+                    }
+                    let cool = limits(.nominal)
+                    let warm = limits(.fair)
+                    let hot = limits(.serious)
+                    #expect(warm.workerCount <= cool.workerCount)
+                    #expect(warm.interRequestDelay >= cool.interRequestDelay)
+                    #expect(hot.workerCount <= warm.workerCount)
+                    #expect(hot.interRequestDelay >= warm.interRequestDelay)
+                    #expect(limits(.critical).workerCount == 0)
+                }
+            }
+        }
+        for preference in [MetadataReadingMode.automatic, .energySaving] {
+            let limits = MetadataBackfillExecutionPolicy.limits(
+                for: .backgroundDuringPlayback, preference: preference,
+                environment: .init(lowPowerMode: true, playbackActive: true),
+                recentProcessingDuration: 0.01
+            )
+            #expect(limits.workerCount == 1)
+            #expect(limits.interRequestDelay >= 1.5)
+        }
+    }
+
+    @Test("System continuation keeps automatic pacing while explicit and fast reads retain their speed")
+    func continuationDoesNotGrantFullSpeed() {
+        for preference in [MetadataReadingMode.automatic, .energySaving] {
+            let foreground = MetadataBackfillExecutionPolicy.limits(
+                for: .standard, preference: preference, recentProcessingDuration: 0.2
+            )
+            let continued = MetadataBackfillExecutionPolicy.limits(
+                for: .background, preference: preference,
+                continuedProcessing: true, recentProcessingDuration: 0.2
+            )
+            #expect(continued == foreground)
+            #expect(continued.interRequestDelay > 0)
+        }
+        for cost: Double? in [nil, 0.02, 2] {
+            let explicit = MetadataBackfillExecutionPolicy.limits(
+                for: .userInitiated, preference: .automatic, recentProcessingDuration: cost
+            )
+            #expect(explicit.interRequestDelay == 0)
+            for mode in [MetadataBackfillExecutionMode.standard, .foregroundAfterSourceScan, .foregroundDeviceLocal] {
+                let fast = MetadataBackfillExecutionPolicy.limits(
+                    for: mode, preference: .fast, recentProcessingDuration: cost
+                )
+                #expect(fast.interRequestDelay == 0)
+            }
+        }
     }
 
     @Test("Background audio and processing do not stop after 8 or 24 songs")

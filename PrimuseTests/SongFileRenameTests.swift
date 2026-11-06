@@ -8,6 +8,62 @@ import UIKit
 @testable import Primuse
 
 final class SongFileRenameTests: XCTestCase {
+    func testLocalCueRescanKeepsImageMembershipOrderAndInvalidatesChangedSheets() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CueRescan-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func sheet(_ image: Int, title: String) -> String {
+            """
+            TITLE "Collection \(image)"
+            PERFORMER "Fixture Artist"
+            FILE "image-\(image).flac" WAVE
+              TRACK 01 AUDIO
+                TITLE "\(title)"
+                INDEX 01 00:00:00
+              TRACK 02 AUDIO
+                TITLE "Second \(image)"
+                INDEX 01 00:01:00
+            """
+        }
+        for image in 0..<3 {
+            try Data(repeating: 0, count: 2_048).write(to: directory.appendingPathComponent("image-\(image).flac"))
+            try Data(sheet(image, title: "First \(image)").utf8)
+                .write(to: directory.appendingPathComponent("image-\(image).cue"))
+        }
+        let connector = LocalFileSource(sourceID: UUID().uuidString, basePath: directory)
+        var initial: [Song] = []
+        for try await row in try await connector.scanSongs(from: "/") { initial.append(row.song) }
+        XCTAssertEqual(initial.count, 6)
+        XCTAssertTrue(initial.allSatisfy(\.isCueTrack))
+        let sourceID = try XCTUnwrap(initial.first?.sourceID)
+        var existing = Array(initial.reversed())
+        for index in existing.indices { existing[index].title = "Edited \(index)" }
+        // A whole-file row at the same path must not become a virtual track.
+        existing.append(Song(id: "physical", title: "Whole image", fileFormat: .flac,
+                             filePath: "/image-0.flac", sourceID: sourceID))
+        var rescanned: [Song] = []
+        for try await row in try await connector.scanSongs(from: "/", existingSongs: existing) {
+            rescanned.append(row.song)
+        }
+        for image in 0..<3 {
+            let path = "/image-\(image).flac"
+            let expected = existing.filter { $0.filePath == path && $0.isCueTrack }
+            let actual = rescanned.filter { $0.filePath == path }
+            XCTAssertEqual(actual.map(\.id), expected.map(\.id))
+            XCTAssertEqual(actual.map(\.title), expected.map(\.title))
+        }
+        try Data(sheet(1, title: "Changed first track").utf8)
+            .write(to: directory.appendingPathComponent("image-1.cue"))
+        var updated: [Song] = []
+        for try await row in try await connector.scanSongs(from: "/", existingSongs: existing) {
+            updated.append(row.song)
+        }
+        XCTAssertEqual(updated.count, 6)
+        XCTAssertTrue(updated.contains { $0.filePath == "/image-1.flac" && $0.title == "Changed first track" })
+        XCTAssertTrue(updated.filter { $0.filePath != "/image-1.flac" }.allSatisfy { $0.title.hasPrefix("Edited ") })
+        await connector.disconnect()
+    }
+
     func testWebDAVRenameUsesConditionalMoveWithoutOverwrite() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [RenameDAVProtocol.self]

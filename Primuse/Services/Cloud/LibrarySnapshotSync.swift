@@ -119,6 +119,7 @@ final class LibrarySnapshotSync: Sendable {
         let size: Int64
         let modificationNanoseconds: Int64
         let fileNumber: UInt64?
+        let auxiliaryIdentity: String?
     }
 
     private struct AutomaticUploadFingerprint: Codable, Equatable, Sendable {
@@ -300,7 +301,9 @@ final class LibrarySnapshotSync: Sendable {
             modificationNanoseconds: Int64(
                 (modifiedAt.timeIntervalSince1970 * 1_000_000_000).rounded()
             ),
-            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value,
+            auxiliaryIdentity: url.lastPathComponent == "library-cache.json"
+                ? MusicLibrary.snapshotDeltaIdentity(for: url) : nil
         )
     }
 
@@ -2645,7 +2648,8 @@ final class LibrarySnapshotSync: Sendable {
         fileIdentity(at: url).map {
             SnapshotFileIdentity(size: $0.size,
                                  modificationNanoseconds: $0.modificationNanoseconds,
-                                 fileNumber: $0.fileNumber)
+                                 fileNumber: $0.fileNumber,
+                                 auxiliaryIdentity: $0.auxiliaryIdentity)
         }
     }
 
@@ -2669,7 +2673,7 @@ final class LibrarySnapshotSync: Sendable {
             }
             var libraryData: Data?
             if FileManager.default.fileExists(atPath: libraryDestination.path) {
-                libraryData = try Data(contentsOf: libraryDestination)
+                libraryData = try MusicLibrary.persistedSnapshotData(at: libraryDestination)
             }
             return TVPayloadInstallBaseline(existingLibraryData: libraryData,
                                             existingSourcesData: sourcesData,

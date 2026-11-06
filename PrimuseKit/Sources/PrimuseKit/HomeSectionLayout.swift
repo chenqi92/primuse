@@ -631,6 +631,7 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
     public var labelStyle: HomeFilterBarLabelStyle
     public var appearance: HomeFilterBarAppearance
     public var swipeEnabled: Bool
+    public var monochrome: Bool
 
     public init(
         order: [ListeningSpace],
@@ -638,7 +639,8 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         followsSections: Bool = false,
         labelStyle: HomeFilterBarLabelStyle = .automatic,
         appearance: HomeFilterBarAppearance = .classic,
-        swipeEnabled: Bool = true
+        swipeEnabled: Bool = true,
+        monochrome: Bool = false
     ) {
         self.order = Self.completedOrder(order)
         self.hidden = followsSections ? [] : hidden
@@ -646,6 +648,7 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         self.labelStyle = labelStyle
         self.appearance = appearance
         self.swipeEnabled = swipeEnabled
+        self.monochrome = monochrome
     }
 
     // MARK: 存取
@@ -660,6 +663,7 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         let labelStyle = stored.labelStyle.flatMap(HomeFilterBarLabelStyle.init(rawValue:)) ?? .automatic
         let appearance = stored.appearance.flatMap(HomeFilterBarAppearance.init(rawValue:)) ?? .classic
         let swipeEnabled = stored.swipeEnabled ?? true
+        let monochrome = stored.monochrome ?? false
         // 没有 order:只改过显示方式,显隐仍跟着区块走。
         guard let storedOrder = stored.order else {
             return HomeFilterBarConfiguration(
@@ -668,7 +672,8 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
                 followsSections: true,
                 labelStyle: labelStyle,
                 appearance: appearance,
-                swipeEnabled: swipeEnabled
+                swipeEnabled: swipeEnabled,
+                monochrome: monochrome
             )
         }
         return HomeFilterBarConfiguration(
@@ -676,7 +681,8 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
             hidden: Set((stored.hidden ?? []).compactMap(ListeningSpace.init(rawValue:))),
             labelStyle: labelStyle,
             appearance: appearance,
-            swipeEnabled: swipeEnabled
+            swipeEnabled: swipeEnabled,
+            monochrome: monochrome
         )
     }
 
@@ -686,18 +692,21 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         let storedLabelStyle = labelStyle == .automatic ? nil : labelStyle.rawValue
         let storedAppearance = appearance == .classic ? nil : appearance.rawValue
         let storedSwipeEnabled: Bool? = swipeEnabled ? nil : false
+        let storedMonochrome: Bool? = monochrome ? true : nil
         let stored: Stored
         if followsSections {
-            guard storedLabelStyle != nil || storedAppearance != nil || storedSwipeEnabled != nil else { return "" }
+            guard storedLabelStyle != nil || storedAppearance != nil || storedSwipeEnabled != nil || storedMonochrome != nil else { return "" }
             stored = Stored(order: nil, hidden: nil, labelStyle: storedLabelStyle,
-                            appearance: storedAppearance, swipeEnabled: storedSwipeEnabled)
+                            appearance: storedAppearance, swipeEnabled: storedSwipeEnabled,
+                            monochrome: storedMonochrome)
         } else {
             stored = Stored(
                 order: order.map(\.rawValue),
                 hidden: order.filter { hidden.contains($0) }.map(\.rawValue),
                 labelStyle: storedLabelStyle,
                 appearance: storedAppearance,
-                swipeEnabled: storedSwipeEnabled
+                swipeEnabled: storedSwipeEnabled,
+                monochrome: storedMonochrome
             )
         }
         guard let data = try? JSONEncoder().encode(stored) else { return "" }
@@ -711,6 +720,7 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         var labelStyle: String?
         var appearance: String?
         var swipeEnabled: Bool?
+        var monochrome: Bool?
     }
 
     // MARK: 查询
@@ -740,7 +750,8 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
             hidden: Set(order.filter { !sectionShown($0) }),
             labelStyle: labelStyle,
             appearance: appearance,
-            swipeEnabled: swipeEnabled
+            swipeEnabled: swipeEnabled,
+            monochrome: monochrome
         )
     }
 
@@ -752,7 +763,8 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
             followsSections: true,
             labelStyle: labelStyle,
             appearance: appearance,
-            swipeEnabled: swipeEnabled
+            swipeEnabled: swipeEnabled,
+            monochrome: monochrome
         )
     }
 
@@ -809,15 +821,15 @@ public enum HomeFilterBarAppearance: String, CaseIterable, Sendable {
 }
 
 public enum HomeFilterPagingPolicy {
-    /// 综合首页没有选中项，从两侧分别进入可见序列的首尾；栏目之间不循环。
+    /// 综合首页从两侧进入可见序列的首尾；栏目首尾相接，沿用用户排序并跳过隐藏项。
     public static func neighbor(
         in spaces: [ListeningSpace], selection: ListeningSpace?, forward: Bool
     ) -> ListeningSpace? {
+        guard spaces.count > 1 else { return nil }
         guard let selection, let index = spaces.firstIndex(of: selection) else {
             return forward ? spaces.first : spaces.last
         }
-        let next = index + (forward ? 1 : -1)
-        return spaces.indices.contains(next) ? spaces[next] : nil
+        return spaces[(index + (forward ? 1 : -1) + spaces.count) % spaces.count]
     }
 
     public static func progress(translation: Double, width: Double) -> Double {
@@ -934,5 +946,45 @@ public enum HomeFaceSwipePolicy {
         let distance = abs(translationX)
         if translationX * velocityX < 0, abs(velocityX) >= reversalVelocity { return false }
         return distance >= exitDistance || (abs(velocityX) >= exitVelocity && distance >= flickMinimumDistance)
+    }
+}
+
+public struct HomeOverviewPullPolicy: Sendable {
+    public static let activationDistance: Double = 64
+    public static let holdDuration: TimeInterval = 1.2
+
+    public private(set) var holdStartedAt: TimeInterval?
+    public private(set) var suppressesRefresh = false
+    private var wasInteracting = false
+    private var didTrigger = false
+
+    public init() {}
+
+    @discardableResult
+    public mutating func update(
+        pullDistance: Double,
+        isInteracting: Bool,
+        isEnabled: Bool,
+        now: TimeInterval
+    ) -> Bool {
+        if isInteracting && !wasInteracting {
+            suppressesRefresh = false
+            didTrigger = false
+        }
+        wasInteracting = isInteracting
+        guard isEnabled, isInteracting, pullDistance.isFinite, now.isFinite,
+              pullDistance >= Self.activationDistance, !didTrigger else {
+            holdStartedAt = nil
+            return false
+        }
+        guard let holdStartedAt else {
+            self.holdStartedAt = now
+            return false
+        }
+        guard now - holdStartedAt >= Self.holdDuration else { return false }
+        self.holdStartedAt = nil
+        didTrigger = true
+        suppressesRefresh = true
+        return true
     }
 }

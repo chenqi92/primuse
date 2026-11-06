@@ -7,11 +7,13 @@ public struct SnapshotFileIdentity: Codable, Equatable, Sendable {
     public let size: Int64
     public let modificationNanoseconds: Int64
     public let fileNumber: UInt64?
+    public let auxiliaryIdentity: String?
 
-    public init(size: Int64, modificationNanoseconds: Int64, fileNumber: UInt64?) {
+    public init(size: Int64, modificationNanoseconds: Int64, fileNumber: UInt64?, auxiliaryIdentity: String? = nil) {
         self.size = size
         self.modificationNanoseconds = modificationNanoseconds
         self.fileNumber = fileNumber
+        self.auxiliaryIdentity = auxiliaryIdentity
     }
 }
 

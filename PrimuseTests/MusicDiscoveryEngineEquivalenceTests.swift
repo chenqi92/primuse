@@ -97,6 +97,54 @@ final class MusicDiscoveryEngineEquivalenceTests: XCTestCase {
         }
     }
 
+    func testPartialRankingPreservesTiesDuplicatesAndDiversityFallbacks() {
+        for artistCount in [1, 2, 4, 80] {
+            var songs = (0..<800).map { position in
+                Song(
+                    id: "tied-\(position)", title: "Track \(position)",
+                    albumID: "shared-album-\(position % 17)",
+                    albumTitle: "Collection \(position % 17)",
+                    artistName: "Artist \(position % artistCount)",
+                    duration: 180, fileFormat: .flac, filePath: "/music/\(position).flac",
+                    sourceID: "local", genre: "Pop", dateAdded: now
+                )
+            }
+            // Copies can disagree on artist and album metadata, including across ranking ties.
+            for position in stride(from: 31, to: songs.count, by: 47) {
+                songs[position].id = songs[position - 17].id
+            }
+            for seedIDs in [[], [songs[0].id, songs[4].id]] {
+                for limit in [1, 12, 50, 300] {
+                    let input = MusicDiscoveryEngine.RecommendationInput(
+                        songs: songs, recentWeekIDs: [], recentMonthIDs: [], topArtists: [],
+                        seedIDs: seedIDs, now: now
+                    )
+                    assertSame(
+                        MusicDiscoveryEngine.dailyRecommendations(from: input, limit: limit),
+                        LegacyMusicDiscoveryEngine.dailyRecommendations(from: input, limit: limit),
+                        "artists=\(artistCount) seeds=\(seedIDs) limit=\(limit)"
+                    )
+                }
+            }
+        }
+    }
+
+    func testPartialRankingFillsFromLowerScoringArtistsAndHonorsCancellation() {
+        var songs = makeLibrary(count: 2_000)
+        for index in songs.indices { songs[index].dateAdded = now.addingTimeInterval(-90 * 86_400) }
+        let input = MusicDiscoveryEngine.RecommendationInput(
+            songs: songs, recentWeekIDs: Set(songs.prefix(50).map(\.id)),
+            recentMonthIDs: Set(songs.map(\.id)), topArtists: [], seedIDs: [songs[10].id], now: now
+        )
+        assertSame(
+            MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 40),
+            LegacyMusicDiscoveryEngine.dailyRecommendations(from: input, limit: 40),
+            "older and recently played candidates need cold-start fallbacks"
+        )
+        XCTAssertTrue(MusicDiscoveryEngine.dailyRecommendations(from: input, isCancelled: { true }).isEmpty)
+        XCTAssertTrue(MusicDiscoveryEngine.dailyRecommendations(from: input, limit: 0).isEmpty)
+    }
+
     func testSimilarSongsMatchTheStringImplementation() {
         let songs = makeLibrary(count: 2_000)
         let recent = Set(songs.prefix(200).map(\.id))

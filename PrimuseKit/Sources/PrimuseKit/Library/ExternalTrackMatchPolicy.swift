@@ -128,27 +128,47 @@ public enum ExternalTrackMatchPolicy {
     /// ` - xxx` 形式的后缀都视为附注：附注里认得出的版本关键词进标记，其余（feat.、
     /// Remaster、电视剧插曲…）直接丢掉，不影响匹配。
     public static func splitTitle(_ title: String) -> (core: String, markers: Set<VersionMarker>) {
+        let (core, annotations) = titleParts(title, keepingAnnotations: true)
+        var found = Set<VersionMarker>()
+        for annotation in annotations { found.formUnion(markers(in: annotation)) }
+        // 主体里直接写着「Live版」之类，也要认出来。
+        found.formUnion(markers(in: core, requireWholeAnnotation: true))
+        return (normalize(core), found)
+    }
+
+    /// 筛选歌名桶时不需要版本标记；只为筛中的候选建立完整匹配键。
+    public static func normalizedCoreTitle(_ title: String) -> String {
+        normalize(titleParts(title, keepingAnnotations: false).core)
+    }
+
+    private static func titleParts(
+        _ title: String, keepingAnnotations: Bool
+    ) -> (core: String, annotations: [String]) {
         var core = ""
         var annotations: [String] = []
         var depth = 0
         var current = ""
         for character in title {
             if openingBrackets.contains(character) {
-                if depth == 0 { core.append(" ") } else { current.append(character) }
+                if depth == 0 { core.append(" ") } else if keepingAnnotations { current.append(character) }
                 depth += 1
                 continue
             }
             if closingBrackets.contains(character), depth > 0 {
                 depth -= 1
                 if depth == 0 {
-                    annotations.append(current)
+                    if keepingAnnotations { annotations.append(current) }
                     current = ""
-                } else {
+                } else if keepingAnnotations {
                     current.append(character)
                 }
                 continue
             }
-            if depth > 0 { current.append(character) } else { core.append(character) }
+            if depth > 0 {
+                if keepingAnnotations { current.append(character) }
+            } else {
+                core.append(character)
+            }
         }
         if !current.isEmpty { annotations.append(current) }
 
@@ -158,17 +178,13 @@ public enum ExternalTrackMatchPolicy {
             guard let range = core.range(of: separator, options: .backwards) else { continue }
             let suffix = String(core[range.upperBound...])
             if !markers(in: suffix).isEmpty || isNeutralAnnotation(suffix) {
-                annotations.append(suffix)
+                if keepingAnnotations { annotations.append(suffix) }
                 core = String(core[..<range.lowerBound])
             }
             break
         }
 
-        var found = Set<VersionMarker>()
-        for annotation in annotations { found.formUnion(markers(in: annotation)) }
-        // 主体里直接写着「(Live)」以外的「Live版」之类，也要认出来。
-        found.formUnion(markers(in: core, requireWholeAnnotation: true))
-        return (normalize(core), found)
+        return (core, annotations)
     }
 
     /// 一个歌手字段拆成若干个归一化后的名字。

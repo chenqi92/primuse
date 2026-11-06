@@ -542,7 +542,6 @@ struct AudiobookPreviewScreen: View {
                         timeTint: style.tertiary,
                         trackStyle: trackStyle
                     )
-                        .padding(.top, 4)
 
                     let centering = AudiobookPortraitRhythm.transportCentering(
                         style: style,
@@ -745,13 +744,13 @@ struct AudiobookPreviewScreen: View {
     private func partRow(controls: SpokenWordResolvedControls) -> some View {
         HStack(spacing: 10) {
             Text(verbatim: "03")
-                .font(.body.weight(.semibold).monospacedDigit())
+                .font(.title3.weight(.semibold).monospacedDigit())
                 .foregroundStyle(style.primary)
             Rectangle()
                 .fill(style.tertiary)
                 .frame(width: 1, height: 14)
             Text("player_preview_sample_chapter")
-                .font(style.isNocturne ? .body.weight(.medium) : .body)
+                .font(.title3.weight(style.isNocturne ? .semibold : .medium))
                 .foregroundStyle(style.primary)
                 .lineLimit(1)
             Spacer(minLength: 8)

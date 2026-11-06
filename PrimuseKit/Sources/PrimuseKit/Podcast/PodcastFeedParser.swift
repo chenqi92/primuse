@@ -60,6 +60,8 @@ public struct PodcastFeedItem: Sendable, Hashable {
     public var enclosureURL: URL?
     public var enclosureType: String?
     public var enclosureLength: Int64?
+    public var videoURL: URL?
+    public var videoType: String?
     public var artworkURL: URL?
     public var season: Int?
     public var number: Int?
@@ -81,6 +83,8 @@ public struct PodcastFeedItem: Sendable, Hashable {
         enclosureURL: URL? = nil,
         enclosureType: String? = nil,
         enclosureLength: Int64? = nil,
+        videoURL: URL? = nil,
+        videoType: String? = nil,
         artworkURL: URL? = nil,
         season: Int? = nil,
         number: Int? = nil,
@@ -101,6 +105,8 @@ public struct PodcastFeedItem: Sendable, Hashable {
         self.enclosureURL = enclosureURL
         self.enclosureType = enclosureType
         self.enclosureLength = enclosureLength
+        self.videoURL = videoURL
+        self.videoType = videoType
         self.artworkURL = artworkURL
         self.season = season
         self.number = number
@@ -649,6 +655,8 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
     private var itemItunesSummary: String?
     private var itemItunesTitle: String?
     private var itemMediaContent: (url: URL, type: String?, length: Int64?)?
+    private var itemVideoContent: (url: URL, type: String?, preferred: Bool)?
+    private var alternateEnclosure: (type: String?, preferred: Bool, isMainContent: Bool)?
     private var inImage = false
     private var inOwner = false
     private var inAuthor = false
@@ -748,6 +756,8 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             itemItunesSummary = nil
             itemItunesTitle = nil
             itemMediaContent = nil
+            itemVideoContent = nil
+            alternateEnclosure = nil
         case (.none, "image") where item == nil:
             inImage = true
         case (.itunes, "owner"):
@@ -756,6 +766,7 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             guard item != nil, let url = resolve(attributes["url"]) else { break }
             // 一集挂多个 enclosure 时取第一个音频的。
             let type = attributes["type"]
+            rememberVideo(url: url, type: type)
             let isAudio = type?.lowercased().hasPrefix("audio/") ?? true
             if item?.enclosureURL == nil || (isAudio && item?.enclosureType?.lowercased().hasPrefix("audio/") != true) {
                 item?.enclosureURL = url
@@ -763,8 +774,30 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
                 item?.enclosureLength = attributes["length"].flatMap { Int64(PodcastText.trimmed($0)) }.flatMap { $0 > 0 ? $0 : nil }
             }
         case (.media, "content"):
-            guard item != nil, itemMediaContent == nil, let url = resolve(attributes["url"]) else { break }
-            itemMediaContent = (url, attributes["type"], attributes["fileSize"].flatMap { Int64($0) })
+            guard item != nil, let url = resolve(attributes["url"]) else { break }
+            let type = attributes["type"]
+            let medium = attributes["medium"]?.lowercased()
+            guard medium != "image", type?.lowercased().hasPrefix("image/") != true else { break }
+            rememberVideo(url: url, type: type)
+            if itemMediaContent == nil || (type?.lowercased().hasPrefix("audio/") == true
+                && itemMediaContent?.type?.lowercased().hasPrefix("audio/") != true) {
+                itemMediaContent = (url, type, attributes["fileSize"].flatMap { Int64($0) })
+            }
+        case (.podcast, "alternateEnclosure"):
+            guard item != nil, stack.dropLast().last?.name == "item" else { break }
+            let relation = PodcastText.nonEmpty(attributes["rel"])?.lowercased()
+            alternateEnclosure = (
+                attributes["type"],
+                PodcastFeedParser.bool(from: attributes["default"]),
+                relation == nil || relation == "default"
+            )
+        case (.podcast, "source"):
+            guard item != nil, let alternateEnclosure, alternateEnclosure.isMainContent,
+                  stack.dropLast().last?.name == "alternateEnclosure",
+                  let url = resolve(attributes["uri"]) else { break }
+            if let transport = Self.mediaType(attributes["contentType"]),
+               !Self.isVideo(url: url, type: transport), transport != "application/octet-stream" { break }
+            rememberVideo(url: url, type: alternateEnclosure.type, preferred: alternateEnclosure.preferred)
         case (.itunes, "image"):
             let url = resolve(attributes["href"] ?? attributes["url"])
             if item != nil { item?.artworkURL = url ?? item?.artworkURL } else if let url { channelItunesImageURL = url }
@@ -814,6 +847,8 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             return
         }
         let parent = stack.last
+
+        if ns == .podcast, name == "alternateEnclosure" { alternateEnclosure = nil }
 
         if var current = item {
             switch (ns, name) {
@@ -898,6 +933,10 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             current.enclosureType = media.type
             current.enclosureLength = media.length
         }
+        if let video = itemVideoContent, video.url != current.enclosureURL {
+            current.videoURL = video.url
+            current.videoType = video.type
+        }
         current.showNotes = Self.richest([itemContentEncoded, itemDescription, itemItunesSummary])
         if current.subtitle == nil, current.showNotes == nil, let summary = PodcastText.nonEmpty(itemItunesSummary) {
             current.subtitle = summary
@@ -909,6 +948,24 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             current.title = ISO8601DateFormatter.string(from: date, timeZone: .current, formatOptions: [.withFullDate])
         }
         feed.items.append(current)
+    }
+
+    private func rememberVideo(url: URL, type: String?, preferred: Bool = false) {
+        guard Self.isVideo(url: url, type: type),
+              itemVideoContent == nil || (preferred && itemVideoContent?.preferred == false) else { return }
+        itemVideoContent = (url, type, preferred)
+    }
+
+    private static func mediaType(_ type: String?) -> String? {
+        type?.split(separator: ";", maxSplits: 1).first.map { PodcastText.trimmed(String($0)).lowercased() }
+    }
+
+    private static func isVideo(url: URL, type: String?) -> Bool {
+        let type = mediaType(type)
+        if type?.hasPrefix("audio/") == true { return false }
+        if type?.hasPrefix("video/") == true { return true }
+        if type == "application/vnd.apple.mpegurl" || type == "application/x-mpegurl" { return true }
+        return ["mp4", "m4v", "mov", "m3u8"].contains(url.pathExtension.lowercased())
     }
 
     /// 三份说明里挑最长的;HTML 版和纯文本版内容一样时 HTML 更长,正好保留链接。
@@ -946,14 +1003,20 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             atomEntry = PodcastFeedItem()
             atomEntrySummary = nil
             atomEntryContent = nil
+            itemVideoContent = nil
         case (.none, "link"), (.atom, "link"):
             let rel = attributes["rel"]?.lowercased() ?? "alternate"
             let url = resolve(attributes["href"])
             if atomEntry != nil {
-                if rel == "enclosure", let url, atomEntry?.enclosureURL == nil {
-                    atomEntry?.enclosureURL = url
-                    atomEntry?.enclosureType = attributes["type"]
-                    atomEntry?.enclosureLength = attributes["length"].flatMap { Int64($0) }
+                if rel == "enclosure", let url {
+                    let type = attributes["type"]
+                    rememberVideo(url: url, type: type)
+                    if atomEntry?.enclosureURL == nil || (type?.lowercased().hasPrefix("audio/") == true
+                        && atomEntry?.enclosureType?.lowercased().hasPrefix("audio/") != true) {
+                        atomEntry?.enclosureURL = url
+                        atomEntry?.enclosureType = type
+                        atomEntry?.enclosureLength = attributes["length"].flatMap { Int64($0) }
+                    }
                 } else if rel == "alternate" {
                     atomEntry?.link = url ?? atomEntry?.link
                 }
@@ -976,6 +1039,10 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             switch (ns, name) {
             case (.none, "entry"), (.atom, "entry"):
                 entry.showNotes = Self.richest([atomEntryContent, atomEntrySummary])
+                if let video = itemVideoContent, video.url != entry.enclosureURL {
+                    entry.videoURL = video.url
+                    entry.videoType = video.type
+                }
                 atomEntry = nil
                 if entry.enclosureURL != nil {
                     entry.chapters = PodcastChapterNormalization.normalized(entry.chapters)

@@ -701,6 +701,8 @@ private struct HomeFilterBarEditor: View {
                     .accessibilityIdentifier("home.filterBar.appearance")
                     Toggle("home_filter_bar_swipe", isOn: swipeBinding)
                         .accessibilityIdentifier("home.filterBar.swipe")
+                    Toggle("home_filter_bar_monochrome", isOn: monochromeBinding)
+                        .accessibilityIdentifier("home.filterBar.monochrome")
                 }
 
                 Section {
@@ -710,7 +712,7 @@ private struct HomeFilterBarEditor: View {
                                 Text(space.titleKey)
                             } icon: {
                                 Image(systemName: space.systemImage)
-                                    .foregroundStyle(space.tint)
+                                    .foregroundStyle(configuration.monochrome ? Color.primary : space.tint)
                             }
                         }
                         .accessibilityIdentifier("home.filterBar.toggle.\(space.rawValue)")
@@ -753,7 +755,7 @@ private struct HomeFilterBarEditor: View {
             .navigationTitle("home_filter_bar_title")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(isPresented: $showsStylePicker) {
-                HomeFilterBarStylePicker(selection: appearanceBinding)
+                HomeFilterBarStylePicker(selection: appearanceBinding, monochrome: configuration.monochrome)
             }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -810,6 +812,16 @@ private struct HomeFilterBarEditor: View {
             rawValue = updated.encoded()
         }
     }
+
+    private var monochromeBinding: Binding<Bool> {
+        Binding {
+            configuration.monochrome
+        } set: { enabled in
+            var updated = configuration
+            updated.monochrome = enabled
+            rawValue = updated.encoded()
+        }
+    }
 }
 
 private extension HomeFilterBarLabelStyle {
@@ -838,6 +850,7 @@ extension EnvironmentValues {
 /// 横向翻页与纵向滚动同时识别，内部的横向内容由它自己的手势接管。
 private struct HomeFaceSwipeContainer<Content: View>: View {
     let enabled: Bool
+    let selectionID: String
     let canMove: (CGFloat) -> Bool
     let onMove: (CGFloat) -> Void
     let onProgress: (CGFloat, CGFloat) -> Void
@@ -855,13 +868,30 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
     var body: some View {
         content
             .environment(\.homeFaceSwipeExclusion, exclusion)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .offset(x: offset)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { newWidth in
                 width = newWidth
             }
-            .gesture(HomeFaceSwipeGesture(enabled: enabled, exclusion: exclusion, onEvent: handle))
+            .gesture(HomeFaceSwipeGesture(
+                enabled: enabled,
+                exclusion: selectionID == ListeningSpace.radio.rawValue ? exclusion : nil,
+                onEvent: handle
+            ))
+            .onChange(of: selectionID) { _, _ in
+                // 手势容器在换页时常驻；每次选择改变都归零，快速切回旧栏目也不会复用残留偏移。
+                withAnimation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86)) {
+                    offset = 0
+                }
+                reportedDirection = nil
+            }
+            .onChange(of: enabled) { _, value in
+                if !value { settle() }
+            }
+            .onDisappear { settle() }
     }
 
     private func handle(_ event: HomeFaceSwipeGesture.Event) {
@@ -907,7 +937,7 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
     }
 
     var enabled = true
-    let exclusion: HomeFaceSwipeExclusion
+    let exclusion: HomeFaceSwipeExclusion?
     let onEvent: (Event) -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
@@ -948,17 +978,17 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var exclusion: HomeFaceSwipeExclusion
+        var exclusion: HomeFaceSwipeExclusion?
         /// 这一次按下的时刻:按住一会儿才动的是长按菜单或拖动排序。
         private var touchDownTime: TimeInterval = 0
 
-        init(exclusion: HomeFaceSwipeExclusion) {
+        init(exclusion: HomeFaceSwipeExclusion?) {
             self.exclusion = exclusion
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             touchDownTime = touch.timestamp
-            if let frame = exclusion.frame, frame.contains(touch.location(in: nil)) { return false }
+            if let frame = exclusion?.frame, frame.contains(touch.location(in: nil)) { return false }
             var view = touch.view
             while let current = view {
                 if let scrollView = current as? UIScrollView,
@@ -1056,6 +1086,10 @@ private struct HomeRadioSpotlightCard: View {
                     cornerRadius: 20
                 )
                 .shadow(color: .black.opacity(0.2), radius: 10, y: 5)
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
 
                 // 卡片按有说明那一行时的高度排(下面那份看不见的只用来撑高),切台时下面的电台墙不跟着
                 // 上下跳(#320);没有说明的台收起这一行,多出来的高度分到上下两头,台名和按键之间
@@ -1511,6 +1545,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @State private var showRadioBatchAdd = false
     @State private var isHomeVisible = false
+    @State private var startupPlayback = LibraryStartupPlaybackCoordinator()
     /// 文件夹的钉选管理原本挂在设置那张列表上，那张列表已被界面编辑取代，
     /// 入口跟着搬到文件夹这一块的操作条里，免得整个功能没了去处。
     @State private var showsFolderManager = false
@@ -1542,7 +1577,10 @@ struct HomeView: View {
         #endif
         return HomeFilterBarConfiguration.decode(homeFilterBarRawValue).visibleSpaces(
             sectionShown: isFilterSectionShown,
-            isAvailable: { $0 != .spokenWord || library.hasSpokenWordContent }
+            isAvailable: { $0 != .spokenWord || LibraryStartupNavigationHint.showsSpokenWord(
+                isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
+                enabledSourceIDs: startupSourceIDs
+            ) }
         )
     }
 
@@ -1560,6 +1598,10 @@ struct HomeView: View {
     private var activeHomeFilter: ListeningSpace? {
         guard let homeFilter, homeFilterSpaces.contains(homeFilter) else { return nil }
         return homeFilter
+    }
+
+    private var showsMusicHomeSnapshot: Bool {
+        editorMode || activeHomeFilter == nil || activeHomeFilter == .music
     }
 
     /// 首页卡片上的「全部」「书架」:外壳接管时交给外壳;有那颗胶囊就在首页筛出那一类,
@@ -1627,6 +1669,7 @@ struct HomeView: View {
                             selection: activeHomeFilter,
                             labelStyle: homeFilterConfiguration.labelStyle,
                             appearance: homeFilterConfiguration.appearance,
+                            monochrome: homeFilterConfiguration.monochrome,
                             motion: homeSwipeMotion
                         ) { space in
                             // 再点一次选中的那颗(或它上面的 ✕)回到全部。
@@ -1654,15 +1697,19 @@ struct HomeView: View {
                     }
                     #endif
 
+                    LibraryStartupPlaybackFeedback(coordinator: startupPlayback)
+
                     // 换场时新旧两面叠在同一处:直接放在 VStack 里,被拿掉的那一面换场途中还占着位置,
                     // 新的一面先被挤到它下面,滑进来时就不是并排的了。
-                    ZStack(alignment: .topLeading) {
-                        homeFace {
+                    homeFace {
+                        ZStack(alignment: .topLeading) {
                             homePageContent
                                 .frame(minHeight: max(homeCanvasSize.height - 120, 200), alignment: .topLeading)
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("home.page." + (activeHomeFilter?.rawValue ?? "overview"))
+                                .id(activeHomeFilter?.rawValue ?? "overview")
+                                .transition(homeFaceTransition)
                         }
-                        .id(activeHomeFilter?.rawValue ?? "overview")
-                        .transition(homeFaceTransition)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1670,7 +1717,10 @@ struct HomeView: View {
                 .pmAnimation(.contentAppear, value: model.isPrepared)
             }
             // 下拉就去问一遍各服务器源有没有新歌,有就在后台同步;编辑版面时不接这个手势。
-            .serverCatalogPullToRefresh(isEnabled: !editorMode)
+            .serverCatalogPullToRefresh(isEnabled: !editorMode, shouldRefresh: { homeOverviewPull.shouldRefresh() })
+            .homePullToOverview(state: homeOverviewPull, isEnabled: !editorMode && activeHomeFilter != nil) {
+                setHomeFilter(nil)
+            }
             // iPhone Duo 竖栏：文字行和按钮停在竖栏左侧，横滑卡片和封面网格铺到屏幕右缘，系统的玻璃胶囊浮在上面。
             .pmExtendsUnderVerticalBar()
             .scrollPosition($homeScrollPosition)
@@ -1680,7 +1730,11 @@ struct HomeView: View {
                 homeScrollMemory.currentY = value
             }
             .onChange(of: activeHomeFilter) { _, filter in
-                homeScrollPosition.scrollTo(y: homeScrollMemory.offsets[filter?.rawValue ?? "overview"] ?? 0)
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    homeScrollPosition.scrollTo(y: homeScrollMemory.offsets[filter?.rawValue ?? "overview"] ?? 0)
+                }
             }
         }
         .onGeometryChange(for: CGSize.self) { proxy in
@@ -1701,7 +1755,7 @@ struct HomeView: View {
                 onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange,
                 onScanningChange: updateLibraryScanning
             )
-            if library.isReady, activeHomeFilter != .radio, activeHomeFilter != .spokenWord,
+            if library.isReady, showsMusicHomeSnapshot,
                showFolders || showListeningRanking {
                 HomeDiscoveryObserver(model: model.discovery)
             }
@@ -1757,10 +1811,24 @@ struct HomeView: View {
     private var observedHomeContent: some View {
         homeSettingsObservedContent
         .onAppear {
+            isHomeVisible = true
             isSceneActive = scenePhase == .active
+            startupPlayback.setContext(isVisible: true, isActive: isSceneActive)
+        }
+        .onChange(of: LibraryStartupPlaybackCoordinator.intent(of: player)) { _, intent in
+            startupPlayback.cancelIfSuperseded(by: intent)
+        }
+        .onChange(of: startupSourceIDs) { _, _ in startupPlayback.cancel() }
+        .onChange(of: activeHomeFilter) { _, _ in
+            startupPlayback.cancel()
+            refreshCoordinator.cancelAll()
+            if showsMusicHomeSnapshot {
+                Task { await refreshHomeSnapshotAfterPresentationIfNeeded() }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             isSceneActive = phase == .active
+            startupPlayback.setContext(isVisible: isHomeVisible, isActive: isSceneActive)
             if phase == .active {
                 guard isHomeVisible, needsHomeRefreshWhenActive else { return }
                 needsHomeRefreshWhenActive = false
@@ -1776,6 +1844,7 @@ struct HomeView: View {
         }
         .onDisappear {
             isHomeVisible = false
+            startupPlayback.setContext(isVisible: false, isActive: false)
             refreshCoordinator.cancelAll()
         }
     }
@@ -2003,6 +2072,7 @@ struct HomeView: View {
     @State private var homeSwipeMotion = HomeFilterSwipeMotion()
     @State private var homeScrollPosition = ScrollPosition(edge: .top)
     @State private var homeScrollMemory = HomeScrollMemory()
+    @State private var homeOverviewPull = HomePullToOverviewState()
     /// 书架分好的组。顶部切到电台、有声书时「全部」那一面整块卸下,分组结果放在这一层才留得住,
     /// 切回来书相关的区块不再先空着再弹出来;「有声书」那一面也用同一份(#283)。
     @State private var spokenWordBooks = SpokenWordBooksModel()
@@ -2484,7 +2554,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
 
                 if shown.count > 1 {
-                    HomeSpaceFilterBar(spaces: shown, selection: nil, labelStyle: configuration.labelStyle, appearance: configuration.appearance) { _ in }
+                    HomeSpaceFilterBar(spaces: shown, selection: nil, labelStyle: configuration.labelStyle, appearance: configuration.appearance, monochrome: configuration.monochrome) { _ in }
                         .allowsHitTesting(false)
                 } else {
                     Text("home_filter_bar_none")
@@ -2917,15 +2987,23 @@ struct HomeView: View {
 
     @ViewBuilder
     private var homePageContent: some View {
-        if activeHomeFilter == .radio {
+        if editorMode {
+            contentView
+        } else if activeHomeFilter == .radio {
             radioModeContent
         } else if activeHomeFilter == .spokenWord {
             SpokenWordShelf(showsArchived: false, model: spokenWordBooks, section: spokenShelfSection)
                 .padding(.horizontal, 16)
         } else if activeHomeFilter == .podcast {
             PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
-        } else if !model.isPrepared {
-            initialLoadingView
+        } else if !model.isPrepared || (!library.isReady && !hasContent) {
+            VStack(spacing: 16) {
+                if !startupSourceIDs.isEmpty {
+                    LibraryStartupPlaybackControls(coordinator: startupPlayback, play: playLibrary)
+                        .padding(.horizontal, 16)
+                }
+                initialLoadingView
+            }
         } else if hasContent {
             contentView.onAppear { hasShownHomeContent = true }
         } else {
@@ -2944,10 +3022,11 @@ struct HomeView: View {
         #if os(iOS)
         HomeFaceSwipeContainer(
             enabled: !editorMode && homeFilterConfiguration.swipeEnabled && homeFilterSpaces.count > 1,
+            selectionID: activeHomeFilter?.rawValue ?? "overview",
             canMove: { swipeNeighbor($0) != nil },
             onMove: { translation in
                 guard let next = swipeNeighbor(translation) else { return }
-                setHomeFilter(next) { homeFaceSwipeDirection = nil }
+                setHomeFilter(next, swipeDirection: translation < 0 ? -1 : 1)
             },
             onProgress: { translation, width in
                 homeSwipeMotion.target = swipeNeighbor(translation)
@@ -2961,25 +3040,20 @@ struct HomeView: View {
         #endif
     }
 
-    private func setHomeFilter(_ space: ListeningSpace?, completion: @escaping () -> Void = {}) {
+    private func setHomeFilter(_ space: ListeningSpace?, swipeDirection: CGFloat? = nil) {
         let space = space.flatMap { homeFilterSpaces.contains($0) ? $0 : nil }
-        guard space != activeHomeFilter else {
-            completion()
-            return
-        }
+        guard space != activeHomeFilter else { return }
+        homeFaceSwipeDirection = swipeDirection
         homeScrollMemory.offsets[activeHomeFilter?.rawValue ?? "overview"] = homeScrollMemory.currentY
         if reduceMotion {
             homeFilter = space
             homeSwipeMotion.target = nil
             homeSwipeMotion.progress = 0
-            completion()
         } else {
             withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                 homeFilter = space
                 homeSwipeMotion.target = nil
                 homeSwipeMotion.progress = 0
-            } completion: {
-                completion()
             }
         }
         #if os(iOS)
@@ -3190,6 +3264,7 @@ struct HomeView: View {
     /// 直接在这里做全库计算，导致导航动画必须等计算结束才显示首页。
     private func refreshHomeSnapshotAfterPresentationIfNeeded() async {
         isHomeVisible = true
+        guard showsMusicHomeSnapshot else { return }
         await Task.yield()
         guard !Task.isCancelled else { return }
         guard isSceneActive else {
@@ -3214,7 +3289,7 @@ struct HomeView: View {
     /// highlights and recommendations off the main actor.
     private func prepareInitialHomeSnapshot() async {
         let persistedSnapshot = await HomeInitialSnapshotCacheStore.shared.load()
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, showsMusicHomeSnapshot else { return }
         let signature = homeSnapshotSignature
         if model.heroSeeds == nil {
             // 存下的那一组就是按这个种子挑的,沿用它,首帧画的封面后台重算完不会整组换掉。
@@ -3275,7 +3350,7 @@ struct HomeView: View {
 
     private func prepareStartupHomeSnapshot(_ persisted: PersistedHomeSnapshot?) async {
         guard let songs = await library.prepareStartupSongs(
-            ids: Self.startupSongIDs(in: persisted), sourceIDs: startupSourceIDs, fallbackToFirstPage: true
+            ids: Self.startupSongIDs(in: persisted), sourceIDs: startupSourceIDs, fallbackToFirstPage: true, musicOnly: true
         ), !Task.isCancelled, !library.isReady else { return }
         let classification = SpokenWordStore.shared.classificationSnapshot
         let music = songs.filter {
@@ -3284,7 +3359,12 @@ struct HomeView: View {
                                        genre: $0.genre, serverLibraryID: $0.serverLibraryID) == .music
         }
         let byID = Dictionary(music.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        guard !byID.isEmpty else { return }
+        guard !byID.isEmpty else {
+            model.snapshot = HomeSnapshot()
+            model.signature = nil
+            model.isPrepared = true
+            return
+        }
         let payload = Self.rehydrateInitialHomePayload(persisted, visibleAlbums: [], songForID: { byID[$0] })
         let recent = (persisted?.recentSongIDs.prefix(30) ?? []).compactMap { byID[$0] }
         let savedHero = payload?.heroCoverSongs ?? []
@@ -3641,7 +3721,7 @@ struct HomeView: View {
     }
 
     private func refreshHomeSnapshot() {
-        guard library.isReady else { return }
+        guard library.isReady, showsMusicHomeSnapshot else { return }
         guard isSceneActive, isHomeVisible else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
@@ -3735,6 +3815,7 @@ struct HomeView: View {
         playedAlbumKeys: Set<String>,
         signature: HomeSnapshotSignature
     ) {
+        guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive else { return }
         refreshCoordinator.libraryHighlightsTask?.cancel()
         let heroSeeds = currentHeroSeeds(for: signature)
         refreshCoordinator.libraryHighlightsTask = Task { @MainActor in
@@ -3816,6 +3897,7 @@ struct HomeView: View {
         input: MusicDiscoveryEngine.RecommendationSnapshot,
         signature: HomeSnapshotSignature
     ) {
+        guard showsMusicHomeSnapshot, isHomeVisible, isSceneActive else { return }
         refreshCoordinator.recommendationTask?.cancel()
         refreshCoordinator.recommendationTask = Task { @MainActor in
             let worker = Task.detached(priority: .utility) {
@@ -4197,7 +4279,6 @@ struct HomeView: View {
                 }
                 .buttonStyle(.bordered)
                 .clipShape(Capsule())
-                .disabled(!library.isReady)
             }
         }
         .padding(16)
@@ -4915,6 +4996,17 @@ struct HomeView: View {
                 Text(HomeDiscoveryText.string("recent_albums"))
                     .font(.title3).fontWeight(.bold)
                 Spacer()
+                Button(action: playLatestAlbum) {
+                    Label("home_play_latest_album", systemImage: "play.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .disabled(albums.isEmpty)
+                .accessibilityIdentifier("home.recentAlbums.playLatest")
                 // value 式:页里的专辑卡要压在这一页上面,见 `HomeSeeAllPage`。
                 NavigationLink(value: HomeSeeAllPage.recentlyAddedAlbums) {
                     HStack(spacing: 5) {
@@ -4981,6 +5073,15 @@ struct HomeView: View {
                 .pmCoversExtendUnderVerticalBar()
             }
         }
+    }
+
+    private func playLatestAlbum() {
+        guard let album = model.snapshot.recentlyAddedAlbums.first?.album else { return }
+        let queue = library.songs(forAlbum: album.id).filteredPlayable()
+        guard !queue.isEmpty else { return }
+        player.shuffleEnabled = false
+        SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: false)
+        Task { await player.play(queue: queue, startingAt: 0) }
     }
 
     /// 「最近添加」网格的列方案。
@@ -5217,7 +5318,11 @@ struct HomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        guard library.isReady else { return }
+        guard library.isReady else {
+            startupPlayback.start(shuffled: shuffled, library: library, player: player,
+                sourceIDs: startupSourceIDs, currentSourceIDs: { startupSourceIDs })
+            return
+        }
         // Skip cloud songs that haven't been backfilled yet — they have no
         // duration / cover / metadata and would land in the queue with a
         // blank progress bar. Once backfill catches up they become eligible.

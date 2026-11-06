@@ -6891,6 +6891,7 @@
 
 "home_filter_bar_appearance" = "Styl górnego obszaru";
 "home_filter_bar_swipe" = "Przesuwaj, aby zmieniać kategorie";
+"home_filter_bar_monochrome" = "Monochromatyczny";
 "home_filter_style_classic" = "Klasyczne kapsułki (domyślnie)";
 "home_filter_style_underline" = "Podkreślony tekst";
 "home_filter_style_segmented" = "Pasek segmentowy";
@@ -6955,7 +6956,8 @@
 "chapter_generation_daily_limit" = "Wykorzystano dzienny limit generowania rozdziałów. Spróbuj jutro.";
 "chapter_generation_monthly_limit" = "Wykorzystano miesięczny limit generowania rozdziałów. Spróbuj w przyszłym miesiącu.";
 
-"album_show_track_artwork" = "Pokazuj okładki utworów";
+"album_show_track_artwork" = "Okładki utworów";
+"home_play_latest_album" = "Odtwórz najnowszy album";
 "content_explicit" = "Treści niecenzuralne";
 "content_rating" = "Klasyfikacja treści";
 "copyright_label" = "Prawa autorskie";
@@ -7152,6 +7154,18 @@
 "player_carousel_open_artist" = "Wykonawca";
 "player_carousel_song_count %lld" = "Utwory: %lld";
 "player_carousel_more_by_artist %@" = "Więcej od: %@";
+
+"mini_player_show_lyrics" = "Mini tekst";
+
+"player_vivid_mesh" = "Wyrazisty Mesh";
+
+"lyrics_pip_title" = "Tekst w obrazie w obrazie";
+
+"lyrics_pip_start" = "Włącz obraz w obrazie";
+
+"lyrics_pip_stop" = "Wyłącz obraz w obrazie";
+
+"lyrics_pip_start_failed" = "Nie udało się uruchomić obrazu w obrazie. Spróbuj ponownie.";
 
 "offline_downloads_show_in_finder" = "Pokaż pobrane pliki w Finderze";
 

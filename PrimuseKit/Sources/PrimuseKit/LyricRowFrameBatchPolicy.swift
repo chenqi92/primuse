@@ -849,6 +849,35 @@ public struct NowPlayingLyricsMetadataPresentation: Equatable, Sendable {
     }
 }
 
+public struct FloatingLyricsPresentation: Equatable, Sendable {
+    public let current: String?
+    public let next: String?
+
+    public init(lines: [LyricLine], time: TimeInterval) {
+        guard time.isFinite, time >= 0 else { current = nil; next = nil; return }
+        guard let index = LyricPlaybackPositionPolicy.activeLineIndex(in: lines, at: time) else {
+            current = nil
+            next = lines.first(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })?.text
+            return
+        }
+        let line = lines[index]
+        let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        current = !text.isEmpty && (line.endTime.map { time < $0 } ?? true) ? text : nil
+        next = lines.dropFirst(index + 1).first {
+            $0.timestamp > line.timestamp + 0.01 && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.text
+    }
+
+    public static func synchronizedLines(_ lines: [LyricLine]) -> [LyricLine] {
+        // Preserve empty cues: they end the preceding line during an interlude.
+        lines.enumerated().filter { $0.element.isSynchronized && $0.element.timestamp.isFinite }
+            .sorted {
+                $0.element.timestamp == $1.element.timestamp
+                    ? $0.offset < $1.offset : $0.element.timestamp < $1.element.timestamp
+            }.map(\.element)
+    }
+}
+
 public enum NowPlayingLyricsMetadataPolicy {
     /// Lines that can drive a lock-screen/now-playing update.
     ///

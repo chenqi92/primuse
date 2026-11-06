@@ -83,10 +83,10 @@ struct LibraryPublishTimingPolicyTests {
         #expect(capped == .proceedDespiteScrolling)
     }
 
-    @Test("Libraries under ten thousand songs keep the old cadence")
-    func smallLibrariesHaveNoSpacing() {
-        #expect(LibraryPublishTimingPolicy.minimumBackfillPublishSpacing(librarySongCount: 0) == 0)
-        #expect(LibraryPublishTimingPolicy.minimumBackfillPublishSpacing(librarySongCount: 9_999) == 0)
+    @Test("Small libraries also space derived-content updates")
+    func smallLibrariesHaveMinimumSpacing() {
+        #expect(LibraryPublishTimingPolicy.minimumBackfillPublishSpacing(librarySongCount: 0) == 10)
+        #expect(LibraryPublishTimingPolicy.minimumBackfillPublishSpacing(librarySongCount: 9_999) == 10)
     }
 
     @Test("Large libraries space publishes by one second per thousand songs, capped at a minute")
@@ -97,10 +97,14 @@ struct LibraryPublishTimingPolicyTests {
         #expect(LibraryPublishTimingPolicy.minimumBackfillPublishSpacing(librarySongCount: 250_000) == 60)
     }
 
-    @Test("A small library publishes on a full batch exactly as before")
+    @Test("A small library coalesces full batches while slow reads still publish by time")
     func smallLibraryBatchGate() {
-        let due = LibraryPublishTimingPolicy.isBackfillPublishDue(
+        let early = LibraryPublishTimingPolicy.isBackfillPublishDue(
             pendingCount: 64, batchSize: 64, flushInterval: 30, sinceLastPublish: 3, librarySongCount: 2_000
+        )
+        #expect(!early)
+        let due = LibraryPublishTimingPolicy.isBackfillPublishDue(
+            pendingCount: 100, batchSize: 64, flushInterval: 30, sinceLastPublish: 10, librarySongCount: 2_000
         )
         #expect(due)
         let notYet = LibraryPublishTimingPolicy.isBackfillPublishDue(
@@ -111,6 +115,33 @@ struct LibraryPublishTimingPolicyTests {
             pendingCount: 5, batchSize: 64, flushInterval: 30, sinceLastPublish: 30, librarySongCount: 2_000
         )
         #expect(byTime)
+    }
+
+    @Test("Fast import batches cannot repeatedly refresh a small library within ten seconds")
+    func fastImportCoalescesUpdatesWithoutLosingResults() {
+        var pending = 0
+        var published = 0
+        var lastPublish = -Double.infinity
+        var publishTimes: [Double] = []
+        for index in 1...694 {
+            pending += 1
+            let now = Double(index) / 10
+            if LibraryPublishTimingPolicy.isBackfillPublishDue(
+                pendingCount: pending, batchSize: 64, flushInterval: 30,
+                sinceLastPublish: now - lastPublish, librarySongCount: 694
+            ) {
+                published += pending
+                pending = 0
+                lastPublish = now
+                publishTimes.append(now)
+            }
+        }
+        #expect(publishTimes.count < 694 / 64)
+        #expect(zip(publishTimes, publishTimes.dropFirst()).allSatisfy { pair in
+            pair.1 - pair.0 >= 10
+        })
+        #expect(published + pending == 694)
+        #expect(pending < 100)
     }
 
     @Test("A large library waits out its spacing even with a full batch")

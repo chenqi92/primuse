@@ -28,7 +28,7 @@ final class ThemeService {
     private(set) var artworkAccentLuma: Double = 0.5
     private(set) var artworkSecondaryLuma: Double = 0.5
     /// Mesh 与「流动色彩」共用的代表色,从当前封面的小图里挑(和上面几个颜色同一次读图)。
-    /// 没有封面、或封面只有一种颜色时为空,播放页改用下面几个主题色。
+    /// 没有可读封面时为空,播放页改用下面几个主题色。
     private(set) var artworkLiquidPalette: [LiquidBackdropColor] = []
 
     private(set) var colorMode = AppThemePreferences.defaultColorMode
@@ -628,7 +628,7 @@ final class ThemeService {
 
     // MARK: - Color Extraction Algorithm
 
-    /// 多色调色板:把封面画到 48×48 上,交给 `LiquidBackdropPalettePolicy` 挑 2…7 个代表色。
+    /// 多色调色板:把封面画到 48×48 上,交给 `LiquidBackdropPalettePolicy` 挑 1…7 个代表色。
     /// 换歌时算一次,动画只用算好的颜色。
     nonisolated static func extractLiquidPalette(from image: PlatformImage) -> [LiquidBackdropColor] {
         LiquidBackdropPalettePolicy.palette(fromRGB: artworkPalettePixels(from: image))

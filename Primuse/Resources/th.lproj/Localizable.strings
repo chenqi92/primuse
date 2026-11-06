@@ -6891,6 +6891,7 @@
 
 "home_filter_bar_appearance" = "รูปแบบพื้นที่ด้านบน";
 "home_filter_bar_swipe" = "ปัดเพื่อสลับหมวดหมู่";
+"home_filter_bar_monochrome" = "ขาวดำ";
 "home_filter_style_classic" = "แคปซูลคลาสสิก (ค่าเริ่มต้น)";
 "home_filter_style_underline" = "ข้อความขีดเส้นใต้";
 "home_filter_style_segmented" = "แถบแบ่งส่วน";
@@ -6955,7 +6956,8 @@
 "chapter_generation_daily_limit" = "ใช้โควตาสร้างบทของวันนี้หมดแล้ว โปรดลองใหม่พรุ่งนี้";
 "chapter_generation_monthly_limit" = "ใช้โควตาสร้างบทของเดือนนี้หมดแล้ว โปรดลองใหม่เดือนหน้า";
 
-"album_show_track_artwork" = "แสดงภาพปกเพลง";
+"album_show_track_artwork" = "ภาพปกเพลง";
+"home_play_latest_album" = "เล่นอัลบั้มล่าสุด";
 "content_explicit" = "เนื้อหาโจ่งแจ้ง";
 "content_rating" = "การจัดประเภทเนื้อหา";
 "copyright_label" = "ลิขสิทธิ์";
@@ -7152,6 +7154,18 @@
 "player_carousel_open_artist" = "ศิลปิน";
 "player_carousel_song_count %lld" = "%lld เพลง";
 "player_carousel_more_by_artist %@" = "เพิ่มเติมจาก %@";
+
+"mini_player_show_lyrics" = "เนื้อเพลงย่อ";
+
+"player_vivid_mesh" = "Mesh สีสด";
+
+"lyrics_pip_title" = "เนื้อเพลงแบบภาพซ้อนภาพ";
+
+"lyrics_pip_start" = "เริ่มภาพซ้อนภาพ";
+
+"lyrics_pip_stop" = "หยุดภาพซ้อนภาพ";
+
+"lyrics_pip_start_failed" = "ไม่สามารถเริ่มภาพซ้อนภาพได้ โปรดลองอีกครั้ง";
 
 "offline_downloads_show_in_finder" = "แสดงดาวน์โหลดใน Finder";
 
