@@ -4,6 +4,38 @@ import Foundation
 import ImageIO
 import PrimuseKit
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#endif
+
+/// Cache reclamation is optional work: leave CPU time for playback and stop
+/// reclaiming while the application is inactive, including the lock screen.
+nonisolated struct CacheCleanupPacer {
+    var isPaused: @MainActor @Sendable () -> Bool = {
+        #if canImport(UIKit)
+        UIApplication.shared.applicationState != .active
+        #else
+        false
+        #endif
+    }
+    private var processed = 0
+    private var batchStarted: ContinuousClock.Instant?
+
+    mutating func checkpoint() async throws {
+        try Task.checkCancellation()
+        if processed == 0 || processed >= 128 {
+            if let batchStarted {
+                try await Task.sleep(for: max(.milliseconds(5), batchStarted.duration(to: .now) * 3))
+            }
+            while await isPaused() {
+                try await Task.sleep(for: .seconds(1))
+            }
+            batchStarted = .now
+            processed = 0
+        }
+        processed += 1
+    }
+}
 
 /// 存储管理里「封面与歌词空间上限」那一项(#346),每天的文件整理按它删旧封面。本机设置。
 enum ArtworkStoreLimitSetting {
@@ -560,18 +592,25 @@ actor MetadataAssetStore {
         guard let reference, let key = SourceArtworkPolicy.cacheID(
             sourceID: sourceID, reference: reference, maximumPixels: maximumPixels
         ), cacheCover(data, forSongID: key) else { return false }
+        // Keep an owner receipt even for album/book artwork without a song.
+        // A source ID cannot be recovered from the hashed cache filename.
+        storeArtworkMirror(songID: key, sourceID: sourceID, reference: reference, cacheID: key)
         guard let songID else { return true }
         if ticket == nil, artworkSelections[songID]?.hasPrefix("local:") == true { return true }
         let fullKey = SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: reference, maximumPixels: 1536)
         let bestKey = fullKey.flatMap { freshSourceData(cacheID: $0, sourceID: sourceID, checksAge: false) != nil ? $0 : nil } ?? key
         let best = cachedCoverData(forSongID: bestKey) ?? data
         guard cacheCover(best, forSongID: songID) else { return false }
+        storeArtworkMirror(songID: songID, sourceID: sourceID, reference: reference, cacheID: bestKey)
+        return true
+    }
+
+    private func storeArtworkMirror(songID: String, sourceID: String?, reference: String, cacheID: String) {
         let url = mirrorURL(songID)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let encoded = try? JSONEncoder().encode(ArtworkMirror(reference: Self.sha256Hex(Data(reference.utf8)), sourceID: sourceID, cacheID: bestKey)) {
+        if let encoded = try? JSONEncoder().encode(ArtworkMirror(reference: Self.sha256Hex(Data(reference.utf8)), sourceID: sourceID, cacheID: cacheID)) {
             try? encoded.write(to: url, options: .atomic)
         }
-        return true
     }
 
     nonisolated private func freshSourceData(cacheID: String, sourceID: String?, checksAge: Bool = true) -> Data? {
@@ -1021,7 +1060,10 @@ actor MetadataAssetStore {
     /// Shared legacy directories cannot be dropped with a source's cache tree.
     /// Inventory real files once instead of issuing four failed deletes per
     /// uncached song, and release the actor between bounded cleanup batches.
-    func invalidateCaches(forSongIDs songIDs: [String], lastWrittenBefore cleanupStartedAt: Date = Date()) async {
+    func invalidateCaches(
+        forSongIDs songIDs: [String], lastWrittenBefore cleanupStartedAt: Date = Date(),
+        preservingCoverNames: Set<String> = [], preservingLyricsNames: Set<String> = []
+    ) async {
         guard !songIDs.isEmpty else { return }
         var pacer = CacheCleanupPacer()
         let fm = FileManager.default
@@ -1037,13 +1079,13 @@ actor MetadataAssetStore {
                 autoreleasepool {
                     let base = hashedBaseName(for: songID)
                     let cover = base + ".jpg"
-                    if artworkNames.remove(cover) != nil {
+                    if artworkNames.remove(cover) != nil, !preservingCoverNames.contains(cover) {
                         removeCacheAsset(artworkDirectory.appendingPathComponent(cover, isDirectory: false),
                                          lastWrittenBefore: cleanupStartedAt)
                     }
                     for suffix in [".json", ".embedded.json", ".recheck"] {
                         let name = base + suffix
-                        guard lyricsNames.remove(name) != nil else { continue }
+                        guard lyricsNames.remove(name) != nil, !preservingLyricsNames.contains(name) else { continue }
                         if suffix == ".json", lyricsMutationReservations[songID] != nil { continue }
                         removeCacheAsset(lyricsDirectory.appendingPathComponent(name, isDirectory: false),
                                          lastWrittenBefore: cleanupStartedAt)
@@ -1054,12 +1096,157 @@ actor MetadataAssetStore {
         catch { plog("Metadata cache cleanup deferred: \(error.localizedDescription)") }
     }
 
+    /// Song IDs change when a connection is added again. Remove their aliases
+    /// and local metadata references, but keep artwork shared by surviving rows.
+    func invalidateRemovedSongCaches(
+        songs: [Song], songIDs: Set<String>, retainingSongs: [Song], lastWrittenBefore cutoff: Date
+    ) async {
+        var pacer = CacheCleanupPacer()
+        do {
+            try await pacer.checkpoint()
+            let fm = FileManager.default
+            let hasCovers = ((try? fm.contentsOfDirectory(atPath: artworkDirectory.path)) ?? []).contains { $0.hasSuffix(".jpg") }
+            let hasLyrics = ((try? fm.contentsOfDirectory(atPath: lyricsDirectory.path)) ?? []).contains {
+                $0.hasSuffix(".json") || $0.hasSuffix(".recheck")
+            }
+            guard hasCovers || hasLyrics else { return }
+            var retainedIDs = Set<String>()
+            var protectedCovers = Set<String>()
+            var protectedLyrics = Set<String>()
+            for song in retainingSongs {
+                try await pacer.checkpoint()
+                retainedIDs.insert(song.id)
+                let base = hashedBaseName(for: song.id)
+                protectedCovers.insert(base + ".jpg")
+                protectedLyrics.insert(base + ".json")
+                if let name = Self.localAssetName(song.coverArtFileName, extension: "jpg") {
+                    protectedCovers.insert(name)
+                }
+                if let name = Self.localAssetName(song.lyricsFileName, extension: "json") {
+                    protectedLyrics.insert(name)
+                }
+            }
+            await invalidateCaches(forSongIDs: Array(songIDs.subtracting(retainedIDs)), lastWrittenBefore: cutoff,
+                                   preservingCoverNames: protectedCovers, preservingLyricsNames: protectedLyrics)
+            var coverNames = Set<String>()
+            var lyricOwners: [String: Set<String>] = [:]
+            var sourceReferences: [String: Set<String>] = [:]
+            for song in songs where !retainedIDs.contains(song.id) {
+                try await pacer.checkpoint()
+                if let name = Self.localAssetName(song.coverArtFileName, extension: "jpg"),
+                   StoredArtworkOrigin.resolve(name) != .selected {
+                    coverNames.insert(name)
+                }
+                if hasCovers, let reference = song.coverArtFileName,
+                   sourceReferences[song.sourceID, default: []].insert(reference).inserted {
+                    for pixels in [480, 1536] {
+                        if let key = SourceArtworkPolicy.cacheID(sourceID: song.sourceID,
+                                                                reference: reference,
+                                                                maximumPixels: pixels) {
+                            coverNames.insert(expectedCoverFileName(for: key))
+                        }
+                    }
+                }
+                if let name = Self.localAssetName(song.lyricsFileName, extension: "json") {
+                    lyricOwners[name, default: []].insert(song.id)
+                }
+            }
+            for name in coverNames.subtracting(protectedCovers) {
+                try await pacer.checkpoint()
+                removeCacheAsset(artworkDirectory.appendingPathComponent(name), lastWrittenBefore: cutoff)
+            }
+            for (name, owners) in lyricOwners where !protectedLyrics.contains(name) {
+                try await pacer.checkpoint()
+                guard owners.allSatisfy({ lyricsMutationReservations[$0] == nil }) else { continue }
+                removeCacheAsset(lyricsDirectory.appendingPathComponent(name), lastWrittenBefore: cutoff)
+            }
+        } catch is CancellationError { return }
+        catch { plog("Removed metadata cleanup deferred: \(error.localizedDescription)") }
+    }
+
+    /// Source receipts cover remote images which have no library song row.
+    /// Album/artist identity caches and custom uploads remain reusable.
+    func invalidateSourceArtworkCaches(
+        forSourceIDs sourceIDs: Set<String>, retainingSongs: [Song] = [], lastWrittenBefore cutoff: Date
+    ) async {
+        guard !sourceIDs.isEmpty else { return }
+        let fm = FileManager.default
+        var pacer = CacheCleanupPacer()
+        do {
+            try await pacer.checkpoint()
+            let receipts = (try? fm.contentsOfDirectory(at: artworkDirectory.appendingPathComponent("receipts"),
+                                                       includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            var protectedCovers = Set<String>()
+            if !receipts.isEmpty {
+                for song in retainingSongs {
+                    try await pacer.checkpoint()
+                    if let name = Self.localAssetName(song.coverArtFileName, extension: "jpg") {
+                        protectedCovers.insert(name)
+                    }
+                }
+            }
+            for url in receipts where url.pathExtension == "json" {
+                try await pacer.checkpoint()
+                guard let modified = Self.modificationDate(of: url),
+                      modified.timeIntervalSinceReferenceDate <= cutoff.timeIntervalSinceReferenceDate,
+                      let data = try? Data(contentsOf: url),
+                      let mirror = try? decoder.decode(ArtworkMirror.self, from: data),
+                      let sourceID = mirror.sourceID, sourceIDs.contains(sourceID) else { continue }
+                // Older receipts were written only for the song alias.
+                let names = [expectedCoverFileName(for: mirror.cacheID), url.deletingPathExtension().lastPathComponent]
+                for name in names where !protectedCovers.contains(name) {
+                    removeCacheAsset(artworkDirectory.appendingPathComponent(name), lastWrittenBefore: cutoff)
+                }
+                removeCacheAsset(url, lastWrittenBefore: cutoff)
+            }
+            try await collectUnreferencedArtwork(lastWrittenBefore: cutoff, pacer: &pacer)
+        } catch is CancellationError { return }
+        catch { plog("Source artwork cleanup deferred: \(error.localizedDescription)") }
+    }
+
+    private static func localAssetName(_ reference: String?, extension pathExtension: String) -> String? {
+        guard let reference, !reference.contains("/"), !reference.contains("\\"),
+              (reference as NSString).pathExtension == pathExtension else { return nil }
+        return reference
+    }
+
+    private func collectUnreferencedArtwork(lastWrittenBefore cutoff: Date, pacer: inout CacheCleanupPacer) async throws {
+        let fm = FileManager.default
+        var referenced = Set<String>()
+        let contents = (try? fm.contentsOfDirectory(at: artworkContentDirectory, includingPropertiesForKeys: nil)) ?? []
+        guard contents.contains(where: { $0.pathExtension == "jpg" || $0.pathExtension == "evicted" }) else { return }
+        // Walk artwork once, including its album/artist subdirectories. Read
+        // only redirect headers; legacy JPEGs need no decoding or full read.
+        guard let files = fm.enumerator(at: artworkDirectory, includingPropertiesForKeys: [.isRegularFileKey]) else { return }
+        while let url = files.nextObject() as? URL {
+            try await pacer.checkpoint()
+            guard url.pathExtension == "jpg" else { continue }
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            let header = try? handle.read(upToCount: Self.redirectPrefixData.count + 64)
+            try? handle.close()
+            if let header, header.starts(with: Self.redirectPrefixData),
+               let key = String(data: header.dropFirst(Self.redirectPrefixData.count), encoding: .utf8) {
+                referenced.insert(key)
+            }
+        }
+        for url in contents where url.pathExtension == "jpg" || url.pathExtension == "evicted" {
+            try await pacer.checkpoint()
+            guard !referenced.contains(url.deletingPathExtension().lastPathComponent) else { continue }
+            // All writers touch content before publishing a new redirect, under
+            // the same lock. A reference added during this walk survives it.
+            removeCacheAsset(url, lastWrittenBefore: cutoff)
+        }
+    }
+
     private func removeCacheAsset(_ url: URL, lastWrittenBefore cutoff: Date) {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType == .typeRegular,
-              let modified = attributes[.modificationDate] as? Date,
-              modified <= cutoff else { return }
-        try? FileManager.default.removeItem(at: url)
+        contentMutationLock.withLock {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  attributes[.type] as? FileAttributeType == .typeRegular,
+                  let modified = attributes[.modificationDate] as? Date,
+                  modified.timeIntervalSinceReferenceDate <= cutoff.timeIntervalSinceReferenceDate else { return }
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// A content-change scan may already have written fresh embedded/sidecar
@@ -1320,16 +1507,17 @@ actor MetadataAssetStore {
     /// 直接指过去,不必再读这首歌的文件。返回封面引用名;本机没有这份内容就返回 nil。
     nonisolated func linkCoverContentIfPresent(_ contentKey: String, forSongID songID: String, origin: StoredArtworkOrigin? = nil) -> String? {
         guard origin != .selected, PeerScanSeedPolicy.isContentKey(contentKey) else { return nil }
-        let contentURL = artworkContentDirectoryURL.appendingPathComponent("\(contentKey).jpg")
-        guard FileManager.default.fileExists(atPath: contentURL.path) else { return nil }
-        let fileName = origin.map { $0.rawValue + "-" + contentKey + ".jpg" } ?? expectedCoverFileName(for: songID)
-        let refURL = artworkDirectoryURL.appendingPathComponent(fileName)
-        do {
-            try (Self.redirectPrefixData + Data(contentKey.utf8)).write(to: refURL, options: .atomic)
-        } catch {
-            return nil
+        return contentMutationLock.withLock {
+            let contentURL = artworkContentDirectoryURL.appendingPathComponent("\(contentKey).jpg")
+            guard FileManager.default.fileExists(atPath: contentURL.path) else { return nil }
+            let fileName = origin.map { $0.rawValue + "-" + contentKey + ".jpg" } ?? expectedCoverFileName(for: songID)
+            let refURL = artworkDirectoryURL.appendingPathComponent(fileName)
+            do {
+                try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: contentURL.path)
+                try (Self.redirectPrefixData + Data(contentKey.utf8)).write(to: refURL, options: .atomic)
+                return fileName
+            } catch { return nil }
         }
-        return fileName
     }
 
     /// 歌曲记着的那份歌词(`Song.lyricsFileName`)本机还在不在。
@@ -1436,6 +1624,8 @@ actor MetadataAssetStore {
                 if !fm.fileExists(atPath: contentURL.path) {
                     do { try data.write(to: contentURL, options: .atomic) }
                     catch { continue }  // 写不进 content 就别动 ref, 下次重试
+                } else {
+                    try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: contentURL.path)
                 }
                 let redirect = prefix + Data(sha.utf8)
                 if (try? redirect.write(to: file, options: .atomic)) != nil {

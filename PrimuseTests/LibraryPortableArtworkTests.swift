@@ -11,6 +11,155 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    func testRemovedSourceArtworkWithoutSongRowsReclaimsBothSizesAndPreservesOtherSources() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let reference = "/books/cover.jpg"
+        let small = try image(color: .red)
+        let full = try image(color: .blue)
+        let surviving = try image(color: .green)
+        _ = await assets.cacheSourceCover(small, songID: nil, sourceID: "removed", reference: reference, maximumPixels: 480)
+        _ = await assets.cacheSourceCover(full, songID: nil, sourceID: "removed", reference: reference, maximumPixels: 1536)
+        _ = await assets.cacheSourceCover(surviving, songID: nil, sourceID: "retained", reference: reference, maximumPixels: 480)
+        XCTAssertNil(assets.cachedSourceCover(sourceID: "readded", reference: reference, maximumPixels: 480))
+
+        await assets.invalidateSourceArtworkCaches(forSourceIDs: ["removed"], lastWrittenBefore: Date())
+
+        let restarted = MetadataAssetStore(storageDirectory: root)
+        XCTAssertNil(restarted.cachedSourceCover(sourceID: "removed", reference: reference, maximumPixels: 480, allowsStale: true))
+        XCTAssertNil(restarted.cachedSourceCover(sourceID: "removed", reference: reference, maximumPixels: 1536, allowsStale: true))
+        XCTAssertEqual(restarted.cachedSourceCover(sourceID: "retained", reference: reference, maximumPixels: 480), surviving)
+        XCTAssertEqual(restarted.artworkContentUsage().count, 1)
+    }
+
+    func testRemovedSongAssetsKeepSharedAndReusableArtworkButReclaimUnmatchableLyrics() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let reusable = try image(color: .red)
+        let shared = try image(color: .green)
+        let unique = try image(color: .blue)
+        let custom = try image(color: .orange)
+        let specs: [(String, Data, StoredArtworkOrigin)] = [
+            ("album-song", reusable, .embedded), ("shared-song", shared, .sidecar),
+            ("unique-song", unique, .scraped), ("custom-song", custom, .selected)
+        ]
+        var removed: [Song] = []
+        for (id, bytes, origin) in specs {
+            let reference = await assets.storeAttributedCover(bytes, songID: id, origin: origin)
+            let lyrics = await assets.storeLyrics([LyricLine(timestamp: 0, text: id)], for: id)
+            removed.append(Song(id: id, title: id, fileFormat: .flac, filePath: "/\(id).flac",
+                                sourceID: "removed", coverArtFileName: try XCTUnwrap(reference), lyricsFileName: lyrics))
+        }
+        let legacyName = await assets.storeLyrics([LyricLine(timestamp: 0, text: "legacy")], for: "legacy-cache-key")
+        removed[2].lyricsFileName = legacyName
+        let retainedLyrics = await assets.storeLyrics([LyricLine(timestamp: 0, text: "retained")], for: "retained-song")
+        let retained = Song(id: "retained-song", title: "Retained", fileFormat: .flac, filePath: "/retained.flac",
+                            sourceID: "other", coverArtFileName: removed[1].coverArtFileName, lyricsFileName: retainedLyrics)
+        _ = await assets.storeAlbumCover(reusable, forAlbumID: "stable-album")
+        _ = await assets.storeArtistImage(reusable, forArtistID: "stable-artist")
+        let cutoff = Date()
+
+        await assets.invalidateRemovedSongCaches(songs: removed, songIDs: Set(removed.map(\.id)),
+                                                retainingSongs: [retained], lastWrittenBefore: cutoff)
+        await assets.invalidateSourceArtworkCaches(forSourceIDs: ["removed"], lastWrittenBefore: cutoff)
+
+        for song in removed {
+            let lyrics = await assets.cachedLyrics(forSongID: song.id)
+            XCTAssertNil(lyrics)
+            XCTAssertNil(assets.readCoverData(named: assets.expectedCoverFileName(for: song.id)))
+        }
+        let legacyLyrics = await assets.lyrics(named: legacyName)
+        XCTAssertNil(legacyLyrics)
+        let remainingLyrics = await assets.cachedLyrics(forSongID: retained.id)
+        XCTAssertEqual(remainingLyrics?.first?.text, "retained")
+        XCTAssertNil(assets.readCoverData(named: try XCTUnwrap(removed[0].coverArtFileName)))
+        XCTAssertNil(assets.readCoverData(named: try XCTUnwrap(removed[2].coverArtFileName)))
+        XCTAssertEqual(assets.readCoverData(named: try XCTUnwrap(retained.coverArtFileName)), shared)
+        XCTAssertEqual(assets.readCoverData(named: try XCTUnwrap(removed[3].coverArtFileName)), custom)
+        let album = await assets.cachedAlbumCover(forAlbumID: "stable-album")
+        let artist = await assets.cachedArtistImage(forArtistID: "stable-artist")
+        XCTAssertEqual(album, reusable)
+        XCTAssertEqual(artist, reusable)
+        XCTAssertEqual(assets.artworkContentUsage().count, 2)
+    }
+
+    func testRemovedSourceCleanupHandlesLegacySongOnlyArtworkReceipts() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let reference = "subsonic-cover/album"
+        let song = Song(id: "legacy-song", title: "Legacy", fileFormat: .flac, filePath: "/track.flac",
+                        sourceID: "old-server", coverArtFileName: reference)
+        for pixels in [480, 1536] {
+            _ = await assets.cacheSourceCover(try image(color: pixels == 480 ? .red : .blue), songID: song.id,
+                                             sourceID: song.sourceID, reference: reference, maximumPixels: pixels)
+            let key = try XCTUnwrap(SourceArtworkPolicy.cacheID(sourceID: song.sourceID, reference: reference, maximumPixels: pixels))
+            let receipt = assets.artworkDirectoryURL.appendingPathComponent("receipts")
+                .appendingPathComponent(assets.expectedCoverFileName(for: key) + ".json")
+            try FileManager.default.removeItem(at: receipt)
+        }
+        let cutoff = Date()
+        await assets.invalidateRemovedSongCaches(songs: [song], songIDs: [song.id], retainingSongs: [], lastWrittenBefore: cutoff)
+        await assets.invalidateSourceArtworkCaches(forSourceIDs: [song.sourceID], lastWrittenBefore: cutoff)
+
+        XCTAssertNil(assets.cachedSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 480, allowsStale: true))
+        XCTAssertNil(assets.cachedSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 1536, allowsStale: true))
+        XCTAssertEqual(assets.artworkContentUsage().count, 0)
+        let receipts = try FileManager.default.contentsOfDirectory(atPath: assets.artworkDirectoryURL.appendingPathComponent("receipts").path)
+        XCTAssertTrue(receipts.isEmpty)
+    }
+
+    func testRemovedSongCleanupPreservesLegacyAliasesReferencedByAnotherSong() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let bytes = try image()
+        let oldID = "portable-original"
+        let cover = await assets.storeCover(bytes, for: oldID)
+        let lyrics = await assets.storeLyrics([LyricLine(timestamp: 0, text: "shared")], for: oldID)
+        _ = await assets.cacheSourceCover(bytes, songID: oldID, sourceID: "removed", reference: "/original.jpg", maximumPixels: 480)
+        let removed = Song(id: oldID, title: "Old", fileFormat: .flac, filePath: "/old.flac", sourceID: "removed",
+                           coverArtFileName: cover, lyricsFileName: lyrics)
+        let retained = Song(id: "portable-copy", title: "Copy", fileFormat: .flac, filePath: "/copy.flac", sourceID: "retained",
+                            coverArtFileName: cover, lyricsFileName: lyrics)
+        let cutoff = Date()
+        await assets.invalidateRemovedSongCaches(songs: [removed], songIDs: [oldID], retainingSongs: [retained], lastWrittenBefore: cutoff)
+        await assets.invalidateSourceArtworkCaches(forSourceIDs: ["removed"], retainingSongs: [retained], lastWrittenBefore: cutoff)
+
+        XCTAssertEqual(assets.readCoverData(named: try XCTUnwrap(cover)), bytes)
+        let remaining = await assets.lyrics(named: lyrics)
+        XCTAssertEqual(remaining?.first?.text, "shared")
+        XCTAssertEqual(assets.artworkContentUsage().count, 1)
+    }
+
+    func testRemovedSourceCleanupPreservesArtworkAndLyricsRewrittenAfterRemoval() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let reference = "/album/cover.jpg"
+        let song = Song(id: "restored-song", title: "Restored", fileFormat: .flac, filePath: "/track.flac",
+                        sourceID: "restored-source", coverArtFileName: reference)
+        _ = await assets.cacheSourceCover(try image(color: .red), songID: song.id, sourceID: song.sourceID,
+                                         reference: reference, maximumPixels: 480)
+        _ = await assets.cacheLyrics([LyricLine(timestamp: 0, text: "old")], forSongID: song.id)
+        let cutoff = Date()
+        try await Task.sleep(for: .milliseconds(30))
+        let updated = try image(color: .blue)
+        _ = await assets.cacheSourceCover(updated, songID: song.id, sourceID: song.sourceID,
+                                         reference: reference, maximumPixels: 480)
+        _ = await assets.cacheLyrics([LyricLine(timestamp: 0, text: "new")], forSongID: song.id)
+        await assets.invalidateRemovedSongCaches(songs: [song], songIDs: [song.id], retainingSongs: [], lastWrittenBefore: cutoff)
+        await assets.invalidateSourceArtworkCaches(forSourceIDs: [song.sourceID], lastWrittenBefore: cutoff)
+
+        XCTAssertEqual(assets.cachedSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 480), updated)
+        XCTAssertEqual(assets.readCoverData(named: assets.expectedCoverFileName(for: song.id)), updated)
+        let lyrics = await assets.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(lyrics?.first?.text, "new")
+        XCTAssertEqual(assets.artworkContentUsage().count, 1)
+    }
+
     func testCacheCleanupPreservesAssetsRewrittenAfterCleanupStarted() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

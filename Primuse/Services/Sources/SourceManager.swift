@@ -8,35 +8,6 @@ import PrimuseKit
 import UIKit
 #endif
 
-/// Cache reclamation is optional work: leave CPU time for playback and stop
-/// reclaiming while the application is inactive, including the lock screen.
-nonisolated struct CacheCleanupPacer {
-    var isPaused: @MainActor @Sendable () -> Bool = {
-        #if canImport(UIKit)
-        UIApplication.shared.applicationState != .active
-        #else
-        false
-        #endif
-    }
-    private var processed = 0
-    private var batchStarted: ContinuousClock.Instant?
-
-    mutating func checkpoint() async throws {
-        try Task.checkCancellation()
-        if processed == 0 || processed >= 128 {
-            if let batchStarted {
-                try await Task.sleep(for: max(.milliseconds(5), batchStarted.duration(to: .now) * 3))
-            }
-            while await isPaused() {
-                try await Task.sleep(for: .seconds(1))
-            }
-            batchStarted = .now
-            processed = 0
-        }
-        processed += 1
-    }
-}
-
 @MainActor
 private enum SourceCacheReclamationQueue {
     private static var tail: Task<Void, Never>?
@@ -11898,13 +11869,14 @@ final class SourceManager {
         let legacyWebDAVRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_webdav_cache")
         let removedAt = Date()
+        let retainingSongs = songsProvider()
         SourceCacheReclamationQueue.enqueue { [songs, legacyWebDAVRoot] in
             await Self.removeLegacyWebDAVCaches(for: songs, root: legacyWebDAVRoot)
         }
-        SourceCacheReclamationQueue.enqueue { [songIDs, removedAt] in
+        SourceCacheReclamationQueue.enqueue { [songs, songIDs, retainingSongs, removedAt] in
             guard !Task.isCancelled else { return }
-            await MetadataAssetStore.shared.invalidateCaches(
-                forSongIDs: Array(songIDs), lastWrittenBefore: removedAt
+            await MetadataAssetStore.shared.invalidateRemovedSongCaches(
+                songs: songs, songIDs: songIDs, retainingSongs: retainingSongs, lastWrittenBefore: removedAt
             )
         }
     }
@@ -12040,9 +12012,11 @@ final class SourceManager {
     /// 清理孤立缓存都走这里。
     func deleteSourceCaches(sourceIDs: Set<String>) {
         guard !sourceIDs.isEmpty else { return }
+        let removedAt = Date()
         for sourceID in sourceIDs {
             resolvedLegacyAudioCacheNames[sourceID] = nil
             forgetLegacyAudioCacheLookups(sourceID: sourceID)
+            MetadataAssetStore.shared.revalidateArtwork(sourceID: sourceID)
         }
         preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
             !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
@@ -12084,6 +12058,12 @@ final class SourceManager {
         }
         SourceCacheReclamationQueue.enqueue { [stagedPaths] in
             await Self.deleteStagedCacheDirectories(stagedPaths)
+        }
+        let retainingSongs = songsProvider()
+        SourceCacheReclamationQueue.enqueue { [sourceIDs, retainingSongs, removedAt] in
+            await MetadataAssetStore.shared.invalidateSourceArtworkCaches(
+                forSourceIDs: sourceIDs, retainingSongs: retainingSongs, lastWrittenBefore: removedAt
+            )
         }
     }
 
