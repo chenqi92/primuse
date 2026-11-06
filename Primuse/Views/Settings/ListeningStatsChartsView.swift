@@ -10,8 +10,6 @@ import Charts
 /// - Top 排行 (歌曲 / 艺术家 / 专辑 三个 tab)
 /// - 服务器源（Navidrome、Emby……）自己记下的播放，在数据来源里切换
 ///
-/// 10-04 曾被年度报告整页取代，10-09 起两种样式并存，在「设置 › 资料库」里选
-/// （`ListeningStatsStyle`）。
 struct ListeningStatsChartsView: View {
     private let usesInlineSourcePicker: Bool
     @Environment(SourcesStore.self) private var sourcesStore

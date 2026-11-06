@@ -1152,7 +1152,7 @@ private struct MacRecommendationsPanel: View {
     }
 }
 
-/// 听歌统计弹框: 年度报告或数据图表, 和原来的整页同一套, 算好的结果跟着主窗口留着。
+/// 听歌统计弹框和整页共用内容，算好的结果跟着主窗口留着。
 private struct MacListeningStatsSheet: View {
     let model: ListeningStatsScreen.Model
     @Environment(\.dismiss) private var dismiss
@@ -1164,6 +1164,8 @@ private struct MacListeningStatsSheet: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
+                ListeningStatsStyleMenu()
+                    .fixedSize()
                 PMRoundBtn(icon: "xmark", size: 26, iconSize: 10, style: .glass, help: "close") {
                     dismiss()
                 }
@@ -1174,7 +1176,7 @@ private struct MacListeningStatsSheet: View {
             Rectangle()
                 .fill(PMColor.divider)
                 .frame(height: 0.5)
-            ListeningStatsScreen(model: model)
+            ListeningStatsScreen(model: model, showsStylePicker: false)
         }
         .frame(minWidth: 760, idealWidth: 860, maxWidth: 1000, minHeight: 560, idealHeight: 860)
         .background(PMColor.bg)

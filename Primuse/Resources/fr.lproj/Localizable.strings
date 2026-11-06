@@ -7280,3 +7280,6 @@
 "lyric_alignment_duration_error" = "Morceaux de 10 minutes maximum, ou 5 minutes sans minutage des lignes.";
 "lyric_alignment_lyrics_error" = "Utilisez des paroles à une seule voix sans chevauchement des lignes, ou du texte brut.";
 "lyric_alignment_quota_error" = "Aucun quota d’alignement disponible. Vérifiez votre forfait IA et le quota restant.";
+
+"stats_style_history" = "Historique d’écoute";
+"stats_history_listened_format" = "Écouté %@";

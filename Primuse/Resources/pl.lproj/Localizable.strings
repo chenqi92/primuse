@@ -7186,3 +7186,6 @@
 "lyric_alignment_duration_error" = "Utwory do 10 minut lub do 5 minut bez czasów wierszy.";
 "lyric_alignment_lyrics_error" = "Użyj tekstu jednego głosu bez nakładających się czasów wierszy lub zwykłego tekstu.";
 "lyric_alignment_quota_error" = "Brak limitu dopasowania tekstu. Sprawdź plan AI i pozostały limit.";
+
+"stats_style_history" = "Historia odtwarzania";
+"stats_history_listened_format" = "Odsłuchano %@";

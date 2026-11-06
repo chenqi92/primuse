@@ -7041,3 +7041,6 @@
 "lyric_alignment_duration_error" = "Supports songs up to 10 minutes, or 5 minutes without line timing.";
 "lyric_alignment_lyrics_error" = "Use a single vocal part with non-overlapping line timing, or plain lyrics.";
 "lyric_alignment_quota_error" = "No lyric alignment allowance is available. Check your AI plan and remaining usage.";
+
+"stats_style_history" = "Playback History";
+"stats_history_listened_format" = "Listened %@";

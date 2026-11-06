@@ -1,11 +1,10 @@
 import SwiftUI
 import PrimuseKit
 
-/// 听歌统计的两种样子，在「设置 › 资料库」里选。年度报告是默认的；喜欢看数字和图表的人
-/// 可以换回按周、月、年看的数据图表。
 enum ListeningStatsStyle: String, CaseIterable, Identifiable, Sendable {
     case report
     case charts
+    case history
 
     static let storageKey = "primuse.stats.style.v1"
 
@@ -15,32 +14,89 @@ enum ListeningStatsStyle: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .report: String(localized: "stats_style_report")
         case .charts: String(localized: "stats_style_charts")
+        case .history: String(localized: "stats_style_history")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .report: "book.closed"
+        case .charts: "chart.bar.xaxis"
+        case .history: "clock.arrow.circlepath"
         }
     }
 }
 
-/// 听歌统计的入口（资料库、首页、侧栏）：按设置显示年度报告或数据图表。
+struct ListeningStatsStyleMenu: View {
+    @AppStorage(ListeningStatsStyle.storageKey) private var style = ListeningStatsStyle.report
+
+    var body: some View {
+        Menu {
+            Picker("stats_style_title", selection: $style) {
+                ForEach(ListeningStatsStyle.allCases) { option in
+                    Label(option.title, systemImage: option.systemImage).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label(style.title, systemImage: style.systemImage)
+        }
+        .accessibilityLabel("stats_style_title")
+        .accessibilityValue(style.title)
+        .accessibilityIdentifier("statistics.viewStyle")
+    }
+}
+
 struct ListeningStatsScreen: View {
     @AppStorage(ListeningStatsStyle.storageKey) private var style = ListeningStatsStyle.report
     @State private var model: Model
     private let initialRange: PlayHistoryStore.Range?
     private let initiallyShowsLocalHistory: Bool
-    private let usesInlineSourcePicker: Bool
+    private let showsStylePicker: Bool
 
-    /// 后三个参数只给数据图表用。
     init(
         model: Model = Model(),
         initialRange: PlayHistoryStore.Range? = nil,
         initiallyShowsLocalHistory: Bool = false,
-        usesInlineSourcePicker: Bool = false
+        showsStylePicker: Bool = true
     ) {
         _model = State(initialValue: model)
         self.initialRange = initialRange
         self.initiallyShowsLocalHistory = initiallyShowsLocalHistory
-        self.usesInlineSourcePicker = usesInlineSourcePicker
+        self.showsStylePicker = showsStylePicker
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            #if os(macOS)
+            if showsStylePicker {
+                HStack {
+                    Spacer()
+                    ListeningStatsStyleMenu()
+                        .fixedSize()
+                }
+                .padding(.horizontal, 20)
+                .frame(minHeight: 48)
+                Divider()
+            }
+            #endif
+            selectedContent
+        }
+        .navigationTitle("stats_title")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if showsStylePicker {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ListeningStatsStyleMenu()
+                }
+            }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var selectedContent: some View {
         switch style {
         case .report:
             ListeningStatsView(model: model.report)
@@ -49,23 +105,26 @@ struct ListeningStatsScreen: View {
             ListeningStatsChartsView(
                 initialRange: initialRange,
                 initiallyShowsLocalHistory: initiallyShowsLocalHistory,
-                usesInlineSourcePicker: usesInlineSourcePicker,
+                usesInlineSourcePicker: false,
                 model: model.charts
             )
             #else
             ListeningStatsChartsView(
                 initialRange: initialRange,
                 initiallyShowsLocalHistory: initiallyShowsLocalHistory,
-                usesInlineSourcePicker: usesInlineSourcePicker
+                usesInlineSourcePicker: true
             )
             #endif
+        case .history:
+            ListeningHistoryView(model: model.history)
         }
     }
 
-    /// 两种样式各自算好的结果。Mac 把它放在页面外面，切走再回来不用重算。
+    /// Mac 把它放在页面外面，切走再回来不用重算。
     @MainActor
     final class Model {
         let report = ListeningStatsView.Model()
+        let history = ListeningHistoryView.Model()
         #if os(macOS)
         let charts = ListeningStatsChartsView.Model()
         #endif

@@ -7373,3 +7373,6 @@
 "lyric_alignment_duration_error" = "支持最长 10 分钟的歌曲；没有逐行时间时最长 5 分钟。";
 "lyric_alignment_lyrics_error" = "请使用单声部、行时间不重叠的歌词，或纯文本歌词。";
 "lyric_alignment_quota_error" = "当前没有可用的歌词对齐额度，请检查 AI 套餐和剩余额度。";
+
+"stats_style_history" = "播放历史";
+"stats_history_listened_format" = "已听 %@";

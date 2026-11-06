@@ -7280,3 +7280,6 @@
 "lyric_alignment_duration_error" = "최대 10분 곡을 지원하며, 줄 타이밍이 없으면 최대 5분입니다.";
 "lyric_alignment_lyrics_error" = "시간이 겹치지 않는 단일 보컬 파트 가사 또는 일반 텍스트를 사용하세요.";
 "lyric_alignment_quota_error" = "가사 정렬 사용량이 없습니다. AI 요금제와 남은 사용량을 확인하세요.";
+
+"stats_style_history" = "재생 기록";
+"stats_history_listened_format" = "%@ 감상";

@@ -7186,3 +7186,6 @@
 "lyric_alignment_duration_error" = "รองรับเพลงยาวสูงสุด 10 นาที หรือ 5 นาทีหากไม่มีเวลารายบรรทัด";
 "lyric_alignment_lyrics_error" = "ใช้เนื้อเพลงเสียงร้องเดียวที่เวลาแต่ละบรรทัดไม่ทับซ้อนกัน หรือข้อความธรรมดา";
 "lyric_alignment_quota_error" = "ไม่มีโควตาจัดแนวเนื้อเพลง โปรดตรวจสอบแผน AI และโควตาที่เหลือ";
+
+"stats_style_history" = "ประวัติการเล่น";
+"stats_history_listened_format" = "ฟังแล้ว %@";

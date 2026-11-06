@@ -936,7 +936,6 @@ private struct LibraryDisplaySettingsView: View {
     @AppStorage(ArtistAppearancePreferences.softensEdgesKey)
     private var artistSoftensEdges = ArtistAppearancePreferences.defaultSoftensEdges
     #endif
-    @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
@@ -1084,20 +1083,6 @@ private struct LibraryDisplaySettingsView: View {
                     )
                 }
                 .settingsAnchor("library.restoreOrder")
-            }
-
-            Section {
-                Picker(selection: $listeningStatsStyle) {
-                    ForEach(ListeningStatsStyle.allCases) { style in
-                        Text(verbatim: style.title).tag(style)
-                    }
-                } label: {
-                    SettingsInfoLabel("stats_style_title") {
-                        Text("stats_style_footer")
-                    }
-                }
-                .pickerStyle(.menu)
-                .settingsAnchor("library.statisticsStyle")
             }
 
             Section {

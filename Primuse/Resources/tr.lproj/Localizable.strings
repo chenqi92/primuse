@@ -7186,3 +7186,6 @@
 "lyric_alignment_duration_error" = "En fazla 10 dakikalık şarkılar; satır zamanları yoksa en fazla 5 dakika desteklenir.";
 "lyric_alignment_lyrics_error" = "Çakışmayan satır zamanlarıyla tek vokal partisi veya düz metin kullanın.";
 "lyric_alignment_quota_error" = "Şarkı sözü hizalama kotası yok. AI planınızı ve kalan kotanızı kontrol edin.";
+
+"stats_style_history" = "Dinleme geçmişi";
+"stats_history_listened_format" = "%@ dinlendi";

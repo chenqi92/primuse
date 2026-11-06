@@ -7186,3 +7186,6 @@
 "lyric_alignment_duration_error" = "يدعم أغاني حتى 10 دقائق، أو 5 دقائق دون توقيت للأسطر.";
 "lyric_alignment_lyrics_error" = "استخدم كلمات لصوت واحد دون تداخل توقيت الأسطر، أو نصًا عاديًا.";
 "lyric_alignment_quota_error" = "لا يوجد رصيد متاح لمحاذاة الكلمات. تحقق من خطة الذكاء الاصطناعي والرصيد المتبقي.";
+
+"stats_style_history" = "سجل الاستماع";
+"stats_history_listened_format" = "تم الاستماع لمدة %@";

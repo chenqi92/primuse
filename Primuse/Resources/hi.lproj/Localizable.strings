@@ -7186,3 +7186,6 @@
 "lyric_alignment_duration_error" = "अधिकतम 10 मिनट के गाने; पंक्ति का समय न हो तो अधिकतम 5 मिनट।";
 "lyric_alignment_lyrics_error" = "एकल गायन के ऐसे बोल इस्तेमाल करें जिनकी पंक्तियों का समय न टकराए, या सादा टेक्स्ट दें।";
 "lyric_alignment_quota_error" = "बोल का समय मिलाने का कोटा उपलब्ध नहीं है। अपना AI प्लान और बाकी कोटा देखें।";
+
+"stats_style_history" = "सुनने का इतिहास";
+"stats_history_listened_format" = "%@ सुना";

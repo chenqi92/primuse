@@ -7280,3 +7280,6 @@
 "lyric_alignment_duration_error" = "Unterstützt Titel bis 10 Minuten; ohne Zeilenzeiten bis 5 Minuten.";
 "lyric_alignment_lyrics_error" = "Einstimmigen Liedtext mit nicht überlappenden Zeilenzeiten oder einfachen Text verwenden.";
 "lyric_alignment_quota_error" = "Kein Kontingent für die Liedtextausrichtung verfügbar. KI-Tarif und verbleibendes Kontingent prüfen.";
+
+"stats_style_history" = "Wiedergabeverlauf";
+"stats_history_listened_format" = "%@ gehört";

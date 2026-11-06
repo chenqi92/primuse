@@ -225,7 +225,6 @@ enum SettingsCatalogData {
         SettingDefinition(id: "library.show.favorites", titleKey: "library_quick_access", iosPage: .libraryDisplay, macPage: nil),
         SettingDefinition(id: "library.show.folders", titleKey: "library_browse_folder", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.statistics", titleKey: "stats_title", iosPage: .libraryDisplay, macPage: nil),
-        SettingDefinition(id: "library.statisticsStyle", titleKey: "stats_style_title", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["stats_title", "stats_style_report", "stats_style_charts", "yearly_report_title", "chart", "图表", "日历"]),
         SettingDefinition(id: "artists.separators", titleKey: "artist_name_settings_separators", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_separator_placeholder", "add"]),
         SettingDefinition(id: "artists.protectedNames", titleKey: "artist_name_settings_protected_names", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_protected_placeholder", "add"]),
         SettingDefinition(id: "artists.displaySeparator", titleKey: "artist_name_settings_display_separator", iosPage: .artists, macPage: .artists, keywords: ["artist_name_settings_display_separator_placeholder", "save"]),

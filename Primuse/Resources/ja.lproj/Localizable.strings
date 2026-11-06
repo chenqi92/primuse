@@ -7281,3 +7281,6 @@
 "lyric_alignment_duration_error" = "最大 10 分の曲に対応します。行のタイミングがない場合は最大 5 分です。";
 "lyric_alignment_lyrics_error" = "時間が重ならない単一パートの歌詞、またはプレーンテキストを使用してください。";
 "lyric_alignment_quota_error" = "歌詞同期の利用枠がありません。AI プランと残りの利用枠を確認してください。";
+
+"stats_style_history" = "再生履歴";
+"stats_history_listened_format" = "%@ 再生";

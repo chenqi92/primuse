@@ -7186,3 +7186,6 @@
 "lyric_alignment_duration_error" = "Músicas de até 10 minutos, ou 5 minutos sem tempos por linha.";
 "lyric_alignment_lyrics_error" = "Use uma única voz sem sobreposição dos tempos de linha, ou texto simples.";
 "lyric_alignment_quota_error" = "Não há cota de alinhamento disponível. Verifique seu plano de IA e o saldo restante.";
+
+"stats_style_history" = "Histórico de reprodução";
+"stats_history_listened_format" = "Ouvido %@";

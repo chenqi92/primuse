@@ -7186,3 +7186,6 @@
 "lyric_alignment_duration_error" = "Песни до 10 минут, без тайминга строк — до 5 минут.";
 "lyric_alignment_lyrics_error" = "Используйте текст одной вокальной партии без перекрытия строк или обычный текст.";
 "lyric_alignment_quota_error" = "Нет доступного лимита выравнивания. Проверьте тариф ИИ и остаток лимита.";
+
+"stats_style_history" = "История прослушиваний";
+"stats_history_listened_format" = "Прослушано %@";

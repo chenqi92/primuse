@@ -7417,7 +7417,6 @@ private struct MacSTThemeView: View {
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     @AppStorage(LibraryRowNumberPreferences.storageKey)
     private var showsRowNumbers = LibraryRowNumberPreferences.defaultValue
-    @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(WidgetColorStyle.storageKey) private var widgetColorStyle = WidgetColorStyle.defaultValue
     @State private var preferences = MacUIPreferences.shared
     @State private var iconForFinderSetup: MacAppIcon?
@@ -8186,17 +8185,6 @@ private struct MacSTThemeView: View {
                     .accessibilityHint(Text("library_quick_access_cover_description"))
                 }
                 .settingsAnchor("library.quickAccessCoverStyle")
-                MacSTRow(
-                    String(localized: "stats_style_title"),
-                    hint: String(localized: "stats_style_footer"),
-                    hintLineLimit: 3
-                ) {
-                    MacSTPicker(
-                        selection: $listeningStatsStyle,
-                        options: ListeningStatsStyle.allCases.map { ($0, $0.title) }
-                    )
-                }
-                .settingsAnchor("library.statisticsStyle")
                 MacSTRow(
                     String(localized: "library_default_flat_view")
                 ) {
