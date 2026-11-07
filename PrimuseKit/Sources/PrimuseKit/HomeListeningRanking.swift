@@ -535,7 +535,7 @@ public enum ListeningSongIdentity {
         guard !events.isEmpty else { return [:] }
         var latest: [String: HomeListeningEvent] = [:]
         for event in events where songs[event.songID] == nil {
-            if let known = latest[event.songID], known.playedAt >= event.playedAt { continue }
+            if let known = latest[event.songID], known.playedAt.timeIntervalSinceReferenceDate >= event.playedAt.timeIntervalSinceReferenceDate { continue }
             latest[event.songID] = event
         }
         let keys = latest.mapValues { event in
