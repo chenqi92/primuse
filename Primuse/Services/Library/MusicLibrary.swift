@@ -12219,21 +12219,23 @@ final class MusicLibrary {
         func resolvedSlots(_ ids: [String]) -> [String] {
             ids.map { replacements[$0] ?? $0 }
         }
-        let baseSongIDs = resolvedSlots(baseSongIDs)
+        // 冲突回调可能带着上传开始时的旧曲目表，期间本机新做的置顶、增删仍以当前库为准。
+        let baseSongIDs = resolvedSlots(previousSongIDs ?? baseSongIDs)
         // `baseSongIDs` 是本机现在的曲目表。有上次同步的基线就做三方合并: 基线里有而
         // 一边没有的, 是那一边删掉的, 不能再从另一边并回来; 没有基线(旧快照)才退化
         // 成并集 —— 那种情况下一台删歌、另一台同时改, 被删的歌会回来。
+        let orderedCandidates = localWon ? baseSongIDs + resolved : resolved + baseSongIDs
         var seen = Set<String>()
         let merged: [String]
         if let syncBase = playlistSyncBaseSongIDs[playlist.id] {
             let syncBase = resolvedSlots(syncBase)
             let removedLocally = Set(syncBase).subtracting(baseSongIDs)
             let removedRemotely = Set(syncBase).subtracting(resolved)
-            merged = (baseSongIDs + resolved).filter {
+            merged = orderedCandidates.filter {
                 !removedLocally.contains($0) && !removedRemotely.contains($0) && seen.insert($0).inserted
             }
         } else {
-            merged = (baseSongIDs + resolved).filter { seen.insert($0).inserted }
+            merged = orderedCandidates.filter { seen.insert($0).inserted }
         }
         playlistSongIDs[reconciled.id] = merged
         updatePendingPlaylistIdentities(playlistID: reconciled.id, with: unresolved)
@@ -12242,11 +12244,10 @@ final class MusicLibrary {
             pendingPlaylistIdentities[reconciled.id] = nil
             playlistSyncBaseSongIDs[reconciled.id] = nil
         } else if !localWon,
-                  !Set(merged).isSubset(of: Set(resolved)),
+                  merged != resolved,
                   let index = allPlaylists.firstIndex(where: { $0.id == reconciled.id }) {
-            // 远端版本赢了元数据, 但本机独有的曲目并了进去: 推上去的必须是一个
-            // 更新的版本。否则别的设备按「同一版本」跳过, 这些曲目在它们那里永远
-            // 不出现, 而它们下一次编辑又会把这份并集整个覆盖掉。
+            // 合并了本机增删后不再是远端原来的曲目表，必须提升版本，避免其它设备
+            // 按「同一版本」跳过合并结果，或再次拉取时把已删的成员带回来。
             allPlaylists[index].syncRevision = max(0, playlist.syncRevision) + 1
             allPlaylists[index].syncWriterID = playlistSyncWriterID
             allPlaylists[index].syncOperationID = UUID().uuidString
