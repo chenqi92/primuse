@@ -1503,7 +1503,7 @@ struct NowPlayingView: View {
     /// 按住文字稿键打开了全屏文稿:松手时按钮自己的点按也会到,那一下不再切换文字稿。
     /// 文稿关掉时清掉,点按没到(触摸被弹出的全屏打断)也不会吃掉下一次正常的点按。
     @State private var transcriptKeyHeld = false
-    /// 下拉收起手势的起点、方向与最近一次动静的时刻，见 `returnToArtworkFromLyricsHeader()`。
+    /// 下拉收起手势的起点与方向。
     /// 普通引用：拖动时每一帧都写，不能引起重绘。
     @State private var minimizeDragActivity = NowPlayingMinimizeDragActivity()
     @State private var ownSurfaceMotion = NowPlayingSurfaceMotion()
@@ -2314,14 +2314,7 @@ struct NowPlayingView: View {
         setStandardLyricsVisible(!showLyrics)
     }
 
-    /// 歌词顶上那一行(小封面与歌名)是回封面的按钮，又正好在下拉收起的起手区里。整页跟着
-    /// 手指走，松手时触点还在按钮上，按钮照样触发：收起或弹回的同时封面又放大回来。
-    /// 拖过就不算点。按钮和拖动谁先收到松手不确定，所以拖动的每一下和松手都记时间；
-    /// 拖着停住再松手时按钮可能先到，那时拖动还没结束，也挡。
     private func returnToArtworkFromLyricsHeader() {
-        let sinceDrag = Date().timeIntervalSince(minimizeDragActivity.lastEventAt)
-        let isDragging = minimizeDragActivity.startLocation != nil && sinceDrag < 3
-        guard sinceDrag > 0.35, !isDragging else { return }
         setStandardLyricsVisible(false)
     }
 
@@ -3276,10 +3269,9 @@ struct NowPlayingView: View {
     ) -> some Gesture {
         // The player moves with this gesture, so a local coordinate space would
         // also move under the finger and feed the offset back into translation.
-        DragGesture(minimumDistance: 12, coordinateSpace: .global)
+        DragGesture(minimumDistance: NowPlayingHeaderDragCancellation.minimumDistance, coordinateSpace: .global)
             .onChanged { value in
                 let activity = minimizeDragActivity
-                activity.lastEventAt = Date()
                 let isRTL = layoutDirection == .rightToLeft
                 if activity.startLocation != value.startLocation {
                     activity.startLocation = value.startLocation
@@ -3320,7 +3312,6 @@ struct NowPlayingView: View {
                 let axis = activity.axis
                 activity.axis = nil
                 activity.startLocation = nil
-                activity.lastEventAt = Date()
                 if surfaceMotion.isDragging { surfaceMotion.isDragging = false }
                 guard let axis else { return }
 
@@ -5696,6 +5687,7 @@ struct NowPlayingView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .modifier(NowPlayingHeaderDragCancellation())
         .accessibilityLabel(Text("a11y_close_lyrics"))
     }
 
@@ -6264,6 +6256,7 @@ struct NowPlayingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: diameter)
+        .modifier(NowPlayingHeaderDragCancellation())
     }
 
     /// AirPlay 用系统的 `AVRoutePickerView`，套进与相邻圆钮同一套玻璃圆底里，
@@ -6542,6 +6535,7 @@ struct NowPlayingView: View {
 
                     immersiveMoreMenu(offersArtworkToggle: false)
                 }
+                .modifier(NowPlayingHeaderDragCancellation())
                 .padding(.leading, max(safeInsets.leading, 18))
                 .padding(.trailing, max(safeInsets.trailing, 18))
                 .padding(.top, max(safeInsets.top, 10))
@@ -6732,6 +6726,7 @@ struct NowPlayingView: View {
                             .overlay(alignment: .trailing) {
                                 if showsPortraitOrientationButton(usesToolColumn: usesToolColumn) {
                                     playerOrientationButton(diameter: 30)
+                                        .modifier(NowPlayingHeaderDragCancellation())
                                         .padding(.trailing, 18 + insets.rows)
                                 }
                             }
@@ -6827,6 +6822,7 @@ struct NowPlayingView: View {
                                 }
                             }
                             }
+                            .modifier(NowPlayingHeaderDragCancellation())
                             .padding(.horizontal, 20).padding(.bottom, 6)
                             .padding(.leading, insets.lyricsLeading)
                             .padding(.trailing, insets.lyricsTrailing)
@@ -7528,6 +7524,7 @@ struct NowPlayingView: View {
             .accessibilityLabel(Text("a11y_close_lyrics"))
             transcriptReaderButton
         }
+        .modifier(NowPlayingHeaderDragCancellation())
     }
 
     /// 快退 · 播放 · 快进。播放键是实心圆:墨黑橙红、暖白近黑,三角取底色。
@@ -7969,6 +7966,7 @@ struct NowPlayingView: View {
                         dismissImmersiveLyrics()
                     }
                 }
+                .modifier(NowPlayingHeaderDragCancellation())
                 .padding(.leading, topRowLeadingInset + (isLandscape ? 24 : 20))
                 .padding(.trailing, topRowTrailingInset + (isLandscape ? 24 : 20))
                 .padding(.top, max(topSafeArea, 10) + (isLandscape ? 0 : 8))
@@ -17408,10 +17406,21 @@ extension MusicLibrary {
 
 // MARK: - 下拉收起与顶栏按钮
 
-/// 播放页下拉收起手势的起点、认出的方向与最近一次动静的时刻。不可观察：拖动时每一帧都写。
+/// 顶栏跟着整页移动，松手仍可能落在原按钮里。拖动先取消子控件的点击，
+/// 外层的 simultaneousGesture 继续收起页面；不延迟下一次独立点按。
+private struct NowPlayingHeaderDragCancellation: ViewModifier {
+    static let minimumDistance: CGFloat = 12
+
+    func body(content: Content) -> some View {
+        content.highPriorityGesture(
+            DragGesture(minimumDistance: Self.minimumDistance, coordinateSpace: .global)
+        )
+    }
+}
+
+/// 播放页下拉收起手势的起点与认出的方向。不可观察：拖动时每一帧都写。
 @MainActor
 private final class NowPlayingMinimizeDragActivity {
-    var lastEventAt = Date.distantPast
     var startLocation: CGPoint?
     var axis: NowPlayingDismissGesturePolicy.Axis?
 }
