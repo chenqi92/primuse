@@ -1454,6 +1454,8 @@ struct NowPlayingView: View {
     private var artworkLyricsLinesRawValue = NowPlayingArtworkLyricsLines.one.rawValue
     @AppStorage(PlayerAppearancePreferences.artworkStyleKey)
     private var artworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
+    @AppStorage(PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
+    private var tapArtworkOpensLyrics = PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.podcastArtworkStyleKey)
     private var podcastArtworkStyleRawValue = NowPlayingArtworkStyle.card.rawValue
     @AppStorage(PlayerAppearancePreferences.radioArtworkStyleKey)
@@ -2352,9 +2354,7 @@ struct NowPlayingView: View {
     /// 点大封面切到歌词。有声内容同样切到文字稿那一页,有没有文字稿都一样:没有时那一页写明没有、
     /// 能生成就给生成,生成中显示进度(`SpokenTranscriptEmptyState`)。
     private func openTextFromArtwork() {
-        // 设置里关了「点封面切到歌词」(#348):误碰封面不再换页,只有歌词键切换。点按那一刻才读。
-        guard UserDefaults.standard.object(forKey: PlayerAppearancePreferences.tapArtworkOpensLyricsKey) as? Bool
-            ?? PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault else { return }
+        guard tapArtworkOpensLyrics else { return }
         if usesSpokenWordTransport, isPlayerSplit {
             showSpokenWordTextPane()
             return
@@ -8834,7 +8834,10 @@ struct NowPlayingView: View {
         let menuFallback: [NowPlayingControlAction]
         let menuSuppressed: Set<NowPlayingControlAction>
         if let controlSurface, !isSpokenWord {
-            menuFallback = musicControlLayout.menuFallback(on: controlSurface)
+            menuFallback = musicControlLayout.menuFallback(
+                on: controlSurface,
+                lyricsReachableFromArtwork: tapArtworkOpensLyrics && !player.isMusicVideoPlaybackActive
+            )
             menuSuppressed = musicControlLayout.menuSuppressed(on: controlSurface)
         } else {
             menuFallback = compactLandscapeHidesModeToggles && !isSpokenWord ? [.shuffle, .repeatMode] : []

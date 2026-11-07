@@ -204,8 +204,8 @@ actor MetadataAssetStore {
 
     // MARK: - User-selected library artwork
 
-    /// Stores the canonical JPEG once in the content-addressed pool. Album and
-    /// playlist override records retain only the returned identifier.
+    /// Stores static JPEGs or the original animation in the content-addressed pool.
+    /// The legacy .jpg suffix is an opaque storage key; ImageIO detects the format.
     func storeCustomArtwork(_ data: Data) -> String? {
         storeCustomArtworkSync(data)
     }
@@ -218,9 +218,7 @@ actor MetadataAssetStore {
         _ data: Data,
         expectedContentID: String? = nil
     ) -> String? {
-        guard !data.isEmpty,
-              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes,
-              CGImageSourceCreateWithData(data as CFData, nil) != nil else {
+        guard LibraryArtworkImageProcessor.isValidStoredArtwork(data, validateAnimation: true) else {
             return nil
         }
         let contentID = Self.sha256Hex(data)
@@ -245,9 +243,7 @@ actor MetadataAssetStore {
         guard LibraryArtworkContentIDPolicy.isValid(contentID) else { return nil }
         let contentURL = customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg")
         guard let data = try? Data(contentsOf: contentURL),
-              !data.isEmpty,
-              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes,
-              CGImageSourceCreateWithData(data as CFData, nil) != nil else {
+              LibraryArtworkImageProcessor.isValidStoredArtwork(data) else {
             return nil
         }
         return data
@@ -1887,6 +1883,35 @@ enum LibraryArtworkImageProcessor {
     private static let maximumInputBytes = 32 * 1024 * 1024
     private static let targetLongSides = [1200, 1024, 896, 768, 640]
     private static let qualities: [Double] = [0.86, 0.78, 0.70, 0.62, 0.54, 0.46]
+
+    nonisolated static func isValidStoredArtwork(_ data: Data, validateAnimation: Bool = false) -> Bool {
+        guard !data.isEmpty,
+              data.count <= LibraryArtworkContentIDPolicy.maximumAnimatedArtworkBytes,
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        let animated = CGImageSourceGetCount(source) > 1
+            && CGImageSourceGetType(source).map { [UTType.gif.identifier, UTType.png.identifier, UTType.webP.identifier].contains($0 as String) } == true
+        if animated {
+            return !validateAnimation || ArtworkImageCompatibility.inspect(data)?.isAnimated == true
+        }
+        return data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes
+    }
+
+    /// User uploads retain animation frames and timing. Portable song/tag covers
+    /// continue to use process(_:) for a bounded, broadly compatible still image.
+    nonisolated static func processUpload(_ data: Data) -> Data? {
+        guard !data.isEmpty, data.count <= maximumInputBytes,
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        if CGImageSourceGetType(source) == UTType.gif.identifier as CFString,
+           !ArtworkImageCompatibility.isCompleteImage(data) { return nil }
+        if CGImageSourceGetCount(source) > 1,
+           let type = CGImageSourceGetType(source),
+           [UTType.gif.identifier, UTType.png.identifier, UTType.webP.identifier].contains(type as String) {
+            guard data.count <= LibraryArtworkContentIDPolicy.maximumAnimatedArtworkBytes,
+                  ArtworkImageCompatibility.inspect(data)?.isAnimated == true else { return nil }
+            return data
+        }
+        return process(data)
+    }
 
     /// Inspect the encoded header only. Library caches commonly already hold
     /// a bounded JPEG, so decoding and recompressing it adds no transport value.

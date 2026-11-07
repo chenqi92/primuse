@@ -6311,7 +6311,7 @@
 "player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
 "player_menu_items_title" = "Menü „Mehr“";
 "player_menu_items_hidden_count %lld" = "%lld ausgeblendet";
-"player_menu_items_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“ des Players. Tasten auf der Seite werden im Menü ohnehin nicht wiederholt, und Liedtext, Warteliste, Zufall und Wiederholen landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
+"player_menu_items_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“ des Players. Tasten auf der Seite werden im Menü nicht wiederholt. Liedtext, Warteliste, Zufall und Wiederholen werden ergänzt, wenn sie auf der Seite nicht anders erreichbar sind.";
 "player_menu_items_show_all" = "Alle anzeigen";
 "player_menu_group_quick" = "Obere Reihe";
 "player_menu_group_modes" = "Modi";

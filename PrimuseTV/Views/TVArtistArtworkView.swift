@@ -6,6 +6,7 @@ struct TVArtistArtworkView: View {
     @Environment(TVStore.self) private var store
     let artist: TVArtist
     let size: CGFloat
+    var presentationRole: ArtworkPresentationRole = .staticFirstFrame
     @State private var image: UIImage?
     @State private var cacheRevision = 0
 
@@ -31,7 +32,12 @@ struct TVArtistArtworkView: View {
         ZStack {
             TVCoverArt(tint: artist.tint, tint2: artist.tint2, glyph: artist.glyph, size: size, radius: size / 2)
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                UploadedArtworkAnimation(
+                    contentID: store.library.artworkPresentation(for: .init(kind: .artist, id: artist.id)).uploadedContentID,
+                    presentationRole: presentationRole
+                ) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
                     .frame(width: size, height: size)
             }
         }

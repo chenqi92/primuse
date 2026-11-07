@@ -722,8 +722,12 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     }
 
     /// 页面上点不到、要补进「更多」的,按目录顺序。
-    public func menuFallback(on surface: NowPlayingControlSurface) -> [NowPlayingControlAction] {
-        let reachable = visibleActions(on: surface).union(surface.alwaysReachable)
+    public func menuFallback(
+        on surface: NowPlayingControlSurface,
+        lyricsReachableFromArtwork: Bool = false
+    ) -> [NowPlayingControlAction] {
+        var reachable = visibleActions(on: surface).union(surface.alwaysReachable)
+        if lyricsReachableFromArtwork { reachable.insert(.lyrics) }
         return NowPlayingControlAction.allCases.filter {
             $0.needsMenuFallback && !reachable.contains($0) && ($0 != .like || showsMenuItem(.like))
         }

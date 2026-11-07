@@ -1283,7 +1283,7 @@ struct TVArtistDetailView: View {
             TVColor.bg.opacity(0.34).ignoresSafeArea()
             HStack(alignment: .top, spacing: 72) {
                 VStack(alignment: .leading, spacing: 24) {
-                    TVArtistArtworkView(artist: artist, size: 280)
+                    TVArtistArtworkView(artist: artist, size: 280, presentationRole: .animatedHero)
                     Text(artist.name)
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
@@ -1742,7 +1742,7 @@ struct TVAlbumDetailView: View {
     private func leftColumn(album: TVAlbum, songs: [TVSong], songIDs: [String], hasEditedSongs: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             TVAlbumCaseArtwork(album: album, size: Self.coverSize, spinning: isPlayingThisAlbum, discFace: discFace) {
-                TVArtworkView(album: album, size: Self.coverSize, radius: 14)
+                TVArtworkView(album: album, size: Self.coverSize, radius: 14, presentationRole: .animatedHero)
                     .modifier(TVArtworkGentleFloat())
             }
             Text(album.title)
@@ -2583,7 +2583,7 @@ struct TVAlbumCoverPicker: View {
             store: store
         ) else { return false }
         let processed = await Task.detached(priority: .userInitiated) {
-            LibraryArtworkImageProcessor.process(data)
+            LibraryArtworkImageProcessor.processUpload(data)
         }.value
         guard let processed,
               let contentID = await MetadataAssetStore.shared.storeCustomArtwork(processed) else { return false }

@@ -14,6 +14,7 @@ struct ArtistHeroArtworkView: View {
     var allowsMetadataNetwork = false
     var metadataNetworkGeneration: UInt64 = 0
 
+    @Environment(MusicLibrary.self) private var library
     @State private var source: LoadedSource?
     @State private var prepared: PreparedField?
     @State private var unprocessedArtistID: String?
@@ -70,9 +71,12 @@ struct ArtistHeroArtworkView: View {
                     .resizable()
                     .frame(width: size.width, height: geometry.totalHeight)
 
-                Image(uiImage: prepared.source)
-                    .resizable()
-                    .scaledToFill()
+                UploadedArtworkAnimation(
+                    contentID: library.artworkPresentation(for: LibraryArtworkOwner(kind: .artist, id: artist.id)).uploadedContentID,
+                    presentationRole: .animatedHero
+                ) {
+                    Image(uiImage: prepared.source).resizable().scaledToFill()
+                }
                     .frame(width: size.width, height: photoHeight)
                     .clipped()
                     .mask {

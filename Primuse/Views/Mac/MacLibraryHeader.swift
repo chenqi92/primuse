@@ -260,7 +260,8 @@ struct MacLibraryHeader: View {
                 playlist: playlist,
                 size: 160,
                 cornerRadius: PMRadius.l,
-                placeholderIcon: iconSystemName
+                placeholderIcon: iconSystemName,
+                presentationRole: .animatedHero
             )
             .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         } else if let album = coverAlbum {
@@ -275,7 +276,8 @@ struct MacLibraryHeader: View {
             ArtistArtworkView(
                 artist: artist,
                 size: coverSide,
-                cornerRadius: coverSide / 2
+                cornerRadius: coverSide / 2,
+                presentationRole: .animatedHero
             )
             .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         } else if let song = coverSong {

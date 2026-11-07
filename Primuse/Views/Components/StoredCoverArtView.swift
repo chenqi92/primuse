@@ -1,6 +1,7 @@
 import SwiftUI
 import MusicKit
 import PrimuseKit
+import ImageIO
 #if os(iOS)
 import PhotosUI
 #endif
@@ -187,13 +188,25 @@ enum UploadedArtworkLoader {
             apply(nil)
             return
         }
-        let data = await Task.detached(priority: .utility) {
-            await readData(contentID)
+        let image = await Task.detached(priority: .utility) { () -> PlatformImage? in
+            guard let data = await readData(contentID),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let frame = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 1200,
+                    kCGImageSourceShouldCacheImmediately: true,
+                  ] as CFDictionary) else { return nil }
+            #if os(macOS)
+            return PlatformImage(cgImage: frame, size: .zero)
+            #else
+            return PlatformImage(cgImage: frame)
+            #endif
         }.value
         // Detached reads can finish after a replacement task has displayed a
         // newer cover. A cancelled task must leave that view state untouched.
         guard !Task.isCancelled else { return }
-        apply(data.flatMap { PlatformImage(data: $0) })
+        apply(image)
     }
 }
 
@@ -280,6 +293,7 @@ struct PlaylistArtworkView: View {
     var size: CGFloat = 48
     var cornerRadius: CGFloat = 8
     var placeholderIcon: String = "music.note.list"
+    var presentationRole: ArtworkPresentationRole = .staticFirstFrame
 
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
@@ -449,9 +463,9 @@ struct PlaylistArtworkView: View {
     @ViewBuilder
     private func manualArtwork(_ presentation: MusicLibrary.ArtworkPresentation) -> some View {
         if let uploadedImage, presentation.uploadedContentID != nil {
-            Image(platformImage: uploadedImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+            UploadedArtworkAnimation(contentID: presentation.uploadedContentID, presentationRole: presentationRole) {
+                Image(platformImage: uploadedImage).resizable().aspectRatio(contentMode: .fill)
+            }
                 .frame(width: size, height: size)
                 .clipped()
         } else if let song = presentation.selectedSong {
@@ -785,9 +799,12 @@ struct AlbumArtworkView: View {
             }
 
             if let uploadedImage, uploadedContentID != nil {
-                Image(platformImage: uploadedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                UploadedArtworkAnimation(
+                    contentID: uploadedContentID, presentationRole: presentationRole,
+                    isVisible: isAnimationVisible, requiresPlayback: animationRequiresPlayback, isPlaying: isPlaying
+                ) {
+                    Image(platformImage: uploadedImage).resizable().aspectRatio(contentMode: .fill)
+                }
                     .frame(width: side, height: side)
                     .clipped()
             } else if let song = selectedSong {
@@ -904,6 +921,7 @@ struct ArtistArtworkView: View {
     /// A rectangular detail hero owns its frame; size only selects the decode resolution.
     var fillsProposedSize = false
     var onImageChange: ((PlatformImage?) -> Void)? = nil
+    var presentationRole: ArtworkPresentationRole = .staticFirstFrame
 
     @Environment(MusicLibrary.self) private var library
     @State private var uploadedImage: PlatformImage?
@@ -1048,9 +1066,9 @@ struct ArtistArtworkView: View {
             )
 
             if let uploadedImage, presentation.uploadedContentID != nil {
-                Image(platformImage: uploadedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                UploadedArtworkAnimation(contentID: presentation.uploadedContentID, presentationRole: presentationRole) {
+                    Image(platformImage: uploadedImage).resizable().aspectRatio(contentMode: .fill)
+                }
                     .if(!fillsProposedSize) { $0.frame(width: side, height: side) }
                     .clipped()
                     .preference(key: ArtworkImagePreferenceKey.self, value: ArtworkImagePreference(image: uploadedImage))
@@ -1519,17 +1537,17 @@ struct LibraryArtworkEditorSheet: View {
             case .uploaded(let contentID):
                 if let image = macUploadedPreview
                     ?? MetadataAssetStore.shared.customArtworkData(contentID: contentID).flatMap(PlatformImage.init(data:)) {
-                    Image(platformImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
+                    UploadedArtworkAnimation(contentID: contentID, presentationRole: .animatedHero) {
+                        Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
+                    }
                 } else {
                     macPreviewPlaceholder
                 }
             case .pendingUpload:
                 if let image = macUploadedPreview {
-                    Image(platformImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
+                    UploadedArtworkAnimation(previewData: macPendingUploadData, presentationRole: .animatedHero) {
+                        Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
+                    }
                 } else {
                     macPreviewPlaceholder
                 }
@@ -1688,7 +1706,7 @@ struct LibraryArtworkEditorSheet: View {
             if case .uploaded = resolution { return true }
             return false
         }()
-        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+        PhotosPicker(selection: $selectedPhoto, matching: .images, preferredItemEncoding: .current) {
             HStack(spacing: 12) {
                 Image(systemName: "photo.badge.plus")
                     .frame(width: 28)
@@ -1904,7 +1922,7 @@ struct LibraryArtworkEditorSheet: View {
         errorMessage = nil
         Task {
             let processed = await Task.detached(priority: .userInitiated) {
-                LibraryArtworkImageProcessor.process(data)
+                LibraryArtworkImageProcessor.processUpload(data)
             }.value
             guard let processed else {
                 isProcessing = false

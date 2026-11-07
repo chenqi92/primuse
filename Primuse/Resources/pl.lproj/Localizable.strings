@@ -6217,7 +6217,7 @@
 "player_control_tint_footer" = "Kolor paska postępu, włączonego odtwarzania losowego i powtarzania oraz innych elementów odtwarzacza. Monochromatyczny jest biały w trybie ciemnym i czarny w jasnym, więc nie gryzie się z tłami takimi jak Płynne kolory. Układy audiobooków zachowują własne kolory.";
 "player_menu_items_title" = "Menu Więcej";
 "player_menu_items_hidden_count %lld" = "Ukryto: %lld";
-"player_menu_items_footer" = "Wyłączone pozycje nie pojawiają się już w menu Więcej odtwarzacza. Przyciski umieszczone na stronie i tak nie powtarzają się w menu, a Tekst, Kolejka, Losowo i Powtarzaj nadal trafiają do menu, gdy usuniesz je ze strony.";
+"player_menu_items_footer" = "Wyłączone pozycje nie pojawiają się w menu Więcej odtwarzacza. Przyciski na stronie nie są powtarzane w menu. Tekst, Kolejka, Losowo i Powtarzaj trafiają do menu, gdy na stronie nie ma innego sposobu, aby z nich skorzystać.";
 "player_menu_items_show_all" = "Pokaż wszystko";
 "player_menu_group_quick" = "Górny rząd";
 "player_menu_group_modes" = "Tryby";

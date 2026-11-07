@@ -389,6 +389,8 @@ public enum LibraryArtworkOverrideResolution: Equatable, Sendable {
 
 public enum LibraryArtworkContentIDPolicy {
     public static let maximumSyncedArtworkBytes = 600_000
+    public static let maximumAnimatedArtworkBytes = 16 * 1024 * 1024
+    public static let maximumArtworkEnvelopeBytes = ((maximumAnimatedArtworkBytes + 2) / 3) * 4 + 65_536
 
     public static func isValid(_ value: String) -> Bool {
         value.utf8.count == 64 && value.utf8.allSatisfy { byte in

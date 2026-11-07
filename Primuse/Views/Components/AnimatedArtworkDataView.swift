@@ -5,6 +5,82 @@ import ImageIO
 import PrimuseKit
 import SwiftUI
 
+private struct UploadedArtworkAnimationRequest: Hashable, Sendable {
+    let contentID: String?
+    let previewData: Data?
+    let enabled: Bool
+}
+
+private struct UploadedArtworkAnimationResource: Sendable {
+    let request: UploadedArtworkAnimationRequest
+    let data: Data
+    let descriptor: ArtworkDescriptor
+
+    nonisolated static func load(_ request: UploadedArtworkAnimationRequest) async -> Self? {
+        let worker = Task.detached(priority: .utility) { () -> Self? in
+            guard let data = request.previewData ?? request.contentID.flatMap({
+                MetadataAssetStore.shared.customArtworkData(contentID: $0)
+            }), let descriptor = ArtworkImageCompatibility.inspect(data), descriptor.isAnimated else { return nil }
+            return Self(request: request, data: data, descriptor: descriptor)
+        }
+        return await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+}
+
+/// The poster remains independent of the animation so scrolling, background
+/// color extraction and accessibility fallbacks never need all GIF frames.
+struct UploadedArtworkAnimation<Fallback: View>: View {
+    var contentID: String? = nil
+    var previewData: Data? = nil
+    var presentationRole: ArtworkPresentationRole = .staticFirstFrame
+    var isVisible = true
+    var requiresPlayback = false
+    var isPlaying = true
+    var maximumPixelSize = 1200
+    @ViewBuilder var fallback: () -> Fallback
+
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
+    @State private var animation: UploadedArtworkAnimationResource?
+
+    private var request: UploadedArtworkAnimationRequest {
+        UploadedArtworkAnimationRequest(contentID: contentID, previewData: previewData, enabled:
+            presentationRole == .animatedHero && isVisible && scenePhase == .active
+            && AnimatedArtworkPreferences.shared.animatedArtworkEnabled
+            && !reduceMotion && playAnimatedImages && (!requiresPlayback || isPlaying))
+    }
+
+    var body: some View {
+        let request = request
+        Group {
+            if let animation, animation.request == request {
+                AnimatedArtworkDataView(
+                    data: animation.data, descriptor: animation.descriptor,
+                    cacheKey: contentID ?? "upload-preview-\(animation.data.hashValue)",
+                    presentationRole: presentationRole, isVisible: isVisible,
+                    requiresPlayback: requiresPlayback, isPlaying: isPlaying,
+                    maximumPixelSize: maximumPixelSize, fallback: fallback
+                )
+            } else {
+                fallback()
+            }
+        }
+        .task(id: request) {
+            animation = nil
+            guard request.enabled else { return }
+            let loaded = await UploadedArtworkAnimationResource.load(request)
+            guard !Task.isCancelled, self.request == request else { return }
+            animation = loaded
+        }
+        .onDisappear { animation = nil }
+    }
+}
+
 struct MotionArtworkVideoView<Fallback: View>: View {
     let url: URL
     let shouldAnimate: Bool

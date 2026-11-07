@@ -1094,7 +1094,8 @@ struct PlaylistDetailView: View {
                 playlist: currentPlaylist ?? playlist,
                 size: coverSide,
                 cornerRadius: 14,
-                placeholderIcon: coverPlaceholderIcon
+                placeholderIcon: coverPlaceholderIcon,
+                presentationRole: .animatedHero
             )
 
             detailLayout {

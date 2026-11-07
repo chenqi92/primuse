@@ -1,4 +1,5 @@
 import Foundation
+import CloudKit
 import CryptoKit
 import ImageIO
 import MediaPlayer
@@ -11,6 +12,211 @@ import XCTest
 
 @MainActor
 final class LibraryPortableArtworkTests: XCTestCase {
+    private func animatedUploadGIF(paddingBytes: Int = 0) throws -> Data {
+        let output = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(output, UTType.gif.identifier as CFString, 2, nil))
+        CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+        for (color, delay) in [(UIColor.red, 0.12), (UIColor.blue, 0.18)] {
+            let frame = try decoded(image(color: color))
+            CGImageDestinationAddImage(destination, frame, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay]] as CFDictionary)
+        }
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        var bytes = output as Data
+        if paddingBytes > 0 {
+            var comment = Data([0x21, 0xFE])
+            var remaining = paddingBytes
+            while remaining > 0 {
+                let count = min(255, remaining)
+                comment.append(UInt8(count))
+                comment.append(Data(repeating: 65, count: count))
+                remaining -= count
+            }
+            comment.append(0)
+            bytes.insert(contentsOf: comment, at: bytes.count - 1)
+        }
+        return bytes
+    }
+
+    func testCustomGIFPreservesFramesTimingAndStorageAcrossRestart() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gif = try animatedUploadGIF(paddingBytes: 700_000)
+        let processed = try XCTUnwrap(LibraryArtworkImageProcessor.processUpload(gif))
+        XCTAssertEqual(processed, gif)
+        let descriptor = try XCTUnwrap(ArtworkImageCompatibility.inspect(processed))
+        XCTAssertEqual(descriptor.frameCount, 2)
+        XCTAssertEqual(descriptor.loopCount, 0)
+        XCTAssertEqual(descriptor.duration, 0.3, accuracy: 0.01)
+        let store = MetadataAssetStore(storageDirectory: root)
+        let id = try XCTUnwrap(store.storeCustomArtworkSync(processed))
+        XCTAssertEqual(MetadataAssetStore(storageDirectory: root).customArtworkData(contentID: id), gif)
+        XCTAssertNil(store.storeCustomArtworkSync(gif, expectedContentID: String(repeating: "0", count: 64)))
+        let still = try XCTUnwrap(LibraryArtworkImageProcessor.process(gif))
+        XCTAssertEqual(ArtworkImageCompatibility.inspect(still)?.format, .jpeg)
+        XCTAssertEqual(ArtworkImageCompatibility.inspect(still)?.isAnimated, false)
+    }
+
+    func testCustomGIFRejectsTruncatedAndOversizedAnimations() throws {
+        let gif = try animatedUploadGIF()
+        XCTAssertNil(LibraryArtworkImageProcessor.processUpload(gif.dropLast(8)))
+        let oversized = try animatedUploadGIF(paddingBytes: LibraryArtworkContentIDPolicy.maximumAnimatedArtworkBytes)
+        XCTAssertNil(LibraryArtworkImageProcessor.processUpload(oversized))
+        XCTAssertFalse(LibraryArtworkImageProcessor.isValidStoredArtwork(oversized))
+        let still = try XCTUnwrap(LibraryArtworkImageProcessor.processUpload(image()))
+        XCTAssertEqual(ArtworkImageCompatibility.inspect(still)?.format, .jpeg)
+    }
+
+    func testGIFCloudEnvelopeUsesAssetAndClearsItWhenReplacingWithStill() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gif = try animatedUploadGIF(paddingBytes: 700_000)
+        let store = MetadataAssetStore(storageDirectory: root)
+        let id = try XCTUnwrap(store.storeCustomArtworkSync(gif))
+        for kind in [LibraryArtworkOwner.Kind.album, .artist, .playlist] {
+            let value = LibraryArtworkOverride(owner: .init(kind: kind, id: "fixture"), mode: .uploaded, uploadedContentID: id)
+            let envelope = LibraryArtworkCloudEnvelope(override: value, uploadedArtworkData: gif)
+            let record = CKRecord(recordType: "Playlist")
+            XCTAssertTrue(CloudKitSyncService.writeArtworkOverrideEnvelope(envelope, to: record) { bytes in
+                let url = root.appendingPathComponent("animation.gif")
+                try? bytes.write(to: url)
+                return url
+            })
+            let inline = try XCTUnwrap(record["songIdentities"] as? Data)
+            XCTAssertNil(try JSONDecoder().decode(LibraryArtworkCloudEnvelope.self, from: inline).uploadedArtworkData)
+            XCTAssertNotNil(record["songIdentitiesAsset"] as? CKAsset)
+            XCTAssertEqual(CloudKitSyncService.readArtworkOverrideEnvelope(record), envelope)
+            let previousAsset = record["songIdentitiesAsset"] as? CKAsset
+            XCTAssertFalse(CloudKitSyncService.writeArtworkOverrideEnvelope(envelope, to: record, assetURL: { _ in nil }))
+            XCTAssertEqual((record["songIdentitiesAsset"] as? CKAsset)?.fileURL, previousAsset?.fileURL)
+
+            var jpeg = try XCTUnwrap(LibraryArtworkImageProcessor.process(gif))
+            jpeg.append(Data(repeating: 0, count: LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes - jpeg.count))
+            var stillValue = value
+            stillValue.uploadedContentID = try XCTUnwrap(store.storeCustomArtworkSync(jpeg))
+            let replacement = LibraryArtworkCloudEnvelope(override: stillValue, uploadedArtworkData: jpeg)
+            XCTAssertTrue(CloudKitSyncService.writeArtworkOverrideEnvelope(replacement, to: record, assetURL: { _ in
+                XCTFail("Small JPEGs must remain readable by the inline format")
+                return nil
+            }))
+            XCTAssertNil(record["songIdentitiesAsset"])
+            XCTAssertEqual(CloudKitSyncService.readArtworkOverrideEnvelope(record), replacement)
+        }
+    }
+
+    func testPortableSnapshotRestoresGIFWithoutFlattening() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sender = MetadataAssetStore(storageDirectory: root.appendingPathComponent("sender"))
+        let receiver = MetadataAssetStore(storageDirectory: root.appendingPathComponent("receiver"))
+        let gif = try animatedUploadGIF(paddingBytes: 700_000)
+        let id = try XCTUnwrap(sender.storeCustomArtworkSync(gif))
+        let values = [LibraryArtworkOwner.Kind.album, .artist, .playlist].map {
+            LibraryArtworkOverride(owner: .init(kind: $0, id: "fixture"), mode: .uploaded, uploadedContentID: id)
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: snapshot([])) as? [String: Any])
+        object["artworkOverrides"] = try JSONSerialization.jsonObject(with: encoder.encode(values))
+        let input = try JSONSerialization.data(withJSONObject: object)
+        let result = await MusicLibrary.preparePortableSnapshotDataIncludingArtworkAssets(input, assetStore: sender)
+        let transfer = try XCTUnwrap(result)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: transfer.data) as? [String: Any])
+        let encoded = try XCTUnwrap(payload["artworkAssets"] as? [String: String])
+        XCTAssertEqual(encoded.count, 1)
+        let assets = encoded.compactMapValues { Data(base64Encoded: $0) }
+        let restored = MusicLibrary.restorePortableArtwork(customAssets: assets, cachedAssets: [:], references: [:], eligibleNames: [], assetStore: receiver)
+        XCTAssertEqual(restored.custom, 1)
+        XCTAssertEqual(receiver.customArtworkData(contentID: id), gif)
+    }
+
+    func testUploadedGIFAnimatesDetailSurfacesAndKeepsListPosterStatic() async throws {
+        let key = PlayerAppearancePreferences.animatedArtworkEnabledKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        defer { UserDefaults.standard.set(previous, forKey: key) }
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (library, artist) = try await heroTestArtist(in: root)
+        let album = Album(id: "gif-album", title: "GIF album", artistName: artist.name)
+        let playlist = library.createPlaylist(name: "GIF playlist")
+        let gif = try animatedUploadGIF()
+        var cleanup: [URL] = []
+        defer { cleanup.forEach { try? FileManager.default.removeItem(at: $0) } }
+        for owner in [LibraryArtworkOwner(kind: .album, id: album.id), .init(kind: .artist, id: artist.id), .init(kind: .playlist, id: playlist.id)] {
+            if let url = try installHeroTestArtwork(gif, library: library, owner: owner) { cleanup.append(url) }
+        }
+        let view = VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                AlbumArtworkView(album: album, size: 80, cornerRadius: 0, presentationRole: .animatedHero)
+                ArtistArtworkView(artist: artist, size: 80, cornerRadius: 0, presentationRole: .animatedHero)
+                PlaylistArtworkView(playlist: playlist, size: 80, cornerRadius: 0, presentationRole: .animatedHero)
+            }
+            HStack(spacing: 0) {
+                AlbumArtworkView(album: album, size: 80, cornerRadius: 0)
+                ArtistArtworkView(artist: artist, size: 80, cornerRadius: 0)
+                PlaylistArtworkView(playlist: playlist, size: 80, cornerRadius: 0)
+            }
+            ArtistHeroArtworkView(artist: artist, size: CGSize(width: 240, height: 240), onImageChange: { _ in })
+        }
+        .frame(width: 240, height: 400, alignment: .top)
+        .environment(library)
+        .environment(SourceManager(sourcesProvider: { [] }))
+        .environment(\.scenePhase, .active)
+        let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 240, height: 400))
+        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+        var observed = Array(repeating: Set<String>(), count: 4)
+        for _ in 0..<45 {
+            try await Task.sleep(for: .milliseconds(80))
+            let snapshot = try heroTestSnapshot(host.view)
+            for (index, point) in [(40, 40), (120, 40), (200, 40), (120, 200)].enumerated() {
+                let pixel = try rgb(snapshot, x: point.0, y: point.1)
+                if pixel.0 > 200 && pixel.2 < 50 { observed[index].insert("red") }
+                if pixel.2 > 200 && pixel.0 < 50 { observed[index].insert("blue") }
+            }
+            if observed.allSatisfy({ $0.count == 2 }) { break }
+        }
+        XCTAssertTrue(observed.allSatisfy { $0 == ["red", "blue"] }, "Every detail surface must animate: \(observed)")
+        for _ in 0..<8 {
+            try await Task.sleep(for: .milliseconds(80))
+            let snapshot = try heroTestSnapshot(host.view)
+            for x in [40, 120, 200] {
+                let pixel = try rgb(snapshot, x: x, y: 120)
+                XCTAssertGreaterThan(pixel.0, 200)
+                XCTAssertLessThan(pixel.2, 50)
+            }
+        }
+        UserDefaults.standard.set(false, forKey: key)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        try await Task.sleep(for: .milliseconds(200))
+        for _ in 0..<5 {
+            try await Task.sleep(for: .milliseconds(80))
+            let snapshot = try heroTestSnapshot(host.view)
+            for (x, y) in [(40, 40), (120, 40), (200, 40), (120, 200)] {
+                let pixel = try rgb(snapshot, x: x, y: y)
+                XCTAssertGreaterThan(pixel.0, 200)
+                XCTAssertLessThan(pixel.2, 50)
+            }
+        }
+        UserDefaults.standard.set(true, forKey: key)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        let green = try image(color: .green)
+        for owner in [LibraryArtworkOwner(kind: .album, id: album.id), .init(kind: .artist, id: artist.id), .init(kind: .playlist, id: playlist.id)] {
+            if let url = try installHeroTestArtwork(green, library: library, owner: owner) { cleanup.append(url) }
+        }
+        var replaced = false
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(80))
+            let snapshot = try heroTestSnapshot(host.view)
+            let pixels = try [(40, 40), (120, 40), (200, 40), (120, 200)].map { try rgb(snapshot, x: $0.0, y: $0.1) }
+            if pixels.allSatisfy({ $0.1 > 200 && $0.0 < 50 && $0.2 < 50 }) {
+                replaced = true
+                break
+            }
+        }
+        XCTAssertTrue(replaced, "Replacing the GIF must remove its animated frames from every detail surface")
+    }
+
     func testRemovedSourceArtworkWithoutSongRowsReclaimsBothSizesAndPreservesOtherSources() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

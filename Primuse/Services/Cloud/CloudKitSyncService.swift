@@ -2750,8 +2750,12 @@ final class CloudKitSyncService {
             override: value,
             uploadedArtworkData: uploadedData
         )
-        guard let data = try? JSONEncoder().encode(envelope) else { return false }
-        record[Self.songIdentitiesField] = data
+        guard Self.writeArtworkOverrideEnvelope(envelope, to: record, assetURL: {
+            _ in
+            guard let contentID = value.uploadedContentID else { return nil }
+            // Content-addressed files are immutable while CloudKit uploads them.
+            return MetadataAssetStore.shared.customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg")
+        }) else { return false }
         record["name"] = owner.id
         record["createdAt"] = value.updatedAt
         record["updatedAt"] = value.updatedAt
@@ -2764,15 +2768,58 @@ final class CloudKitSyncService {
         return true
     }
 
+    nonisolated static func writeArtworkOverrideEnvelope(
+        _ envelope: LibraryArtworkCloudEnvelope,
+        to record: CKRecord,
+        assetURL: (Data) -> URL?
+    ) -> Bool {
+        var inlineEnvelope = envelope
+        if let artwork = envelope.uploadedArtworkData,
+           artwork.count > LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes {
+            guard artwork.count <= LibraryArtworkContentIDPolicy.maximumAnimatedArtworkBytes,
+                  let url = assetURL(artwork) else { return false }
+            inlineEnvelope.uploadedArtworkData = nil
+            guard let data = try? JSONEncoder().encode(inlineEnvelope) else { return false }
+            record[songIdentitiesField] = data
+            record[songIdentitiesAssetField] = CKAsset(fileURL: url)
+        } else {
+            guard let data = try? JSONEncoder().encode(inlineEnvelope) else { return false }
+            record[songIdentitiesField] = data
+            record[songIdentitiesAssetField] = nil
+        }
+        return true
+    }
+
+    nonisolated static func readArtworkOverrideEnvelope(_ record: CKRecord) -> LibraryArtworkCloudEnvelope? {
+        let data: Data?
+        if let inline = record[songIdentitiesField] as? Data {
+            guard inline.count <= LibraryArtworkContentIDPolicy.maximumArtworkEnvelopeBytes,
+                  var envelope = try? JSONDecoder().decode(LibraryArtworkCloudEnvelope.self, from: inline) else { return nil }
+            if envelope.override.mode == .uploaded, envelope.uploadedArtworkData == nil,
+               let asset = record[songIdentitiesAssetField] as? CKAsset {
+                guard let url = asset.fileURL,
+                      let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                      size <= LibraryArtworkContentIDPolicy.maximumAnimatedArtworkBytes,
+                      let artwork = try? Data(contentsOf: url) else { return nil }
+                envelope.uploadedArtworkData = artwork
+            }
+            return envelope
+        } else if let url = (record[songIdentitiesAssetField] as? CKAsset)?.fileURL,
+                  let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size <= LibraryArtworkContentIDPolicy.maximumArtworkEnvelopeBytes {
+            data = try? Data(contentsOf: url)
+        } else {
+            return nil
+        }
+        guard let data, data.count <= LibraryArtworkContentIDPolicy.maximumArtworkEnvelopeBytes else { return nil }
+        return try? JSONDecoder().decode(LibraryArtworkCloudEnvelope.self, from: data)
+    }
+
     private func decodeArtworkOverrideEnvelope(
         _ record: CKRecord,
         owner: LibraryArtworkOwner
     ) -> LibraryArtworkCloudEnvelope? {
-        guard let data = record[Self.songIdentitiesField] as? Data,
-              let envelope = try? JSONDecoder().decode(
-                LibraryArtworkCloudEnvelope.self,
-                from: data
-              ),
+        guard let envelope = Self.readArtworkOverrideEnvelope(record),
               envelope.schemaVersion == LibraryArtworkCloudEnvelope.currentSchemaVersion,
               envelope.override.owner == owner,
               envelope.override.cloudRecordID == owner.cloudRecordID else {
@@ -2787,7 +2834,7 @@ final class CloudKitSyncService {
             guard let contentID = envelope.override.uploadedContentID,
                   LibraryArtworkContentIDPolicy.isValid(contentID) else { return nil }
             if let uploadedData = envelope.uploadedArtworkData,
-               uploadedData.count > LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes {
+               !LibraryArtworkImageProcessor.isValidStoredArtwork(uploadedData) {
                 return nil
             }
             return envelope
@@ -3249,7 +3296,7 @@ final class CloudKitSyncService {
 
     // MARK: - Song identity / cross-device resolution
 
-    private static let songIdentitiesField = "songIdentities"
+    private nonisolated static let songIdentitiesField = "songIdentities"
 
     /// Build cross-device identities for a batch of locally-stored song
     /// IDs. Songs that have already been deleted locally still get a stub

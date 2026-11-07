@@ -301,6 +301,31 @@ import Testing
         #expect(noLyrics.menuFallback(on: .compactLandscape(showsTransportEdges: true)).isEmpty)
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func lyricsFallbackRequiresBothPageEntrancesToBeUnavailable(
+        hasLyricsButton: Bool,
+        lyricsReachableFromArtwork: Bool
+    ) {
+        let layout = hasLyricsButton ? Layout.default : Layout.default.placing(.fullScreen, at: .bar(0))
+        let fallback = layout.menuFallback(
+            on: .portrait,
+            lyricsReachableFromArtwork: lyricsReachableFromArtwork
+        )
+        #expect(fallback.contains(.lyrics) == (!hasLyricsButton && !lyricsReachableFromArtwork))
+    }
+
+    @Test func artworkLyricsAccessPreservesOtherFallbackActions() {
+        let layout = Layout.default
+            .placing(.fullScreen, at: .bar(0))
+            .placing(.sleepTimer, at: .bar(2))
+            .placing(.equalizer, at: .slot(.header))
+        let surface = NowPlayingControlSurface.toolColumn(showsTransportEdges: false, headerOverflows: false)
+        #expect(layout.menuFallback(on: surface, lyricsReachableFromArtwork: false)
+            == [.like, .lyrics, .queue, .shuffle, .repeatMode])
+        #expect(layout.menuFallback(on: surface, lyricsReachableFromArtwork: true)
+            == [.like, .queue, .shuffle, .repeatMode])
+    }
+
     @Test func edgeActionsHiddenInNarrowLandscapeStayInTheMenu() {
         let layout = Layout.default.placing(.sleepTimer, at: .slot(.leadingEdge))
         #expect(layout.menuSuppressed(on: .portrait).contains(.sleepTimer))
