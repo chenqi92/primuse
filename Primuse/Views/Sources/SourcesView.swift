@@ -1428,20 +1428,28 @@ struct SourcesContentView: View {
             }
         case .done(let count, let at):
             Label(
-                String(
-                    format: String(localized: "apple_music_library_done_format"),
-                    count,
-                    Self.appleMusicSyncDateFormatter.string(from: at)
-                ),
+                appleMusicSyncSummary(songCount: count, at: at),
                 systemImage: "checkmark.circle.fill"
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.red)
         }
+    }
+
+    private func appleMusicSyncSummary(songCount: Int, at date: Date) -> String {
+        let summary = String(
+            format: String(localized: "apple_music_library_done_format"),
+            songCount,
+            Self.appleMusicSyncDateFormatter.string(from: date)
+        )
+        guard let previous = appleMusicLibrary.syncHistory.previousCompletedAt else { return summary }
+        return summary + " · " + String(localized: "last_synced") + " "
+            + Self.appleMusicSyncDateFormatter.string(from: previous)
     }
 
     private static let appleMusicSyncDateFormatter: DateFormatter = {

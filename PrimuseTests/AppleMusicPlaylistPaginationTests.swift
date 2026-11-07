@@ -3,6 +3,58 @@ import PrimuseKit
 import XCTest
 @testable import Primuse
 
+final class AppleMusicLibrarySyncHistoryTests: XCTestCase {
+    private func defaults() throws -> UserDefaults {
+        let suite = "AppleMusicLibrarySyncHistoryTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        return defaults
+    }
+
+    func testFirstSyncHasNoPreviousTimeAndSurvivesReload() throws {
+        let defaults = try defaults()
+        var history = AppleMusicLibrarySyncHistory.load(from: defaults)
+        XCTAssertNil(history.completedAt)
+        XCTAssertNil(history.previousCompletedAt)
+        let first = Date(timeIntervalSince1970: 1_793_927_280)
+        history.recordCompletion(songCount: 426, at: first, defaults: defaults)
+        let restored = AppleMusicLibrarySyncHistory.load(from: defaults)
+        XCTAssertEqual(restored.completedAt, first)
+        XCTAssertEqual(restored.songCount, 426)
+        XCTAssertNil(restored.previousCompletedAt)
+    }
+
+    func testResyncKeepsTheImmediatelyPreviousCompletionAcrossRestarts() throws {
+        let defaults = try defaults()
+        let first = Date(timeIntervalSince1970: 1_793_927_280)
+        let second = first.addingTimeInterval(86_400)
+        let third = second.addingTimeInterval(86_400)
+        var history = AppleMusicLibrarySyncHistory.load(from: defaults)
+        history.recordCompletion(songCount: 426, at: first, defaults: defaults)
+        history = AppleMusicLibrarySyncHistory.load(from: defaults)
+        history.recordCompletion(songCount: 427, at: second, defaults: defaults)
+        XCTAssertEqual(history.previousCompletedAt, first)
+        XCTAssertEqual(AppleMusicLibrarySyncHistory.load(from: defaults), history)
+        history = AppleMusicLibrarySyncHistory.load(from: defaults)
+        history.recordCompletion(songCount: 0, at: third, defaults: defaults)
+        XCTAssertEqual(history.completedAt, third)
+        XCTAssertEqual(history.previousCompletedAt, second)
+        XCTAssertEqual(history.songCount, 0)
+        XCTAssertEqual(AppleMusicLibrarySyncHistory.load(from: defaults), history)
+    }
+
+    func testRemovingTheSourceClearsItsPersistedHistory() throws {
+        let defaults = try defaults()
+        var history = AppleMusicLibrarySyncHistory()
+        history.recordCompletion(songCount: 426, at: Date(), defaults: defaults)
+        history.clear(defaults: defaults)
+        XCTAssertEqual(history, AppleMusicLibrarySyncHistory())
+        XCTAssertEqual(AppleMusicLibrarySyncHistory.load(from: defaults), history)
+        history.recordCompletion(songCount: 12, at: Date(), defaults: defaults)
+        XCTAssertNil(history.previousCompletedAt)
+    }
+}
+
 final class AppleMusicPlaylistPaginationTests: XCTestCase, @unchecked Sendable {
     private let link = "https://music.apple.com/us/playlist/fixture/pl.fixture"
     func testInitialAndLaterSDKCancellationStayCancellation() async {

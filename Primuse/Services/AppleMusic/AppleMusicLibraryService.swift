@@ -9,6 +9,34 @@ import MediaPlayer
 import iTunesLibrary
 #endif
 
+struct AppleMusicLibrarySyncHistory: Codable, Equatable {
+    private static let defaultsKey = "primuse.appleMusic.syncHistory"
+
+    private(set) var songCount: Int = 0
+    private(set) var completedAt: Date?
+    private(set) var previousCompletedAt: Date?
+
+    static func load(from defaults: UserDefaults) -> Self {
+        guard let data = defaults.data(forKey: defaultsKey),
+              let history = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
+        return history
+    }
+
+    mutating func recordCompletion(songCount: Int, at date: Date, defaults: UserDefaults) {
+        previousCompletedAt = completedAt
+        completedAt = date
+        self.songCount = songCount
+        if let data = try? JSONEncoder().encode(self) {
+            defaults.set(data, forKey: Self.defaultsKey)
+        }
+    }
+
+    mutating func clear(defaults: UserDefaults) {
+        self = Self()
+        defaults.removeObject(forKey: Self.defaultsKey)
+    }
+}
+
 struct AppleMusicCatalogLibraryWriter: Sendable {
     var send: @Sendable (URLRequest) async throws -> Int = { request in
         try await MusicDataRequest(urlRequest: request).response().urlResponse.statusCode
@@ -133,9 +161,11 @@ final class AppleMusicLibraryService {
     private(set) var state: SyncState = .idle
     /// 最近一次完成扫描的时间, 用于 UI 显示。
     private(set) var lastSyncAt: Date?
+    private(set) var syncHistory: AppleMusicLibrarySyncHistory
 
     private let library: MusicLibrary
     private let appleMusic: AppleMusicService
+    @ObservationIgnored private let defaults: UserDefaults
     private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var catalogSaveTasks: [String: Task<PrimuseKit.Song, Error>] = [:]
     private var syncGeneration = UUID()
@@ -272,9 +302,15 @@ final class AppleMusicLibraryService {
         localFileProbeTask?.cancel()
     }
 
-    init(library: MusicLibrary, appleMusic: AppleMusicService) {
+    init(library: MusicLibrary, appleMusic: AppleMusicService, defaults: UserDefaults = .standard) {
         self.library = library
         self.appleMusic = appleMusic
+        self.defaults = defaults
+        syncHistory = AppleMusicLibrarySyncHistory.load(from: defaults)
+        if library.appleMusicSourceInstalled, let at = syncHistory.completedAt {
+            lastSyncAt = at
+            state = .done(songCount: syncHistory.songCount, at: at)
+        }
     }
 
     /// 启动一次完整拉取。不持有任何分页 cursor — Apple Music user library 量
@@ -686,6 +722,7 @@ final class AppleMusicLibraryService {
         subscriptionUpdatesTask = nil
         lastAccess = nil
         lastSyncAt = nil
+        syncHistory.clear(defaults: defaults)
         invalidateAccountCaches()
         CollectionOnlySongStore.shared.replace([], forSourceID: Self.systemSourceID)
         // 搜索结果同属这个源:源没了, 搜索里也不该再留着 Apple Music 的条目。
@@ -1513,7 +1550,8 @@ final class AppleMusicLibraryService {
             }
             guard syncGeneration == generation else { return }
 
-            lastSyncAt = Date()
+            let completedAt = Date()
+            lastSyncAt = completedAt
             if let warning = fetchResult.fallbackWarning {
                 state = .failed(warning)
                 plog("⚠️Apple Music library partially synced: \(songs.count) local songs preserved; \(warning)")
@@ -1521,7 +1559,8 @@ final class AppleMusicLibraryService {
                 if let countryCode = access.storefrontCountryCode {
                     UserDefaults.standard.set(countryCode, forKey: Self.syncedStorefrontKey)
                 }
-                state = .done(songCount: songs.count, at: lastSyncAt!)
+                syncHistory.recordCompletion(songCount: songs.count, at: completedAt, defaults: defaults)
+                state = .done(songCount: songs.count, at: completedAt)
                 plog("🎵 Apple Music library synced: \(songs.count) songs, \(syncedUserPlaylistCount) playlists, \(playlistOnlySongs.count) playlist-only songs → playlist \(Self.systemPlaylistID)")
             }
         } catch is CancellationError {
