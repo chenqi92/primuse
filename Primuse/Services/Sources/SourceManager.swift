@@ -9,7 +9,7 @@ import UIKit
 #endif
 
 @MainActor
-private enum SourceCacheReclamationQueue {
+enum SourceCacheReclamationQueue {
     private static var tail: Task<Void, Never>?
 
     static func enqueue(_ work: @escaping @Sendable () async -> Void) {

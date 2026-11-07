@@ -1692,6 +1692,138 @@ final class AppleMusicLibrarySongIdentityTests: XCTestCase {
 
 @MainActor
 final class LibrarySearchIndexBatchTests: XCTestCase {
+    func testLargeLyricsInventoryMatchesIndividualLookups() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory)
+        let count = 170_247
+        let cached = Set(stride(from: 0, to: count, by: 25_000))
+        for i in cached {
+            _ = await store.cacheLyrics([LyricLine(timestamp: 0, text: "inventoryfixture")], forSongID: "inventory-\(i)")
+        }
+        let (individual, batched, individualSeconds, batchedSeconds) = await Task.detached {
+            let firstStart = ProcessInfo.processInfo.systemUptime
+            var individual = Set<Int>()
+            for i in 0..<count {
+                autoreleasepool {
+                    if store.cachedLyricsSearchSignature(songID: "inventory-\(i)", lyricsFileName: nil) != nil {
+                        individual.insert(i)
+                    }
+                }
+            }
+            let firstElapsed = ProcessInfo.processInfo.systemUptime - firstStart
+            let batchStart = ProcessInfo.processInfo.systemUptime
+            let files = store.lyricsSearchFileNames()
+            var batched = Set<Int>()
+            for i in 0..<count {
+                autoreleasepool {
+                    if store.cachedLyricsSearchSignature(songID: "inventory-\(i)", lyricsFileName: nil,
+                                                         availableFileNames: files) != nil {
+                        batched.insert(i)
+                    }
+                }
+            }
+            return (individual, batched, firstElapsed, ProcessInfo.processInfo.systemUptime - batchStart)
+        }.value
+        XCTAssertEqual(individual, cached)
+        XCTAssertEqual(batched, cached)
+        print("Lyrics inventory comparison songs=\(count) cached=\(cached.count) individual=\(individualSeconds)s batched=\(batchedSeconds)s")
+    }
+
+    func testLyricsFileInventoryHandlesCanonicalLegacyAndNewlyCachedFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory)
+        let empty = try XCTUnwrap(store.lyricsSearchFileNames())
+        XCTAssertTrue(empty.isEmpty)
+        _ = await store.cacheLyrics([LyricLine(timestamp: 0, text: "canonicalfixture")], forSongID: "canonical")
+        let legacy = await store.storeLyrics([LyricLine(timestamp: 0, text: "legacyfixture")], for: "legacy-key")
+        XCTAssertNil(store.cachedLyricsSearchSignature(songID: "canonical", lyricsFileName: nil, availableFileNames: empty))
+        let files = try XCTUnwrap(store.lyricsSearchFileNames())
+        for (id, reference) in [("canonical", nil), ("legacy-song", legacy)] {
+            XCTAssertEqual(store.cachedLyricsSearchSignature(songID: id, lyricsFileName: reference, availableFileNames: files),
+                           store.cachedLyricsSearchSignature(songID: id, lyricsFileName: reference))
+            XCTAssertNotNil(store.cachedLyricsSearchSignature(songID: id, lyricsFileName: reference, availableFileNames: files))
+        }
+        XCTAssertNil(store.cachedLyricsSearchSignature(songID: "absent", lyricsFileName: "/remote/file.lrc", availableFileNames: files))
+    }
+
+    func testLyricsDeltaIsSearchableBetweenBatchesAndRecoversAfterCancellation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory.appendingPathComponent("assets"))
+        let firstBatch = expectation(description: "First lyrics batch is durable")
+        let gate = AsyncStream<Void>.makeStream()
+        defer { gate.continuation.finish() }
+        let counts = OSAllocatedUnfairLock(initialState: [Int]())
+        let index = LibrarySearchIndex(storageDirectory: directory, assetStore: store, lyricsBatchDidWriteForTesting: { count in
+            let first = counts.withLock { values in values.append(count); return values.count == 1 }
+            if first {
+                firstBatch.fulfill()
+                for await _ in gate.stream { break }
+            }
+        })
+        var songs = (0..<240).map { Song(id: "lyrics-batch-\($0)", title: "Title \($0)", fileFormat: .mp3,
+                                       filePath: "/\($0).mp3", sourceID: "fixture") }
+        await index.prepare(songs: songs, generation: LibrarySearchIndex.persistLibraryChangePending())
+        for i in songs.indices { songs[i].lyricsText = "lyricbatchfixture" }
+        let generation = LibrarySearchIndex.persistLibraryChangePending()
+        let changes = songs
+        let task = Task { await index.applyChanges(upserts: changes, deletingIDs: [], generation: generation) }
+        await fulfillment(of: [firstBatch], timeout: 10)
+        let partial = await index.search(query: "lyricbatchfixture", songs: songs, albums: [],
+                                         metadataRevisionKey: "partial", matchKinds: [.lyrics], songLimit: 300)
+        XCTAssertEqual(try XCTUnwrap(partial).output.songResults.count, 96)
+        task.cancel()
+        gate.continuation.finish()
+        await task.value
+        XCTAssertTrue(LibrarySearchIndex.hasPendingPreparation)
+        await index.applyChanges(upserts: songs, deletingIDs: [], generation: generation)
+        let complete = await index.search(query: "lyricbatchfixture", songs: songs, albums: [],
+                                          metadataRevisionKey: "complete", matchKinds: [.lyrics], songLimit: 300)
+        XCTAssertEqual(try XCTUnwrap(complete).output.songResults.count, songs.count)
+        let removed = Set(songs.prefix(101).map(\.id))
+        await index.applyChanges(upserts: [], deletingIDs: removed, generation: LibrarySearchIndex.persistLibraryChangePending())
+        let remaining = await index.search(query: "lyricbatchfixture", songs: Array(songs.dropFirst(101)), albums: [],
+                                           metadataRevisionKey: "removed", matchKinds: [.lyrics], songLimit: 300)
+        XCTAssertEqual(try XCTUnwrap(remaining).output.songResults.count, songs.count - removed.count)
+        XCTAssertTrue(counts.withLock { $0.allSatisfy { $0 <= 96 } })
+    }
+
+    func testLyricsCachedDuringDeltaInventoryAreAppliedAfterTheBatch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory.appendingPathComponent("assets"))
+        let firstBatch = expectation(description: "Lyrics inventory is already captured")
+        let gate = AsyncStream<Void>.makeStream()
+        defer { gate.continuation.finish() }
+        let wrote = OSAllocatedUnfairLock(initialState: false)
+        let index = LibrarySearchIndex(storageDirectory: directory, assetStore: store, lyricsBatchDidWriteForTesting: { _ in
+            let first = wrote.withLock { value in defer { value = true }; return !value }
+            if first {
+                firstBatch.fulfill()
+                for await _ in gate.stream { break }
+            }
+        })
+        var songs = (0..<600).map { Song(id: "late-lyrics-\($0)", title: "Title \($0)", fileFormat: .mp3,
+                                       filePath: "/\($0).mp3", sourceID: "fixture") }
+        await index.prepare(songs: songs, generation: LibrarySearchIndex.persistLibraryChangePending())
+        for i in songs.indices { songs[i].lyricsText = "baselinefixture" }
+        let changes = songs
+        let task = Task { await index.applyChanges(upserts: changes, deletingIDs: [],
+                                                  generation: LibrarySearchIndex.persistLibraryChangePending()) }
+        await fulfillment(of: [firstBatch], timeout: 10)
+        let songID = try XCTUnwrap(songs.last?.id)
+        _ = await store.cacheLyrics([LyricLine(timestamp: 12, text: "newlycachedfixture")], forSongID: songID)
+        await index.refreshLyrics(songID: songID, fallbackText: "newlycachedfixture",
+                                  generation: LibrarySearchIndex.persistLibraryChangePending())
+        gate.continuation.finish()
+        await task.value
+        let result = await index.search(query: "newlycachedfixture", songs: songs, albums: [],
+                                        metadataRevisionKey: "after-cache", matchKinds: [.lyrics])
+        XCTAssertEqual(try XCTUnwrap(result).output.songResults.map(\.song.id), [songID])
+    }
+
     func testCancelledRecoveryResumesCommittedBatchesAndAppliesLaterDeletions() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

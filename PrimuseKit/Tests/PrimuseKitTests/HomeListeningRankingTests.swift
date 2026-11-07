@@ -118,6 +118,75 @@ struct HomeListeningRankingTests {
         #expect(third > 0)
     }
 
+    @Test func artworkCandidatesPreferReferencesButKeepEmbeddedAndMissingReferenceFallbacks() {
+        var withCover = song("covered")
+        withCover.coverArtFileName = "cover.jpg"
+        var emptyReference = song("empty")
+        emptyReference.coverArtFileName = ""
+        var songs = ["popular": song("popular"), "covered": withCover, "empty": emptyReference]
+        func candidates() -> [Song] {
+            ListeningRankArtworkPolicy.candidates(
+                preferredSongID: "popular", songIDs: ["removed", "covered", "empty", "popular"],
+                song: { songs[$0] }
+            )
+        }
+        #expect(candidates().map(\.id) == ["covered", "popular", "empty"])
+        songs["popular"]?.coverArtFileName = "backfilled.jpg"
+        #expect(candidates().map(\.id) == ["popular", "covered", "empty"])
+        songs.removeValue(forKey: "popular")
+        #expect(candidates().map(\.id) == ["covered", "empty"])
+    }
+
+    @Test func rebuiltLibraryRestoresArtworkAndPlaybackWithoutChangingHistoryOrTrends() {
+        var currentSong = song("new")
+        currentSong.title = "Paper Moon"
+        currentSong.coverArtFileName = "cover.jpg"
+        let events = [28, 1, 2].map { day in
+            HomeListeningEvent(
+                songID: "old", playedAt: date(day, month: day == 28 ? 8 : 9), listenedSeconds: 120,
+                songTitle: currentSong.title, artistName: currentSong.artistName, albumTitle: currentSong.albumTitle
+            )
+        }
+        for category in [HomeListeningCategory.songs, .albums, .artists] {
+            let original = HomeListeningRanking.ranks(events: events, songs: [:], folders: nil,
+                period: .week, category: category, now: date(5), calendar: calendar)
+            let restored = HomeListeningRanking.ranks(events: events, songs: ["new": currentSong], folders: nil,
+                period: .week, category: category, now: date(5), calendar: calendar)
+            #expect(restored.count == 1)
+            #expect(restored.first?.id == original.first?.id)
+            #expect(restored.first?.playCount == 2)
+            #expect(restored.first?.listenedSeconds == 240)
+            #expect(restored.first?.trend == original.first?.trend)
+            #expect(restored.first?.songIDs == ["new", "old"])
+            #expect(restored.first?.distinctSongIDs(preferring: { $0 == "new" }) == ["new"])
+        }
+    }
+
+    @Test func historyRecoveryRejectsWrongArtistVersionAlbumAndDuration() {
+        var correct = song("correct")
+        correct.title = "Paper Moon"
+        correct.duration = 180
+        var wrongArtist = correct; wrongArtist.id = "artist"; wrongArtist.artistName = "Someone else"
+        var live = correct; live.id = "live"; live.title = "Paper Moon (Live)"
+        var wrongAlbum = correct; wrongAlbum.id = "album"; wrongAlbum.albumTitle = "Other album"
+        var long = correct; long.id = "long"; long.duration = 210
+        let event = HomeListeningEvent(songID: "old", playedAt: date(1), listenedSeconds: 120,
+            songTitle: correct.title, artistName: correct.artistName, albumTitle: correct.albumTitle, songDuration: 180)
+        let songs = Dictionary(uniqueKeysWithValues: [correct, wrongArtist, live, wrongAlbum, long].map { ($0.id, $0) })
+        let ranks = HomeListeningRanking.ranks(events: [event], songs: songs, folders: nil,
+            period: .all, category: .songs, now: date(5), calendar: calendar)
+        #expect(ranks.first?.songIDs == ["correct", "old"])
+        let unknownDuration = HomeListeningEvent(songID: "old", playedAt: date(1), listenedSeconds: 120,
+            songTitle: correct.title, artistName: correct.artistName, albumTitle: correct.albumTitle)
+        let ambiguous = HomeListeningRanking.ranks(events: [unknownDuration], songs: songs, folders: nil,
+            period: .all, category: .songs, now: date(5), calendar: calendar)
+        #expect(ambiguous.first?.songIDs == ["old"])
+        let noArtist = HomeListeningEvent(songID: "old", playedAt: date(1), listenedSeconds: 120, songTitle: correct.title)
+        let unmatchable = HomeListeningRanking.ranks(events: [noArtist], songs: songs, folders: nil,
+            period: .all, category: .songs, now: date(5), calendar: calendar)
+        #expect(unmatchable.first?.songIDs == ["old"])
+    }
+
     @Test func boardShowsFiveUntilExpandedAndTheShelfNeverDropsBelowFive() {
         typealias Policy = HomeListeningRankBoardPolicy
         #expect(Policy.visibleCount(total: 30, expandedLimit: 20, isExpanded: false) == 5)

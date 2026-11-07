@@ -48,28 +48,116 @@ struct ListeningRankArtwork: View {
     let size: CGFloat
     var isArtist = false
     var cornerRadius: CGFloat = 9
+    var candidateSongIDs: [String] = []
+    var isAlbum = false
+    var album: Album? = nil
+    var artist: Artist? = nil
     // 统计页会出现在设置、资料库等好几个入口下。可选读取在缺环境对象的宿主里
     // 只是退成占位图，不会像必读那样当场闪退。
     @Environment(MusicLibrary.self) private var library: MusicLibrary?
     @Environment(SourceManager.self) private var sourceManager: SourceManager?
+    @State private var failedFallbacks = ArtworkFallbackAttempts()
+    @State private var lastFailureAt: Date?
+    @State private var reloadRevision = 0
+
+    static func candidates(preferredSongID: String?, songIDs: [String], library: MusicLibrary?) -> [Song] {
+        guard let library else { return [] }
+        _ = library.songReplacementToken
+        _ = library.visibleSongCollectionRevision
+        return ListeningRankArtworkPolicy.candidates(
+            preferredSongID: preferredSongID, songIDs: songIDs,
+            song: library.unobservedVisibleSong(id:)
+        )
+    }
+
+    private func identity(for song: Song) -> String {
+        ArtworkSourceRequestIdentity.key(
+            songID: song.id, artworkReference: song.coverArtFileName,
+            sourceID: song.sourceID, filePath: song.filePath,
+            fileFormat: song.fileFormat.rawValue, revision: song.revision ?? ""
+        ) ?? song.id
+    }
 
     var body: some View {
+        let candidates = Self.candidates(preferredSongID: song?.id, songIDs: candidateSongIDs, library: library)
+        let current = failedFallbacks.canTryAnother ? candidates.first {
+            !failedFallbacks.hasFailed(identity: identity(for: $0))
+        } : nil
+        let resolvedArtist = artist ?? candidates.first?.artistID.flatMap { library?.visibleArtist(id: $0) }
+        let resolvedAlbum = album ?? (isAlbum ? candidates.first?.albumID.flatMap { library?.visibleAlbum(id: $0) } : nil)
         Group {
             if library == nil || sourceManager == nil {
                 placeholder
-            } else if isArtist, let artistID = song?.artistID,
-                      let artist = library?.visibleArtist(id: artistID) {
-                ArtistArtworkView(artist: artist, size: size, cornerRadius: size / 2)
-            } else {
+            } else if isArtist, let resolvedArtist {
+                ArtistArtworkView(artist: resolvedArtist, size: size, cornerRadius: size / 2)
+            } else if let resolvedAlbum {
+                AlbumArtworkView(album: resolvedAlbum, size: size, cornerRadius: cornerRadius)
+            } else if let current {
+                let identity = identity(for: current)
                 CachedArtworkView(
-                    coverRef: song?.coverArtFileName, songID: song?.id, size: size,
+                    coverRef: current.coverArtFileName, songID: current.id, size: size,
                     cornerRadius: isArtist ? size / 2 : cornerRadius,
-                    sourceID: song?.sourceID, filePath: song?.filePath, fileFormat: song?.fileFormat,
-                    placeholderIcon: isArtist ? "music.mic" : "music.note"
+                    sourceID: current.sourceID, filePath: current.filePath, fileFormat: current.fileFormat,
+                    placeholderIcon: isArtist ? "music.mic" : "music.note",
+                    revisionToken: reloadRevision,
+                    onResolutionChange: { resolved in
+                        guard !resolved, !failedFallbacks.hasFailed(identity: identity) else { return }
+                        failedFallbacks.recordFailure(
+                            songID: current.id, reference: current.coverArtFileName, identity: identity
+                        )
+                        lastFailureAt = Date()
+                    }
                 )
+                .id(identity)
+            } else if let albumID = candidates.first?.albumID,
+                      let fallbackAlbum = library?.visibleAlbum(id: albumID) {
+                AlbumArtworkView(
+                    album: fallbackAlbum, size: size,
+                    cornerRadius: isArtist ? size / 2 : cornerRadius
+                )
+            } else {
+                placeholder
             }
         }
+        .onAppear {
+            if let lastFailureAt, Date().timeIntervalSince(lastFailureAt) >= CachedArtworkView.failedLoadCacheTTL {
+                failedFallbacks = ArtworkFallbackAttempts()
+            }
+        }
+        .onChange(of: candidates.map { identity(for: $0) }) { _, _ in
+            failedFallbacks = ArtworkFallbackAttempts()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+            retryIfAffected(note, candidates: candidates)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+            retryIfAffected(note, candidates: candidates)
+        }
+        .onChange(of: NetworkMonitor.shared.pathGeneration) { _, _ in
+            failedFallbacks = ArtworkFallbackAttempts()
+            reloadRevision &+= 1
+        }
         .accessibilityHidden(true)
+    }
+
+    private func retryIfAffected(_ note: Notification, candidates: [Song]) {
+        guard !failedFallbacks.identities.isEmpty else { return }
+        let tokens = Set(candidates.flatMap { [$0.id, $0.coverArtFileName].compactMap { $0 } })
+        let affected: Bool
+        if let batch = ArtworkInvalidationBatch.from(note) {
+            affected = tokens.contains(where: batch.contains)
+        } else {
+            let changed = [note.object as? String, note.userInfo?["songID"] as? String]
+                .compactMap { $0 } + (note.userInfo?["tokens"] as? [String] ?? [])
+                + (note.userInfo?["songIDs"] as? [String] ?? [])
+            affected = changed.contains(where: tokens.contains)
+                || candidates.contains { $0.sourceID == note.userInfo?["sourceID"] as? String }
+        }
+        if affected || note.userInfo?["all"] as? Bool == true {
+            failedFallbacks = ArtworkFallbackAttempts()
+            // 失败候选已经卸载，收不到 CachedArtworkView 自己的清缓存通知。
+            reloadRevision &+= 1
+        }
     }
 
     private var placeholder: some View {
@@ -497,6 +585,7 @@ private extension EdgeInsets {
 struct ListeningStatsRankList: View {
     let items: [PlayHistoryStore.RankedItem]
     let isArtistRanking: Bool
+    var isAlbumRanking = false
     /// 换榜（歌曲 / 艺人 / 专辑、时间范围）时变化，领奖台据此重新入场。
     let identity: String
     @Environment(MusicLibrary.self) private var library: MusicLibrary?
@@ -514,7 +603,8 @@ struct ListeningStatsRankList: View {
                 ) { size in
                     ListeningRankArtwork(
                         song: song(for: item), size: size,
-                        isArtist: isArtistRanking, cornerRadius: place == 0 ? 12 : 10
+                        isArtist: isArtistRanking, cornerRadius: place == 0 ? 12 : 10,
+                        candidateSongIDs: item.songIDs, isAlbum: isAlbumRanking, album: album(for: item)
                     )
                 }
             }
@@ -532,12 +622,19 @@ struct ListeningStatsRankList: View {
                 ),
                 insets: .formRow
             ) {
-                ListeningRankArtwork(song: song(for: item), size: 40, isArtist: isArtistRanking, cornerRadius: 7)
+                ListeningRankArtwork(
+                    song: song(for: item), size: 40, isArtist: isArtistRanking, cornerRadius: 7,
+                    candidateSongIDs: item.songIDs, isAlbum: isAlbumRanking, album: album(for: item)
+                )
             }
         }
     }
 
     private func song(for item: PlayHistoryStore.RankedItem) -> Song? {
         item.artworkSong(in: library)
+    }
+
+    private func album(for item: PlayHistoryStore.RankedItem) -> Album? {
+        isAlbumRanking ? library?.visibleAlbum(titled: item.title, artistName: item.subtitle) : nil
     }
 }

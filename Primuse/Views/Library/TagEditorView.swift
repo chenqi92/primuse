@@ -54,6 +54,8 @@ struct TagEditorView: View {
     @State private var writebackNoticeMessage: String?
     @State private var savedSongPendingNotice: Song?
     @State private var isSaving = false
+    @State private var coverImportID = UUID()
+    @State private var isLoadingCover = false
     @State private var showLyricsDeleteConfirm = false
     @State private var showLyricsEditor = false
 
@@ -268,7 +270,7 @@ struct TagEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "cancel")) { dismiss() }
-                        .disabled(isSaving)
+                        .disabled(isSaving || isLoadingCover)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button { requestSave() } label: {
@@ -401,7 +403,7 @@ struct TagEditorView: View {
             }
         }
         .font(.system(size: 12, design: .monospaced))
-        .disabled(isSaving)
+        .disabled(isSaving || isLoadingCover)
     }
 
     /// 当前规则下的拆分结果。空标题的结果不算数 —— 那说明规则不适用。
@@ -591,7 +593,7 @@ struct TagEditorView: View {
                 Color.accentColor.opacity(0.08),
                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
             )
-            .disabled(isSaving)
+            .disabled(isSaving || isLoadingCover)
             .transition(.opacity)
         }
     }
@@ -756,7 +758,7 @@ struct TagEditorView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.red)
-            .disabled(!hasChanges || isSaving)
+            .disabled(!hasChanges || isSaving || isLoadingCover)
             // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
             .confirmationDialog(
                 String(localized: "tag_editor_reset_confirm"),
@@ -868,7 +870,7 @@ struct TagEditorView: View {
                     .background(Color.secondary.opacity(0.12), in: Circle())
             }
             .buttonStyle(.plain)
-            .disabled(previous == nil || isSaving || lyricsLoading)
+            .disabled(previous == nil || isSaving || lyricsLoading || isLoadingCover)
             .opacity(previous == nil ? 0.35 : 1)
 
             VStack(spacing: 3) {
@@ -899,7 +901,7 @@ struct TagEditorView: View {
                     .foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
-            .disabled(next == nil || isSaving || lyricsLoading)
+            .disabled(next == nil || isSaving || lyricsLoading || isLoadingCover)
             .opacity(next == nil ? 0.35 : 1)
         }
         .padding(.horizontal, 20)
@@ -947,6 +949,7 @@ struct TagEditorView: View {
                 PhotosPicker(
                     selection: $coverPickerItem,
                     matching: .images,
+                    preferredItemEncoding: .current,
                     photoLibrary: .shared()
                 ) {
                     Label(String(localized: "tag_editor_mac_change_cover"), systemImage: "photo.on.rectangle")
@@ -1036,7 +1039,7 @@ struct TagEditorView: View {
                         .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
                 }
                 .buttonStyle(.plain)
-                .disabled(!hasChanges || lyricsLoading || isSaving)
+                .disabled(!hasChanges || lyricsLoading || isSaving || isLoadingCover)
 
                 Button {
                     dismiss()
@@ -1048,7 +1051,7 @@ struct TagEditorView: View {
                         .padding(.horizontal, 14)
                 }
                 .buttonStyle(.plain)
-                .disabled(isSaving)
+                .disabled(isSaving || isLoadingCover)
 
                 Button {
                     requestSave()
@@ -1084,18 +1087,16 @@ struct TagEditorView: View {
             Button(String(localized: "tag_editor_reset"), role: .destructive) { resetFromOriginal() }
             Button(String(localized: "cancel"), role: .cancel) {}
         }
-        .onChange(of: coverPickerItem) { _, newItem in
-            Task { await loadPickedCover(newItem) }
-        }
+        .task(id: coverPickerItem) { await loadPickedCover(coverPickerItem) }
     }
 
     @ViewBuilder
     private func macCoverPreview(size: CGFloat) -> some View {
         if let data = pickedCoverData, let img = PlatformImage(data: data) {
-            Image(nsImage: img)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: size, height: size)
+            UploadedArtworkAnimation(previewData: data, presentationRole: .animatedHero) {
+                Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
+            }
+            .frame(width: size, height: size)
         } else {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
@@ -1104,7 +1105,8 @@ struct TagEditorView: View {
                 cornerRadius: 6,
                 sourceID: song.sourceID,
                 filePath: song.filePath,
-                fileFormat: song.fileFormat
+                fileFormat: song.fileFormat,
+                presentationRole: .animatedHero
             )
         }
     }
@@ -1425,7 +1427,7 @@ struct TagEditorView: View {
                     #if os(macOS)
                     .buttonStyle(.plain)
                     #endif
-                    .disabled(isSaving)
+                    .disabled(isSaving || isLoadingCover)
                 }
             }
 
@@ -1446,11 +1448,9 @@ struct TagEditorView: View {
     @ViewBuilder
     private var coverPreview: some View {
         if let data = pickedCoverData, let img = PlatformImage(data: data) {
-            #if os(iOS)
-            Image(uiImage: img).resizable().aspectRatio(contentMode: .fill)
-            #else
-            Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
-            #endif
+            UploadedArtworkAnimation(previewData: data, presentationRole: .animatedHero) {
+                Image(platformImage: img).resizable().aspectRatio(contentMode: .fill)
+            }
         } else {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
@@ -1459,73 +1459,32 @@ struct TagEditorView: View {
                 cornerRadius: 8,
                 sourceID: song.sourceID,
                 filePath: song.filePath,
-                fileFormat: song.fileFormat
+                fileFormat: song.fileFormat,
+                presentationRole: .animatedHero
             )
         }
     }
 
-    /// PhotosPicker 给的是 PhotosPickerItem,需要 await 拿原始 data。
-    /// HEIC / RAW 之类的也允许,因为 storeCover 写的是 content-addressed
-    /// 文件,后续 UIImage(data:) 解能不能成由读时决定; 大多数 iPhone 拍
-    /// 的图都是 HEIC, UIImage 能正常解。
     private func loadPickedCover(_ item: PhotosPickerItem?) async {
-        guard let item else { pickedCoverData = nil; return }
-        guard let data = try? await item.loadTransferable(type: Data.self) else {
-            pickedCoverData = nil
-            return
-        }
-        // 太大的原图(几 MB+)会让 storeCover 落盘膨胀; 缩到 ~1024 长边
-        // 后再 JPEG 压。1024px JPEG 在 NowPlayingView 全屏渲染足够清晰。
-        pickedCoverData = downscale(data: data, maxLongSide: 1024) ?? data
+        guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
+        await preparePickedCover(data)
     }
 
-    private func downscale(data: Data, maxLongSide: CGFloat) -> Data? {
-        #if os(iOS)
-        guard let image = UIImage(data: data) else { return nil }
-        let longSide = max(image.size.width, image.size.height)
-        guard longSide > maxLongSide else { return image.jpegData(compressionQuality: 0.86) }
-        let scale = maxLongSide / longSide
-        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: target)
-        let resized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: target))
+    @MainActor
+    private func preparePickedCover(_ data: Data) async {
+        let requestID = UUID()
+        coverImportID = requestID
+        isLoadingCover = true
+        defer { if coverImportID == requestID { isLoadingCover = false } }
+        let processed = await Task.detached(priority: .userInitiated) {
+            LibraryArtworkImageProcessor.processUpload(data)
+        }.value
+        guard !Task.isCancelled, coverImportID == requestID else { return }
+        guard let processed else {
+            writebackErrorMessage = String(localized: "artwork_invalid_image")
+            return
         }
-        return resized.jpegData(compressionQuality: 0.86)
-        #else
-        // macOS 没有 UIGraphicsImageRenderer, 用 CGContext 走通用的 bitmap
-        // 渲染 → JPEG 编码路径。Apple 推荐的 NSImage 缩放 (lockFocus / draw)
-        // 会引入坐标系 + DPI 麻烦, 直接 CGImage + CGContext 最干净。
-        guard let image = NSImage(data: data),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return nil
-        }
-        let width = CGFloat(cgImage.width)
-        let height = CGFloat(cgImage.height)
-        let longSide = max(width, height)
-        let resized: CGImage
-        if longSide > maxLongSide {
-            let scale = maxLongSide / longSide
-            let target = CGSize(width: width * scale, height: height * scale)
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-            guard let ctx = CGContext(
-                data: nil,
-                width: Int(target.width),
-                height: Int(target.height),
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return nil }
-            ctx.interpolationQuality = .high
-            ctx.draw(cgImage, in: CGRect(origin: .zero, size: target))
-            guard let scaled = ctx.makeImage() else { return nil }
-            resized = scaled
-        } else {
-            resized = cgImage
-        }
-        let rep = NSBitmapImageRep(cgImage: resized)
-        return rep.representation(using: .jpeg, properties: [.compressionFactor: 0.86])
-        #endif
+        pickedCoverData = processed
     }
 
     /// 跟原始 Song 比对 ── 全部 trim 后比较,没差就 disable 保存按钮,
@@ -1622,7 +1581,7 @@ struct TagEditorView: View {
 
     @MainActor
     private func save(allowLyricsRemoval: Bool = false) async -> Bool {
-        guard !isSaving else { return false }
+        guard !isSaving, !isLoadingCover else { return false }
         isSaving = true
         defer { isSaving = false }
 
@@ -1675,8 +1634,6 @@ struct TagEditorView: View {
         updated.trackNumber = Int(trackText.trimmingCharacters(in: .whitespacesAndNewlines))
         updated.discNumber = Int(discText.trimmingCharacters(in: .whitespacesAndNewlines))
 
-        // A per-song cover reference has a stable filename, so selecting new
-        // bytes must count as an edit even when the reference string is unchanged.
         // Do not update that reference before remote verification: otherwise a
         // failed WebDAV replacement would still make the app show the new cover.
         let tagOrCoverChanged = pickedCoverData != nil
@@ -1709,9 +1666,8 @@ struct TagEditorView: View {
         }
 
         if let coverData = pickedCoverData {
-            guard let newFileName = await MetadataAssetStore.shared.storeCover(
-                coverData,
-                for: song.id
+            guard let newFileName = await MetadataAssetStore.shared.storeAttributedCover(
+                coverData, songID: song.id, origin: .selected
             ) else {
                 // Embedded writeback may already have succeeded. Keep the
                 // durable library fields aligned with the verified media file,
@@ -1725,6 +1681,7 @@ struct TagEditorView: View {
                 return false
             }
             updated.coverArtFileName = newFileName
+            library.replaceSong(updated)
             // 换的图在其它设备上也换(iCloud 同步手改的标签)。
             SongTagEditStore.shared.recordUserChosenCovers(songIDs: [song.id])
         }
@@ -1968,7 +1925,7 @@ struct TagEditorView: View {
     private func presentCoverPicker() {
         #if os(iOS)
         TagEditorCoverPickerSession.present { data in
-            pickedCoverData = downscale(data: data, maxLongSide: 1024) ?? data
+            Task { await preparePickedCover(data) }
         }
         #endif
     }
@@ -1993,6 +1950,7 @@ private final class TagEditorCoverPickerSession: NSObject,
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .images
         configuration.selectionLimit = 1
+        configuration.preferredAssetRepresentationMode = .current
 
         let picker = PHPickerViewController(configuration: configuration)
         let session = TagEditorCoverPickerSession(onPick: onPick)
@@ -2008,7 +1966,9 @@ private final class TagEditorCoverPickerSession: NSObject,
             return
         }
 
-        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self, weak picker] data, _ in
+        let type = provider.hasItemConformingToTypeIdentifier(UTType.gif.identifier)
+            ? UTType.gif.identifier : UTType.image.identifier
+        provider.loadDataRepresentation(forTypeIdentifier: type) { [weak self, weak picker] data, _ in
             Task { @MainActor [weak self, weak picker] in
                 guard let self, let picker else { return }
                 finish(picker: picker, data: data)

@@ -315,7 +315,10 @@ struct YearlyRankRows: View {
                         trend: nil,
                         share: HomeListeningRankBoardPolicy.share(playCount: item.playCount, leaderPlayCount: leaderPlayCount)
                     ) {
-                        ListeningRankArtwork(song: song(for: item), size: 42, isArtist: isArtistRanking, cornerRadius: 8)
+                        ListeningRankArtwork(
+                            song: song(for: item), size: 42, isArtist: isArtistRanking, cornerRadius: 8,
+                            candidateSongIDs: item.songIDs
+                        )
                     }
                 }
                 if items.count > collapsedCount {
@@ -363,7 +366,8 @@ struct YearlyLeaderArtwork: View {
             song: item.artworkSong(in: library),
             size: size,
             isArtist: isArtist,
-            cornerRadius: 18
+            cornerRadius: 18,
+            candidateSongIDs: item.songIDs
         )
         .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
     }
@@ -393,7 +397,10 @@ struct YearlyAlbumShelf: View {
                             ListeningRankArtwork(
                                 song: item.artworkSong(in: library),
                                 size: Self.cover,
-                                cornerRadius: 12
+                                cornerRadius: 12,
+                                candidateSongIDs: item.songIDs,
+                                isAlbum: true,
+                                album: library?.visibleAlbum(titled: item.title, artistName: item.subtitle)
                             )
                             Text(verbatim: item.title)
                                 .font(.footnote.weight(.semibold))

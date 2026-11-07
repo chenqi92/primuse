@@ -1,4 +1,5 @@
 import CloudKit
+import CryptoKit
 import Foundation
 import PrimuseKit
 import SwiftUI
@@ -102,6 +103,16 @@ final class CloudKitSyncService {
         static let songTagEditCover = "SongTagEditCover"
     }
 
+    // Large song covers reuse Playlist's deployed asset field. A distinct ID
+    // and no playlist name keep these records out of playlist decoding.
+    nonisolated static let songCoverAssetPrefix = "__song_cover_asset__:"
+
+    nonisolated static func songCoverAssetContentID(_ id: String) -> String? {
+        guard id.hasPrefix(songCoverAssetPrefix) else { return nil }
+        let contentID = String(id.dropFirst(songCoverAssetPrefix.count))
+        return LibraryArtworkContentIDPolicy.isValid(contentID) ? contentID : nil
+    }
+
     /// 是否家庭共享, 启用后 shareable record 写到 family zone, 否则继续走老的
     /// PrimuseSync zone (向后兼容现有用户)。用 UserDefaults 持久化 (CloudKit 自己
     /// 那 share 状态由 server 维护, 本地只缓存开关)。
@@ -137,6 +148,7 @@ final class CloudKitSyncService {
         }
         // Playlist 类型按 id 例外: 「我喜欢」及它的封面规则、「不喜欢」「随机时连播」这些记录每人独立。
         if recordType == RecordType.playlist {
+            if songCoverAssetContentID(id) != nil { return Self.zoneID }
             if id == MusicLibrary.likedSongsPlaylistID || MusicLibrary.recordPlaylistIDs.contains(id) {
                 return Self.zoneID
             }
@@ -1469,7 +1481,7 @@ final class CloudKitSyncService {
         var deletes: [String: [String]] = [:]
         for (name, deleting) in lastOperation {
             guard let meta = recordMetadata(for: CKRecord.ID(recordName: name)),
-                  let channel = Self.channel(for: meta.recordType),
+                  let channel = Self.channel(for: meta.recordType, id: meta.localID),
                   CloudSyncChannel.isEnabled(channel) else { continue }
             if deleting {
                 deletes[meta.recordType, default: []].append(meta.localID)
@@ -1496,8 +1508,17 @@ final class CloudKitSyncService {
     /// 封面图先于用到它的标签记录排队；没有歌再用的那张从云端删掉。
     func songTagEditCoversChanged(uploads: [String], deleted: [String]) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
-        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: uploads)
+        let assets = uploads.filter {
+            guard LibraryArtworkContentIDPolicy.isValid($0) else { return false }
+            let url = MetadataAssetStore.shared.customArtworkDirectoryURL.appendingPathComponent("\($0).jpg")
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            return size > LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes
+        }
+        let assetIDs = Set(assets)
+        enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: uploads.filter { !assetIDs.contains($0) })
+        enqueueOrDefer(recordType: RecordType.playlist, ids: assets.map { Self.songCoverAssetPrefix + $0 })
         enqueueOrDefer(recordType: RecordType.songTagEditCover, ids: deleted, deleting: true)
+        enqueueOrDefer(recordType: RecordType.playlist, ids: deleted.map { Self.songCoverAssetPrefix + $0 }, deleting: true)
     }
 
     private func enqueueAllSongTagEdits() {
@@ -1644,7 +1665,8 @@ final class CloudKitSyncService {
 
     /// Maps a CloudKit record type to the channel that controls it. Used to
     /// gate inbound (apply-remote) processing.
-    private static func channel(for recordType: String) -> CloudSyncChannel? {
+    static func channel(for recordType: String, id: String? = nil) -> CloudSyncChannel? {
+        if recordType == RecordType.playlist, let id, songCoverAssetContentID(id) != nil { return .sources }
         switch recordType {
         case RecordType.playlist: return .playlists
         case RecordType.smartPlaylist: return .playlists
@@ -2277,7 +2299,7 @@ final class CloudKitSyncService {
             )
         }
 
-        if let channel = Self.channel(for: record.recordType),
+        if let channel = Self.channel(for: record.recordType, id: recordMetadata(for: record.recordID)?.localID),
            !CloudSyncChannel.isEnabled(channel) {
             return
         }
@@ -2379,7 +2401,7 @@ final class CloudKitSyncService {
             )
         }
 
-        if let channel = Self.channel(for: record.recordType),
+        if let channel = Self.channel(for: record.recordType, id: recordMetadata(for: record.recordID)?.localID),
            !CloudSyncChannel.isEnabled(channel) {
             return
         }
@@ -2466,6 +2488,13 @@ final class CloudKitSyncService {
     /// 带附件算不同(保留待传, 行为与原来一致)。JSON 数据按内容比, 不看键的顺序 ——
     /// 编码器不保证两次输出的键序一致, 逐字节比会把内容相同的记录判成不同。
     nonisolated static func differingRecordKeys(_ local: CKRecord, _ server: CKRecord) -> [String] {
+        let prefix = RecordType.playlist + "/"
+        if local.recordType == RecordType.playlist, local.recordID == server.recordID,
+           local.recordID.recordName.hasPrefix(prefix),
+           let contentID = songCoverAssetContentID(String(local.recordID.recordName.dropFirst(prefix.count))) {
+            return readSongCoverAsset(local, contentID: contentID) != nil
+                && readSongCoverAsset(server, contentID: contentID) != nil ? [] : [songIdentitiesAssetField]
+        }
         let keys = Set(local.allKeys())
             .union(local.changedKeys())
             .subtracting(["updatedAt"])
@@ -2517,7 +2546,7 @@ final class CloudKitSyncService {
             supersedeDeferredRadioChange(recordID: recordID, serverUpdatedAt: nil)
         }
 
-        if let channel = Self.channel(for: recordType),
+        if let channel = Self.channel(for: recordType, id: parseLocalID(from: recordID, recordType: recordType)),
            !CloudSyncChannel.isEnabled(channel) {
             return
         }
@@ -2527,6 +2556,15 @@ final class CloudKitSyncService {
            let source = sourcesStore.source(id: id)
                 ?? sourcesStore.sourceDeletionRecord(id: id)?.tombstone,
            !MusicSourceCloudSyncPolicy.isEligible(source) {
+            return
+        }
+        if recordType == RecordType.playlist, let contentID = Self.songCoverAssetContentID(id) {
+            #if !os(tvOS)
+            if SongTagEditStore.shared.remotePortableCoverDeleted(contentID: contentID),
+               let target = engine(for: recordID.zoneID) {
+                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
+            }
+            #endif
             return
         }
         if recordType == RecordType.playlist,
@@ -2645,6 +2683,17 @@ final class CloudKitSyncService {
     // MARK: - Playlist mapping
 
     private func populatePlaylistRecord(_ record: CKRecord, playlistID: String) -> Bool {
+        if let contentID = Self.songCoverAssetContentID(playlistID) {
+            #if !os(tvOS)
+            let store = SongTagEditStore.shared
+            guard store.songIDs(usingPortableCover: contentID).contains(where: { songTagEditIsSyncable(songID: $0) }),
+                  let data = store.portableCoverData(contentID: contentID) else { return false }
+            return Self.writeSongCoverAsset(data, contentID: contentID, to: record,
+                assetDirectory: MetadataAssetStore.shared.customArtworkDirectoryURL)
+            #else
+            return false
+            #endif
+        }
         if let owner = LibraryArtworkOwner.fromCloudRecordID(playlistID) {
             return populateArtworkOverrideRecord(record, owner: owner)
         }
@@ -2708,6 +2757,15 @@ final class CloudKitSyncService {
     @discardableResult
     private func applyPlaylistRecord(_ record: CKRecord) -> Bool {
         if let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
+           let contentID = Self.songCoverAssetContentID(id) {
+            #if !os(tvOS)
+            if let data = Self.readSongCoverAsset(record, contentID: contentID) {
+                SongTagEditStore.shared.applyRemotePortableCover(contentID: contentID, data: data)
+            }
+            #endif
+            return false
+        }
+        if let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
            let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
             return applyArtworkOverrideRecord(record, owner: owner)
         }
@@ -2723,6 +2781,29 @@ final class CloudKitSyncService {
             songIDs: songIDs,
             identities: payload.identities
         )
+    }
+
+    nonisolated static func writeSongCoverAsset(
+        _ data: Data, contentID: String, to record: CKRecord, assetDirectory: URL
+    ) -> Bool {
+        guard LibraryArtworkContentIDPolicy.isValid(contentID),
+              LibraryArtworkImageProcessor.isValidStoredArtwork(data),
+              SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == contentID else { return false }
+        let url = assetDirectory.appendingPathComponent("\(contentID).jpg")
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        record[songIdentitiesAssetField] = CKAsset(fileURL: url)
+        return true
+    }
+
+    nonisolated static func readSongCoverAsset(_ record: CKRecord, contentID: String) -> Data? {
+        guard LibraryArtworkContentIDPolicy.isValid(contentID),
+              let url = (record[songIdentitiesAssetField] as? CKAsset)?.fileURL,
+              let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size <= LibraryArtworkContentIDPolicy.maximumAnimatedArtworkBytes,
+              let data = try? Data(contentsOf: url),
+              LibraryArtworkImageProcessor.isValidStoredArtwork(data),
+              SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == contentID else { return nil }
+        return data
     }
 
     private func populateArtworkOverrideRecord(
@@ -2891,7 +2972,8 @@ final class CloudKitSyncService {
     private func decodePlaylistPayload(
         _ record: CKRecord
     ) -> (playlist: Playlist, identities: [SongIdentity]?)? {
-        guard let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist) else {
+        guard let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist),
+              Self.songCoverAssetContentID(id) == nil else {
             return nil
         }
         // 超大歌单的信封在附件里; 引擎在回调前已把附件下载到本地临时文件。
@@ -3164,7 +3246,8 @@ final class CloudKitSyncService {
         let store = SongTagEditStore.shared
         guard LibraryArtworkContentIDPolicy.isValid(contentID),
               store.songIDs(usingPortableCover: contentID).contains(where: { songTagEditIsSyncable(songID: $0) }),
-              let data = store.portableCoverData(contentID: contentID) else { return false }
+              let data = store.portableCoverData(contentID: contentID),
+              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes else { return false }
         record["image"] = data
         return true
     }
@@ -3779,6 +3862,13 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         guard let id = parseLocalID(from: server.recordID, recordType: RecordType.playlist) else { return }
         if let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
             mergeArtworkOverrideRecord(local: local, server: server, owner: owner)
+            return
+        }
+        if let contentID = Self.songCoverAssetContentID(id) {
+            if Self.readSongCoverAsset(server, contentID: contentID) != nil {
+                _ = applyPlaylistRecord(server)
+                local[Self.songIdentitiesAssetField] = server[Self.songIdentitiesAssetField]
+            }
             return
         }
         guard !MirrorPlaylistIdentity.isMirrorPlaylist(id) else {

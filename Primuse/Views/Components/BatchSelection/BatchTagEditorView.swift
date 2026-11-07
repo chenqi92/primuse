@@ -68,6 +68,8 @@ struct BatchTagEditorView: View {
     @State private var firstTrackNumber = 1
     @State private var coverItem: PhotosPickerItem?
     @State private var coverData: Data?
+    @State private var coverLoadFailed = false
+    @State private var isLoadingCover = false
     @State private var review: TagChangeReviewInput?
 
     var body: some View {
@@ -98,7 +100,7 @@ struct BatchTagEditorView: View {
                     // The picker's label closure is not main-actor isolated;
                     // hand it a value rather than reading view state inside.
                     let currentCover = coverData
-                    PhotosPicker(selection: $coverItem, matching: .images) {
+                    PhotosPicker(selection: $coverItem, matching: .images, preferredItemEncoding: .current) {
                         BatchCoverPickerLabel(coverData: currentCover)
                     }
                     .buttonStyle(.plain)
@@ -125,7 +127,7 @@ struct BatchTagEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("batch_edit_review") { review = makeReview() }
-                        .disabled(!hasAnyChange)
+                        .disabled(!hasAnyChange || isLoadingCover)
                 }
             }
             .navigationDestination(item: $review) { input in
@@ -134,8 +136,17 @@ struct BatchTagEditorView: View {
                     dismiss()
                 }
             }
-            .onChange(of: coverItem) { _, item in
-                Task { coverData = await BatchCoverImage.load(item) }
+            .task(id: coverItem) {
+                guard let coverItem else { isLoadingCover = false; return }
+                isLoadingCover = true
+                let loaded = await BatchCoverImage.load(coverItem)
+                guard !Task.isCancelled else { return }
+                isLoadingCover = false
+                if let loaded { coverData = loaded }
+                else { coverLoadFailed = true }
+            }
+            .alert(String(localized: "artwork_invalid_image"), isPresented: $coverLoadFailed) {
+                Button(String(localized: "ok"), role: .cancel) {}
             }
         }
         #if os(macOS)
@@ -247,9 +258,9 @@ private struct BatchCoverPickerLabel: View {
     var body: some View {
         HStack(spacing: 12) {
             if let coverData, let image = BatchCoverImage.image(from: coverData) {
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                UploadedArtworkAnimation(previewData: coverData, presentationRole: .animatedHero) {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                }
                     .frame(width: 48, height: 48)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             } else {
@@ -623,7 +634,9 @@ struct TagChangeReviewView: View {
                     Toggle(isOn: $appliesCover) {
                         HStack(spacing: 12) {
                             if let image = BatchCoverImage.image(from: coverData) {
-                                image.resizable().aspectRatio(contentMode: .fill)
+                                UploadedArtworkAnimation(previewData: coverData, presentationRole: .animatedHero) {
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                }
                                     .frame(width: 44, height: 44)
                                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                             }
@@ -891,12 +904,13 @@ extension TagCleanupProposal {
     }
 }
 
-/// Loads a picked picture and scales it to a cover: 1024 px on the long side
-/// as JPEG, which is what the single-song editor stores too.
+/// Uses the same bounded static image or original animation as the single-song editor.
 enum BatchCoverImage {
     static func load(_ item: PhotosPickerItem?) async -> Data? {
         guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return nil }
-        return scaled(data) ?? data
+        return await Task.detached(priority: .userInitiated) {
+            LibraryArtworkImageProcessor.processUpload(data)
+        }.value
     }
 
     static func scaled(_ data: Data, maxPixelSize: Int = 1024) -> Data? {

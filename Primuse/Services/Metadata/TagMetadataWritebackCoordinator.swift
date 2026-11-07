@@ -93,13 +93,21 @@ enum TagMetadataWritebackCoordinator {
             }
         )
 
+        // Music containers and server cover APIs receive a compatible still;
+        // the editor persists the original animation as the selected artwork.
+        let sourceCover = await Task.detached(priority: .utility) {
+            coverData.flatMap { data in
+                LibraryArtworkImageProcessor.isAnimatedUpload(data)
+                    ? SidecarWriteService.embeddableCoverData(data) : data
+            }
+        }.value
         switch mode {
         case .embedded:
             do {
                 let result = try await connector.writeEmbeddedMetadata(
                     original: original,
                     updated: updated,
-                    coverData: coverData,
+                    coverData: sourceCover,
                     lyrics: .keep,
                     writesTextTags: true
                 )
@@ -137,7 +145,7 @@ enum TagMetadataWritebackCoordinator {
             let result = await writer.writeScrapedMetadata(
                 original: original,
                 updated: updated,
-                coverData: coverData,
+                coverData: sourceCover,
                 lyricsLines: nil,
                 lyricsContent: nil
             )
@@ -175,7 +183,7 @@ enum TagMetadataWritebackCoordinator {
             let result = await SidecarWriteService.shared.writeSidecars(
                 for: updated,
                 using: connector,
-                coverData: coverData,
+                coverData: sourceCover,
                 lyricsLines: nil
             )
             if result.coverWritten {

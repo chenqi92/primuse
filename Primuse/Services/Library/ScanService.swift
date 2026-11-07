@@ -772,10 +772,11 @@ final class ScanService {
             let resumableStageSessions = startupState.checkpoints.compactMapValues {
                 $0.subsonicCatalogState?.stageSessionID
             }
-            Task.detached(priority: .utility) {
+            SourceCacheReclamationQueue.enqueue {
                 do {
-                    let discarded = try pagedCatalogStore.discardUnresumableStages(
-                        keepingStageSessionIDs: resumableStageSessions
+                    let discarded = try await pagedCatalogStore.discardUnresumableStagesInBatches(
+                        keepingStageSessionIDs: resumableStageSessions,
+                        afterBatch: Self.waitForCatalogCleanupWindow
                     )
                     if !discarded.isEmpty {
                         plog("🗂️ Discarded \(discarded.count) unresumable catalogue stage(s)")
@@ -2384,16 +2385,32 @@ final class ScanService {
         checkpoints[sourceID] = nil
         persistCheckpoints(force: true)
         if let stageSessionID, let pagedCatalogStore {
-            Task.detached(priority: .utility) {
-                try? pagedCatalogStore.discard(
-                    sourceID: sourceID,
-                    stageSessionID: stageSessionID
-                )
-            }
+            Self.scheduleCatalogCleanup(store: pagedCatalogStore, sourceID: sourceID, stageSessionID: stageSessionID)
         }
         if scanStates[sourceID]?.canResume == true {
             scanStates[sourceID] = nil
         }
+    }
+
+    private static func scheduleCatalogCleanup(
+        store: PagedSongCatalogStagingStore, sourceID: String, stageSessionID: String
+    ) {
+        SourceCacheReclamationQueue.enqueue {
+            do {
+                try await store.discardInBatches(sourceID: sourceID, stageSessionID: stageSessionID,
+                                                afterBatch: waitForCatalogCleanupWindow)
+            } catch is CancellationError { }
+            catch { plog("⚠️ Catalogue stage cleanup deferred: \(error.localizedDescription)") }
+        }
+    }
+
+    nonisolated private static func waitForCatalogCleanupWindow(_ removed: Int) async throws {
+        #if os(iOS)
+        while await MainActor.run(body: { UIApplication.shared.applicationState != .active }) {
+            try await Task.sleep(for: .seconds(1))
+        }
+        #endif
+        try Task.checkCancellation()
     }
 
     func removeSynologyAPI(for sourceID: String) {
@@ -4747,23 +4764,15 @@ final class ScanService {
                 if !stagedCommit.0.metadataInspectedSongIDs.isEmpty {
                     metadataInspectionHandler?(stagedCommit.0.metadataInspectedSongIDs)
                 }
-                try? await Task.detached(priority: .utility) {
-                    try stagingStore.discard(
-                        sourceID: source.id,
-                        stageSessionID: stageSnapshot.stageSessionID
-                    )
-                }.value
+                Self.scheduleCatalogCleanup(store: stagingStore, sourceID: source.id,
+                                            stageSessionID: stageSnapshot.stageSessionID)
                 return true
             } catch PagedSongCatalogError.unavailable {
                 guard pagedFenceIsValid() else { return true }
                 do {
                     if let activeStageSessionID {
-                        try await Task.detached(priority: .utility) {
-                            try stagingStore.discard(
-                                sourceID: source.id,
-                                stageSessionID: activeStageSessionID
-                            )
-                        }.value
+                        Self.scheduleCatalogCleanup(store: stagingStore, sourceID: source.id,
+                                                    stageSessionID: activeStageSessionID)
                         guard pagedFenceIsValid() else { return true }
                     }
                     try await resetPagedServerCatalogCheckpoint(

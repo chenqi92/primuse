@@ -1988,7 +1988,12 @@ struct LibraryArtworkEditorSheet: View {
     }
 
     private func writeCoverToSongs(_ data: Data, skipping skippedSongID: String?) async -> Bool {
-        let cover = BatchCoverImage.scaled(data) ?? data
+        guard let cover = await Task.detached(priority: .userInitiated, operation: {
+            LibraryArtworkImageProcessor.processUpload(data)
+        }).value else {
+            songCoverFailure = String(localized: "artwork_invalid_image")
+            return false
+        }
         let changes = songsForCoverSync.compactMap { song -> (original: PrimuseKit.Song, updated: PrimuseKit.Song)? in
             guard song.id != skippedSongID else { return nil }
             let current = library.song(id: song.id) ?? song

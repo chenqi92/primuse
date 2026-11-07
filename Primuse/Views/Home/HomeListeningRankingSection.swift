@@ -405,18 +405,22 @@ struct HomeListeningRankingSection: View {
         } else {
             ListeningRankArtwork(
                 song: artworkSong(for: rank), size: size,
-                isArtist: rankedCategory == .artists, cornerRadius: cornerRadius
+                isArtist: rankedCategory == .artists, cornerRadius: cornerRadius,
+                candidateSongIDs: rank.songGroups.flatMap { $0 },
+                isAlbum: rankedCategory == .albums,
+                album: rankedCategory == .albums
+                    ? library.visibleAlbum(titled: rank.title, artistName: rank.subtitle) : nil,
+                artist: rankedCategory == .artists ? library.visibleArtist(named: rank.title) : nil
             )
         }
     }
 
-    /// 这一名的门面：组里听得最多的那首；它已经不在库里时退到还在的第一首。
     private func artworkSong(for rank: HomeListeningRank) -> Song? {
-        if let id = rank.artworkSongID, let song = library.unobservedVisibleSong(id: id) { return song }
-        for id in rank.songIDs {
-            if let song = library.unobservedVisibleSong(id: id) { return song }
-        }
-        return nil
+        // 封面回填只重绘当前榜单，不把替换令牌放进 Request 重算播放历史。
+        ListeningRankArtwork.candidates(
+            preferredSongID: rank.artworkSongID, songIDs: rank.songGroups.flatMap { $0 },
+            library: library
+        ).first
     }
 
     private func compactRatingPicker(
@@ -492,10 +496,9 @@ struct HomeListeningRankingSection: View {
         let period = period
         let category = category
         let task = Task.detached(priority: .utility) {
-            let played = Set(events.map(\.songID))
             var songs: [String: Song] = [:]
-            songs.reserveCapacity(played.count)
-            for song in visibleSongs where played.contains(song.id) {
+            songs.reserveCapacity(visibleSongs.count)
+            for song in visibleSongs {
                 songs[song.id] = songs[song.id] ?? song
             }
             return HomeListeningRanking.ranks(events: events, songs: songs, folders: folders, period: period, category: category, calendar: request.calendar)

@@ -1,6 +1,7 @@
 import AVFoundation
 import PrimuseKit
 import SwiftUI
+import Vision
 import XCTest
 @testable import Primuse
 
@@ -293,5 +294,135 @@ final class FloatingLyricsTests: XCTestCase {
         attachment.name = "Vivid Mesh rendering"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+@MainActor
+final class MiniPlayerLyricsRenderingTests: XCTestCase {
+    func testLyricsRemainVisibleAcrossPlayerLayoutsAndTextSizes() async throws {
+        try await checkRendering(lateLyrics: false)
+    }
+
+    func testMountedMinimalPlayerDisplaysLateLyricsAndSeekUpdates() async throws {
+        try await checkRendering(lateLyrics: true)
+    }
+
+    func testMinimalInsetDisplaysNewlyCachedChineseLyricsWithoutRemounting() async throws {
+        try await checkRendering(lateLyrics: true, cachedLyrics: true)
+    }
+
+    private func checkRendering(lateLyrics: Bool, cachedLyrics: Bool = false) async throws {
+        let suite = "MiniPlayerLyricsRenderingTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(true, forKey: PlayerAppearancePreferences.miniPlayerLyricsKey)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults, startsPreparing: true)
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        settings.lockScreenLyricsEnabled = false
+        let player = AudioPlayerService(playbackSettings: settings, activateAudioSession: { _ in })
+        let song = Song(id: suite, title: "天狐 (Live)", duration: 120, fileFormat: .flac,
+                        filePath: "", sourceID: "mini-lyrics-rendering-fixture")
+        if cachedLyrics {
+            addTeardownBlock { _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id) }
+        }
+        player.currentSong = song
+        player.currentTime = 5
+        let service = FloatingLyricsService.shared
+        let consumer = UUID()
+        service.setConsumer(consumer, active: true, player: player)
+        defer { service.setConsumer(consumer, active: false, player: player) }
+        let lines = [LyricLine(timestamp: 1, text: cachedLyrics ? "晚风点亮窗边灯" : "Moonlight"),
+                     LyricLine(timestamp: 10, text: cachedLyrics ? "纸船载着星光回航" : "Starlight")]
+        func publishLyrics() async throws {
+            if cachedLyrics {
+                XCTAssertNil(service.presentation.current)
+                let saved = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id)
+                XCTAssertTrue(saved)
+            } else {
+                NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id,
+                                                userInfo: ["lyrics": lines])
+            }
+            let deadline = Date().addingTimeInterval(1)
+            while service.presentation.current != lines[0].text, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(service.presentation.current, lines[0].text)
+        }
+        if !lateLyrics { try await publishLyrics() }
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: AnyView(EmptyView()))
+        host.safeAreaRegions = []
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let cases: [(String, CGFloat, DynamicTypeSize)] = lateLyrics
+            ? [(cachedLyrics ? "minimal-inset-cache" : "minimal-settings", 390, .large)]
+            : [("standard", 390, .large), ("minimal", 390, .large),
+               ("minimal-small", 320, .large), ("minimal-large-text", 390, .accessibility1),
+               ("minimal-settings", 390, .large), ("minimal-inset", 390, .large)]
+        for (name, width, textSize) in cases {
+            let dock = MinimalNowPlayingAccessory(onTap: {}, onShowQueue: {})
+            let content: AnyView
+            switch name {
+            case "standard":
+                content = AnyView(VStack { Spacer(); LegacyNowPlayingAccessory(onTap: {}) })
+            case "minimal-settings":
+                content = AnyView(Form { Text("Settings") }.minimalSafeAreaBar(edge: .bottom) { dock })
+            case "minimal-inset", "minimal-inset-cache":
+                content = AnyView(Form { Text("Settings") }.safeAreaInset(edge: .bottom) { dock.background(.bar) })
+            default:
+                content = AnyView(VStack { Spacer(); dock })
+            }
+            window.frame = CGRect(x: 0, y: 0, width: width, height: 300)
+            host.rootView = AnyView(content
+                .frame(width: width, height: 300)
+                .background(Color.white)
+                .environment(player)
+                .environment(library)
+                .environment(AppServices.shared.sourceManager)
+                .environment(\.colorScheme, .light)
+                .dynamicTypeSize(textSize)
+                .defaultAppStorage(defaults))
+            try await Task.sleep(for: .milliseconds(250))
+            if cachedLyrics { try assertVisible(lines[0].text, in: host, name: name + "-empty", expected: false) }
+            if lateLyrics { try await publishLyrics() }
+            try assertVisible(lines[0].text, in: host, name: name)
+            if lateLyrics {
+                player.currentTime = 12
+                try await Task.sleep(for: .milliseconds(250))
+                XCTAssertEqual(service.presentation.current, lines[1].text)
+                try assertVisible(lines[1].text, in: host, name: name + "-seek")
+                defaults.set(false, forKey: PlayerAppearancePreferences.miniPlayerLyricsKey)
+                try await Task.sleep(for: .milliseconds(250))
+                try assertVisible(lines[1].text, in: host, name: name + "-disabled", expected: false)
+            }
+        }
+    }
+
+    private func assertVisible(_ lyric: String, in host: UIViewController, name: String,
+                               expected: Bool = true) throws {
+        host.view.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        let image = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLanguages = lyric.canBeConverted(to: .ascii) ? ["en-US"] : ["zh-Hans"]
+        request.recognitionLevel = .accurate
+        try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+        let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+        XCTAssertEqual(text.contains(lyric), expected, "\(name): visible text = \(text)")
     }
 }

@@ -1239,6 +1239,7 @@ private extension ListeningStatsChartsView {
                 ListeningStatsRankList(
                     items: items,
                     isArtistRanking: rankTab == .artists,
+                    isAlbumRanking: rankTab == .albums,
                     identity: rankTab.rawValue + "." + range.rawValue
                 )
             }

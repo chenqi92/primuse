@@ -2328,6 +2328,36 @@ extension ListeningFeaturesTests {
         }
     }
 
+    func testRankingArtworkObservesCoverBackfillWithoutReaggregatingHistory() async throws {
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let model = HomeDiscoveryModel()
+        var item = song("ranking-backfill-\(UUID().uuidString)")
+        item.coverArtFileName = nil
+        library.addSongs([item])
+        for _ in 0..<200 where library.visibleSongs.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let request = HomeListeningRankingSection.Request(
+            model: model, library: library, period: .week, category: .songs
+        )
+        let changed = expectation(description: "Ranking artwork observes in-place metadata replacement")
+        let before = withObservationTracking {
+            ListeningRankArtwork.candidates(preferredSongID: item.id, songIDs: [item.id], library: library)
+        } onChange: {
+            changed.fulfill()
+        }
+        XCTAssertEqual(before.count, 1)
+        XCTAssertNil(before.first?.coverArtFileName)
+        item.coverArtFileName = "ranking-backfilled-cover.jpg"
+        library.replaceSongs([item], maintenance: .immediate)
+        await fulfillment(of: [changed], timeout: 3)
+        let after = ListeningRankArtwork.candidates(preferredSongID: item.id, songIDs: [item.id], library: library)
+        XCTAssertEqual(after.first?.coverArtFileName, item.coverArtFileName)
+        XCTAssertEqual(request, HomeListeningRankingSection.Request(
+            model: model, library: library, period: .week, category: .songs
+        ))
+    }
+
     func testHomeRankingExcludesNonMusicAcrossCategoriesAndPeriods() throws {
         let calendar = ListeningCalendar.make(
             locale: Locale(identifier: "zh_CN"), timeZone: try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))

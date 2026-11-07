@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import PrimuseKit
 
@@ -199,6 +200,158 @@ struct SubsonicCatalogPagingPolicyTests {
 
 @Suite("Paged Subsonic catalogue staging")
 struct PagedSongCatalogStagingStoreTests {
+    @Test("Discarded catalogue pages are reused without shrinking or growing the database")
+    func discardedPagesAreReusedByTheNextScan() async throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        let observer = try DatabaseQueue(path: url.path)
+        func seed(generation: Int) throws {
+            let session = "session-\(generation)"
+            try store.reset(sourceID: "source", stageSessionID: session, ownerGeneration: generation,
+                            replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "revision")
+            for offset in stride(from: 0, to: 5_000, by: 500) {
+                let songs = (offset..<offset + 500).map(makeSong(index:))
+                let hierarchy = songs.flatMap { song in
+                    (0..<3).map { suffix in
+                        SourceSyncIndexedItem(stableKey: "\(song.id)-\(suffix)", path: "\(song.filePath).\(suffix)",
+                            parentPath: "/Music", isDirectory: false, songIDs: [song.id], size: 1_024,
+                            modifiedDate: nil, revision: "r1")
+                    }
+                }
+                _ = try store.stagePage(sourceID: "source", stageSessionID: session,
+                    scopeFingerprint: "account", catalogRevision: "revision", offset: offset,
+                    nextOffset: offset + 500 < 5_000 ? offset + 500 : nil, itemIDs: songs.map(\.id),
+                    songs: songs, metadataInspectedSongIDs: [], hierarchyItems: hierarchy, addedSongCount: 0)
+            }
+        }
+        try seed(generation: 1)
+        let before = try await observer.read { db in
+            (try Int.fetchOne(db, sql: "PRAGMA page_count") ?? 0,
+             try Int.fetchOne(db, sql: "PRAGMA freelist_count") ?? 0,
+             try Int.fetchOne(db, sql: "PRAGMA page_size") ?? 0)
+        }
+        let started = ContinuousClock.now
+        let batches = AsyncStream<Int>.makeStream()
+        defer { batches.continuation.finish() }
+        try await store.discardInBatches(sourceID: "source", stageSessionID: "session-1") { count in
+            if count > 0 { batches.continuation.yield(count) }
+        }
+        let elapsed = started.duration(to: .now)
+        batches.continuation.finish()
+        var reclaimed: [Int] = []
+        for await count in batches.stream { reclaimed.append(count) }
+        #expect(reclaimed.count == 3)
+        #expect(reclaimed.reduce(0, +) == 25_000)
+        let cleared = try await observer.read { db in
+            for table in ["pagedCatalogItems", "pagedCatalogSongs", "pagedCatalogHierarchy", "pagedCatalogStages"] {
+                #expect(try Int.fetchOne(db, sql: "SELECT count(*) FROM \(table)") == 0)
+            }
+            return (try Int.fetchOne(db, sql: "PRAGMA page_count") ?? 0,
+                    try Int.fetchOne(db, sql: "PRAGMA freelist_count") ?? 0)
+        }
+        #expect(cleared.0 == before.0)
+        #expect(cleared.1 > before.1)
+        try seed(generation: 2)
+        try await observer.read { (db: Database) throws -> Void in
+            #expect(try Int.fetchOne(db, sql: "PRAGMA page_count") == before.0)
+            #expect((try Int.fetchOne(db, sql: "PRAGMA freelist_count") ?? 0) < cleared.1)
+            #expect(try String.fetchOne(db, sql: "PRAGMA quick_check") == "ok")
+            #expect(try Int.fetchOne(db, sql: "SELECT count(*) FROM pagedCatalogSongs") == 5_000)
+            #expect(try Int.fetchOne(db, sql: "SELECT count(*) FROM pagedCatalogHierarchy") == 15_000)
+        }
+        try store.reset(sourceID: "source", stageSessionID: "session-3", ownerGeneration: 3,
+                        replacingStageSessionID: "session-2", scopeFingerprint: "account", catalogRevision: "revision")
+        try await observer.read { (db: Database) throws -> Void in
+            #expect(try Int.fetchOne(db, sql: "PRAGMA page_count") == before.0)
+            #expect(try Int.fetchOne(db, sql: "PRAGMA freelist_count") == cleared.1)
+        }
+        print("Catalogue page reuse songs=5000 hierarchy=15000 reusableBytes=\((cleared.1 - before.1) * before.2) fileGrowth=0 cleanup=\(elapsed)")
+    }
+
+    @Test("Whole-table reclamation stops clearing shared tables when another source starts")
+    func anotherSourceStartingDuringReclamationKeepsItsRows() async throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        try store.reset(sourceID: "source", stageSessionID: "old", ownerGeneration: 1,
+                        replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "revision")
+        let songs = (0..<600).map(makeSong(index:))
+        _ = try store.stagePage(sourceID: "source", stageSessionID: "old", scopeFingerprint: "account",
+            catalogRevision: "revision", offset: 0, nextOffset: nil, itemIDs: songs.map(\.id), songs: songs,
+            metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 0)
+        let otherSong = makeSong(index: 9_999)
+        try await store.discardInBatches(sourceID: "source", stageSessionID: "old") { count in
+            guard count > 0, try store.snapshot(sourceID: "other") == nil else { return }
+            try store.reset(sourceID: "other", stageSessionID: "new", ownerGeneration: 2,
+                            replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "revision")
+            _ = try store.stagePage(sourceID: "other", stageSessionID: "new", scopeFingerprint: "account",
+                catalogRevision: "revision", offset: 0, nextOffset: nil, itemIDs: [otherSong.id], songs: [otherSong],
+                metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 1)
+        }
+        #expect(try store.snapshot(sourceID: "source") == nil)
+        #expect(try store.snapshot(sourceID: "other")?.stageSessionID == "new")
+        #expect(try store.delta(sourceID: "other", existingByID: [:]).upserts == [otherSong])
+        #expect(try store.stagedItemIDs(sourceID: "other", among: [otherSong.id]) == [otherSong.id])
+    }
+
+    @Test("Cancelled cleanup resumes orphan rows without damaging a resumable source")
+    func interruptedCleanupResumesInBoundedBatches() async throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        let songs = (0..<1_250).map(makeSong(index:))
+        for sourceID in ["source", "retained"] {
+            try store.reset(sourceID: sourceID, stageSessionID: sourceID, ownerGeneration: 1,
+                            replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "revision")
+            _ = try store.stagePage(sourceID: sourceID, stageSessionID: sourceID,
+                scopeFingerprint: "account", catalogRevision: "revision", offset: 0, nextOffset: nil,
+                itemIDs: songs.map(\.id), songs: songs, metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 0)
+        }
+        do {
+            try await store.discardInBatches(sourceID: "source", stageSessionID: "source") { count in
+                #expect(count <= 512)
+                if count > 0 { throw CancellationError() }
+            }
+            Issue.record("Cleanup should stop after its first committed batch")
+        } catch is CancellationError { }
+        #expect(try store.snapshot(sourceID: "source") == nil)
+        #expect(try store.stagedSongIDs(sourceID: "source", among: songs.map(\.id)).count == songs.count)
+        let reopened = try PagedSongCatalogStagingStore(path: url.path)
+        try reopened.releaseOwnershipFromEarlierLaunch()
+        _ = try await reopened.discardUnresumableStagesInBatches(keepingStageSessionIDs: ["retained": "retained"]) { count in
+            #expect(count <= 512)
+        }
+        #expect(try reopened.stagedSongIDs(sourceID: "source", among: songs.map(\.id)).isEmpty)
+        #expect(try reopened.delta(sourceID: "retained", existingByID: [:]).upserts.count == songs.count)
+        #expect(try reopened.stagedItemIDs(sourceID: "source", among: songs.map(\.id)).isEmpty)
+    }
+
+    @Test("A new catalogue stage wins over an older cleanup between batches")
+    func newStageStopsOldCleanup() async throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        try store.reset(sourceID: "source", stageSessionID: "old", ownerGeneration: 1,
+                        replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "revision")
+        let songs = (0..<600).map(makeSong(index:))
+        _ = try store.stagePage(sourceID: "source", stageSessionID: "old",
+            scopeFingerprint: "account", catalogRevision: "revision", offset: 0, nextOffset: nil,
+            itemIDs: songs.map(\.id), songs: songs, metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 0)
+        let replacement = makeSong(index: 9_999)
+        try await store.discardInBatches(sourceID: "source", stageSessionID: "old") { count in
+            guard count > 0 else { return }
+            try store.reset(sourceID: "source", stageSessionID: "new", ownerGeneration: 2,
+                            replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "revision")
+            _ = try store.stagePage(sourceID: "source", stageSessionID: "new",
+                scopeFingerprint: "account", catalogRevision: "revision", offset: 0, nextOffset: nil,
+                itemIDs: [replacement.id], songs: [replacement], metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 1)
+        }
+        try await store.discardInBatches(sourceID: "source", stageSessionID: "old")
+        #expect(try store.snapshot(sourceID: "source")?.stageSessionID == "new")
+        #expect(try store.delta(sourceID: "source", existingByID: [:]).upserts == [replacement])
+    }
+
     @Test("Cancelled reconciliation leaves the durable stage available for retry")
     func cancelledDeltaCanBeRetried() async throws {
         let url = temporaryStoreURL()

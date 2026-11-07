@@ -889,6 +889,7 @@ actor LibrarySearchIndex {
     /// amplification while the short inter-batch pause keeps reads responsive.
     private static let metadataBatchSize = 512
     private static let lyricsBatchSize = 96
+    private static let lyricsInventoryMinimumCount = 512
     private static let lyricQueryMinimumLength = 3
     private static let preparationPendingKey =
         "primuse.librarySearchIndex.preparationPending.v1"
@@ -903,7 +904,10 @@ actor LibrarySearchIndex {
     ])
 
     private let dbPool: DatabasePool?
+    private let suppliedAssetStore: MetadataAssetStore?
+    private var assetStore: MetadataAssetStore { suppliedAssetStore ?? .shared }
     private let metadataBatchDidWriteForTesting: (@Sendable (Int) async -> Void)?
+    private let lyricsBatchDidWriteForTesting: (@Sendable (Int) async -> Void)?
     private var lastMetadataRevisionKey: String?
     private var projectionAlbums: [Album] = []
     private var projectionAlbumByID: [String: Album] = [:]
@@ -1050,9 +1054,13 @@ actor LibrarySearchIndex {
 
     init(
         fileManager: FileManager = .default, storageDirectory: URL? = nil,
-        metadataBatchDidWriteForTesting: (@Sendable (Int) async -> Void)? = nil
+        assetStore: MetadataAssetStore? = nil,
+        metadataBatchDidWriteForTesting: (@Sendable (Int) async -> Void)? = nil,
+        lyricsBatchDidWriteForTesting: (@Sendable (Int) async -> Void)? = nil
     ) {
+        self.suppliedAssetStore = assetStore
         self.metadataBatchDidWriteForTesting = metadataBatchDidWriteForTesting
+        self.lyricsBatchDidWriteForTesting = lyricsBatchDidWriteForTesting
         do {
             #if os(tvOS)
             let base = fileManager.primuseDirectoryURL(for: .cachesDirectory)
@@ -1334,7 +1342,7 @@ actor LibrarySearchIndex {
     ) -> Bool {
         guard !refreshes.isEmpty else { return true }
         guard let pool = dbPool else { return false }
-        let store = MetadataAssetStore.shared
+        let store = assetStore
         do {
             var documents: [LyricsDocument] = []
             for (songID, refresh) in refreshes {
@@ -1776,7 +1784,8 @@ actor LibrarySearchIndex {
         do {
             var existing = try Self.lyricsStates(in: pool)
             let visibleIDs = Set(songs.map(\.id))
-            let store = MetadataAssetStore.shared
+            let store = assetStore
+            let localFiles = songs.count >= Self.lyricsInventoryMinimumCount ? store.lyricsSearchFileNames() : nil
 
             for start in stride(from: 0, to: songs.count, by: Self.lyricsBatchSize) {
                 let startedAt = ProcessInfo.processInfo.systemUptime
@@ -1788,7 +1797,8 @@ actor LibrarySearchIndex {
                 for song in songs[start..<end] {
                     let fileSignature = store.cachedLyricsSearchSignature(
                         songID: song.id,
-                        lyricsFileName: song.lyricsFileName
+                        lyricsFileName: song.lyricsFileName,
+                        availableFileNames: localFiles
                     )
                     let inlineText = song.lyricsText?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let signature: String?
@@ -1806,10 +1816,9 @@ actor LibrarySearchIndex {
                     }
                     if existing[song.id]?.signature == signature { continue }
 
-                    let lines = store.cachedLyricsForSearch(
-                        songID: song.id,
-                        lyricsFileName: song.lyricsFileName
-                    ) ?? Self.lines(fromPlainText: inlineText)
+                    let lines = fileSignature == nil ? Self.lines(fromPlainText: inlineText)
+                        : store.cachedLyricsForSearch(songID: song.id, lyricsFileName: song.lyricsFileName)
+                            ?? Self.lines(fromPlainText: inlineText)
                     guard let lines, !lines.isEmpty else { continue }
                     documents.append(Self.makeLyricsDocument(
                         songID: song.id,
@@ -1856,61 +1865,56 @@ actor LibrarySearchIndex {
     ) async -> Bool {
         guard !upserts.isEmpty || !deletingIDs.isEmpty else { return true }
         guard let pool = dbPool else { return false }
-
         do {
             let requestedIDs = Set(upserts.map(\.id)).union(deletingIDs)
-            var existing = try Self.lyricsStates(songIDs: requestedIDs, in: pool)
-            let store = MetadataAssetStore.shared
-            var documents: [LyricsDocument] = []
-            var removalIDs = Set<Int64>()
-
-            for (offset, song) in upserts.enumerated() {
-                if offset.isMultiple(of: 32), Task.isCancelled { return false }
-                let fileSignature = store.cachedLyricsSearchSignature(
-                    songID: song.id,
-                    lyricsFileName: song.lyricsFileName
-                )
-                let inlineText = song.lyricsText?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let signature: String?
-                if let fileSignature {
-                    signature = "file:\(fileSignature)"
-                } else if let inlineText, !inlineText.isEmpty {
-                    signature = "inline:\(Self.digest(inlineText))"
-                } else {
-                    signature = nil
-                }
-
-                guard let signature else {
-                    if let old = existing.removeValue(forKey: song.id), old.id >= 0 {
-                        removalIDs.insert(old.id)
+            let existing = try Self.lyricsStates(songIDs: requestedIDs, in: pool)
+            let store = assetStore
+            let localFiles = upserts.count >= Self.lyricsInventoryMinimumCount ? store.lyricsSearchFileNames() : nil
+            for start in stride(from: 0, to: upserts.count, by: Self.lyricsBatchSize) {
+                try Task.checkCancellation()
+                let startedAt = ProcessInfo.processInfo.systemUptime
+                let end = min(start + Self.lyricsBatchSize, upserts.count)
+                var documents: [LyricsDocument] = []
+                var removals: [Int64] = []
+                for song in upserts[start..<end] {
+                    let fileSignature = store.cachedLyricsSearchSignature(
+                        songID: song.id, lyricsFileName: song.lyricsFileName, availableFileNames: localFiles
+                    )
+                    let inlineText = song.lyricsText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let signature = fileSignature.map { "file:\($0)" }
+                        ?? inlineText.flatMap { $0.isEmpty ? nil : "inline:\(Self.digest($0))" }
+                    guard let signature else {
+                        if let old = existing[song.id], old.id >= 0 { removals.append(old.id) }
+                        continue
                     }
-                    continue
+                    guard existing[song.id]?.signature != signature else { continue }
+                    let lines = fileSignature == nil ? Self.lines(fromPlainText: inlineText)
+                        : store.cachedLyricsForSearch(songID: song.id, lyricsFileName: song.lyricsFileName)
+                            ?? Self.lines(fromPlainText: inlineText)
+                    guard let lines, !lines.isEmpty else { continue }
+                    documents.append(Self.makeLyricsDocument(songID: song.id, signature: signature, lines: lines))
                 }
-                if existing[song.id]?.signature == signature { continue }
-                let lines = store.cachedLyricsForSearch(
-                    songID: song.id,
-                    lyricsFileName: song.lyricsFileName
-                ) ?? Self.lines(fromPlainText: inlineText)
-                guard let lines, !lines.isEmpty else { continue }
-                documents.append(Self.makeLyricsDocument(
-                    songID: song.id,
-                    signature: signature,
-                    lines: lines
-                ))
-            }
-
-            for id in deletingIDs {
-                if let old = existing[id], old.id >= 0 {
-                    removalIDs.insert(old.id)
+                if !removals.isEmpty { try Self.removeLyricsDocuments(ids: removals, in: pool) }
+                if !documents.isEmpty { try Self.upsertLyricsDocuments(documents, in: pool) }
+                if !removals.isEmpty || !documents.isEmpty {
+                    await lyricsBatchDidWriteForTesting?(removals.count + documents.count)
+                }
+                if end < upserts.count || !deletingIDs.isEmpty {
+                    try await Self.yieldAfterIndexBatch(startedAt: startedAt)
                 }
             }
-            if !removalIDs.isEmpty {
-                try Self.removeLyricsDocuments(ids: Array(removalIDs), in: pool)
-            }
-            if !documents.isEmpty {
-                try Self.upsertLyricsDocuments(documents, in: pool)
+            let removed = deletingIDs.compactMap { existing[$0]?.id }.filter { $0 >= 0 }
+            for start in stride(from: 0, to: removed.count, by: Self.lyricsBatchSize) {
+                try Task.checkCancellation()
+                let startedAt = ProcessInfo.processInfo.systemUptime
+                let end = min(start + Self.lyricsBatchSize, removed.count)
+                try Self.removeLyricsDocuments(ids: Array(removed[start..<end]), in: pool)
+                await lyricsBatchDidWriteForTesting?(end - start)
+                if end < removed.count { try await Self.yieldAfterIndexBatch(startedAt: startedAt) }
             }
             return !Task.isCancelled
+        } catch is CancellationError {
+            return false
         } catch {
             plog("🔎 Lyrics index delta failed: \(error.localizedDescription)")
             return false
@@ -1979,13 +1983,17 @@ actor LibrarySearchIndex {
         return try pool.read { db in
             var result: [String: StoredMetadataState] = [:]
             result.reserveCapacity(songIDs.count)
-            for songID in songIDs {
-                if let row = try Row.fetchOne(
-                    db,
-                    sql: "SELECT id, fingerprint FROM metadataSearchState WHERE songID = ?",
-                    arguments: [songID]
-                ) {
+            let ids = Array(songIDs)
+            for start in stride(from: 0, to: ids.count, by: 500) {
+                try Task.checkCancellation()
+                let batch = Array(ids[start..<min(start + 500, ids.count)])
+                let placeholders = Array(repeating: "?", count: batch.count).joined(separator: ",")
+                let rows = try Row.fetchAll(db,
+                    sql: "SELECT id, songID, fingerprint FROM metadataSearchState WHERE songID IN (\(placeholders))",
+                    arguments: StatementArguments(batch))
+                for row in rows {
                     let id: Int64 = row["id"]
+                    let songID: String = row["songID"]
                     let fingerprint: String = row["fingerprint"]
                     result[songID] = StoredMetadataState(id: id, fingerprint: fingerprint)
                 }
@@ -2014,13 +2022,17 @@ actor LibrarySearchIndex {
         return try pool.read { db in
             var result: [String: StoredLyricsState] = [:]
             result.reserveCapacity(songIDs.count)
-            for songID in songIDs {
-                if let row = try Row.fetchOne(
-                    db,
-                    sql: "SELECT id, signature FROM lyricsSearchDocuments WHERE songID = ?",
-                    arguments: [songID]
-                ) {
+            let ids = Array(songIDs)
+            for start in stride(from: 0, to: ids.count, by: 500) {
+                try Task.checkCancellation()
+                let batch = Array(ids[start..<min(start + 500, ids.count)])
+                let placeholders = Array(repeating: "?", count: batch.count).joined(separator: ",")
+                let rows = try Row.fetchAll(db,
+                    sql: "SELECT id, songID, signature FROM lyricsSearchDocuments WHERE songID IN (\(placeholders))",
+                    arguments: StatementArguments(batch))
+                for row in rows {
                     let id: Int64 = row["id"]
+                    let songID: String = row["songID"]
                     let signature: String = row["signature"]
                     result[songID] = StoredLyricsState(id: id, signature: signature)
                 }
@@ -16899,9 +16911,12 @@ final class MusicLibrary {
         let uploaded = (artworkOverrides ?? [])
             .filter { $0.mode == .uploaded }
             .sorted { $0.updatedAt > $1.updatedAt }
-        for value in uploaded {
-            guard let contentID = value.uploadedContentID,
-                  assets[contentID] == nil,
+        let selectedSongContentIDs = songs.compactMap { song -> String? in
+            guard let reference = song.coverArtFileName, StoredArtworkOrigin.resolve(reference) == .selected else { return nil }
+            return StoredArtworkOrigin.contentID(reference)
+        }
+        for contentID in uploaded.compactMap(\.uploadedContentID) + selectedSongContentIDs {
+            guard assets[contentID] == nil,
                   let artworkData = assetStore.customArtworkData(
                     contentID: contentID
                   ),
@@ -16976,9 +16991,16 @@ final class MusicLibrary {
                 let name = "album/" + assetStore.expectedCoverFileName(for: "album_\(albumID)")
                 await includeCachedCover(named: name, as: name)
             }
+            if let reference = song.coverArtFileName, StoredArtworkOrigin.resolve(reference) == .selected,
+               let contentID = StoredArtworkOrigin.contentID(reference), assets[contentID] != nil {
+                continue
+            }
             let name = assetStore.expectedCoverFileName(for: song.id)
             let sourceName: String
-            if let identity = assetStore.coverContentIdentifier(named: name) {
+            if StoredArtworkOrigin.resolve(song.coverArtFileName) == .selected,
+               let reference = song.coverArtFileName {
+                sourceName = reference
+            } else if let identity = assetStore.coverContentIdentifier(named: name) {
                 if identity.hasPrefix(Self.coverContentIdentityPrefix) {
                     let key = String(identity.dropFirst(Self.coverContentIdentityPrefix.count))
                     if PeerScanSeedPolicy.isContentKey(key) {

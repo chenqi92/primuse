@@ -124,6 +124,20 @@ public enum HomeListeningRankTrend: Equatable, Sendable {
     case newEntry
 }
 
+public enum ListeningRankArtworkPolicy {
+    /// 封面引用只是优先级；没有引用的歌曲仍可能读到本地缓存或内嵌封面。
+    public static func candidates(
+        preferredSongID: String?, songIDs: [String], song: (String) -> Song?
+    ) -> [Song] {
+        var seen = Set<String>()
+        let candidates = ([preferredSongID].compactMap { $0 } + songIDs)
+            .filter { seen.insert($0).inserted }
+            .compactMap(song)
+        return candidates.filter { $0.coverArtFileName?.isEmpty == false }
+            + candidates.filter { $0.coverArtFileName?.isEmpty != false }
+    }
+}
+
 /// 榜单怎么摆：前三名站领奖台，其余列成名次榜；横排则是一条封面货架。
 public enum HomeListeningRankBoardPolicy {
     public static let podiumSize = 3
@@ -250,26 +264,47 @@ public enum HomeListeningRanking {
         let songKeys = category == .folders
             ? [:]
             : songKeys ?? ListeningSongIdentity.groupKeys(events: events, songs: songs)
-        let current = aggregate(
+        var current = aggregate(
             events: events, songs: songs, songKeys: songKeys, folders: folders, category: category,
             interval: period.interval(now: now, calendar: calendar), includesEnd: true
         )
-        guard let interval = period.previousInterval(now: now, calendar: calendar) else {
-            return current
-        }
-        let previous = aggregate(
-            events: events, songs: songs, songKeys: songKeys, folders: folders, category: category,
-            interval: interval, includesEnd: false
-        )
-        let positions = Dictionary(uniqueKeysWithValues: previous.enumerated().map { ($1.id, $0) })
-        return current.enumerated().map { position, value in
-            var value = value
-            if let oldPosition = positions[value.id] {
-                value.positionsGained = oldPosition - position
-            } else {
-                value.isNewEntry = !previous.isEmpty
+        if let interval = period.previousInterval(now: now, calendar: calendar) {
+            let previous = aggregate(
+                events: events, songs: songs, songKeys: songKeys, folders: folders, category: category,
+                interval: interval, includesEnd: false
+            )
+            let positions = Dictionary(uniqueKeysWithValues: previous.enumerated().map { ($1.id, $0) })
+            current = current.enumerated().map { position, value in
+                var value = value
+                if let oldPosition = positions[value.id] {
+                    value.positionsGained = oldPosition - position
+                } else {
+                    value.isNewEntry = !previous.isEmpty
+                }
+                return value
             }
-            return value
+        }
+        guard category != .folders, !songs.isEmpty else { return current }
+        let missingIDs = Set(current.flatMap(\.songIDs).filter { songs[$0] == nil })
+        guard !missingIDs.isEmpty else { return current }
+        let candidates = ListeningSongIdentity.libraryCandidates(
+            events: events.filter { missingIDs.contains($0.songID) }, songs: songs
+        )
+        guard !candidates.isEmpty else { return current }
+        return current.map { rank in
+            let groups = rank.songGroups.map { ids in
+                let available = ids.flatMap { candidates[$0] ?? [] }
+                return ids + Set(available).subtracting(ids).sorted()
+            }
+            var resolved = HomeListeningRank(
+                id: rank.id, title: rank.title, subtitle: rank.subtitle,
+                songIDs: Set(groups.flatMap { $0 }).sorted(), songGroups: groups,
+                artworkSongID: rank.artworkSongID, folderID: rank.folderID,
+                playCount: rank.playCount, listenedSeconds: rank.listenedSeconds,
+                positionsGained: rank.positionsGained
+            )
+            resolved.isNewEntry = rank.isNewEntry
+            return resolved
         }
     }
 
@@ -493,6 +528,48 @@ public enum ListeningSongIdentity {
         groupKeys(plays: events.map {
             Play(songID: $0.songID, playedAt: $0.playedAt, title: $0.songTitle, artist: $0.artistName, duration: $0.songDuration)
         }, songs: songs)
+    }
+
+    /// 只给已失效的历史 ID 补当前曲库候选，不改历史归组、次数或名次。
+    static func libraryCandidates(events: [HomeListeningEvent], songs: [String: Song]) -> [String: [String]] {
+        guard !events.isEmpty else { return [:] }
+        var latest: [String: HomeListeningEvent] = [:]
+        for event in events where songs[event.songID] == nil {
+            if let known = latest[event.songID], known.playedAt >= event.playedAt { continue }
+            latest[event.songID] = event
+        }
+        let keys = latest.mapValues { event in
+            NormalizationCache.shared.key(for: Member(
+                songID: event.songID, title: event.songTitle ?? "",
+                artists: nonEmpty(event.artistName).map { [$0] } ?? [], duration: event.songDuration
+            ))
+        }.filter { $0.value.isMatchable && !$0.value.artistTokens.isEmpty }
+        guard !keys.isEmpty else { return [:] }
+        let titles = Set(keys.values.map(\.coreTitle))
+        var buckets: [String: [(song: Song, key: ExternalTrackMatchPolicy.Key)]] = [:]
+        for song in songs.values {
+            let key = NormalizationCache.shared.key(for: Member(
+                songID: song.id, title: song.title,
+                artists: ExternalTrackMatchPolicy.artists(of: song), duration: song.duration
+            ))
+            if titles.contains(key.coreTitle) { buckets[key.coreTitle, default: []].append((song, key)) }
+        }
+        var result: [String: [String]] = [:]
+        for (id, key) in keys {
+            let album = nonEmpty(latest[id]?.albumTitle)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let matches = (buckets[key.coreTitle] ?? []).filter { candidate in
+                guard ExternalTrackMatchPolicy.verdict(key, candidate.key) == .confident else { return false }
+                guard let album else { return true }
+                return candidate.song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .localizedCaseInsensitiveCompare(album) == .orderedSame
+            }
+            // 历史缺时长且曲库有多个互不相容的版本时，不能凭同名猜一个。
+            guard matches.allSatisfy({ lhs in
+                matches.allSatisfy { ExternalTrackMatchPolicy.verdict(lhs.key, $0.key) == .confident }
+            }) else { continue }
+            if !matches.isEmpty { result[id] = matches.map { $0.song.id }.sorted() }
+        }
+        return result
     }
 
     /// 听歌回顾用的播放记录；时长从 `traits` 查。

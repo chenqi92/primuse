@@ -37,6 +37,161 @@ final class LibraryPortableArtworkTests: XCTestCase {
         return bytes
     }
 
+    func testSongGIFSurvivesPortableSyncRestartAndSnapshotWithStaleMirror() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sender = MetadataAssetStore(storageDirectory: root.appendingPathComponent("sender"))
+        let gif = try XCTUnwrap(LibraryArtworkImageProcessor.processUpload(animatedUploadGIF(paddingBytes: 700_000)))
+        var songs: [Song] = []
+        for id in ["first", "second"] {
+            var song = Song(id: id, title: id, fileFormat: .mp3, filePath: "/\(id).mp3", sourceID: "source")
+            song.coverArtFileName = await sender.storeAttributedCover(gif, songID: id, origin: .selected)
+            XCTAssertNotNil(song.coverArtFileName)
+            // The evictable per-song mirror must never override a user's selection.
+            sender.storeCoverSync(try image(color: .green), for: id)
+            songs.append(song)
+        }
+        let reference = try XCTUnwrap(songs[0].coverArtFileName)
+        let portable = try XCTUnwrap(SongTagEditStore.portableContentID(ofCoverNamed: reference, assets: sender))
+        XCTAssertEqual(sender.customArtworkData(contentID: portable), gif)
+        let reopened = MetadataAssetStore(storageDirectory: sender.customArtworkDirectoryURL.deletingLastPathComponent())
+        XCTAssertEqual(reopened.readCoverData(named: reference), gif)
+        let identity = try XCTUnwrap(sender.coverContentIdentifier(named: reference))
+        XCTAssertEqual(sender.preparePortableCover(named: reference, contentIdentifier: identity)?.data, gif)
+
+        let prepared = await MusicLibrary.preparePortableSnapshotDataIncludingArtworkAssets(try snapshot(songs), assetStore: sender)
+        let transfer = try XCTUnwrap(prepared)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: transfer.data) as? [String: Any])
+        let custom = try XCTUnwrap(payload["artworkAssets"] as? [String: String]).compactMapValues { Data(base64Encoded: $0) }
+        let cached = (payload["cachedArtworkAssets"] as? [String: String] ?? [:]).compactMapValues { Data(base64Encoded: $0) }
+        XCTAssertEqual(custom.count, 1)
+        XCTAssertEqual(custom[portable], gif)
+        XCTAssertTrue(cached.isEmpty, "Selected images are carried once, without a stale mirror")
+        let receiver = MetadataAssetStore(storageDirectory: root.appendingPathComponent("receiver"))
+        let restored = MusicLibrary.restorePortableArtwork(customAssets: custom, cachedAssets: cached,
+            references: payload["artworkCacheReferences"] as? [String: String] ?? [:],
+            eligibleNames: MusicLibrary.portableArtworkEligibleNames(songs: songs, assetStore: receiver), assetStore: receiver)
+        XCTAssertEqual(restored.custom, 1)
+        XCTAssertEqual(receiver.readCoverData(named: reference), gif)
+        let legacyReference = receiver.expectedCoverFileName(for: "legacy")
+        XCTAssertTrue(receiver.installPortableCachedArtwork(gif, contentID: portable, referenceFileNames: [legacyReference]))
+        XCTAssertEqual(receiver.readCoverData(named: legacyReference), gif)
+        await sender.clearAll()
+        XCTAssertEqual(sender.readCoverData(named: reference), gif)
+    }
+
+    func testLargeSongGIFCloudAssetIsPrivateAndValidatesContent() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let assets = MetadataAssetStore(storageDirectory: root)
+        let gif = try animatedUploadGIF(paddingBytes: 700_000)
+        let contentID = try XCTUnwrap(assets.storeCustomArtworkSync(gif))
+        let id = CloudKitSyncService.songCoverAssetPrefix + contentID
+        XCTAssertEqual(CloudKitSyncService.songCoverAssetContentID(id), contentID)
+        XCTAssertNil(CloudKitSyncService.songCoverAssetContentID(CloudKitSyncService.songCoverAssetPrefix + "../invalid"))
+        XCTAssertEqual(CloudKitSyncService.channel(for: "Playlist", id: id), .sources)
+        XCTAssertEqual(CloudKitSyncService.channel(for: "Playlist", id: "normal"), .playlists)
+        let family = UserDefaults.standard.object(forKey: "primuse.familySharing.enabled")
+        defer { UserDefaults.standard.set(family, forKey: "primuse.familySharing.enabled") }
+        CloudKitSyncService.familySharingEnabled = true
+        XCTAssertEqual(CloudKitSyncService.zoneFor(recordType: "Playlist", id: id).zoneName, "PrimuseSync")
+        let record = CKRecord(recordType: "Playlist", recordID: .init(recordName: "Playlist/" + id))
+        XCTAssertTrue(CloudKitSyncService.writeSongCoverAsset(gif, contentID: contentID, to: record,
+            assetDirectory: assets.customArtworkDirectoryURL))
+        XCTAssertNil(record["name"], "Asset records must not become empty playlists in older clients")
+        XCTAssertEqual(CloudKitSyncService.readSongCoverAsset(record, contentID: contentID), gif)
+        let rebuilt = CKRecord(recordType: "Playlist", recordID: record.recordID)
+        XCTAssertTrue(CloudKitSyncService.writeSongCoverAsset(gif, contentID: contentID, to: rebuilt,
+            assetDirectory: assets.customArtworkDirectoryURL))
+        XCTAssertTrue(CloudKitSyncService.differingRecordKeys(rebuilt, record).isEmpty)
+        XCTAssertNil(CloudKitSyncService.readSongCoverAsset(record, contentID: String(repeating: "0", count: 64)))
+        try Data("damaged".utf8).write(to: assets.customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg"))
+        XCTAssertNil(CloudKitSyncService.readSongCoverAsset(record, contentID: contentID))
+    }
+
+    func testSongGIFWritesCompatibleStillToAudioSource() async throws {
+        let gif = try animatedUploadGIF()
+        let connector = SongGIFWritebackConnector()
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/song.flac", sourceID: "source")
+        let report = await TagMetadataWritebackCoordinator.write(mode: .embedded, connector: connector,
+            original: song, updated: song, coverData: gif)
+        let written = await connector.cover
+        let still = try XCTUnwrap(written)
+        XCTAssertTrue(LibraryArtworkImageProcessor.isReusablePortableJPEG(still))
+        XCTAssertEqual(ArtworkImageCompatibility.inspect(still)?.isAnimated, false)
+        XCTAssertFalse(report.shouldAbortLocalSave)
+        XCTAssertNotNil(report.localSaveNotice)
+        XCTAssertEqual(ArtworkImageCompatibility.inspect(gif)?.frameCount, 2)
+    }
+
+    func testSelectedSongGIFAnimatesPlayerAndKeepsListPosterStatic() async throws {
+        let key = PlayerAppearancePreferences.animatedArtworkEnabledKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        defer {
+            UserDefaults.standard.set(previous, forKey: key)
+            NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        }
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        await library.whenReady()
+        let assets = MetadataAssetStore.shared
+        let gif = try animatedUploadGIF(paddingBytes: 987)
+        let contentID = SHA256.hash(data: gif).map { String(format: "%02x", $0) }.joined()
+        let existed = assets.hasCustomArtwork(contentID: contentID)
+        let songID = "gif-ui-" + UUID().uuidString
+        let stored = await assets.storeAttributedCover(gif, songID: songID, origin: .selected)
+        let reference = try XCTUnwrap(stored)
+        defer {
+            if !existed { try? FileManager.default.removeItem(at: assets.customArtworkDirectoryURL.appendingPathComponent("\(contentID).jpg")) }
+            try? FileManager.default.removeItem(at: assets.artworkDirectoryURL.appendingPathComponent(assets.expectedCoverFileName(for: songID)))
+        }
+        func artwork(_ reference: String) -> some View {
+            HStack(spacing: 0) {
+                CachedArtworkView(coverRef: reference, songID: songID, size: 80, cornerRadius: 0, presentationRole: .animatedHero)
+                CachedArtworkView(coverRef: reference, songID: songID, size: 80, cornerRadius: 0)
+            }
+            .environment(library).environment(SourceManager(sourcesProvider: { [] })).environment(\.scenePhase, .active)
+        }
+        let (window, host, original) = try hostHeroTestView(artwork(reference), size: CGSize(width: 160, height: 80))
+        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
+        var frames = Set<String>()
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(80))
+            let snapshot = try heroTestSnapshot(host.view)
+            let pixel = try rgb(snapshot, x: 40, y: 40)
+            if pixel.0 > 200 && pixel.2 < 50 { frames.insert("red") }
+            if pixel.2 > 200 && pixel.0 < 50 { frames.insert("blue") }
+            if frames.count == 2 { break }
+        }
+        XCTAssertEqual(frames, ["red", "blue"])
+        for _ in 0..<8 {
+            try await Task.sleep(for: .milliseconds(80))
+            let pixel = try rgb(heroTestSnapshot(host.view), x: 120, y: 40)
+            XCTAssertGreaterThan(pixel.0, 200)
+            XCTAssertLessThan(pixel.2, 50)
+        }
+        XCTAssertEqual(assets.readCoverData(named: reference), gif)
+        let green = try XCTUnwrap(LibraryArtworkImageProcessor.processUpload(image(color: .green)))
+        let greenID = SHA256.hash(data: green).map { String(format: "%02x", $0) }.joined()
+        let greenExisted = assets.hasCustomArtwork(contentID: greenID)
+        let replacement = await assets.storeAttributedCover(green, songID: songID, origin: .selected)
+        defer {
+            if !greenExisted { try? FileManager.default.removeItem(at: assets.customArtworkDirectoryURL.appendingPathComponent("\(greenID).jpg")) }
+        }
+        host.rootView = artwork(try XCTUnwrap(replacement))
+        var replaced = false
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(80))
+            let snapshot = try heroTestSnapshot(host.view)
+            let pixels = try [40, 120].map { try rgb(snapshot, x: $0, y: 40) }
+            if pixels.allSatisfy({ $0.1 > 200 && $0.0 < 50 && $0.2 < 50 }) { replaced = true; break }
+        }
+        XCTAssertTrue(replaced, "Changing a song to a still must clear its previous animated frames")
+    }
+
     func testCustomGIFPreservesFramesTimingAndStorageAcrossRestart() throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2415,5 +2570,21 @@ extension LibraryPortableArtworkTests {
             XCTAssertLessThan(abs(actual.0 - expected.0) + abs(actual.1 - expected.1) + abs(actual.2 - expected.2), 60,
                               "corner (\(x),\(y)) \(actual) vs \(expected)")
         }
+    }
+}
+
+private actor SongGIFWritebackConnector: MusicSourceConnector {
+    nonisolated let sourceID = "gif-writeback"
+    var cover: Data?
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+    func writeEmbeddedMetadata(original: Song, updated: Song, coverData: Data?, lyrics: EmbeddedLyricsEdit,
+                               writesTextTags: Bool) async throws -> EmbeddedMetadataWritebackResult {
+        cover = coverData
+        throw SourceFileMutationError.permissionDenied
     }
 }

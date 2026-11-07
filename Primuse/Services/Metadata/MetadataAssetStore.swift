@@ -361,7 +361,8 @@ actor MetadataAssetStore {
         }
         guard !Self.currentTaskIsCancelled(),
               let original = readCoverData(named: filename) else { return nil }
-        if LibraryArtworkImageProcessor.isReusablePortableJPEG(original) {
+        if LibraryArtworkImageProcessor.isReusablePortableJPEG(original)
+            || LibraryArtworkImageProcessor.isAnimatedUpload(original) {
             return PortableCover(data: original, requiredProcessing: false)
         }
         let processed = autoreleasepool {
@@ -988,11 +989,19 @@ actor MetadataAssetStore {
         return nil
     }
 
+    nonisolated func lyricsSearchFileNames() -> Set<String>? {
+        (try? FileManager.default.contentsOfDirectory(atPath: lyricsDirectoryURL.path))
+            .map { Set($0.filter { $0.hasSuffix(".json") }) }
+    }
+
     /// A cheap, persistent signature for the local lyrics file. The search
     /// index compares this before decoding/transliterating a lyric, so normal
     /// launches only stat cached files and never rebuild unchanged pinyin.
-    nonisolated func cachedLyricsSearchSignature(songID: String, lyricsFileName: String?) -> String? {
-        for url in lyricsSearchCandidateURLs(songID: songID, lyricsFileName: lyricsFileName) {
+    nonisolated func cachedLyricsSearchSignature(
+        songID: String, lyricsFileName: String?, availableFileNames: Set<String>? = nil
+    ) -> String? {
+        for url in lyricsSearchCandidateURLs(songID: songID, lyricsFileName: lyricsFileName,
+                                             availableFileNames: availableFileNames) {
             guard let values = try? url.resourceValues(forKeys: [
                 .isRegularFileKey,
                 .fileSizeKey,
@@ -1005,17 +1014,23 @@ actor MetadataAssetStore {
         return nil
     }
 
-    nonisolated private func lyricsSearchCandidateURLs(songID: String, lyricsFileName: String?) -> [URL] {
-        var candidates: [URL] = []
+    nonisolated private func lyricsSearchCandidateURLs(
+        songID: String, lyricsFileName: String?, availableFileNames: Set<String>? = nil
+    ) -> [URL] {
+        guard availableFileNames?.isEmpty != true else { return [] }
+        var candidates: [String] = []
         if let lyricsFileName,
            !lyricsFileName.isEmpty,
            isLegacyLocalRef(lyricsFileName),
            lyricsFileName.hasSuffix(".json") {
-            candidates.append(lyricsDirectoryURL.appendingPathComponent(lyricsFileName))
+            candidates.append(lyricsFileName)
         }
-        let expected = lyricsDirectoryURL.appendingPathComponent(expectedLyricsFileName(for: songID))
+        let expected = expectedLyricsFileName(for: songID)
         if candidates.last != expected { candidates.append(expected) }
-        return candidates
+        return candidates.compactMap { name in
+            guard availableFileNames?.contains(name) != false else { return nil }
+            return lyricsDirectoryURL.appendingPathComponent(name)
+        }
     }
 
     /// Remove cached cover art for a specific song (e.g., after scraping updates it).
@@ -1560,8 +1575,7 @@ actor MetadataAssetStore {
         contentID: String,
         referenceFileNames: [String]
     ) -> Bool {
-        guard !data.isEmpty,
-              data.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes,
+        guard LibraryArtworkImageProcessor.isValidStoredArtwork(data, validateAnimation: true),
               Self.sha256Hex(data) == contentID,
               CGImageSourceCreateWithData(data as CFData, nil) != nil else { return false }
         var installed = false
@@ -1883,6 +1897,15 @@ enum LibraryArtworkImageProcessor {
     private static let maximumInputBytes = 32 * 1024 * 1024
     private static let targetLongSides = [1200, 1024, 896, 768, 640]
     private static let qualities: [Double] = [0.86, 0.78, 0.70, 0.62, 0.54, 0.46]
+
+    nonisolated static func isAnimatedUpload(_ data: Data) -> Bool {
+        guard data.count <= LibraryArtworkContentIDPolicy.maximumAnimatedArtworkBytes,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 1,
+              let type = CGImageSourceGetType(source),
+              [UTType.gif.identifier, UTType.png.identifier, UTType.webP.identifier].contains(type as String) else { return false }
+        return ArtworkImageCompatibility.inspect(data)?.isAnimated == true
+    }
 
     nonisolated static func isValidStoredArtwork(_ data: Data, validateAnimation: Bool = false) -> Bool {
         guard !data.isEmpty,

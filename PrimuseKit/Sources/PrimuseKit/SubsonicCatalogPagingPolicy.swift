@@ -680,6 +680,97 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
         }
     }
 
+    /// Detach the completed stage before reclaiming its rows. An interrupted
+    /// cleanup cannot be resumed as a partially deleted scan, and a new stage
+    /// for the same source takes ownership before the next cleanup batch.
+    /// With no remaining stages, whole-table clearing returns pages to SQLite's
+    /// freelist instead of removing each row and index entry individually.
+    public func discardInBatches(
+        sourceID: String, stageSessionID: String,
+        afterBatch: @Sendable (Int) async throws -> Void = { _ in }
+    ) async throws {
+        _ = try await reclaimStage(sourceID: sourceID, stageSessionID: stageSessionID,
+                                   requiresUnowned: false, afterBatch: afterBatch)
+    }
+
+    @discardableResult
+    public func discardUnresumableStagesInBatches(
+        keepingStageSessionIDs keep: [String: String],
+        afterBatch: @Sendable (Int) async throws -> Void = { _ in }
+    ) async throws -> [String] {
+        let candidates = try await database.read { db in
+            try Row.fetchAll(db, sql: "SELECT sourceID, stageSessionID FROM pagedCatalogStages WHERE ownerGeneration = ?",
+                             arguments: [Self.unownedGeneration]).map { row -> (String, String) in
+                (row["sourceID"], row["stageSessionID"])
+            }
+        }
+        var discarded: [String] = []
+        for (sourceID, sessionID) in candidates where keep[sourceID] != sessionID {
+            if try await reclaimStage(sourceID: sourceID, stageSessionID: sessionID,
+                                      requiresUnowned: true, afterBatch: afterBatch) {
+                discarded.append(sourceID)
+            }
+        }
+        let orphanSources = try await database.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT DISTINCT sourceID FROM pagedCatalogItems WHERE sourceID NOT IN (SELECT sourceID FROM pagedCatalogStages)
+                UNION SELECT DISTINCT sourceID FROM pagedCatalogSongs WHERE sourceID NOT IN (SELECT sourceID FROM pagedCatalogStages)
+                UNION SELECT DISTINCT sourceID FROM pagedCatalogHierarchy WHERE sourceID NOT IN (SELECT sourceID FROM pagedCatalogStages)
+                """)
+        }
+        for sourceID in orphanSources {
+            _ = try await reclaimStage(sourceID: sourceID, stageSessionID: nil,
+                                       requiresUnowned: true, afterBatch: afterBatch)
+        }
+        return discarded.sorted()
+    }
+
+    private func reclaimStage(
+        sourceID: String, stageSessionID: String?, requiresUnowned: Bool,
+        afterBatch: @Sendable (Int) async throws -> Void
+    ) async throws -> Bool {
+        try Task.checkCancellation()
+        try await afterBatch(0)
+        try Task.checkCancellation()
+        let detached = try await database.write { db in
+            if let current = try Self.snapshot(sourceID: sourceID, in: db) {
+                guard current.stageSessionID == stageSessionID,
+                      !requiresUnowned || current.ownerGeneration == Self.unownedGeneration else { return false }
+                try db.execute(sql: "DELETE FROM pagedCatalogStages WHERE sourceID = ?", arguments: [sourceID])
+            }
+            return true
+        }
+        guard detached else { return false }
+        for table in ["pagedCatalogItems", "pagedCatalogSongs", "pagedCatalogHierarchy"] {
+            while true {
+                try Task.checkCancellation()
+                let startedAt = ContinuousClock.now
+                let removed: Int? = try await database.write { db in
+                    let hasOwner = try Bool.fetchOne(db,
+                        sql: "SELECT EXISTS(SELECT 1 FROM pagedCatalogStages WHERE sourceID = ?)",
+                        arguments: [sourceID]) ?? true
+                    guard !hasOwner else { return nil }
+                    if try Self.hasStages(in: db) {
+                        try db.execute(sql: """
+                            DELETE FROM \(table) WHERE rowid IN (
+                                SELECT rowid FROM \(table) WHERE sourceID = ? LIMIT 512
+                            )
+                            """, arguments: [sourceID])
+                    } else {
+                        try db.execute(sql: "DELETE FROM \(table)")
+                    }
+                    return db.changesCount
+                }
+                guard let removed else { return true }
+                guard removed > 0 else { break }
+                let delay = max(Duration.milliseconds(5), startedAt.duration(to: .now) * 3)
+                try await afterBatch(removed)
+                try await Task.sleep(for: delay)
+            }
+        }
+        return true
+    }
+
     private static func snapshot(
         sourceID: String,
         in db: Database
@@ -706,17 +797,23 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
     }
 
     private static func deleteStage(sourceID: String, in db: Database) throws {
+        try db.execute(sql: "DELETE FROM pagedCatalogStages WHERE sourceID = ?", arguments: [sourceID])
+        let keepsOtherStages = try hasStages(in: db)
         for table in [
             "pagedCatalogItems",
             "pagedCatalogSongs",
             "pagedCatalogHierarchy",
-            "pagedCatalogStages",
         ] {
-            try db.execute(
-                sql: "DELETE FROM \(table) WHERE sourceID = ?",
-                arguments: [sourceID]
-            )
+            if keepsOtherStages {
+                try db.execute(sql: "DELETE FROM \(table) WHERE sourceID = ?", arguments: [sourceID])
+            } else {
+                try db.execute(sql: "DELETE FROM \(table)")
+            }
         }
+    }
+
+    private static func hasStages(in db: Database) throws -> Bool {
+        try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM pagedCatalogStages)") ?? true
     }
 
     private static func firstDuplicate(in values: [String]) -> String? {

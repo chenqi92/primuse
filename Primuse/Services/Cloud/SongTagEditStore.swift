@@ -108,7 +108,7 @@ final class SongTagEditStore {
     // MARK: - 本机手改
 
     /// 用户亲手给这些歌换了封面图(标签编辑、批量编辑、单曲刮削),图已经存进本机缓存。读出来
-    /// 缩成可以同步的 JPEG 记下并上传。缓存文件名按歌曲算,换图时名字常常不变,所以由编辑
+    /// 保留动画、压缩静态图后记下并上传。缓存文件名按歌曲算,换图时名字常常不变,所以由编辑
     /// 界面明说,而不是从行的变化里猜。
     func recordUserChosenCovers(songIDs: [String]) {
         guard !songIDs.isEmpty else { return }
@@ -230,13 +230,14 @@ final class SongTagEditStore {
         }
     }
 
-    /// 缩成可以同步的 JPEG(本来就合适的原样用),存进自选封面池,返回它的内容哈希。
-    private nonisolated static func portableContentID(ofCoverNamed fileName: String) -> String? {
-        let assets = MetadataAssetStore.shared
+    /// 动画保留原始字节，静态图压成可同步的 JPEG，存入自选封面池。
+    nonisolated static func portableContentID(
+        ofCoverNamed fileName: String, assets: MetadataAssetStore = .shared
+    ) -> String? {
         guard let data = assets.readCoverData(named: fileName) else { return nil }
         let portableData = LibraryArtworkImageProcessor.isReusablePortableJPEG(data)
             ? data
-            : LibraryArtworkImageProcessor.process(data)
+            : LibraryArtworkImageProcessor.processUpload(data)
         return portableData.flatMap { assets.storeCustomArtworkSync($0) }
     }
 
