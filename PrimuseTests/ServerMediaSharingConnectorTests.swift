@@ -2,6 +2,10 @@ import Foundation
 import PrimuseKit
 import XCTest
 @testable import Primuse
+#if os(iOS)
+import CoreImage
+import SwiftUI
+#endif
 
 @MainActor
 final class ServerMediaSharingConnectorTests: XCTestCase {
@@ -321,6 +325,84 @@ extension ServerMediaSharingConnectorTests {
         XCTAssertThrowsError(try MediaRelayImportPolicy.validatedFileName(nil))
     }
 }
+
+#if os(iOS)
+@MainActor
+final class MediaRelayQRCodeLayoutTests: XCTestCase {
+    func testSharingFormKeepsQRCodeSquareScannableAndFollowingActionsVisible() async throws {
+        for width: CGFloat in [320, 430, 768] {
+            try await checkQRCode(width: width, compact: false)
+        }
+    }
+
+    func testCompactMusicShareQRCodeRemainsScannable() async throws {
+        try await checkQRCode(width: 390, compact: true)
+    }
+
+    private func checkQRCode(width: CGFloat, compact: Bool) async throws {
+        let publicURL = try XCTUnwrap(URL(string: "https://share.example.invalid/s/123456#k=" + String(repeating: "A", count: 43)))
+        let value = compact ? publicURL.absoluteString : try ListeningShareCode.appImportURL(for: publicURL).absoluteString
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: width, height: 640)
+        var actionFrame = CGRect.zero
+        let host = UIHostingController(rootView: NavigationStack {
+            Form {
+                Section {
+                    Text("Share link")
+                    MediaRelayQRCodeView(value: value)
+                        .frame(width: compact ? 172 : nil, height: compact ? 172 : nil)
+                        .frame(maxWidth: .infinity)
+                }
+                Section {
+                    Text("Export JSON")
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { actionFrame = $0 }
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Share")
+            .navigationBarTitleDisplayMode(.inline)
+        }.preferredColorScheme(.dark))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+        try await Task.sleep(for: .milliseconds(400))
+        host.view.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        let image = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "share-qr-\(Int(width))-\(compact ? "compact" : "regular")"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let detector = try XCTUnwrap(CIDetector(
+            ofType: CIDetectorTypeQRCode,
+            context: CIContext(options: [.useSoftwareRenderer: true]),
+            options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]
+        ))
+        let features = detector.features(in: CIImage(cgImage: try XCTUnwrap(image.cgImage)))
+        let result = try XCTUnwrap(features.compactMap { $0 as? CIQRCodeFeature }.first)
+        XCTAssertEqual(result.messageString, value)
+        if !compact {
+            let request = try XCTUnwrap(ListeningShareCodeImportRequest(url: XCTUnwrap(URL(string: value))))
+            XCTAssertEqual(request.reference.shareURL, publicURL)
+        }
+        let qrWidth = result.bounds.width / format.scale
+        let qrHeight = result.bounds.height / format.scale
+        XCTAssertEqual(qrWidth, qrHeight, accuracy: 2)
+        XCTAssertLessThanOrEqual(qrWidth, compact ? 172 : 240)
+        XCTAssertFalse(actionFrame.isEmpty)
+        XCTAssertTrue(host.view.bounds.contains(actionFrame))
+    }
+}
+#endif
 
 private final class ServerMediaShareURLProtocol: URLProtocol, @unchecked Sendable {
     enum Mode: Equatable {

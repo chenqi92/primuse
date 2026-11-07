@@ -21,11 +21,35 @@ public enum PodcastOPML {
 
     /// 读出全部 `xmlUrl`(嵌套分组也读),同一个地址只留一次。
     public static func parse(_ data: Data) throws -> [Entry] {
+        if let text = MediaImportText.decode(data) {
+            let format = MediaImportText.fileExtension(for: text)
+            if format.isEmpty {
+                var seen = Set<String>()
+                let entries = MediaImportText.lines(text).compactMap { line -> Entry? in
+                    guard !line.hasPrefix("#"), let url = PodcastFeedURL.normalized(line),
+                          seen.insert(PodcastFeedURL.identityKey(for: url)).inserted else { return nil }
+                    return Entry(title: nil, feedURL: url)
+                }
+                guard !entries.isEmpty else { throw Failure.notOPML }
+                return entries
+            }
+        }
         let delegate = OPMLDelegate()
         let parser = XMLParser(data: data)
         parser.shouldResolveExternalEntities = false
         parser.delegate = delegate
         _ = parser.parse()
+        if !delegate.sawOPML && delegate.entries.isEmpty, let text = MediaImportText.decode(data) {
+            let format = MediaImportText.fileExtension(for: text)
+            if ["rss", "atom"].contains(format) {
+                delegate.entries = PodcastFeedDiscovery.feedURLs(in: text).map { Entry(title: nil, feedURL: $0) }
+            } else if format.isEmpty || format == "txt" {
+                delegate.entries = MediaImportText.lines(text).compactMap { line in
+                    guard !line.hasPrefix("#"), let url = PodcastFeedURL.normalized(line) else { return nil }
+                    return Entry(title: nil, feedURL: url)
+                }
+            }
+        }
         guard delegate.sawOPML || !delegate.entries.isEmpty else { throw Failure.notOPML }
         var seen = Set<String>()
         return delegate.entries.filter { seen.insert(PodcastFeedURL.identityKey(for: $0.feedURL)).inserted }

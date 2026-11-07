@@ -100,24 +100,59 @@ public enum RadioImportParser {
     public static func detectSource(_ text: String) -> Source {
         let head = text.prefix(4_096).lowercased()
         if head.contains("#extm3u") || head.contains("#extinf") { return .m3u }
-        if head.contains("[playlist]") || head.contains("file1=") { return .pls }
+        if head.contains("[playlist]")
+            || head.range(of: #"(?m)^\s*file\d+\s*="#, options: .regularExpression) != nil { return .pls }
         return .plainText
+    }
+
+    /// m3u8 下载后按内容区分电台清单与 HLS，不能只靠后缀决定。
+    public static func playlistURL(in text: String) -> String? {
+        guard detectSource(text) == .plainText, MediaImportText.lines(text).count == 1,
+              !text.contains(", https://"), !text.contains(", http://"),
+              let url = MediaImportText.singleURL(in: text),
+              ["m3u", "m3u8", "pls", "txt"].contains(url.pathExtension.lowercased()) else { return nil }
+        return MediaImportText.rawContentURL(url).absoluteString
+    }
+
+    public static func containsPlaylistLinks(_ text: String) -> Bool {
+        detectSource(text) == .plainText && MediaImportText.urls(in: text).contains {
+            ["m3u", "m3u8", "pls", "txt"].contains($0.pathExtension.lowercased())
+        }
     }
 
     /// 解析并判重。`existing` 一般传 `store.stations`。
     public static func parse(
         _ text: String,
         existing: [RadioStation] = [],
-        source: Source? = nil
+        source: Source? = nil,
+        baseURL: URL? = nil
     ) -> [RadioImportCandidate] {
         let normalized = text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        let entries: [Entry]
-        switch source ?? detectSource(normalized) {
+            .trimmingCharacters(in: RadioPlaylistText.boundaryCharacters)
+        if MediaImportText.isHLS(normalized) {
+            return baseURL.map { candidates(from: [Entry(urlString: $0.absoluteString)], existing: existing) } ?? []
+        }
+        guard MediaImportText.fileExtension(for: normalized) != "html" else { return [] }
+        let resolvedSource = source ?? detectSource(normalized)
+        var entries: [Entry]
+        switch resolvedSource {
         case .plainText: entries = parsePlainText(normalized)
         case .m3u: entries = parseM3U(normalized)
         case .pls: entries = parsePLS(normalized)
+        }
+        entries = entries.map { entry in
+            var entry = entry
+            if let url = MediaImportText.normalizedURL(entry.urlString) {
+                entry.urlString = url.absoluteString
+            } else if let baseURL, let relative = URL(string: entry.urlString), relative.scheme == nil,
+                      resolvedSource != .plainText || (!entry.urlString.contains(where: \.isWhitespace)
+                          && (entry.urlString.contains("/") || !relative.pathExtension.isEmpty)),
+                      let url = URL(string: entry.urlString, relativeTo: baseURL)?.absoluteURL {
+                entry.urlString = url.absoluteString
+            }
+            return entry
         }
         return candidates(from: entries, existing: existing)
     }
@@ -261,8 +296,9 @@ public enum RadioImportParser {
     }
 
     /// 拆开后的第一条可播地址;清单里嵌套的包装不算。
-    public static func firstStreamURL(inWrapper text: String) -> String? {
-        parse(text).first { $0.status == .playable && !isPlaylistWrapper($0.urlString) }?.urlString
+    public static func firstStreamURL(inWrapper text: String, baseURL: URL? = nil) -> String? {
+        if MediaImportText.isHLS(text) { return baseURL?.absoluteString }
+        return parse(text, baseURL: baseURL).first { $0.status == .playable && !isPlaylistWrapper($0.urlString) }?.urlString
     }
 
     /// 按 `wrapperFetchURLs` 的顺序取清单并拆开,一个地址取不到或拆不开就试下一个;
@@ -281,7 +317,7 @@ public enum RadioImportParser {
             } catch {
                 continue
             }
-            if let stream = firstStreamURL(inWrapper: text) { return stream }
+            if let stream = firstStreamURL(inWrapper: text, baseURL: URL(string: candidate)) { return stream }
         }
         return nil
     }
@@ -289,22 +325,27 @@ public enum RadioImportParser {
     // MARK: - 各格式解析
 
     private static func parsePlainText(_ text: String) -> [Entry] {
-        text.components(separatedBy: .newlines).compactMap { rawLine in
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+        var group: String?
+        return text.components(separatedBy: .newlines).compactMap { rawLine in
+            let line = rawLine.trimmingCharacters(in: RadioPlaylistText.boundaryCharacters)
             guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("//") else { return nil }
+            if let marker = line.range(of: ",#genre#", options: .caseInsensitive) {
+                group = String(line[..<marker.lowerBound])
+                return nil
+            }
 
             // `名字, URL` / `名字 | URL` / `名字\tURL`。分隔符右边必须像 URL，
             // 否则整行按 URL 处理 —— 电台流路径里逗号并不罕见。
-            for separator in ["\t", " | ", "|", ", ", ","] {
+            for separator in ["\t", " | ", "|", ", ", ",", "，"] {
                 guard let range = line.range(of: separator) else { continue }
                 let head = String(line[line.startIndex..<range.lowerBound])
                     .trimmingCharacters(in: .whitespaces)
                 let tail = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
                 if looksLikeURL(tail), !head.isEmpty, !looksLikeURL(head) {
-                    return Entry(name: head, urlString: tail)
+                    return Entry(name: head, urlString: tail, groupTitle: group)
                 }
             }
-            return Entry(urlString: line)
+            return Entry(urlString: MediaImportText.singleURL(in: line)?.absoluteString ?? line, groupTitle: group)
         }
     }
 
@@ -326,16 +367,18 @@ public enum RadioImportParser {
         var runningGroup: String?
 
         for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let line = rawLine.trimmingCharacters(in: RadioPlaylistText.boundaryCharacters)
             guard !line.isEmpty else { continue }
 
             let lowered = line.lowercased()
             if lowered.hasPrefix("#extinf") {
-                guard let commaIndex = nameSeparatorIndex(in: line) else { continue }
-                let name = String(line[line.index(after: commaIndex)...])
-                    .trimmingCharacters(in: .whitespaces)
-                pendingName = name.isEmpty ? nil : name
-                let attributes = String(line[line.startIndex..<commaIndex])
+                let commaIndex = nameSeparatorIndex(in: line)
+                let name = commaIndex.map {
+                    String(line[line.index(after: $0)...]).trimmingCharacters(in: .whitespaces)
+                }
+                let attributes = commaIndex.map { String(line[line.startIndex..<$0]) } ?? line
+                pendingName = name.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? attributeValue(in: attributes, keys: ["tvg-name"])
                 pendingLogo = pendingLogo ?? attributeValue(
                     in: attributes,
                     keys: ["tvg-logo", "logo", "tvg-logo-small", "url-logo", "icon"]
@@ -402,7 +445,7 @@ public enum RadioImportParser {
             if character == ",", firstAny == nil { firstAny = index }
             index = line.index(after: index)
         }
-        return firstUnquoted ?? firstAny
+        return firstUnquoted ?? (quote == nil ? nil : firstAny)
     }
 
     /// 这一段是不是以 `键=` 开头。是的话它属于属性区，不是名字。
@@ -422,9 +465,10 @@ public enum RadioImportParser {
         var logos: [Int: String] = [:]
 
         for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let line = rawLine.trimmingCharacters(in: RadioPlaylistText.boundaryCharacters)
             guard let equalsIndex = line.firstIndex(of: "=") else { continue }
-            let key = String(line[line.startIndex..<equalsIndex]).lowercased()
+            let key = String(line[line.startIndex..<equalsIndex])
+                .trimmingCharacters(in: .whitespaces).lowercased()
             let value = String(line[line.index(after: equalsIndex)...])
                 .trimmingCharacters(in: .whitespaces)
             guard !value.isEmpty else { continue }
@@ -453,14 +497,9 @@ public enum RadioImportParser {
     /// 所以按优先级给一串候选键；值可能用双引号、单引号，或者干脆不加引号。
     private static func attributeValue(in attributes: String, keys: [String]) -> String? {
         for key in keys {
-            guard let range = attributes.range(of: "\(key)=", options: .caseInsensitive) else {
+            let pattern = #"(?:^|[\s:,])"# + NSRegularExpression.escapedPattern(for: key) + #"\s*=\s*"#
+            guard let range = attributes.range(of: pattern, options: [.caseInsensitive, .regularExpression]) else {
                 continue
-            }
-            // 属性名必须是完整的一段，否则 `logo=` 会命中 `tvg-logo=` 的尾巴，
-            // 把值切成半截；`group=` 同理会命中 `group-title=` 之外的写法。
-            if range.lowerBound > attributes.startIndex {
-                let previous = attributes[attributes.index(before: range.lowerBound)]
-                guard previous.isWhitespace || previous == ":" || previous == "," else { continue }
             }
             var rest = attributes[range.upperBound...]
             guard let first = rest.first else { continue }
@@ -470,7 +509,7 @@ public enum RadioImportParser {
                 let value = String(rest[rest.startIndex..<end]).trimmingCharacters(in: .whitespaces)
                 if !value.isEmpty { return value }
             } else {
-                let value = String(rest.prefix { !$0.isWhitespace })
+                let value = String(rest.prefix { !$0.isWhitespace && $0 != "," })
                     .trimmingCharacters(in: .whitespaces)
                 if !value.isEmpty { return value }
             }

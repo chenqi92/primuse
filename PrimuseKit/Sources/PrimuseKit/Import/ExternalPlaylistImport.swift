@@ -363,20 +363,7 @@ public struct ExternalPlaylistLink: Hashable, Sendable {
     }
 
     static func urls(in text: String) -> [URL] {
-        var result: [URL] = []
-        var searchStart = text.startIndex
-        while let range = text.range(of: "http", options: .caseInsensitive, range: searchStart..<text.endIndex) {
-            let tail = text[range.lowerBound...]
-            let candidate = tail.prefix { character in
-                !character.isWhitespace && !"\"'<>（）()「」【】，,。".contains(character)
-            }
-            if let url = URL(string: String(candidate)), url.host != nil {
-                result.append(url)
-            }
-            searchStart = candidate.endIndex
-            if searchStart == range.lowerBound { searchStart = range.upperBound }
-        }
-        return result
+        MediaImportText.urls(in: text)
     }
 }
 

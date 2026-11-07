@@ -67,6 +67,18 @@ final class SmartNudgeCenter {
 
     func isKindEnabled(_ kind: SmartNudgeKind) -> Bool { !disabledKinds.contains(kind) }
 
+    func reloadAfterOfflineImport() {
+        let enabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
+        let kinds = Set((defaults.stringArray(forKey: Self.disabledKindsKey) ?? [])
+            .compactMap(SmartNudgeKind.init(rawValue:)))
+        isEnabled = enabled
+        disabledKinds = kinds
+        if !enabled || activeNudge.map({ kinds.contains($0.kind) }) == true {
+            dismissTask?.cancel()
+            activeNudge = nil
+        }
+    }
+
     func setKind(_ kind: SmartNudgeKind, enabled: Bool) {
         if enabled { disabledKinds.remove(kind) } else { disabledKinds.insert(kind) }
     }

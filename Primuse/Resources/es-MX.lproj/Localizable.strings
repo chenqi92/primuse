@@ -7207,3 +7207,16 @@
 "stats_history_listened_format" = "Escuchado %@";
 
 "home_show_preview_albums" = "Mostrar álbumes de vista previa";
+
+"settings_backup_title" = "Respaldo de ajustes";
+"settings_backup_export" = "Exportar ajustes";
+"settings_backup_import" = "Importar ajustes";
+"settings_backup_open" = "Importar / Exportar";
+"settings_backup_scope" = "Respalda ajustes de apariencia, reproducción, letras y más, incluidos fondos y fuentes personalizados. No incluye credenciales ni archivos multimedia.";
+"settings_backup_confirm_title" = "¿Importar ajustes?";
+"settings_backup_confirm_message" = "¿Reemplazar los ajustes actuales con este respaldo? Las credenciales y los archivos multimedia no cambiarán.";
+"settings_backup_imported" = "Ajustes importados.";
+"settings_backup_failed" = "Error de respaldo";
+"settings_backup_newer_version" = "Este respaldo requiere una versión más reciente de Primuse.";
+"settings_backup_too_large" = "Este respaldo supera el tamaño admitido.";
+"settings_backup_invalid" = "Este archivo no es un respaldo válido de ajustes de Primuse o está dañado.";

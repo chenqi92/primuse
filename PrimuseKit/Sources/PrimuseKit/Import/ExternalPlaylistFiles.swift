@@ -353,9 +353,13 @@ public enum VideoTitleInterpretation {
 public enum ExternalPlaylistFileParser {
     public static let supportedExtensions: Set<String> = ["csv", "tsv", "txt", "xml", "pls", "xspf", "wpl"]
 
-    public static func parse(data: Data, fileExtension: String, fileName: String, fallbackText: String? = nil) throws -> ExternalPlaylist {
-        let ext = fileExtension.lowercased()
+    public static func parse(data: Data, fileExtension: String, fileName: String, fallbackText: String? = nil,
+                             textOrder: ExternalPlaylistTextParser.Order = .titleFirst) throws -> ExternalPlaylist {
+        let text = decodeText(data) ?? fallbackText
+        let ext = text.map { MediaImportText.fileExtension(for: $0, suggested: fileExtension) } ?? fileExtension.lowercased()
         switch ext {
+        case "html", "rss", "atom", "opml", "json":
+            throw ExternalPlaylistError.unexpectedResponse
         case "xml":
             if let playlist = try? iTunesXML(data, fileName: fileName) { return playlist }
             throw ExternalPlaylistError.unexpectedResponse
@@ -364,11 +368,12 @@ public enum ExternalPlaylistFileParser {
         case "wpl":
             return try nonEmpty(wpl(data, fileName: fileName))
         default:
-            guard let text = decodeText(data) ?? fallbackText else { throw ExternalPlaylistError.unexpectedResponse }
+            guard let text else { throw ExternalPlaylistError.unexpectedResponse }
+            if ext == "m3u" || ext == "m3u8" { return try nonEmpty(m3u(text, fileName: fileName)) }
             if ext == "pls" { return try nonEmpty(pls(text, fileName: fileName)) }
             if let table = delimitedTable(text, fileName: fileName, preferComma: ext == "csv") { return try nonEmpty(table) }
             // 没有认得出的表头：当成「歌名 - 歌手」文本清单。
-            return try nonEmpty(ExternalPlaylist(name: fileName, platform: nil, tracks: ExternalPlaylistTextParser.parse(text)))
+            return try nonEmpty(ExternalPlaylist(name: fileName, platform: nil, tracks: ExternalPlaylistTextParser.parse(text, order: textOrder)))
         }
     }
 
@@ -377,21 +382,9 @@ public enum ExternalPlaylistFileParser {
         return playlist
     }
 
-    /// 带 BOM 的 UTF-8/UTF-16，或者无 BOM 的 UTF-8。别的编码（GB18030 等）交给调用方兜底。
+    /// 与电台清单共用编码探测，避免同一份文件换入口后中文乱码。
     public static func decodeText(_ data: Data) -> String? {
-        let bytes = [UInt8](data.prefix(3))
-        if bytes.starts(with: [0xFF, 0xFE]) { return String(data: data, encoding: .utf16LittleEndian).map(dropBOM) }
-        if bytes.starts(with: [0xFE, 0xFF]) { return String(data: data, encoding: .utf16BigEndian).map(dropBOM) }
-        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { return String(data: data.dropFirst(3), encoding: .utf8) }
-        // 无 BOM 的 UTF-16：ASCII 字符间夹着 0 字节。
-        if data.count > 4, data.prefix(64).enumerated().filter({ $0.offset % 2 == 1 && $0.element == 0 }).count > 8 {
-            return String(data: data, encoding: .utf16LittleEndian)
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    private static func dropBOM(_ text: String) -> String {
-        text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
+        MediaImportText.decode(data)
     }
 
     // MARK: CSV / TSV / Apple Music txt
@@ -403,8 +396,12 @@ public enum ExternalPlaylistFileParser {
     private static let durationHeaders = ["duration", "time", "length", "时长", "時長", "时间", "時間"]
 
     static func delimitedTable(_ text: String, fileName: String, preferComma: Bool) -> ExternalPlaylist? {
+        var text = MediaImportText.cleaned(text)
         let firstLine = text.prefix { !$0.isNewline }
-        let delimiter: Character = firstLine.contains("\t") && !(preferComma && firstLine.contains(",")) ? "\t" : ","
+        let declared = firstLine.lowercased().hasPrefix("sep=") ? firstLine.dropFirst(4).first : nil
+        if declared != nil { text = String(text.dropFirst(firstLine.count)).trimmingCharacters(in: .newlines) }
+        let headerLine = text.prefix { !$0.isNewline }
+        let delimiter: Character = declared ?? (headerLine.contains("\t") ? "\t" : (headerLine.contains(";") && !headerLine.contains(",") ? ";" : ","))
         let rows = parseDelimited(text, delimiter: delimiter)
         guard let header = rows.first else { return nil }
         let normalized = header.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
@@ -485,13 +482,34 @@ public enum ExternalPlaylistFileParser {
 
     // MARK: PLS
 
+    static func m3u(_ text: String, fileName: String) -> ExternalPlaylist {
+        var name = fileName
+        var title: String?
+        var duration: Double?
+        var tracks: [ExternalPlaylistTrack] = []
+        for line in MediaImportText.lines(text) {
+            let lower = line.lowercased()
+            if lower.hasPrefix("#playlist:") { name = MediaImportText.cleaned(String(line.dropFirst(10))); continue }
+            if lower.hasPrefix("#extinf:"), let comma = line.firstIndex(of: ",") {
+                title = String(line[line.index(after: comma)...])
+                duration = Double(line[line.index(line.startIndex, offsetBy: 8)..<comma]).flatMap { $0 > 0 ? $0 : nil }
+                continue
+            }
+            guard !line.hasPrefix("#") else { continue }
+            if let entry = track(location: line, displayTitle: title, artist: nil, album: nil, duration: duration) { tracks.append(entry) }
+            title = nil
+            duration = nil
+        }
+        return ExternalPlaylist(name: name.isEmpty ? fileName : name, platform: nil, tracks: tracks)
+    }
+
     static func pls(_ text: String, fileName: String) -> ExternalPlaylist {
         var files: [Int: String] = [:]
         var titles: [Int: String] = [:]
         var lengths: [Int: Double] = [:]
         for line in text.split(whereSeparator: \.isNewline) {
             guard let equals = line.firstIndex(of: "=") else { continue }
-            let key = line[..<equals].lowercased()
+            let key = MediaImportText.cleaned(String(line[..<equals])).lowercased()
             let value = String(line[line.index(after: equals)...]).trimmingCharacters(in: .whitespaces)
             if key.hasPrefix("file"), let index = Int(key.dropFirst(4)) {
                 files[index] = value
@@ -576,8 +594,7 @@ public enum ExternalPlaylistFileParser {
         var title = displayTitle?.trimmingCharacters(in: .whitespaces) ?? ""
         var artists = artist.map { [$0] } ?? []
         if title.isEmpty, let cleanedLocation, !cleanedLocation.isEmpty {
-            let base = ((cleanedLocation.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent as NSString)
-                .deletingPathExtension
+            let base = (MediaImportText.fileBasename(cleanedLocation) as NSString).deletingPathExtension
             title = base
         }
         if artists.isEmpty, let parsed = ExternalPlaylistDecoder.artistAndTitle(title), !parsed.artists.isEmpty {

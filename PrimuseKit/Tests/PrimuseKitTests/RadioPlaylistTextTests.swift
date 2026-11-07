@@ -4,6 +4,29 @@ import Testing
 
 @Suite("Radio playlist text decoding")
 struct RadioPlaylistTextTests {
+
+    @Test("Copied playlist links keep URL escapes and query punctuation")
+    func copiedSourceURLs() {
+        let address = "https://e.test/%E5%B9%BF%E6%92%AD.m3u?key=a%2Fb&name=(radio)"
+        for input in [address, "  \(address)\n", "<\(address)>", "\"\(address)\"", "[清单](\(address))", "\u{FEFF}\(address)\u{200B}"] {
+            #expect(RadioPlaylistText.normalizedSourceURLString(input) == address)
+        }
+        #expect(RadioPlaylistText.normalizedSourceURLString("https://e.test/广播.m3u") == "https://e.test/%E5%B9%BF%E6%92%AD.m3u")
+        for input in ["", "file:///tmp/radio.m3u", "https://user:password@e.test/radio.m3u", "https://e.test/one\nhttps://e.test/two"] {
+            #expect(RadioPlaylistText.normalizedSourceURLString(input) == nil)
+        }
+    }
+
+    @Test("GitHub file links resolve to raw content without double encoding")
+    func githubSourceURLs() {
+        let suffix = "owner/radio/main/%E5%B9%BF%E6%92%AD.m3u"
+        let expected = "https://raw.githubusercontent.com/\(suffix)"
+        #expect(RadioPlaylistText.normalizedSourceURLString("https://github.com/owner/radio/blob/main/%E5%B9%BF%E6%92%AD.m3u?raw=true#L1") == expected)
+        #expect(RadioPlaylistText.normalizedSourceURLString("https://github.com/owner/radio/raw/main/%E5%B9%BF%E6%92%AD.m3u") == expected)
+        #expect(RadioPlaylistText.normalizedSourceURLString(expected) == expected)
+        let other = "https://e.test/owner/radio/blob/main/list.m3u"
+        #expect(RadioPlaylistText.normalizedSourceURLString(other) == other)
+    }
     @Test("Plain UTF-8 decodes unchanged")
     func utf8() {
         let text = "#EXTM3U\n#EXTINF:-1,华语电台\nhttps://e.test/1"

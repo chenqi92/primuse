@@ -119,6 +119,9 @@ struct SettingsView: View {
             .pmVerticalBarTitleEdge()
             #if os(iOS)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ListeningShareMenu(scope: .settings, selection: .init(title: ListeningShareText.string("settings"), settings: true))
+                }
                 if let minimalReturn {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {

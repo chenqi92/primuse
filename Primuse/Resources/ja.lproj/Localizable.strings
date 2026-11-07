@@ -7302,3 +7302,16 @@
 "stats_history_listened_format" = "%@ 再生";
 
 "home_show_preview_albums" = "プレビューアルバムを表示";
+
+"settings_backup_title" = "設定のバックアップ";
+"settings_backup_export" = "設定を書き出す";
+"settings_backup_import" = "設定を読み込む";
+"settings_backup_open" = "読み込み / 書き出し";
+"settings_backup_scope" = "外観、再生、歌詞などの設定と、カスタム背景やフォントをバックアップします。アカウントの認証情報とメディアファイルは含まれません。";
+"settings_backup_confirm_title" = "設定を読み込みますか？";
+"settings_backup_confirm_message" = "現在の設定をこのバックアップで置き換えます。アカウントの認証情報とメディアファイルは変更されません。";
+"settings_backup_imported" = "設定を読み込みました。";
+"settings_backup_failed" = "バックアップ操作に失敗しました";
+"settings_backup_newer_version" = "このバックアップには新しいバージョンの Primuse が必要です。";
+"settings_backup_too_large" = "このバックアップは対応するサイズの上限を超えています。";
+"settings_backup_invalid" = "有効な Primuse 設定バックアップではないか、ファイルが破損しています。";

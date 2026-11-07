@@ -7,12 +7,16 @@ public struct WiFiTransferIdentity: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let name: String
     public let platform: String
+    public let supportsListeningShares: Bool?
 
-    public init(id: String, name: String, platform: String) {
+    public init(id: String, name: String, platform: String, supportsListeningShares: Bool? = nil) {
         self.id = id
         self.name = Self.boundedName(name, maximumBytes: 120)
         self.platform = platform
+        self.supportsListeningShares = supportsListeningShares
     }
+
+    var serviceType: String { supportsListeningShares == true ? "_primuse-share._tcp" : "_primuse-xfer._tcp" }
 
     var serviceName: String { Self.boundedName(name, maximumBytes: 63) }
 
@@ -75,8 +79,12 @@ public final class WiFiTransferDiscovery {
     public private(set) var searching = false
     @ObservationIgnored private var browser: NWBrowser?
     private let localID: String
+    private let bonjourServiceType: String
 
-    public init(localID: String = WiFiTransferIdentity.localID) { self.localID = localID }
+    public init(localID: String = WiFiTransferIdentity.localID, serviceType: String = WiFiTransferDiscovery.serviceType) {
+        self.localID = localID
+        self.bonjourServiceType = serviceType
+    }
 
     nonisolated public static func failureKey(_ error: NWError) -> String {
         switch error {
@@ -92,7 +100,7 @@ public final class WiFiTransferDiscovery {
         error = nil
         peers = []
         let services = Bundle.main.object(forInfoDictionaryKey: "NSBonjourServices") as? [String] ?? []
-        guard services.contains(where: { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) == Self.serviceType }) else {
+        guard services.contains(where: { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) == bonjourServiceType }) else {
             error = "discoveryConfiguration"
             return
         }
@@ -100,7 +108,7 @@ public final class WiFiTransferDiscovery {
         let parameters = NWParameters.tcp
         parameters.prohibitedInterfaceTypes = [.cellular]
         parameters.includePeerToPeer = false
-        let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: parameters)
+        let browser = NWBrowser(for: .bonjourWithTXTRecord(type: bonjourServiceType, domain: nil), using: parameters)
         self.browser = browser
         browser.stateUpdateHandler = { [weak self, weak browser] state in
             Task { @MainActor in

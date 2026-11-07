@@ -7207,3 +7207,16 @@
 "stats_history_listened_format" = "ฟังแล้ว %@";
 
 "home_show_preview_albums" = "แสดงอัลบั้มสำหรับฟังตัวอย่าง";
+
+"settings_backup_title" = "สำรองการตั้งค่า";
+"settings_backup_export" = "ส่งออกการตั้งค่า";
+"settings_backup_import" = "นำเข้าการตั้งค่า";
+"settings_backup_open" = "นำเข้า / ส่งออก";
+"settings_backup_scope" = "สำรองการตั้งค่ารูปลักษณ์ การเล่น เนื้อเพลง และอื่น ๆ รวมถึงพื้นหลังและแบบอักษรที่กำหนดเอง ไม่รวมข้อมูลเข้าสู่ระบบและไฟล์สื่อ";
+"settings_backup_confirm_title" = "นำเข้าการตั้งค่า?";
+"settings_backup_confirm_message" = "แทนที่การตั้งค่าปัจจุบันด้วยข้อมูลสำรองนี้หรือไม่? ข้อมูลเข้าสู่ระบบและไฟล์สื่อจะไม่เปลี่ยนแปลง";
+"settings_backup_imported" = "นำเข้าการตั้งค่าแล้ว";
+"settings_backup_failed" = "สำรองข้อมูลไม่สำเร็จ";
+"settings_backup_newer_version" = "ข้อมูลสำรองนี้ต้องใช้ Primuse เวอร์ชันใหม่กว่า";
+"settings_backup_too_large" = "ข้อมูลสำรองนี้มีขนาดเกินขีดจำกัดที่รองรับ";
+"settings_backup_invalid" = "ไฟล์นี้ไม่ใช่ข้อมูลสำรองการตั้งค่า Primuse ที่ถูกต้อง หรือไฟล์เสียหาย";

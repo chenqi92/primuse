@@ -17,9 +17,18 @@ struct CloudSyncSettingsView: View {
     @AppStorage(CloudSyncChannel.credentials.defaultsKey) private var syncCredentials: Bool = true
     @AppStorage(CloudSyncChannel.listeningStats.defaultsKey) private var syncListeningStats: Bool = true
     @State private var isSyncingNow = false
+    @State private var showsOfflineBackup = false
 
     var body: some View {
         Form {
+            Section {
+                Button { showsOfflineBackup = true } label: {
+                    Label("settings_backup_title", systemImage: "externaldrive")
+                }
+                .settingsAnchor("cloud.offlineBackup")
+                .accessibilityIdentifier("settings.cloud.offlineBackup")
+            }
+
             Section {
                 Toggle(isOn: $enabled.pmAnimated()) {
                     SettingsInfoLabel("icloud_sync_enabled") {
@@ -120,6 +129,7 @@ struct CloudSyncSettingsView: View {
                 }
             }
         }
+        .sheet(isPresented: $showsOfflineBackup) { OfflineSettingsBackupView() }
         .navigationTitle("icloud_sync_title")
         .navigationBarTitleDisplayMode(.inline)
     }

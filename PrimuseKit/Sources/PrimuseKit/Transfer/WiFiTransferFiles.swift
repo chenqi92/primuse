@@ -40,6 +40,7 @@ final class WiFiTransferFiles {
         .union(PrimuseConstants.supportedCueSheetExtensions)
         .union(PrimuseConstants.readableLyricsExtensions)
         .union(PrimuseConstants.supportedCoverExtensions)
+        .union([ListeningSharePackage.fileExtension])
     let root: URL
     private let staging: URL
     private let fm = FileManager.default

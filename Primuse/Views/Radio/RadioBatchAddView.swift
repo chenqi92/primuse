@@ -14,6 +14,11 @@ import AppKit
 /// 判重和合法性在解析阶段就算好并显示出来(可用 / 重复 / 无效)，默认只勾"可用"的。
 /// 添加完成后逐个后台试连，失败的把码率清空，不阻塞用户。
 struct RadioBatchAddView: View {
+    var initialText = ""
+    @State private var didReadInitialText = false
+    @State private var routedText = ""
+    @State private var showsPlaylistImport = false
+    @State private var showsPodcastImport = false
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
@@ -76,6 +81,7 @@ struct RadioBatchAddView: View {
     @State private var folderNameDraft = ""
     @State private var playlistURLString = ""
     @State private var isFetchingPlaylist = false
+    @State private var playlistFetchTask: Task<Void, Never>?
     @State private var insecurePlaylistHost: String?
     /// 当前结果表是从哪个清单地址取回的。只有「清单链接」这条路有它 ——
     /// 粘贴、文件和在线目录没有可以回头再取的地址，也就没法订阅。
@@ -192,6 +198,19 @@ struct RadioBatchAddView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .sheet(isPresented: $showsPlaylistImport) {
+                PlaylistImportView(initialText: routedText)
+            }
+            .sheet(isPresented: $showsPodcastImport) {
+                NavigationStack { PodcastAddFeedView(initialText: routedText) }
+            }
+            .onDisappear { playlistFetchTask?.cancel() }
+            .task {
+                guard !didReadInitialText, !initialText.isEmpty else { return }
+                didReadInitialText = true
+                pastedText = initialText
+                loadImportText(initialText)
+            }
             .sheet(isPresented: $showingManagedSubscription) {
                 if let id = existingSubscription?.id {
                     RadioSubscriptionDetailSheet(subscriptionID: id)
@@ -278,7 +297,7 @@ struct RadioBatchAddView: View {
                     }
                 }
                 .onChange(of: pastedText) { _, newValue in
-                    reparse(newValue)
+                    parsePastedText(newValue)
                 }
 
             HStack(spacing: 12) {
@@ -349,8 +368,8 @@ struct RadioBatchAddView: View {
                     errorMessage = String(localized: "radio_batch_file_unreadable")
                     return
                 }
-                reparse(text)
-                if candidates.isEmpty {
+                loadImportText(text)
+                if candidates.isEmpty && !isFetchingPlaylist && !showsPlaylistImport && !showsPodcastImport {
                     errorMessage = String(localized: "radio_batch_file_no_entries")
                 }
             } catch {
@@ -422,17 +441,37 @@ struct RadioBatchAddView: View {
     private func fetchPlaylist() {
         guard !isFetchingPlaylist else { return }
         let address = playlistURLString
+        if routeOtherMedia(address) { return }
         isFetchingPlaylist = true
-        Task {
-            defer { isFetchingPlaylist = false }
+        playlistFetchTask = Task {
+            defer { isFetchingPlaylist = false; playlistFetchTask = nil }
             do {
-                let text = try await RadioPlaylistDownloader.fetch(address)
-                reparse(text)
-                fetchedPlaylistURL = RadioStationValidation.normalizedURLString(address)
+                let result: RadioPlaylistDownloader.ImportResult
+                if let url = RadioImportParser.playlistURL(in: address) {
+                    let document = try await RadioPlaylistDownloader.fetchDocument(url)
+                    if routeOtherMedia(document.text, sourceURL: document.url) { return }
+                    result = .init(candidates: RadioImportParser.parse(document.text, existing: store.stations, baseURL: document.url),
+                                   subscriptionURL: MediaImportText.isHLS(document.text) ? nil : document.url.absoluteString)
+                } else if RadioImportParser.containsPlaylistLinks(address) {
+                    result = try await RadioPlaylistDownloader.importCandidates(address, existing: store.stations)
+                } else if RadioImportParser.detectSource(address) != .plainText || MediaImportText.lines(address).count > 1 {
+                    result = .init(candidates: RadioImportParser.parse(address, existing: store.stations), subscriptionURL: nil)
+                } else {
+                    let inputURL = MediaImportText.singleURL(in: address).map(MediaImportText.rawContentURL)?.absoluteString ?? address
+                    let document = try await RadioPlaylistDownloader.fetchDocument(inputURL)
+                    if routeOtherMedia(document.text, sourceURL: document.url) { return }
+                    result = .init(candidates: RadioImportParser.parse(document.text, existing: store.stations, baseURL: document.url),
+                                   subscriptionURL: MediaImportText.isHLS(document.text) ? nil : document.url.absoluteString)
+                }
+                guard entry == .url, playlistURLString == address else { return }
+                applyCandidates(result.candidates)
+                fetchedPlaylistURL = result.subscriptionURL
                 subscribesToList = false
                 if candidates.isEmpty {
                     errorMessage = String(localized: "radio_batch_file_no_entries")
                 }
+            } catch is CancellationError {
+                return
             } catch let error as TrustedHTTPTransportError {
                 // 明文 http 的清单地址跟电台流一样，得先问过用户再连。
                 guard case .permissionRequired(let host) = error else {
@@ -836,7 +875,42 @@ struct RadioBatchAddView: View {
         let text = ""
         #endif
         pastedText = text
-        reparse(text)
+        parsePastedText(text)
+    }
+
+    private func parsePastedText(_ text: String) {
+        guard entry == .paste else { return }
+        loadImportText(text)
+    }
+
+    private func loadImportText(_ text: String) {
+        if routeOtherMedia(text) { return }
+        guard RadioImportParser.containsPlaylistLinks(text) else {
+            reparse(text)
+            return
+        }
+        playlistURLString = RadioImportParser.playlistURL(in: text) ?? text
+        entry = .url
+        candidates = []
+        selection = []
+        fetchedPlaylistURL = nil
+        subscribesToList = false
+        fetchPlaylist()
+    }
+
+    private func routeOtherMedia(_ text: String, sourceURL: URL? = nil) -> Bool {
+        switch MediaImportText.destination(for: text) {
+        case .playlist:
+            if sourceURL != nil, MediaImportText.fileExtension(for: text) == "m3u" { return false }
+            routedText = text
+            showsPlaylistImport = true
+            return true
+        case .podcast:
+            routedText = sourceURL?.absoluteString ?? text
+            showsPodcastImport = true
+            return true
+        default: return false
+        }
     }
 
     private func reparse(_ text: String) {

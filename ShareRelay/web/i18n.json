@@ -120,7 +120,8 @@
     "RETRY_READY",
     "VERIFYING_ELLIPSIS",
     "PASSWORD_INCORRECT",
-    "NETWORK_ERROR"
+    "NETWORK_ERROR",
+    "PACKAGE_SHARE"
   ],
   "locales": {
     "en": [
@@ -244,7 +245,8 @@
       "You can try again.",
       "Verifying…",
       "The password is incorrect. Check it and try again.",
-      "The network appears to be offline. Check your connection and try again."
+      "The network appears to be offline. Check your connection and try again.",
+      "Primuse Share"
     ],
     "de": [
       "Primuse-Musikfreigabe",
@@ -367,7 +369,8 @@
       "Du kannst es erneut versuchen.",
       "Wird geprüft…",
       "Das Passwort ist falsch. Prüfe es und versuche es erneut.",
-      "Das Netzwerk scheint offline zu sein. Prüfe die Verbindung und versuche es erneut."
+      "Das Netzwerk scheint offline zu sein. Prüfe die Verbindung und versuche es erneut.",
+      "Primuse-Freigabe"
     ],
     "fr": [
       "Partage musical Primuse",
@@ -490,7 +493,8 @@
       "Vous pouvez réessayer.",
       "Vérification…",
       "Le mot de passe est incorrect. Vérifiez-le et réessayez.",
-      "Le réseau semble hors ligne. Vérifiez votre connexion et réessayez."
+      "Le réseau semble hors ligne. Vérifiez votre connexion et réessayez.",
+      "Partage Primuse"
     ],
     "ja": [
       "Primuse 音楽共有",
@@ -613,7 +617,8 @@
       "もう一度試せます。",
       "確認中…",
       "パスワードが正しくありません。確認してもう一度お試しください。",
-      "ネットワークがオフラインのようです。接続を確認して、もう一度お試しください。"
+      "ネットワークがオフラインのようです。接続を確認して、もう一度お試しください。",
+      "Primuse 共有"
     ],
     "ko": [
       "Primuse 음악 공유",
@@ -736,7 +741,8 @@
       "다시 시도할 수 있습니다.",
       "확인 중…",
       "암호가 올바르지 않습니다. 확인한 뒤 다시 시도하세요.",
-      "네트워크가 오프라인인 것 같습니다. 연결을 확인한 뒤 다시 시도하세요."
+      "네트워크가 오프라인인 것 같습니다. 연결을 확인한 뒤 다시 시도하세요.",
+      "Primuse 공유"
     ],
     "zh-Hans": [
       "Primuse 音乐分享",
@@ -859,7 +865,8 @@
       "可以重新尝试。",
       "验证中…",
       "密码不正确，请检查后重试。",
-      "网络似乎断开了，请检查连接后重试。"
+      "网络似乎断开了，请检查连接后重试。",
+      "Primuse 分享"
     ],
     "zh-Hant": [
       "Primuse 音樂分享",
@@ -982,7 +989,8 @@
       "可以重新嘗試。",
       "驗證中…",
       "密碼不正確，請檢查後再試。",
-      "網路似乎已中斷，請檢查連線後再試。"
+      "網路似乎已中斷，請檢查連線後再試。",
+      "Primuse 分享"
     ]
   }
 }

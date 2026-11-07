@@ -7207,3 +7207,16 @@
 "stats_history_listened_format" = "%@ सुना";
 
 "home_show_preview_albums" = "प्रीव्यू एल्बम दिखाएँ";
+
+"settings_backup_title" = "सेटिंग्स बैकअप";
+"settings_backup_export" = "सेटिंग्स निर्यात करें";
+"settings_backup_import" = "सेटिंग्स आयात करें";
+"settings_backup_open" = "आयात / निर्यात";
+"settings_backup_scope" = "कस्टम पृष्ठभूमि और फ़ॉन्ट सहित रूप, प्लेबैक, गीत के बोल और अन्य सेटिंग्स का बैकअप लें। खाते के लॉगिन विवरण और मीडिया फ़ाइलें शामिल नहीं हैं।";
+"settings_backup_confirm_title" = "सेटिंग्स आयात करें?";
+"settings_backup_confirm_message" = "मौजूदा सेटिंग्स को इस बैकअप से बदलें? खाते के लॉगिन विवरण और मीडिया फ़ाइलें नहीं बदलेंगी।";
+"settings_backup_imported" = "सेटिंग्स आयात की गईं।";
+"settings_backup_failed" = "बैकअप विफल";
+"settings_backup_newer_version" = "इस बैकअप के लिए Primuse का नया संस्करण चाहिए।";
+"settings_backup_too_large" = "यह बैकअप समर्थित आकार सीमा से बड़ा है।";
+"settings_backup_invalid" = "यह मान्य Primuse सेटिंग्स बैकअप नहीं है या फ़ाइल क्षतिग्रस्त है।";

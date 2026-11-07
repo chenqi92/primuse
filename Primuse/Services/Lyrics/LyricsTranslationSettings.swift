@@ -19,6 +19,7 @@ enum LyricsTranslationMode: String, Codable, CaseIterable, Sendable {
 @Observable
 final class LyricsTranslationSettingsStore {
     static let shared = LyricsTranslationSettingsStore()
+    @ObservationIgnored private var suppressPersist = false
 
     private static let userDefaultsKey = "primuse.lyrics.translation.settings.v1"
     /// 选了「点了再翻译」后点过翻译的有声内容条目,只存本机。
@@ -339,7 +340,21 @@ final class LyricsTranslationSettingsStore {
         )
     }
 
+    func reloadAfterOfflineImport() {
+        let loaded = LyricsTranslationSettingsStore()
+        suppressPersist = true
+        isEnabled = loaded.isEnabled
+        mode = loaded.mode
+        showsBundledTranslations = loaded.showsBundledTranslations
+        spokenWordTranslationTiming = loaded.spokenWordTranslationTiming
+        targetLanguageCode = loaded.targetLanguageCode
+        skippedSourceLanguageCodes = loaded.skippedSourceLanguageCodes
+        suppressPersist = false
+        LyricsTranslationSettingsStore.notifyChanged()
+    }
+
     private func persist() {
+        guard !suppressPersist else { return }
         let p = Persisted(
             isEnabled: isEnabled,
             targetLanguageCode: targetLanguageCode,
@@ -354,6 +369,7 @@ final class LyricsTranslationSettingsStore {
     }
 
     private static func notifyChanged() {
+        guard !shared.suppressPersist else { return }
         NotificationCenter.default.post(name: .lyricsTranslationSettingsChanged, object: nil)
     }
 

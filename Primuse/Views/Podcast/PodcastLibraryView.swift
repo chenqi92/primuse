@@ -57,6 +57,7 @@ struct PodcastLibraryView: View {
                         Spacer(minLength: 8)
                         MinimalHeaderActions {
                             MinimalPageFindButton()
+                            PodcastShareMenu(navigation: navigation)
                             PodcastAddMenu(navigation: navigation)
                             PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
                         }
@@ -84,6 +85,7 @@ struct PodcastLibraryView: View {
 @MainActor
 @Observable
 final class PodcastNavigationModel {
+    var shareSelection: ListeningShareSelection?
     var showsDiscover = false
     var showsAddFeed = false
     var showsSettings = false
@@ -136,6 +138,7 @@ private struct PodcastNavigationDestinations: ViewModifier {
             .navigationDestination(item: $navigation.pushedDirectoryShow) { show in
                 PodcastShowDetailView(source: .directory(show))
             }
+            .sheet(item: $navigation.shareSelection) { ListeningShareExportView(selection: $0) }
             .sheet(isPresented: $navigation.showsDiscover) {
                 NavigationStack { PodcastDiscoverView() }
                 #if os(macOS)
@@ -205,6 +208,10 @@ struct PodcastLibraryToolbar: ToolbarContent {
             }
         } else {
             ToolbarItem(placement: .primaryAction) {
+                PodcastShareMenu(navigation: navigation)
+                    .tint(ListeningSpace.podcast.tint)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 PodcastAddMenu(navigation: navigation)
                     .tint(ListeningSpace.podcast.tint)
             }
@@ -245,6 +252,16 @@ struct PodcastAddMenu: View {
             Label("podcast_add", systemImage: "plus")
         }
         .accessibilityIdentifier("podcast.add")
+    }
+}
+
+struct PodcastShareMenu: View {
+    let navigation: PodcastNavigationModel
+    var body: some View {
+        ListeningShareMenu(scope: .podcasts, selection: .init(
+            title: ListeningShareText.string("podcasts"),
+            podcasts: navigation.organizer.isSelecting ? navigation.organizer.selectedShows : PodcastStore.shared.shows
+        ))
     }
 }
 
@@ -985,7 +1002,9 @@ struct PodcastShowsGrid: View {
             }
             .buttonStyle(.pmPressable)
             .contextMenu {
-                PodcastShowMenu(show: show, organizer: organizes ? organizer : nil, folders: folders, tags: tags)
+                PodcastShowMenu(show: show, organizer: organizes ? organizer : nil, folders: folders, tags: tags) {
+                    navigation.shareSelection = .init(title: show.title, podcasts: [show])
+                }
             }
             .accessibilityIdentifier("podcast.show." + show.id)
         }
@@ -1184,6 +1203,7 @@ struct PodcastShowMenu: View {
     var organizer: PodcastShowOrganizer?
     var folders: [PodcastShowFolderSummary] = []
     var tags: [PodcastShowTagSummary] = []
+    var share: () -> Void
     @State private var confirmsUnsubscribe = false
 
     private var store: PodcastStore { PodcastStore.shared }
@@ -1199,11 +1219,7 @@ struct PodcastShowMenu: View {
         } label: {
             Label("podcast_mark_all_played", systemImage: "checkmark.circle")
         }
-        if let url = PodcastShare.url(for: show) {
-            ShareLink(item: url) {
-                Label("share", systemImage: "square.and.arrow.up")
-            }
-        }
+        Button("share", systemImage: "square.and.arrow.up", action: share)
         if let organizer {
             Divider()
             PodcastShowOrganizeMenus(organizer: organizer, shows: [show], folders: folders, tags: tags)
@@ -1594,6 +1610,7 @@ private struct PodcastShowOrganizeBar: View {
 
 /// 多选时右上角的批量菜单:全选、移到文件夹、标签、取消订阅。
 struct PodcastShowSelectionMenu: View {
+    @State private var shareSelection: ListeningShareSelection?
     let organizer: PodcastShowOrganizer
     var systemImage = "ellipsis.circle"
 
@@ -1612,6 +1629,9 @@ struct PodcastShowSelectionMenu: View {
             }
             .disabled(visibleIDs.isEmpty)
 
+            Button(ListeningShareText.string("share"), systemImage: "square.and.arrow.up") {
+                shareSelection = .init(title: ListeningShareText.string("podcasts"), podcasts: selected)
+            }.disabled(selected.isEmpty)
             Section {
                 PodcastShowOrganizeMenus(organizer: organizer, shows: selected, folders: store.folders, tags: store.tags)
             }
@@ -1626,6 +1646,7 @@ struct PodcastShowSelectionMenu: View {
             Label("more", systemImage: systemImage)
         }
         .accessibilityIdentifier("podcast.selection.menu")
+        .sheet(item: $shareSelection) { ListeningShareExportView(selection: $0) }
     }
 }
 
@@ -1711,7 +1732,7 @@ struct PodcastWelcomeView: View {
 
 enum PodcastOPMLFile {
     static var contentTypes: [UTType] {
-        [UTType(filenameExtension: "opml"), .xml, .plainText].compactMap { $0 }
+        [UTType(filenameExtension: "opml"), .xml, .plainText, .data].compactMap { $0 }
     }
 
     /// 导入一份 OPML,返回给用户看的结果。

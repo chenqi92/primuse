@@ -411,11 +411,59 @@ final class PodcastStartupRecoveryTests: XCTestCase {
 }
 #endif
 
+#if !os(tvOS)
+final class MediaImportTransportTests: XCTestCase {
+    func testPodcastWebpageDiscoversRelativeFeedWithoutForwardingValidators() async throws {
+        let html = Data("<html><head><link rel='alternate' type='application/rss+xml' href='../feed.xml'></head></html>".utf8)
+        let rss = Data("<rss><channel><title>沿岸电波</title></channel></rss>".utf8)
+        let fixture = PodcastRequestFixture(status: 200, bodies: ["/shows/one": html, "/feed.xml": rss])
+        let result = try await PodcastNetwork.fetchFeed(fixture.url("/shows/one"), etag: "webpage", session: fixture.session)
+        guard case .fetched(let data, let url, _, _) = result else { return XCTFail("Expected RSS") }
+        XCTAssertEqual(data, rss)
+        XCTAssertEqual(url, fixture.url("/feed.xml"))
+        XCTAssertEqual(fixture.requests.count, 2)
+        XCTAssertNil(fixture.requests.last?.value(forHTTPHeaderField: "If-None-Match"))
+    }
+
+    func testPodcastDiscoveryLoopIsBounded() async throws {
+        let a = Data("<html><link rel='alternate' type='application/rss+xml' href='/b'></html>".utf8)
+        let b = Data("<html><link rel='alternate' type='application/rss+xml' href='/a'></html>".utf8)
+        let fixture = PodcastRequestFixture(status: 200, bodies: ["/a": a, "/b": b])
+        _ = try await PodcastNetwork.fetchFeed(fixture.url("/a"), session: fixture.session)
+        XCTAssertEqual(fixture.requests.count, 3)
+    }
+
+    func testRadioImportsMultipleDocumentsAndDeduplicatesTheirStreams() async throws {
+        let m3u = Data("#EXTM3U\n#EXTINF:-1 group-title=新闻,沿岸广播\n../live/one\n".utf8)
+        let pls = Data("[playlist]\nFile1=/live/one\nTitle1=重复广播\nFile2=/live/two\nTitle2=夜间广播".utf8)
+        let fixture = PodcastRequestFixture(status: 200, bodies: ["/lists/one.m3u8": m3u, "/lists/two.pls": pls])
+        let input = fixture.url("/lists/one.m3u8").absoluteString + "\n" + fixture.url("/lists/two.pls").absoluteString
+        let result = try await RadioPlaylistDownloader.importCandidates(input, existing: [], session: fixture.session)
+        XCTAssertEqual(result.candidates.map(\.name), ["沿岸广播", "重复广播", "夜间广播"])
+        XCTAssertEqual(result.candidates.map(\.status), [.playable, .duplicate, .playable])
+        XCTAssertEqual(result.candidates.first?.groupTitle, "新闻")
+        XCTAssertNil(result.subscriptionURL)
+        XCTAssertEqual(fixture.requests.count, 2)
+    }
+
+    func testHLSLinkRemainsOnePlayableStation() async throws {
+        let hls = Data("#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXTINF:5,\npart001.aac\n#EXTINF:5,\npart002.aac".utf8)
+        let fixture = PodcastRequestFixture(status: 200, body: hls)
+        let url = fixture.url("/live.m3u8").absoluteString
+        let result = try await RadioPlaylistDownloader.importCandidates("[直播](\(url))", existing: [], session: fixture.session)
+        XCTAssertEqual(result.candidates.map(\.urlString), [url])
+        XCTAssertNil(result.subscriptionURL)
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+}
+#endif
+
 private final class PodcastRequestFixture: @unchecked Sendable {
     let host: String
     let status: Int
     let headers: [String: String]
     let body: Data
+    let bodies: [String: Data]
     let transportError: URLError?
     let transportFailureCount: Int?
     private let lock = NSLock()
@@ -427,8 +475,9 @@ private final class PodcastRequestFixture: @unchecked Sendable {
         config.protocolClasses = [PodcastRequestProtocol.self]
         return URLSession(configuration: config)
     }()
-    init(status: Int, headers: [String: String] = [:], body: Data = Data(), host: String = UUID().uuidString.lowercased() + ".invalid", transportError: URLError? = nil, transportFailureCount: Int? = nil) {
+    init(status: Int, headers: [String: String] = [:], body: Data = Data(), host: String = UUID().uuidString.lowercased() + ".invalid", transportError: URLError? = nil, transportFailureCount: Int? = nil, bodies: [String: Data] = [:]) {
         self.status = status; self.headers = headers; self.body = body
+        self.bodies = bodies
         self.host = host; self.transportError = transportError
         self.transportFailureCount = transportFailureCount
     }
@@ -453,7 +502,7 @@ private final class PodcastRequestProtocol: URLProtocol, @unchecked Sendable {
         }
         if fixture.status == 0 { return }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: fixture.status, httpVersion: nil, headerFields: fixture.headers)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: fixture.body)
+        client?.urlProtocol(self, didLoad: fixture.bodies[url.path] ?? fixture.body)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

@@ -23,7 +23,7 @@
   }
 
   const locale = normalizedLocale(document.documentElement.lang);
-  window.PrimuseI18nReady = fetch("/i18n.json?v=20260903.1", {
+  window.PrimuseI18nReady = fetch("/i18n.json?v=20261107.2", {
     cache: "force-cache",
     credentials: "same-origin",
   }).then(async (response) => {

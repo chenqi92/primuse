@@ -403,6 +403,10 @@ struct SpokenWordLibraryView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                ListeningShareMenu(scope: .audiobooks)
+                    .tint(ListeningSpace.spokenWord.tint)
+            }
             if !library.spokenWordSongs.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
                     // 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟有声书自己的颜色。
@@ -419,6 +423,7 @@ struct SpokenWordLibraryView: View {
                     Spacer(minLength: 8)
                     MinimalHeaderActions {
                         MinimalPageFindButton()
+                        ListeningShareMenu(scope: .audiobooks)
                         if !library.spokenWordSongs.isEmpty {
                             homeSpotlightButton
                         }
@@ -469,6 +474,10 @@ struct SpokenWordLibraryView: View {
                 .layoutPriority(1)
 
             Spacer(minLength: PMSpace.m)
+
+            ListeningShareMenu(scope: .audiobooks)
+                .labelStyle(.iconOnly)
+                .menuIndicator(.hidden)
 
             if !library.spokenWordSongs.isEmpty {
                 MacLibraryFindField(text: $findText, prompt: "filter_spoken_word_placeholder")
@@ -562,6 +571,7 @@ struct SpokenWordShelf: View {
 }
 
 struct SpokenWordShelfContent: View {
+    @State private var shareSelection: ListeningShareSelection?
     let snapshot: SpokenWordLibrarySnapshot
     var findText = ""
     var showsArchived = true
@@ -615,6 +625,7 @@ struct SpokenWordShelfContent: View {
     var body: some View {
         shelfContent(snapshot.listening(to: player.currentBookID))
             // 整本书按目录顺序一次加进去;「我喜欢」也在可选的歌单里。
+            .sheet(item: $shareSelection) { ListeningShareExportView(selection: $0) }
             .sheet(item: $playlistTarget) { entry in
                 BatchAddToPlaylistSheet(songs: entry.songs)
                     #if !os(macOS)
@@ -996,6 +1007,9 @@ struct SpokenWordShelfContent: View {
 
     @ViewBuilder
     private func bookMenu(_ book: SpokenWordBook, songs: [Song], entries: [SpokenWordLibrarySnapshot.Entry] = []) -> some View {
+        Button(ListeningShareText.string("share"), systemImage: "square.and.arrow.up") {
+            shareSelection = .init(title: book.title, bookSongs: songs)
+        }.disabled(songs.isEmpty)
         if let song = songs.first, store.kind(for: song) == .spokenWord {
             SpokenWordIntroOutroMenu(bookID: book.id, song: song)
             Divider()
@@ -1365,6 +1379,7 @@ struct SpokenWordBookDetailView: View {
     @State private var confirmsCacheRemoval = false
     @Environment(SourceManager.self) private var sourceManager
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var shareSelection: ListeningShareSelection?
     @State private var shownChapterIDs: Set<String> = []
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
@@ -1381,12 +1396,21 @@ struct SpokenWordBookDetailView: View {
         SpokenWordLibraryContent(collection: collection) { snapshot in
             detailContent(snapshot)
         }
+        .sheet(item: $shareSelection) { ListeningShareExportView(selection: $0) }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .minimalNavigationDetail()
         #else
         .background(PMColor.bg.ignoresSafeArea())
         #endif
+    }
+
+    private func bookShareButton(_ book: SpokenWordBook, songs: [Song]) -> some View {
+        Button(ListeningShareText.string("share"), systemImage: "square.and.arrow.up") {
+            shareSelection = .init(title: book.title, bookSongs: songs)
+        }
+        .disabled(songs.isEmpty)
+        .accessibilityIdentifier("spokenWord.book.share")
     }
 
     #if os(macOS)
@@ -1469,6 +1493,11 @@ struct SpokenWordBookDetailView: View {
                 }
                 #if os(iOS)
                 .navigationTitle(book.title)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        bookShareButton(book, songs: songs)
+                    }
+                }
                 #endif
             } else if !snapshot.isPrepared {
                 ProgressView()
@@ -1558,6 +1587,8 @@ struct SpokenWordBookDetailView: View {
                     .pmHoverLift()
 
                     SpokenWordBookSpeedMenu(bookID: book.id)
+                    bookShareButton(book, songs: songs)
+                        .labelStyle(.iconOnly)
                 }
                 .padding(.top, 6)
                 if collection == .books {

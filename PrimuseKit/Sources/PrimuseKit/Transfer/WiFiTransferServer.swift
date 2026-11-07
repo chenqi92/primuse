@@ -93,7 +93,7 @@ public final class WiFiTransferServer: @unchecked Sendable {
                         self.authority = "\(host):\(port.rawValue)"
                         if let identity = self.identity {
                             listener.service = NWListener.Service(
-                                name: identity.serviceName, type: "_primuse-xfer._tcp", domain: nil,
+                                name: identity.serviceName, type: identity.serviceType, domain: nil,
                                 txtRecord: NWTXTRecord(["id": identity.id, "name": identity.name,
                                                         "platform": identity.platform, "v": "1",
                                                         "address": "http://\(self.authority)"])

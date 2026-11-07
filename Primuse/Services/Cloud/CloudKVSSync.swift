@@ -180,6 +180,7 @@ final class CloudKVSSync {
     private let kvs: (any CloudKeyValueStore)?
     private let defaults: UserDefaults
     private var registrations: [String: () -> Void] = [:]
+    private(set) var isApplyingOfflineSnapshot = false
     /// 由登记方自己合并的键（见 `registerMerging`）。
     private var mergingKeys: Set<String> = []
     private var systemIO: CloudKeyValueStoreIO?
@@ -294,7 +295,10 @@ final class CloudKVSSync {
     /// 同步关着时只把修订号记在本机: 再打开时 `catchUp()` 才知道这个键在关着的
     /// 期间改过, 该推上去而不是被云端的旧值盖掉。
     func markChanged(key: String) {
-        guard let kvs else { return }
+        guard !isApplyingOfflineSnapshot, let kvs else { return }
+        if let imported = defaults.data(forKey: key + "__offlineImportedValue"),
+           imported == offlineValueFingerprint(for: key) { return }
+        defaults.removeObject(forKey: key + "__offlineImportedValue")
         // 这台设备上的一次编辑: 之前扫码直传写进来的那一笔从此不再特殊, 照常推送。
         defaults.removeObject(forKey: transferredRevisionKey(for: key))
         let enabled = isEnabled
@@ -355,6 +359,7 @@ final class CloudKVSSync {
     ///   (`CloudKVSReconciliationPolicy.catchUpAction(...transferredRevision:)`), 免得
     ///   手机主人的设置灌进另一个账号的其他设备。在这台设备上再改一次就是普通编辑。
     func applyTransferred(key: String, value: Any) {
+        defaults.removeObject(forKey: key + "__offlineImportedValue")
         defaults.set(value, forKey: key)
         let remote = remoteVersion(for: key)
         if let kvs, remote.revision > 0, valuesMatch(key: key, in: kvs) {
@@ -374,6 +379,40 @@ final class CloudKVSSync {
         }
         registrations[key]?()
         postExternalChange(for: key)
+    }
+
+    /// Restore a local snapshot in two phases: publish all values first, then reload stores.
+    /// These revisions remain local, including delayed AppStorage/observation writebacks.
+    func applyOfflineSnapshot(values: [String: Any], restoringKeys keys: Set<String>) {
+        isApplyingOfflineSnapshot = true
+        defer { isApplyingOfflineSnapshot = false }
+        for key in keys {
+            if let value = values[key] { defaults.set(value, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+            let version = Policy.Version(
+                revision: Policy.nextRevision(now: Date().timeIntervalSince1970,
+                                              local: localVersion(for: key).revision,
+                                              remote: remoteVersion(for: key).revision),
+                writer: localWriterID
+            )
+            storeLocalVersion(version, for: key)
+            defaults.set(version.revision, forKey: transferredRevisionKey(for: key))
+            defaults.set(offlineValueFingerprint(for: key), forKey: key + "__offlineImportedValue")
+        }
+        for key in LANSettingsTransferPolicy.applicationOrder(of: keys) {
+            registrations[key]?()
+            postExternalChange(for: key)
+        }
+    }
+
+    func finishOfflineSnapshot(keys: Set<String>) {
+        for key in keys {
+            defaults.set(offlineValueFingerprint(for: key), forKey: key + "__offlineImportedValue")
+        }
+    }
+
+    private func offlineValueFingerprint(for key: String) -> Data {
+        defaults.object(forKey: key).flatMap(LANSettingsBundle.encodeValue) ?? Data()
     }
 
     // MARK: - Internal
@@ -420,6 +459,7 @@ final class CloudKVSSync {
     }
 
     private func clearLocalVersion(for key: String) {
+        defaults.removeObject(forKey: key + "__offlineImportedValue")
         defaults.removeObject(forKey: timestampKey(for: key))
         defaults.removeObject(forKey: writerKey(for: key))
         defaults.removeObject(forKey: transferredRevisionKey(for: key))
@@ -523,6 +563,7 @@ final class CloudKVSSync {
         from kvs: any CloudKeyValueStore
     ) {
         // 云端值盖过来了, 直传的那一笔已经不在本机。
+        defaults.removeObject(forKey: key + "__offlineImportedValue")
         defaults.removeObject(forKey: transferredRevisionKey(for: key))
         guard let value = kvs.object(forKey: key) else {
             defaults.removeObject(forKey: key)

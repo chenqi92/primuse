@@ -21,6 +21,7 @@ struct RadioStationDetailView: View {
 
     @State private var pendingInsecureStation: RadioStation?
     @State private var editingStation: RadioStation?
+    @State private var shareSelection: ListeningShareSelection?
     @State private var showingNewFolderPrompt = false
     @State private var newFolderName = ""
     @State private var showsCopiedConfirmation = false
@@ -61,6 +62,7 @@ struct RadioStationDetailView: View {
         .radioInsecureStationAlert(pending: $pendingInsecureStation) { station in
             RadioStationPlaybackAction.toggle(station, player: player, within: store.stations)
         }
+        .sheet(item: $shareSelection) { ListeningShareExportView(selection: $0) }
         .sheet(item: $editingStation) { station in
             #if os(macOS)
             MacRadioStationEditorView(station: station) { own in editingStation = own }
@@ -265,13 +267,12 @@ struct RadioStationDetailView: View {
                     copyStreamURL(station)
                 }
 
-                if let url = station.url {
-                    divider
-                    ShareLink(item: url, subject: Text(station.name), message: Text(station.name)) {
-                        actionLabel("share", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.plain)
-                }
+                divider
+                Button {
+                    shareSelection = .init(title: station.name, stations: [station])
+                } label: {
+                    actionLabel("share", systemImage: "square.and.arrow.up")
+                }.buttonStyle(.plain)
             }
         }
         .background(

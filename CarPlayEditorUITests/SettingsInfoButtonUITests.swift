@@ -2,6 +2,281 @@ import XCTest
 
 @MainActor
 final class SettingsInfoButtonUITests: XCTestCase {
+    func testWeChatAcceptsSharedLinkWithoutSending() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Requires WeChat on a test phone")
+        #else
+        continueAfterFailure = false
+        let app = sharingFixtureApp()
+        app.launch()
+        XCTAssertTrue(app.buttons["sharing.test.open"].waitForExistence(timeout: 30))
+        app.buttons["sharing.test.open"].tap()
+        let share = app.buttons["sharing.shareLink"]
+        XCTAssertTrue(share.waitForExistence(timeout: 10))
+        share.tap()
+        let wechatActivity = app.buttons.matching(NSPredicate(format: "label == '微信' OR label == 'WeChat'")).firstMatch
+        XCTAssertTrue(wechatActivity.waitForExistence(timeout: 10), app.debugDescription)
+        wechatActivity.tap()
+        let wechat = XCUIApplication(bundleIdentifier: "com.tencent.xin")
+        let forwardLabels = NSPredicate(format: "label == '转发给朋友' OR label == 'Send to Chat'")
+        let forward = app.descendants(matching: .any).matching(forwardLabels).firstMatch
+        XCTAssertTrue(forward.waitForExistence(timeout: 10), app.debugDescription)
+        forward.tap()
+        let titles = NSPredicate(format: "label == '选择一个聊天' OR label == '选择聊天' OR label == 'Select a Chat' OR label == 'Select Chat'")
+        let picker = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.navigationBars.matching(titles).firstMatch.exists
+                || app.staticTexts.matching(titles).firstMatch.exists
+                || wechat.navigationBars.matching(titles).firstMatch.exists
+                || wechat.staticTexts.matching(titles).firstMatch.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [picker], timeout: 15), .completed)
+        let cancels = NSPredicate(format: "label == '关闭' OR label == 'Close' OR label == '取消' OR label == 'Cancel'")
+        let cancel = app.buttons.matching(cancels).firstMatch
+        if cancel.exists { cancel.tap() }
+        else { wechat.buttons.matching(cancels).firstMatch.tap() }
+        app.activate()
+        let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.state == .runningForeground && share.isHittable
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 10), .completed)
+        #endif
+    }
+
+    func testCameraImportLinkOpensPrimuseWithoutTypingCode() {
+        continueAfterFailure = false
+        let app = sharingFixtureApp()
+        app.launch()
+        XCTAssertTrue(app.buttons["sharing.test.open"].waitForExistence(timeout: 30))
+        let origin = Data("https://share.example.invalid".utf8).base64EncodedString()
+            .replacingOccurrences(of: "=", with: "").replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        let link = URL(string: "primuse://import-code?code=PMN1." + origin + ".123456." + String(repeating: "A", count: 43))!
+        app.open(link)
+        XCTAssertTrue(app.navigationBars["导入分享内容"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["share.example.invalid"].exists)
+        XCTAssertFalse(app.textViews["sharing.code.input"].exists)
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["sharing.test.open"].waitForExistence(timeout: 5))
+    }
+
+    private func sharingFixtureApp() -> XCUIApplication {
+        let app = settingsApp("about.version")
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "listeningShare"
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_VISUAL_EVIDENCE")
+            app.launchArguments += ["-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0"]
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            XCUIDevice.shared.press(.home)
+            app.terminate()
+        }
+        return app
+    }
+
+    func testSettingsToolbarExportsImportsAndShares() {
+        checkSettingsSharingMenu(navigationMode: "standard")
+    }
+
+    func testMinimalSettingsToolbarExportsImportsAndShares() {
+        checkSettingsSharingMenu(navigationMode: "minimal")
+    }
+
+    private func checkSettingsSharingMenu(navigationMode: String) {
+        continueAfterFailure = false
+        let app = settingsApp("about.version")
+        app.launchArguments += ["-primuse.navigation.mode.v1", navigationMode, "-primuse.navigation.hiddenTabs.v1", "[]"]
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+            app.launchArguments += ["-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0"]
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            XCUIDevice.shared.press(.home)
+            app.terminate()
+        }
+        app.launch()
+        let menu = app.buttons["sharing.menu.settings"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 25), app.debugDescription)
+        menu.tap()
+        let export = app.buttons["settings.backup.export"]
+        XCTAssertTrue(export.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.buttons["分享我的电台"].exists)
+        XCTAssertFalse(app.buttons["分享我的播客"].exists)
+        attach(app, "settings-toolbar-menu-\(navigationMode)")
+        export.tap()
+        let cancel = app.buttons["取消"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 20), app.debugDescription)
+        cancel.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        app.buttons["settings.backup.import"].tap()
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10), app.debugDescription)
+        cancel.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        app.buttons["分享我的设置"].tap()
+        XCTAssertTrue(app.buttons["分享文件"].waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertFalse(app.switches["附带我的设置"].exists)
+        attach(app, "settings-share-sheet-\(navigationMode)")
+        app.buttons["完成"].firstMatch.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        app.buttons["我分享的链接"].tap()
+        XCTAssertTrue(app.navigationBars["我分享的链接"].waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["完成"].firstMatch.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+
+    func testSharingCodesDefaultToOfflineAndPasteIntoPreview() {
+        continueAfterFailure = false
+        let app = settingsApp("about.version")
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launchArguments += ["-primuse.navigation.mode.v1", "standard", "-primuse.navigation.hiddenTabs.v1", "[]"]
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+            app.launchArguments += ["-primuse.navigation.selectedTab.v1", "0"]
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            XCUIDevice.shared.press(.home)
+            app.terminate()
+        }
+        app.launch()
+        let settingsTab = app.tabBars.buttons["设置"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 25))
+        settingsTab.tap()
+        let menu = app.buttons["sharing.menu.settings"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 25))
+        menu.tap()
+        app.buttons["分享我的设置"].tap()
+        let copy = app.buttons["sharing.copyCode"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(app.buttons["sharing.exportJSON"].exists)
+        XCTAssertFalse(app.buttons["sharing.createOnlineCode"].exists)
+        copy.tap()
+        XCTAssertEqual(copy.label, "已复制")
+        attach(app, "offline-sharing-code")
+        app.buttons["联网分享码"].tap()
+        XCTAssertTrue(app.buttons["sharing.createOnlineCode"].waitForExistence(timeout: 5))
+        XCTAssertFalse(copy.exists)
+        attach(app, "online-sharing-code-options")
+        app.buttons["离线导入码"].tap()
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        app.buttons["完成"].firstMatch.tap()
+        menu.tap()
+        app.buttons["sharing.importCode"].tap()
+        let paste = app.buttons["sharing.code.paste"]
+        XCTAssertTrue(paste.waitForExistence(timeout: 5))
+        paste.tap()
+        app.buttons["sharing.code.preview"].tap()
+        XCTAssertTrue(app.navigationBars["导入预览"].waitForExistence(timeout: 15), app.debugDescription)
+        let settings = app.switches["应用附带的设置"]
+        XCTAssertTrue(settings.exists, app.debugDescription)
+        XCTAssertEqual(settings.value as? String, "0")
+        attach(app, "offline-code-import-preview")
+        app.buttons["完成"].firstMatch.tap()
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        app.buttons["sharing.importCode"].tap()
+        let editor = app.textViews["sharing.code.input"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        editor.tap()
+        editor.typeText("PM1.invalid")
+        app.buttons["sharing.code.preview"].tap()
+        XCTAssertTrue(app.staticTexts["导入码或 JSON 文件无效或不完整。"].waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+    }
+
+    func testLibraryPagesKeepShareImportAndReceiveAvailable() {
+        continueAfterFailure = false
+        let app = settingsApp("about.version")
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launchArguments += ["-primuse.navigation.mode.v1", "standard", "-primuse.navigation.hiddenTabs.v1", "[]"]
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_PAGE")
+            app.launchArguments += ["-primuse.navigation.selectedTab.v1", "0"]
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            XCUIDevice.shared.press(.home)
+            app.terminate()
+        }
+        for (page, scope) in [("radio", "stations"), ("podcasts", "podcasts"), ("spokenWord", "audiobooks")] {
+            app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "section:" + page
+            app.launch()
+            let menu = app.buttons["sharing.menu." + scope]
+            XCTAssertTrue(menu.waitForExistence(timeout: 80), app.debugDescription)
+            menu.tap()
+            XCTAssertTrue(app.buttons["导入分享文件"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["接收附近分享"].exists)
+            XCTAssertTrue(app.buttons["sharing.importCode"].exists)
+            XCTAssertFalse(app.buttons["settings.backup.export"].exists)
+            attach(app, "sharing-menu-" + scope)
+            app.buttons["导入分享文件"].tap()
+            let cancel = app.buttons["取消"].firstMatch
+            XCTAssertTrue(cancel.waitForExistence(timeout: 10), app.debugDescription)
+            cancel.tap()
+            XCTAssertTrue(menu.waitForExistence(timeout: 5))
+            if scope == "audiobooks" {
+                menu.tap()
+                app.buttons["分享有声书链接"].tap()
+                XCTAssertTrue(app.textFields["名称"].waitForExistence(timeout: 5))
+                app.buttons["完成"].firstMatch.tap()
+                XCTAssertTrue(menu.waitForExistence(timeout: 5))
+            }
+            XCUIDevice.shared.press(.home)
+            app.terminate()
+        }
+    }
+
+    func testOfflineSettingsBackupFilePickersWorkWithoutICloud() {
+        continueAfterFailure = false
+        let app = settingsApp("cloud.offlineBackup")
+        app.launchArguments += ["-primuse.navigation.mode.v1", "standard", "-primuse.navigation.hiddenTabs.v1", "[]"]
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            app.terminate()
+        }
+        app.launch()
+        let entry = app.buttons["settings.cloud.offlineBackup"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 25), app.debugDescription)
+        entry.tap()
+        let export = app.buttons["settings.backup.export"]
+        let importButton = app.buttons["settings.backup.import"]
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        attach(app, "settings-backup")
+        export.tap()
+        let cancel = app.buttons["取消"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 20), app.debugDescription)
+        attach(app, "settings-backup-export-picker")
+        cancel.tap()
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5))
+        importButton.tap()
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10), app.debugDescription)
+        attach(app, "settings-backup-import-picker")
+        cancel.tap()
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        app.buttons["完成"].firstMatch.tap()
+    }
+
     func testMusicMoreMenuOpensInCoverEditor() {
         continueAfterFailure = false
         let app = settingsApp("appearance.playerControls")
@@ -297,7 +572,8 @@ final class SettingsInfoButtonUITests: XCTestCase {
             "-primuse.iCloudSyncEnabled", "NO",
             "-primuse.notifyLongTasks", "NO",
             "-primuse.launch.consecutiveAborts", "0",
-            "-primuse.launch.safeModeLatched", "NO"
+            "-primuse.launch.safeModeLatched", "NO",
+            "-primuse.launch.backgroundLaunchRepairDone", "NO"
         ]
         return app
     }

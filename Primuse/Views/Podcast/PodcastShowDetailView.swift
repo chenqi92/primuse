@@ -22,6 +22,7 @@ struct PodcastShowDetailView: View {
     @State private var filter: PodcastEpisodeFilter = .all
     @State private var expandsSummary = false
     @State private var showsSettings = false
+    @State private var shareSelection: ListeningShareSelection?
     /// 退订确认从哪颗菜单发起:对勾和「…」都有这一项,各挂一份,只让发起的那颗弹。
     @State private var unsubscribeOrigin: UnsubscribeOrigin?
     @State private var pushedEpisodeID: String?
@@ -139,6 +140,7 @@ struct PodcastShowDetailView: View {
         .refreshable {
             if store.isSubscribed(show.id) { await store.refresh(showID: show.id) }
         }
+        .sheet(item: $shareSelection) { ListeningShareExportView(selection: $0) }
         .sheet(isPresented: $showsSettings) {
             NavigationStack { PodcastShowSettingsView(showID: show.id) }
             #if os(macOS)
@@ -447,10 +449,8 @@ struct PodcastShowDetailView: View {
                 Label("podcast_show_settings", systemImage: "slider.horizontal.3")
             }
         }
-        if let url = PodcastShare.url(for: show) {
-            ShareLink(item: url) {
-                Label("share", systemImage: "square.and.arrow.up")
-            }
+        Button(ListeningShareText.string("share"), systemImage: "square.and.arrow.up") {
+            shareSelection = .init(title: show.title, podcasts: [show])
         }
         if let website = show.websiteURL {
             Link(destination: website) {

@@ -7278,3 +7278,16 @@
 "stats_history_listened_format" = "已聽 %@";
 
 "home_show_preview_albums" = "顯示試聽專輯";
+
+"settings_backup_title" = "設定備份";
+"settings_backup_export" = "匯出設定";
+"settings_backup_import" = "匯入設定";
+"settings_backup_open" = "匯入 / 匯出";
+"settings_backup_scope" = "備份外觀、播放、歌詞等設定，以及自訂背景和字體，不包含帳號憑證和媒體檔案。";
+"settings_backup_confirm_title" = "匯入設定？";
+"settings_backup_confirm_message" = "將使用此備份取代目前設定。帳號憑證和媒體檔案保持不變。";
+"settings_backup_imported" = "設定已匯入。";
+"settings_backup_failed" = "備份操作失敗";
+"settings_backup_newer_version" = "此備份需要更新版本的 Primuse。";
+"settings_backup_too_large" = "此備份超過支援的大小限制。";
+"settings_backup_invalid" = "這不是有效的 Primuse 設定備份，或檔案已損壞。";

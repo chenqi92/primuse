@@ -2182,6 +2182,16 @@ final class MacUIPreferences {
         appearance = mode
     }
 
+    func reloadAfterOfflineImport() {
+        let loaded = MacUIPreferences(defaults: defaults)
+        autoDetectMaterial = loaded.autoDetectMaterial
+        appearance = loaded.appearance
+        lyricsFontScale = loaded.lyricsFontScale
+        sidebarWidth = loaded.sidebarWidth
+        colorScheme = loaded.colorScheme
+        appIconID = loaded.appIconID
+    }
+
     /// 启动时把持久化的明暗模式 + App 图标重放一遍 (didSet 在 init 期不触发,
     /// 所以必须显式调一次)。在 AppDelegate.applicationWillFinishLaunching 里调。
     func applyOnLaunch() {

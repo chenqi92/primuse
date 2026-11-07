@@ -80,6 +80,33 @@ final class PlaylistImportOrderTests: XCTestCase {
         guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
     }
 
+    func testRenamedUTF16PlaylistMatchesWindowsAndEncodedPathsWithoutChoosingAmbiguousSongs() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { false })
+        let tracks = [
+            Song(id: "window", title: "纸舟", artistName: "青岚", duration: 180, fileFormat: .flac,
+                 filePath: "/music/青岚 - 纸舟.flac", sourceID: "source"),
+            Song(id: "encoded", title: "夜行", artistName: "青岚", duration: 180, fileFormat: .flac,
+                 filePath: "/music/青岚 - 夜行.flac", sourceID: "source"),
+            Song(id: "ambiguous-a", title: "回声", artistName: "甲", duration: 180, fileFormat: .flac,
+                 filePath: "/a/回声.flac", sourceID: "source"),
+            Song(id: "ambiguous-b", title: "回声", artistName: "乙", duration: 180, fileFormat: .flac,
+                 filePath: "/b/回声.flac", sourceID: "source")
+        ]
+        library.addSongs(tracks)
+        await library.waitForPendingIndex()
+        let encodedPath = URL(fileURLWithPath: "/other/青岚 - 夜行.flac").absoluteString
+        let input = "#extm3u\r\nC:\\Music\\青岚 - 纸舟.flac\r\n\(encodedPath)\r\nD:\\Music\\回声.flac\r\n"
+        let file = directory.appendingPathComponent("renamed.txt")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try XCTUnwrap(input.data(using: .utf16LittleEndian)).write(to: file)
+        let preview = try PlaylistImporter.parseAndMatch(fileURL: file, library: library)
+        XCTAssertEqual(preview.entries.map(\.displayTitle), ["纸舟", "夜行", "回声"])
+        XCTAssertEqual(preview.entries.map { $0.matchedSong?.id }, ["window", "encoded", nil])
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+    }
+
     func testSyncedPlaylistPreservesOrderThroughPartialScansAndReload() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -208,6 +208,18 @@ targets:
           # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
           - INAlternativeAppName: "Pro Muse"
         NSSupportsLiveActivities: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Primuse Share
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.welape.primuse.listening-share]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.welape.primuse.listening-share
+            UTTypeDescription: Primuse Share
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [primuseshare]
+              public.mime-type: application/vnd.primuse.share
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UIBackgroundModes:
@@ -308,6 +320,7 @@ targets:
         NSLocalNetworkUsageDescription: "Primuse 需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的 Primuse 设备。"
         NSBonjourServices:
           - "_primuse-xfer._tcp"
+          - "_primuse-share._tcp"
           - "_primuse-cache._tcp"
           - "_smb._tcp."
           - "_webdav._tcp."
@@ -632,6 +645,18 @@ targets:
           - INAlternativeAppName: "普瑞缪斯"
           # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
           - INAlternativeAppName: "Pro Muse"
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Primuse Share
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.welape.primuse.listening-share]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.welape.primuse.listening-share
+            UTTypeDescription: Primuse Share
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [primuseshare]
+              public.mime-type: application/vnd.primuse.share
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Default (English) — overridden per-locale in InfoPlist.strings.
@@ -687,6 +712,7 @@ targets:
         NSLocalNetworkUsageDescription: "Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices."
         NSBonjourServices:
           - "_primuse-xfer._tcp"
+          - "_primuse-share._tcp"
           - "_primuse-cache._tcp"
           - "_smb._tcp."
           - "_webdav._tcp."

@@ -82,6 +82,9 @@ struct MacPodcastLibraryView: View {
                     pagePicker
                 }
                 searchField
+                PodcastShareMenu(navigation: navigation)
+                    .labelStyle(.iconOnly)
+                    .menuIndicator(.hidden)
                 moreMenu
             }
 

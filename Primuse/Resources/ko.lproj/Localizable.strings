@@ -7301,3 +7301,16 @@
 "stats_history_listened_format" = "%@ 감상";
 
 "home_show_preview_albums" = "미리 듣기 앨범 표시";
+
+"settings_backup_title" = "설정 백업";
+"settings_backup_export" = "설정 내보내기";
+"settings_backup_import" = "설정 가져오기";
+"settings_backup_open" = "가져오기 / 내보내기";
+"settings_backup_scope" = "사용자 배경과 글꼴을 포함한 화면, 재생, 가사 등의 설정을 백업합니다. 계정 인증 정보와 미디어 파일은 포함되지 않습니다.";
+"settings_backup_confirm_title" = "설정을 가져올까요?";
+"settings_backup_confirm_message" = "현재 설정을 이 백업으로 바꿀까요? 계정 인증 정보와 미디어 파일은 변경되지 않습니다.";
+"settings_backup_imported" = "설정을 가져왔습니다.";
+"settings_backup_failed" = "백업 작업 실패";
+"settings_backup_newer_version" = "이 백업에는 더 최신 버전의 Primuse가 필요합니다.";
+"settings_backup_too_large" = "이 백업은 지원되는 크기 제한을 초과합니다.";
+"settings_backup_invalid" = "올바른 Primuse 설정 백업이 아니거나 파일이 손상되었습니다.";

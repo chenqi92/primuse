@@ -7207,3 +7207,16 @@
 "stats_history_listened_format" = "Odsłuchano %@";
 
 "home_show_preview_albums" = "Pokaż albumy do odsłuchu";
+
+"settings_backup_title" = "Kopia ustawień";
+"settings_backup_export" = "Eksportuj ustawienia";
+"settings_backup_import" = "Importuj ustawienia";
+"settings_backup_open" = "Import / Eksport";
+"settings_backup_scope" = "Zapisuje ustawienia wyglądu, odtwarzania, tekstów i inne, w tym własne tła i czcionki. Nie obejmuje danych logowania ani plików multimedialnych.";
+"settings_backup_confirm_title" = "Importować ustawienia?";
+"settings_backup_confirm_message" = "Zastąpić obecne ustawienia tą kopią? Dane logowania i pliki multimedialne pozostaną bez zmian.";
+"settings_backup_imported" = "Ustawienia zaimportowane.";
+"settings_backup_failed" = "Błąd kopii zapasowej";
+"settings_backup_newer_version" = "Ta kopia wymaga nowszej wersji Primuse.";
+"settings_backup_too_large" = "Ta kopia przekracza obsługiwany rozmiar.";
+"settings_backup_invalid" = "To nie jest poprawna kopia ustawień Primuse lub plik jest uszkodzony.";

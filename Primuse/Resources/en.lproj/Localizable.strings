@@ -7062,3 +7062,16 @@
 "stats_history_listened_format" = "Listened %@";
 
 "home_show_preview_albums" = "Show Preview Albums";
+
+"settings_backup_title" = "Settings Backup";
+"settings_backup_export" = "Export Settings";
+"settings_backup_import" = "Import Settings";
+"settings_backup_open" = "Import / Export";
+"settings_backup_scope" = "Back up appearance, playback, lyrics and other settings, including custom backgrounds and fonts. Account credentials and media files are not included.";
+"settings_backup_confirm_title" = "Import Settings?";
+"settings_backup_confirm_message" = "Replace current settings with this backup? Account credentials and media files will stay unchanged.";
+"settings_backup_imported" = "Settings imported.";
+"settings_backup_failed" = "Backup Failed";
+"settings_backup_newer_version" = "This backup requires a newer version of Primuse.";
+"settings_backup_too_large" = "This backup exceeds the supported size limit.";
+"settings_backup_invalid" = "This is not a valid Primuse settings backup, or the file is damaged.";

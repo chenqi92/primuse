@@ -637,8 +637,8 @@ struct RadioSubscriptionAddView: View {
         Task {
             defer { isFetching = false }
             do {
-                let text = try await RadioPlaylistDownloader.fetch(address)
-                let parsed = RadioImportParser.parse(text, existing: stationsStore.stations)
+                let document = try await RadioPlaylistDownloader.fetchDocument(address)
+                let parsed = RadioImportParser.parse(document.text, existing: stationsStore.stations, baseURL: document.url)
                 guard !parsed.isEmpty else {
                     clearResults()
                     errorMessage = String(localized: "radio_batch_file_no_entries")
@@ -648,7 +648,7 @@ struct RadioSubscriptionAddView: View {
                 selection = Set(parsed.filter(\.isPlayable).map(\.id))
                 // 清单自带分组时默认按它建文件夹，这是几百条的清单最省事的整理方式。
                 groupsAsFolders = parsed.contains { $0.groupTitle != nil }
-                fetchedURL = RadioStationValidation.normalizedURLString(address)
+                fetchedURL = document.url.absoluteString
             } catch let error as TrustedHTTPTransportError {
                 // 明文 http 的清单地址跟电台流一样，得先问过用户再连。
                 guard case .permissionRequired(let host) = error else {

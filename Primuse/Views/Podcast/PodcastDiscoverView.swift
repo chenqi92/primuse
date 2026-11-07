@@ -376,12 +376,16 @@ struct PodcastSubscribeButton: View {
 
 /// 手填 RSS 地址(只有店面允许时才有入口)。先取一遍 feed,能读出节目再进节目页让用户确认订阅。
 struct PodcastAddFeedView: View {
+    var initialText = ""
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var isChecking = false
     @State private var errorMessage: String?
     @State private var previewURL: URL?
+    @State private var previewDirectory: PodcastDirectoryShow?
     @State private var pendingInsecureHost: String?
+    @State private var importEntries: [PodcastOPML.Entry] = []
+    @State private var importResult: String?
     @FocusState private var focused: Bool
 
     private var normalized: URL? { PodcastFeedURL.normalized(text) }
@@ -389,7 +393,7 @@ struct PodcastAddFeedView: View {
     var body: some View {
         Form {
             Section {
-                TextField("podcast_feed_url_placeholder", text: $text)
+                TextField("podcast_feed_url_placeholder", text: $text, axis: .vertical)
                     #if os(iOS)
                     .textContentType(.URL)
                     .keyboardType(.URL)
@@ -416,7 +420,16 @@ struct PodcastAddFeedView: View {
                         if isChecking { ProgressView().controlSize(.small) }
                     }
                 }
-                .disabled(normalized == nil || isChecking)
+                .disabled(MediaImportText.cleaned(text).isEmpty || isChecking)
+            }
+            if !importEntries.isEmpty {
+                Section {
+                    ForEach(importEntries, id: \.feedURL) { entry in
+                        Text(entry.title ?? entry.feedURL.absoluteString)
+                    }
+                    Button("podcast_subscribe") { subscribeImportedEntries() }
+                        .disabled(isChecking)
+                }
             }
         }
         .formStyle(.grouped)
@@ -429,29 +442,79 @@ struct PodcastAddFeedView: View {
                 Button("cancel") { dismiss() }
             }
         }
-        .onAppear { focused = true }
+        .onAppear {
+            if text.isEmpty { text = initialText }
+            focused = text.isEmpty
+        }
+        .onChange(of: text) { _, _ in importEntries = [] }
         .navigationDestination(item: $previewURL) { url in
             PodcastShowDetailView(source: .feed(url))
         }
+        .navigationDestination(item: $previewDirectory) { show in
+            PodcastShowDetailView(source: .directory(show))
+        }
         .podcastInsecureHTTPAlert(host: $pendingInsecureHost) { check() }
+        .alert("podcast_opml_import_title", isPresented: Binding(
+            get: { importResult != nil }, set: { if !$0 { importResult = nil } }
+        )) { Button("ok") { dismiss() } } message: { Text(importResult ?? "") }
     }
 
     private func check() {
-        guard let url = normalized, !isChecking else { return }
+        guard !isChecking else { return }
+        let input = text
+        let entries = try? PodcastOPML.parse(Data(input.utf8))
+        if let entries, !entries.isEmpty, entries.count > 1 || MediaImportText.fileExtension(for: input) == "opml" {
+            importEntries = entries
+            errorMessage = nil
+            return
+        }
+        guard let url = entries?.first?.feedURL ?? normalized else {
+            errorMessage = String(localized: "podcast_error_not_a_feed")
+            return
+        }
         isChecking = true
         errorMessage = nil
         Task { @MainActor in
             defer { isChecking = false }
             do {
-                _ = try await PodcastStore.shared.preview(feedURL: url)
-                previewURL = url
+                if ["opml", "txt"].contains(url.pathExtension.lowercased()),
+                   case .fetched(let data, _, _, _) = try await PodcastNetwork.fetchFeed(url) {
+                    let entries = try PodcastOPML.parse(data)
+                    guard input == text else { return }
+                    guard !entries.isEmpty else { throw PodcastOPML.Failure.notOPML }
+                    importEntries = entries
+                } else if let id = PodcastFeedURL.appleDirectoryID(in: url.absoluteString) {
+                    guard let directory = try await PodcastDirectoryService.shared.lookup(id) else {
+                        throw PodcastStore.SubscribeError.notInDirectory
+                    }
+                    _ = try await PodcastStore.shared.preview(directoryShow: directory)
+                    guard input == text else { return }
+                    previewDirectory = directory
+                } else {
+                    let show = try await PodcastStore.shared.preview(feedURL: url)
+                    guard input == text else { return }
+                    previewURL = show.feedURL
+                }
             } catch PodcastNetwork.Failure.insecureHTTP(let host) {
                 pendingInsecureHost = host
+            } catch is PodcastOPML.Failure {
+                errorMessage = String(localized: "podcast_opml_invalid")
             } catch is PodcastFeedError {
                 errorMessage = String(localized: "podcast_error_not_a_feed")
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func subscribeImportedEntries() {
+        guard !isChecking, !importEntries.isEmpty else { return }
+        let entries = importEntries
+        isChecking = true
+        Task { @MainActor in
+            defer { isChecking = false }
+            let result = await PodcastStore.shared.importOPML(entries)
+            importResult = String(format: String(localized: "podcast_opml_import_result %lld %lld"), result.added, result.failed)
         }
     }
 }

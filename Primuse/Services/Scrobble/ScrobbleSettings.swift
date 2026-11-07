@@ -7,6 +7,7 @@ import PrimuseKit
 @Observable
 final class ScrobbleSettingsStore {
     static let shared = ScrobbleSettingsStore()
+    @ObservationIgnored private var suppressPersist = false
 
     private static let userDefaultsKey = "primuse.scrobble.settings.v1"
 
@@ -38,7 +39,18 @@ final class ScrobbleSettingsStore {
         }
     }
 
+    func reloadAfterOfflineImport() {
+        let loaded = ScrobbleSettingsStore()
+        suppressPersist = true
+        isEnabled = loaded.isEnabled
+        enabledProviders = loaded.enabledProviders
+        sendNowPlaying = loaded.sendNowPlaying
+        suppressPersist = false
+        ScrobbleSettingsStore.notifyChanged()
+    }
+
     private func persist() {
+        guard !suppressPersist else { return }
         let p = Persisted(
             isEnabled: isEnabled,
             enabledProviders: enabledProviders.map(\.rawValue),
@@ -50,6 +62,7 @@ final class ScrobbleSettingsStore {
     }
 
     private static func notifyChanged() {
+        guard !shared.suppressPersist else { return }
         NotificationCenter.default.post(name: .scrobbleSettingsChanged, object: nil)
     }
 

@@ -58,7 +58,7 @@ enum PodcastNetwork {
         case fetched(Data, finalURL: URL, etag: String?, lastModified: String?)
     }
 
-    static func fetchFeed(_ url: URL, etag: String? = nil, lastModified: String? = nil, session suppliedSession: URLSession? = nil, quotaRegistry: RequestQuotaRegistry = .shared) async throws -> FeedResult {
+    static func fetchFeed(_ url: URL, etag: String? = nil, lastModified: String? = nil, session suppliedSession: URLSession? = nil, quotaRegistry: RequestQuotaRegistry = .shared, discoveryDepth: Int = 0) async throws -> FeedResult {
         let session = suppliedSession ?? Self.session
         let target = try await reachableURL(for: url, session: session, quotaRegistry: quotaRegistry)
         var request = URLRequest(url: target)
@@ -69,9 +69,15 @@ enum PodcastNetwork {
         if http.statusCode == 304 { return .notModified }
         guard (200...299).contains(http.statusCode) else { throw Failure.httpStatus(http.statusCode) }
         guard !data.isEmpty else { throw Failure.emptyResponse }
+        let finalURL = http.url ?? target
+        if discoveryDepth < 2, let text = MediaImportText.decode(data),
+           MediaImportText.fileExtension(for: text) == "html",
+           let discovered = PodcastFeedDiscovery.feedURLs(in: text, baseURL: finalURL).first(where: { $0 != finalURL }) {
+            return try await fetchFeed(discovered, session: session, quotaRegistry: quotaRegistry, discoveryDepth: discoveryDepth + 1)
+        }
         return .fetched(
             data,
-            finalURL: target,
+            finalURL: finalURL,
             etag: http.value(forHTTPHeaderField: "ETag"),
             lastModified: http.value(forHTTPHeaderField: "Last-Modified")
         )

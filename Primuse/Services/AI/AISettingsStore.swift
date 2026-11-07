@@ -506,7 +506,19 @@ final class LyricsTranscriptionSettingsStore {
     private func reloadFromDefaults() {
         guard let data = defaults.data(forKey: Self.storageKey),
               let persisted = try? JSONDecoder().decode(PersistedSettingsV1.self, from: data),
-              persisted.schemaVersion == 1 else { return }
+              persisted.schemaVersion == 1 else {
+            guard CloudKVSSync.shared.isApplyingOfflineSnapshot else { return }
+            configuration = Self.defaultConfiguration(id: configuration.id)
+            usesBuiltIn = true
+            isEnabled = false
+            hasExplicitAudioUploadConsent = false
+            legacyCredentialConfiguration = nil
+            credentialMigrationCompleted = true
+            awaitsLegacySettingsMigration = true
+            revision &+= 1
+            externalReloadHandler?()
+            return
+        }
         configuration = Self.normalizedGoogleConfiguration(persisted.configuration)
         usesBuiltIn = persisted.usesBuiltIn
             ?? !AIAudioTranscriptionPolicy.supports(configuration: configuration)

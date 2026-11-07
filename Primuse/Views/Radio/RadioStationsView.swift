@@ -15,6 +15,7 @@ struct RadioStationsView: View {
     @Environment(AudioPlayerService.self) private var player
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:整理菜单并进系统溢出菜单,按钮带标题并分组。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @State private var shareSelection: ListeningShareSelection?
     @State private var editingStation: RadioStation?
     @State private var showingNewStation = false
     @State private var showingBatchAdd = false
@@ -152,6 +153,7 @@ struct RadioStationsView: View {
         .sheet(isPresented: $showingBatchAdd) {
             RadioBatchAddView()
         }
+        .sheet(item: $shareSelection) { ListeningShareExportView(selection: $0) }
         .sheet(item: $editingStation) { station in
             // 「转为我自己的电台」之后直接接着编辑新建的那个电台。
             RadioStationEditorView(station: station) { own in
@@ -398,6 +400,9 @@ struct RadioStationsView: View {
 
     @ViewBuilder
     private func folderChipActions(_ name: String) -> some View {
+        Button(ListeningShareText.string("share"), systemImage: "square.and.arrow.up") {
+            shareSelection = .init(title: name, stations: store.stations.filter { $0.assignedFolderName == name })
+        }
         Button("radio_folder_rename", systemImage: "pencil") {
             beginPrompt(.renameFolder(name))
         }
@@ -459,6 +464,7 @@ struct RadioStationsView: View {
                     .frame(maxWidth: .infinity)
 
                 MinimalHeaderActions {
+                    shareMenu
                     Menu {
                         radioManageMenuItems
                     } label: {
@@ -481,8 +487,8 @@ struct RadioStationsView: View {
                 Spacer(minLength: 8)
                 MinimalHeaderActions {
                     MinimalPageFindButton()
+                    shareMenu
                     radioAddMenu
-                    // 整理与换版式不常用，收进「⋯」，页头只留查找、添加两颗。
                     Menu {
                         radioManageButton
                         radioLayoutToggle(titled: true)
@@ -496,9 +502,19 @@ struct RadioStationsView: View {
     }
     #endif
 
+    private var shareMenu: some View {
+        ListeningShareMenu(scope: .stations, selection: .init(
+            title: navigationTitleText, stations: isManaging ? selectedStations : visibleStations
+        ))
+        .tint(RadioSpacePalette.accent)
+    }
+
     /// 导航栏按钮默认跟 App 的主题色(可能跟着封面变),这一页的按钮跟电台自己的颜色。
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            shareMenu
+        }
         if isManaging {
             ToolbarItem(placement: .cancellationAction) {
                 Button("done") {

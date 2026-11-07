@@ -9,6 +9,7 @@ struct MacRadioStationsView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
 
+    @State private var shareSelection: ListeningShareSelection?
     @State private var editingStation: RadioStation?
     @State private var showAddStation = false
     @State private var showBatchAdd = false
@@ -85,6 +86,7 @@ struct MacRadioStationsView: View {
         .sheet(isPresented: $showAddStation) {
             MacRadioStationEditorView(station: nil)
         }
+        .sheet(item: $shareSelection) { ListeningShareExportView(selection: $0) }
         .sheet(item: $editingStation) { station in
             // 「转为我自己的电台」之后直接接着编辑新建的那个电台。
             MacRadioStationEditorView(station: station) { own in
@@ -233,6 +235,10 @@ struct MacRadioStationsView: View {
                     .buttonStyle(.plain)
                 }
 
+                ListeningShareMenu(scope: .stations, selection: .init(title: ListeningShareText.string("stations"), stations: visibleStations))
+                    .labelStyle(.iconOnly)
+                    .menuIndicator(.hidden)
+                    .help(ListeningShareText.string("hub"))
                 Menu {
                     Button("radio_add", systemImage: "plus") {
                         showAddStation = true
@@ -714,6 +720,9 @@ struct MacRadioStationsView: View {
 
     @ViewBuilder
     private func folderActions(_ name: String) -> some View {
+        Button(ListeningShareText.string("share"), systemImage: "square.and.arrow.up") {
+            shareSelection = .init(title: name, stations: store.stations.filter { $0.assignedFolderName == name })
+        }
         Button("radio_folder_rename", systemImage: "pencil") {
             beginPrompt(.renameFolder(name))
         }

@@ -7207,3 +7207,16 @@
 "stats_history_listened_format" = "Прослушано %@";
 
 "home_show_preview_albums" = "Показывать альбомы для прослушивания";
+
+"settings_backup_title" = "Резервная копия настроек";
+"settings_backup_export" = "Экспорт настроек";
+"settings_backup_import" = "Импорт настроек";
+"settings_backup_open" = "Импорт / Экспорт";
+"settings_backup_scope" = "Сохраняет настройки оформления, воспроизведения, текстов и другие, включая свои фоны и шрифты. Данные входа и медиафайлы не включаются.";
+"settings_backup_confirm_title" = "Импортировать настройки?";
+"settings_backup_confirm_message" = "Заменить текущие настройки этой копией? Данные входа и медиафайлы останутся без изменений.";
+"settings_backup_imported" = "Настройки импортированы.";
+"settings_backup_failed" = "Ошибка резервного копирования";
+"settings_backup_newer_version" = "Для этой копии нужна более новая версия Primuse.";
+"settings_backup_too_large" = "Размер копии превышает допустимый предел.";
+"settings_backup_invalid" = "Это не резервная копия настроек Primuse, либо файл повреждён.";

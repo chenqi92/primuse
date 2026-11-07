@@ -46,6 +46,7 @@ struct PlaylistPartialImportNotice: Sendable {
 /// - 解析中 / 出错: 提示
 /// - 已解析: 显示 preview, 让用户编辑名字 + 确认 / 取消
 struct PlaylistImportView: View {
+    var initialText = ""
     @Environment(MusicLibrary.self) private var library
     // 可选: 只用来给同名的同步歌单标出来源, 独立宿主里未必注入。
     @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
@@ -60,6 +61,13 @@ struct PlaylistImportView: View {
     /// 合并会新增/跳过多少, 给确认按钮和说明用。目标、预览或「保留未匹配」变了就重算。
     @State private var mergePlan: PlaylistImportMergePolicy.Plan?
     @State private var importError: String?
+    @State private var pendingImportHTTPHost: String?
+    @State private var routedText = ""
+    @State private var showsRadioImport = false
+    @State private var showsPodcastImport = false
+    @State private var didReadInitialText = false
+
+    private enum Routing: Error { case presented }
     @State private var showFileImporter = false
     @State private var importedFromName: String = ""
     @State private var showCSVExporter = false
@@ -144,6 +152,24 @@ struct PlaylistImportView: View {
                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(importError ?? "") }
+        .podcastInsecureHTTPAlert(host: $pendingImportHTTPHost) { importFromLink() }
+        .sheet(isPresented: $showsRadioImport) {
+            #if os(macOS)
+            MacRadioBatchAddView(initialText: routedText)
+            #else
+            RadioBatchAddView(initialText: routedText)
+            #endif
+        }
+        .sheet(isPresented: $showsPodcastImport) {
+            NavigationStack { PodcastAddFeedView(initialText: routedText) }
+        }
+        .task {
+            guard !didReadInitialText, !initialText.isEmpty else { return }
+            didReadInitialText = true
+            listText = initialText
+            sourceMode = .text
+            importFromText()
+        }
     }
 
     private var iosBody: some View {
@@ -1373,6 +1399,10 @@ struct PlaylistImportView: View {
                 present(prepared)
             } catch is CancellationError {
                 return
+            } catch Routing.presented {
+                return
+            } catch TrustedHTTPTransportError.permissionRequired(let host) {
+                pendingImportHTTPHost = host
             } catch {
                 importError = error.localizedDescription
             }
@@ -1388,15 +1418,18 @@ struct PlaylistImportView: View {
         partialImportNotice = prepared.partialNotice
     }
 
-    /// 读一个歌单文件并和曲库匹配。不碰界面状态。
+    /// 读歌单并匹配曲库，其他类型交给相应导入页。
     private func prepareFile(name: String, fileExtension: String, data: Data) async throws -> PreparedImport {
-        if ExternalPlaylistFileParser.supportedExtensions.contains(fileExtension) {
+        if let text = MediaImportText.decode(data), routeOtherMedia(text) { throw Routing.presented }
+        let fileExtension = MediaImportText.decode(data).map {
+            MediaImportText.fileExtension(for: $0, suggested: fileExtension)
+        } ?? fileExtension
+        if !["m3u", "m3u8", "json"].contains(fileExtension) {
             // 其他播放器导出的文件：和分享链接、文本清单走同一条匹配与预览。
-            let fallbackText = Self.legacyChineseText(data)
             return try await prepareExternal(allowsSameNameMerge: true) {
                 do {
                     return try ExternalPlaylistFileParser.parse(
-                        data: data, fileExtension: fileExtension, fileName: name, fallbackText: fallbackText
+                        data: data, fileExtension: fileExtension, fileName: name
                     )
                 } catch ExternalPlaylistError.empty {
                     throw OffMainImportError.empty
@@ -1443,12 +1476,6 @@ struct PlaylistImportView: View {
             originName: name,
             partialNotice: nil
         )
-    }
-
-    /// Excel 等在中文系统上存的 CSV 常是 GB18030，不是 UTF-8。
-    nonisolated private static func legacyChineseText(_ data: Data) -> String? {
-        let encoding = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
-        return String(data: data, encoding: String.Encoding(rawValue: encoding))
     }
 
     /// 读取被沙箱保护的 import 文件字节。Files document picker 给的 URL 必须
@@ -1562,7 +1589,7 @@ struct PlaylistImportView: View {
             ids.reserveCapacity(songs.count)
             for song in songs {
                 ids[song.id] = song
-                let base = (song.filePath as NSString).lastPathComponent.lowercased()
+                let base = (song.filePath.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent.lowercased()
                 basename[base, default: []].append(song)
                 let nt = Self.normalize(song.title)
                 if !nt.isEmpty {
@@ -1577,10 +1604,12 @@ struct PlaylistImportView: View {
         func songByID(_ id: String) -> Song? { byID[id] }
 
         func matchByBasename(_ path: String, title: String, artist: String?) -> Song? {
-            let needle = (path as NSString).lastPathComponent.lowercased()
-            return Self.chooseBest(from: (byBasename[needle] ?? []).filter {
-                PlaylistEntryMatcher.fileMetadataMatches($0, title: title, artist: artist)
-            })
+            for needle in MediaImportText.fileBasenames(path) {
+                if let match = Self.chooseBest(from: (byBasename[needle] ?? []).filter {
+                    PlaylistEntryMatcher.fileMetadataMatches($0, title: title, artist: artist)
+                }) { return match }
+            }
+            return nil
         }
 
         func matchByTitleArtist(title: String, artist: String?) -> Song? {
@@ -1613,7 +1642,7 @@ struct PlaylistImportView: View {
         decoder.dateDecodingStrategy = .iso8601
         let file: PlaylistExporter.PrimusePlaylistFile
         do {
-            file = try decoder.decode(PlaylistExporter.PrimusePlaylistFile.self, from: data)
+            file = try decoder.decode(PlaylistExporter.PrimusePlaylistFile.self, from: MediaImportText.decode(data).map { Data($0.utf8) } ?? data)
         } catch {
             throw OffMainImportError.malformed(error.localizedDescription)
         }
@@ -1643,7 +1672,7 @@ struct PlaylistImportView: View {
         fileName: String,
         index: MatchIndex
     ) throws -> RawImportResult {
-        guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+        guard let text = MediaImportText.decode(data) else {
             throw OffMainImportError.malformed("encoding")
         }
         var playlistName = fileName
@@ -1651,16 +1680,16 @@ struct PlaylistImportView: View {
         var pendingExtInf: String?
         var rawEntries: [(path: String, extInf: String?)] = []
 
-        for rawLine in text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = MediaImportText.cleaned(String(rawLine))
             if line.isEmpty { continue }
-            if line.hasPrefix("#EXTM3U") { continue }
-            if line.hasPrefix("#PLAYLIST:") {
+            if line.lowercased().hasPrefix("#extm3u") { continue }
+            if line.lowercased().hasPrefix("#playlist:") {
                 playlistName = String(line.dropFirst("#PLAYLIST:".count)).trimmingCharacters(in: .whitespaces)
                 if playlistName.isEmpty { playlistName = fileName }
                 continue
             }
-            if line.hasPrefix("#EXTINF:") {
+            if line.lowercased().hasPrefix("#extinf:") {
                 pendingExtInf = String(line.dropFirst("#EXTINF:".count))
                 continue
             }
@@ -1690,21 +1719,7 @@ struct PlaylistImportView: View {
     /// 解析 `#EXTINF:duration,Artist - Title`。Artist 段可能没有, 这种整段当
     /// title (跟 PlaylistImporter.parseExtInf 行为一致)。
     nonisolated private static func parseExtInf(_ extInf: String?, fallbackPath: String) -> (title: String, artist: String?) {
-        guard let extInf else {
-            let base = (fallbackPath as NSString).lastPathComponent
-            let withoutExt = (base as NSString).deletingPathExtension
-            return (withoutExt, nil)
-        }
-        guard let commaIdx = extInf.firstIndex(of: ",") else {
-            return (extInf.trimmingCharacters(in: .whitespaces), nil)
-        }
-        let rest = String(extInf[extInf.index(after: commaIdx)...]).trimmingCharacters(in: .whitespaces)
-        if let dashRange = rest.range(of: " - ") {
-            let artist = String(rest[..<dashRange.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let title = String(rest[dashRange.upperBound...]).trimmingCharacters(in: .whitespaces)
-            return (title, artist.isEmpty ? nil : artist)
-        }
-        return (rest, nil)
+        MediaImportText.playlistTrackTitle(extInfo: extInf, path: fallbackPath)
     }
 
     private func confirm() {
@@ -1794,32 +1809,77 @@ struct PlaylistImportView: View {
     }
 
     private func importFromLink() {
-        let links = ExternalPlaylistLink.playlistLinks(in: linkText)
+        let text = linkText
+        if routeOtherMedia(text) { return }
+        if !MediaImportText.fileExtension(for: text).isEmpty || MediaImportText.urls(in: text).isEmpty {
+            importTextContent(text)
+            return
+        }
+        var links = ExternalPlaylistLink.playlistLinks(in: text)
+        for url in MediaImportText.urls(in: text) where
+            ["m3u", "m3u8", "pls", "xspf", "wpl", "csv", "tsv", "txt", "json", "xml"].contains(url.pathExtension.lowercased()) {
+            if !links.contains(url.absoluteString) { links.append(url.absoluteString) }
+        }
         guard links.count <= 1 else {
             startBatch(links.map { .link($0) })
             return
         }
-        let text = linkText
+        runSingleImport { try await prepareLink(text) }
+    }
+
+    private func importFromText() {
+        if routeOtherMedia(listText) { return }
+        if !ExternalPlaylistLink.playlistLinks(in: listText).isEmpty
+            || (MediaImportText.fileExtension(for: listText).isEmpty && MediaImportText.singleURL(in: listText) != nil) {
+            linkText = listText
+            importFromLink()
+            return
+        }
+        importTextContent(listText)
+    }
+
+    private func importTextContent(_ text: String) {
+        let name = String(localized: "playlist_import_text_default_name")
+        let ext = MediaImportText.fileExtension(for: text, suggested: "txt")
+        let order = listOrder
         runSingleImport {
-            try await prepareExternal(allowsSameNameMerge: true) {
-                try await ExternalPlaylistFetcher.fetch(sharedText: text)
+            if ["m3u", "m3u8", "json"].contains(ext) {
+                return try await prepareFile(name: name, fileExtension: ext, data: Data(text.utf8))
+            }
+            return try await prepareExternal(allowsSameNameMerge: false) {
+                try ExternalPlaylistFileParser.parse(data: Data(text.utf8), fileExtension: ext, fileName: name, textOrder: order)
             }
         }
     }
 
-    private func importFromText() {
-        let tracks = ExternalPlaylistTextParser.parse(listText, order: listOrder)
-        guard !tracks.isEmpty else {
-            importError = String(localized: "playlist_import_err_empty")
-            return
+    private func prepareLink(_ text: String) async throws -> PreparedImport {
+        if routeOtherMedia(text) { throw Routing.presented }
+        if ExternalPlaylistLink.detect(in: text) != .none {
+            return try await prepareExternal(allowsSameNameMerge: true) {
+                try await ExternalPlaylistFetcher.fetch(sharedText: text)
+            }
         }
-        let playlist = ExternalPlaylist(
-            name: String(localized: "playlist_import_text_default_name"),
-            platform: nil,
-            tracks: tracks
-        )
-        // 文本清单用的是统一的默认名, 同名不说明是同一份歌单。
-        runSingleImport { try await prepareExternal(allowsSameNameMerge: false) { playlist } }
+        guard let url = MediaImportText.singleURL(in: text) else {
+            throw ExternalPlaylistFetcher.FetchError.unrecognizedLink
+        }
+        let document = try await RadioPlaylistDownloader.fetchDocument(MediaImportText.rawContentURL(url).absoluteString)
+        if routeOtherMedia(document.text, sourceURL: document.url) { throw Routing.presented }
+        let name = document.url.deletingPathExtension().lastPathComponent
+        return try await prepareFile(name: name, fileExtension: document.url.pathExtension, data: Data(document.text.utf8))
+    }
+
+    private func routeOtherMedia(_ text: String, sourceURL: URL? = nil) -> Bool {
+        switch MediaImportText.destination(for: text) {
+        case .radio:
+            routedText = sourceURL?.absoluteString ?? text
+            showsRadioImport = true
+            return true
+        case .podcast:
+            routedText = sourceURL?.absoluteString ?? text
+            showsPodcastImport = true
+            return true
+        default: return false
+        }
     }
 
     /// 读取(可能要联网)→ 后台和曲库匹配。和文件导入共用预览与确认。
@@ -2187,9 +2247,7 @@ struct PlaylistImportView: View {
         case .unreadableFile(_, let message):
             throw BatchImportFailure(errorDescription: message)
         case .link(let link):
-            return try await prepareExternal(allowsSameNameMerge: true) {
-                try await ExternalPlaylistFetcher.fetch(sharedText: link)
-            }
+            return try await prepareLink(link)
         }
     }
 
@@ -2718,7 +2776,7 @@ struct PlaylistImportView: View {
     // MARK: - Helpers
 
     private func importableTypes() -> [UTType] {
-        var types: [UTType] = [.json, .commaSeparatedText, .tabSeparatedText, .plainText, .xml]
+        var types: [UTType] = [.json, .commaSeparatedText, .tabSeparatedText, .plainText, .xml, .data]
         for ext in ["pls", "xspf", "wpl"] {
             if let type = UTType(filenameExtension: ext) { types.append(type) }
         }

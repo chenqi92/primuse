@@ -7301,3 +7301,16 @@
 "stats_history_listened_format" = "%@ gehört";
 
 "home_show_preview_albums" = "Vorschaualben anzeigen";
+
+"settings_backup_title" = "Einstellungssicherung";
+"settings_backup_export" = "Einstellungen exportieren";
+"settings_backup_import" = "Einstellungen importieren";
+"settings_backup_open" = "Importieren / Exportieren";
+"settings_backup_scope" = "Sichert Darstellung, Wiedergabe, Liedtexte und weitere Einstellungen einschließlich eigener Hintergründe und Schriften. Zugangsdaten und Mediendateien sind nicht enthalten.";
+"settings_backup_confirm_title" = "Einstellungen importieren?";
+"settings_backup_confirm_message" = "Aktuelle Einstellungen durch diese Sicherung ersetzen? Zugangsdaten und Mediendateien bleiben unverändert.";
+"settings_backup_imported" = "Einstellungen importiert.";
+"settings_backup_failed" = "Sicherung fehlgeschlagen";
+"settings_backup_newer_version" = "Diese Sicherung erfordert eine neuere Version von Primuse.";
+"settings_backup_too_large" = "Diese Sicherung überschreitet die unterstützte Größe.";
+"settings_backup_invalid" = "Dies ist keine gültige Primuse-Einstellungssicherung oder die Datei ist beschädigt.";

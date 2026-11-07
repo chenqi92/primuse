@@ -700,7 +700,8 @@ final class PlaybackSettingsStore {
         // 推上 iCloud —— 那会把别的设备上的播放设置整份换成默认值。
         let hadPersistedSettings = defaults.data(forKey: PlaybackSettings.defaultsKey) != nil
         cloudSync.register(key: PlaybackSettings.defaultsKey) { [weak self] in
-            self?.reloadFromDefaults()
+            guard let self else { return }
+            self.reloadFromDefaults(preservingDeviceLocal: !self.cloudSync.isApplyingOfflineSnapshot)
         }
         let lyricsRolledOut = PlaybackSettings.applyLockScreenLyricsRolloutIfNeeded(defaults: defaults)
         let crossfadeRolledOut = PlaybackSettings.applyCrossfadeDurationRolloutIfNeeded(defaults: defaults)
@@ -722,10 +723,11 @@ final class PlaybackSettingsStore {
     /// 读 defaults 的地方才看得到本机值, 下次启动也才装得回来。但这不是一次编辑,
     /// 绝不能经 `persist()` 走 `markChanged`: 推回去会让两台设备拿各自的本机值来回
     /// 互推。灰度迁移那条路上 defaults 里的本机字段与内存一致, 合并是恒等, 不写回。
-    private func reloadFromDefaults() {
+    private func reloadFromDefaults(preservingDeviceLocal: Bool = true) {
+        let loaded = PlaybackSettings.load(defaults: defaults)
         let merge = PlaybackSettings.deviceLocalFields.merge(
-            remote: PlaybackSettings.load(defaults: defaults),
-            local: snapshot()
+            remote: loaded,
+            local: preservingDeviceLocal ? snapshot() : loaded
         )
         let s = merge.settings
         suppressPersist = true

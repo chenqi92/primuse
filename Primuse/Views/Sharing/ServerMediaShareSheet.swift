@@ -935,6 +935,7 @@ private struct MediaRelayEncryptedManifest: Codable, Sendable {
     let audioFormat: String
     let quality: String?
     let durationSeconds: Double
+    var packageSummary: [String]? = nil
 }
 
 private enum MediaRelayEncryptedManifestPolicy {
@@ -2231,7 +2232,7 @@ struct MediaRelayShareSheet: View {
     }
 }
 
-private struct MediaRelayQRCodeView: View {
+struct MediaRelayQRCodeView: View {
     let value: String
 
     var body: some View {
@@ -2241,6 +2242,7 @@ private struct MediaRelayQRCodeView: View {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .interpolation(.none)
+                    .scaledToFit()
                     .padding(12)
             } else {
                 Image(systemName: "qrcode")
@@ -2248,6 +2250,8 @@ private struct MediaRelayQRCodeView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .aspectRatio(1, contentMode: .fit)
+        .frame(maxWidth: 240)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -2365,7 +2369,8 @@ enum MediaRelayImportPolicy {
             throw MediaRelayImportError.unsupportedFile
         }
         let fileExtension = URL(fileURLWithPath: name).pathExtension.lowercased()
-        guard PrimuseConstants.supportedAudioExtensions.contains(fileExtension) else {
+        guard PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
+                || fileExtension == ListeningSharePackage.fileExtension else {
             throw MediaRelayImportError.unsupportedFile
         }
         if name.count > 180 {
@@ -2382,6 +2387,7 @@ struct MediaRelayImportSheet: View {
         case downloading
         case copying(Double?)
         case scanning
+        case packageReady
         case finished
     }
 
@@ -2408,18 +2414,20 @@ struct MediaRelayImportSheet: View {
     @Environment(MusicScraperService.self) private var scraperService
 
     let request: MediaRelayImportRequest
+    var automaticallyDownload = false
 
     @State private var phase: Phase = .ready
     @State private var downloadedBytes: Int64 = 0
     @State private var ticketConsumed = false
     @State private var errorMessage: String?
     @State private var importTask: Task<Void, Never>?
+    @State private var sharedPackage: ListeningShareCoordinator.Incoming?
 
     private var isWorking: Bool {
         switch phase {
         case .downloading, .copying, .scanning:
             true
-        case .ready, .finished:
+        case .ready, .packageReady, .finished:
             false
         }
     }
@@ -2467,7 +2475,7 @@ struct MediaRelayImportSheet: View {
                     }
                 }
             }
-            .navigationTitle("relay_import_title")
+            .navigationTitle(ListeningShareText.string("importShare"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2477,6 +2485,14 @@ struct MediaRelayImportSheet: View {
             }
         }
         .interactiveDismissDisabled(isWorking)
+        .sheet(item: $sharedPackage) { incoming in
+            ListeningShareImportView(incoming: incoming)
+        }
+        .task {
+            if automaticallyDownload, phase == .ready {
+                importTask = Task { await downloadAndImport() }
+            }
+        }
         .onDisappear {
             importTask?.cancel()
             importTask = nil
@@ -2505,7 +2521,7 @@ struct MediaRelayImportSheet: View {
                     .foregroundStyle(.secondary)
                     .pmAppearFade(.control)
             } else {
-                Label("relay_import_ready", systemImage: "music.note")
+                Label(ListeningShareText.string("readyToDownload"), systemImage: "square.and.arrow.down")
                     .pmAppearFade(.control)
             }
         case .downloading:
@@ -2538,6 +2554,8 @@ struct MediaRelayImportSheet: View {
                 Text("relay_import_scanning")
             }
             .pmAppearFade(.control)
+        case .packageReady:
+            Label(ListeningShareText.string("importPreview"), systemImage: "square.and.arrow.down")
         case .finished:
             Label("relay_import_finished", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
@@ -2595,7 +2613,7 @@ struct MediaRelayImportSheet: View {
                     let encryptedManifest = MediaRelayE2EE.decodeBase64URL(manifestValue) else {
                     throw MediaRelayImportError.invalidResponse
                 }
-                guard plaintextSize >= MediaRelayImportPolicy.minimumFileSize else {
+                guard plaintextSize > 0 else {
                     throw MediaRelayImportError.emptyFile
                 }
                 guard plaintextSize <= MediaRelayImportPolicy.maximumFileSize else {
@@ -2615,6 +2633,8 @@ struct MediaRelayImportSheet: View {
                     throw MediaRelayImportError.invalidResponse
                 }
                 let fileName = try MediaRelayImportPolicy.validatedFileName(manifest.fileName)
+                guard plaintextSize >= MediaRelayImportPolicy.minimumFileSize
+                    || fileName.hasSuffix(".primuseshare") else { throw MediaRelayImportError.emptyFile }
                 let chunkCount = (plaintextSize + chunkSize - 1) / chunkSize
                 let expectedEncryptedSize = plaintextSize + chunkCount * 28
                 guard downloadedSize == expectedEncryptedSize else {
@@ -2652,6 +2672,12 @@ struct MediaRelayImportSheet: View {
                 stagedURL = stagingDirectory.appendingPathComponent(fileName, isDirectory: false)
                 try FileManager.default.moveItem(at: temporaryURL, to: stagedURL)
                 downloadedBytes = downloadedSize
+            }
+
+            if stagedURL.pathExtension.lowercased() == ListeningSharePackage.fileExtension {
+                sharedPackage = try await ListeningShareCoordinator.shared.stage(stagedURL)
+                phase = .packageReady
+                return
             }
 
             phase = .copying(nil)
@@ -2746,3 +2772,96 @@ struct MediaRelayImportSheet: View {
         }.value
     }
 }
+
+#if os(iOS) || os(macOS)
+@MainActor
+enum ListeningShareRelay {
+    struct Record: Identifiable {
+        let id: String
+        let title: String
+        let url: URL?
+        let expiresAt: Date?
+    }
+
+    static var records: [Record] {
+        MediaRelayShareRegistry.records().map {
+            Record(id: $0.shareID, title: $0.title, url: $0.isComplete ? $0.publicURL : nil, expiresAt: $0.expiresAt)
+        }
+    }
+
+    static func revoke(_ id: String) async throws {
+        guard let record = MediaRelayShareRegistry.records().first(where: { $0.id == id }) else { return }
+        let client = MediaRelayClient(baseURL: try MediaRelayConfigurationPolicy.validatedAPIBaseURL(record.apiBaseURLString), adminToken: "")
+        try await client.revoke(shareID: record.shareID, controlToken: record.controlToken)
+        MediaRelayShareRegistry.remove(record)
+    }
+
+    static func upload(_ export: ListeningShareService.Export, expiresAt: Date?, password: String,
+                       progress: @escaping (Double) -> Void) async throws -> URL {
+        _ = try export.package.validated(publicSharing: true)
+        let mode = MediaRelaySettingsStore.mode
+        let baseURL = try MediaRelayConfigurationPolicy.validatedAPIBaseURL(
+            mode == .builtIn ? MediaRelaySettingsStore.builtInEndpoint : MediaRelaySettingsStore.selfHostedEndpoint)
+        let client = MediaRelayClient(baseURL: baseURL, adminToken: mode == .builtIn ? "" : MediaRelaySettingsStore.selfHostedToken)
+        guard try await client.clientEncryptionPolicy().usesClientEncryption else { throw MediaRelayShareError.invalidConfiguration }
+        let size = Int64(try export.url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        let crypto = MediaRelayE2EE()
+        func manifestText(_ value: String) -> String {
+            let clean = value.components(separatedBy: .controlCharacters).joined(separator: " ")
+            return String(String.UnicodeScalarView(clean.unicodeScalars.prefix(80))).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let title = manifestText(export.package.title)
+        let usesShortCode = expiresAt.map { $0.timeIntervalSinceNow <= 24 * 60 * 60 } ?? false
+        let creation = try await client.createUpload(fileName: "Primuse.primuseshare", contentType: ListeningSharePackage.contentType,
+            size: size, expiresAt: expiresAt, password: password.isEmpty ? nil : password,
+            title: title, artist: nil, album: nil, audioFormat: "Primuse", quality: nil, durationSeconds: 0,
+            allowPlayback: false, allowDownload: true, allowImport: true,
+            linkType: usesShortCode ? "short" : (expiresAt == nil ? "permanent" : "long"),
+            shortCodeLength: usesShortCode ? 6 : nil, usesClientEncryption: true)
+        var components = URLComponents(string: creation.publicURL)!
+        components.fragment = "k=\(crypto.keyToken)"
+        guard let url = components.url else { throw MediaRelayShareError.invalidResponse }
+        var record = MediaRelayShareRecord(shareID: creation.shareID, title: title, publicURLString: url.absoluteString,
+            apiBaseURLString: baseURL.absoluteString, controlToken: creation.uploadToken, createdAt: Date(),
+            expiresAt: creation.expiresAt.flatMap(ServerMediaShareTimestampPolicy.date(from:)), permanent: creation.permanent,
+            passwordProtected: !password.isEmpty, allowsPlayback: false, allowsDownload: true, allowsImport: true,
+            accessCode: creation.accessCode, isComplete: false)
+        do {
+            try MediaRelayShareRegistry.save(record)
+            var manifest = MediaRelayEncryptedManifest(version: 1, fileName: "Primuse.primuseshare",
+                contentType: ListeningSharePackage.contentType, size: size, chunkSize: creation.chunkSize,
+                title: title, artist: nil, album: nil, audioFormat: "Primuse", quality: nil, durationSeconds: 0)
+            manifest.packageSummary = Array((export.package.stations.map(\.name) + export.package.podcasts.map(\.title)
+                + export.package.books.map(\.title) + (export.package.settings.isEmpty ? [] : [ListeningShareText.string("settings")]))
+                .prefix(8)).map(manifestText)
+            try await client.uploadManifest(shareID: creation.shareID, uploadToken: creation.uploadToken,
+                data: crypto.encryptedManifest(manifest, shareID: creation.shareID))
+            let input = try FileHandle(forReadingFrom: export.url)
+            defer { try? input.close() }
+            var offset: Int64 = 0
+            var index: Int64 = 0
+            while offset < size {
+                try Task.checkCancellation()
+                let count = min(creation.chunkSize, size - offset)
+                guard let data = try input.read(upToCount: Int(count)), data.count == count else { throw ListeningShareError.incompleteFile }
+                try await client.uploadChunk(shareID: creation.shareID, uploadToken: creation.uploadToken, index: index,
+                    offset: offset, totalSize: size, plaintextLength: count,
+                    data: crypto.encryptedChunk(data, shareID: creation.shareID, index: index))
+                offset += count; index += 1
+                progress(Double(offset) / Double(size))
+            }
+            try await client.complete(shareID: creation.shareID, uploadToken: creation.uploadToken, expectedPermanent: creation.permanent)
+            record.isComplete = true
+            try MediaRelayShareRegistry.save(record)
+            return url
+        } catch {
+            let pending = record
+            let cleanup = Task.detached {
+                try await client.revoke(shareID: pending.shareID, controlToken: pending.controlToken)
+            }
+            if (try? await cleanup.value) != nil { MediaRelayShareRegistry.remove(record) }
+            throw error
+        }
+    }
+}
+#endif

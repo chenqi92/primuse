@@ -7207,3 +7207,16 @@
 "stats_history_listened_format" = "%@ dinlendi";
 
 "home_show_preview_albums" = "Önizleme Albümlerini Göster";
+
+"settings_backup_title" = "Ayar Yedeği";
+"settings_backup_export" = "Ayarları Dışa Aktar";
+"settings_backup_import" = "Ayarları İçe Aktar";
+"settings_backup_open" = "İçe / Dışa Aktar";
+"settings_backup_scope" = "Özel arka planlar ve yazı tipleri dahil görünüm, oynatma, şarkı sözü ve diğer ayarları yedekler. Hesap kimlik bilgileri ve medya dosyaları dahil değildir.";
+"settings_backup_confirm_title" = "Ayarlar içe aktarılsın mı?";
+"settings_backup_confirm_message" = "Mevcut ayarlar bu yedekle değiştirilsin mi? Hesap kimlik bilgileri ve medya dosyaları değişmeyecek.";
+"settings_backup_imported" = "Ayarlar içe aktarıldı.";
+"settings_backup_failed" = "Yedekleme Başarısız";
+"settings_backup_newer_version" = "Bu yedek için Primuse uygulamasının daha yeni bir sürümü gerekli.";
+"settings_backup_too_large" = "Bu yedek desteklenen boyut sınırını aşıyor.";
+"settings_backup_invalid" = "Bu dosya geçerli bir Primuse ayar yedeği değil veya hasarlı.";

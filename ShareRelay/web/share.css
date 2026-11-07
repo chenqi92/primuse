@@ -1526,3 +1526,12 @@ input[type="range"]::-moz-range-thumb {
   .qr-dialog h2,
   .qr-dialog .eyebrow { display: none !important; }
 }
+
+.package-summary { padding: 16px 20px 16px 36px; border-radius: 16px; background: rgba(255,255,255,.05); line-height: 1.8; overflow-wrap: anywhere; }
+.package-share .artwork-stage { background: linear-gradient(145deg, #183b3c, #243438); border-radius: 28px; display: grid; place-items: center; }
+.package-share .artwork-stage .vinyl, .package-share .artwork-stage .cover { display: none; }
+.package-share .package-icon { width: 30%; height: 30%; opacity: .85; }
+
+.package-share .keyboard-help, .package-share .permission-list .permission:first-child { display: none; }
+
+.package-share .package-summary { order: 4; }

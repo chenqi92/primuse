@@ -158,14 +158,14 @@ final class RadioSubscriptionService {
         subscriptions.updateStatus(id: id) { $0.lastAttemptAt = startedAt }
 
         do {
-            let text = try await RadioPlaylistDownloader.fetch(subscription.listURL)
+            let document = try await RadioPlaylistDownloader.fetchDocument(subscription.listURL)
             try Task.checkCancellation()
             // 下载期间订阅可能被取消、或者改了设置 —— 一律以现在的定义为准。
             guard let current = subscriptions.subscription(id: id) else { return .cancelled }
             let now = Date()
             let plan = try RadioSubscriptionMergePolicy.merge(
                 subscription: current,
-                candidates: RadioImportParser.parse(text, existing: []),
+                candidates: RadioImportParser.parse(document.text, existing: [], baseURL: document.url),
                 stations: stationsStore.allStations,
                 confirmsHeldRemovals: confirmingHeldRemovals,
                 now: now

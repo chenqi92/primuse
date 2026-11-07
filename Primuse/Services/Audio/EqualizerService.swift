@@ -7,6 +7,7 @@ import PrimuseKit
 final class EqualizerService {
     private let audioEngine: AudioEngine
     private let defaults: UserDefaults
+    @ObservationIgnored private var suppressPersist = false
 
     var currentPreset: EQPreset = .flat
     var isEnabled: Bool = true {
@@ -417,11 +418,23 @@ final class EqualizerService {
     }
 
     private func persist() {
+        guard !suppressPersist else { return }
         defaults.set(bands.map(Double.init), forKey: Keys.bands)
         defaults.set(customBands.map(Double.init), forKey: Keys.customBands)
         defaults.set(currentPreset.id, forKey: Keys.presetId)
         defaults.set(isEnabled, forKey: Keys.enabled)
         defaults.set(library.encoded(), forKey: EQPresetLibrary.storageKey)
+    }
+
+    func reloadAfterOfflineImport() {
+        suppressPersist = true
+        currentPreset = .flat
+        bands = Array(repeating: 0, count: PrimuseConstants.eqBandCount)
+        customBands = bands
+        isEnabled = true
+        load()
+        suppressPersist = false
+        applySettings()
     }
 
     private func load() {

@@ -1,4 +1,49 @@
-(async () => {
+"use strict";
+
+  function cleanManifestText(value, maximum, optional = false) {
+    if (value == null && optional) return "";
+    if (typeof value !== "string" || value.length > maximum || /[\u0000-\u001f\u007f]/.test(value)) {
+      throw new Error("invalid_manifest");
+    }
+    return value.trim();
+  }
+
+  function validatedManifest(value, expectedSize, expectedChunkSize) {
+    if (!value || value.version !== 1 || !Number.isSafeInteger(value.size) || value.size <= 0 || value.size !== expectedSize ||
+        !Number.isSafeInteger(value.chunkSize) || value.chunkSize !== expectedChunkSize ||
+        !Number.isFinite(value.durationSeconds) || value.durationSeconds < 0 || value.durationSeconds > 7 * 24 * 60 * 60) {
+      throw new Error("invalid_manifest");
+    }
+    const fileName = cleanManifestText(value.fileName, 180);
+    const contentType = cleanManifestText(value.contentType, 96).toLowerCase();
+    const titleValue = cleanManifestText(value.title, 160);
+    if (!fileName || !titleValue || !/^(?:audio|video)\/[a-z0-9!#$&^_.+-]+$|^application\/(?:octet-stream|ogg|vnd\.primuse\.share)$/.test(contentType)) {
+      throw new Error("invalid_manifest");
+    }
+    const isPackage = contentType === "application/vnd.primuse.share";
+    if (isPackage && !fileName.toLowerCase().endsWith(".primuseshare")) throw new Error("invalid_manifest");
+    if (isPackage && (!Array.isArray(value.packageSummary) || value.packageSummary.length > 8)) throw new Error("invalid_manifest");
+    const packageSummary = isPackage ? value.packageSummary.map((entry) => cleanManifestText(entry, 160)) : null;
+    return {
+      packageSummary,
+      version: 1,
+      fileName,
+      contentType,
+      size: value.size,
+      chunkSize: value.chunkSize,
+      title: titleValue,
+      artist: cleanManifestText(value.artist, 160, true),
+      album: cleanManifestText(value.album, 160, true),
+      audioFormat: cleanManifestText(value.audioFormat, 32, true),
+      quality: cleanManifestText(value.quality, 80, true),
+      durationSeconds: value.durationSeconds,
+    };
+  }
+
+
+if (typeof module !== "undefined") module.exports = { validatedManifest };
+
+if (typeof window !== "undefined") (async () => {
   "use strict";
 
   const i18n = await window.PrimuseI18nReady.catch(() => ({
@@ -213,40 +258,6 @@
     return new Uint8Array(plaintext);
   }
 
-  function cleanManifestText(value, maximum, optional = false) {
-    if (value == null && optional) return "";
-    if (typeof value !== "string" || value.length > maximum || /[\u0000-\u001f\u007f]/.test(value)) {
-      throw new Error("invalid_manifest");
-    }
-    return value.trim();
-  }
-
-  function validatedManifest(value, expectedSize, expectedChunkSize) {
-    if (!value || value.version !== 1 || !Number.isSafeInteger(value.size) || value.size !== expectedSize ||
-        !Number.isSafeInteger(value.chunkSize) || value.chunkSize !== expectedChunkSize ||
-        !Number.isFinite(value.durationSeconds) || value.durationSeconds < 0 || value.durationSeconds > 7 * 24 * 60 * 60) {
-      throw new Error("invalid_manifest");
-    }
-    const fileName = cleanManifestText(value.fileName, 180);
-    const contentType = cleanManifestText(value.contentType, 96).toLowerCase();
-    const titleValue = cleanManifestText(value.title, 160);
-    if (!fileName || !titleValue || !/^(?:audio|video)\/[a-z0-9!#$&^_.+-]+$|^application\/(?:octet-stream|ogg)$/.test(contentType)) {
-      throw new Error("invalid_manifest");
-    }
-    return {
-      version: 1,
-      fileName,
-      contentType,
-      size: value.size,
-      chunkSize: value.chunkSize,
-      title: titleValue,
-      artist: cleanManifestText(value.artist, 160, true),
-      album: cleanManifestText(value.album, 160, true),
-      audioFormat: cleanManifestText(value.audioFormat, 32, true),
-      quality: cleanManifestText(value.quality, 80, true),
-      durationSeconds: value.durationSeconds,
-    };
-  }
 
   function humanFileSize(bytes) {
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -280,7 +291,34 @@
     if (body.dataset.allowPlayback === "true") one('[data-protected-action="playback"]')?.removeAttribute("hidden");
     if (body.dataset.allowDownload === "true") one('[data-protected-action="download"]')?.removeAttribute("hidden");
     if (body.dataset.allowImport === "true") one('[data-protected-action="import"]')?.removeAttribute("hidden");
-    document.title = `${manifest.title} · ${t("MUSIC_SHARE")}`;
+    if (manifest.packageSummary) {
+      body.classList.add("package-share");
+      if (artistNode) artistNode.textContent = t("PACKAGE_SHARE");
+      const headerCopy = one(".header-copy");
+      if (headerCopy) headerCopy.textContent = t("PACKAGE_SHARE");
+      one(".artwork-column")?.setAttribute("aria-label", t("PACKAGE_SHARE"));
+      const continueButton = one("[data-install-dialog] .quiet-button[value=cancel]");
+      if (continueButton) continueButton.textContent = t("CLOSE");
+      one("[data-package-summary]")?.remove();
+      const list = document.createElement("ul");
+      list.dataset.packageSummary = "true";
+      list.className = "package-summary";
+      for (const entry of manifest.packageSummary) {
+        const item = document.createElement("li");
+        item.textContent = entry;
+        list.append(item);
+      }
+      one(".action-tray")?.before(list);
+      const stage = one(".artwork-stage");
+      if (stage && !stage.querySelector(".package-icon")) {
+        const icon = document.createElement("img");
+        icon.className = "package-icon ui-icon";
+        icon.src = "/icons/share-ios.svg";
+        icon.alt = "";
+        stage.append(icon);
+      }
+    }
+    document.title = `${manifest.title} · ${manifest.packageSummary ? t("PACKAGE_SHARE") : t("MUSIC_SHARE")}`;
     if (decryptionCard) decryptionCard.dataset.state = "ready";
     if (decryptionTitle) decryptionTitle.textContent = t("DECRYPTED_HERE");
     if (decryptionState) decryptionState.textContent = t("KEY_NOT_UPLOADED");

@@ -512,6 +512,31 @@ final class ScraperConfigStore: @unchecked Sendable {
         return secrets
     }
 
+    /// An explicit offline restore replaces the selected configs, preserving local credentials.
+    /// Publish no CloudKit mutation; filesystem writes complete before the cache is changed.
+    func restoreOfflineConfigs(_ configs: [ScraperConfig], additionalFiles: [URL: Data]) throws {
+        for config in configs { try validate(config) }
+        lock.lock()
+        defer { lock.unlock() }
+        var files = additionalFiles
+        var restored: [ScraperConfig] = []
+        for var config in configs {
+            if let local = cache[config.id] {
+                let incoming = try JSONSerialization.jsonObject(with: JSONEncoder().encode(config))
+                let existing = try JSONSerialization.jsonObject(with: JSONEncoder().encode(local))
+                let merged = OfflineSettingsRedaction.preservingLocalCredentials(in: incoming, from: existing)
+                config = try JSONDecoder().decode(ScraperConfig.self, from: JSONSerialization.data(withJSONObject: merged))
+            }
+            config.modifiedAt = Date()
+            config.secrets = nil
+            files[try configFileURL(for: config.id)] = try JSONEncoder().encode(config)
+            injectSecrets(into: &config, context: "offlineRestore")
+            restored.append(config)
+        }
+        try OfflineSettingsFileWriter.apply(files)
+        for config in restored { cache[config.id] = config }
+    }
+
     /// 局域网扫码直传来的配置。与 `applyRemoteConfig` 同一套语义:校验、按 `modifiedAt`
     /// 后写者胜、不发变更通知 —— 发了会被 CloudKit 同步当成本机导入,推进这台 Apple TV
     /// 登录的(可能是另一个)iCloud 账号。带来的 secrets 写进旁路文件,本机那份配置更新时

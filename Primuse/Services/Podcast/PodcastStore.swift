@@ -307,6 +307,10 @@ final class PodcastStore {
     /// 取一档节目来看,不订阅。已经订了就直接给本机那份。
     @discardableResult
     func preview(feedURL: URL, directoryID: Int? = nil) async throws -> PodcastShow {
+        if directoryID == nil, let id = PodcastFeedURL.appleDirectoryID(in: feedURL.absoluteString) {
+            guard let directoryShow = try await PodcastDirectoryService.shared.lookup(id) else { throw SubscribeError.notInDirectory }
+            return try await preview(directoryShow: directoryShow)
+        }
         if let existing = isSubscribed(feedURL: feedURL) { return existing }
         // 界面已经藏起了手填地址与 OPML;这里再挡一道,别处的入口也绕不过去。
         guard directoryID != nil || PodcastAvailabilityService.shared.allowsCustomFeeds else {
@@ -317,9 +321,10 @@ final class PodcastStore {
         guard case let .fetched(data, finalURL, etag, lastModified) = try await PodcastNetwork.fetchFeed(feedURL) else {
             throw PodcastNetwork.Failure.emptyResponse
         }
+        if let existing = isSubscribed(feedURL: finalURL) { return existing }
         let result = try await Task.detached(priority: .userInitiated) {
             let feed = try PodcastFeedParser.parse(data, feedURL: finalURL)
-            return PodcastFeedMerge.subscribe(feed: feed, feedURL: feedURL, directoryID: directoryID, now: Date())
+            return PodcastFeedMerge.subscribe(feed: feed, feedURL: finalURL, directoryID: directoryID, now: Date())
         }.value
         var show = result.show
         if finalURL.scheme == "https", feedURL.scheme == "http" { show.feedURL = finalURL }
@@ -751,10 +756,14 @@ final class PodcastStore {
         var added = 0
         var failed = 0
         for entry in entries {
+            if Task.isCancelled { break }
             if isSubscribed(feedURL: entry.feedURL) != nil { continue }
             do {
-                try await subscribe(feedURL: entry.feedURL)
-                added += 1
+                let knownIDs = Set(subscribedShows.map(\.id))
+                let show = try await subscribe(feedURL: entry.feedURL)
+                if !knownIDs.contains(show.id) { added += 1 }
+            } catch is CancellationError {
+                break
             } catch {
                 failed += 1
                 plog("🎙️ OPML import skipped \(entry.feedURL.host ?? "?"): \(error.localizedDescription)")

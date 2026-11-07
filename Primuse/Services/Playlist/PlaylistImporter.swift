@@ -102,7 +102,8 @@ enum PlaylistImporter {
             throw ImportError.malformed(error.localizedDescription)
         }
 
-        switch ext {
+        let detected = MediaImportText.decode(data).map { MediaImportText.fileExtension(for: $0, suggested: ext) } ?? ext
+        switch detected {
         case "m3u", "m3u8":
             return try parseM3U8(data: data, fileName: fileURL.deletingPathExtension().lastPathComponent, library: library)
         case "json":
@@ -119,7 +120,7 @@ enum PlaylistImporter {
         decoder.dateDecodingStrategy = .iso8601
         let file: PlaylistExporter.PrimusePlaylistFile
         do {
-            file = try decoder.decode(PlaylistExporter.PrimusePlaylistFile.self, from: data)
+            file = try decoder.decode(PlaylistExporter.PrimusePlaylistFile.self, from: MediaImportText.decode(data).map { Data($0.utf8) } ?? data)
         } catch {
             throw ImportError.malformed(error.localizedDescription)
         }
@@ -179,23 +180,23 @@ enum PlaylistImporter {
     /// ```
     /// `#EXTINF` 不存在时 fallback 到从路径推断 displayTitle。
     private static func parseM3U8(data: Data, fileName: String, library: MusicLibrary) throws -> ImportPreview {
-        guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+        guard let text = MediaImportText.decode(data) else {
             throw ImportError.malformed("encoding")
         }
         var playlistName = fileName
         var pendingExtInf: String?
         var rawEntries: [(path: String, extInf: String?)] = []
 
-        for rawLine in text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = MediaImportText.cleaned(String(rawLine))
             if line.isEmpty { continue }
-            if line.hasPrefix("#EXTM3U") { continue }
-            if line.hasPrefix("#PLAYLIST:") {
+            if line.lowercased().hasPrefix("#extm3u") { continue }
+            if line.lowercased().hasPrefix("#playlist:") {
                 playlistName = String(line.dropFirst("#PLAYLIST:".count)).trimmingCharacters(in: .whitespaces)
                 if playlistName.isEmpty { playlistName = fileName }
                 continue
             }
-            if line.hasPrefix("#EXTINF:") {
+            if line.lowercased().hasPrefix("#extinf:") {
                 pendingExtInf = String(line.dropFirst("#EXTINF:".count))
                 continue
             }
@@ -241,29 +242,7 @@ enum PlaylistImporter {
     /// 解析 `#EXTINF:duration,Artist - Title` 格式。Artist 段可能没有 (用户
     /// 自己手写的 m3u8 常见), 这种情况整段当 title。
     private static func parseExtInf(_ extInf: String?, fallbackPath: String) -> (title: String, artist: String?) {
-        guard let extInf else {
-            // 没 EXTINF, 用路径 basename 当标题
-            let decodedPath = fallbackPath.removingPercentEncoding ?? fallbackPath
-            let base = if let url = URL(string: fallbackPath), url.isFileURL {
-                url.lastPathComponent
-            } else {
-                (decodedPath as NSString).lastPathComponent
-            }
-            let withoutExt = (base as NSString).deletingPathExtension
-            return (withoutExt, nil)
-        }
-        // duration,rest 拆分
-        guard let commaIdx = extInf.firstIndex(of: ",") else {
-            return (extInf.trimmingCharacters(in: .whitespaces), nil)
-        }
-        let rest = String(extInf[extInf.index(after: commaIdx)...]).trimmingCharacters(in: .whitespaces)
-        // " - " 分隔 artist - title (m3u8 约定)
-        if let dashRange = rest.range(of: " - ") {
-            let artist = String(rest[..<dashRange.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let title = String(rest[dashRange.upperBound...]).trimmingCharacters(in: .whitespaces)
-            return (title, artist.isEmpty ? nil : artist)
-        }
-        return (rest, nil)
+        MediaImportText.playlistTrackTitle(extInfo: extInf, path: fallbackPath)
     }
 
     // MARK: - Match strategies
@@ -284,7 +263,7 @@ enum PlaylistImporter {
             titles.reserveCapacity(songs.count)
             for song in songs {
                 if ids[song.id] == nil { ids[song.id] = song }
-                let basename = (song.filePath as NSString).lastPathComponent.lowercased()
+                let basename = (song.filePath.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent.lowercased()
                 basenames[basename, default: []].append(song)
                 let title = PlaylistImporter.normalize(song.title)
                 if !title.isEmpty {
@@ -332,21 +311,7 @@ enum PlaylistImporter {
     }
 
     nonisolated private static func basenameCandidates(for rawPath: String) -> [String] {
-        var candidates: [String] = []
-        func append(_ value: String) {
-            let basename = (value as NSString).lastPathComponent.lowercased()
-            if !basename.isEmpty, !candidates.contains(basename) { candidates.append(basename) }
-        }
-        // Preserve literal percent signs first so a real file named `%20.mp3`
-        // wins over the decoded-space fallback.
-        append(rawPath)
-        if let url = URL(string: rawPath), url.isFileURL {
-            append(url.path)
-        }
-        if let decoded = rawPath.removingPercentEncoding {
-            append(decoded)
-        }
-        return candidates
+        MediaImportText.fileBasenames(rawPath)
     }
 
     // MARK: - Apply

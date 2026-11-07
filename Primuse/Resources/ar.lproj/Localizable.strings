@@ -7207,3 +7207,16 @@
 "stats_history_listened_format" = "تم الاستماع لمدة %@";
 
 "home_show_preview_albums" = "إظهار ألبومات المعاينة";
+
+"settings_backup_title" = "نسخة احتياطية للإعدادات";
+"settings_backup_export" = "تصدير الإعدادات";
+"settings_backup_import" = "استيراد الإعدادات";
+"settings_backup_open" = "استيراد / تصدير";
+"settings_backup_scope" = "احفظ إعدادات المظهر والتشغيل والكلمات وغيرها، بما فيها الخلفيات والخطوط المخصصة. لا تتضمن بيانات تسجيل الدخول أو ملفات الوسائط.";
+"settings_backup_confirm_title" = "استيراد الإعدادات؟";
+"settings_backup_confirm_message" = "هل تريد استبدال الإعدادات الحالية بهذه النسخة؟ ستبقى بيانات تسجيل الدخول وملفات الوسائط دون تغيير.";
+"settings_backup_imported" = "تم استيراد الإعدادات.";
+"settings_backup_failed" = "فشلت عملية النسخ الاحتياطي";
+"settings_backup_newer_version" = "تتطلب هذه النسخة إصدارًا أحدث من Primuse.";
+"settings_backup_too_large" = "تتجاوز هذه النسخة الحد المسموح لحجم الملف.";
+"settings_backup_invalid" = "هذا الملف ليس نسخة إعدادات Primuse صالحة أو أنه تالف.";

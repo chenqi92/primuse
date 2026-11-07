@@ -41,7 +41,46 @@ enum RadioPlaylistDownloader {
     /// 所以这里可能抛出 `TrustedHTTPTransportError.permissionRequired`，
     /// 由界面去问用户要不要信任这个主机。
     static func fetch(_ rawURLString: String) async throws -> String {
-        guard let normalized = RadioStationValidation.normalizedURLString(rawURLString),
+        try await fetchDocument(rawURLString).text
+    }
+
+    struct Document: Sendable {
+        let text: String
+        let url: URL
+    }
+
+    struct ImportResult: Sendable {
+        let candidates: [RadioImportCandidate]
+        let subscriptionURL: String?
+    }
+
+    static func importCandidates(_ input: String, existing: [RadioStation], session: URLSession? = nil) async throws -> ImportResult {
+        let seed = RadioImportParser.playlistURL(in: input) ?? input
+        let initial = RadioImportParser.parse(seed)
+        var entries: [RadioImportParser.Entry] = []
+        var subscriptionURL: String?
+        for candidate in initial {
+            try Task.checkCancellation()
+            let values: [RadioImportCandidate]
+            if candidate.status != .invalid, RadioImportParser.playlistURL(in: candidate.urlString) != nil {
+                let document = try await fetchDocument(candidate.urlString, session: session)
+                values = RadioImportParser.parse(document.text, baseURL: document.url)
+                if initial.count == 1, !MediaImportText.isHLS(document.text) {
+                    subscriptionURL = document.url.absoluteString
+                }
+            } else {
+                values = [candidate]
+            }
+            entries += values.map {
+                RadioImportParser.Entry(name: $0.name, urlString: $0.urlString, logoURLString: $0.logoURLString,
+                                        homepageURLString: $0.homepageURLString, logoSource: $0.logoSource, groupTitle: $0.groupTitle)
+            }
+        }
+        return ImportResult(candidates: RadioImportParser.candidates(from: entries, existing: existing), subscriptionURL: subscriptionURL)
+    }
+
+    static func fetchDocument(_ rawURLString: String, session suppliedSession: URLSession? = nil) async throws -> Document {
+        guard let normalized = RadioPlaylistText.normalizedSourceURLString(rawURLString),
               let url = URL(string: normalized) else {
             throw FetchError.invalidURL
         }
@@ -52,7 +91,7 @@ enum RadioPlaylistDownloader {
         )
         let (data, response) = try await TrustedHTTPTransport.data(
             for: request,
-            session: session,
+            session: suppliedSession ?? session,
             maxBytes: RadioPlaylistText.maximumBytes
         )
         if let http = response as? HTTPURLResponse,
@@ -62,6 +101,6 @@ enum RadioPlaylistDownloader {
         guard let text = RadioPlaylistText.decode(data) else {
             throw FetchError.undecodable
         }
-        return text
+        return Document(text: text, url: response.url ?? url)
     }
 }

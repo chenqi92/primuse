@@ -526,24 +526,10 @@ public enum PodcastFeedURL {
     /// 把 `itpc://` `pcast://` `feed://` `podcast://`、`feed:https://…` 和没写协议的地址
     /// 整理成能直接请求的 http(s) 地址;不像地址的返回 nil。
     public static func normalized(_ raw: String) -> URL? {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !text.contains(where: \.isWhitespace) else { return nil }
-        let lowered = text.lowercased()
-        for prefix in ["feed:https://", "feed:http://"] where lowered.hasPrefix(prefix) {
-            text = String(text.dropFirst("feed:".count))
-        }
-        for scheme in ["itpc://", "pcast://", "feed://", "podcast://", "podcasts://"]
-        where text.lowercased().hasPrefix(scheme) {
-            text = "https://" + text.dropFirst(scheme.count)
-        }
-        if !text.lowercased().hasPrefix("http://") && !text.lowercased().hasPrefix("https://") {
-            guard !text.contains("://") else { return nil }
-            text = "https://" + text
-        }
-        guard let components = URLComponents(string: text),
-              let host = components.host, host.contains("."), !host.hasPrefix("."),
-              let url = components.url else { return nil }
-        return url
+        guard !["rss", "atom", "opml", "html"].contains(MediaImportText.fileExtension(for: raw)) else { return nil }
+        guard let url = MediaImportText.singleURL(in: raw, allowsBareHost: true, allowsPodcastScheme: true, allowsCredentials: true),
+              let host = url.host, host.contains("."), !host.hasPrefix(".") else { return nil }
+        return MediaImportText.rawContentURL(url)
     }
 
     /// 判断同一档节目用的键:协议不分 http/https、主机不分大小写、去掉末尾斜杠和 #片段。
@@ -563,7 +549,7 @@ public enum PodcastFeedURL {
 
     /// Apple 播客的节目页(`podcasts.apple.com/…/id123456`)里的目录 id。
     public static func appleDirectoryID(in raw: String) -> Int? {
-        guard let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+        guard let url = normalized(raw),
               let host = url.host?.lowercased(),
               host == "podcasts.apple.com" || host == "itunes.apple.com" else { return nil }
         for component in url.pathComponents.reversed() where component.hasPrefix("id") {

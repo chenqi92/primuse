@@ -231,8 +231,11 @@ struct MacSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .pmAnimation(.pageSwitch, value: windowTitle)
 
-            // 跟左侧三色窗口按钮等宽的占位, 让标题在窗口里居中。
-            Color.clear.frame(width: 52, height: 1)
+            ListeningShareMenu(scope: .settings, selection: .init(title: ListeningShareText.string("settings"), settings: true))
+                .labelStyle(.iconOnly)
+                .menuIndicator(.hidden)
+                .menuStyle(.borderlessButton)
+                .frame(width: 52)
         }
         .padding(.horizontal, 14)
         .frame(height: PMSize.titlebar)
@@ -7187,7 +7190,21 @@ private struct MacSTCloudView: View {
     @State private var familyError: String?
     @State private var pendingShareURL: URL?
 
+    @State private var showsOfflineBackup = false
+
     var body: some View {
+        MacSTSection(String(localized: "settings_backup_title")) {
+            MacSTGroup {
+                MacSTRow(String(localized: "settings_backup_title"), divider: false) {
+                    MacSTButton(title: String(localized: "settings_backup_open"), systemImage: "externaldrive") {
+                        showsOfflineBackup = true
+                    }
+                }
+                .settingsAnchor("cloud.offlineBackup")
+            }
+        }
+        .sheet(isPresented: $showsOfflineBackup) { OfflineSettingsBackupView() }
+
         MacSTSection(String(localized: "icloud_sync_title")) {
             MacSTGroup {
                 MacSTRow(String(localized: "icloud_sync_enabled"),

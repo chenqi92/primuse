@@ -112,6 +112,74 @@ struct RadioImportParserTests {
 
     // MARK: - M3U
 
+    @Test("Detects pasted playlist links without consuming direct streams or list contents")
+    func detectsPastedPlaylistLinks() {
+        let address = "https://raw.githubusercontent.com/imDazui/Tvlist-awesome-m3u-m3u8/master/m3u/%E5%B9%BF%E6%92%AD%E7%94%B5%E5%8F%B0202506.m3u"
+        #expect(RadioImportParser.playlistURL(in: address) == address)
+        #expect(RadioImportParser.playlistURL(in: "[广播清单](\(address))") == address)
+        #expect(RadioImportParser.playlistURL(in: "\u{FEFF}<https://e.test/list.PLS?id=1>\u{200B}") == "https://e.test/list.PLS?id=1")
+        #expect(RadioImportParser.playlistURL(in: "https://e.test/radio.txt") != nil)
+        #expect(RadioImportParser.playlistURL(in: "https://e.test/live.m3u8") == "https://e.test/live.m3u8")
+        #expect(RadioImportParser.playlistURL(in: "https://e.test/live.mp3") == nil)
+        #expect(RadioImportParser.playlistURL(in: "#EXTM3U\nhttps://e.test/live.m3u") == nil)
+        #expect(RadioImportParser.playlistURL(in: "https://e.test/a.m3u\nhttps://e.test/b.m3u") == nil)
+        #expect(RadioImportParser.playlistURL(in: "My Station, https://e.test/a.m3u") == nil)
+    }
+
+    @Test("Community radio syntax preserves names, CRLF, bare streams and duplicate detection")
+    func parsesCommunityRadioPlaylist() {
+        let text = "\u{FEFF}#EXTM3U\r\n#EXTINF:-1 ,海湾广播\r\nhttp://e.test:8000/live\r\n"
+            + "#EXTINF:-1 ,城市音乐 FM98.6\r\nhttps://e.test/music.m3u8\r\n"
+            + "#EXTINF:-1 ,备用名称\r\nhttps://e.test:8000/live\r\n"
+        let candidates = RadioImportParser.parse(text)
+        #expect(candidates.map(\.name) == ["海湾广播", "城市音乐 FM98.6", "备用名称"])
+        #expect(candidates.map(\.status) == [.playable, .playable, .duplicate])
+        #expect(candidates.last?.duplicateOfName == "海湾广播")
+        #expect(RadioImportParser.parse("\u{FEFF}https://e.test/live\u{200B}").first?.isPlayable == true)
+    }
+
+    @Test func resolvesRemoteRelativeEntriesAndKeepsHLSAsOneStation() {
+        let base = URL(string: "https://e.test/lists/radio.m3u8")!
+        let list = "#EXTM3U\n#EXTINF:-1,海湾广播\n../live/one.m3u8\n#EXTINF:-1,夜间广播\n//stream.test/two\n"
+        let stations = RadioImportParser.parse(list, baseURL: base)
+        #expect(stations.map(\.urlString) == ["https://e.test/live/one.m3u8", "https://stream.test/two"])
+        let hls = "#EXTM3U\n#EXT-X-TARGETDURATION:5\n#EXTINF:5,\naudio001.aac\n#EXTINF:5,\naudio002.aac"
+        #expect(RadioImportParser.parse(hls, baseURL: base).map(\.urlString) == [base.absoluteString])
+        #expect(RadioImportParser.parse(hls).isEmpty)
+        #expect(RadioImportParser.firstStreamURL(inWrapper: list, baseURL: base) == "https://e.test/live/one.m3u8")
+        #expect(RadioImportParser.firstStreamURL(inWrapper: hls, baseURL: base) == base.absoluteString)
+        #expect(RadioImportParser.parse("收听地址 https://e.test/live").first?.urlString == "https://e.test/live")
+        let grouped = RadioImportParser.parse("新闻,#genre#\n海湾,http://e.test/one\n音乐,#genre#\n夜航，https://e.test/two")
+        #expect(grouped.map(\.groupTitle) == ["新闻", "音乐"])
+        #expect(grouped.map(\.name) == ["海湾", "夜航"])
+    }
+
+    @Test("Spaced attributes and tvg-name work when the display title is omitted")
+    func parsesSpacedAttributesAndFallbackNames() {
+        let candidates = RadioImportParser.parse("""
+        #EXTM3U
+        #EXTINF:-1 TVG-NAME = '海湾电台' tvg-logo = "https://e.test/logo.png" group-title = '新闻',
+        https://e.test/one
+        #EXTINF:-1 tvg-name="第二电台, 夜间"
+        https://e.test/two
+        #EXTINF:-1 tvg-name="忽略此名" tvg-logo=https://e.test/three.png,group-title=Music,真实台名
+        https://e.test/three
+        """)
+        #expect(candidates.map(\.name) == ["海湾电台", "第二电台, 夜间", "真实台名"])
+        #expect(candidates.map(\.groupTitle) == ["新闻", nil, "Music"])
+        #expect(candidates.map(\.logoURLString) == ["https://e.test/logo.png", nil, "https://e.test/three.png"])
+        #expect(candidates.allSatisfy { $0.isPlayable })
+    }
+
+    @Test("PLS keys allow spaces and do not need to start at File1")
+    func parsesSpacedPLSKeys() {
+        let candidates = RadioImportParser.parse("\u{FEFF}Title2 = 海湾广播\rFile2 = https://e.test/live\rLogo2 = https://e.test/logo.png")
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.name == "海湾广播")
+        #expect(candidates.first?.urlString == "https://e.test/live")
+        #expect(candidates.first?.logoURLString == "https://e.test/logo.png")
+    }
+
     @Test("Reads EXTINF names and pairs them with the following URL")
     func parsesM3U() {
         let candidates = RadioImportParser.parse("""

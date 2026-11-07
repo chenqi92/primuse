@@ -8,6 +8,7 @@ import PrimuseKit
 @Observable
 final class LyricsRomanizationSettingsStore {
     static let shared = LyricsRomanizationSettingsStore()
+    @ObservationIgnored private var suppressPersist = false
 
     static let storageKey = "primuse.lyrics.romanization.settings.v1"
 
@@ -96,7 +97,19 @@ final class LyricsRomanizationSettingsStore {
         self.languageOverrides = languageOverrides
     }
 
+    func reloadAfterOfflineImport() {
+        let loaded = LyricsRomanizationSettingsStore()
+        suppressPersist = true
+        displayMode = loaded.displayMode
+        isAutoGenerationEnabled = loaded.isAutoGenerationEnabled
+        method = loaded.method
+        languageOverrides = loaded.languageOverrides
+        suppressPersist = false
+        NotificationCenter.default.post(name: .lyricsRomanizationSettingsChanged, object: nil)
+    }
+
     private func persistAndNotify() {
+        guard !suppressPersist else { return }
         let persisted = Persisted(
             displayMode: displayMode.rawValue,
             isAutoGenerationEnabled: isAutoGenerationEnabled,

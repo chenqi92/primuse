@@ -96,6 +96,11 @@ final class PlayerBackdropSettingsStore {
         if next != settings { settings = next }
     }
 
+    func reloadAfterOfflineImport() {
+        reloadSyncedSettings()
+        customImageIDs = Self.loadCustomImageIDs(from: defaults)
+    }
+
     #if DEBUG
     /// 编译机无人值守截图：`PRIMUSE_DEBUG_BACKDROP=<来源>[:perSong|:timed:<秒>]`（来源取
     /// `PlayerBackdropSource` 的原始值），`PRIMUSE_DEBUG_BACKDROP_IMAGES=<目录>` 把目录里的

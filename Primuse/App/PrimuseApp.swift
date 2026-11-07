@@ -1585,6 +1585,8 @@ struct PrimuseApp: App {
     #endif
     /// 分享页签发的一次性导入凭证，仅在本地内存中保留。
     @State private var mediaRelayImportRequest: MediaRelayImportRequest?
+    @State private var listeningShareCodeImportRequest: ListeningShareCodeImportRequest?
+    @State private var listeningShare = ListeningShareCoordinator.shared
 
     init() {
         // libsmb2 往套接字写用的是 writev,没设 SO_NOSIGPIPE。NAS 断开空闲连接、
@@ -1709,6 +1711,8 @@ struct PrimuseApp: App {
             SpokenChapterManagementTestHost()
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "spokenWordShelf" {
             SpokenWordShelfEvidenceHost()
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "listeningShare" {
+            ListeningShareEvidenceHost()
         } else {
             iosAppContent
         }
@@ -1970,6 +1974,10 @@ struct PrimuseApp: App {
                     }
                 }
                 .onOpenURL { url in
+                    if url.isFileURL && url.pathExtension.lowercased() == ListeningSharePackage.fileExtension {
+                        Task { await listeningShare.open(url) }
+                        return
+                    }
                     plog("🔗 onOpenURL: scheme=\(url.scheme ?? "?") host=\(url.host ?? "?")")
                     // 小组件上点播放键以外的地方: 打开电台、播客或有声书那一页。
                     if ListeningSpaceOpenRequest.shared.handle(url) {
@@ -1977,6 +1985,14 @@ struct PrimuseApp: App {
                     }
                     if let request = MediaRelayImportRequest(url: url) {
                         mediaRelayImportRequest = request
+                        return
+                    }
+                    if url.scheme?.lowercased() == "primuse", url.host?.lowercased() == "import-code" {
+                        if let request = ListeningShareCodeImportRequest(url: url) {
+                            listeningShareCodeImportRequest = request
+                        } else {
+                            listeningShare.error = ListeningShareText.error(ListeningShareCodeError.invalidCode)
+                        }
                         return
                     }
                     // Apple TV 二维码:primuse://add-source → 手机扫码后弹「发送到 Apple TV」
@@ -2394,8 +2410,19 @@ struct PrimuseApp: App {
                         .environment(musicLibrary)
                         .environment(sourcesStore)
                 }
+                .sheet(item: $listeningShare.incoming) { incoming in
+                    ListeningShareImportView(incoming: incoming)
+                }
+                .alert(ListeningShareText.string("importPreview"), isPresented: Binding(
+                    get: { listeningShare.error != nil }, set: { if !$0 { listeningShare.error = nil } }
+                )) {
+                    Button("done") { listeningShare.error = nil }
+                } message: { Text(listeningShare.error ?? "") }
                 .sheet(item: $mediaRelayImportRequest) { request in
                     MediaRelayImportSheet(request: request)
+                }
+                .sheet(item: $listeningShareCodeImportRequest) { request in
+                    ListeningShareCodeImportView(reference: request.reference)
                 }
                 #if os(iOS)
                 .fullScreenCover(item: $karaokeMicTarget) { target in

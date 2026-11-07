@@ -307,6 +307,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "scrobble.registerLastFMApp", titleKey: "scrobble_lastfm_register_app", iosPage: .scrobble, macPage: .scrobble, keywords: ["scrobble_mac_create_api_app"], anchor: "scrobble.lastFMAdvanced"),
         SettingDefinition(id: "scrobble.retryQueue", titleKey: "scrobble_retry_now", iosPage: .scrobble, macPage: .scrobble),
         SettingDefinition(id: "scrobble.clearQueue", titleKey: "scrobble_clear_queue", iosPage: .scrobble, macPage: .scrobble, macAnchor: "scrobble.retryQueue"),
+        SettingDefinition(id: "cloud.offlineBackup", titleKey: "settings_backup_title", iosPage: .cloud, macPage: .cloud,
+                          keywords: ["settings_backup_export", "settings_backup_import", "settings_backup_open"]),
         SettingDefinition(id: "cloud.enabled", titleKey: "icloud_sync_enabled", iosPage: .cloud, macPage: .cloud),
         SettingDefinition(id: "cloud.status", titleKey: "icloud_sync_status", iosPage: .cloud, macPage: .cloud, keywords: ["Sync Status"]),
         SettingDefinition(id: "cloud.systemSettings", titleKey: "open_system_settings", iosPage: .cloud, macPage: .cloud, keywords: ["Open System Settings"], anchor: "cloud.status"),

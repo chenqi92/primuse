@@ -41,6 +41,12 @@ final class CarPlaySettingsStore {
         savedLayouts = defaults.data(forKey: Self.savedLayoutsKey)
             .flatMap { try? JSONDecoder().decode([CarPlaySavedLayout].self, from: $0) } ?? []
     }
+
+    func reloadAfterOfflineImport() {
+        let loaded = CarPlaySettingsStore(defaults: defaults)
+        configuration = loaded.configuration
+        savedLayouts = loaded.savedLayouts
+    }
 }
 
 /// CarPlay can cold-launch before the phone's HomeDiscoveryObserver exists.

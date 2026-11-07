@@ -31,6 +31,29 @@ final class CloudKVSSyncTests: XCTestCase {
         super.tearDown()
     }
 
+    func testOfflineSnapshotPublishesWholeScopeBeforeReloadAndDoesNotPushToCloud() {
+        defaults.set("old", forKey: key)
+        defaults.set(true, forKey: "second")
+        var snapshots: [String] = []
+        sync.register(key: key) { [self] in
+            if sync.isApplyingOfflineSnapshot {
+                snapshots.append(defaults.string(forKey: key) ?? "nil")
+                XCTAssertNil(defaults.object(forKey: "second"))
+                defaults.set("normalized", forKey: key)
+                sync.markChanged(key: key)
+            }
+        }
+        sync.applyOfflineSnapshot(values: [key: "imported"], restoringKeys: [key, "second"])
+        sync.finishOfflineSnapshot(keys: [key, "second"])
+        XCTAssertEqual(snapshots, ["imported"])
+        sync.markChanged(key: key)
+        XCTAssertEqual(sync.catchUp().pushed, 0)
+        XCTAssertNil(store.object(forKey: key))
+        defaults.set("real edit", forKey: key)
+        sync.markChanged(key: key)
+        XCTAssertEqual(store.string(forKey: key), "real edit")
+    }
+
     // MARK: Home and library layout
 
     func testLayoutEditIsPushedAndAPulledLayoutIsNotEchoed() {
