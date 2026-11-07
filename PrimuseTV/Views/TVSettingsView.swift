@@ -1054,20 +1054,13 @@ struct TVSettingsView: View {
         }
     }
 
-    /// 开关行 — 真实持久化偏好(@AppStorage),启动时被读取。`detail` 是标题下的一行说明。
     private func toggleRow(_ icon: String, _ title: String, detail: String? = nil, isOn: Binding<Bool>) -> some View {
         TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let detail {
-                        Text(detail).tvFont(.caption).foregroundStyle(TVColor.textMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .layoutPriority(1)
+                Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
                 Spacer(minLength: 0)
                 ZStack(alignment: isOn.wrappedValue ? .trailing : .leading) {
                     Capsule().fill(isOn.wrappedValue ? AnyShapeStyle(TVColor.brand)
@@ -1084,6 +1077,7 @@ struct TVSettingsView: View {
                 ? PMString("ext.tv.sources.status.enabled")
                 : PMString("ext.tv.sources.status.disabled")))
         }
+        .accessibilityHint(Text(detail ?? ""))
     }
 
     /// 只读信息行(不可聚焦)。
@@ -1561,11 +1555,6 @@ struct TVTabBarSettingsView: View {
                     Text(PMString("ext.tv.settings.tabBar"))
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
-                    Text(PMString("ext.tv.settings.tabBar.footer"))
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-
                     VStack(spacing: 0) {
                         ForEach(Array(configuration.order.enumerated()), id: \.element) { index, item in
                             if index > 0 {
@@ -1623,10 +1612,6 @@ struct TVTabBarSettingsView: View {
             Text("library_filters_settings_title")
                 .tvFont(.sectionTitle)
                 .foregroundStyle(TVColor.text)
-            Text("library_filters_settings_footer")
-                .tvFont(.caption)
-                .foregroundStyle(TVColor.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 0) {
                 ForEach(Array(optional.enumerated()), id: \.element) { index, filter in
                     if index > 0 {
@@ -1761,16 +1746,9 @@ struct TVOrderedSettingRow: View {
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(isShown ? TVColor.text : TVColor.textGhost)
                         .frame(width: 44)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .tvFont(.cardTitle, weight: focused ? .bold : .medium)
-                            .foregroundStyle(isShown ? TVColor.text : TVColor.textMuted)
-                        if let hint {
-                            Text(hint)
-                                .tvFont(.meta)
-                                .foregroundStyle(TVColor.textFaint)
-                        }
-                    }
+                    Text(title)
+                        .tvFont(.cardTitle, weight: focused ? .bold : .medium)
+                        .foregroundStyle(isShown ? TVColor.text : TVColor.textMuted)
                     Spacer(minLength: 0)
                     ZStack(alignment: isShown ? .trailing : .leading) {
                         Capsule().fill(isShown ? AnyShapeStyle(TVColor.brand)
@@ -1786,6 +1764,7 @@ struct TVOrderedSettingRow: View {
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .accessibilityLabel(Text(title))
+            .accessibilityHint(Text(hint ?? ""))
             .accessibilityValue(Text(isShown
                 ? PMString("ext.tv.sources.status.enabled")
                 : PMString("ext.tv.sources.status.disabled")))
@@ -1840,11 +1819,6 @@ struct TVHomeSectionsSettingsView: View {
                     Text(PMString("ext.tv.settings.homeSections"))
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
-                    Text(PMString("ext.tv.settings.homeSections.footer"))
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-
                     VStack(spacing: 0) {
                         ForEach(Array(configuration.order.enumerated()), id: \.element) { index, section in
                             if index > 0 {

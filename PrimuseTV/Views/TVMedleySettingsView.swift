@@ -30,7 +30,7 @@ struct TVMedleySettingsView: View {
             VStack(alignment: .leading, spacing: 28) {
                 Text("medley_title").tvFont(.pageTitle)
                 Text("medley_segment_length").tvFont(.rowTitle)
-                HStack(spacing: 22) {
+                TVButtonFlow(spacing: 22, lineSpacing: 22) {
                     ForEach(MedleySegmentPolicy.segmentChoices, id: \.self) { choice in
                         let isSelected = store.medleySegmentChoice == choice
                         TVPillButton(title: choice == MedleySegmentPolicy.automaticSegmentChoice
@@ -42,17 +42,15 @@ struct TVMedleySettingsView: View {
                         .accessibilityIdentifier(choice == MedleySegmentPolicy.automaticSegmentChoice
                                                     ? "tv.medley.seconds.auto" : "tv.medley.seconds.\(choice)")
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
+                        .accessibilityHint(Text("medley_settings_footer"))
                     }
                 }
-                Text("medley_settings_footer").tvFont(.caption).foregroundStyle(TVColor.textMuted)
-                VStack(alignment: .leading, spacing: 10) {
-                    Toggle("medley_prefers_playback_range", isOn: Binding(
-                        get: { store.medleyPrefersPlaybackRange },
-                        set: { store.setMedleyPrefersPlaybackRange($0) }
-                    ))
-                    .accessibilityIdentifier("tv.medley.prefersPlaybackRange")
-                    Text("medley_prefers_playback_range_hint").tvFont(.caption).foregroundStyle(TVColor.textMuted)
-                }
+                Toggle("medley_prefers_playback_range", isOn: Binding(
+                    get: { store.medleyPrefersPlaybackRange },
+                    set: { store.setMedleyPrefersPlaybackRange($0) }
+                ))
+                .accessibilityIdentifier("tv.medley.prefersPlaybackRange")
+                .accessibilityHint(Text("medley_prefers_playback_range_hint"))
                 .padding(.top, 24)
                 Toggle("medley_data_prompt_toggle", isOn: Binding(get: { !promptDisabled }, set: { promptDisabled = !$0 }))
             }
