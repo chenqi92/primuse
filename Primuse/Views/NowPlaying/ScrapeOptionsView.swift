@@ -1021,7 +1021,7 @@ struct ScrapeOptionsView: View {
                 .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
                 .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
 
-            Button("apply_changes") { applySelectedChanges() }
+            Button("save") { applySelectedChanges() }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
@@ -1282,7 +1282,7 @@ struct ScrapeOptionsView: View {
                 } label: {
                     HStack {
                         if isApplyingChanges { ProgressView() }
-                        Text("apply_changes")
+                        Text("save")
                     }
                 }
                 .fontWeight(.semibold)

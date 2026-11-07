@@ -11,28 +11,13 @@ struct ArtistFeaturedReleaseCard: View {
     @Environment(\.libraryDetailTint) private var tint
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private var favorites: LibraryFavoritesStore { .shared }
-
     var body: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 12) {
-                    albumLink(stacked: true)
-                    favoriteButton
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            } else {
-                HStack(spacing: 12) {
-                    albumLink(stacked: false)
-                    favoriteButton
-                }
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .libraryDetailSection(tint: tint, cornerRadius: 24)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("artistFeaturedRelease")
+        albumLink(stacked: dynamicTypeSize.isAccessibilitySize)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .libraryDetailSection(tint: tint, cornerRadius: 24)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("artistFeaturedRelease")
     }
 
     private func albumLink(stacked: Bool) -> some View {
@@ -84,28 +69,6 @@ struct ArtistFeaturedReleaseCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-    }
-
-    /// 与导航是同级控件，点收藏不会同时打开专辑。
-    private var favoriteButton: some View {
-        let isLiked = favorites.isLiked(album)
-        let label: LocalizedStringKey = isLiked ? "library_favorite_unlike" : "library_favorite_like"
-        return Button {
-            PMHaptics.likeToggled(isLiked: !isLiked)
-            favorites.toggle(album)
-        } label: {
-            Image(systemName: isLiked ? "checkmark" : "plus")
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(.white.opacity(0.14), in: Circle())
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(label))
-        .accessibilityValue(Text(verbatim: album.title))
-        .accessibilityAddTraits(isLiked ? .isSelected : [])
-        .accessibilityIdentifier("artistFeaturedRelease.favorite")
     }
 }
 #endif
