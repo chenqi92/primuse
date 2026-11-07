@@ -11,6 +11,7 @@ final class CarPlayEditorCatalog {
         var entries: [CarPlayLayoutItem.Kind: [CarPlayHomeItem]] = [:]
         var lookup: [CarPlayLayoutItem.Kind: [String: CarPlayHomeItem]] = [:]
         var recent: [CarPlayHomeItem] = []
+        var recentAlbums: [CarPlayHomeItem] = []
         var ranking: [CarPlayHomeItem] = []
         var forYou: [CarPlayHomeItem] = []
         var startListening: [CarPlayHomeItem] = []
@@ -61,7 +62,8 @@ final class CarPlayEditorCatalog {
                         items += configuration.folderIDs.compactMap { folders?.node(withID: $0).map(Self.folder) }
                     case .playlists: items = Array((entries[.playlist] ?? []).prefix(block.itemLimit))
                     case .albums: items = Array((entries[.album] ?? []).prefix(block.itemLimit))
-                    case .recentlyAdded: items = Array(recent.prefix(block.itemLimit))
+                    case .recentlyAdded:
+                        items = Array((block.recentlyAddedGrouping == .albums ? recentAlbums : recent).prefix(block.itemLimit))
                     case .radio: items = Array((entries[.radio] ?? []).prefix(block.itemLimit))
                     case .folders: items = (folders?.sourceNodes ?? []).prefix(block.itemLimit).map(Self.folder)
                     case .custom: items = []
@@ -253,11 +255,44 @@ final class CarPlayEditorCatalog {
             CarPlayHomeItem(id: $0.id, title: $0.title, subtitle: $0.displayArtistName(configuration: input.artistNames), artwork: .songReference(id: $0.id, coverRef: $0.coverArtFileName), target: .song($0.id, queue: [$0.id]))
         }
         guard !Task.isCancelled else { return result }
-        let recent = input.songs.filter { !input.spokenWordSongIDs.contains($0.id) }.sorted { $0.dateAdded == $1.dateAdded ? $0.id < $1.id : $0.dateAdded > $1.dateAdded }.prefix(100)
+        let musicSongs = input.songs.filter { !input.spokenWordSongIDs.contains($0.id) }
+        let recent = musicSongs.sorted { $0.dateAdded == $1.dateAdded ? $0.id < $1.id : $0.dateAdded > $1.dateAdded }.prefix(100)
         let queue = recent.map(\.id)
         result.recent = recent.map {
             CarPlayHomeItem(id: $0.id, title: $0.title, subtitle: $0.displayArtistName(configuration: input.artistNames), artwork: .songReference(id: $0.id, coverRef: $0.coverArtFileName), target: .song($0.id, queue: queue))
         }
+        let albums = input.albums.filter { !$0.id.isEmpty && !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let albumIDs = Set(albums.map(\.id))
+        var albumDates: [String: Date] = [:]
+        var singles: [Song] = []
+        // Aggregate the whole library before limiting cards: one large album
+        // must not consume all the recent-track slots and hide other albums.
+        for song in musicSongs {
+            if let id = song.albumID, albumIDs.contains(id) {
+                albumDates[id] = max(albumDates[id] ?? .distantPast, RecentlyAddedAlbumPolicy.date(for: song))
+            } else {
+                singles.append(song)
+            }
+        }
+        var recentCollections: [(item: CarPlayHomeItem, date: Date)] = albums.compactMap { album in
+            guard let date = albumDates[album.id] else { return nil }
+            return (CarPlayHomeItem(id: "recent.album:" + album.id, title: album.title, subtitle: album.artistName,
+                symbol: "square.stack", artwork: .album(album), target: .album(album.id, directly: true)), date)
+        }
+        singles.sort {
+            let lhs = RecentlyAddedAlbumPolicy.date(for: $0), rhs = RecentlyAddedAlbumPolicy.date(for: $1)
+            return lhs == rhs ? $0.id < $1.id : lhs > rhs
+        }
+        let singleQueue = singles.prefix(100).map(\.id)
+        recentCollections += singles.prefix(60).map { song in
+            (CarPlayHomeItem(id: "recent.song:" + song.id, title: song.title,
+                subtitle: song.displayArtistName(configuration: input.artistNames),
+                artwork: .songReference(id: song.id, coverRef: song.coverArtFileName),
+                target: .song(song.id, queue: singleQueue)), RecentlyAddedAlbumPolicy.date(for: song))
+        }
+        result.recentAlbums = recentCollections.sorted {
+            $0.date == $1.date ? $0.item.id < $1.item.id : $0.date > $1.date
+        }.prefix(60).map(\.item)
         result.albumSongs = Dictionary(grouping: input.songs, by: { $0.albumID ?? "" }).mapValues { songs in
             AlbumTrackOrder.sorted(songs).map(\.id)
         }

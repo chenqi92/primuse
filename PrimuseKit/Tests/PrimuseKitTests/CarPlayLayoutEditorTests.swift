@@ -3,6 +3,23 @@ import Testing
 @testable import PrimuseKit
 
 struct CarPlayLayoutEditorTests {
+    @Test func recentlyAddedDefaultsToAlbumsAndPreservesSongChoiceInSavedLayouts() throws {
+        let old = try JSONDecoder().decode(CarPlayLayoutBlock.self,
+            from: Data(#"{"id":"recent","kind":"recentlyAdded","style":"covers"}"#.utf8))
+        #expect(old.recentlyAddedGrouping == .albums)
+        #expect(CarPlayLayoutConfiguration().blocks.first { $0.kind == .recentlyAdded }?.recentlyAddedGrouping == .albums)
+        var configuration = CarPlayLayoutConfiguration()
+        var block = old
+        block.recentlyAddedGrouping = .songs
+        configuration.blocks = [block]
+        let saved = CarPlaySavedLayout(name: "Drive", configuration: configuration)
+        let restored = try JSONDecoder().decode(CarPlaySavedLayout.self, from: JSONEncoder().encode(saved))
+        #expect(restored.configuration.blocks[0].recentlyAddedGrouping == .songs)
+        #expect(restored.configuration == configuration)
+        configuration.applyVisualStyle(.wall)
+        #expect(configuration.blocks[0].recentlyAddedGrouping == .songs)
+    }
+
     @Test func podcastTabIsOptionalAndSurvivesSaving() throws {
         #expect(!CarPlayMainTab.defaults.contains { $0.kind == .podcast })
         #expect(CarPlayMainTab.Kind.podcast.titleKey == "listening_space_podcast")

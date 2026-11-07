@@ -80,6 +80,17 @@ public struct CarPlayLayoutItem: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public enum CarPlayRecentlyAddedGrouping: String, Codable, CaseIterable, Sendable {
+    case albums, songs
+
+    public var titleKey: String {
+        switch self {
+        case .albums: "carplay_tab_albums"
+        case .songs: "carplay_tab_songs"
+        }
+    }
+}
+
 public struct CarPlayLayoutBlock: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var kind: CarPlayLayoutBlockKind
@@ -93,6 +104,7 @@ public struct CarPlayLayoutBlock: Codable, Equatable, Identifiable, Sendable {
     public var playsImmediately = true
     public var items: [CarPlayLayoutItem] = []
     public var usesCustomContent = false
+    public var recentlyAddedGrouping: CarPlayRecentlyAddedGrouping = .albums
 
     public init(id: String = UUID().uuidString, kind: CarPlayLayoutBlockKind, style: CarPlayBrowseStyle = .covers) {
         self.id = id
@@ -112,7 +124,7 @@ public struct CarPlayLayoutBlock: Codable, Equatable, Identifiable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, title, style, columns, rowsPerPage, itemLimit, showsTitle, isVisible, playsImmediately, items, usesCustomContent
+        case id, kind, title, style, columns, rowsPerPage, itemLimit, showsTitle, isVisible, playsImmediately, items, usesCustomContent, recentlyAddedGrouping
     }
 
     public init(from decoder: Decoder) throws {
@@ -129,6 +141,7 @@ public struct CarPlayLayoutBlock: Codable, Equatable, Identifiable, Sendable {
         playsImmediately = (try? values.decode(Bool.self, forKey: .playsImmediately)) ?? true
         items = (try? values.decode([CarPlayLayoutItem].self, forKey: .items)) ?? []
         usesCustomContent = (try? values.decode(Bool.self, forKey: .usesCustomContent)) ?? (kind == .custom)
+        recentlyAddedGrouping = (try? values.decode(CarPlayRecentlyAddedGrouping.self, forKey: .recentlyAddedGrouping)) ?? .albums
     }
 }
 

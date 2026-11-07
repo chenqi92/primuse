@@ -38,6 +38,15 @@ struct CarPlayModuleInspector: View {
                     }
                 }
             } else {
+                if block.kind == .recentlyAdded && !block.usesCustomContent {
+                    Section("songs_display_mode") {
+                        CarPlaySegment(values: CarPlayRecentlyAddedGrouping.allCases.map { ($0, $0.titleKey) },
+                            selection: binding(\.recentlyAddedGrouping))
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .accessibilityIdentifier("carplay.recentlyAddedGrouping")
+                    }
+                }
                 Section {
                     HStack(spacing: 8) {
                         layoutOption(.list, columns: 1, title: "carplay_style_list")

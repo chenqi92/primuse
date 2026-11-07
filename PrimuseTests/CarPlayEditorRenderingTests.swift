@@ -335,6 +335,107 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         XCTAssertEqual(model.configuration.blocks.first?.id, id)
     }
 
+    func testRecentlyAddedGroupsWholeAlbumsBeforeApplyingTheItemLimit() throws {
+        let albums = [Album(id: "large", title: "长途旅行", artistName: "纸船乐队"),
+                      Album(id: "second", title: "河岸", artistName: "晨光乐队")]
+        var songs = (1...120).map { track in
+            var song = Song(id: "large-\(track)", title: "旅程 \(track)", albumID: "large",
+                fileFormat: .flac, filePath: "\(track).flac", sourceID: "test", dateAdded: Date(timeIntervalSince1970: 300))
+            song.trackNumber = track
+            return song
+        }
+        songs.append(Song(id: "second-track", title: "河岸清晨", albumID: "second", fileFormat: .flac,
+            filePath: "second.flac", sourceID: "test", dateAdded: Date(timeIntervalSince1970: 200)))
+        songs.append(Song(id: "single", title: "远方来信", fileFormat: .flac,
+            filePath: "single.flac", sourceID: "test", dateAdded: Date(timeIntervalSince1970: 100)))
+        let snapshot = CarPlayEditorCatalog.project(.init(songs: Array(songs.reversed()), albums: albums,
+            playlists: [], memberships: [:], stations: [], artistNames: .defaultValue))
+        var block = CarPlayLayoutBlock(id: "recent", kind: .recentlyAdded)
+        block.itemLimit = 2
+        block.playsImmediately = false
+        var configuration = CarPlayLayoutConfiguration()
+        configuration.blocks = [block]
+        let items = try XCTUnwrap(snapshot.blocks(for: configuration).first?.items)
+        XCTAssertEqual(items.map(\.title), ["长途旅行", "河岸"])
+        XCTAssertEqual(items.compactMap { item -> String? in
+            guard case .album(let id, let directly) = item.target, !directly else { return nil }
+            return id
+        }, ["large", "second"])
+        XCTAssertEqual(snapshot.albumSongs["large"], (1...120).map { "large-\($0)" })
+        XCTAssertEqual(snapshot.detail(for: items[0]).prefix(3).map(\.id), ["large-1", "large-2", "large-3"])
+        block.itemLimit = 3
+        block.playsImmediately = true
+        configuration.blocks = [block]
+        let expanded = try XCTUnwrap(snapshot.blocks(for: configuration).first?.items)
+        XCTAssertEqual(expanded.compactMap { item -> String? in
+            guard case .album(let id, let directly) = item.target, directly else { return nil }
+            return id
+        }, ["large", "second"])
+        guard case .song(let singleID, let singleQueue) = try XCTUnwrap(expanded.last).target else {
+            return XCTFail("The albumless single must remain playable")
+        }
+        XCTAssertEqual(singleID, "single")
+        XCTAssertEqual(singleQueue, ["single"])
+        block.recentlyAddedGrouping = .songs
+        configuration.blocks = [block]
+        XCTAssertTrue(snapshot.blocks(for: configuration)[0].items.allSatisfy {
+            if case .song = $0.target { true } else { false }
+        })
+    }
+
+    func testRecentlyAddedAlbumDatesKeepSinglesAndExcludeSpokenWordAlbums() {
+        let albums = [Album(id: "a", title: "同名专辑", artistName: "甲"),
+                      Album(id: "b", title: "同名专辑", artistName: "乙"),
+                      Album(id: "spoken", title: "旅途故事"), Album(id: "empty", title: "未加载"),
+                      Album(id: "untitled", title: " ")]
+        func song(_ id: String, album: String?, added: TimeInterval) -> Song {
+            Song(id: id, title: id, albumID: album, fileFormat: .flac, filePath: id + ".flac",
+                 sourceID: "test", dateAdded: Date(timeIntervalSince1970: added))
+        }
+        var old = song("old", album: "a", added: 1_000)
+        old.serverDateAdded = Date(timeIntervalSince1970: 500)
+        old.serverAlbumDateAdded = Date(timeIntervalSince1970: 10)
+        var newer = song("new", album: "b", added: 5)
+        newer.serverDateAdded = Date(timeIntervalSince1970: 20)
+        let songs = [old, newer, song("single", album: nil, added: 30),
+                     song("dangling", album: "missing", added: 30), song("no-title", album: "untitled", added: 30),
+                     song("chapter", album: "spoken", added: 2_000), song("mixed-chapter", album: "a", added: 3_000)]
+        let input = CarPlayEditorCatalog.Input(songs: songs, albums: albums, playlists: [], memberships: [:],
+            stations: [], artistNames: .defaultValue, spokenWordSongIDs: ["chapter", "mixed-chapter"])
+        let snapshot = CarPlayEditorCatalog.project(input)
+        XCTAssertEqual(snapshot.recentAlbums.map(\.id), ["recent.song:dangling", "recent.song:no-title", "recent.song:single", "recent.album:b", "recent.album:a"])
+        XCTAssertEqual(snapshot.recentAlbums.suffix(2).map(\.subtitle), ["乙", "甲"])
+        var reversed = input
+        reversed.songs.reverse()
+        reversed.albums.reverse()
+        XCTAssertEqual(CarPlayEditorCatalog.project(reversed).recentAlbums.map(\.id), snapshot.recentAlbums.map(\.id))
+        XCTAssertFalse(snapshot.recent.contains { $0.id == "chapter" || $0.id == "mixed-chapter" })
+    }
+
+    func testRecentlyAddedGroupingPersistsAndUndoesWithoutReplacingCustomContent() throws {
+        let suite = "CarPlayRecentTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        CarPlayLayoutConfiguration().save(to: defaults)
+        let model = CarPlayEditorModel(settings: CarPlaySettingsStore(defaults: defaults))
+        let id = try XCTUnwrap(model.configuration.blocks.first { $0.kind == .recentlyAdded }?.id)
+        model.update(id) { $0.recentlyAddedGrouping = .songs }
+        model.flush()
+        XCTAssertEqual(CarPlaySettingsStore(defaults: defaults).configuration.blocks.first { $0.id == id }?.recentlyAddedGrouping, .songs)
+        model.undo()
+        XCTAssertEqual(model.configuration.blocks.first { $0.id == id }?.recentlyAddedGrouping, .albums)
+        model.redo()
+        XCTAssertEqual(model.configuration.blocks.first { $0.id == id }?.recentlyAddedGrouping, .songs)
+        model.update(id) {
+            $0.usesCustomContent = true
+            $0.items = [.init(id: "saved", kind: .song, targetID: "unavailable", title: "保留曲目")]
+            $0.recentlyAddedGrouping = .albums
+        }
+        let projected = CarPlayEditorCatalog.Snapshot().blocks(for: model.configuration)
+        XCTAssertEqual(projected.first { $0.id == id }?.items.map(\.id), ["saved"])
+        XCTAssertEqual(projected.first { $0.id == id }?.items.first?.title, "保留曲目")
+    }
+
     func testLargeLibraryProjectionIsReusedAcrossCanvasEdits() async throws {
         let suite = "CarPlayPerformanceTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

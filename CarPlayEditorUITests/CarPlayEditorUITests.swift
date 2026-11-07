@@ -701,6 +701,47 @@ final class CarPlayEditorUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["通勤布局"].waitForExistence(timeout: 3))
     }
 
+    func testRecentlyAddedGroupingCanSwitchAndPersistsAfterRelaunch() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_CARPLAY_UI_TESTS"] = "1"
+        app.launchEnvironment["PRIMUSE_CARPLAY_RESET"] = "1"
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        addTeardownBlock { @MainActor in
+            if app.buttons["完成"].firstMatch.isHittable { app.buttons["完成"].firstMatch.tap() }
+            app.terminate()
+        }
+        let module = app.buttons["carplay.module.legacy.recentlyAdded"]
+        XCTAssertTrue(app.buttons["carplay.previewTab.tab.home"].waitForExistence(timeout: 15))
+        app.buttons["carplay.previewTab.tab.home"].tap()
+        XCTAssertTrue(module.waitForExistence(timeout: 15))
+        reveal(module, in: app)
+        module.tap()
+        let grouping = app.segmentedControls["carplay.recentlyAddedGrouping"]
+        XCTAssertTrue(grouping.waitForExistence(timeout: 5))
+        XCTAssertTrue(grouping.buttons["专辑"].isSelected)
+        grouping.buttons["歌曲"].tap()
+        XCTAssertTrue(grouping.buttons["歌曲"].isSelected)
+        attach(app, "CarPlay-recently-added-songs")
+        app.buttons["完成"].firstMatch.tap()
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_CARPLAY_RESET"] = nil
+        app.launch()
+        XCTAssertTrue(app.buttons["carplay.previewTab.tab.home"].waitForExistence(timeout: 15))
+        app.buttons["carplay.previewTab.tab.home"].tap()
+        XCTAssertTrue(module.waitForExistence(timeout: 15))
+        reveal(module, in: app)
+        module.tap()
+        XCTAssertTrue(grouping.waitForExistence(timeout: 5))
+        XCTAssertTrue(grouping.buttons["歌曲"].isSelected)
+        grouping.buttons["专辑"].tap()
+        XCTAssertTrue(grouping.buttons["专辑"].isSelected)
+        attach(app, "CarPlay-recently-added-albums")
+        app.buttons["完成"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["carplay.addModule"].exists)
+    }
+
     func testContentSourceReorderingPreservesItemsAfterRelaunch() {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
