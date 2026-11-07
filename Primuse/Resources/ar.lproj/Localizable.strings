@@ -2399,6 +2399,7 @@
 "motion_artwork_service_endpoint" = "نقطة نهاية الخدمة";
 "music_video_badge" = "فيديو موسيقي";
 "navigation_mode_title" = "الملاحة";
+"navigation_tabs_title" = "شريط علامات التبويب السفلي";
 "network" = "الشبكة";
 "new" = "جديد";
 "new_ai_smart_playlist" = "قائمة التشغيل الذكية الجديدة بالذكاء الاصطناعي";

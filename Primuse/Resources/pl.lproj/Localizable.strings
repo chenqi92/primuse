@@ -2399,6 +2399,7 @@
 "motion_artwork_service_endpoint" = "Punkt końcowy usługi";
 "music_video_badge" = "Teledysk";
 "navigation_mode_title" = "Nawigacja";
+"navigation_tabs_title" = "Dolny pasek kart";
 "network" = "Sieć";
 "new" = "Nowość";
 "new_ai_smart_playlist" = "Nowa inteligentna lista odtwarzania AI";

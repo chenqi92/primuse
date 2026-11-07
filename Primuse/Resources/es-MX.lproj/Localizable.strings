@@ -2399,6 +2399,7 @@
 "motion_artwork_service_endpoint" = "Punto final de servicio";
 "music_video_badge" = "Vídeo musical";
 "navigation_mode_title" = "Navegación";
+"navigation_tabs_title" = "Barra inferior de pestañas";
 "network" = "Red";
 "new" = "Nuevo";
 "new_ai_smart_playlist" = "Nueva lista de reproducción inteligente con IA";

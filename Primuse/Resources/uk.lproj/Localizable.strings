@@ -1909,6 +1909,7 @@
 "ai_primuse_relay_diagnostic_storekit_unverified_detail" = "App Store повернув неперевірену транзакцію програми. Оновіть або перевстановіть авторизовану збірку Apple і повторіть спробу.";
 "tag_editor_lyrics_format_hint" = "Підтримує звичайний текст, LRC [mm:ss.xxx] і ELRC <mm:ss.xxx>word. Наявні часові мітки зберігаються.";
 "navigation_mode_title" = "Навігація";
+"navigation_tabs_title" = "Нижня панель вкладок";
 "ai_recommendation_intent_catalogRewind_detail" = "Надає пріоритет старішим випускам у вашій бібліотеці";
 "Capabilities" = "Можливості";
 "source_diag_config_title" = "Конфігурація";

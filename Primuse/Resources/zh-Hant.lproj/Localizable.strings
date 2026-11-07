@@ -4027,6 +4027,7 @@
 
 // MARK: - Navigation mode
 "navigation_mode_title" = "導覽";
+"navigation_tabs_title" = "底部分頁列";
 "minimal_mode_title" = "極簡模式";
 "minimal_mode_description" = "隱藏底部導覽列：在頂部切換首頁、音樂、電台與有聲，播放條停靠在底部。";
 "minimal_show_home" = "顯示「首頁」";

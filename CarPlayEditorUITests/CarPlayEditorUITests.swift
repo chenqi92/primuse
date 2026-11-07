@@ -812,3 +812,198 @@ final class SpokenChapterManagementUITests: XCTestCase {
         XCTAssertTrue(app.buttons["chapters.import"].waitForExistence(timeout: 5))
     }
 }
+
+
+@MainActor
+final class TabVisibilityUITests: XCTestCase {
+    func testHideTabsReopenSettingsRestartAndRestore() throws {
+        continueAfterFailure = false
+        let app = configuredApp()
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "appearance.tabs"
+        launch(app)
+        addTeardownBlock { @MainActor in self.restoreHome(app) }
+        let editor = app.buttons["navigation.editTabs"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 30))
+        editor.tap()
+        for tab in [1, 2, 3] { setTab(tab, visible: false, in: app) }
+        XCTAssertFalse(app.switches["navigation.tab.0"].isEnabled)
+        app.buttons["navigation.applyTabs"].tap()
+        let gear = app.buttons["navigation.hiddenSettings"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.tabBars.buttons.count, 1)
+        XCTAssertTrue(app.tabBars.buttons["首页"].exists)
+        attach(app, "tabs-home-only")
+
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        launch(app)
+        XCTAssertTrue(gear.waitForExistence(timeout: 20))
+        XCTAssertEqual(app.tabBars.buttons.count, 1)
+        gear.tap()
+        let close = app.buttons["navigation.closeHiddenTab"]
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        attach(app, "tabs-hidden-settings")
+        close.tap()
+        XCTAssertTrue(gear.waitForExistence(timeout: 5))
+
+        // The settings deep link must reach the sheet even though its tab is absent.
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "appearance.tabs"
+        launch(app)
+        XCTAssertTrue(editor.waitForExistence(timeout: 25))
+        editor.tap()
+        for tab in [1, 2, 3] { setTab(tab, visible: true, in: app) }
+        setTab(0, visible: false, in: app)
+        app.buttons["navigation.applyTabs"].tap()
+        XCTAssertTrue(app.tabBars.buttons["设置"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.buttons["首页"].exists)
+        XCTAssertFalse(gear.exists)
+        attach(app, "tabs-home-hidden")
+
+        app.tabBars.buttons["资料库"].tap()
+        XCTAssertTrue(app.tabBars.buttons["资料库"].isSelected)
+        app.tabBars.buttons["搜索"].tap()
+        XCTAssertTrue(app.tabBars.buttons["搜索"].isSelected)
+
+        app.terminate()
+        launch(app)
+        XCTAssertTrue(editor.waitForExistence(timeout: 25))
+        editor.tap()
+        for tab in [0, 1, 3] { setTab(tab, visible: false, in: app) }
+        XCTAssertFalse(app.switches["navigation.tab.2"].isEnabled)
+        app.buttons["navigation.applyTabs"].tap()
+        XCTAssertTrue(gear.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.tabBars.buttons.count, 1)
+        XCTAssertTrue(app.tabBars.buttons["搜索"].isSelected)
+        gear.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        attach(app, "tabs-search-only-settings")
+        close.tap()
+    }
+
+    func testHiddenSearchOpensFromQuickActionAndCloses() throws {
+        continueAfterFailure = false
+        let app = configuredApp()
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "appearance.tabs"
+        launch(app)
+        addTeardownBlock { @MainActor in self.restoreHome(app) }
+        let editor = app.buttons["navigation.editTabs"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 30))
+        editor.tap()
+        for tab in [0, 1] { setTab(tab, visible: true, in: app) }
+        setTab(2, visible: false, in: app)
+        setTab(3, visible: false, in: app)
+        app.buttons["navigation.applyTabs"].tap()
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launchEnvironment["PRIMUSE_DEBUG_QUICK_ACTION"] = "com.welape.yuanyin.quick-action.search"
+        launch(app)
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 25))
+        attach(app, "tabs-hidden-search-editing")
+        let cancelSearch = app.buttons.matching(NSPredicate(format: "label IN %@", ["取消", "Cancel", "关闭", "Close"])).firstMatch
+        XCTAssertTrue(cancelSearch.waitForExistence(timeout: 5), app.debugDescription)
+        cancelSearch.tap()
+        let close = app.buttons["navigation.closeHiddenTab"]
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        attach(app, "tabs-hidden-search")
+        app.navigationBars["搜索"].buttons["navigation.hiddenSettings"].tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 8))
+        close.tap()
+        let gear = app.buttons["navigation.hiddenSettings"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 5))
+        gear.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        close.tap()
+        XCTAssertTrue(app.tabBars.buttons["首页"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.tabBars.buttons["搜索"].exists)
+        XCTAssertFalse(app.tabBars.buttons["设置"].exists)
+    }
+
+    func testHiddenLibraryStillOpensFromDeepLink() throws {
+        continueAfterFailure = false
+        let app = configuredApp()
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "appearance.tabs"
+        launch(app)
+        addTeardownBlock { @MainActor in self.restoreHome(app) }
+        let editor = app.buttons["navigation.editTabs"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 30))
+        editor.tap()
+        for tab in [0, 2, 3] { setTab(tab, visible: true, in: app) }
+        setTab(1, visible: false, in: app)
+        app.buttons["navigation.applyTabs"].tap()
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "library"
+        launch(app)
+        let close = app.buttons["navigation.closeHiddenTab"]
+        XCTAssertTrue(close.waitForExistence(timeout: 80))
+        attach(app, "tabs-hidden-library")
+        close.tap()
+        XCTAssertTrue(app.tabBars.buttons["首页"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.tabBars.buttons["资料库"].exists)
+    }
+
+    private func configuredApp() -> XCUIApplication {
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+            "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
+            "-primuse.playback.autoplayOnLaunch", "NO", "-primuse.navigation.mode.v1", "standard",
+            "-primuse.launch.safeModeLatched", "NO",
+            "-primuse.launch.consecutiveAborts", "0"]
+        app.launchEnvironment["PRIMUSE_NO_NOTIFICATION_PROMPT"] = "1"
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        return app
+    }
+
+    private func launch(_ app: XCUIApplication) {
+        app.launch()
+        let previousLaunch = app.alerts["上次启动没有完成"]
+        if previousLaunch.waitForExistence(timeout: 2) {
+            previousLaunch.buttons["关闭"].tap()
+        }
+    }
+
+    private func setTab(_ tab: Int, visible: Bool, in app: XCUIApplication) {
+        let toggle = app.switches["navigation.tab.\(tab)"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        if (toggle.value as? String == "1") != visible {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        }
+        let expected = visible ? "1" : "0"
+        let updated = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 3), .completed)
+        XCTAssertEqual(toggle.value as? String, expected)
+    }
+
+    private func restoreHome(_ app: XCUIApplication) {
+        continueAfterFailure = true
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_DEBUG_QUICK_ACTION")
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_PAGE")
+        app.launchEnvironment["PRIMUSE_OPEN_SETTINGS"] = "appearance.tabs"
+        launch(app)
+        let editor = app.buttons["navigation.editTabs"]
+        if editor.waitForExistence(timeout: 25) {
+            editor.tap()
+            for tab in 0...3 { setTab(tab, visible: true, in: app) }
+            app.buttons["navigation.applyTabs"].tap()
+        } else {
+            XCTFail("Could not restore tab visibility")
+        }
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_SETTINGS")
+        launch(app)
+        XCTAssertTrue(app.tabBars.buttons["首页"].waitForExistence(timeout: 20))
+        XCTAssertEqual(app.tabBars.buttons.count, 4)
+        app.tabBars.buttons["首页"].tap()
+        XCTAssertTrue(app.tabBars.buttons["首页"].isSelected)
+        app.terminate()
+    }
+
+    private func attach(_ app: XCUIApplication, _ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}

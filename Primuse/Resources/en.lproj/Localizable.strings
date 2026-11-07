@@ -3813,6 +3813,7 @@
 
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
+"navigation_tabs_title" = "Bottom Tab Bar";
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
 "minimal_show_home" = "Show Home";

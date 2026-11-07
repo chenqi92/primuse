@@ -82,6 +82,47 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         }
     }
 
+    func testTabVisibilityKeepsEveryNonemptyCombinationAndRestoresSelection() {
+        for mask in 0..<15 {
+            let configuration = AppTabConfiguration(hiddenMask: mask)
+            let visible = AppNavigationTab.allCases.filter { mask & (1 << $0.rawValue) == 0 }
+            XCTAssertEqual(configuration.visibleTabs, visible)
+            for selection in -1...4 {
+                let restored = configuration.selection(for: selection)
+                XCTAssertTrue(visible.contains { $0.rawValue == restored })
+                if visible.contains(where: { $0.rawValue == selection }) {
+                    XCTAssertEqual(restored, selection)
+                } else {
+                    XCTAssertEqual(restored, visible.first?.rawValue)
+                }
+            }
+        }
+    }
+
+    func testTabVisibilityCannotHideLastDestinationAndCanRestoreEveryTab() {
+        for remaining in AppNavigationTab.allCases {
+            var configuration = AppTabConfiguration()
+            for tab in AppNavigationTab.allCases where tab != remaining {
+                configuration.setVisible(false, for: tab)
+            }
+            configuration.setVisible(false, for: remaining)
+            XCTAssertEqual(configuration.visibleTabs, [remaining])
+            let saved = AppTabConfiguration(hiddenMask: configuration.hiddenMask)
+            XCTAssertEqual(saved, configuration)
+            for tab in AppNavigationTab.allCases { configuration.setVisible(true, for: tab) }
+            XCTAssertEqual(configuration, AppTabConfiguration())
+        }
+    }
+
+    func testInvalidTabVisibilityRecoversToReachableHome() {
+        for mask in [15, -1, Int.max] {
+            let configuration = AppTabConfiguration(hiddenMask: mask)
+            XCTAssertEqual(configuration.visibleTabs, [.home])
+            XCTAssertEqual(configuration.selection(for: 3), 0)
+        }
+        XCTAssertEqual(AppTabConfiguration(hiddenMask: 16), AppTabConfiguration())
+    }
+
     func testAlbumGridOrderFollowsTheTVWallAndKeepsOnlyOfferedOrders() {
         XCTAssertEqual(AlbumGridOrder.resolved("artist"), .artist)
         XCTAssertEqual(AlbumGridOrder.resolved("liked"), AlbumGridOrder.defaultOrder)

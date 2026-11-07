@@ -2399,6 +2399,7 @@
 "motion_artwork_service_endpoint" = "จุดสิ้นสุดบริการ";
 "music_video_badge" = "มิวสิกวิดีโอ";
 "navigation_mode_title" = "การนำทาง";
+"navigation_tabs_title" = "แถบแท็บด้านล่าง";
 "network" = "เครือข่าย";
 "new" = "ใหม่";
 "new_ai_smart_playlist" = "เพลย์ลิสต์อัจฉริยะ AI ใหม่";

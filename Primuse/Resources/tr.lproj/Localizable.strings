@@ -1909,6 +1909,7 @@
 "ai_primuse_relay_diagnostic_storekit_unverified_detail" = "App Store doğrulanmamış bir uygulama işlemi döndürdü. Apple tarafından yetkilendirilmiş bir derlemeyi güncelleyin veya yeniden yükleyin ve yeniden deneyin.";
 "tag_editor_lyrics_format_hint" = "Düz metin, LRC [mm:ss.xxx] ve ELRC <mm:ss.xxx>word'ü destekler. Mevcut zaman damgaları korunur.";
 "navigation_mode_title" = "Navigasyon";
+"navigation_tabs_title" = "Alt Sekme Çubuğu";
 "ai_recommendation_intent_catalogRewind_detail" = "Arşivinizdeki eski yayınlara öncelik verir";
 "Capabilities" = "Yetenekler";
 "source_diag_config_title" = "Yapılandırma";

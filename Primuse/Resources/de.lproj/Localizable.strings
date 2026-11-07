@@ -4041,6 +4041,7 @@
 
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
+"navigation_tabs_title" = "Untere Tableiste";
 "minimal_mode_title" = "Minimalmodus";
 "minimal_mode_description" = "Blendet die untere Navigation aus: Oben wechselst du zwischen Start, Musik, Radio und Audio, der Player sitzt unten.";
 "minimal_show_home" = "„Start“ anzeigen";

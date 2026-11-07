@@ -28,6 +28,57 @@ enum AppTabSelectionPolicy {
     }
 }
 
+enum AppNavigationTab: Int, CaseIterable, Identifiable {
+    case home, library, search, settings
+
+    var id: Int { rawValue }
+    var titleKey: String {
+        switch self {
+        case .home: "home_title"
+        case .library: "library_title"
+        case .search: "search_title"
+        case .settings: "settings_title"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .home: "house.fill"
+        case .library: "books.vertical"
+        case .search: "magnifyingglass"
+        case .settings: "gearshape"
+        }
+    }
+}
+
+struct AppTabConfiguration: Equatable {
+    static let storageKey = "primuse.navigation.hiddenTabs.v1"
+    private(set) var hiddenMask: Int
+
+    init(hiddenMask: Int = 0) {
+        let mask = hiddenMask & 15
+        self.hiddenMask = mask == 15 ? 14 : mask
+    }
+
+    var visibleTabs: [AppNavigationTab] { AppNavigationTab.allCases.filter(isVisible) }
+
+    func isVisible(_ tab: AppNavigationTab) -> Bool {
+        hiddenMask & (1 << tab.rawValue) == 0
+    }
+
+    mutating func setVisible(_ visible: Bool, for tab: AppNavigationTab) {
+        if visible {
+            hiddenMask &= ~(1 << tab.rawValue)
+        } else if visibleTabs.count > 1 {
+            hiddenMask |= 1 << tab.rawValue
+        }
+    }
+
+    func selection(for storedValue: Int) -> Int {
+        if let tab = AppNavigationTab(rawValue: storedValue), isVisible(tab) { return storedValue }
+        return visibleTabs.first!.rawValue
+    }
+}
+
 enum AppNavigationLayoutPolicy {
     /// `allowsSidebar` 只在 iPad 上为 true。iPhone 的宽度等级会随开合
     /// (iPhone Duo 内外屏)和大屏机型横竖屏来回翻转，整棵根视图在侧边栏和
@@ -215,6 +266,14 @@ private struct AppNavigationModeEnvironmentKey: EnvironmentKey {
     static let defaultValue = AppNavigationMode.standard
 }
 
+private struct HiddenTabSettingsActionKey: EnvironmentKey {
+    static let defaultValue: (@MainActor () -> Void)? = nil
+}
+
+private struct SupplementaryTabDismissActionKey: EnvironmentKey {
+    static let defaultValue: (@MainActor () -> Void)? = nil
+}
+
 private struct MinimalNavigationDetailScopeEnvironmentKey: EnvironmentKey {
     static let defaultValue: MinimalNavigationDetailScope? = nil
 }
@@ -253,6 +312,16 @@ private struct MinimalNavigationDetailScopesPreferenceKey: PreferenceKey {
 }
 
 extension EnvironmentValues {
+    fileprivate var hiddenTabSettingsAction: (@MainActor () -> Void)? {
+        get { self[HiddenTabSettingsActionKey.self] }
+        set { self[HiddenTabSettingsActionKey.self] = newValue }
+    }
+
+    fileprivate var supplementaryTabDismissAction: (@MainActor () -> Void)? {
+        get { self[SupplementaryTabDismissActionKey.self] }
+        set { self[SupplementaryTabDismissActionKey.self] = newValue }
+    }
+
     fileprivate var minimalNavigationBars: MinimalNavigationBars? {
         get { self[MinimalNavigationBarsEnvironmentKey.self] }
         set { self[MinimalNavigationBarsEnvironmentKey.self] = newValue }
@@ -533,6 +602,8 @@ private struct MinimalNavigationRootModifier: ViewModifier {
     @Environment(\.minimalNavigationBars) private var bars
     @Environment(\.minimalNavigationDetailScope) private var detailScope
     @Environment(\.minimalNavigationRootSettledHandler) private var rootSettledHandler
+    @Environment(\.hiddenTabSettingsAction) private var openHiddenSettings
+    @Environment(\.supplementaryTabDismissAction) private var dismissSupplementaryTab
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -562,6 +633,22 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                 .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
         } else {
             content
+                .toolbar {
+                    if let dismissSupplementaryTab {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("done", systemImage: "xmark", action: dismissSupplementaryTab)
+                                .labelStyle(.iconOnly)
+                                .accessibilityIdentifier("navigation.closeHiddenTab")
+                        }
+                    }
+                    if detailScope != .settings, let openHiddenSettings {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("settings_title", systemImage: "gearshape", action: openHiddenSettings)
+                                .labelStyle(.iconOnly)
+                                .accessibilityIdentifier("navigation.hiddenSettings")
+                        }
+                    }
+                }
         }
     }
 }
@@ -1076,6 +1163,7 @@ struct LibraryReadyContent<Content: View>: View {
 }
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var navigationScenePhase
     @State private var homeModel = HomeView.Model()
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -1107,6 +1195,9 @@ struct ContentView: View {
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
+    @AppStorage(AppTabConfiguration.storageKey) private var hiddenTabsMask = 0
+    @State private var supplementaryTab: AppNavigationTab?
+    @State private var pendingSupplementaryTab: AppNavigationTab?
     @AppStorage(PlayerAppearancePreferences.pinsMiniPlayerKey)
     private var pinsMiniPlayer = PlayerAppearancePreferences.pinsMiniPlayerByDefault
     /// iPad sidebar 当前选中项。iPhone 不用,sidebar 隐藏。值跟 selectedTab
@@ -1201,6 +1292,15 @@ struct ContentView: View {
         )
     }
 
+    private var tabConfiguration: AppTabConfiguration {
+        AppTabConfiguration(hiddenMask: rootLayout == .standardTabs ? hiddenTabsMask : 0)
+    }
+
+    private var hiddenSettingsAction: (@MainActor () -> Void)? {
+        guard !tabConfiguration.isVisible(.settings) else { return nil }
+        return { selectMinimalPage(.settings) }
+    }
+
     private var systemTabBarVisibility: Visibility {
         AppNavigationChromePolicy.hidesSystemTabBar(
             mode: navigationMode,
@@ -1286,7 +1386,8 @@ struct ContentView: View {
     /// 键盘上方，`-[UISearchController _setInlineSearchAccessoryEnabled:]` 断言失败直接闪退
     /// (1.10.1(87)，iOS 26.5)。这时弹键盘交给系统的 `.searchTabSelection`。
     private var searchTabHostsSearchField: Bool {
-        guard rootLayout == .standardTabs, searchTabRole == .search else { return false }
+        guard rootLayout == .standardTabs, tabConfiguration.isVisible(.search),
+              searchTabRole == .search else { return false }
         if #available(iOS 26.0, *) { return true }
         return false
     }
@@ -1297,58 +1398,74 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var tabRoot: some View {
-        TabView(selection: searchAwareTabSelection) {
-            Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
-                HomeView(
-                    switchToSettingsTab: { selectedTab = 3 },
-                    model: homeModel,
-                    openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
-                )
-                    .id("primuse.tab.home")
-                    .environment(\.minimalNavigationDetailScope, .home)
-                    .environment(\.librarySearchTab, 0)
-                    .toolbar(systemTabBarVisibility, for: .tabBar)
-                    .legacyMiniPlayerClearance(legacyMiniPlayerInset)
-            }
-
-            Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryView(
-                    deepLink: $libraryDeepLink,
-                    onActiveSectionChange: { section in
-                        guard navigationMode == .minimal else { return }
-                        minimalLibrarySection = section
-                        if let section { rememberMinimalSection(section) }
-                    }
-                )
-                .environment(\.minimalNavigationDetailScope, .library)
-                .environment(\.librarySearchTab, 1)
-                .toolbar(systemTabBarVisibility, for: .tabBar)
-                .legacyMiniPlayerClearance(legacyMiniPlayerInset)
-            }
-
-            Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
-                value: 2, role: searchTabRole) {
-                LibraryReadyContent {
-                    SearchView(searchText: $searchText, scope: $searchScope,
+    private func tabPage(_ tab: AppNavigationTab) -> some View {
+        switch tab {
+        case .home:
+            HomeView(
+                switchToSettingsTab: { selectMinimalPage(.settings) },
+                model: homeModel,
+                openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
+            )
+            .id("primuse.tab.home")
+            .environment(\.minimalNavigationDetailScope, .home)
+            .environment(\.librarySearchTab, 0)
+        case .library:
+            LibraryView(
+                deepLink: $libraryDeepLink,
+                onActiveSectionChange: { section in
+                    guard navigationMode == .minimal else { return }
+                    minimalLibrarySection = section
+                    if let section { rememberMinimalSection(section) }
+                }
+            )
+            .environment(\.minimalNavigationDetailScope, .library)
+            .environment(\.librarySearchTab, 1)
+        case .search:
+            LibraryReadyContent {
+                SearchView(searchText: $searchText, scope: $searchScope,
                            activatesSearchField: $searchFieldActivationRequested,
                            requestsResultLayoutEditor: $searchLayoutEditorRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
-                }
-                    .id("primuse.tab.search")
-                    .environment(\.minimalNavigationDetailScope, .search)
-                    .toolbar(systemTabBarVisibility, for: .tabBar)
-                    .legacyMiniPlayerClearance(legacyMiniPlayerInset)
             }
-
-            Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
-                SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
-                    .environment(\.minimalNavigationDetailScope, .settings)
-                    .environment(\.minimalSettingsReturn, minimalSettingsReturn)
-                    .toolbar(systemTabBarVisibility, for: .tabBar)
-                    .legacyMiniPlayerClearance(legacyMiniPlayerInset)
-            }
+            .id("primuse.tab.search")
+            .environment(\.minimalNavigationDetailScope, .search)
+        case .settings:
+            SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
+                .environment(\.minimalNavigationDetailScope, .settings)
+                .environment(\.minimalSettingsReturn, minimalSettingsReturn)
         }
+    }
+
+    @ViewBuilder
+    private func visibleTabPage(_ tab: AppNavigationTab) -> some View {
+        // Hidden destinations are hosted by the sheet, so only one instance consumes navigation requests.
+        if tabConfiguration.isVisible(tab) {
+            tabPage(tab)
+                .toolbar(systemTabBarVisibility, for: .tabBar)
+                .legacyMiniPlayerClearance(legacyMiniPlayerInset)
+        }
+    }
+
+    private var tabRoot: some View {
+        TabView(selection: searchAwareTabSelection) {
+            Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
+                visibleTabPage(.home)
+            }
+            .hidden(!tabConfiguration.isVisible(.home))
+            Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
+                visibleTabPage(.library)
+            }
+            .hidden(!tabConfiguration.isVisible(.library))
+            Tab(String(localized: "search_title"), systemImage: "magnifyingglass", value: 2, role: searchTabRole) {
+                visibleTabPage(.search)
+            }
+            .hidden(!tabConfiguration.isVisible(.search))
+            Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
+                visibleTabPage(.settings)
+            }
+            .hidden(!tabConfiguration.isVisible(.settings))
+        }
+        .environment(\.hiddenTabSettingsAction, hiddenSettingsAction)
         .softNavigationScrollEdges()
         .environment(\.minimalNavigationDetailTransitionHandler) {
             transitionID, detailScope, event in
@@ -1828,6 +1945,17 @@ struct ContentView: View {
         }
         // iPhone Duo 合上、展开时整屏做一次归位（模糊、沿开合方向拉伸后回到原样），播放页也在里面。
         .pmScreenChangeTransition()
+        .sheet(item: $supplementaryTab) { tab in
+            tabPage(tab)
+                .environment(\.appNavigationMode, .standard)
+                .environment(\.hiddenTabSettingsAction, hiddenSettingsAction)
+                .environment(\.supplementaryTabDismissAction, { supplementaryTab = nil })
+                .environment(\.librarySearchNavigation, searchNavigation)
+                .presentationDragIndicator(.visible)
+        }
+        .task(id: navigationScenePhase == .active ? pendingSupplementaryTab : nil) {
+            await presentPendingSupplementaryTab()
+        }
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.appNavigationMode, navigationMode)
         .songBatchRemovalFeedback()
@@ -1853,10 +1981,10 @@ struct ContentView: View {
             if AppNavigationMode(rawValue: navigationModeRawValue) == nil {
                 navigationModeRawValue = AppNavigationMode.standard.rawValue
             }
-            let restoredTab = AppTabSelectionPolicy.resolve(selectedTab)
+            let restoredTab = tabConfiguration.selection(for: selectedTab)
             if restoredTab != selectedTab {
                 selectedTab = restoredTab
-                sidebarSelection = .home
+                synchronizeSidebarForCurrentSelection()
             }
             await library.whenReady()
             guard !Task.isCancelled else { return }
@@ -1873,6 +2001,15 @@ struct ContentView: View {
                 // 「设置 › 音乐源」接着填。和引导页、年度报告不同时弹。
                 AddSourceDraftRestoration.shared.restoreIfNeeded()
             }
+        }
+        .onChange(of: tabConfiguration) { _, configuration in
+            if let presented = supplementaryTab, configuration.isVisible(presented) {
+                supplementaryTab = nil
+                selectedTab = presented.rawValue
+            } else {
+                selectedTab = configuration.selection(for: selectedTab)
+            }
+            synchronizeSidebarForCurrentSelection()
         }
         .onChange(of: navigationModeRawValue) { _, _ in
             if navigationMode == .minimal {
@@ -1920,10 +2057,7 @@ struct ContentView: View {
         }
         .alert(
             String(localized: "server_rating_sync_failed_title"),
-            isPresented: Binding(
-                get: { library.serverRatingErrorMessage != nil },
-                set: { if !$0 { library.dismissServerRatingError() } }
-            )
+            isPresented: serverRatingErrorPresented
         ) {
             Button("done", role: .cancel) {}
         } message: {
@@ -1968,6 +2102,13 @@ struct ContentView: View {
         showNowPlaying = false
         selectMinimalPage(.settings)
         scraperSettingsRoute.requestMetadataScraping()
+    }
+
+    private var serverRatingErrorPresented: Binding<Bool> {
+        Binding(
+            get: { library.serverRatingErrorMessage != nil },
+            set: { if !$0 { library.dismissServerRatingError() } }
+        )
     }
 
     /// 进极简模式、启动时落在哪一页：资料库槽位回到上次停的分类；首页那一格关掉了就去音乐。
@@ -2057,8 +2198,10 @@ struct ContentView: View {
     private var searchAwareTabSelection: Binding<Int> {
         // TabView validates its first selection before the restoration task runs.
         Binding(
-            get: { AppTabSelectionPolicy.resolve(selectedTab) },
+            get: { tabConfiguration.selection(for: selectedTab) },
             set: { tab in
+                // TabView also writes its restored selection during mounting; that is not a user switch.
+                guard tab != tabConfiguration.selection(for: selectedTab) else { return }
                 // 点底部「搜索」进来就直接弹出键盘, 不必再点一次搜索框。
                 // 只认真的切换: 启动时恢复到搜索页不该自己弹键盘。
                 // 搜索框由标签栏托管时由系统来弹, 见 searchTabHostsSearchField。
@@ -2079,7 +2222,45 @@ struct ContentView: View {
             searchContext = context
             searchScope = context
         }
-        selectedTab = tab
+        if let destination = AppNavigationTab(rawValue: tab), !tabConfiguration.isVisible(destination) {
+            if supplementaryTab != nil {
+                supplementaryTab = destination
+            } else {
+                pendingSupplementaryTab = destination
+            }
+        } else {
+            pendingSupplementaryTab = nil
+            supplementaryTab = nil
+            selectedTab = tab
+        }
+    }
+
+    private func presentPendingSupplementaryTab() async {
+        guard navigationScenePhase == .active, let destination = pendingSupplementaryTab else { return }
+        // Cold-start shortcuts can arrive while the launch report or another sheet owns presentation.
+        // Keep the request until that presentation has finished, instead of losing a rejected sheet.
+        while !Task.isCancelled {
+            let presenter = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .filter { $0.activationState == .foregroundActive }
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow)?.rootViewController
+            if LaunchDiagnostics.previousAbort == nil,
+               let presenter, presenter.viewIfLoaded?.window != nil,
+               presenter.presentedViewController == nil,
+               !presenter.isBeingPresented, !presenter.isBeingDismissed {
+                pendingSupplementaryTab = nil
+                if tabConfiguration.isVisible(destination) {
+                    selectedTab = destination.rawValue
+                    synchronizeSidebarForCurrentSelection()
+                } else {
+                    supplementaryTab = destination
+                }
+                return
+            }
+            do { try await Task.sleep(for: .milliseconds(200)) }
+            catch { return }
+        }
     }
 
     private func selectMinimalPage(_ page: MinimalNavigationPage) {
@@ -2101,10 +2282,10 @@ struct ContentView: View {
         }
         switch page {
         case .home:
-            selectedTab = 0
+            selectTab(0)
             sidebarSelection = .home
         case .librarySection(let section):
-            selectedTab = 1
+            selectTab(1)
             sidebarSelection = SidebarItem.libraryChild(for: section)
             // 已经停在这一页时不再发深链：深链会把这一页的导航栈重排一遍。
             if minimalLibrarySection != section || libraryDeepLink != nil {
@@ -2116,7 +2297,7 @@ struct ContentView: View {
             selectTab(2)
             sidebarSelection = .search
         case .settings:
-            selectedTab = 3
+            selectTab(3)
             sidebarSelection = .settings
         }
     }
@@ -2195,7 +2376,7 @@ struct ContentView: View {
     }
 
     private func openLibraryDeepLink(_ link: LibraryDeepLink) {
-        selectedTab = 1
+        selectTab(1)
         if navigationMode == .minimal,
            let section = MinimalNavigationPolicy.section(for: link) {
             minimalLibrarySection = section

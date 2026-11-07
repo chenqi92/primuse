@@ -4041,6 +4041,7 @@
 
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
+"navigation_tabs_title" = "Barre d’onglets inférieure";
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure : passez d’Accueil à Musique, Radio et Audio en haut, le lecteur reste ancré en bas.";
 "minimal_show_home" = "Afficher « Accueil »";

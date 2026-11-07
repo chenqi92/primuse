@@ -49,6 +49,8 @@ struct AppearanceSettingsView: View {
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     #if os(iOS)
     @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
+    @AppStorage(AppTabConfiguration.storageKey) private var hiddenTabsMask = 0
+    @State private var showsTabEditor = false
     #endif
     @AppStorage(WidgetColorStyle.storageKey) private var widgetColorStyle = WidgetColorStyle.defaultValue
     @AppStorage(InterfaceOrientationPreference.storageKey)
@@ -112,6 +114,26 @@ struct AppearanceSettingsView: View {
                         Label("minimal_show_home", systemImage: "house")
                     }
                     .id(ThemeColorSettings.shared.isWhiteTheme)
+                } else {
+                    Button {
+                        showsTabEditor = true
+                    } label: {
+                        HStack {
+                            Label("navigation_tabs_title", systemImage: "rectangle.bottomthird.inset.filled")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                    .settingsAnchor("appearance.tabs")
+                    .accessibilityIdentifier("navigation.editTabs")
+                    .sheet(isPresented: $showsTabEditor) {
+                        AppTabVisibilityEditor(configuration: AppTabConfiguration(hiddenMask: hiddenTabsMask)) {
+                            hiddenTabsMask = $0.hiddenMask
+                        }
+                    }
                 }
                 #endif
             } header: {
@@ -944,4 +966,43 @@ struct ListeningSpaceColorSettingsView: View {
     }
 }
 
+#endif
+
+#if os(iOS)
+struct AppTabVisibilityEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var configuration: AppTabConfiguration
+    let apply: (AppTabConfiguration) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(AppNavigationTab.allCases) { tab in
+                    Toggle(isOn: Binding(
+                        get: { configuration.isVisible(tab) },
+                        set: { configuration.setVisible($0, for: tab) }
+                    )) {
+                        Label(LocalizedStringKey(tab.titleKey), systemImage: tab.symbol)
+                    }
+                    .disabled(configuration.isVisible(tab) && configuration.visibleTabs.count == 1)
+                    .accessibilityIdentifier("navigation.tab.\(tab.rawValue)")
+                }
+            }
+            .navigationTitle("navigation_tabs_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") {
+                        dismiss()
+                        apply(configuration)
+                    }
+                    .accessibilityIdentifier("navigation.applyTabs")
+                }
+            }
+        }
+    }
+}
 #endif

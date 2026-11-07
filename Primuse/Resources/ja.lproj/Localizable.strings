@@ -4042,6 +4042,7 @@
 
 // MARK: - Navigation mode
 "navigation_mode_title" = "ナビゲーション";
+"navigation_tabs_title" = "下部タブバー";
 "minimal_mode_title" = "ミニマルモード";
 "minimal_mode_description" = "下部のナビゲーションバーを隠し、上部でホーム・ミュージック・ラジオ・音声を切り替えます。再生バーは下部に固定されます。";
 "minimal_show_home" = "「ホーム」を表示";
