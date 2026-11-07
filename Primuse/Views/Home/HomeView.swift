@@ -60,6 +60,7 @@ private struct RecentlyAddedAlbumsView: View {
     @State private var albums: [Album] = []
     @State private var isPrepared = false
     @State private var query = ""
+    @AppStorage(RecentlyAddedAlbumPolicy.showsExternalAlbumsKey) private var showsExternalAlbums = false
 
     private var filteredAlbums: [Album] {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,6 +97,7 @@ private struct RecentlyAddedAlbumsView: View {
                         }
                         .buttonStyle(.pmPressable)
                         .mediaZoomSource(.album, id: album.id)
+                        .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                     }
                 }
                 .padding(20)
@@ -103,11 +105,19 @@ private struct RecentlyAddedAlbumsView: View {
         }
         .navigationTitle(HomeDiscoveryText.string("recent_albums"))
         .searchable(text: $query, prompt: Text("filter_albums_placeholder"))
-        .task(id: library.searchRevision) {
+        .toolbar {
+            Menu {
+                Toggle("home_show_preview_albums", isOn: $showsExternalAlbums)
+            } label: { Image(systemName: "line.3.horizontal.decrease") }
+            .accessibilityLabel(Text("home_show_preview_albums"))
+        }
+        .task(id: "\(library.searchRevision)-\(showsExternalAlbums)") {
             let visibleSongs = library.visibleSongs
             let visibleAlbums = library.visibleAlbums
+            let includesExternal = showsExternalAlbums
             let sorted = await Task.detached(priority: .utility) {
-                RecentlyAddedAlbumPolicy.sorted(albums: visibleAlbums, songs: visibleSongs)
+                RecentlyAddedAlbumPolicy.sorted(albums: visibleAlbums, songs: visibleSongs,
+                                                includingExternalSongs: includesExternal)
             }.value
             guard !Task.isCancelled else { return }
             albums = sorted
@@ -126,7 +136,7 @@ struct PersistedHomeRecommendation: Codable, Sendable {
 /// remains the source of truth: cached IDs are rehydrated from current models,
 /// then the expensive highlights and recommendations refresh in the background.
 struct PersistedHomeSnapshot: Codable, Sendable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     let version: Int
     let dayStamp: Int
@@ -140,6 +150,7 @@ struct PersistedHomeSnapshot: Codable, Sendable {
     let recentlyAddedAlbums: [PersistedHomeAlbumTile]
     let recommendations: [PersistedHomeRecommendation]
     var heroSeed: UInt64? = nil
+    var showsExternalAlbums: Bool? = nil
 }
 
 private actor HomeInitialSnapshotCacheStore {
@@ -1803,6 +1814,10 @@ struct HomeView: View {
             // 收藏的专辑 / 艺人记在喜欢的账本里，详情页点一下心就该在首页收藏区出现。
             refreshHomeSnapshot()
         }
+        .onChange(of: showsExternalAlbums) { _, _ in
+            model.snapshot.recentlyAddedAlbums = []
+            refreshHomeSnapshot()
+        }
         .onChange(of: showForYou) { _, _ in
             refreshHomeSnapshot()
         }
@@ -2011,6 +2026,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showForYou") private var showForYou: Bool = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded: Bool = true
+    @AppStorage(RecentlyAddedAlbumPolicy.showsExternalAlbumsKey) private var showsExternalAlbums = false
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening: Bool = true
     @AppStorage("primuse.home.showQuickAccess") private var showQuickAccess: Bool = true
     @AppStorage("primuse.home.showPlaylists") private var showPlaylists: Bool = true
@@ -2122,6 +2138,7 @@ struct HomeView: View {
         let quickAccess: String
         let favoritesRevision: Int
         let showsRecommendations: Bool
+        var showsExternalAlbums = false
     }
 
     struct HomeAlbumTile: Identifiable, Equatable, Sendable {
@@ -2132,7 +2149,6 @@ struct HomeView: View {
     }
 
     private struct HomeAlbumAccumulator: Sendable {
-        var latestDate: Date
         var firstSong: Song
         var firstCoveredSong: Song?
     }
@@ -2317,7 +2333,7 @@ struct HomeView: View {
                 HomeDeferredSection { artistsSection(style) }
             }
         case .recentlyAdded:
-            if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty {
+            if showRecentlyAdded, !library.visibleAlbums.isEmpty {
                 HomeDeferredSection { recentlyAddedAlbumsSection(style) }
             }
         case .stats:
@@ -3255,7 +3271,8 @@ struct HomeView: View {
             timeZoneIdentifier: TimeZone.current.identifier,
             quickAccess: quickAccessRawValue,
             favoritesRevision: LibraryFavoritesStore.shared.revision,
-            showsRecommendations: showForYou
+            showsRecommendations: showForYou,
+            showsExternalAlbums: showsExternalAlbums
         )
     }
 
@@ -3307,6 +3324,7 @@ struct HomeView: View {
         let payload = Self.rehydrateInitialHomePayload(
             persistedSnapshot,
             visibleAlbums: visibleAlbums,
+            showsExternalAlbums: showsExternalAlbums,
             songForID: { library.unobservedVisibleSong(id: $0) }
         )
         let snapshot = makeHomeSnapshot(
@@ -3397,6 +3415,7 @@ struct HomeView: View {
     static func rehydrateInitialHomePayload(
         _ persisted: PersistedHomeSnapshot?,
         visibleAlbums: [Album],
+        showsExternalAlbums: Bool = false,
         songForID: (String) -> Song?
     ) -> InitialHomeSnapshotPayload? {
         guard let persisted,
@@ -3412,7 +3431,9 @@ struct HomeView: View {
             visibleAlbums.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let recentlyAddedAlbums = persisted.recentlyAddedAlbums.compactMap { tile in
+        let cachedAlbums = (persisted.showsExternalAlbums ?? false) == showsExternalAlbums
+            ? persisted.recentlyAddedAlbums : []
+        let recentlyAddedAlbums = cachedAlbums.compactMap { tile in
             albumsByID[tile.albumID].map { album in
                 HomeAlbumTile(
                     album: album,
@@ -3465,7 +3486,8 @@ struct HomeView: View {
                     reasons: $0.reasons.map(\.rawValue)
                 )
             },
-            heroSeed: nextHero.seed
+            heroSeed: nextHero.seed,
+            showsExternalAlbums: signature.showsExternalAlbums
         )
         Task(priority: .utility) {
             await HomeInitialSnapshotCacheStore.shared.save(persisted)
@@ -3836,7 +3858,8 @@ struct HomeView: View {
                 let albumTiles = Self.makeRecentlyAddedAlbumTiles(
                     songs: songs,
                     albums: albums,
-                    limit: Self.recentlyAddedAlbumPoolLimit
+                    limit: Self.recentlyAddedAlbumPoolLimit,
+                    includingExternalSongs: signature.showsExternalAlbums
                 )
                 let resolvedRecentSongs = recentSongs.isEmpty
                     ? Array(latestAdded.prefix(30))
@@ -4033,24 +4056,24 @@ struct HomeView: View {
     nonisolated private static func makeRecentlyAddedAlbumTiles(
         songs: [Song],
         albums: [Album],
-        limit: Int
+        limit: Int,
+        includingExternalSongs: Bool
     ) -> [HomeAlbumTile] {
         // 旧实现先在 MusicLibrary 内把全库按专辑分组一次，再回到这里二次
         // 分组并逐专辑排序。万首库上仅这一段就会占用主线程约 40ms。
-        // 单次遍历同时收集最近日期、第一首歌和第一首带封面的歌，结果与旧
-        // 规则一致，但不再创建两套包含所有歌曲的临时数组。
+        // 单次遍历同时收集最近日期、第一首歌和第一首带封面的歌，避免
+        // 创建两套包含所有歌曲的临时数组。
         var accumulators: [String: HomeAlbumAccumulator] = [:]
         accumulators.reserveCapacity(albums.count)
+        var recentIndex = RecentlyAddedAlbumPolicy.Index(includingExternalSongs: includingExternalSongs)
 
         for song in songs {
-            guard let albumID = song.albumID, !albumID.isEmpty else { continue }
+            recentIndex.add(song)
+            guard includingExternalSongs || song.isExternal != true,
+                  let albumID = song.albumID, !albumID.isEmpty else { continue }
             let hasCover = song.coverArtFileName?.isEmpty == false
-            let dateAdded = RecentlyAddedAlbumPolicy.date(for: song)
 
             if var accumulator = accumulators[albumID] {
-                if dateAdded > accumulator.latestDate {
-                    accumulator.latestDate = dateAdded
-                }
                 if Self.homeAlbumSongPrecedes(song, accumulator.firstSong) {
                     accumulator.firstSong = song
                 }
@@ -4066,18 +4089,13 @@ struct HomeView: View {
                 accumulators[albumID] = accumulator
             } else {
                 accumulators[albumID] = HomeAlbumAccumulator(
-                    latestDate: dateAdded,
                     firstSong: song,
                     firstCoveredSong: hasCover ? song : nil
                 )
             }
         }
 
-        return RecentlyAddedAlbumPolicy.sorted(
-            albums: albums,
-            latestDates: accumulators.mapValues(\.latestDate),
-            limit: limit
-        )
+        return recentIndex.sorted(albums: albums, limit: limit)
             .map { album in
                 let accumulator = accumulators[album.id]
                 return HomeAlbumTile(
@@ -4993,8 +5011,17 @@ struct HomeView: View {
 
         VStack(alignment: .leading, spacing: style == .grid ? 14 : 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text(HomeDiscoveryText.string("recent_albums"))
-                    .font(.title3).fontWeight(.bold)
+                Menu {
+                    Toggle("home_show_preview_albums", isOn: $showsExternalAlbums)
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(HomeDiscoveryText.string("recent_albums"))
+                            .font(.title3).fontWeight(.bold)
+                        Image(systemName: "chevron.down").font(.caption)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home.recentAlbums.options")
                 Spacer()
                 Button(action: playLatestAlbum) {
                     Label("home_play_latest_album", systemImage: "play.fill")
@@ -5037,6 +5064,7 @@ struct HomeView: View {
                             }
                             .buttonStyle(.pmPressable)
                             .mediaZoomSource(.album, id: tile.album.id)
+                            .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -5051,6 +5079,7 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
                         .mediaZoomSource(.album, id: tile.album.id)
+                        .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
 
                         if index < displayed.count - 1 {
                             Divider().padding(.leading, 66)
@@ -5066,6 +5095,7 @@ struct HomeView: View {
                         }
                         .buttonStyle(.pmPressable)
                         .mediaZoomSource(.album, id: tile.album.id)
+                        .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                     }
                 }
                 .padding(.horizontal, 20)

@@ -1128,7 +1128,7 @@ final class TVStore {
     @ObservationIgnored private var musicSongIDSetCache: (revision: UInt64, ids: Set<String>)?
     @ObservationIgnored private var albumSongIDsIndex: [String: [String]]?
     @ObservationIgnored private var sortedAlbumSongIDs: [String: [String]] = [:]
-    @ObservationIgnored private var recentlyAddedAlbumIDsCache: [String]?
+    @ObservationIgnored private var recentlyAddedAlbumIDsCache: (includesExternal: Bool, ids: [String])?
     @ObservationIgnored private var cachedNormalPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var cachedSmartPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var smartPlaylistSongIDs: [String: [String]] = [:]
@@ -1865,11 +1865,18 @@ final class TVStore {
         return songs.prefix(12).map(songMapper.map)
     }
     var recentlyAddedAlbums: [TVAlbum] {
+        recentlyAddedAlbums(includingExternalSongs: UserDefaults.standard.bool(forKey: RecentlyAddedAlbumPolicy.showsExternalAlbumsKey))
+    }
+
+    func recentlyAddedAlbums(includingExternalSongs: Bool) -> [TVAlbum] {
         _ = libraryContentRevision
         _ = albumArtworkPaletteRevision
-        let ids = recentlyAddedAlbumIDsCache ?? {
-            let ids = library.recentlyAddedAlbums(limit: 12).map(\.id)
-            recentlyAddedAlbumIDsCache = ids
+        if recentlyAddedAlbumIDsCache?.includesExternal != includingExternalSongs {
+            recentlyAddedAlbumIDsCache = nil
+        }
+        let ids = recentlyAddedAlbumIDsCache?.ids ?? {
+            let ids = library.recentlyAddedAlbums(limit: 12, includingExternalSongs: includingExternalSongs).map(\.id)
+            recentlyAddedAlbumIDsCache = (includingExternalSongs, ids)
             return ids
         }()
         let mapper = albumMapper

@@ -7216,6 +7216,7 @@ final class MusicLibrary {
             || old.serverDateAdded != new.serverDateAdded
             || old.serverAlbumDateAdded != new.serverAlbumDateAdded
             || old.serverCatalogAlbum != new.serverCatalogAlbum
+            || old.isExternal != new.isExternal
             || old.lastModified != new.lastModified
             || old.coverArtFileName != new.coverArtFileName
             || old.artistArtworkFileName != new.artistArtworkFileName
@@ -9515,8 +9516,9 @@ final class MusicLibrary {
         }
     }
 
-    func recentlyAddedAlbums(limit: Int = 10) -> [Album] {
-        RecentlyAddedAlbumPolicy.sorted(albums: visibleAlbums, songs: visibleSongs, limit: limit)
+    func recentlyAddedAlbums(limit: Int = 10, includingExternalSongs: Bool = false) -> [Album] {
+        RecentlyAddedAlbumPolicy.sorted(albums: visibleAlbums, songs: visibleSongs, limit: limit,
+                                        includingExternalSongs: includingExternalSongs)
     }
 
     func playlist(id: String) -> Playlist? {

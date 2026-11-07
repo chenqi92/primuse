@@ -7190,3 +7190,5 @@
 
 "stats_style_history" = "Historia odtwarzania";
 "stats_history_listened_format" = "Odsłuchano %@";
+
+"home_show_preview_albums" = "Pokaż albumy do odsłuchu";

@@ -75,6 +75,7 @@ struct MacHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("primuse.home.showRadio") private var showRadio = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded = true
+    @AppStorage(RecentlyAddedAlbumPolicy.showsExternalAlbumsKey) private var showsExternalAlbums = false
     @AppStorage("primuse.home.showPodcasts") private var showPodcasts = false
     @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPick = true
     // 与 iPhone、iPad 首页同名的区块开关;资料库健康度、处理管线、书这三块只有 Mac 有自己的开关。
@@ -134,6 +135,7 @@ struct MacHomeView: View {
         let recentSongIDs: [String]
         let day: Date
         let localeIdentifier: String
+        var showsExternalAlbums = false
 
         /// 只是曲库或歌单内容变了 —— 这类补算在扫描期间可以放宽间隔。
         func differsOnlyInLibraryContent(from other: DerivedSignature) -> Bool {
@@ -141,6 +143,7 @@ struct MacHomeView: View {
                 && recentSongIDs == other.recentSongIDs
                 && day == other.day
                 && localeIdentifier == other.localeIdentifier
+                && showsExternalAlbums == other.showsExternalAlbums
         }
     }
 
@@ -212,6 +215,10 @@ struct MacHomeView: View {
         }
         .onAppear {
             isSceneActive = scenePhase == .active
+        }
+        .onChange(of: showsExternalAlbums) { _, _ in
+            model.snapshot.recentlyAddedAlbums = []
+            scheduleDerivedRefresh()
         }
         .onChange(of: scenePhase) { _, phase in
             isSceneActive = phase == .active
@@ -324,7 +331,7 @@ struct MacHomeView: View {
                     .pmAppearFade(.contentAppear)
             }
         case .recentlyAdded:
-            if hasContent, showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty {
+            if hasContent, showRecentlyAdded, !library.visibleAlbums.isEmpty {
                 recentlyAddedSection
                     .pmAppearFade(.contentAppear)
             }
@@ -674,7 +681,8 @@ struct MacHomeView: View {
             historyRevision: PlayHistoryStore.shared.revision,
             recentSongIDs: library.recentPlaybackSongIDsForSync,
             day: Calendar.current.startOfDay(for: Date()),
-            localeIdentifier: Locale.current.identifier
+            localeIdentifier: Locale.current.identifier,
+            showsExternalAlbums: showsExternalAlbums
         )
     }
 
@@ -711,7 +719,8 @@ struct MacHomeView: View {
                     songs: songs,
                     albums: albums,
                     artists: artists,
-                    recentlyPlayed: recentlyPlayed
+                    recentlyPlayed: recentlyPlayed,
+                    includingExternalSongs: signature.showsExternalAlbums
                 )
             }
             var snapshot = await withTaskCancellationHandler {
@@ -726,6 +735,9 @@ struct MacHomeView: View {
                 library.unobservedVisibleSong(id: result.song.id).map {
                     MusicDiscoveryResult(song: $0, score: result.score, reasons: result.reasons)
                 }
+            }
+            if signature.showsExternalAlbums != showsExternalAlbums {
+                snapshot.recentlyAddedAlbums = []
             }
             model.snapshot = snapshot
             model.isPrepared = true
@@ -759,7 +771,8 @@ struct MacHomeView: View {
         songs: [Song],
         albums: [Album],
         artists: [Artist],
-        recentlyPlayed: [Song]
+        recentlyPlayed: [Song],
+        includingExternalSongs: Bool
     ) -> DerivedSnapshot {
         var snapshot = DerivedSnapshot()
         snapshot.songCount = songs.count
@@ -771,7 +784,9 @@ struct MacHomeView: View {
         var lyricsCount = 0
         var playableCount = 0
         var songsByAlbum: [String: [Song]] = [:]
+        var recentIndex = RecentlyAddedAlbumPolicy.Index(includingExternalSongs: includingExternalSongs)
         for song in songs {
+            recentIndex.add(song, addedDate: song.dateAdded)
             totalSec += max(0, song.duration)
             if song.coverArtFileName?.isEmpty == false { coverCount += 1 }
             if song.lyricsFileName?.isEmpty == false { lyricsCount += 1 }
@@ -788,12 +803,7 @@ struct MacHomeView: View {
 
         let sortedByAdded = songs.sorted { $0.dateAdded > $1.dateAdded }
         snapshot.recentSongs = recentlyPlayed.isEmpty ? sortedByAdded : recentlyPlayed
-        let latestDateByAlbum = songsByAlbum.mapValues { albumSongs in
-            albumSongs.lazy.map(\.dateAdded).max() ?? .distantPast
-        }
-        snapshot.recentlyAddedAlbums = RecentlyAddedAlbumPolicy.sorted(
-            albums: albums, latestDates: latestDateByAlbum
-        )
+        snapshot.recentlyAddedAlbums = recentIndex.sorted(albums: albums)
 
         var mosaicPool = recentlyPlayed
         var seenIDs = Set(mosaicPool.map(\.id))
@@ -1483,6 +1493,7 @@ struct MacHomeView: View {
                         albumCard(album)
                     }
                     .buttonStyle(.plain)
+                    .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                 }
             }
         }
@@ -1649,10 +1660,21 @@ struct MacHomeView: View {
         onPlay: (() -> Void)? = nil
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title)
-                .font(.system(size: 17, weight: .semibold))
-                .tracking(-0.3)
-                .foregroundStyle(PMColor.text)
+            Group {
+                if case .recentlyAdded? = destination {
+                    Menu {
+                        Toggle("home_show_preview_albums", isOn: $showsExternalAlbums)
+                    } label: { Text(title) }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityIdentifier("home.recentAlbums.options")
+                } else {
+                    Text(title)
+                }
+            }
+            .font(.system(size: 17, weight: .semibold))
+            .tracking(-0.3)
+            .foregroundStyle(PMColor.text)
             if let subtitle {
                 Text(subtitle)
                     .font(.system(size: 12))
@@ -1741,6 +1763,7 @@ struct MacHomeView: View {
                             albumCard(album)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                     }
                 }
                 .padding(.horizontal, PMSpace.xxxl)

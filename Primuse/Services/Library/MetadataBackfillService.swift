@@ -6320,7 +6320,8 @@ final class MetadataBackfillService {
                     : nil),
             serverDateAdded: bare.serverDateAdded,
             serverAlbumDateAdded: bare.serverAlbumDateAdded,
-            contentMetadata: SongContentMetadata.merging(previous: bare.contentMetadata, incoming: metadata.contentMetadata)
+            contentMetadata: SongContentMetadata.merging(previous: bare.contentMetadata, incoming: metadata.contentMetadata),
+            isExternal: bare.isExternal
         )
         let preserved = SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
         if bare.userMetadataEditedAt != nil,

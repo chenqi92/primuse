@@ -7377,3 +7377,5 @@
 
 "stats_style_history" = "播放历史";
 "stats_history_listened_format" = "已听 %@";
+
+"home_show_preview_albums" = "显示试听专辑";

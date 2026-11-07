@@ -7284,3 +7284,5 @@
 
 "stats_style_history" = "Historique d’écoute";
 "stats_history_listened_format" = "Écouté %@";
+
+"home_show_preview_albums" = "Afficher les albums en aperçu";

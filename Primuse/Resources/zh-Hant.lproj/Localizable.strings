@@ -7261,3 +7261,5 @@
 
 "stats_style_history" = "播放記錄";
 "stats_history_listened_format" = "已聽 %@";
+
+"home_show_preview_albums" = "顯示試聽專輯";

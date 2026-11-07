@@ -99,6 +99,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { rare.values.serverCatalogAlbum }
         set { updateRare { $0.serverCatalogAlbum = newValue } }
     }
+    /// Source-declared external content; nil means the source did not classify it.
+    public var isExternal: Bool? {
+        get { rare.values.isExternal }
+        set { updateRare { $0.isExternal = newValue } }
+    }
     public var coverArtFileName: String? {
         get { core.values.coverArtFileName }
         set { updateCore { $0.coverArtFileName = newValue } }
@@ -333,7 +338,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         serverDateAdded: Date? = nil,
         serverAlbumDateAdded: Date? = nil,
         contentMetadata: SongContentMetadata? = nil,
-        serverCatalogAlbum: ServerCatalogAlbumReference? = nil
+        serverCatalogAlbum: ServerCatalogAlbumReference? = nil,
+        isExternal: Bool? = nil
     ) {
         core = SongCoreFields(.init(
             id: id,
@@ -376,7 +382,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainAlbumPeak = replayGainAlbumPeak
         if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil || sacdTrackNumber != nil || isoAudioTrack != nil
             || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
-            || serverDateAdded != nil || serverAlbumDateAdded != nil || contentMetadata != nil || serverCatalogAlbum != nil {
+            || serverDateAdded != nil || serverAlbumDateAdded != nil || contentMetadata != nil || serverCatalogAlbum != nil || isExternal != nil {
             var values = SongRareFields.Values()
             values.contentMetadata = contentMetadata
             values.mvPath = mvPath
@@ -391,6 +397,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             values.serverDateAdded = serverDateAdded
             values.serverAlbumDateAdded = serverAlbumDateAdded
             values.serverCatalogAlbum = serverCatalogAlbum
+            values.isExternal = isExternal
             values.overflowNumbers = rare.values.overflowNumbers
             rare = SongRareFields.make(values)
         }
@@ -407,7 +414,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         case cueSheetPath, cueStartTime, cueEndTime, sacdTrackNumber, isoAudioTrack, revision, titlePinyin, artistPinyin, albumPinyin
         case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID, audioCodec
         case effectiveBitDepth
-        case serverDateAdded, serverAlbumDateAdded, contentMetadata, serverCatalogAlbum
+        case serverDateAdded, serverAlbumDateAdded, contentMetadata, serverCatalogAlbum, isExternal
     }
 
     public init(from decoder: Decoder) throws {
@@ -463,7 +470,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             serverDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverDateAdded),
             serverAlbumDateAdded: try container.decodeIfPresent(Date.self, forKey: .serverAlbumDateAdded),
             contentMetadata: try container.decodeIfPresent(SongContentMetadata.self, forKey: .contentMetadata),
-            serverCatalogAlbum: try container.decodeIfPresent(ServerCatalogAlbumReference.self, forKey: .serverCatalogAlbum)
+            serverCatalogAlbum: try container.decodeIfPresent(ServerCatalogAlbumReference.self, forKey: .serverCatalogAlbum),
+            isExternal: try container.decodeIfPresent(Bool.self, forKey: .isExternal)
         )
     }
 
@@ -494,6 +502,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(serverDateAdded, forKey: .serverDateAdded)
         try container.encodeIfPresent(serverAlbumDateAdded, forKey: .serverAlbumDateAdded)
         try container.encodeIfPresent(serverCatalogAlbum, forKey: .serverCatalogAlbum)
+        try container.encodeIfPresent(isExternal, forKey: .isExternal)
         try container.encodeIfPresent(serverPlayCount, forKey: .serverPlayCount)
         try container.encodeIfPresent(coverArtFileName, forKey: .coverArtFileName)
         try container.encodeIfPresent(artistArtworkFileName, forKey: .artistArtworkFileName)
@@ -645,6 +654,7 @@ private final class SongRareFields: Hashable, Sendable {
         var serverDateAdded: Date?
         var serverAlbumDateAdded: Date?
         var serverCatalogAlbum: ServerCatalogAlbumReference?
+        var isExternal: Bool?
         var contentMetadata: SongContentMetadata?
         var mvPath: String?
         var cueSheetPath: String?

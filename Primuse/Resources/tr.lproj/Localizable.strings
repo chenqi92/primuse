@@ -7190,3 +7190,5 @@
 
 "stats_style_history" = "Dinleme geçmişi";
 "stats_history_listened_format" = "%@ dinlendi";
+
+"home_show_preview_albums" = "Önizleme Albümlerini Göster";

@@ -244,6 +244,7 @@ public enum ServerSongCatalogMergePolicy {
 
     public static func mergingAddedDates(existing: Song, incoming: Song, into song: Song) -> Song {
         var refreshed = song
+        refreshed.isExternal = incoming.isExternal ?? existing.isExternal
         refreshed.serverDateAdded = incoming.serverDateAdded ?? existing.serverDateAdded
         refreshed.serverAlbumDateAdded = incoming.serverAlbumDateAdded ?? existing.serverAlbumDateAdded
         refreshed.dateAdded = refreshed.serverDateAdded ?? existing.dateAdded

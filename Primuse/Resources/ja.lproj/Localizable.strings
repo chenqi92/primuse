@@ -7285,3 +7285,5 @@
 
 "stats_style_history" = "再生履歴";
 "stats_history_listened_format" = "%@ 再生";
+
+"home_show_preview_albums" = "プレビューアルバムを表示";

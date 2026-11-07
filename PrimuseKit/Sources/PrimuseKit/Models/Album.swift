@@ -257,19 +257,46 @@ public enum LibraryFolderTrackOrder {
 }
 
 public enum RecentlyAddedAlbumPolicy {
+    public static let showsExternalAlbumsKey = "primuse.home.recentlyAdded.showExternalAlbums"
+
+    public struct Index: Sendable {
+        private let includingExternalSongs: Bool
+        private var latestDates: [String: Date] = [:]
+        private var externalAlbumIDs: Set<String> = []
+
+        public init(includingExternalSongs: Bool) {
+            self.includingExternalSongs = includingExternalSongs
+        }
+
+        public mutating func add(_ song: Song, addedDate: Date? = nil) {
+            guard let albumID = song.albumID, !albumID.isEmpty else { return }
+            if !includingExternalSongs, song.isExternal == true {
+                externalAlbumIDs.insert(albumID)
+            } else {
+                latestDates[albumID] = max(latestDates[albumID] ?? .distantPast, addedDate ?? date(for: song))
+            }
+        }
+
+        public func sorted(albums: [Album], limit: Int? = nil) -> [Album] {
+            // An album with any ordinary track stays visible. Missing classification
+            // and albums without loaded songs retain their existing behavior.
+            let eligible = externalAlbumIDs.isEmpty ? albums : albums.filter {
+                !externalAlbumIDs.contains($0.id) || latestDates[$0.id] != nil
+            }
+            return RecentlyAddedAlbumPolicy.sorted(albums: eligible, latestDates: latestDates, limit: limit)
+        }
+    }
+
     public static func date(for song: Song) -> Date {
         song.serverAlbumDateAdded ?? song.serverDateAdded ?? song.dateAdded
     }
 
     public static func sorted(
-        albums: [Album], songs: [Song], limit: Int? = nil
+        albums: [Album], songs: [Song], limit: Int? = nil, includingExternalSongs: Bool = true
     ) -> [Album] {
-        var latestDates: [String: Date] = [:]
-        for song in songs {
-            guard let albumID = song.albumID, !albumID.isEmpty else { continue }
-            latestDates[albumID] = max(latestDates[albumID] ?? .distantPast, date(for: song))
-        }
-        return sorted(albums: albums, latestDates: latestDates, limit: limit)
+        var index = Index(includingExternalSongs: includingExternalSongs)
+        for song in songs { index.add(song) }
+        return index.sorted(albums: albums, limit: limit)
     }
 
     public static func sorted(

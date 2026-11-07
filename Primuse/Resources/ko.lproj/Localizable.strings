@@ -7284,3 +7284,5 @@
 
 "stats_style_history" = "재생 기록";
 "stats_history_listened_format" = "%@ 감상";
+
+"home_show_preview_albums" = "미리 듣기 앨범 표시";

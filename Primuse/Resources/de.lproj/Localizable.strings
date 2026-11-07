@@ -7284,3 +7284,5 @@
 
 "stats_style_history" = "Wiedergabeverlauf";
 "stats_history_listened_format" = "%@ gehört";
+
+"home_show_preview_albums" = "Vorschaualben anzeigen";

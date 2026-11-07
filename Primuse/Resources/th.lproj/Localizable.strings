@@ -7190,3 +7190,5 @@
 
 "stats_style_history" = "ประวัติการเล่น";
 "stats_history_listened_format" = "ฟังแล้ว %@";
+
+"home_show_preview_albums" = "แสดงอัลบั้มสำหรับฟังตัวอย่าง";

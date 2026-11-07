@@ -7190,3 +7190,5 @@
 
 "stats_style_history" = "Історія прослуховувань";
 "stats_history_listened_format" = "Прослухано %@";
+
+"home_show_preview_albums" = "Показувати альбоми для прослуховування";

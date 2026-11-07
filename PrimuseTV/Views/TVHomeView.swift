@@ -14,6 +14,7 @@ struct TVHomeView: View {
     @AppStorage("primuse.ai.recommendationScene.v1")
     private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
     @AppStorage(TVHomeSectionConfiguration.storageKey) private var homeSectionsRawValue = ""
+    @AppStorage(RecentlyAddedAlbumPolicy.showsExternalAlbumsKey) private var showsExternalAlbums = false
     @State private var recommendationCandidates: [Song] = []
     @State private var aiRecommendation = AIRecommendationViewModel()
     @State private var recommendationHistoryRevision = 0
@@ -312,9 +313,10 @@ struct TVHomeView: View {
                 }
             }
         case .recentlyAdded:
-            if !store.recentlyAddedAlbums.isEmpty {
-                TVRow(label: PMString("ext.tv.home.recentlyAdded"), rule: true) {
-                    ForEach(store.recentlyAddedAlbums) { album in
+            if !store.albums.isEmpty {
+                TVRow(label: PMString("ext.tv.home.recentlyAdded"), rule: true,
+                      showsExternalAlbums: $showsExternalAlbums) {
+                    ForEach(store.recentlyAddedAlbums(includingExternalSongs: showsExternalAlbums)) { album in
                         albumCard(album, row: "added")
                     }
                 }
@@ -390,7 +392,8 @@ struct TVHomeView: View {
                                browseMemory.cardID = id
                                selectedAlbum = album
                            },
-                           focusBinding: $focusedCardID, focusID: id)
+                           focusBinding: $focusedCardID, focusID: id,
+                           showsExternalAlbums: row == "added" ? $showsExternalAlbums : nil)
     }
 
     /// 首页出现:只有从播放页按 Menu 回来的那一次才恢复;经顶栏换页回来把记的全忘掉。

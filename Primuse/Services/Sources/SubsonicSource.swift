@@ -2184,7 +2184,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             ),
             serverDateAdded: added,
             serverAlbumDateAdded: albumCreated,
-            serverCatalogAlbum: (child.albumId ?? album?.id).map { ServerCatalogAlbumReference(id: $0, taggedArtist: taggedAlbumArtist) }
+            serverCatalogAlbum: (child.albumId ?? album?.id).map { ServerCatalogAlbumReference(id: $0, taggedArtist: taggedAlbumArtist) },
+            isExternal: child.isExternal
         )
     }
 
@@ -3041,6 +3042,7 @@ private struct LegacyAlbumResult: Sendable {
 /// Subsonic "Child" 元素(歌曲)。字段名遵循 Subsonic/OpenSubsonic 规范。
 private struct SubsonicChild: Decodable, Sendable {
     let id: String
+    let isExternal: Bool?
     let title: String?
     let album: String?
     let artist: String?

@@ -350,6 +350,23 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
 
 @MainActor
 final class HomePresentationCacheTests: XCTestCase {
+    func testChangingPreviewVisibilityDoesNotRestoreTheOtherModeFromDisk() throws {
+        let album = Album(id: "preview", title: "Preview")
+        let cache = PersistedHomeSnapshot(
+            version: PersistedHomeSnapshot.currentVersion, dayStamp: 20261107,
+            visibleSongCount: 1, visibleAlbumCount: 1, visibleArtistCount: 1,
+            recentSongIDs: [], heroSongIDs: [],
+            recentlyAddedAlbums: [.init(albumID: album.id, artworkSongID: nil)],
+            recommendations: [], showsExternalAlbums: true
+        )
+        XCTAssertTrue(try XCTUnwrap(HomeView.rehydrateInitialHomePayload(
+            cache, visibleAlbums: [album], showsExternalAlbums: false, songForID: { _ in nil }
+        )).recentlyAddedAlbums.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(HomeView.rehydrateInitialHomePayload(
+            cache, visibleAlbums: [album], showsExternalAlbums: true, songForID: { _ in nil }
+        )).recentlyAddedAlbums.map(\.id), [album.id])
+    }
+
     func testStartupSelectionIsBoundedAndRetainsRecentQueuePriority() {
         let snapshot = PersistedHomeSnapshot(
             version: PersistedHomeSnapshot.currentVersion, dayStamp: 20261103,

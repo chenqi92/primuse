@@ -309,6 +309,7 @@ struct TVRow<Content: View>: View {
     var loadsLazily = false
     /// 标题上面压一道细线(首页排成杂志版面时,一排一个栏目)。
     var rule = false
+    var showsExternalAlbums: Binding<Bool>? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -321,7 +322,14 @@ struct TVRow<Content: View>: View {
                     .accessibilityHidden(true)
             }
             HStack(alignment: .firstTextBaseline, spacing: 16) {
-                Text(label).tvFont(.sectionTitle).foregroundStyle(TVColor.text)
+                if let showsExternalAlbums {
+                    Menu {
+                        Toggle("home_show_preview_albums", isOn: showsExternalAlbums)
+                    } label: { Text(label).tvFont(.sectionTitle) }
+                    .accessibilityIdentifier("home.recentAlbums.options")
+                } else {
+                    Text(label).tvFont(.sectionTitle).foregroundStyle(TVColor.text)
+                }
                 if let sub { Text(sub).tvFont(.caption).foregroundStyle(TVColor.textFaint) }
             }
             ScrollView(.horizontal, showsIndicators: false) {
@@ -396,6 +404,7 @@ struct TVAlbumCard: View {
     /// 父视图的焦点绑定(见 `TVFocusButton`):回到资料库时把焦点放回上次那张卡片。
     var focusBinding: FocusState<String?>.Binding? = nil
     var focusID: String? = nil
+    var showsExternalAlbums: Binding<Bool>? = nil
     @Environment(TVStore.self) private var store
 
     /// closed:平时;ready:盒子里面刚建好、盖子还合着;open:盖子掀开、盘滑出来。
@@ -452,6 +461,10 @@ struct TVAlbumCard: View {
             .frame(width: width, alignment: .leading)
         }
         .contextMenu {
+            if let showsExternalAlbums {
+                Toggle("home_show_preview_albums", isOn: showsExternalAlbums)
+                Divider()
+            }
             if onOpen != nil {
                 // 整张播放:按碟号、曲目号排队,不管当前开没开随机。
                 Button("album_play_whole", systemImage: "play.fill") {

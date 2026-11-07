@@ -394,6 +394,49 @@ private final class DescriptionMediaServer: @unchecked Sendable {
 
 @MainActor
 final class SubsonicAddedDateTests: XCTestCase {
+    func testExternalClassificationSurvivesBothCatalogRoutesAndPersistence() async throws {
+        for legacy in [false, true] {
+            let (connector, session, host) = makeConnector(legacy: legacy, externalPreview: true)
+            defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
+            var songs: [Song] = []
+            if legacy {
+                for try await scanned in try await connector.scanSongs(from: "/") { songs.append(scanned.song) }
+            } else {
+                songs = try await connector.songCatalogPage(from: "/", offset: 0).songs.map(\.song)
+            }
+            XCTAssertEqual(songs.count, 2, "Preview tracks must remain available for playlist playback")
+            let preview = try XCTUnwrap(songs.first { $0.title == "Later track" })
+            let normal = try XCTUnwrap(songs.first { $0.title == "New track" })
+            XCTAssertEqual(preview.isExternal, true)
+            XCTAssertEqual(normal.isExternal, false)
+            XCTAssertEqual(normal.fileFormat, .m4a)
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let library = MusicLibrary(storageDirectory: root, deferredMaintenanceAllowed: { false })
+            library.addSongs(songs, affectedSourceIDs: [host], mergeServerCatalogRows: true)
+            await library.waitForPendingIndex()
+            XCTAssertEqual(library.recentlyAddedAlbums().map(\.title), ["New album"])
+            XCTAssertEqual(library.recentlyAddedAlbums(includingExternalSongs: true).count, 2)
+            let playlist = library.createPlaylist(name: "Discovery")
+            library.replacePlaylistSongs(playlistID: playlist.id, songIDs: songs.map(\.id))
+            XCTAssertEqual(library.songs(forPlaylist: playlist.id).count, 2)
+            guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
+            let prepared = await MusicLibrary.prepareStartup(disabledSourceIDs: [], storageDirectory: root)
+            let reopened = MusicLibrary(storageDirectory: root, preparedStartup: prepared, deferredMaintenanceAllowed: { false })
+            XCTAssertEqual(reopened.song(id: preview.id)?.isExternal, true)
+            XCTAssertEqual(reopened.recentlyAddedAlbums().map(\.title), ["New album"])
+            let revision = library.searchRevision
+            var admitted = preview
+            admitted.isExternal = false
+            library.addSongs([admitted, normal], affectedSourceIDs: [host], mergeServerCatalogRows: true)
+            await library.waitForPendingIndex()
+            XCTAssertGreaterThan(library.searchRevision, revision)
+            XCTAssertEqual(library.song(id: preview.id)?.isExternal, false)
+            XCTAssertEqual(library.recentlyAddedAlbums().count, 2)
+            XCTAssertEqual(library.songs(forPlaylist: playlist.id).count, 2)
+        }
+    }
+
     func testPagedCatalogUsesServerTrackAndAlbumDates() async throws {
         let (connector, session, host) = makeConnector()
         defer { session.invalidateAndCancel(); AddedDateURLProtocol.remove(host) }
@@ -502,9 +545,9 @@ final class SubsonicAddedDateTests: XCTestCase {
         XCTAssertEqual(new.serverAlbumDateAdded, new.serverDateAdded)
     }
 
-    private func makeConnector(legacy: Bool = false, invalidDates: Bool = false) -> (SubsonicSource, URLSession, String) {
+    private func makeConnector(legacy: Bool = false, invalidDates: Bool = false, externalPreview: Bool = false) -> (SubsonicSource, URLSession, String) {
         let host = "added-dates-\(UUID().uuidString.lowercased()).invalid"
-        AddedDateURLProtocol.register(host, legacy: legacy, invalidDates: invalidDates)
+        AddedDateURLProtocol.register(host, legacy: legacy, invalidDates: invalidDates, externalPreview: externalPreview)
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [AddedDateURLProtocol.self]
         let session = URLSession(configuration: config)
@@ -516,9 +559,9 @@ final class SubsonicAddedDateTests: XCTestCase {
 
 private final class AddedDateURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var fixtures: [String: (legacy: Bool, invalidDates: Bool)] = [:]
-    static func register(_ host: String, legacy: Bool, invalidDates: Bool) {
-        lock.withLock { fixtures[host] = (legacy, invalidDates) }
+    nonisolated(unsafe) private static var fixtures: [String: (legacy: Bool, invalidDates: Bool, externalPreview: Bool)] = [:]
+    static func register(_ host: String, legacy: Bool, invalidDates: Bool, externalPreview: Bool) {
+        lock.withLock { fixtures[host] = (legacy, invalidDates, externalPreview) }
     }
     static func remove(_ host: String) { _ = lock.withLock { fixtures.removeValue(forKey: host) } }
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -540,6 +583,12 @@ private final class AddedDateURLProtocol: URLProtocol, @unchecked Sendable {
             ["id": "new-track", "title": "New track", "albumId": "new", "album": "New album",
              "artist": "Artist", "duration": 180, "suffix": "flac", "created": "2021-01-01T08:00:00+08:00"]
         ]
+        if fixture.externalPreview {
+            songs[0]["isExternal"] = true
+            songs[0]["suffix"] = "m4a"
+            songs[1]["isExternal"] = false
+            songs[1]["suffix"] = "m4a"
+        }
         if fixture.invalidDates {
             albums[0]["created"] = nil; albums[1]["created"] = "invalid"
             songs[0]["created"] = nil; songs[1]["created"] = "invalid"

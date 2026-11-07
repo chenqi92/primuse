@@ -51,6 +51,69 @@ struct RecentlyAddedAlbumPolicyTests {
         #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: songs, limit: 20).count == 2)
     }
 
+    @Test func previewFilterKeepsOrdinarySinglesAndUsesOnlyLibraryDatesForMixedAlbums() {
+        let albums = ["preview", "mixed", "normal", "unknown"].map { Album(id: $0, title: $0, songCount: 1) }
+        var preview = song("preview-track", albumID: "preview", added: 500)
+        preview.isExternal = true
+        preview.fileFormat = .flac
+        var mixedPreview = song("mixed-preview", albumID: "mixed", added: 400)
+        mixedPreview.isExternal = true
+        let mixedLibrary = song("mixed-library", albumID: "mixed", added: 10)
+        var normal = song("normal-track", albumID: "normal", added: 100)
+        normal.fileFormat = .m4a
+        normal.isExternal = false
+        var unknown = song("unknown-track", albumID: "unknown", added: 50)
+        unknown.fileFormat = .m4a
+        let songs = [preview, mixedPreview, mixedLibrary, normal, unknown]
+        #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: songs, includingExternalSongs: false)
+            .map(\.id) == ["normal", "unknown", "mixed"])
+        #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: songs, limit: 2, includingExternalSongs: false)
+            .map(\.id) == ["normal", "unknown"])
+        #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: songs, includingExternalSongs: true)
+            .map(\.id) == ["preview", "mixed", "normal", "unknown"])
+        #expect(songs.first?.isExternal == true)
+        #expect(songs.count == 5)
+    }
+
+    @Test func filteringPreservesTheCallersExistingDateOrder() {
+        var laterTrack = song("later-track", albumID: "old-album", added: 100)
+        laterTrack.serverAlbumDateAdded = Date(timeIntervalSince1970: 1)
+        let newerAlbum = song("newer-album-track", albumID: "newer-album", added: 50)
+        var preview = song("preview-track", albumID: "preview", added: 200)
+        preview.isExternal = true
+        let songs = [laterTrack, newerAlbum, preview]
+        let albums = ["old-album", "newer-album", "preview"].map { Album(id: $0, title: $0) }
+        var index = RecentlyAddedAlbumPolicy.Index(includingExternalSongs: false)
+        for song in songs { index.add(song, addedDate: song.dateAdded) }
+        #expect(index.sorted(albums: albums).map(\.id) == ["old-album", "newer-album"])
+    }
+
+    @Test func externalStatusPersistsAndFormalImportRestoresTheAlbum() throws {
+        var preview = song("track", albumID: "album", added: 10)
+        preview.isExternal = true
+        preview.lyricsText = "Silver clouds above a quiet road"
+        preview.userMetadataEditedAt = Date(timeIntervalSince1970: 20)
+        let albums = [Album(id: "album", title: "Night journey")]
+        let data = try JSONEncoder().encode(preview)
+        let restored = try JSONDecoder().decode(Song.self, from: data)
+        #expect(restored.isExternal == true)
+        #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: [restored], includingExternalSongs: false).isEmpty)
+        var imported = preview
+        imported.isExternal = false
+        #expect(SourceCatalogSnapshotPolicy.hasChanges(existing: [preview], candidate: [imported]))
+        imported.serverDateAdded = Date(timeIntervalSince1970: 100)
+        let merged = ServerSongCatalogMergePolicy.merged(existing: restored, incoming: imported)
+        #expect(merged.isExternal == false)
+        #expect(merged.lyricsText == preview.lyricsText)
+        #expect(merged.userMetadataEditedAt == preview.userMetadataEditedAt)
+        #expect(RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: [merged], includingExternalSongs: false).map(\.id) == ["album"])
+        #expect(try PropertyListDecoder().decode(Song.self, from: PropertyListEncoder().encode(merged)).isExternal == false)
+        var unclassified = imported
+        unclassified.isExternal = nil
+        #expect(ServerSongCatalogMergePolicy.merged(existing: restored, incoming: unclassified).isExternal == true)
+        #expect(try JSONDecoder().decode(Song.self, from: JSONEncoder().encode(unclassified)).isExternal == nil)
+    }
+
     private func song(_ id: String, albumID: String?, added: TimeInterval) -> Song {
         Song(id: id, title: id, albumID: albumID, duration: 180, fileFormat: .mp3,
              filePath: "\(id).mp3", sourceID: "source", dateAdded: Date(timeIntervalSince1970: added))

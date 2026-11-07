@@ -7190,3 +7190,5 @@
 
 "stats_style_history" = "Historial de reproducción";
 "stats_history_listened_format" = "Escuchado %@";
+
+"home_show_preview_albums" = "Mostrar álbumes de vista previa";
