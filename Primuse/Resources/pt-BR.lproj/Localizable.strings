@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "Pasta indisponível";
 "carplay_pin_folder" = "Fixar esta pasta";
 "carplay_unpin_folder" = "Desafixar esta pasta";
+"carplay_lyrics_position" = "Posição da letra";
+"carplay_lyrics_followPhone" = "Seguir tela bloqueada";
+"carplay_lyrics_off" = "Desativada";
+"carplay_lyrics_subtitle" = "Subtítulo";
+"carplay_lyrics_title" = "Título";
+"carplay_lyrics_preview" = "A estrada se abre sob o céu da manhã";
+"carplay_top_action" = "Canto superior direito";
+"carplay_top_album" = "Álbum atual";
+"carplay_top_audioInfo" = "Informações de áudio";
+"carplay_top_hidden" = "Oculto";
+"carplay_audio_summary" = "Resumo do áudio";
+"carplay_audio_resolution" = "Profundidade / Amostragem";
+"carplay_audio_playing" = "Formato de reprodução";
+"carplay_audio_original" = "Arquivo original";
+
 "carplay_now_playing" = "Reproduzindo";
 "carplay_open_on_connect" = "Mostrar Em reprodução ao conectar";
 "carplay_open_after_play" = "Mostrar Em reprodução após selecionar";

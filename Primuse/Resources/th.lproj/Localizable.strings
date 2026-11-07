@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "โฟลเดอร์ไม่พร้อมใช้งาน";
 "carplay_pin_folder" = "ปักหมุดโฟลเดอร์นี้";
 "carplay_unpin_folder" = "เลิกปักหมุดโฟลเดอร์นี้";
+"carplay_lyrics_position" = "ตำแหน่งเนื้อเพลง";
+"carplay_lyrics_followPhone" = "ตามหน้าจอล็อก";
+"carplay_lyrics_off" = "ปิด";
+"carplay_lyrics_subtitle" = "คำบรรยาย";
+"carplay_lyrics_title" = "ชื่อเพลง";
+"carplay_lyrics_preview" = "ถนนทอดยาวใต้ท้องฟ้ายามเช้า";
+"carplay_top_action" = "มุมขวาบน";
+"carplay_top_album" = "อัลบั้มปัจจุบัน";
+"carplay_top_audioInfo" = "ข้อมูลเสียง";
+"carplay_top_hidden" = "ซ่อน";
+"carplay_audio_summary" = "สรุปข้อมูลเสียง";
+"carplay_audio_resolution" = "ความลึกบิต / อัตราสุ่ม";
+"carplay_audio_playing" = "รูปแบบที่เล่น";
+"carplay_audio_original" = "ไฟล์ต้นฉบับ";
+
 "carplay_now_playing" = "กำลังเล่น";
 "carplay_open_on_connect" = "แสดงหน้ากำลังเล่นเมื่อเชื่อมต่อ";
 "carplay_open_after_play" = "แสดงหน้ากำลังเล่นหลังเลือก";

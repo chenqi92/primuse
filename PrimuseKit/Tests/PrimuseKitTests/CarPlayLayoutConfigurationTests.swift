@@ -15,7 +15,7 @@ struct CarPlayLayoutConfigurationTests {
 
     @Test func olderLayoutsGainFiveButtonsWithoutChangingTheirPresentation() throws {
         let config = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: Data(#"{"browseStyle":"covers","minimalNowPlaying":true}"#.utf8))
-        #expect(config.nowPlayingButtons(isSpokenWord: false) == [.shuffle, .repeatMode, .like, .audioQuality, .queue])
+        #expect(config.nowPlayingButtons(isSpokenWord: false) == [.shuffle, .repeatMode, .like, .audioQuality, .audioBitRate])
         #expect(config.nowPlayingButtons(isSpokenWord: true) == [.skipBackward, .playbackRate, .skipForward, .like, .audioQuality])
         #expect(config.browseStyle == .covers)
         #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: false, supportsPlaybackRate: true).isEmpty)
@@ -33,9 +33,37 @@ struct CarPlayLayoutConfigurationTests {
     @Test func playbackContextFiltersUnavailableActionsWithoutChangingSavedButtons() {
         var config = CarPlayLayoutConfiguration()
         config.customSpokenWordButtons = [.queue, .playbackRate, .shuffle, .repeatMode, .audioQuality, .like]
-        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: false) == [.queue, .audioQuality, .like])
-        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: true) == [.queue, .playbackRate, .audioQuality, .like])
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: false) == [.audioQuality, .like])
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: true, isLiveRadio: false, supportsPlaybackRate: true) == [.playbackRate, .audioQuality, .like])
         #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: true, supportsPlaybackRate: true).isEmpty)
+    }
+
+    @Test func playbackDisplayChoicesRoundTripAndOldLayoutsPreservePhoneLyricsPreference() throws {
+        let old = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: Data("{}".utf8))
+        #expect(old.lyricsPosition == .followPhone)
+        #expect(old.topRightAction == .queue)
+        #expect(!old.lyricsPosition.isEnabled(phoneEnabled: false))
+        #expect(old.lyricsPosition.isEnabled(phoneEnabled: true))
+        var config = old
+        config.lyricsPosition = .title
+        config.topRightAction = .audioInfo
+        config.customNowPlayingButtons = [.audioFormat, .audioBitRate, .audioResolution, .queue]
+        #expect(try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: JSONEncoder().encode(config)) == config)
+        let unknown = try JSONDecoder().decode(CarPlayLayoutConfiguration.self,
+            from: Data(#"{"lyricsPosition":"future","topRightAction":"future"}"#.utf8))
+        #expect(unknown.lyricsPosition == .followPhone)
+        #expect(unknown.topRightAction == .queue)
+    }
+
+    @Test func queueDeduplicationPreservesSavedChoiceForOtherTopRightActions() {
+        var config = CarPlayLayoutConfiguration()
+        config.setNowPlayingButtons([.queue, .audioQuality], isSpokenWord: false)
+        #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: false, supportsPlaybackRate: true) == [.audioQuality])
+        for action in [CarPlayTopRightAction.album, .audioInfo, .more, .hidden] {
+            config.topRightAction = action
+            #expect(config.visibleNowPlayingButtons(isSpokenWord: false, isLiveRadio: false, supportsPlaybackRate: true) == [.queue, .audioQuality])
+        }
+        #expect(config.customNowPlayingButtons == [.queue, .audioQuality])
     }
 
     @Test func changingPresetsPreservesSeparateButtonChoices() {

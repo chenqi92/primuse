@@ -9,7 +9,7 @@ struct AudioQualityFormattingTests {
         for format in StreamTranscodeFormat.allCases {
             let plan = SourceTranscodePlan.transcode(bitRateKbps: 128, format: format)
             let text = CarPlayAudioQualityText(song: song, transcodePlan: plan)
-            #expect(text.badgeLines == [format.displayName])
+            #expect(text.badgeLines == [format.displayName, format == .opus ? "48kHz" : "44.1kHz"])
             #expect(text.details.contains("128kbps"))
             let stream = try #require(NowPlayingAudioInfoTextPolicy.transcodedStream(plan: plan, sourceSampleRate: song.sampleRate))
             #expect(stream.sampleRate == (format == .opus ? 48_000 : 44_100))
@@ -19,7 +19,7 @@ struct AudioQualityFormattingTests {
     @Test func carPlayQualityUsesTranscodedStreamInsteadOfOriginalHiResFile() {
         let song = makeSong(bitRate: 4608, sampleRate: 96_000, bitDepth: 24)
         let original = CarPlayAudioQualityText(song: song, transcodePlan: .original)
-        #expect(original.badgeLines == ["Hi", "Res"])
+        #expect(original.badgeLines == ["FLAC", "24/96"])
         let transcoded = CarPlayAudioQualityText(song: song, transcodePlan: .transcode(bitRateKbps: 192))
         #expect(transcoded.badgeLines == ["MP3"])
         #expect(transcoded.details == "MP3 · 192kbps")
@@ -37,15 +37,40 @@ struct AudioQualityFormattingTests {
     @Test func carPlayQualityHandlesDSDMissingMetadataAndEffectiveBitDepth() {
         var song = makeSong(sampleRate: 44_100, bitDepth: 24)
         song.effectiveBitDepth = 16
-        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).badgeSymbol == "waveform")
+        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).badgeLines == ["FLAC", "16/44.1"])
         #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).details == "FLAC · 16bit/44.1kHz")
         song.fileFormat = .dsf
         song.sampleRate = 2_822_400
-        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).badgeLines == ["DSD"])
+        #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).badgeLines == ["DSF", "DSD64"])
         #expect(CarPlayAudioQualityText(song: song, transcodePlan: .original).details.contains("DSD64"))
         let missing = CarPlayAudioQualityText(song: makeSong(), transcodePlan: .original)
-        #expect(missing.badgeSymbol == "waveform")
+        #expect(missing.badgeLines == ["FLAC"])
         #expect(missing.details == "FLAC")
+    }
+
+    @Test func carPlayFieldsFollowTrackAndTranscodeChangesWithoutInventingValues() {
+        let song = makeSong(bitRate: 2304, sampleRate: 96_000, bitDepth: 24)
+        let original = CarPlayAudioQualityText(song: song, transcodePlan: .original)
+        #expect(original.lines(for: .audioFormat) == ["FLAC"])
+        #expect(original.lines(for: .audioBitRate) == ["2304", "kbps"])
+        #expect(original.lines(for: .audioResolution) == ["24bit", "96kHz"])
+        #expect(original.summary == "FLAC · 24/96 · 2304k")
+        let stream = CarPlayAudioQualityText(song: song, transcodePlan: .transcode(bitRateKbps: 192))
+        #expect(stream.lines(for: .audioFormat) == ["MP3"])
+        #expect(stream.lines(for: .audioBitRate) == ["192", "kbps"])
+        #expect(stream.lines(for: .audioResolution) == ["—"])
+        #expect(stream.sourceDetails == original.details)
+        let missing = CarPlayAudioQualityText(song: makeSong(bitRate: 0, sampleRate: -1, bitDepth: 0), transcodePlan: .original)
+        #expect(missing.lines(for: .audioBitRate) == ["—"])
+        #expect(missing.lines(for: .audioResolution) == ["—"])
+        var music = song
+        music.sourceID = AppleMusicLibraryIdentity.sourceID
+        let unknown = CarPlayAudioQualityText(song: music, transcodePlan: .transcode(bitRateKbps: 192))
+        #expect(unknown.details == "Apple Music")
+        #expect(unknown.sourceDetails == nil)
+        for field in [CarPlayNowPlayingAction.audioFormat, .audioBitRate, .audioResolution] {
+            #expect(unknown.lines(for: field) == ["—"])
+        }
     }
 
     @Test("Formats sample rate and bit depth")

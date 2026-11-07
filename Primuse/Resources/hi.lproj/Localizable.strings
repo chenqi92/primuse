@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "फ़ोल्डर उपलब्ध नहीं है";
 "carplay_pin_folder" = "यह फ़ोल्डर पिन करें";
 "carplay_unpin_folder" = "यह फ़ोल्डर अनपिन करें";
+"carplay_lyrics_position" = "गीत के बोल की स्थिति";
+"carplay_lyrics_followPhone" = "लॉक स्क्रीन के अनुसार";
+"carplay_lyrics_off" = "बंद";
+"carplay_lyrics_subtitle" = "उपशीर्षक";
+"carplay_lyrics_title" = "शीर्षक";
+"carplay_lyrics_preview" = "सुबह के आसमान तले राह खुलती जाए";
+"carplay_top_action" = "ऊपर दाईं ओर";
+"carplay_top_album" = "वर्तमान एल्बम";
+"carplay_top_audioInfo" = "ऑडियो जानकारी";
+"carplay_top_hidden" = "छिपा हुआ";
+"carplay_audio_summary" = "ऑडियो सारांश";
+"carplay_audio_resolution" = "बिट गहराई / सैंपल दर";
+"carplay_audio_playing" = "प्लेबैक फ़ॉर्मैट";
+"carplay_audio_original" = "मूल फ़ाइल";
+
 "carplay_now_playing" = "अभी चल रहा है";
 "carplay_open_on_connect" = "कनेक्ट होने पर अभी चल रहा है दिखाएँ";
 "carplay_open_after_play" = "चुनने के बाद अभी चल रहा है दिखाएँ";

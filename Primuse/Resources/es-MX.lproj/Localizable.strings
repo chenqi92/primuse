@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "Carpeta no disponible";
 "carplay_pin_folder" = "Fijar esta carpeta";
 "carplay_unpin_folder" = "Desfijar esta carpeta";
+"carplay_lyrics_position" = "Posición de la letra";
+"carplay_lyrics_followPhone" = "Seguir pantalla bloqueada";
+"carplay_lyrics_off" = "Desactivada";
+"carplay_lyrics_subtitle" = "Subtítulo";
+"carplay_lyrics_title" = "Título";
+"carplay_lyrics_preview" = "El camino se abre bajo el cielo del amanecer";
+"carplay_top_action" = "Arriba a la derecha";
+"carplay_top_album" = "Álbum actual";
+"carplay_top_audioInfo" = "Información de audio";
+"carplay_top_hidden" = "Oculto";
+"carplay_audio_summary" = "Resumen de audio";
+"carplay_audio_resolution" = "Profundidad / Frecuencia";
+"carplay_audio_playing" = "Formato de reproducción";
+"carplay_audio_original" = "Archivo original";
+
 "carplay_now_playing" = "En reproducción";
 "carplay_open_on_connect" = "Mostrar En reproducción al conectar";
 "carplay_open_after_play" = "Mostrar En reproducción después de seleccionar";

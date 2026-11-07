@@ -4320,6 +4320,21 @@
 "carplay_unavailable_folder" = "フォルダを利用できません";
 "carplay_pin_folder" = "このフォルダを固定";
 "carplay_unpin_folder" = "このフォルダの固定を解除";
+"carplay_lyrics_position" = "歌詞の位置";
+"carplay_lyrics_followPhone" = "ロック画面に従う";
+"carplay_lyrics_off" = "オフ";
+"carplay_lyrics_subtitle" = "サブタイトル";
+"carplay_lyrics_title" = "タイトル";
+"carplay_lyrics_preview" = "朝の光が道を照らす";
+"carplay_top_action" = "右上";
+"carplay_top_album" = "現在のアルバム";
+"carplay_top_audioInfo" = "オーディオ情報";
+"carplay_top_hidden" = "非表示";
+"carplay_audio_summary" = "音声仕様の概要";
+"carplay_audio_resolution" = "ビット深度／サンプルレート";
+"carplay_audio_playing" = "再生形式";
+"carplay_audio_original" = "元のファイル";
+
 "carplay_now_playing" = "再生中";
 "carplay_open_on_connect" = "接続時に再生中の画面を表示";
 "carplay_open_after_play" = "選択後に再生中の画面を表示";

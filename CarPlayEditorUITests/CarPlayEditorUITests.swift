@@ -211,6 +211,48 @@ final class SleepTimerUITests: XCTestCase {
 
 @MainActor
 final class CarPlayEditorUITests: XCTestCase {
+    func testPlaybackDisplayChoicesPersistAndPreviewSpecs() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment = ["PRIMUSE_CARPLAY_UI_TESTS": "1", "PRIMUSE_CARPLAY_RESET": "1",
+                                 "PRIMUSE_DIAGNOSTIC_LOGGING": "off", "PRIMUSE_NO_NOTIFICATION_PROMPT": "1"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        defer { app.terminate() }
+        func openPlaybackOptions() {
+            XCTAssertTrue(app.buttons["carplay.actions"].waitForExistence(timeout: 20))
+            app.buttons["carplay.actions"].tap()
+            app.buttons["carplay.playbackSettings"].tap()
+            XCTAssertTrue(app.descendants(matching: .any)["carplay.playbackOptions"].firstMatch.waitForExistence(timeout: 5))
+        }
+        func choose(_ identifier: String, _ title: String) {
+            let picker = app.descendants(matching: .any)[identifier].firstMatch
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            picker.tap()
+            app.buttons[title].firstMatch.tap()
+        }
+        openPlaybackOptions()
+        choose("carplay.lyricsPosition", "主标题")
+        XCTAssertTrue(app.staticTexts["晨光铺满了前方的路"].firstMatch.exists)
+        choose("carplay.topAction", "音频信息")
+        XCTAssertTrue(app.staticTexts["carplay.previewTopAction"].label.contains("FLAC"))
+        attach(app, "CarPlay-lyrics-title-and-live-specs")
+        choose("carplay.lyricsPosition", "副标题")
+        choose("carplay.topAction", "隐藏")
+        XCTAssertFalse(app.staticTexts["carplay.previewTopAction"].exists)
+        choose("carplay.topAction", "更多")
+        app.buttons["完成"].firstMatch.tap()
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_CARPLAY_RESET"] = nil
+        app.launch()
+        openPlaybackOptions()
+        XCTAssertTrue(app.descendants(matching: .any)["carplay.lyricsPosition"].firstMatch.label.contains("副标题"))
+        XCTAssertEqual(app.staticTexts["carplay.previewTopAction"].label, "更多")
+        attach(app, "CarPlay-playback-options-restored")
+        app.buttons["完成"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["carplay.actions"].waitForExistence(timeout: 5))
+    }
+
     func testRemoveModuleAndRestoreDefaultsSupportUndo() {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")

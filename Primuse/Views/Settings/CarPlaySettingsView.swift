@@ -268,6 +268,18 @@ struct CarPlaySettingsView: View {
                     .padding(.top, 12)
                 List {
                     Section {
+                        Picker("carplay_lyrics_position", selection: configurationBinding(\.lyricsPosition)) {
+                            ForEach(CarPlayLyricsPosition.allCases) { position in
+                                Text(LocalizedStringKey(position.titleKey)).tag(position)
+                            }
+                        }
+                        .accessibilityIdentifier("carplay.lyricsPosition")
+                        Picker("carplay_top_action", selection: configurationBinding(\.topRightAction)) {
+                            ForEach(CarPlayTopRightAction.allCases) { action in
+                                Text(LocalizedStringKey(action.titleKey)).tag(action)
+                            }
+                        }
+                        .accessibilityIdentifier("carplay.topAction")
                         Picker("carplay_player_style", selection: configurationBinding(\.minimalNowPlaying)) {
                             Text("carplay_player_standard").tag(false)
                             Text("carplay_preset_focus").tag(true)
@@ -304,7 +316,7 @@ struct CarPlaySettingsView: View {
         .presentationDetents([.large])
     }
 
-    private func configurationBinding(_ keyPath: WritableKeyPath<CarPlayLayoutConfiguration, Bool>) -> Binding<Bool> {
+    private func configurationBinding<Value>(_ keyPath: WritableKeyPath<CarPlayLayoutConfiguration, Value>) -> Binding<Value> {
         Binding(get: { model.configuration[keyPath: keyPath] }, set: { value in model.change { $0[keyPath: keyPath] = value } })
     }
 
@@ -382,6 +394,7 @@ struct CarPlayNowPlayingButtonsEditor: View {
 
     private var actions: [CarPlayNowPlayingAction] {
         model.configuration.nowPlayingButtons(isSpokenWord: isSpokenWord)
+            .filter { $0 != .queue || model.configuration.topRightAction != .queue }
     }
 
     var body: some View {
@@ -407,7 +420,9 @@ struct CarPlayNowPlayingButtonsEditor: View {
             }
             if actions.count < CarPlayLayoutConfiguration.maximumNowPlayingButtonCount {
                 Menu {
-                    ForEach(CarPlayNowPlayingAction.available(isSpokenWord: isSpokenWord).filter { !actions.contains($0) }) { action in
+                    ForEach(CarPlayNowPlayingAction.available(isSpokenWord: isSpokenWord).filter {
+                        !actions.contains($0) && ($0 != .queue || model.configuration.topRightAction != .queue)
+                    }) { action in
                         Button { update(actions + [action]) } label: {
                             Label(LocalizedStringKey(action.titleKey), systemImage: action.symbol)
                         }

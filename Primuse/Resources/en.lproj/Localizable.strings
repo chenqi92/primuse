@@ -4092,6 +4092,21 @@
 "carplay_unavailable_folder" = "Unavailable Folder";
 "carplay_pin_folder" = "Pin This Folder";
 "carplay_unpin_folder" = "Unpin This Folder";
+"carplay_lyrics_position" = "Lyrics Position";
+"carplay_lyrics_followPhone" = "Follow Lock Screen";
+"carplay_lyrics_off" = "Off";
+"carplay_lyrics_subtitle" = "Subtitle";
+"carplay_lyrics_title" = "Title";
+"carplay_lyrics_preview" = "The road unfolds beneath the morning sky";
+"carplay_top_action" = "Top Right";
+"carplay_top_album" = "Current Album";
+"carplay_top_audioInfo" = "Audio Info";
+"carplay_top_hidden" = "Hidden";
+"carplay_audio_summary" = "Spec Summary";
+"carplay_audio_resolution" = "Bit Depth / Sample Rate";
+"carplay_audio_playing" = "Playing Format";
+"carplay_audio_original" = "Original File";
+
 "carplay_now_playing" = "Now Playing";
 "carplay_open_on_connect" = "Show Now Playing on Connection";
 "carplay_open_after_play" = "Show Now Playing After Selection";

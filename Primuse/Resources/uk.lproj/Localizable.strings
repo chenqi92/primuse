@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "Тека недоступна";
 "carplay_pin_folder" = "Закріпити цю теку";
 "carplay_unpin_folder" = "Відкріпити цю теку";
+"carplay_lyrics_position" = "Розташування тексту пісні";
+"carplay_lyrics_followPhone" = "Як на екрані блокування";
+"carplay_lyrics_off" = "Вимкнено";
+"carplay_lyrics_subtitle" = "Підзаголовок";
+"carplay_lyrics_title" = "Заголовок";
+"carplay_lyrics_preview" = "Дорога простягається під ранковим небом";
+"carplay_top_action" = "Угорі праворуч";
+"carplay_top_album" = "Поточний альбом";
+"carplay_top_audioInfo" = "Інформація про аудіо";
+"carplay_top_hidden" = "Приховано";
+"carplay_audio_summary" = "Зведення параметрів";
+"carplay_audio_resolution" = "Розрядність / Частота";
+"carplay_audio_playing" = "Формат відтворення";
+"carplay_audio_original" = "Вихідний файл";
+
 "carplay_now_playing" = "Зараз грає";
 "carplay_open_on_connect" = "Показувати «Зараз грає» під час підключення";
 "carplay_open_after_play" = "Показувати «Зараз грає» після вибору";

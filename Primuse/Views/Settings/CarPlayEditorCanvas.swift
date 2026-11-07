@@ -517,18 +517,31 @@ struct CarPlayEditorCanvas: View {
 
     private func player(_ source: CarPlayHomeItem?) -> some View {
         let item = displayedItem(source)
+        let quality = previewAudioQuality(for: item)
+        let lyrics = NowPlayingLyricsMetadataPolicy.presentation(
+            canonicalTitle: item.title, artistName: item.subtitle,
+            lyrics: [LyricLine(id: "preview", timestamp: 0, text: String(localized: "carplay_lyrics_preview"), isSynchronized: true)],
+            playbackTime: 0,
+            isEnabled: configuration.lyricsPosition.isEnabled(phoneEnabled: AppServices.shared.playerService.playbackSettings.lockScreenLyricsEnabled),
+            isLiveStream: false, prefersStableTitle: configuration.lyricsPosition != .title
+        )
         return VStack(spacing: 12) {
             HStack {
                 if localPlayer != nil { Button { localPlayer = nil } label: { Image(systemName: "chevron.left") } }
                 Text("carplay_now_playing").font(.system(size: 16, weight: .semibold))
                 Spacer()
-                Image(systemName: "list.bullet")
+                if configuration.topRightAction != .hidden {
+                    Text(configuration.topRightAction == .audioInfo && !quality.summary.isEmpty
+                         ? quality.summary : NSLocalizedString(configuration.topRightAction.titleKey, comment: ""))
+                        .font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        .accessibilityIdentifier("carplay.previewTopAction")
+                }
             }.padding(.horizontal, 20).padding(.top, 18)
             HStack(spacing: 24) {
                 CarPlayPreviewArtwork(item: item).frame(width: 172, height: 172)
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(item.title).font(.system(size: 23, weight: .semibold)).lineLimit(2)
-                    if let subtitle = item.subtitle { Text(subtitle).font(.system(size: 15)).foregroundStyle(CarPlayEditorTheme.secondary).lineLimit(1) }
+                    Text(lyrics.title).font(.system(size: 23, weight: .semibold)).lineLimit(2)
+                    if !lyrics.artist.isEmpty { Text(lyrics.artist).font(.system(size: 15)).foregroundStyle(CarPlayEditorTheme.secondary).lineLimit(1) }
                     Capsule().fill(CarPlayEditorTheme.border).frame(height: 4)
                     HStack(spacing: 30) {
                         Image(systemName: "backward.fill")
@@ -539,10 +552,11 @@ struct CarPlayEditorCanvas: View {
             }.padding(.horizontal, 24)
             if !configuration.minimalNowPlaying {
                 HStack(spacing: 0) {
-                    ForEach(configuration.nowPlayingButtons(isSpokenWord: spokenWordPlaybackPreview)) { action in
+                    ForEach(configuration.visibleNowPlayingButtons(isSpokenWord: spokenWordPlaybackPreview, isLiveRadio: false, supportsPlaybackRate: true)) { action in
                         Group {
-                            if action == .audioQuality {
-                                Image(uiImage: CarPlaySceneDelegate.audioQualityButtonImage(["Hi", "Res"], scale: 2))
+                            if action.isAudioInfo {
+                                Image(uiImage: (action == .audioQuality ? quality.badgeSymbol : nil).map(CarPlaySceneDelegate.symbolImage)
+                                      ?? CarPlaySceneDelegate.audioQualityButtonImage(quality.lines(for: action), scale: 2))
                                     .renderingMode(.template)
                             } else {
                                 Image(systemName: action.symbol).font(.system(size: 18))
@@ -556,6 +570,24 @@ struct CarPlayEditorCanvas: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private func previewAudioQuality(for item: CarPlayHomeItem) -> CarPlayAudioQualityText {
+        let player = AppServices.shared.playerService
+        let song: Song?
+        if case .nowPlaying = item.target {
+            song = player.currentSong
+        } else {
+            song = AppServices.shared.musicLibrary.unobservedVisibleSong(id: item.id)
+        }
+        if let song {
+            return CarPlayAudioQualityText(song: song, transcodePlan: song.id == player.currentSong?.id ? player.activeTranscodePlan : .original)
+        }
+        var sample = Song(id: "carplay-preview", title: item.title, fileFormat: .flac, filePath: "preview.flac", sourceID: "preview")
+        sample.sampleRate = 96_000
+        sample.bitDepth = 24
+        sample.bitRate = 2304
+        return CarPlayAudioQualityText(song: sample, transcodePlan: .original)
     }
 }
 

@@ -4319,6 +4319,21 @@
 "carplay_unavailable_folder" = "Dossier indisponible";
 "carplay_pin_folder" = "Épingler ce dossier";
 "carplay_unpin_folder" = "Détacher ce dossier";
+"carplay_lyrics_position" = "Position des paroles";
+"carplay_lyrics_followPhone" = "Suivre l’écran verrouillé";
+"carplay_lyrics_off" = "Désactivées";
+"carplay_lyrics_subtitle" = "Sous-titre";
+"carplay_lyrics_title" = "Titre";
+"carplay_lyrics_preview" = "La route s’ouvre sous le ciel du matin";
+"carplay_top_action" = "En haut à droite";
+"carplay_top_album" = "Album actuel";
+"carplay_top_audioInfo" = "Informations audio";
+"carplay_top_hidden" = "Masqué";
+"carplay_audio_summary" = "Résumé audio";
+"carplay_audio_resolution" = "Profondeur / Fréquence";
+"carplay_audio_playing" = "Format de lecture";
+"carplay_audio_original" = "Fichier d’origine";
+
 "carplay_now_playing" = "En cours de lecture";
 "carplay_open_on_connect" = "Afficher la lecture en cours à la connexion";
 "carplay_open_after_play" = "Afficher la lecture en cours après la sélection";

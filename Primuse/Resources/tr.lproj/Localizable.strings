@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "Klasör kullanılamıyor";
 "carplay_pin_folder" = "Bu klasörü sabitle";
 "carplay_unpin_folder" = "Bu klasörün sabitlemesini kaldır";
+"carplay_lyrics_position" = "Şarkı Sözü Konumu";
+"carplay_lyrics_followPhone" = "Kilit Ekranını İzle";
+"carplay_lyrics_off" = "Kapalı";
+"carplay_lyrics_subtitle" = "Alt Başlık";
+"carplay_lyrics_title" = "Başlık";
+"carplay_lyrics_preview" = "Yol sabahın göğü altında uzanır";
+"carplay_top_action" = "Sağ Üst";
+"carplay_top_album" = "Geçerli Albüm";
+"carplay_top_audioInfo" = "Ses Bilgisi";
+"carplay_top_hidden" = "Gizli";
+"carplay_audio_summary" = "Özellik Özeti";
+"carplay_audio_resolution" = "Bit Derinliği / Örnekleme";
+"carplay_audio_playing" = "Çalma Biçimi";
+"carplay_audio_original" = "Özgün Dosya";
+
 "carplay_now_playing" = "Şu an çalıyor";
 "carplay_open_on_connect" = "Bağlandığında Şu An Çalan’ı göster";
 "carplay_open_after_play" = "Seçimden sonra Şu An Çalan’ı göster";

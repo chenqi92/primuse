@@ -4421,6 +4421,21 @@
 "carplay_unavailable_folder" = "暂不可用的目录";
 "carplay_pin_folder" = "固定此目录";
 "carplay_unpin_folder" = "取消固定此目录";
+"carplay_lyrics_position" = "歌词位置";
+"carplay_lyrics_followPhone" = "跟随锁屏设置";
+"carplay_lyrics_off" = "关闭";
+"carplay_lyrics_subtitle" = "副标题";
+"carplay_lyrics_title" = "主标题";
+"carplay_lyrics_preview" = "晨光铺满了前方的路";
+"carplay_top_action" = "右上角";
+"carplay_top_album" = "当前专辑";
+"carplay_top_audioInfo" = "音频信息";
+"carplay_top_hidden" = "隐藏";
+"carplay_audio_summary" = "规格摘要";
+"carplay_audio_resolution" = "位深／采样率";
+"carplay_audio_playing" = "播放规格";
+"carplay_audio_original" = "原始文件";
+
 "carplay_now_playing" = "正在播放";
 "carplay_open_on_connect" = "连接时显示正在播放";
 "carplay_open_after_play" = "选曲后显示正在播放";

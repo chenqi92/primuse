@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "المجلد غير متاح";
 "carplay_pin_folder" = "تثبيت هذا المجلد";
 "carplay_unpin_folder" = "إلغاء تثبيت هذا المجلد";
+"carplay_lyrics_position" = "موضع كلمات الأغنية";
+"carplay_lyrics_followPhone" = "اتباع شاشة القفل";
+"carplay_lyrics_off" = "إيقاف";
+"carplay_lyrics_subtitle" = "العنوان الفرعي";
+"carplay_lyrics_title" = "العنوان";
+"carplay_lyrics_preview" = "يمتد الطريق تحت سماء الصباح";
+"carplay_top_action" = "أعلى اليمين";
+"carplay_top_album" = "الألبوم الحالي";
+"carplay_top_audioInfo" = "معلومات الصوت";
+"carplay_top_hidden" = "مخفي";
+"carplay_audio_summary" = "ملخص المواصفات";
+"carplay_audio_resolution" = "عمق البت / معدل العينة";
+"carplay_audio_playing" = "صيغة التشغيل";
+"carplay_audio_original" = "الملف الأصلي";
+
 "carplay_now_playing" = "قيد التشغيل الآن";
 "carplay_open_on_connect" = "عرض «قيد التشغيل» عند الاتصال";
 "carplay_open_after_play" = "عرض «قيد التشغيل» بعد الاختيار";

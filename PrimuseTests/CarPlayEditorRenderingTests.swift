@@ -1,5 +1,6 @@
 #if os(iOS)
 import CarPlay
+import MediaPlayer
 import PrimuseKit
 import SwiftUI
 import XCTest
@@ -9,6 +10,105 @@ import Synchronization
 
 @MainActor
 final class CarPlayEditorRenderingTests: XCTestCase {
+    func testLyricsPositionChangesAndDisconnectRestorePhonePreference() async throws {
+        let defaultsName = "CarPlayLyricsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        let phone = PlaybackSettingsStore(defaults: defaults)
+        phone.lockScreenLyricsEnabled = false
+        let settings = CarPlaySettingsStore.shared
+        let original = settings.configuration
+        let player = AudioPlayerService(playbackSettings: phone, activateAudioSession: { _ in })
+        let song = Song(id: UUID().uuidString, title: "晨间公路", artistName: "纸船乐队",
+                        fileFormat: .flac, filePath: "fixture.flac", sourceID: AppleMusicLibraryIdentity.sourceID)
+        let line = "晨光铺满了前方的路"
+        let cached = await MetadataAssetStore.shared.cacheLyrics(
+            [LyricLine(timestamp: 0, text: line, isSynchronized: true)], forSongID: song.id, force: true)
+        XCTAssertTrue(cached)
+        addTeardownBlock { @MainActor in
+            player.currentSong = nil
+            settings.configuration = original
+            NotificationCenter.default.post(name: .primuseCarPlaySceneDidDisconnect, object: nil)
+            _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+        func waitFor(_ title: String, _ artist: String) async throws {
+            for _ in 0..<100 {
+                let value = player.lockScreenLyricsPresentation()
+                if value.title == title, value.artist == artist { return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(player.lockScreenLyricsPresentation().title, title)
+            XCTAssertEqual(player.lockScreenLyricsPresentation().artist, artist)
+        }
+        settings.configuration.lyricsPosition = .subtitle
+        player.currentSong = song
+        player.currentTime = 5
+        NotificationCenter.default.post(name: .primuseCarPlaySceneDidConnect, object: nil)
+        try await waitFor(song.title, line)
+        settings.configuration.lyricsPosition = .title
+        try await waitFor(line, "晨间公路 · 纸船乐队")
+        settings.configuration.lyricsPosition = .off
+        try await waitFor(song.title, "纸船乐队")
+        settings.configuration.lyricsPosition = .title
+        try await waitFor(line, "晨间公路 · 纸船乐队")
+        NotificationCenter.default.post(name: .primuseCarPlaySceneDidDisconnect, object: nil)
+        try await waitFor(song.title, "纸船乐队")
+        phone.lockScreenLyricsEnabled = true
+        try await waitFor(line, "晨间公路 · 纸船乐队")
+        settings.configuration.lyricsPosition = .off
+        NotificationCenter.default.post(name: .primuseCarPlaySceneDidConnect, object: nil)
+        try await waitFor(song.title, "纸船乐队")
+        NotificationCenter.default.post(name: .primuseCarPlaySceneDidDisconnect, object: nil)
+        try await waitFor(line, "晨间公路 · 纸船乐队")
+    }
+
+    func testNativeSpecButtonsAndTopTitleRefreshForTrackAndTranscodeChanges() throws {
+        let player = AppServices.shared.playerService
+        let settings = CarPlaySettingsStore.shared
+        let original = settings.configuration
+        let originalSong = player.currentSong
+        let originalPlan = player.activeTranscodePlan
+        let delegate = CarPlaySceneDelegate()
+        defer {
+            player.currentSong = originalSong
+            player.activeTranscodePlan = originalPlan
+            settings.configuration = original
+            delegate.refreshNowPlayingButtons()
+        }
+        var song = Song(id: "carplay-spec-fixture", title: "晨间公路", artistName: "纸船乐队",
+                        fileFormat: .flac, filePath: "fixture.flac", sourceID: "fixture",
+                        bitRate: 2304, sampleRate: 96_000, bitDepth: 24)
+        player.currentSong = song
+        player.activeTranscodePlan = .original
+        settings.configuration.topRightAction = .audioInfo
+        delegate.refreshNowPlayingButtons()
+        XCTAssertEqual(CPNowPlayingTemplate.shared.upNextTitle, "FLAC · 24/96 · 2304k")
+        let originalImage = try XCTUnwrap((delegate.makeNowPlayingButton(.audioBitRate) as? CPNowPlayingImageButton)?.image?.pngData())
+        player.activeTranscodePlan = .transcode(bitRateKbps: 192)
+        delegate.refreshNowPlayingButtons()
+        XCTAssertEqual(CPNowPlayingTemplate.shared.upNextTitle, "MP3 · 192k")
+        let streamImage = try XCTUnwrap((delegate.makeNowPlayingButton(.audioBitRate) as? CPNowPlayingImageButton)?.image?.pngData())
+        XCTAssertNotEqual(originalImage, streamImage)
+        let sections = delegate.audioInfoSections()
+        XCTAssertEqual((sections[0].items[0] as? CPListItem)?.detailText, "MP3 · 192kbps")
+        XCTAssertEqual((sections[0].items[1] as? CPListItem)?.detailText, "FLAC · 24bit/96kHz · 2304kbps")
+        song.id = "carplay-spec-next"
+        song.sampleRate = 44_100
+        song.bitDepth = 16
+        player.currentSong = song
+        player.activeTranscodePlan = .original
+        delegate.refreshNowPlayingButtons()
+        XCTAssertEqual(CPNowPlayingTemplate.shared.upNextTitle, "FLAC · 16/44.1 · 2304k")
+        settings.configuration.topRightAction = .hidden
+        delegate.refreshNowPlayingButtons()
+        XCTAssertFalse(CPNowPlayingTemplate.shared.isUpNextButtonEnabled)
+        settings.configuration.topRightAction = .queue
+        settings.configuration.customNowPlayingButtons = [.queue, .audioQuality, .audioBitRate]
+        delegate.refreshNowPlayingButtons()
+        XCTAssertTrue(CPNowPlayingTemplate.shared.isUpNextButtonEnabled)
+        XCTAssertEqual(CPNowPlayingTemplate.shared.nowPlayingButtons.count, 2)
+    }
+
     func testLayoutOnlyEditsDoNotInvalidateCatalogInputs() throws {
         let suite = "CarPlayLiveKindsTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -103,7 +203,7 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         model.flush()
         XCTAssertEqual(CarPlaySettingsStore(defaults: defaults).configuration.nowPlayingButtons(isSpokenWord: false), [.audioQuality, .like, .album])
 
-        for lines in [["Hi", "Res"], ["MP3"], ["DSD"], ["ALAC"]] {
+        for lines in [["FLAC", "24/96"], ["2304", "kbps"], ["16bit", "44.1kHz"], ["DSF", "DSD256"], ["ALAC"], ["—"]] {
             let image = CarPlaySceneDelegate.audioQualityButtonImage(lines, scale: 2)
             XCTAssertEqual(image.size, CPNowPlayingButtonMaximumImageSize)
             XCTAssertEqual(image.renderingMode, .alwaysTemplate)

@@ -103,8 +103,39 @@ public enum CarPlaySiriPresentation: String, Codable, Sendable {
     case button, row
 }
 
+public enum CarPlayLyricsPosition: String, Codable, CaseIterable, Identifiable, Sendable {
+    case followPhone, off, subtitle, title
+    public var id: String { rawValue }
+    public var titleKey: String { "carplay_lyrics_" + rawValue }
+
+    public func isEnabled(phoneEnabled: Bool) -> Bool {
+        switch self {
+        case .followPhone: phoneEnabled
+        case .off: false
+        case .subtitle, .title: true
+        }
+    }
+}
+
+public enum CarPlayTopRightAction: String, Codable, CaseIterable, Identifiable, Sendable {
+    case queue, album, audioInfo, more, hidden
+    public var id: String { rawValue }
+    public var titleKey: String {
+        switch self {
+        case .queue: "carplay_up_next"
+        case .more: "more"
+        default: "carplay_top_" + rawValue
+        }
+    }
+}
+
 public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable, Sendable {
     case shuffle, repeatMode, like, audioQuality, queue, album, playbackRate, skipBackward, skipForward
+    case audioFormat, audioBitRate, audioResolution
+
+    public var isAudioInfo: Bool {
+        [.audioQuality, .audioFormat, .audioBitRate, .audioResolution].contains(self)
+    }
 
     public var id: String { rawValue }
     public var titleKey: String {
@@ -112,7 +143,10 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
         case .shuffle: "shuffle"
         case .repeatMode: "repeat"
         case .like: "player_controls_action_like"
-        case .audioQuality: "audio_quality_label"
+        case .audioQuality: "carplay_audio_summary"
+        case .audioFormat: "format_label"
+        case .audioBitRate: "songs_column_bitrate"
+        case .audioResolution: "carplay_audio_resolution"
         case .queue: "carplay_up_next"
         case .album: "carplay_albums_title"
         case .playbackRate: "playback_rate"
@@ -125,7 +159,7 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
         case .shuffle: "shuffle"
         case .repeatMode: "repeat"
         case .like: "heart"
-        case .audioQuality: "waveform"
+        case .audioQuality, .audioFormat, .audioBitRate, .audioResolution: "waveform"
         case .queue: "list.bullet"
         case .album: "square.stack"
         case .playbackRate: "speedometer"
@@ -136,8 +170,8 @@ public enum CarPlayNowPlayingAction: String, Codable, CaseIterable, Identifiable
 
     public static func available(isSpokenWord: Bool) -> [Self] {
         isSpokenWord
-            ? [.skipBackward, .playbackRate, .skipForward, .like, .audioQuality, .queue]
-            : [.shuffle, .repeatMode, .like, .audioQuality, .queue, .album]
+            ? [.skipBackward, .playbackRate, .skipForward, .like, .audioQuality, .queue, .audioFormat, .audioBitRate, .audioResolution]
+            : [.shuffle, .repeatMode, .like, .audioQuality, .audioBitRate, .queue, .album, .audioFormat, .audioResolution]
     }
 
     public static func defaults(isSpokenWord: Bool) -> [Self] {
@@ -159,6 +193,8 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
     public var opensNowPlayingOnConnect = false
     public var opensNowPlayingAfterSelection = true
     public var minimalNowPlaying = false
+    public var lyricsPosition: CarPlayLyricsPosition = .followPhone
+    public var topRightAction: CarPlayTopRightAction = .queue
     public var customNowPlayingButtons: [CarPlayNowPlayingAction]?
     public var customSpokenWordButtons: [CarPlayNowPlayingAction]?
     public var pinnedPlaylistIDs: [String] = []
@@ -198,7 +234,9 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
 
     public func visibleNowPlayingButtons(isSpokenWord: Bool, isLiveRadio: Bool, supportsPlaybackRate: Bool) -> [CarPlayNowPlayingAction] {
         guard !minimalNowPlaying, !isLiveRadio else { return [] }
-        return nowPlayingButtons(isSpokenWord: isSpokenWord).filter { $0 != .playbackRate || supportsPlaybackRate }
+        return nowPlayingButtons(isSpokenWord: isSpokenWord).filter {
+            ($0 != .playbackRate || supportsPlaybackRate) && ($0 != .queue || topRightAction != .queue)
+        }
     }
 
     public var folderIDs: [LibraryFolderNodeID] {
@@ -383,6 +421,7 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
         case browseStyle, sectionOrder, hiddenSections, playsCollectionsDirectly
         case opensNowPlayingOnConnect, opensNowPlayingAfterSelection, minimalNowPlaying
         case customNowPlayingButtons, customSpokenWordButtons
+        case lyricsPosition, topRightAction
         case pinnedPlaylistIDs, pinnedFolders, customBlocks, visualStyle, customTabs, siriPresentation
     }
 
@@ -409,6 +448,8 @@ public struct CarPlayLayoutConfiguration: Codable, Equatable, Sendable {
         opensNowPlayingOnConnect = (try? values.decode(Bool.self, forKey: .opensNowPlayingOnConnect)) ?? opensNowPlayingOnConnect
         opensNowPlayingAfterSelection = (try? values.decode(Bool.self, forKey: .opensNowPlayingAfterSelection)) ?? opensNowPlayingAfterSelection
         minimalNowPlaying = (try? values.decode(Bool.self, forKey: .minimalNowPlaying)) ?? minimalNowPlaying
+        lyricsPosition = (try? values.decode(CarPlayLyricsPosition.self, forKey: .lyricsPosition)) ?? lyricsPosition
+        topRightAction = (try? values.decode(CarPlayTopRightAction.self, forKey: .topRightAction)) ?? topRightAction
         if let actions = try? values.decode([String].self, forKey: .customNowPlayingButtons) {
             customNowPlayingButtons = actions.compactMap(CarPlayNowPlayingAction.init(rawValue:))
         }

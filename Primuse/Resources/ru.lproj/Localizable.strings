@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "Папка недоступна";
 "carplay_pin_folder" = "Закрепить эту папку";
 "carplay_unpin_folder" = "Открепить эту папку";
+"carplay_lyrics_position" = "Положение текста песни";
+"carplay_lyrics_followPhone" = "Как на экране блокировки";
+"carplay_lyrics_off" = "Выключен";
+"carplay_lyrics_subtitle" = "Подзаголовок";
+"carplay_lyrics_title" = "Заголовок";
+"carplay_lyrics_preview" = "Дорога тянется под утренним небом";
+"carplay_top_action" = "Вверху справа";
+"carplay_top_album" = "Текущий альбом";
+"carplay_top_audioInfo" = "Информация об аудио";
+"carplay_top_hidden" = "Скрыто";
+"carplay_audio_summary" = "Сводка параметров";
+"carplay_audio_resolution" = "Разрядность / Частота";
+"carplay_audio_playing" = "Формат воспроизведения";
+"carplay_audio_original" = "Исходный файл";
+
 "carplay_now_playing" = "Сейчас играет";
 "carplay_open_on_connect" = "Показывать «Сейчас играет» при подключении";
 "carplay_open_after_play" = "Показывать «Сейчас играет» после выбора";

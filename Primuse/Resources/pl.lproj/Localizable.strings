@@ -4225,6 +4225,21 @@
 "carplay_unavailable_folder" = "Folder niedostępny";
 "carplay_pin_folder" = "Przypnij ten folder";
 "carplay_unpin_folder" = "Odepnij ten folder";
+"carplay_lyrics_position" = "Położenie tekstu";
+"carplay_lyrics_followPhone" = "Jak na ekranie blokady";
+"carplay_lyrics_off" = "Wyłączony";
+"carplay_lyrics_subtitle" = "Podtytuł";
+"carplay_lyrics_title" = "Tytuł";
+"carplay_lyrics_preview" = "Droga otwiera się pod porannym niebem";
+"carplay_top_action" = "Prawy górny róg";
+"carplay_top_album" = "Bieżący album";
+"carplay_top_audioInfo" = "Informacje o dźwięku";
+"carplay_top_hidden" = "Ukryty";
+"carplay_audio_summary" = "Podsumowanie parametrów";
+"carplay_audio_resolution" = "Głębia / Próbkowanie";
+"carplay_audio_playing" = "Format odtwarzania";
+"carplay_audio_original" = "Plik źródłowy";
+
 "carplay_now_playing" = "Teraz odtwarzane";
 "carplay_open_on_connect" = "Pokaż Teraz odtwarzane po połączeniu";
 "carplay_open_after_play" = "Pokaż Teraz odtwarzane po wyborze";

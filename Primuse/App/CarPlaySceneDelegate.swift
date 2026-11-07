@@ -258,6 +258,8 @@ final class CarPlaySceneDelegate: UIResponder {
     /// Currently visible queue page (if any). When the player advances, we
     /// patch its sections in place so the user sees the next track highlighted.
     private weak var openQueueTemplate: CPListTemplate?
+    private weak var openAudioInfoTemplate: CPListTemplate?
+    private weak var openNowPlayingMoreTemplate: CPListTemplate?
 
     /// In-flight artwork-load tasks, keyed so each removes itself on completion.
     /// Search / drill-down / queue paths append here but don't go through
@@ -426,6 +428,8 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.isNowPlayingTransitionInFlight = false
             self.navigationTransitionInFlight = false
             self.openQueueTemplate = nil
+            self.openAudioInfoTemplate = nil
+            self.openNowPlayingMoreTemplate = nil
             self.cancelArtworkTasks()
             self.artworkUpdates.removeAll()
             // 渲染好的封面要跨列表重建活着，只在断开连接时释放。
@@ -491,7 +495,7 @@ extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
     nonisolated func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
         Task { @MainActor [weak self] in
             guard !AppServices.shared.playerService.isLiveRadio else { return }
-            self?.pushQueueTemplate()
+            self?.performTopRightAction()
         }
     }
 
@@ -2228,23 +2232,32 @@ extension CarPlaySceneDelegate {
 extension CarPlaySceneDelegate {
     private func configureNowPlayingTemplate() {
         let template = CPNowPlayingTemplate.shared
-        template.upNextTitle = String(localized: "carplay_up_next")
-        template.isUpNextButtonEnabled = true
         template.isAlbumArtistButtonEnabled = true
         template.add(self)
         refreshNowPlayingButtons()
     }
 
-    private func refreshNowPlayingButtons() {
+    func refreshNowPlayingButtons() {
         let player = AppServices.shared.playerService
         let template = CPNowPlayingTemplate.shared
-        template.isUpNextButtonEnabled = !player.isLiveRadio
+        let topAction = layout.topRightAction
+        let quality = player.currentSong.map { CarPlayAudioQualityText(song: $0, transcodePlan: player.activeTranscodePlan) }
+        let title = topAction == .audioInfo ? quality?.summary : nil
+        template.upNextTitle = title.flatMap { $0.isEmpty ? nil : $0 }
+            ?? NSLocalizedString(topAction.titleKey, comment: "")
+        let hasAlbum = player.currentSong?.albumID.map { id in
+            AppServices.shared.musicLibrary.visibleAlbums.contains { $0.id == id }
+        } ?? false
+        template.isUpNextButtonEnabled = !player.isLiveRadio && topAction != .hidden
+            && (topAction != .album || hasAlbum)
         template.isAlbumArtistButtonEnabled = !player.isLiveRadio && !layout.minimalNowPlaying
         let actions = layout.visibleNowPlayingButtons(
             isSpokenWord: player.currentItemIsSpokenWord, isLiveRadio: player.isLiveRadio,
             supportsPlaybackRate: player.playbackSettings.outputMode == .effects && !player.isSystemAudioPlaybackActive
         )
         template.updateNowPlayingButtons(actions.map { makeNowPlayingButton($0) })
+        openAudioInfoTemplate?.updateSections(audioInfoSections())
+        openNowPlayingMoreTemplate?.updateSections(nowPlayingMoreSections())
     }
 
     func makeNowPlayingButton(_ action: CarPlayNowPlayingAction) -> CPNowPlayingButton {
@@ -2277,10 +2290,10 @@ extension CarPlaySceneDelegate {
         default: break
         }
         let image: UIImage
-        if action == .audioQuality, let song = player.currentSong {
+        if action.isAudioInfo, let song = player.currentSong {
             let quality = CarPlayAudioQualityText(song: song, transcodePlan: player.activeTranscodePlan)
-            image = quality.badgeSymbol.map(Self.symbolImage)
-                ?? Self.audioQualityButtonImage(quality.badgeLines, scale: artworkScale)
+            image = (action == .audioQuality ? quality.badgeSymbol : nil).map(Self.symbolImage)
+                ?? Self.audioQualityButtonImage(quality.lines(for: action), scale: artworkScale)
         } else {
             image = Self.symbolImage(symbol)
         }
@@ -2288,6 +2301,9 @@ extension CarPlaySceneDelegate {
             Task { @MainActor in self?.performNowPlayingAction(action) }
         }
         button.isEnabled = player.currentSong != nil
+        button.accessibilityLabel = action.isAudioInfo ? player.currentSong.map {
+            CarPlayAudioQualityText(song: $0, transcodePlan: player.activeTranscodePlan).details
+        } : NSLocalizedString(action.titleKey, comment: "")
         if action == .album {
             let library = AppServices.shared.musicLibrary
             button.isEnabled = player.currentSong.map { song in
@@ -2306,17 +2322,19 @@ extension CarPlaySceneDelegate {
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in
             let lineHeight = min(15, (size.height - 2) / CGFloat(max(1, lines.count)))
             let top = (size.height - lineHeight * CGFloat(lines.count)) / 2
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .center
             for (index, line) in lines.enumerated() {
                 let text = line as NSString
-                var font = UIFont.systemFont(ofSize: lineHeight * 0.8, weight: .semibold)
+                var font = UIFont.systemFont(ofSize: lineHeight * 0.85, weight: .semibold, width: .condensed)
                 let width = text.size(withAttributes: [.font: font]).width
                 if width > size.width - 2 {
                     font = font.withSize(font.pointSize * (size.width - 2) / width)
                 }
-                text.draw(in: CGRect(x: 1, y: top + CGFloat(index) * lineHeight, width: size.width - 2, height: lineHeight),
-                          withAttributes: [.font: font, .foregroundColor: UIColor.white, .paragraphStyle: paragraph])
+                let measured = text.size(withAttributes: [.font: font])
+                // Rect drawing may wrap the final glyph after pixel rounding.
+                // Each badge line is a single centered run, never a paragraph.
+                text.draw(at: CGPoint(x: (size.width - measured.width) / 2,
+                                      y: top + CGFloat(index) * lineHeight + (lineHeight - measured.height) / 2),
+                          withAttributes: [.font: font, .foregroundColor: UIColor.white])
             }
         }.withRenderingMode(.alwaysTemplate)
     }
@@ -2328,7 +2346,7 @@ extension CarPlaySceneDelegate {
         case .shuffle: toggleShuffle()
         case .repeatMode: cycleRepeat()
         case .like: toggleLiked()
-        case .audioQuality: showAudioQuality()
+        case .audioQuality, .audioFormat, .audioBitRate, .audioResolution: showAudioQuality()
         case .queue: pushQueueTemplate()
         case .album: nowPlayingTemplateAlbumArtistButtonTapped(.shared)
         case .playbackRate: cycleSpokenWordRate()
@@ -2338,15 +2356,65 @@ extension CarPlaySceneDelegate {
     }
 
     private func showAudioQuality() {
+        guard AppServices.shared.playerService.currentSong != nil else { return }
+        let template = CPListTemplate(title: String(localized: "carplay_top_audioInfo"), sections: audioInfoSections())
+        openAudioInfoTemplate = template
+        safePush(template, label: "AudioInfo")
+    }
+
+    func audioInfoSections() -> [CPListSection] {
         let player = AppServices.shared.playerService
-        guard let song = player.currentSong, let controller = interfaceController,
-              controller.presentedTemplate == nil else { return }
+        guard let song = player.currentSong else { return [] }
         let quality = CarPlayAudioQualityText(song: song, transcodePlan: player.activeTranscodePlan)
-        let sheet = CPActionSheetTemplate(title: String(localized: "audio_quality_label"), message: quality.details,
-            actions: [CPAlertAction(title: String(localized: "done"), style: .cancel) { [weak self] _ in
-                Task { @MainActor in self?.interfaceController?.dismissTemplate(animated: true, completion: nil) }
-            }])
-        controller.presentTemplate(sheet, animated: true, completion: nil)
+        var specs = [CPListItem(text: String(localized: "carplay_audio_playing"), detailText: quality.details)]
+        if let original = quality.sourceDetails {
+            specs.append(CPListItem(text: String(localized: "carplay_audio_original"), detailText: original))
+        }
+        if !player.isSystemAudioPlaybackActive, !player.isCastingMode,
+           let output = NowPlayingAudioInfoTextPolicy.output(sourceSampleRate: nil, outputSampleRate: player.audioEngine.observedOutputSampleRate) {
+            specs.append(CPListItem(text: String(localized: "audio_output"), detailText: output.rateText))
+        }
+        var track = [CPListItem(text: String(localized: "title_label"), detailText: song.title)]
+        for (key, value) in [("artist_label", song.artistName), ("album_label", song.albumTitle)] {
+            if let value, !value.isEmpty {
+                track.append(CPListItem(text: NSLocalizedString(key, comment: ""), detailText: value))
+            }
+        }
+        return [CPListSection(items: specs), CPListSection(items: track)]
+    }
+
+    private func performTopRightAction() {
+        switch layout.topRightAction {
+        case .queue: pushQueueTemplate()
+        case .album: nowPlayingTemplateAlbumArtistButtonTapped(.shared)
+        case .audioInfo: showAudioQuality()
+        case .more:
+            let template = CPListTemplate(title: String(localized: "more"), sections: nowPlayingMoreSections())
+            openNowPlayingMoreTemplate = template
+            safePush(template, label: "NowPlayingMore")
+        case .hidden: break
+        }
+    }
+
+    private func nowPlayingMoreSections() -> [CPListSection] {
+        let player = AppServices.shared.playerService
+        guard player.currentSong != nil else { return [] }
+        let actions = CarPlayNowPlayingAction.available(isSpokenWord: player.currentItemIsSpokenWord)
+            .filter { !$0.isAudioInfo || $0 == .audioQuality }
+            .filter { $0 != .playbackRate || (player.playbackSettings.outputMode == .effects && !player.isSystemAudioPlaybackActive) }
+        let items = actions.map { action in
+            let item = CPListItem(text: NSLocalizedString(action.titleKey, comment: ""), detailText: nil,
+                                  image: Self.symbolImage(action.symbol))
+            item.isEnabled = makeNowPlayingButton(action).isEnabled
+            item.handler = { [weak self] _, completion in
+                Task { @MainActor in
+                    self?.performNowPlayingAction(action)
+                    completion()
+                }
+            }
+            return item
+        }
+        return [CPListSection(items: items)]
     }
 
     /// Resolves an SF Symbol name to a `UIImage`, returning a 1x1 blank
@@ -2629,6 +2697,7 @@ extension CarPlaySceneDelegate {
             _ = player.repeatMode
             _ = player.currentSong
             _ = player.activeTranscodePlan
+            _ = player.audioEngine.observedOutputSampleRate
             _ = player.currentItemIsSpokenWord
             _ = player.playbackSettings.outputMode
             _ = player.isSystemAudioPlaybackActive

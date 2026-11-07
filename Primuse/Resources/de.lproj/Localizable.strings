@@ -4319,6 +4319,21 @@
 "carplay_unavailable_folder" = "Ordner nicht verfügbar";
 "carplay_pin_folder" = "Diesen Ordner anheften";
 "carplay_unpin_folder" = "Diesen Ordner lösen";
+"carplay_lyrics_position" = "Liedtextposition";
+"carplay_lyrics_followPhone" = "Sperrbildschirm folgen";
+"carplay_lyrics_off" = "Aus";
+"carplay_lyrics_subtitle" = "Untertitel";
+"carplay_lyrics_title" = "Titel";
+"carplay_lyrics_preview" = "Die Straße liegt im Licht des Morgens";
+"carplay_top_action" = "Oben rechts";
+"carplay_top_album" = "Aktuelles Album";
+"carplay_top_audioInfo" = "Audioinformationen";
+"carplay_top_hidden" = "Ausgeblendet";
+"carplay_audio_summary" = "Audioübersicht";
+"carplay_audio_resolution" = "Bittiefe / Abtastrate";
+"carplay_audio_playing" = "Wiedergabeformat";
+"carplay_audio_original" = "Originaldatei";
+
 "carplay_now_playing" = "Aktuelle Wiedergabe";
 "carplay_open_on_connect" = "Beim Verbinden „Jetzt läuft“ anzeigen";
 "carplay_open_after_play" = "Nach der Auswahl „Jetzt läuft“ anzeigen";

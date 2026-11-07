@@ -2685,7 +2685,7 @@ final class AudioPlayerService {
                 guard let self else { return }
                 self.isCarPlaySceneActive = true
                 self.applyAudioSessionMixing()
-                self.publishLockScreenLyricsIfNeeded()
+                self.refreshSystemLyricsPresentation()
                 self.forceAudioOnlyIfNeeded()
             }
         }
@@ -2699,7 +2699,7 @@ final class AudioPlayerService {
                 guard let self else { return }
                 self.isCarPlaySceneActive = false
                 self.applyAudioSessionMixing()
-                self.publishLockScreenLyricsIfNeeded()
+                self.refreshSystemLyricsPresentation()
             }
         }
 
@@ -2731,8 +2731,11 @@ final class AudioPlayerService {
                 let reason = reasonValue.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
                 let session = AVAudioSession.sharedInstance()
                 let handlingOutputs = session.currentRoute.outputs
+                let wasCarAudioConnected = self.isCarAudioRouteConnected
                 self.isCarAudioRouteConnected = handlingOutputs.contains { $0.portType == .carAudio }
-                self.publishLockScreenLyricsIfNeeded()
+                if wasCarAudioConnected != self.isCarAudioRouteConnected {
+                    self.refreshSystemLyricsPresentation()
+                }
                 let handlingOutputTypes = handlingOutputs
                     .map { $0.portType.rawValue }
                     .joined(separator: ",")
@@ -8053,18 +8056,31 @@ final class AudioPlayerService {
         #if DEBUG
         if LyricsLiveActivityService.isProbeEnabled { return true }
         #endif
-        return playbackSettings.lockScreenLyricsEnabled || shouldPublishWidgetLyrics
+        return systemNowPlayingLyricsEnabled || shouldPublishWidgetLyrics
+    }
+
+    private var systemNowPlayingLyricsEnabled: Bool {
+        shouldForceAudioOnly
+            ? CarPlaySettingsStore.shared.configuration.lyricsPosition.isEnabled(phoneEnabled: playbackSettings.lockScreenLyricsEnabled)
+            : playbackSettings.lockScreenLyricsEnabled
+    }
+
+    private func refreshSystemLyricsPresentation() {
+        if !shouldLoadLyricsForSystemSurfaces { resetSystemLyricsState() }
+        updateNowPlayingInfo()
+        if systemLyricsSongID != currentSong?.id {
+            loadLyricsForSystemSurfacesIfNeeded(for: currentSong)
+        }
     }
 
     private func observeLockScreenLyricsSetting() {
         withObservationTracking {
             _ = playbackSettings.lockScreenLyricsEnabled
+            _ = CarPlaySettingsStore.shared.configuration.lyricsPosition
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.resetSystemLyricsState()
-                self.updateNowPlayingInfo()
-                self.loadLyricsForSystemSurfacesIfNeeded(for: self.currentSong)
+                self.refreshSystemLyricsPresentation()
                 self.observeLockScreenLyricsSetting()
             }
         }
@@ -8270,15 +8286,15 @@ final class AudioPlayerService {
             artistName: displayedArtistName(for: song),
             synchronizedLyrics: lyrics,
             playbackTime: currentTime,
-            isEnabled: playbackSettings.lockScreenLyricsEnabled,
+            isEnabled: systemNowPlayingLyricsEnabled,
             isLiveStream: isLiveRadio,
-            prefersStableTitle: shouldForceAudioOnly
+            prefersStableTitle: shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition != .title
         )
     }
 
     private func publishLockScreenLyricsIfNeeded() {
         publishLyricsActivityProbe()
-        guard playbackSettings.lockScreenLyricsEnabled,
+        guard systemNowPlayingLyricsEnabled,
               !isLiveRadio,
               systemLyricsSongID == currentSong?.id,
               !systemLyrics.isEmpty else { return }

@@ -179,38 +179,84 @@ public struct CarPlayAudioQualityText: Equatable, Sendable {
     public let badgeLines: [String]
     public let badgeSymbol: String?
     public let details: String
+    public let sourceDetails: String?
+    public let formatName: String?
+    public let resolutionLines: [String]
+    public let bitRateKbps: Int?
+
+    public var summary: String {
+        (badgeLines + (bitRateKbps.map { ["\($0)k"] } ?? [])).joined(separator: " · ")
+    }
+
+    public func lines(for action: CarPlayNowPlayingAction) -> [String] {
+        switch action {
+        case .audioFormat: [formatName ?? "—"]
+        case .audioBitRate: bitRateKbps.map { [String($0), "kbps"] } ?? ["—"]
+        case .audioResolution: resolutionLines.isEmpty ? ["—"] : resolutionLines
+        default: badgeLines.isEmpty ? ["—"] : badgeLines
+        }
+    }
 
     public init(song: Song, transcodePlan: SourceTranscodePlan) {
-        if let stream = NowPlayingAudioInfoTextPolicy.transcodedStream(plan: transcodePlan, sourceSampleRate: song.sampleRate) {
-            badgeLines = [stream.formatName]
-            badgeSymbol = nil
-            details = stream.specParts.joined(separator: " · ")
-        } else if song.sourceID == AppleMusicLibraryIdentity.sourceID {
-            // MusicKit exposes available catalog variants, not the active stream's format.
+        // Catalog variants do not describe the active MusicKit stream.
+        guard song.sourceID != AppleMusicLibraryIdentity.sourceID else {
             badgeLines = []
             badgeSymbol = "music.note"
             details = "Apple Music"
-        } else {
-            switch song.audioQuality {
-            case .hiRes:
-                badgeLines = ["Hi", "Res"]
-                badgeSymbol = nil
-            case .lossless:
-                badgeLines = []
-                badgeSymbol = "waveform"
-            case .dsd:
-                badgeLines = ["DSD"]
-                badgeSymbol = nil
-            case .standard:
-                let format = song.codecFormat.displayName
-                badgeLines = format.count <= 4 ? [format] : []
-                badgeSymbol = badgeLines.isEmpty ? "waveform.path" : nil
-            }
-            details = NowPlayingAudioInfoTextPolicy.specParts(
-                formatName: song.codecFormat.displayName, sampleRate: song.sampleRate,
-                bitDepth: song.qualityBitDepth, bitRate: song.bitRate, isDSD: song.audioQuality == .dsd
-            ).joined(separator: " · ")
+            sourceDetails = nil
+            formatName = nil
+            resolutionLines = []
+            bitRateKbps = nil
+            return
         }
+        let originalParts = NowPlayingAudioInfoTextPolicy.specParts(
+            formatName: song.detailedFormatName, sampleRate: song.sampleRate,
+            bitDepth: song.qualityBitDepth, bitRate: song.bitRate, isDSD: song.audioQuality == .dsd
+        )
+        let format: String
+        let sampleRate: Int?
+        let bitDepth: Int?
+        let isDSD: Bool
+        if let stream = NowPlayingAudioInfoTextPolicy.transcodedStream(plan: transcodePlan, sourceSampleRate: song.sampleRate) {
+            format = stream.formatName
+            sampleRate = stream.sampleRate
+            bitDepth = nil
+            bitRateKbps = stream.bitRateKbps > 0 ? stream.bitRateKbps : nil
+            isDSD = false
+            details = stream.specParts.joined(separator: " · ")
+            sourceDetails = originalParts.isEmpty ? nil : originalParts.joined(separator: " · ")
+        } else {
+            switch song.codecFormat {
+            case .dsf: format = "DSF"
+            case .dff: format = "DFF"
+            case .sacdISO: format = "SACD"
+            default: format = song.codecFormat.displayName
+            }
+            sampleRate = song.sampleRate
+            bitDepth = song.qualityBitDepth
+            bitRateKbps = song.bitRate.flatMap { $0 > 0 ? $0 : nil }
+            isDSD = song.audioQuality == .dsd
+            details = originalParts.joined(separator: " · ")
+            sourceDetails = nil
+        }
+        formatName = format.isEmpty || format == "—" ? nil : format
+        badgeSymbol = nil
+        let rate = sampleRate.flatMap { $0 > 0 ? OutputSampleRateTextPolicy.kilohertz(Double($0)) : nil }
+        let depth = bitDepth.flatMap { $0 > 0 ? String($0) : nil }
+        let compactResolution: String?
+        if isDSD, let sampleRate, sampleRate >= 2_822_400 {
+            let dsd = "DSD\(Int((Double(sampleRate) / 44_100).rounded()))"
+            resolutionLines = [dsd]
+            compactResolution = dsd
+        } else if isDSD {
+            resolutionLines = []
+            compactResolution = nil
+        } else {
+            resolutionLines = [depth.map { $0 + "bit" }, rate.map { $0 + "kHz" }].compactMap { $0 }
+            compactResolution = rate.map { rate in depth.map { $0 + "/" + rate } ?? rate + "kHz" }
+                ?? depth.map { $0 + "bit" }
+        }
+        badgeLines = [formatName, compactResolution].compactMap { $0 }
     }
 }
 

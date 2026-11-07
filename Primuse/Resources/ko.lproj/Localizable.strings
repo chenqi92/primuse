@@ -4319,6 +4319,21 @@
 "carplay_unavailable_folder" = "폴더를 사용할 수 없음";
 "carplay_pin_folder" = "이 폴더 고정";
 "carplay_unpin_folder" = "이 폴더 고정 해제";
+"carplay_lyrics_position" = "가사 위치";
+"carplay_lyrics_followPhone" = "잠금 화면 설정 따르기";
+"carplay_lyrics_off" = "끔";
+"carplay_lyrics_subtitle" = "부제목";
+"carplay_lyrics_title" = "제목";
+"carplay_lyrics_preview" = "아침 하늘 아래 길이 펼쳐져";
+"carplay_top_action" = "오른쪽 위";
+"carplay_top_album" = "현재 앨범";
+"carplay_top_audioInfo" = "오디오 정보";
+"carplay_top_hidden" = "숨김";
+"carplay_audio_summary" = "사양 요약";
+"carplay_audio_resolution" = "비트 깊이 / 샘플 레이트";
+"carplay_audio_playing" = "재생 형식";
+"carplay_audio_original" = "원본 파일";
+
 "carplay_now_playing" = "재생 중";
 "carplay_open_on_connect" = "연결 시 재생 화면 표시";
 "carplay_open_after_play" = "선택 후 재생 화면 표시";
