@@ -808,13 +808,10 @@ struct TVSettingsView: View {
         return TVLyricsTranslationPanel.languageName(target) + " · " + mode
     }
 
-    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title).tvFont(.sectionTitle).foregroundStyle(TVColor.textMuted)
-            VStack(spacing: 0, content: content).tvPanel(radius: 20)
-        }
-        .padding(.bottom, 34)
-        .focusSection()
+    private func settingsSection<Content: View>(
+        _ title: String, @ViewBuilder content: @escaping () -> Content
+    ) -> TVSettingsSection {
+        TVSettingsSection(title, content: content)
     }
 
     private func sync() {
@@ -893,7 +890,7 @@ struct TVSettingsView: View {
     /// 三个选项都可独立聚焦，Siri Remote 无需循环点按即可直接选择外观。
     private func appearanceRow() -> some View {
         HStack(spacing: 18) {
-            settingIcon("circle.lefthalf.filled", focused: false)
+            TVSettingsIcon(icon: "circle.lefthalf.filled", focused: false)
             Text(PMString("ext.tv.settings.appearance"))
                 .tvFont(.cardTitle, weight: .medium)
                 .foregroundStyle(TVColor.text)
@@ -937,7 +934,7 @@ struct TVSettingsView: View {
         }?.value ?? 0.70
 
         return HStack(spacing: 18) {
-            settingIcon("sun.haze.fill", focused: false)
+            TVSettingsIcon(icon: "sun.haze.fill", focused: false)
             Text(PMString("ext.tv.settings.ambientIntensity"))
                 .tvFont(.cardTitle, weight: .medium)
                 .foregroundStyle(TVColor.text)
@@ -971,14 +968,6 @@ struct TVSettingsView: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-    }
-
-    private func settingIcon(_ icon: String, focused: Bool) -> some View {
-        Image(systemName: icon).font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
-            .frame(width: 40, height: 40)
-            .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surface),
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     /// 可点击行(同步 / 跳转);trailing 默认箭头表示可进入。
@@ -1034,10 +1023,73 @@ struct TVSettingsView: View {
 
     private func navRow(_ icon: String, _ title: String, _ value: String,
                         trailing: String = "chevron.right",
-                        action: @escaping () -> Void) -> some View {
+                        action: @escaping () -> Void) -> TVSettingsNavigationRow {
+        TVSettingsNavigationRow(icon: icon, title: title, value: value, trailing: trailing, action: action)
+    }
+
+    private func toggleRow(_ icon: String, _ title: String, detail: String? = nil, isOn: Binding<Bool>) -> TVSettingsToggleRow {
+        TVSettingsToggleRow(icon: icon, title: title, detail: detail, isOn: isOn)
+    }
+
+    /// 只读信息行(不可聚焦)。
+    private func infoRow(_ icon: String, _ title: String, _ value: String) -> TVSettingsInfoRow {
+        TVSettingsInfoRow(icon: icon, title: title, value: value)
+    }
+
+    private var settingDivider: some View {
+        Rectangle()
+            .fill(TVColor.divider)
+            .frame(height: 1)
+            .padding(.leading, 80)
+    }
+}
+
+// Building all section tuples in the parent exhausts the device's main stack.
+// Store a deferred, type-erased builder so both value storage and metadata
+// lookup stop at this boundary; content is built only in this view's body.
+struct TVSettingsSection: View {
+    let title: String
+    private let content: () -> AnyView
+
+    init<Content: View>(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.content = { AnyView(content()) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).tvFont(.sectionTitle).foregroundStyle(TVColor.textMuted)
+            VStack(spacing: 0) { content() }.tvPanel(radius: 20)
+        }
+        .padding(.bottom, 34)
+        .focusSection()
+    }
+}
+
+private struct TVSettingsIcon: View {
+    let icon: String
+    let focused: Bool
+
+    var body: some View {
+        Image(systemName: icon).font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
+            .frame(width: 40, height: 40)
+            .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surface),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct TVSettingsNavigationRow: View {
+    let icon: String
+    let title: String
+    let value: String
+    let trailing: String
+    let action: () -> Void
+
+    var body: some View {
         TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: action) { focused in
             HStack(spacing: 18) {
-                settingIcon(icon, focused: focused)
+                TVSettingsIcon(icon: icon, focused: focused)
                 Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
                     .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
                 Spacer(minLength: 0)
@@ -1053,37 +1105,49 @@ struct TVSettingsView: View {
             .background(focused ? TVColor.surfaceStrong : .clear)
         }
     }
+}
 
-    private func toggleRow(_ icon: String, _ title: String, detail: String? = nil, isOn: Binding<Bool>) -> some View {
-        TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
+private struct TVSettingsToggleRow: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    @Binding var isOn: Bool
+
+    var body: some View {
+        TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.toggle() }) { focused in
             HStack(spacing: 18) {
-                settingIcon(icon, focused: focused)
+                TVSettingsIcon(icon: icon, focused: focused)
                 Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .layoutPriority(1)
                 Spacer(minLength: 0)
-                ZStack(alignment: isOn.wrappedValue ? .trailing : .leading) {
-                    Capsule().fill(isOn.wrappedValue ? AnyShapeStyle(TVColor.brand)
-                                                     : AnyShapeStyle(TVColor.surfaceStrong))
+                ZStack(alignment: isOn ? .trailing : .leading) {
+                    Capsule().fill(isOn ? AnyShapeStyle(TVColor.brand)
+                                           : AnyShapeStyle(TVColor.surfaceStrong))
                         .frame(width: 62, height: 34)
                     Circle().fill(.white).frame(width: 28, height: 28).padding(3)
                 }
-                .animation(.easeOut(duration: 0.18), value: isOn.wrappedValue)
+                .animation(.easeOut(duration: 0.18), value: isOn)
             }
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
             .background(focused ? TVColor.surfaceStrong : .clear)
-            .accessibilityValue(Text(isOn.wrappedValue
+            .accessibilityValue(Text(isOn
                 ? PMString("ext.tv.sources.status.enabled")
                 : PMString("ext.tv.sources.status.disabled")))
         }
         .accessibilityHint(Text(detail ?? ""))
     }
+}
 
-    /// 只读信息行(不可聚焦)。
-    private func infoRow(_ icon: String, _ title: String, _ value: String) -> some View {
+private struct TVSettingsInfoRow: View {
+    let icon: String
+    let title: String
+    let value: String
+
+    var body: some View {
         HStack(spacing: 18) {
-            settingIcon(icon, focused: false)
+            TVSettingsIcon(icon: icon, focused: false)
             Text(title).tvFont(.cardTitle, weight: .medium).foregroundStyle(TVColor.text)
             Spacer(minLength: 0)
             Text(value).tvFont(.eyebrow, weight: .regular).foregroundStyle(TVColor.textMuted)
@@ -1092,13 +1156,6 @@ struct TVSettingsView: View {
         .padding(.horizontal, 22).padding(.vertical, 16)
         .frame(maxWidth: .infinity)
         .background(Color.clear)
-    }
-
-    private var settingDivider: some View {
-        Rectangle()
-            .fill(TVColor.divider)
-            .frame(height: 1)
-            .padding(.leading, 80)
     }
 }
 

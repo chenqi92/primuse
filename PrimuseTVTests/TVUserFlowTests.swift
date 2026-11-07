@@ -6,6 +6,146 @@ import UIKit
 import XCTest
 @testable import PrimuseTV
 
+@MainActor
+final class TVSettingsStackBudgetTests: XCTestCase {
+    func testSettingsBodyLeavesRoomForSwiftUIOnDeviceStack() {
+        // tvOS devices have a roughly 1 MiB main stack; nested builders need
+        // room for several copies as well as Swift's type metadata lookup.
+        let bytes = MemoryLayout<TVSettingsView.Body>.size
+        print("TVSettingsView.Body size: \(bytes) bytes")
+        XCTAssertLessThan(bytes, 16 * 1024)
+    }
+
+    func testSectionDefersContentUntilItsOwnBodyIsEvaluated() {
+        var evaluations = 0
+        let section = TVSettingsSection("Settings") {
+            let _ = evaluations += 1
+            Text("Setting")
+        }
+        XCTAssertEqual(evaluations, 0)
+        withExtendedLifetime(section.body) {
+            XCTAssertEqual(evaluations, 1)
+        }
+    }
+
+    func testOpeningSettingsRepeatedlyUpdatesConditionalRows() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TVSettingsRendering-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "TVSettingsRendering.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
+        defaults.set(false, forKey: TVStore.spokenWordSmartRewindEnabledKey)
+        defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        let replayGain = TVReplayGainSettings.shared
+        let translation = LyricsTranslationSettingsStore.shared
+        let romanization = LyricsRomanizationSettingsStore.shared
+        let saved = (replayGain.enabled, translation.isEnabled, romanization.isAutoGenerationEnabled)
+        defer {
+            replayGain.enabled = saved.0
+            translation.isEnabled = saved.1
+            romanization.isAutoGenerationEnabled = saved.2
+        }
+        replayGain.enabled = false
+        translation.isEnabled = false
+        romanization.isAutoGenerationEnabled = false
+
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        let store = TVStore(sourcesStore: SourcesStore(storageDirectoryURL: directory), library: library,
+                            defaults: defaults,
+                            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        let appearance = TVAppearanceState(defaults: defaults)
+        let intelligence = MusicIntelligenceService()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let presentation = SettingsPresentation()
+        let settings = AnyView(TVSettingsView().environment(store).environment(appearance)
+            .environment(intelligence).environment(TVThemeState.shared).defaultAppStorage(defaults))
+        let host = UIHostingController(rootView: SettingsPresenter(presentation: presentation, settings: settings))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            host.dismiss(animated: false)
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+            store.engine.stop()
+        }
+
+        for pass in 0..<3 {
+            presentation.isPresented = true
+            host.view.frame = window.bounds
+            try await settle(host)
+            let presented = try XCTUnwrap(host.presentedViewController)
+            try await settle(presented)
+            let scroll = try XCTUnwrap(scrollView(in: presented.view))
+            XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height)
+            if pass == 0 {
+                let collapsedHeight = scroll.contentSize.height
+                replayGain.enabled = true
+                translation.isEnabled = true
+                romanization.isAutoGenerationEnabled = true
+                defaults.set(true, forKey: TVStore.spokenWordSmartRewindEnabledKey)
+                defaults.set(true, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+                try await settle(presented)
+                XCTAssertGreaterThan(scroll.contentSize.height, collapsedHeight + 100,
+                                     "Deferred sections must still observe conditional settings")
+            }
+            appearance.select(pass == 1 ? .light : .dark)
+            scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
+            try await settle(presented)
+            if pass == 0 {
+                let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+                let image = renderer.image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "Settings expanded - bottom"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                scroll.setContentOffset(.zero, animated: false)
+                try await settle(presented)
+                let top = renderer.image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+                let topAttachment = XCTAttachment(image: top)
+                topAttachment.name = "Settings expanded - top"
+                topAttachment.lifetime = .keepAlways
+                add(topAttachment)
+            }
+            presentation.isPresented = false
+            try await settle(host)
+            XCTAssertNil(host.presentedViewController)
+        }
+    }
+
+    private final class SettingsPresentation: ObservableObject {
+        @Published var isPresented = false
+    }
+
+    private struct SettingsPresenter: View {
+        @ObservedObject var presentation: SettingsPresentation
+        let settings: AnyView
+
+        var body: some View {
+            Color.clear.fullScreenCover(isPresented: $presentation.isPresented) { settings }
+                .transaction { $0.disablesAnimations = true }
+        }
+    }
+
+    private func settle(_ host: UIViewController) async throws {
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(300))
+        host.view.layoutIfNeeded()
+    }
+
+    private func scrollView(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView { return scroll }
+        return view.subviews.lazy.compactMap { self.scrollView(in: $0) }.first
+    }
+}
+
 final class TVUserFlowPolicyTests: XCTestCase {
     // 电视端选目录与手机、Mac 共用 PrimuseKit 的 SourceDirectorySelectionPolicy。
     func testScanSelectionDropsNestedRootsBeforeNetworkTraversal() {
