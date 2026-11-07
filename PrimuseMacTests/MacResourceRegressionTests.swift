@@ -5,6 +5,95 @@ import XCTest
 import PrimuseKit
 @testable import Primuse
 
+final class MacDiagnosticsMetricsTests: XCTestCase {
+    func testCPUUsesIntervalAndPreservesMultipleCoreUsage() throws {
+        let before = MacDiagnosticsMetrics.CPUSample(uptime: 100, cpuSeconds: 40)
+        let after = MacDiagnosticsMetrics.CPUSample(uptime: 102, cpuSeconds: 43)
+        XCTAssertEqual(try XCTUnwrap(MacDiagnosticsMetrics.cpuUsage(from: before, to: after)), 150, accuracy: 0.001)
+        let idle = MacDiagnosticsMetrics.CPUSample(uptime: 104, cpuSeconds: 43)
+        XCTAssertEqual(MacDiagnosticsMetrics.cpuUsage(from: after, to: idle), 0)
+    }
+
+    func testCPURejectsInvalidIntervalsAndResetCounters() {
+        let sample = MacDiagnosticsMetrics.CPUSample(uptime: 100, cpuSeconds: 40)
+        XCTAssertNil(MacDiagnosticsMetrics.cpuUsage(from: sample, to: sample))
+        XCTAssertNil(MacDiagnosticsMetrics.cpuUsage(from: sample, to: .init(uptime: 99, cpuSeconds: 41)))
+        XCTAssertNil(MacDiagnosticsMetrics.cpuUsage(from: sample, to: .init(uptime: 102, cpuSeconds: 1)))
+        XCTAssertNil(MacDiagnosticsMetrics.cpuUsage(from: sample, to: .init(uptime: .infinity, cpuSeconds: 41)))
+    }
+
+    func testLiveMetricsReadTheCurrentProcess() throws {
+        let before = try XCTUnwrap(MacDiagnosticsMetrics.cpuSample())
+        XCTAssertGreaterThan(try XCTUnwrap(MacDiagnosticsMetrics.memoryFootprintBytes()), 0)
+        let after = try XCTUnwrap(MacDiagnosticsMetrics.cpuSample())
+        XCTAssertGreaterThanOrEqual(after.cpuSeconds, before.cpuSeconds)
+        XCTAssertGreaterThanOrEqual(after.uptime, before.uptime)
+    }
+}
+
+@MainActor
+final class BackgroundServerEnrichmentTests: XCTestCase {
+    func testServerCatalogBatchDoesNotEnterAutomaticScraping() async throws {
+        let sources = MusicSourceType.allCases.filter(\.isServerLibrary).map {
+            MusicSource(id: $0.rawValue, name: "Fixture", type: $0)
+        }
+        let songs = (0..<5_000).map { index in
+            Song(id: "song-\(index)", title: "Incomplete metadata", fileFormat: .mp3,
+                 filePath: "/songs/\(index)", sourceID: sources[index % sources.count].id)
+        }
+        let reads = SourceReadCounter()
+        try await withService(sources: sources, reads: reads) { service, library in
+            service.automaticWorkIsAllowed = {
+                XCTFail("Server songs must be rejected before automatic scheduling")
+                return true
+            }
+            await service.enqueueBackgroundEnrichment(for: songs, in: library)?.value
+            XCTAssertFalse(service.hasPendingBackgroundContinuation)
+            XCTAssertFalse(service.isBackgroundEnriching)
+        }
+        let count = await reads.value
+        XCTAssertEqual(count, sources.count, "Resolve source ownership once per source, not per song")
+    }
+
+    func testFileSourceStillReachesAutomaticScheduling() async throws {
+        let source = MusicSource(id: "webdav-fixture", name: "Fixture", type: .webdav)
+        let song = Song(id: "song", title: "Missing tags", fileFormat: .mp3,
+                        filePath: "/song.mp3", sourceID: source.id)
+        try await withService(sources: [source], reads: SourceReadCounter()) { service, library in
+            let admitted = expectation(description: "File source remains eligible")
+            admitted.assertForOverFulfill = false
+            service.automaticWorkIsAllowed = { admitted.fulfill(); return false }
+            let task = service.enqueueBackgroundEnrichment(for: [song], in: library)
+            await fulfillment(of: [admitted], timeout: 3)
+            task?.cancel()
+            await task?.value
+            XCTAssertFalse(service.isBackgroundEnriching)
+        }
+    }
+
+    private func withService(
+        sources: [MusicSource], reads: SourceReadCounter,
+        body: (MusicScraperService, MusicLibrary) async throws -> Void
+    ) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        await library.whenReady()
+        let manager = SourceManager(sourcesProvider: {
+            await reads.record()
+            return sources
+        })
+        let service = MusicScraperService(sourceManager: manager, checkpointDirectory: root)
+        try await body(service, library)
+        await library.waitForPendingIndex()
+    }
+
+    private actor SourceReadCounter {
+        var value = 0
+        func record() { value += 1 }
+    }
+}
+
 final class ArtworkRefreshClockTests: XCTestCase {
     func testConcurrentCachedReadsResolveTheRefreshPathOnlyOnce() throws {
         let root = try directory()

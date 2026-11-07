@@ -9739,8 +9739,10 @@ private final class MacUpdateCheckWindowController: NSObject, NSWindowDelegate {
 private final class MacDiagnosticsWindowController: NSObject, NSWindowDelegate {
     static let shared = MacDiagnosticsWindowController()
     private var window: NSWindow?
+    private let activity = MacDiagnosticsActivity()
 
     func show() {
+        activity.isVisible = true
         if let window {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
@@ -9757,7 +9759,7 @@ private final class MacDiagnosticsWindowController: NSObject, NSWindowDelegate {
         win.center()
         win.isReleasedWhenClosed = false
         win.contentViewController = NSHostingController(
-            rootView: MacDiagnosticsWindowView()
+            rootView: MacDiagnosticsWindowView(activity: activity)
                 .applyPrimuseEnvironments()
         )
         win.delegate = self
@@ -9767,8 +9769,17 @@ private final class MacDiagnosticsWindowController: NSObject, NSWindowDelegate {
     }
 
     nonisolated func windowShouldClose(_ sender: NSWindow) -> Bool {
-        Task { @MainActor in self.window?.orderOut(nil) }
+        Task { @MainActor in
+            self.activity.isVisible = false
+            self.window?.orderOut(nil)
+        }
         return false
+    }
+
+    nonisolated func windowDidChangeOcclusionState(_ notification: Notification) {
+        Task { @MainActor in
+            self.activity.isVisible = self.window?.occlusionState.contains(.visible) == true
+        }
     }
 }
 
@@ -10122,53 +10133,52 @@ private struct MacLicenseComponent: Identifiable, Hashable {
     }
 }
 
-/// Live process metrics for the diagnostics window, read from the Mach kernel
-/// rather than hard-coded constants.
-private enum MacDiagnosticsMetrics {
-    /// Resident memory footprint of this process, in bytes.
-    static func residentMemoryBytes() -> Int64? {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+@Observable @MainActor
+private final class MacDiagnosticsActivity {
+    var isVisible = false
+}
+
+enum MacDiagnosticsMetrics {
+    struct CPUSample {
+        let uptime: TimeInterval
+        let cpuSeconds: TimeInterval
+    }
+
+    static func memoryFootprintBytes() -> Int64? {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return nil }
-        return Int64(info.resident_size)
+        return Int64(info.phys_footprint)
     }
 
-    /// Aggregate CPU usage across all live threads of this process, in percent
-    /// (can exceed 100 on multi-core when several threads are busy).
-    static func processCPUUsage() -> Double? {
-        var threadList: thread_act_array_t?
-        var threadCount = mach_msg_type_number_t(0)
-        guard task_threads(mach_task_self_, &threadList, &threadCount) == KERN_SUCCESS,
-              let threads = threadList else { return nil }
-        defer {
-            vm_deallocate(mach_task_self_,
-                          vm_address_t(UInt(bitPattern: threads)),
-                          vm_size_t(Int(threadCount) * MemoryLayout<thread_t>.stride))
-        }
-        var total = 0.0
-        for index in 0..<Int(threadCount) {
-            var info = thread_basic_info()
-            var infoCount = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
-            let result = withUnsafeMutablePointer(to: &info) {
-                $0.withMemoryRebound(to: integer_t.self, capacity: Int(infoCount)) {
-                    thread_info(threads[index], thread_flavor_t(THREAD_BASIC_INFO), $0, &infoCount)
-                }
-            }
-            guard result == KERN_SUCCESS,
-                  info.flags & TH_FLAGS_IDLE == 0 else { continue }
-            total += Double(info.cpu_usage) / Double(TH_USAGE_SCALE) * 100.0
-        }
-        return total
+    static func cpuSample() -> CPUSample? {
+        var usage = rusage()
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return nil }
+        return CPUSample(
+            uptime: ProcessInfo.processInfo.systemUptime,
+            cpuSeconds: Double(usage.ru_utime.tv_sec) + Double(usage.ru_stime.tv_sec)
+                + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
+        )
+    }
+
+    /// 100% is one fully occupied core; include work by threads that exited between samples.
+    static func cpuUsage(from previous: CPUSample, to current: CPUSample) -> Double? {
+        let elapsed = current.uptime - previous.uptime
+        let consumed = current.cpuSeconds - previous.cpuSeconds
+        guard elapsed > 0, consumed >= 0, elapsed.isFinite, consumed.isFinite else { return nil }
+        return consumed / elapsed * 100
     }
 }
 
 private struct MacDiagnosticsWindowView: View {
-    @State private var tick = 0
+    let activity: MacDiagnosticsActivity
+    @State private var recentLogContent = ""
+    @State private var parsedLogRows: [MacLogRow] = []
     @State private var selectedFilter: MacLogFilter = .all
     @State private var copiedRowID: String?
     @State private var memoryText = "—"
@@ -10222,7 +10232,7 @@ private struct MacDiagnosticsWindowView: View {
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                 healthMetric(Lz("Memory"), value: memoryText, color: PMColor.ok)
-                healthMetric(Lz("CPU (playback)"), value: cpuText, color: PMColor.ok)
+                healthMetric("CPU", value: cpuText, color: PMColor.ok)
                 healthMetric(Lz("Cache"), value: cacheUsedText, color: PMColor.text, valueFontSize: 14, detail: cacheLimitText)
                 healthMetric(Lz("Crashes (30 days)"), value: "\(AppServices.shared.crashDiagnostics.reports().count)", color: PMColor.ok)
             }
@@ -10334,11 +10344,20 @@ private struct MacDiagnosticsWindowView: View {
             refreshDiagnosticReportURLs()
             await uploader.refreshAvailability()
         }
-        .task {
+        .task(id: activity.isVisible) {
+            guard activity.isVisible else { return }
+            var previousCPU = MacDiagnosticsMetrics.cpuSample()
+            cpuText = "—"
             await refreshMetrics()
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                tick &+= 1
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                guard !Task.isCancelled else { return }
+                let currentCPU = MacDiagnosticsMetrics.cpuSample()
+                if let previousCPU, let currentCPU,
+                   let usage = MacDiagnosticsMetrics.cpuUsage(from: previousCPU, to: currentCPU) {
+                    cpuText = String(format: "%.1f%%", usage)
+                }
+                previousCPU = currentCPU
                 await refreshMetrics()
             }
         }
@@ -10346,15 +10365,18 @@ private struct MacDiagnosticsWindowView: View {
 
     @MainActor
     private func refreshMetrics() async {
-        if let bytes = MacDiagnosticsMetrics.residentMemoryBytes() {
+        if let bytes = MacDiagnosticsMetrics.memoryFootprintBytes() {
             memoryText = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)
         } else {
             memoryText = "—"
         }
-        if let usage = MacDiagnosticsMetrics.processCPUUsage() {
-            cpuText = String(format: "%.1f%%", usage)
-        } else {
-            cpuText = "—"
+        let recent = await Task.detached(priority: .utility) {
+            FileLogger.shared.recentContent(maxBytes: 12_000)
+        }.value
+        guard !Task.isCancelled else { return }
+        if recent != recentLogContent {
+            recentLogContent = recent
+            parsedLogRows = recent.split(separator: "\n").suffix(80).compactMap { MacLogRow.parse(String($0)) }
         }
         let used = await AudioCacheManager.shared.totalCacheSize()
         let limit = await AudioCacheManager.shared.cacheLimitBytes()
@@ -10414,13 +10436,7 @@ private struct MacDiagnosticsWindowView: View {
     }
 
     private var logRows: [MacLogRow] {
-        _ = tick
-        let recent = FileLogger.shared.recentContent(maxBytes: 12_000)
-            .split(separator: "\n")
-            .suffix(80)
-            .map(String.init)
-        let parsed = recent.compactMap(MacLogRow.parse)
-        return parsed.filter { selectedFilter.matches($0) }
+        parsedLogRows.filter { selectedFilter.matches($0) }
     }
 
     private func copy(_ row: MacLogRow) {

@@ -922,18 +922,32 @@ final class MusicScraperService {
         return (songDir as NSString).appendingPathComponent("\(sidecarBaseName(for: song))\(suffix)")
     }
 
-    func enqueueBackgroundEnrichment(for songs: [Song], in library: MusicLibrary) {
-        guard !songs.isEmpty else { return }
+    @discardableResult
+    func enqueueBackgroundEnrichment(for songs: [Song], in library: MusicLibrary) -> Task<Void, Never>? {
+        guard !songs.isEmpty else { return nil }
         let previous = enrichmentEnqueueTask
         enrichmentEnqueueTask = Task(priority: .utility) { [weak self, weak library] in
             await previous?.value
             guard let self, let library, !Task.isCancelled else { return }
+            // Server catalogs stay authoritative until an explicit scrape. Resolve
+            // once per source, not once per song in a large post-scan batch.
+            var allowedSourceIDs: Set<String> = []
+            for sourceID in Set(songs.map(\.sourceID)) {
+                guard !Task.isCancelled else { return }
+                if let source = await self.sourceManager.source(withID: sourceID),
+                   source.isEnabled, !source.isDeleted, !source.type.isServerLibrary {
+                    allowedSourceIDs.insert(sourceID)
+                }
+            }
+            guard !allowedSourceIDs.isEmpty else { return }
+            let eligibleSourceIDs = allowedSourceIDs
             let settings = ScraperSettings.load()
             let worker = Task.detached(priority: .utility) {
                 var ids: [String] = []
                 for (offset, song) in songs.enumerated() {
                     if offset % 512 == 0, Task.isCancelled { break }
-                    if Self.shouldBackgroundEnrich(song, settings: settings) { ids.append(song.id) }
+                    if eligibleSourceIDs.contains(song.sourceID),
+                       Self.shouldBackgroundEnrich(song, settings: settings) { ids.append(song.id) }
                 }
                 return ids
             }
@@ -951,6 +965,7 @@ final class MusicScraperService {
                 await Task.yield()
             }
         }
+        return enrichmentEnqueueTask
     }
 
     /// 读标签那边不会再去读这些歌了(读好了、读不出、文件不在):在等它们的那几首放回补全队列。
