@@ -2,8 +2,7 @@
 import SwiftUI
 import PrimuseKit
 
-/// tvOS 正在播放选项覆层 — 宽面板,左边是这首歌,右边按「这首歌 / 播放 / 前往」分组平铺,
-/// 一眼看全,不再挤在一行横向滚动里(对应 TVOptionsArtboard)。
+/// tvOS 正在播放选项覆层，左侧保留歌曲信息，右侧按组换行并随焦点纵向滚动。
 /// Apple TV 无右键,由播放页的「更多」键升起此层。
 struct TVOptionsView: View {
     @Environment(TVStore.self) private var store
@@ -246,53 +245,59 @@ struct TVOptionsView: View {
             TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 0.5)
             TVColor.bg.opacity(0.52).ignoresSafeArea()
 
-            HStack(alignment: .top, spacing: 64) {
-                VStack(alignment: .leading, spacing: 0) {
-                    TVEyebrow(text: PMString("ext.tv.options.eyebrow")).padding(.bottom, 20)
-                    Group {
-                        if store.currentPodcastEpisodeID != nil {
-                            TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 300, radius: 18)
-                        } else {
-                            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
-                                          songID: np.songID, coverRef: np.coverRef,
-                                          tint: colors.primary, tint2: colors.secondary,
-                                          glyph: np.glyph, size: 300, radius: 18)
-                        }
-                    }
-                    .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
-                    Text(np.title).tvFont(size: 36, weight: .bold, relativeTo: .title2)
-                        .foregroundStyle(TVColor.text)
-                        .lineLimit(2)
-                        .padding(.top, 24)
-                    Text(np.artist).tvFont(.caption).foregroundStyle(TVColor.textMuted)
-                        .lineLimit(1)
-                        .padding(.top, 6)
-                    if !np.album.isEmpty {
-                        Text(np.album).tvFont(.meta).foregroundStyle(TVColor.textFaint)
-                            .lineLimit(1)
-                            .padding(.top, 4)
-                    }
-                }
-                .frame(width: 300, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 34) {
-                    ForEach(sections) { section in
-                        VStack(alignment: .leading, spacing: 16) {
-                            TVEyebrow(text: section.title)
-                            HStack(spacing: 22) {
-                                ForEach(section.actions) { actionTile($0) }
+            GeometryReader { geometry in
+                HStack(alignment: .top, spacing: 40) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        TVEyebrow(text: PMString("ext.tv.options.eyebrow")).padding(.bottom, 20)
+                        Group {
+                            if store.currentPodcastEpisodeID != nil {
+                                TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 300, radius: 18)
+                            } else {
+                                TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                                              songID: np.songID, coverRef: np.coverRef,
+                                              tint: colors.primary, tint2: colors.secondary,
+                                              glyph: np.glyph, size: 300, radius: 18)
                             }
                         }
-                        .focusSection()
+                        .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
+                        Text(np.title).tvFont(size: 36, weight: .bold, relativeTo: .title2)
+                            .foregroundStyle(TVColor.text)
+                            .lineLimit(2)
+                            .padding(.top, 24)
+                        Text(np.artist).tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                            .lineLimit(1)
+                            .padding(.top, 6)
+                        if !np.album.isEmpty {
+                            Text(np.album).tvFont(.meta).foregroundStyle(TVColor.textFaint)
+                                .lineLimit(1)
+                                .padding(.top, 4)
+                        }
                     }
+                    .frame(width: 300, alignment: .leading)
+
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 34) {
+                            ForEach(sections) { section in
+                                VStack(alignment: .leading, spacing: 16) {
+                                    TVEyebrow(text: section.title)
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 22)], spacing: 22) {
+                                        ForEach(section.actions) { actionTile($0) }
+                                    }
+                                }
+                                .focusSection()
+                            }
+                        }
+                        .padding(20)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(48)
+                .frame(maxWidth: 1500, alignment: .leading)
+                .frame(height: min(820, geometry.size.height - 64), alignment: .top)
+                .tvPanel(radius: 28)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
-            .padding(48)
-            .frame(maxWidth: 1500, alignment: .leading)
-            .tvPanel(radius: 28)
-            .padding(.horizontal, 100)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .padding(.horizontal, 60)
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs))
         .task(id: store.nowPlaying.songID) {
@@ -341,13 +346,15 @@ struct TVOptionsView: View {
                     .foregroundStyle(focused ? TVColor.onBrand : (a.on ? TVColor.brand : TVColor.text))
                 Text(a.label).tvFont(.caption, weight: focused ? .bold : .medium)
                     .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
-                    .lineLimit(2).multilineTextAlignment(.center)
+                    .lineLimit(3).multilineTextAlignment(.center)
                     .minimumScaleFactor(0.85)
                     .padding(.horizontal, 10)
             }
-            .frame(width: 184, height: 150)
+            .frame(maxWidth: .infinity)
+            .frame(height: 164)
             .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong))
         }
+        .accessibilityIdentifier("tv.options.\(a.id)")
         .accessibilityAddTraits(a.on ? [.isButton, .isSelected] : .isButton)
     }
 }

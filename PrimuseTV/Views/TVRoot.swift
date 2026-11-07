@@ -388,7 +388,6 @@ struct TVRoot: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .animation(.easeInOut(duration: 0.25), value: hidesTabBar)
             }
         }
         // 第一次有了资料库里自己下载的播客:默认收着的播客页亮出来一次。这些文件原先在有声页,
@@ -1009,6 +1008,8 @@ struct TVTabContent<Content: View>: View {
         ZStack {
             ForEach(retiring.map { [$0, displayed] } ?? [displayed], id: \.self) { item in
                 content(item)
+                    // 淡入淡出只作用于页面外壳，不把首次布局与内部内容更新一起插值。
+                    .transaction { $0.animation = nil }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .opacity(item == displayed ? 1 : 0)
                     .disabled(item != displayed)
@@ -1278,6 +1279,7 @@ struct TVTabBar: View {
             LinearGradient(colors: [TVColor.chrome, TVColor.chrome.opacity(0.45), .clear],
                            startPoint: .top, endPoint: .bottom)
         )
+        .background(TVColor.bg.ignoresSafeArea(edges: .top))
         .focusSection()
     }
 }

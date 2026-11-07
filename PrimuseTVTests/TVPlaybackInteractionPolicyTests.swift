@@ -155,6 +155,19 @@ final class TVTabTransitionTests: XCTestCase {
         }
     }
 
+    func testCrossfadeDoesNotAnimateTheIncomingPagesLayout() async throws {
+        let probe = TabProbe()
+        try await withHost(probe) {
+            for destination in [TVRoot.Tab.library, .home, .search, .home] {
+                probe.selection = destination
+                try await Task.sleep(for: .milliseconds(70))
+                XCTAssertEqual(probe.receivedAnimations[destination], false,
+                               "The page may fade, but its layout must not inherit the crossfade animation")
+                try await Task.sleep(for: .milliseconds(260))
+            }
+        }
+    }
+
     private func withHost(_ probe: TabProbe, run: () async throws -> Void) async throws {
         try await withWindow(TabHarness(probe: probe)) { _ in try await run() }
     }
@@ -182,6 +195,7 @@ final class TVTabTransitionTests: XCTestCase {
         var displayed: [TVRoot.Tab] = []
         var enabled: [TVRoot.Tab: Bool] = [:]
         var focusRequest = 0
+        @ObservationIgnored var receivedAnimations: [TVRoot.Tab: Bool] = [:]
     }
 
     private struct TabBarHarness: View {
@@ -218,10 +232,82 @@ final class TVTabTransitionTests: XCTestCase {
         @Environment(\.isEnabled) private var isEnabled
         var body: some View {
             Button(item.rawValue) {}
+                .transaction { probe.receivedAnimations[item] = $0.animation != nil }
                 .onAppear { probe.visible.insert(item) }
                 .onDisappear { probe.visible.remove(item); probe.enabled[item] = nil }
                 .onChange(of: isEnabled, initial: true) { _, value in probe.enabled[item] = value }
         }
+    }
+}
+
+@MainActor
+final class TVOptionsLayoutTests: XCTestCase {
+    func testAllOptionGroupsFitHorizontallyAndScrollToTheLastGroup() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let defaultsName = "TVOptionsLayoutTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let source = MusicSource(id: UUID().uuidString, name: "Options Layout", type: .local)
+        try sources.addDurably(source)
+        let songs = (0..<3).map { index in
+            Song(id: "options-\(index)", title: "A long song title for the playback options layout \(index)",
+                 albumTitle: "Layout Album", artistName: "Layout Artist", duration: 240,
+                 fileFormat: .mp3, filePath: "/options-\(index).mp3", sourceID: source.id)
+        }
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let session = PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        try session.save(.init(queueSongIDs: songs.map(\.id), currentSongID: songs[1].id, currentIndex: 1,
+                               currentTime: 0, duration: 240, wasPlaying: false, shuffleEnabled: false,
+                               shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false))
+        let store = TVStore(sourcesStore: sources, library: library, defaults: defaults, sessionStore: session)
+        await store.prepareLocalLibrary()
+        XCTAssertEqual(store.currentSongID, songs[1].id)
+        store.queueUpNextIDs = [songs[2].id]
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: TVOptionsView(onGoTo: { _ in })
+            .environment(store).defaultAppStorage(defaults).environment(\.colorScheme, .dark))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+            store.engine.stop()
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+        try await Task.sleep(for: .milliseconds(500))
+        host.view.layoutIfNeeded()
+        let scroll = try XCTUnwrap(scrollViews(in: host.view).max { $0.bounds.width < $1.bounds.width })
+        XCTAssertLessThanOrEqual(scroll.contentSize.width, scroll.bounds.width + 1)
+        XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height + 100,
+                             "A full playback menu must scroll vertically instead of overflowing the panel")
+        let viewport = scroll.convert(scroll.bounds, to: window)
+        XCTAssertTrue(window.bounds.insetBy(dx: 50, dy: 50).contains(viewport))
+        attach(window, name: "Options top")
+        scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertGreaterThan(scroll.contentOffset.y, 100)
+        XCTAssertLessThanOrEqual(scroll.contentSize.width, scroll.bounds.width + 1)
+        attach(window, name: "Options bottom")
+        _ = await library.persistNowAndWait()
+    }
+
+    private func scrollViews(in view: UIView) -> [UIScrollView] {
+        (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+    }
+
+    private func attach(_ window: UIWindow, name: String) {
+        let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        })
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
 

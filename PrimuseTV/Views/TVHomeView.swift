@@ -153,18 +153,27 @@ struct TVHomeView: View {
 
     var body: some View {
         ZStack {
-            // Top Shelf hero 背景
-            TVAmbientBackdrop(tint: hero.tint, tint2: hero.tint2, strength: 0.7)
-            GeometryReader { geo in
-                ZStack {
-                    RadialGradient(colors: [heroAmbientTint.opacity(0.4), .clear],
-                                   center: UnitPoint(x: 0.8, y: 0.3),
-                                   startRadius: 0, endRadius: geo.size.width * 0.5)
-                    LinearGradient(colors: heroScrim,
-                                   startPoint: .leading, endPoint: .trailing)
+            ZStack {
+                TVAmbientBackdrop(tint: hero.tint, tint2: hero.tint2, strength: 0.7)
+                GeometryReader { geo in
+                    ZStack {
+                        RadialGradient(colors: [heroAmbientTint.opacity(0.4), .clear],
+                                       center: UnitPoint(x: 0.8, y: 0.3),
+                                       startRadius: 0, endRadius: geo.size.width * 0.5)
+                        LinearGradient(colors: heroScrim,
+                                       startPoint: .leading, endPoint: .trailing)
+                    }
                 }
             }
-            .ignoresSafeArea()
+            // 大幅模糊的封面色只留在内容区，避免溢出到顶栏。
+            .clipped()
+            .mask {
+                LinearGradient(stops: [.init(color: .clear, location: 0),
+                                       .init(color: .black, location: 0.16)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .ignoresSafeArea(edges: [.horizontal, .bottom])
+            .allowsHitTesting(false)
 
             if !store.hasRealLibrary && (!store.library.isReady || store.isPreparingLibraryContent) {
                 ProgressView(String(localized: "library_quick_access_loading"))
