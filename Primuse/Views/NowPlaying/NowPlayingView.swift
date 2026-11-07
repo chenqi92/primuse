@@ -3867,6 +3867,9 @@ struct NowPlayingView: View {
                             playerArtworkOverlays(anchors: anchors)
                         }
                     }
+                    .modifier(PlayerLyricsViewportOverlay(isActive: usesPersistentPhoneLyrics) { collapsesChrome in
+                        lyricsScrollView(collapsesChromeOnScroll: collapsesChrome)
+                    })
                     .onChange(of: canSplit, initial: true) { _, split in
                         isPlayerSplit = split
                     }
@@ -5530,7 +5533,13 @@ struct NowPlayingView: View {
     private func compactLandscapeLyricsPane(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
     ) -> some View {
-        lyricsFullView
+        Group {
+            if usesPersistentPhoneLyrics {
+                PlayerLyricsViewportSlot(allowsInteraction: !isCompactLandscapeLocked)
+            } else {
+                lyricsFullView
+            }
+        }
             .frame(width: CGFloat(metrics.lyricsPaneWidth))
             .frame(maxHeight: .infinity)
     }
@@ -9164,13 +9173,23 @@ struct NowPlayingView: View {
 
     // MARK: - Full Lyrics
 
+    private var usesPersistentPhoneLyrics: Bool {
+        isPhoneCanvas && !usesExpandedLandscapeCanvas && showLyrics
+            && !isLyricsImmersive && !usesSpokenWordTransport && !player.isLiveRadio
+    }
+
     private var lyricsFullView: some View {
         lyricsScrollView(collapsesChromeOnScroll: false)
     }
 
     /// 竖屏播放页里替换封面的那份歌词：往上翻歌词时收起底部控件。
+    @ViewBuilder
     private var collapsibleLyricsView: some View {
-        lyricsScrollView(collapsesChromeOnScroll: textCollapsesOnScroll)
+        if usesPersistentPhoneLyrics {
+            PlayerLyricsViewportSlot(collapsesChromeOnScroll: textCollapsesOnScroll)
+        } else {
+            lyricsScrollView(collapsesChromeOnScroll: textCollapsesOnScroll)
+        }
     }
 
     private func lyricsScrollView(
@@ -15957,6 +15976,14 @@ struct LyricsScrollView: View {
                     else { return }
                     scroll(to: target, proxy: proxy, animated: true, following: previous)
                 }
+                .task(id: geo.size) {
+                    guard geo.size.width > 0, geo.size.height > 0 else { return }
+                    await Task.yield()
+                    guard !Task.isCancelled, isSceneActive,
+                          !isRestoringVisualPosition, !isManuallyBrowsingLyrics,
+                          !isPinchingLyrics, let target = playbackScrollTarget else { return }
+                    scroll(to: target, proxy: proxy, animated: false)
+                }
                 .onChange(of: lyricsTypography) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
                 }
@@ -16054,6 +16081,14 @@ struct LyricsScrollView: View {
                           Date().timeIntervalSince(lastUserScrollTime) >= Self.manualScrollGracePeriod
                     else { return }
                     scroll(to: target, proxy: proxy, animated: true, following: previous)
+                }
+                .task(id: geo.size) {
+                    guard geo.size.width > 0, geo.size.height > 0 else { return }
+                    await Task.yield()
+                    guard !Task.isCancelled, isSceneActive,
+                          !isRestoringVisualPosition, !isManuallyBrowsingLyrics,
+                          !isPinchingLyrics, let target = playbackScrollTarget else { return }
+                    scroll(to: target, proxy: proxy, animated: false)
                 }
                 .onChange(of: lyricsTypography) { _, _ in
                     scheduleLineAutoFollowResume(proxy: proxy, delay: 0)
@@ -16485,12 +16520,11 @@ struct LyricsScrollView: View {
     /// 歌词列表里行与行之间的距离(两种列表的 VStack spacing)。
     private static let lyricsRowSpacing: CGFloat = 12
 
-    /// 行数多到这个份上(播客、有声书生成的文字稿动辄上千行)就改用惰性排版:全部实排时
-    /// 每换一句、每写回一批译文都要把上千行连同逐字排版重算一遍,主线程一直是满的。
-    /// 一首歌的歌词远到不了这么多行,照旧全部排好,滚动定位和过渡都不变。
-    private static let lazyRowThreshold = 240
-
-    private var usesLazyRows: Bool { lyrics.count >= Self.lazyRowThreshold }
+    /// 普通歌词也只排屏幕附近的行，转屏时不必重新测量整首歌的换行。
+    /// 层叠动效依赖相邻行的真实位置，短列表仍保留完整布局。
+    private var usesLazyRows: Bool {
+        lyrics.count >= (lyricsMotion == .cascade ? 240 : 40)
+    }
 
     /// 惰性排版时间奏提示点在格子里面,那一格没建出来就找不到它;改滚到它所在的那一格。
     private func lazyRowScrollTarget(for target: LyricsScrollTarget) -> LyricsScrollTarget {
@@ -18150,6 +18184,62 @@ struct NowPlayingPortraitInsets: Equatable {
     var immersiveContentTop: CGFloat = 0
     var immersiveTopRowLeading: CGFloat = 0
     var immersiveTopRowTrailing: CGFloat = 0
+}
+
+private struct PlayerLyricsViewport {
+    var bounds: Anchor<CGRect>
+    var collapsesChromeOnScroll: Bool
+    var allowsInteraction: Bool
+}
+
+private struct PlayerLyricsViewportKey: PreferenceKey {
+    static var defaultValue: PlayerLyricsViewport? { nil }
+
+    static func reduce(value: inout PlayerLyricsViewport?, nextValue: () -> PlayerLyricsViewport?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+struct PlayerLyricsViewportSlot: View {
+    var collapsesChromeOnScroll = false
+    var allowsInteraction = true
+
+    var body: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .anchorPreference(key: PlayerLyricsViewportKey.self, value: .bounds) {
+                PlayerLyricsViewport(
+                    bounds: $0,
+                    collapsesChromeOnScroll: collapsesChromeOnScroll,
+                    allowsInteraction: allowsInteraction
+                )
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// 布局分支只提供位置，歌词列表留在共同父层，转屏不会重建滚动视图和所有歌词行。
+struct PlayerLyricsViewportOverlay<Lyrics: View>: ViewModifier {
+    var isActive: Bool
+    @ViewBuilder var lyrics: (Bool) -> Lyrics
+
+    func body(content: Content) -> some View {
+        content.overlayPreferenceValue(PlayerLyricsViewportKey.self) { viewport in
+            if isActive {
+                GeometryReader { geometry in
+                    let rect = viewport.map { geometry[$0.bounds] } ?? .zero
+                    lyrics(viewport?.collapsesChromeOnScroll ?? false)
+                        .frame(width: max(0, rect.width), height: max(0, rect.height))
+                        .clipped()
+                        .position(x: rect.midX, y: rect.midY)
+                        .opacity(viewport == nil ? 0 : 1)
+                        .allowsHitTesting(viewport?.allowsInteraction == true)
+                        .accessibilityHidden(viewport == nil || viewport?.allowsInteraction == false)
+                }
+            }
+        }
+    }
 }
 
 /// 播放页按尺寸选的构图:竖版 / 手机横屏骨架 / iPad 双栏,以及 Duo 内屏的分栏与桌面半折。

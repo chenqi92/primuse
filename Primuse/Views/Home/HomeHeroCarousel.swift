@@ -67,15 +67,14 @@ struct HomeHeroFeaturedSkeleton: View {
 
 /// 首页顶部的封面轮播:今天挑出的一圈音乐封面(见 `HomeHeroCarouselSelection`)左右滑着看,
 /// 居中那张最大、两边的依次缩小并朝中间转开、叠在后面。首尾相接,往哪边都滑不到头:
-/// 同一圈卡片在一条很长的虚拟序列上重复摆开(`HomeHeroCarouselLoop`),惰性堆栈只建
-/// 滑到眼前的那几张。
+/// 固定数量的卡片随滑动循环复用，移出视野后才换成下一张封面。
 ///
 /// - 点居中的封面:先放这一首,其余音乐随机接在后面。
 /// - 点「随机播放」:整个音乐曲库洗一遍,不从封面那首开始(#185)。
 /// - 点两边的封面:把它挪到中间。
 /// - 点封面下面的歌名:前往专辑。
 ///
-/// 立体效果只挂在每张定尺寸的卡片上(`visualEffect`),不挂在任何 ScrollView 或它的上层 ——
+/// 立体效果只挂在每张定尺寸的卡片上,不挂在任何 ScrollView 或它的上层 ——
 /// 把透视变换挂到滚动视图上在 iOS 27 上闪退过。
 ///
 /// 手机横屏、iPhone Duo 外屏横握(紧凑高度)时竖着摆放不下,改成歌名与两个按钮在左边一栏、
@@ -94,8 +93,7 @@ struct HomeHeroCarousel: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// 居中那张在虚拟序列里的格子(不是第几首歌,同一首歌每一圈各有一格)。
-    @State private var centeredSlot: Int?
+    @State private var centeredIndex: Int
     @State private var viewportWidth: CGFloat = 0
     /// 上次量到的宽度。首页顶部切到电台、有声书再切回来时轮播是重建的,第一帧按它定卡片大小,
     /// 不先按 393 排、量到实际宽度后再重排并重新居中一次(#283)。
@@ -104,7 +102,7 @@ struct HomeHeroCarousel: View {
     /// 再整组淡进来:不露出还没滚到位的那一帧,封面也不一张张蹦出来。
     @State private var isRevealed = false
     @State private var isPositioned = false
-    @State private var settledSlots: Set<Int> = []
+    @State private var settledSongIDs: Set<String> = []
     @State private var hasPreparedTints = false
 
     init(
@@ -121,7 +119,7 @@ struct HomeHeroCarousel: View {
         self.playFromSong = playFromSong
         self.shuffleAll = shuffleAll
         self.playAll = playAll
-        _centeredSlot = State(initialValue: Self.initialSlot(in: songs))
+        _centeredIndex = State(initialValue: Self.initialIndex(in: songs))
     }
 
     var body: some View {
@@ -179,14 +177,16 @@ struct HomeHeroCarousel: View {
         }
     }
 
-    private func noteSettled(_ slot: Int) {
-        guard !isRevealed, settledSlots.insert(slot).inserted else { return }
+    private func noteSettled(_ songID: String) {
+        guard !isRevealed, settledSongIDs.insert(songID).inserted else { return }
         revealIfReady()
     }
 
     private func revealIfReady() {
-        let center = resolvedCenteredSlot
-        guard isPositioned, (center - 1...center + 1).allSatisfy(settledSlots.contains) else { return }
+        guard !songs.isEmpty, isPositioned, (-1...1).allSatisfy({ offset in
+            let index = HomeHeroCarouselLoop.index(ofSlot: centeredIndex + offset, itemCount: songs.count)
+            return settledSongIDs.contains(songs[index].id)
+        }) else { return }
         reveal()
     }
 
@@ -199,25 +199,13 @@ struct HomeHeroCarousel: View {
         min(HomeHeroCarouselSelection.initialIndex(count: songs.count), max(0, songs.count - 1))
     }
 
-    private static func initialSlot(in songs: [Song]) -> Int {
-        HomeHeroCarouselLoop.middleSlot(forIndex: initialIndex(in: songs), itemCount: songs.count)
-    }
-
-    private var resolvedCenteredSlot: Int {
-        centeredSlot ?? Self.initialSlot(in: songs)
-    }
-
-    private var centeredIndex: Int {
-        HomeHeroCarouselLoop.index(ofSlot: resolvedCenteredSlot, itemCount: songs.count)
-    }
-
     private var centeredSong: Song? {
         songs.indices.contains(centeredIndex) ? songs[centeredIndex] : nil
     }
 
     private var nearbySongs: [Song] {
         guard !songs.isEmpty else { return [] }
-        let center = resolvedCenteredSlot
+        let center = centeredIndex
         var seen = Set<String>()
         return (-2...2).compactMap { offset in
             let song = songs[HomeHeroCarouselLoop.index(ofSlot: center + offset, itemCount: songs.count)]
@@ -228,104 +216,21 @@ struct HomeHeroCarousel: View {
     // MARK: - 轮播
 
     private func carousel(_ metrics: HomeHeroCarouselMetrics) -> some View {
-        // visualEffect 的闭包是 @Sendable 的,读不到视图成员;用到的值先取成局部常量。
-        let side = metrics.cardSide
-        let step = metrics.step
-        let viewport = metrics.viewportWidth
-        let fallbackCenter = metrics.viewportWidth / 2 - metrics.sideMargin
-        let reducesMotion = reduceMotion
-        let centered = resolvedCenteredSlot
-        let ids = songs.map(\.id)
-        let count = songs.count
-        return ScrollViewReader { reader in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: metrics.spacing) {
-                    ForEach(0..<HomeHeroCarouselLoop.slotCount(itemCount: count), id: \.self) { slot in
-                        let song = songs[HomeHeroCarouselLoop.index(ofSlot: slot, itemCount: count)]
-                        card(song, isCentered: slot == centered, side: side) {
-                            pmWithAnimation(.selection) {
-                                centeredSlot = slot
-                                reader.scrollTo(slot, anchor: .center)
-                            }
-                        } onSettled: {
-                            noteSettled(slot)
-                        }
-                        .visualEffect { content, proxy in
-                            // 离中线多远,在这张卡自己的坐标里量:`bounds(of:)` 给的是换算到本地坐标的
-                            // 滚动视图范围。滚动视图坐标系的原点在内容边距以内,拿可见宽度的一半当中线
-                            // 会把每张卡都算偏一个边距;本地坐标与滚动坐标混着减又会把距离算成两倍。
-                            let space = NamedCoordinateSpace.scrollView(axis: .horizontal)
-                            let offset: CGFloat
-                            if let bounds = proxy.bounds(of: space) {
-                                offset = proxy.size.width / 2 - bounds.midX
-                            } else {
-                                offset = proxy.frame(in: space).midX - fallbackCenter
-                            }
-                            return homeHeroCarouselEffect(
-                                content,
-                                offsetFromCenter: offset,
-                                side: side,
-                                step: step,
-                                reduceMotion: reducesMotion
-                            )
-                        }
-                        // 居中的叠在最上面,越往两边越靠后。
-                        .zIndex(-Double(abs(slot - centered)))
-                    }
-                }
-                .padding(.vertical, metrics.verticalBleed)
-                .scrollTargetLayout()
-            }
-            // 甩得重就一口气滑过好几张,停下时对齐到最近的一张。
-            .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
-            .scrollPosition(id: $centeredSlot, anchor: .center)
-            .contentMargins(.horizontal, metrics.sideMargin, for: .scrollContent)
-            // 换了一组(隔天、加了新歌):原来居中的那首还在就停在它身上,不在了回到正中那张。
-            // 格子号按新的一圈重新算,两组张数不同时同一个格子上放的已经不是同一首歌。
-            .onChange(of: ids) { oldIDs, newIDs in
-                let oldIndex = HomeHeroCarouselLoop.index(ofSlot: resolvedCenteredSlot, itemCount: oldIDs.count)
-                let kept = oldIDs.indices.contains(oldIndex) ? newIDs.firstIndex(of: oldIDs[oldIndex]) : nil
-                centeredSlot = HomeHeroCarouselLoop.middleSlot(
-                    forIndex: kept ?? Self.initialIndex(in: songs),
-                    itemCount: newIDs.count
-                )
-            }
-            // scrollPosition 的初值不会把轮播滚过去(编译机模拟器上实测停在第一张,而居中记的是
-            // 正中那张,叠放与压暗全按错的那张算),所以出现、换了一组、宽度变了都显式滚一次。
-            .task(id: RecenterKey(ids: ids, width: viewport)) {
-                // 等这一轮布局把卡片摆上去再滚,内容刚换的同一轮里滚动会落空。
-                await Task.yield()
-                guard !Task.isCancelled else { return }
-                reader.scrollTo(resolvedCenteredSlot, anchor: .center)
-                guard !isPositioned else { return }
-                // 滚动要到下一轮布局才落地,再等两帧才算摆好,骨架才能换成封面。
-                try? await Task.sleep(for: .milliseconds(32))
-                guard !Task.isCancelled else { return }
+        HomeHeroRecyclingCarousel(
+            songIDs: songs.map(\.id), initialIndex: Self.initialIndex(in: songs), metrics: metrics,
+            onSelection: { centeredIndex = $0 },
+            onPositioned: {
                 isPositioned = true
                 revealIfReady()
             }
-            // 真滑到了序列外侧:停稳后换到正中那一圈的同一张,两边又各有上千张可滑。
-            // 两处摆的是同一首歌,换过去看不出来。
-            .onScrollPhaseChange { _, phase in
-                guard phase == .idle,
-                      let recentered = HomeHeroCarouselLoop.recenteredSlot(resolvedCenteredSlot, itemCount: count)
-                else { return }
-                centeredSlot = recentered
-                reader.scrollTo(recentered, anchor: .center)
-            }
-            // 卡片阴影往下伸得比上下留的空间远,裁在滚动区里底下会切出一条平边;改成只裁左右,
-            // 两边转开的卡片照旧不画出这一排。iPhone Duo 竖栏在尾侧时尾侧多放开竖栏那么宽,
-            // 卡片滑进竖栏底下,不在竖栏边上被切掉。
-            .scrollClipDisabled()
-            .pmHorizontalClipExtendingUnderVerticalBar()
+        ) { index, isCentered, bringToCenter in
+            let song = songs[index]
+            card(song, isCentered: isCentered, side: metrics.cardSide,
+                 bringToCenter: bringToCenter, onSettled: { noteSettled(song.id) })
         }
         .frame(height: metrics.carouselHeight)
+        .pmHorizontalClipExtendingUnderVerticalBar()
         .background { glow() }
-    }
-
-    private struct RecenterKey: Equatable {
-        let ids: [String]
-        let width: CGFloat
     }
 
     private func card(
@@ -335,6 +240,9 @@ struct HomeHeroCarousel: View {
         bringToCenter: @escaping () -> Void,
         onSettled: @escaping () -> Void
     ) -> some View {
+        #if DEBUG
+        HomeHeroCarouselDiagnostics.didBuildCard?()
+        #endif
         let shape = RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
         return Button {
             if isCentered {
@@ -491,6 +399,291 @@ struct HomeHeroCarousel: View {
         return "\(song.title), \(artist)"
     }
 }
+
+private struct HomeHeroRecyclingCarousel<Card: View>: UIViewControllerRepresentable {
+    let songIDs: [String]
+    let initialIndex: Int
+    let metrics: HomeHeroCarouselMetrics
+    let onSelection: (Int) -> Void
+    let onPositioned: () -> Void
+    @ViewBuilder let card: (Int, Bool, @escaping () -> Void) -> Card
+
+    func makeUIViewController(context: Context) -> HomeHeroCarouselController {
+        HomeHeroCarouselController()
+    }
+
+    func updateUIViewController(_ controller: HomeHeroCarouselController, context: Context) {
+        let environment = context.environment
+        controller.update(
+            songIDs: songIDs, initialIndex: initialIndex, metrics: metrics,
+            reduceMotion: environment.accessibilityReduceMotion,
+            direction: environment.layoutDirection == .rightToLeft ? -1 : 1,
+            onSelection: onSelection, onPositioned: onPositioned
+        ) { index, centered, select in
+            AnyView(card(index, centered, select).id(songIDs[index]).environment(\.self, environment))
+        }
+    }
+}
+
+/// 在同一布局周期内平移滚动原点和现有卡片，手指与惯性滚动都不会碰到循环边界。
+final class HomeHeroCarouselScrollView: UIScrollView {
+    var layoutCards: (() -> Void)?
+    var moveSelection: ((Int) -> Void)?
+    private(set) var centeredItemIndex = 0
+    private(set) var cardStep: CGFloat = 1
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutCards?()
+    }
+
+    func recordSelection(_ index: Int, step: CGFloat) {
+        centeredItemIndex = index
+        cardStep = step
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        switch direction {
+        case .left, .next: moveSelection?(1)
+        case .right, .previous: moveSelection?(-1)
+        default: return super.accessibilityScroll(direction)
+        }
+        return true
+    }
+}
+
+private final class HomeHeroCarouselController: UIViewController, UIScrollViewDelegate {
+    @MainActor
+    private final class Cell {
+        let host = UIHostingController(rootView: AnyView(EmptyView()))
+        var itemIndex = -1
+        var centered = false
+    }
+
+    private let scroll = HomeHeroCarouselScrollView()
+    private var cells: [Cell] = []
+    private var songIDs: [String] = []
+    private var anchorIndex = 0
+    private var metrics = HomeHeroCarouselMetrics(viewportWidth: 0)
+    private var previousStep: CGFloat = 0
+    private var previousSize = CGSize.zero
+    private var reduceMotion = false
+    private var direction = 1
+    private var layingOut = false
+    private var animatingSelection = false
+    private var needsContentUpdate = true
+    private var publishedIndex: Int?
+    private var publicationPending = false
+    private var hasPositioned = false
+    private var onSelection: (Int) -> Void = { _ in }
+    private var onPositioned: () -> Void = {}
+    private var makeCard: ((Int, Bool, @escaping () -> Void) -> AnyView)?
+
+    override func loadView() {
+        view = scroll
+        scroll.backgroundColor = .clear
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.showsVerticalScrollIndicator = false
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.decelerationRate = .fast
+        scroll.alwaysBounceHorizontal = true
+        scroll.clipsToBounds = false
+        scroll.delegate = self
+        scroll.accessibilityIdentifier = "home.hero.carousel"
+        scroll.layoutCards = { [weak self] in self?.layoutCards() }
+        scroll.moveSelection = { [weak self] delta in
+            guard let self else { return }
+            let position = self.scroll.contentOffset.x / self.metrics.step - CGFloat(self.cells.count / 2)
+            self.select(offset: Int(position.rounded()) + delta)
+        }
+    }
+
+    func update(
+        songIDs: [String], initialIndex: Int, metrics: HomeHeroCarouselMetrics,
+        reduceMotion: Bool, direction: Int, onSelection: @escaping (Int) -> Void,
+        onPositioned: @escaping () -> Void,
+        makeCard: @escaping (Int, Bool, @escaping () -> Void) -> AnyView
+    ) {
+        loadViewIfNeeded()
+        let itemsChanged = self.songIDs != songIDs
+        if itemsChanged {
+            let selectedID = self.songIDs.indices.contains(scroll.centeredItemIndex)
+                ? self.songIDs[scroll.centeredItemIndex] : nil
+            anchorIndex = selectedID.flatMap { songIDs.firstIndex(of: $0) }
+                ?? min(initialIndex, max(0, songIDs.count - 1))
+            self.songIDs = songIDs
+            previousStep = 0
+            publishedIndex = nil
+            animatingSelection = false
+        }
+        if self.direction != direction {
+            if !itemsChanged { anchorIndex = scroll.centeredItemIndex }
+            previousStep = 0
+        }
+        self.metrics = metrics
+        self.reduceMotion = reduceMotion
+        self.direction = direction
+        self.onSelection = onSelection
+        self.onPositioned = onPositioned
+        self.makeCard = makeCard
+        needsContentUpdate = true
+        let count = HomeHeroCarouselLoop.slotCount(itemCount: songIDs.count)
+        while cells.count > count {
+            let cell = cells.removeLast()
+            cell.host.willMove(toParent: nil)
+            cell.host.view.removeFromSuperview()
+            cell.host.removeFromParent()
+        }
+        while cells.count < count {
+            let cell = Cell()
+            addChild(cell.host)
+            cell.host.view.backgroundColor = .clear
+            cell.host.safeAreaRegions = []
+            cell.host.view.accessibilityIdentifier = "home.hero.card"
+            scroll.addSubview(cell.host.view)
+            cell.host.didMove(toParent: self)
+            cells.append(cell)
+        }
+        scroll.setNeedsLayout()
+    }
+
+    private func itemIndex(at offset: Int) -> Int {
+        HomeHeroCarouselLoop.index(ofSlot: anchorIndex + offset * direction, itemCount: songIDs.count)
+    }
+
+    private func layoutCards() {
+        guard !layingOut, !cells.isEmpty, scroll.bounds.width > 0, scroll.bounds.height > 0 else { return }
+        layingOut = true
+        defer { layingOut = false }
+        let middle = cells.count / 2
+        let step = metrics.step
+        let origin = CGFloat(middle) * step
+        if previousStep != step || previousSize != scroll.bounds.size {
+            let fraction = previousStep > 0
+                ? (scroll.contentOffset.x - CGFloat(middle) * previousStep) / previousStep : 0
+            scroll.contentSize = CGSize(width: scroll.bounds.width + CGFloat(cells.count - 1) * step,
+                                        height: scroll.bounds.height)
+            scroll.setContentOffset(CGPoint(x: origin + fraction * step, y: 0), animated: false)
+            previousStep = step
+            previousSize = scroll.bounds.size
+        }
+        var displacement = (scroll.contentOffset.x - origin) / step
+        if !animatingSelection, abs(displacement) >= 1 {
+            let shift = Int(displacement.rounded(.towardZero))
+            anchorIndex = itemIndex(at: shift)
+            // 已在屏内的 hosting view 保持身份，仅把离屏端的卡片搬到另一端。
+            let rotation = HomeHeroCarouselLoop.index(ofSlot: shift, itemCount: cells.count)
+            cells = Array(cells[rotation...]) + Array(cells[..<rotation])
+            scroll.contentOffset.x -= CGFloat(shift) * step
+            displacement -= CGFloat(shift)
+        }
+        let nearest = Int(displacement.rounded())
+        let selected = itemIndex(at: nearest)
+        scroll.recordSelection(selected, step: step)
+        let side = metrics.cardSide
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (slot, cell) in cells.enumerated() {
+            let offset = slot - middle
+            let index = itemIndex(at: offset)
+            let centered = offset == nearest
+            if needsContentUpdate || cell.itemIndex != index || cell.centered != centered {
+                cell.itemIndex = index
+                cell.centered = centered
+                cell.host.rootView = makeCard?(index, centered, { [weak self, weak cell] in
+                    guard let self, let cell, let slot = self.cells.firstIndex(where: { $0 === cell }) else { return }
+                    self.select(offset: slot - self.cells.count / 2)
+                }) ?? AnyView(EmptyView())
+            }
+            let position = CGFloat(offset) - displacement
+            let distance = min(abs(position), 6)
+            let spread = homeHeroCarouselInterpolate([0, 0.52, 0.74, 0.9, 1.02], at: distance, tail: 0.1)
+            let scale = homeHeroCarouselInterpolate([1, 0.8, 0.66, 0.56, 0.48], at: distance, tail: 0)
+            let angle = reduceMotion ? 0 : max(-1, min(1, position)) * -.pi * 34 / 180
+            var transform = CATransform3DIdentity
+            transform.m34 = -0.5 / side
+            transform = CATransform3DRotate(transform, angle, 0, 1, 0)
+            transform = CATransform3DScale(transform, scale, scale, 1)
+            cell.host.view.bounds = CGRect(x: 0, y: 0, width: side, height: side)
+            cell.host.view.center = CGPoint(
+                x: scroll.bounds.midX + (position < 0 ? -1 : 1) * spread * side,
+                y: scroll.bounds.height / 2
+            )
+            cell.host.view.layer.transform = transform
+            cell.host.view.alpha = distance <= 3 ? 1 : max(0, 4 - distance)
+            cell.host.view.isHidden = distance >= 4
+            cell.host.view.layer.zPosition = -distance
+        }
+        // UIKit 命中测试按 subview 顺序遍历，需要与视觉叠放顺序一致。
+        for cell in cells.sorted(by: { $0.host.view.layer.zPosition < $1.host.view.layer.zPosition }) {
+            scroll.bringSubviewToFront(cell.host.view)
+        }
+        CATransaction.commit()
+        needsContentUpdate = false
+        publishSelection()
+    }
+
+    private func publishSelection() {
+        guard !publicationPending, publishedIndex != scroll.centeredItemIndex || !hasPositioned else { return }
+        publicationPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.publicationPending = false
+            let index = self.scroll.centeredItemIndex
+            guard self.songIDs.indices.contains(index) else { return }
+            if self.publishedIndex != index {
+                self.publishedIndex = index
+                self.onSelection(index)
+            }
+            if !self.hasPositioned {
+                self.hasPositioned = true
+                self.onPositioned()
+            }
+        }
+    }
+
+    private func select(offset: Int) {
+        let x = CGFloat(cells.count / 2 + offset) * metrics.step
+        animatingSelection = !reduceMotion && abs(scroll.contentOffset.x - x) > 0.1
+        scroll.setContentOffset(CGPoint(x: x, y: 0), animated: animatingSelection)
+        scroll.setNeedsLayout()
+    }
+
+    private func settleSelection() {
+        let position = scroll.contentOffset.x / metrics.step - CGFloat(cells.count / 2)
+        select(offset: Int(position.rounded()))
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        animatingSelection = false
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                  targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        targetContentOffset.pointee.x = (targetContentOffset.pointee.x / metrics.step).rounded() * metrics.step
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { settleSelection() }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        // 惯性期间重置滚动原点后，UIKit 的终点可能偏离卡片中心。
+        settleSelection()
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        animatingSelection = false
+        scroll.setNeedsLayout()
+    }
+}
+
+#if DEBUG
+@MainActor
+enum HomeHeroCarouselDiagnostics {
+    static var didBuildCard: (() -> Void)?
+}
+#endif
 
 /// 轮播的骨架:和轮播同样的位置、大小与转角。首页加载占位画整套(连两个按钮);
 /// 轮播自己还没摆好时只在封面和歌名上各盖一块(`HomeHeroCarouselSkeletonCards` /

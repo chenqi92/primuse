@@ -10,8 +10,6 @@ import UIKit
 /// - 「跟随手机方向转屏」关掉时，播放页开着就停在当时的方向，只按那颗键转。
 /// - 设置 › 界面里的「屏幕方向」固定竖屏或横屏时，整个 App 停在那个方向（`InterfaceOrientationPreference`），
 ///   「跟随手机方向转屏」不起作用；播放页的切换键照样能临时转过去，收起播放页回到固定的方向。MV 全屏横着看，盖过这几样。
-/// - 转屏本身是系统的整页旋转：在应用之外转整个窗口，`UIView.setAnimationsEnabled` 关不掉；四角露出来的黑在
-///   应用的窗口外面。转的前半程一侧那一大块是播放页色场最底下那层纯色，见 `AdaptiveNowPlayingBackdrop`。
 ///
 /// 只在手机上起作用：平板与展开的折叠屏内屏不接受方向请求，也没有手机那副横屏播放页。
 @MainActor
@@ -118,7 +116,7 @@ enum PlayerOrientationControl {
             releasesWhenDeviceAgrees: InterfaceOrientationLockPolicy.followsDevice(followsDevice, preference: preference)
         )
         let target: UIInterfaceOrientationMask = toLandscape ? preferredLandscape : .portrait
-        // 系统拒绝请求时在后台队列回调：闭包不能沿用外面的主线程隔离，否则运行时的隔离检查当场崩溃。
+        // 请求失败可能从后台队列回调，不继承主线程隔离。
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: target)) { @Sendable error in
             plog("⚠️ Player orientation request failed: \(error.localizedDescription)")
         }

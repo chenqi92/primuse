@@ -9,6 +9,264 @@ import XCTest
 
 @MainActor
 final class PlayerBackdropImagingTests: XCTestCase {
+    func testHomeCarouselReusesCardsAcrossLoopsAndResizing() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let suite = "HomeCarouselRotation.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        let library = MusicLibrary(storageDirectory: directory, startsPreparing: true)
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            activateAudioSession: { _ in }
+        )
+        let songs = (0..<20).map {
+            Song(id: "carousel-\($0)", title: "Paper Lantern \($0)", fileFormat: .mp3,
+                 filePath: "", sourceID: suite)
+        }
+        let fixture = HomeCarouselTestData(songs: songs)
+        var builtCards = 0
+        HomeHeroCarouselDiagnostics.didBuildCard = { builtCards += 1 }
+        let host = UIHostingController(rootView:
+            GeometryReader { geometry in
+                HomeHeroCarousel(
+                    songs: fixture.songs,
+                    compactCanvasHeight: geometry.size.width > geometry.size.height ? geometry.size.height : nil,
+                    isInteractive: false, playFromSong: { _ in }, shuffleAll: {}, playAll: {}
+                )
+                .environment(\.layoutDirection, fixture.direction)
+            }
+            .environment(library)
+            .environment(player)
+            .environment(CoverTintProvider())
+            .environment(SourceManager(sourcesProvider: { [] }))
+            .defaultAppStorage(defaults)
+        )
+        let window = UIWindow(windowScene: scene)
+        let root = UIViewController()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        root.addChild(host)
+        root.view.addSubview(host.view)
+        host.didMove(toParent: root)
+        defer {
+            HomeHeroCarouselDiagnostics.didBuildCard = nil
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        var scrollIdentity: ObjectIdentifier?
+        var cardIdentities: Set<ObjectIdentifier>?
+        for size in [CGSize(width: 393, height: 740), CGSize(width: 852, height: 300),
+                     CGSize(width: 393, height: 740)] {
+            let before = builtCards
+            host.view.frame = CGRect(origin: .zero, size: size)
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(750))
+            XCTAssertLessThan(builtCards - before, 100,
+                              "Resizing must not construct the carousel's 4,000 virtual artwork cards")
+            let scroll = try XCTUnwrap(playerLyricsScrollView(in: host.view))
+            let carousel = try XCTUnwrap(scroll as? HomeHeroCarouselScrollView)
+            let cards = scroll.subviews.filter { $0.accessibilityIdentifier == "home.hero.card" }
+            XCTAssertEqual(cards.count, 13)
+            let identities = Set(cards.map(ObjectIdentifier.init))
+            if let cardIdentities { XCTAssertEqual(identities, cardIdentities) }
+            else { cardIdentities = identities }
+            XCTAssertLessThan(scroll.contentSize.width, scroll.bounds.width + 13 * carousel.cardStep)
+            let initialIndex = carousel.centeredItemIndex
+            for direction in [1, -1] {
+                for lap in 1...40 {
+                    scroll.contentOffset.x += CGFloat(direction * 3) * carousel.cardStep
+                    scroll.layoutIfNeeded()
+                    let expected = HomeHeroCarouselLoop.index(
+                        ofSlot: initialIndex + (direction == 1 ? lap * 3 : 120 - lap * 3),
+                        itemCount: songs.count
+                    )
+                    XCTAssertEqual(carousel.centeredItemIndex, expected)
+                    XCTAssertEqual(Set(scroll.subviews.filter {
+                        $0.accessibilityIdentifier == "home.hero.card"
+                    }.map(ObjectIdentifier.init)), identities, "Scrolling must reuse the same native card containers")
+                    XCTAssertEqual(scroll.contentOffset.x, 6 * carousel.cardStep, accuracy: 0.1)
+                }
+            }
+            XCTAssertEqual(carousel.centeredItemIndex, initialIndex)
+            if let scrollIdentity {
+                XCTAssertEqual(ObjectIdentifier(scroll), scrollIdentity)
+            } else {
+                scrollIdentity = ObjectIdentifier(scroll)
+            }
+        }
+
+        let carousel = try XCTUnwrap(playerLyricsScrollView(in: host.view) as? HomeHeroCarouselScrollView)
+        for decelerates in [false, true] {
+            for fraction in [0.35, -0.35, 0.7, -0.7] {
+                let start = carousel.centeredItemIndex
+                carousel.contentOffset.x += (3 + fraction) * carousel.cardStep
+                carousel.layoutIfNeeded()
+                if decelerates {
+                    carousel.delegate?.scrollViewDidEndDecelerating?(carousel)
+                } else {
+                    carousel.delegate?.scrollViewDidEndDragging?(carousel, willDecelerate: false)
+                }
+                try await Task.sleep(for: .milliseconds(400))
+                XCTAssertEqual(carousel.centeredItemIndex,
+                               HomeHeroCarouselLoop.index(ofSlot: start + Int((3 + fraction).rounded()),
+                                                          itemCount: songs.count))
+                XCTAssertEqual(carousel.contentOffset.x, 6 * carousel.cardStep, accuracy: 0.1,
+                               "Ending a drag or deceleration must center the nearest card after recycling")
+            }
+        }
+        let selectedID = fixture.songs[carousel.centeredItemIndex].id
+        fixture.songs.reverse()
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(fixture.songs[carousel.centeredItemIndex].id, selectedID,
+                       "Refreshing the recommendations must retain the selected song")
+        fixture.direction = .rightToLeft
+        try await Task.sleep(for: .milliseconds(150))
+        let rtlStart = carousel.centeredItemIndex
+        carousel.contentOffset.x += 3 * carousel.cardStep
+        carousel.layoutIfNeeded()
+        XCTAssertEqual(carousel.centeredItemIndex,
+                       HomeHeroCarouselLoop.index(ofSlot: rtlStart - 3, itemCount: songs.count))
+        fixture.songs = [fixture.songs[carousel.centeredItemIndex]]
+        try await Task.sleep(for: .milliseconds(150))
+        for _ in 0..<20 {
+            carousel.contentOffset.x += 5 * carousel.cardStep
+            carousel.layoutIfNeeded()
+            XCTAssertEqual(carousel.centeredItemIndex, 0)
+        }
+        fixture.songs = []
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(carousel.subviews.filter { $0.accessibilityIdentifier == "home.hero.card" }.isEmpty)
+        fixture.songs = songs
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(carousel.subviews.filter { $0.accessibilityIdentifier == "home.hero.card" }.count, 13)
+        XCTAssertTrue(songs.indices.contains(carousel.centeredItemIndex))
+    }
+
+    func testManualOrientationCompletesTheSystemRotationTransition() async throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            throw XCTSkip("Manual player orientation is only available on iPhone")
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let preference = InterfaceOrientationPreference(
+            storedValue: UserDefaults.standard.string(forKey: InterfaceOrientationPreference.storageKey)
+        )
+        let suite = "PlayerRotationLyrics.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            activateAudioSession: { _ in }
+        )
+        player.currentTime = 130
+        let lines = (0..<80).map { index in
+            LyricLine(
+                id: "rotation-line-\(index)", timestamp: Double(index * 5),
+                text: index.isMultiple(of: 3)
+                    ? "The morning train carries a paper lantern beyond the quiet valley \(index)"
+                    : "A silver cloud follows the river \(index)",
+                isSynchronized: true
+            )
+        }
+        let lyricsProbe = PlayerLyricsLifecycleProbe.State()
+        let controller = PlayerRotationProbeController(rootView: PlayerRotationProbeView(
+            lyricsProbe: lyricsProbe, player: player, lyrics: lines, defaults: defaults
+        ))
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        UIView.performWithoutAnimation {
+            PlayerOrientationControl.preferenceChanged(.automatic)
+            window.layoutIfNeeded()
+        }
+        defer {
+            PlayerOrientationControl.playerBecameInactive()
+            PlayerOrientationControl.preferenceChanged(preference)
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+        }
+
+        var scrollIdentity: ObjectIdentifier?
+        var settledAnchors: [Bool: CGFloat] = [:]
+        for followsDevice in [false, true, false, true] {
+            let wasLandscape = scene.interfaceOrientation.isLandscape
+            controller.animatedTransitions.removeAll()
+            controller.completedTransitions = 0
+            PlayerOrientationControl.toggle(fromLandscape: wasLandscape, followsDevice: followsDevice)
+            let deadline = Date.now.addingTimeInterval(3)
+            while Date.now < deadline {
+                if scene.interfaceOrientation.isLandscape != wasLandscape,
+                   (controller.view.bounds.width > controller.view.bounds.height) != wasLandscape,
+                   controller.completedTransitions > 0 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertNotEqual(scene.interfaceOrientation.isLandscape, wasLandscape)
+            XCTAssertNotEqual(controller.view.bounds.width > controller.view.bounds.height, wasLandscape)
+            XCTAssertFalse(controller.animatedTransitions.isEmpty, "The test must observe an actual window transition")
+            XCTAssertTrue(controller.animatedTransitions.contains(true), "Manual rotation must preserve the system transition")
+            XCTAssertGreaterThan(
+                controller.completedTransitions, 0,
+                "The transition to \(wasLandscape ? "portrait" : "landscape") must finish; followsDevice=\(followsDevice)"
+            )
+            XCTAssertEqual(lyricsProbe.mountCount, 1, "The lyric scroll surface must survive layout changes")
+            XCTAssertEqual(lyricsProbe.unmountCount, 0)
+            let lyricView = try XCTUnwrap(lyricsProbe.view)
+            XCTAssertGreaterThan(lyricView.bounds.width, 0)
+            XCTAssertGreaterThan(lyricView.bounds.height, 0)
+            try await Task.sleep(for: .milliseconds(100))
+            let scroll = try XCTUnwrap(playerLyricsScrollView(in: controller.view))
+            if let scrollIdentity {
+                XCTAssertEqual(ObjectIdentifier(scroll), scrollIdentity, "Rotation must retain the native lyric scroll view")
+            } else {
+                scrollIdentity = ObjectIdentifier(scroll)
+            }
+            XCTAssertGreaterThan(scroll.contentOffset.y, 500, "The current lyric must remain midway through the song")
+            let anchor = try currentLyricInkAnchor(in: scroll)
+            XCTAssertGreaterThan(anchor, 0, "The current lyric must remain visible")
+            XCTAssertLessThan(anchor, scroll.bounds.height)
+            let landscape = scene.interfaceOrientation.isLandscape
+            if let settledAnchor = settledAnchors[landscape] {
+                XCTAssertEqual(anchor, settledAnchor, accuracy: 2, "Returning to a layout must restore the current lyric anchor")
+            }
+            settledAnchors[landscape] = anchor
+            XCTAssertTrue(UIView.areAnimationsEnabled, "Other app animations must remain enabled")
+        }
+    }
+
+    private func currentLyricInkAnchor(in scroll: UIScrollView) throws -> CGFloat {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: scroll.bounds.size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: scroll.bounds.size))
+            scroll.drawHierarchy(in: CGRect(origin: .zero, size: scroll.bounds.size), afterScreenUpdates: true)
+        }
+        add(XCTAttachment(image: image))
+        let bitmap = try XCTUnwrap(image.cgImage)
+        let pixels = try rgbaPixels(of: bitmap)
+        var inkRows: [Int] = []
+        for y in 0..<bitmap.height {
+            let hasInk = (0..<bitmap.width).contains { x in
+                let offset = (y * bitmap.width + x) * 4
+                return pixels[offset] < 45 && pixels[offset + 1] < 45 && pixels[offset + 2] < 45
+            }
+            if hasInk { inkRows.append(y) }
+        }
+        let first = try XCTUnwrap(inkRows.first, "The active lyric must be rendered inside the viewport")
+        let last = try XCTUnwrap(inkRows.last)
+        return CGFloat(first + last) / 2
+    }
+
     func testDiscPNGPreservesTransparentCenterThroughDiskCache() throws {
         let original = try transparentDiscPNG()
         let encoded = try XCTUnwrap(PlayerBackdropImaging.downscaledPNG(from: original, maxPixel: 100))
@@ -405,5 +663,102 @@ final class PlayerBackdropImagingTests: XCTestCase {
         let reloaded = PlayerBackdropSettingsStore(defaults: defaults, registersWithCloud: false)
         XCTAssertEqual(reloaded.customImageIDs, [second])
         XCTAssertEqual(reloaded.settings.source, .customImages)
+    }
+}
+
+@MainActor
+@Observable
+private final class HomeCarouselTestData {
+    var songs: [Song]
+    var direction: LayoutDirection = .leftToRight
+
+    init(songs: [Song]) { self.songs = songs }
+}
+
+@MainActor
+private final class PlayerRotationProbeController: UIHostingController<PlayerRotationProbeView> {
+    var animatedTransitions: [Bool] = []
+    var completedTransitions = 0
+
+    override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        animatedTransitions.append(coordinator.isAnimated)
+        coordinator.animateAlongsideTransition(in: view, animation: nil) { [weak self] _ in
+            self?.completedTransitions += 1
+        }
+    }
+}
+
+private struct PlayerRotationProbeView: View {
+    let lyricsProbe: PlayerLyricsLifecycleProbe.State
+    let player: AudioPlayerService
+    let lyrics: [LyricLine]
+    let defaults: UserDefaults
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if geometry.size.width > geometry.size.height {
+                    HStack {
+                        Color.cyan.frame(width: 160)
+                        PlayerLyricsViewportSlot()
+                    }
+                } else {
+                    VStack {
+                        Color.cyan.frame(height: 80)
+                        PlayerLyricsViewportSlot(collapsesChromeOnScroll: true)
+                        Color.cyan.frame(height: 120)
+                    }
+                }
+            }
+            .modifier(PlayerLyricsViewportOverlay(isActive: true) { _ in
+                LyricsScrollView(
+                    lyrics: lyrics, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+                    isResolvingLyrics: false, player: player, songID: "rotation-lyrics",
+                    isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
+                    isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
+                    onBackgroundTap: {}, onShareLyricLine: { _ in },
+                    translatedTextByLineID: [:], translationActivity: .idle
+                )
+                .defaultAppStorage(defaults)
+                .background(PlayerLyricsLifecycleProbe(state: lyricsProbe))
+            })
+        }
+        .background(Color.cyan)
+        .environment(\.colorScheme, .light)
+        .ignoresSafeArea()
+    }
+}
+
+@MainActor
+private func playerLyricsScrollView(in view: UIView) -> UIScrollView? {
+    if let scroll = view as? UIScrollView { return scroll }
+    return view.subviews.lazy.compactMap { playerLyricsScrollView(in: $0) }.first
+}
+
+private struct PlayerLyricsLifecycleProbe: UIViewRepresentable {
+    @MainActor
+    final class State {
+        var mountCount = 0
+        var unmountCount = 0
+        weak var view: UIView?
+    }
+
+    let state: State
+
+    func makeCoordinator() -> State { state }
+
+    func makeUIView(context: Context) -> UIView {
+        state.mountCount += 1
+        let view = UIView()
+        view.backgroundColor = .systemTeal
+        state.view = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: State) {
+        coordinator.unmountCount += 1
     }
 }

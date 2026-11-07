@@ -7451,43 +7451,18 @@ public struct HomeHeroCarouselSeeds: Equatable, Sendable {
     }
 }
 
-/// 首页顶部封面轮播首尾相接:同一组卡片在一条很长的虚拟序列上一圈圈重复摆开,
-/// 轮播只渲染滑到眼前的那几张,左右都滑不到头。
-///
-/// 一出现停在正中那一圈,两头各有上千张的余量;真滑到外侧,停稳后换算回正中那一圈的
-/// 同一张(`recenteredSlot`)。序列不做得更长:滚动偏移上百万点时,渲染用的单精度坐标
-/// 精度不够,卡片会抖。
+/// 首页轮播只维护固定数量的卡片，移出视野的卡片循环复用。
 public enum HomeHeroCarouselLoop {
-    /// 虚拟序列大约这么多格。
-    static let targetSlotCount = 4_000
+    public static let capacity = 13
 
-    /// 虚拟序列一共多少格:整圈,圈数是奇数,正中有完整的一圈。
     public static func slotCount(itemCount: Int) -> Int {
-        guard itemCount > 0 else { return 0 }
-        var laps = max(3, targetSlotCount / itemCount)
-        if laps.isMultiple(of: 2) { laps += 1 }
-        return laps * itemCount
+        itemCount > 0 ? capacity : 0
     }
 
-    /// 第 `index` 张卡在正中那一圈里的格子。
-    public static func middleSlot(forIndex index: Int, itemCount: Int) -> Int {
-        guard itemCount > 0 else { return 0 }
-        let laps = slotCount(itemCount: itemCount) / itemCount
-        return (laps / 2) * itemCount + min(max(index, 0), itemCount - 1)
-    }
-
-    /// 格子上放的是第几张卡。
     public static func index(ofSlot slot: Int, itemCount: Int) -> Int {
         guard itemCount > 0 else { return 0 }
         let remainder = slot % itemCount
         return remainder >= 0 ? remainder : remainder + itemCount
-    }
-
-    /// 停在离正中超过四分之一序列的地方时,返回正中那一圈里同一张卡的格子;否则 nil。
-    public static func recenteredSlot(_ slot: Int, itemCount: Int) -> Int? {
-        let total = slotCount(itemCount: itemCount)
-        guard total > 0, abs(slot - total / 2) > total / 4 else { return nil }
-        return middleSlot(forIndex: index(ofSlot: slot, itemCount: itemCount), itemCount: itemCount)
     }
 }
 

@@ -269,48 +269,25 @@ struct HomeHeroCarouselSeedsTests {
 struct HomeHeroCarouselLoopTests {
     private typealias Loop = HomeHeroCarouselLoop
 
-    @Test("虚拟序列是整圈、圈数为奇数,长度不超过五千格")
+    @Test("轮播槽位数量不随歌曲数量或循环次数增长")
     func slotCount() {
-        for count in [1, 3, 7, 8, 48, 500, 5_000] {
-            let total = Loop.slotCount(itemCount: count)
-            #expect(total.isMultiple(of: count))
-            #expect(!(total / count).isMultiple(of: 2))
-            #expect(total / count >= 3)
-            #expect(total <= max(5_000, count * 3))
-        }
         #expect(Loop.slotCount(itemCount: 0) == 0)
+        for count in [1, 3, 7, 48, 500, 5_000] {
+            #expect(Loop.slotCount(itemCount: count) == 13)
+        }
     }
 
-    @Test("正中那一圈的格子换算回原来的卡,负数格子也对")
+    @Test("跨越首尾和多圈滑动后仍对应正确歌曲")
     func slotIndexMapping() {
-        let count = 48
-        for index in [0, 1, 23, 47] {
-            let slot = Loop.middleSlot(forIndex: index, itemCount: count)
-            #expect(Loop.index(ofSlot: slot, itemCount: count) == index)
-            #expect(Loop.index(ofSlot: slot + count * 5, itemCount: count) == index)
-        }
-        #expect(Loop.index(ofSlot: -1, itemCount: count) == 47)
-        #expect(Loop.index(ofSlot: -48, itemCount: count) == 0)
-        let middle = Loop.middleSlot(forIndex: 23, itemCount: count)
-        let total = Loop.slotCount(itemCount: count)
-        #expect(abs(middle - total / 2) < count)
-    }
-
-    @Test("中间一段不动,滑到外侧换回正中那一圈的同一张")
-    func recentering() {
-        let count = 48
-        let total = Loop.slotCount(itemCount: count)
-        let middle = Loop.middleSlot(forIndex: 10, itemCount: count)
-        #expect(Loop.recenteredSlot(middle, itemCount: count) == nil)
-        #expect(Loop.recenteredSlot(middle + count * 10, itemCount: count) == nil)
-        for far in [5, total - 3, -20, total + 40] {
-            let recentered = Loop.recenteredSlot(far, itemCount: count)
-            #expect(recentered != nil)
-            if let recentered {
-                #expect(Loop.index(ofSlot: recentered, itemCount: count) == Loop.index(ofSlot: far, itemCount: count))
-                #expect(Loop.recenteredSlot(recentered, itemCount: count) == nil)
+        for count in [1, 3, 48, 5_000] {
+            for index in 0..<min(count, 48) {
+                for lap in [-1_000, -1, 0, 1, 1_000] {
+                    #expect(Loop.index(ofSlot: index + count * lap, itemCount: count) == index)
+                }
             }
+            #expect(Loop.index(ofSlot: -1, itemCount: count) == count - 1)
+            #expect(Loop.index(ofSlot: count, itemCount: count) == 0)
         }
-        #expect(Loop.recenteredSlot(3, itemCount: 0) == nil)
+        #expect(Loop.index(ofSlot: 10, itemCount: 0) == 0)
     }
 }

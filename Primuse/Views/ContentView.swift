@@ -1903,6 +1903,7 @@ struct ContentView: View {
                     minimalRoot
                 }
             }
+            .modifier(PlayerCoveredContentLayout(isPlayerPresented: $showNowPlaying))
             // 这两个开关只由页面里的批量选择与 CarPlay 编辑器上报。挂在整个 ZStack
             // 上时，按需挂载的播放页也落在请求范围里：第一次展开播放页，SwiftUI 要
             // 顺着整棵播放页视图树建这两个 Preference 的汇总，采样里这就是展开那一卡。
@@ -2486,6 +2487,39 @@ private struct AuthoritativeSongRemovalObserver: View {
 }
 
 // MARK: - Player Overlay
+
+private struct PlayerCoveredContentLayout: ViewModifier {
+    @Binding var isPlayerPresented: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var restingSize: CGSize?
+    @State private var restingHorizontalClass: UserInterfaceSizeClass?
+    @State private var restingVerticalClass: UserInterfaceSizeClass?
+
+    func body(content: Content) -> some View {
+        GeometryReader { geometry in
+            let size = isPlayerPresented ? restingSize ?? geometry.size : geometry.size
+            content
+                .environment(\.horizontalSizeClass, isPlayerPresented ? restingHorizontalClass : horizontalSizeClass)
+                .environment(\.verticalSizeClass, isPlayerPresented ? restingVerticalClass : verticalSizeClass)
+                .frame(width: size.width, height: size.height)
+                .onChange(of: isPlayerPresented, initial: true) { _, presented in
+                    if !presented {
+                        remember(size: geometry.size)
+                    }
+                }
+                .onChange(of: geometry.size) { _, size in
+                    if !isPlayerPresented { remember(size: size) }
+                }
+        }
+    }
+
+    private func remember(size: CGSize) {
+        restingSize = size
+        restingHorizontalClass = horizontalSizeClass
+        restingVerticalClass = verticalSizeClass
+    }
+}
 
 /// 播放页挂不挂由这一层读，ContentView 的 body 只递绑定、不读值。读值放在 ContentView 里，
 /// 每次展开、收起整个 ContentView 都要重算，底下的首页跟着重建、重新排版，正好压在展开的
