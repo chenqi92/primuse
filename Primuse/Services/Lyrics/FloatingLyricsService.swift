@@ -21,15 +21,24 @@ final class FloatingLyricsService {
     @ObservationIgnored private var lines: [LyricLine] = []
     @ObservationIgnored private var identity: String?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var cacheReloadTask: Task<Void, Never>?
     @ObservationIgnored private var loadGeneration: UInt = 0
     @ObservationIgnored private var observationGeneration: UInt = 0
     @ObservationIgnored private var observing = false
     @ObservationIgnored private var lyricsObserver: NSObjectProtocol?
+    @ObservationIgnored private var lyricsCacheObserver: NSObjectProtocol?
     @ObservationIgnored var onPresentationChange: (() -> Void)?
     @ObservationIgnored private let loader: @MainActor (Song) async -> [LyricLine]
+    @ObservationIgnored private let cachedLyricsLoader: @MainActor (String) async -> [LyricLine]?
 
-    init(loader: @escaping @MainActor (Song) async -> [LyricLine] = FloatingLyricsService.loadLyrics) {
+    convenience init(loader: @escaping @MainActor (Song) async -> [LyricLine] = FloatingLyricsService.loadLyrics) {
+        self.init(cachedLyricsLoader: { await MetadataAssetStore.shared.cachedLyrics(forSongID: $0) }, loader: loader)
+    }
+
+    init(cachedLyricsLoader: @escaping @MainActor (String) async -> [LyricLine]?,
+         loader: @escaping @MainActor (Song) async -> [LyricLine]) {
         self.loader = loader
+        self.cachedLyricsLoader = cachedLyricsLoader
         lyricsObserver = NotificationCenter.default.addObserver(forName: .primuseLyricsDidChange,
                                                                object: nil, queue: .main) { [weak self] note in
             let songID = note.object as? String
@@ -45,11 +54,20 @@ final class FloatingLyricsService {
                 }
             }
         }
+        lyricsCacheObserver = NotificationCenter.default.addObserver(forName: .primuseLyricsDidCache,
+                                                                    object: nil, queue: .main) { [weak self] note in
+            guard let songID = note.userInfo?["songID"] as? String else { return }
+            Task { @MainActor [weak self] in
+                self?.reloadCachedLyrics(songID: songID)
+            }
+        }
     }
 
     isolated deinit {
         loadTask?.cancel()
+        cacheReloadTask?.cancel()
         if let lyricsObserver { NotificationCenter.default.removeObserver(lyricsObserver) }
+        if let lyricsCacheObserver { NotificationCenter.default.removeObserver(lyricsCacheObserver) }
     }
 
     private static func loadLyrics(_ song: Song) async -> [LyricLine] {
@@ -133,7 +151,26 @@ final class FloatingLyricsService {
         loadGeneration &+= 1
         loadTask?.cancel()
         loadTask = nil
+        cacheReloadTask?.cancel()
+        cacheReloadTask = nil
         isLoading = false
+    }
+
+    private func reloadCachedLyrics(songID: String) {
+        guard hasDemand, isAvailable, self.songID == songID,
+              player?.currentSong?.id == songID else { return }
+        cacheReloadTask?.cancel()
+        let generation = loadGeneration
+        let cachedLyricsLoader = cachedLyricsLoader
+        // Only read the completed cache here; fetching again can write it and emit another notification.
+        cacheReloadTask = Task { @MainActor [weak self] in
+            let cached = await cachedLyricsLoader(songID)
+            guard !Task.isCancelled, let self, self.loadGeneration == generation,
+                  self.hasDemand, self.player?.currentSong?.id == songID,
+                  let cached, !cached.isEmpty else { return }
+            self.cancelLoad()
+            self.accept(cached)
+        }
     }
 
     private func load(_ song: Song) {

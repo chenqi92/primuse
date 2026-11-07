@@ -80,15 +80,109 @@ final class FloatingLyricsTests: XCTestCase {
         let player = try player()
         player.currentSong = song("a")
         player.currentTime = 5
-        let service = FloatingLyricsService { _ in [LyricLine(timestamp: 1, text: "星光落在纸船上")] }
+        let updated = [LyricLine(timestamp: 1, text: "纸船驶过亮着灯的桥")]
+        let service = FloatingLyricsService(cachedLyricsLoader: { _ in updated }) { _ in
+            [LyricLine(timestamp: 1, text: "星光落在纸船上")]
+        }
         let consumer = UUID()
         service.setConsumer(consumer, active: true, player: player)
         try await eventually { service.presentation.current != nil }
         service.setPictureInPictureDemand(true)
         service.setConsumer(consumer, active: false, player: player)
         XCTAssertEqual(service.presentation.current, "星光落在纸船上")
+        MetadataAssetStore.postLyricsCached(songID: "a", lines: updated)
+        try await eventually { service.presentation.current == updated[0].text }
         service.setPictureInPictureDemand(false)
         XCTAssertNil(service.presentation.current)
+    }
+
+    func testLateCachedLyricsRecoverAnEmptyMiniPlayerWithoutToggling() async throws {
+        let player = try player()
+        player.currentSong = song("late-cache")
+        player.currentTime = 5
+        let cached = [
+            LyricLine(timestamp: 1, text: "雨停后窗边亮起一盏灯"),
+            LyricLine(timestamp: 10, text: "小路把星光送到门前")
+        ]
+        var loads = 0
+        var cacheReads: [String] = []
+        let service = FloatingLyricsService(cachedLyricsLoader: { id in
+            cacheReads.append(id)
+            return cached
+        }) { _ in
+            loads += 1
+            return []
+        }
+        let consumer = UUID()
+        defer { service.setConsumer(consumer, active: false, player: player) }
+        service.setConsumer(consumer, active: true, player: player)
+        try await eventually { loads == 1 && !service.isLoading }
+        XCTAssertNil(service.presentation.current)
+
+        MetadataAssetStore.postLyricsCached(songID: "unrelated-song", lines: cached)
+        MetadataAssetStore.postLyricsCached(songID: "late-cache", lines: cached)
+        try await eventually { service.presentation.current == cached[0].text }
+        XCTAssertEqual(cacheReads, ["late-cache"])
+        XCTAssertEqual(loads, 1, "A cache notification must not start another source fetch")
+        player.currentTime = 12
+        try await eventually { service.presentation.current == cached[1].text }
+
+        service.setConsumer(consumer, active: false, player: player)
+        MetadataAssetStore.postLyricsCached(songID: "late-cache", lines: cached)
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(cacheReads, ["late-cache"])
+        XCTAssertNil(service.presentation.current)
+    }
+
+    func testLateSourceResultCannotOverwriteNewlyCachedLyrics() async throws {
+        let player = try player()
+        player.currentSong = song("pending-source")
+        player.currentTime = 5
+        let cached = [LyricLine(timestamp: 1, text: "新来的月光照亮小巷")]
+        var pending: CheckedContinuation<[LyricLine], Never>?
+        var sourceReturned = false
+        let service = FloatingLyricsService(cachedLyricsLoader: { _ in cached }) { _ in
+            let result = await withCheckedContinuation { pending = $0 }
+            sourceReturned = true
+            return result
+        }
+        let consumer = UUID()
+        defer { service.setConsumer(consumer, active: false, player: player) }
+        service.setConsumer(consumer, active: true, player: player)
+        try await eventually { pending != nil }
+        MetadataAssetStore.postLyricsCached(songID: "pending-source", lines: cached)
+        try await eventually { service.presentation.current == cached[0].text }
+        pending?.resume(returning: [])
+        try await eventually { sourceReturned }
+        XCTAssertEqual(service.presentation.current, cached[0].text)
+        XCTAssertTrue(service.hasTimedLyrics)
+    }
+
+    func testOldCacheReadCannotOverwriteTheNextSong() async throws {
+        let player = try player()
+        player.currentSong = song("old-cache")
+        player.currentTime = 5
+        var pending: CheckedContinuation<[LyricLine]?, Never>?
+        var cacheReturned = false
+        let current = [LyricLine(timestamp: 1, text: "今天的风吹开一扇窗")]
+        let service = FloatingLyricsService(cachedLyricsLoader: { _ in
+            let result = await withCheckedContinuation { pending = $0 }
+            cacheReturned = true
+            return result
+        }) { song in
+            song.id == "next-song" ? current : []
+        }
+        let consumer = UUID()
+        defer { service.setConsumer(consumer, active: false, player: player) }
+        service.setConsumer(consumer, active: true, player: player)
+        MetadataAssetStore.postLyricsCached(songID: "old-cache", lines: current)
+        try await eventually { pending != nil }
+        player.currentSong = song("next-song")
+        try await eventually { service.presentation.current == current[0].text }
+        pending?.resume(returning: [LyricLine(timestamp: 1, text: "昨天的灯留在远处")])
+        try await eventually { cacheReturned }
+        XCTAssertEqual(service.songID, "next-song")
+        XCTAssertEqual(service.presentation.current, current[0].text)
     }
 
     func testPictureInPictureFrameContainsTextAndCanDisplayImmediately() throws {
