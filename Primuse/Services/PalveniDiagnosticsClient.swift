@@ -99,6 +99,7 @@ nonisolated struct PalveniDiagnosticsClient: Sendable {
             (data, response) = try await Self.session.data(for: request)
         } catch let error as URLError {
             if error.code == .cancelled { throw CancellationError() }
+            plog("Palveni diagnostics \(method) \(path) networkError=\(error.code.rawValue)")
             throw DiagnosticUpload.Failure.network
         }
         guard let http = response as? HTTPURLResponse else {

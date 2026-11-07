@@ -7,7 +7,7 @@ import PhotosUI
 /// Settings → 关于 → 诊断报告。分类显示系统诊断与运行指标报告
 /// 列表,点击可以分享 (邮件 / AirDrop / 复制) 给开发者排查。报告全部本地
 /// 存放,不会自动外发 —— 顶部的「发送给作者」按钮打开反馈页,由用户勾选内容后
-/// 亲手点上传(中转开着上传时)、填好系统邮件草稿,或交给系统分享面板。
+/// 亲手点发送、填好系统邮件草稿,或交给系统分享面板。
 struct DiagnosticReportsView: View {
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「发送」带上标题优先留在竖栏里,「清空」并进系统溢出菜单。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -325,8 +325,7 @@ struct DiagnosticReportsView: View {
 
 /// 反馈页:勾选附件、加截图、写留言,然后发给作者。
 ///
-/// 中转开着诊断上传时,主按钮是「上传给作者」(底部常驻,紧挨着隐私说明),邮件或系统分享
-/// 退为次要选项;中转没开、是老版本、或这台设备注册不上时,照旧只有右上角的「打开邮件」。
+/// 直接发送为首选,邮件或系统分享作为备用;服务暂时不可用时保留入口和已选内容。
 /// 没配邮件账户时,邮件换成把同一个压缩包交给系统分享面板。
 private struct DiagnosticFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
@@ -377,17 +376,10 @@ private struct DiagnosticFeedbackView: View {
         _includesLogs = State(initialValue: canExportLogs || FileLogger.isDiagnosticModeActive)
     }
 
-    private var uploadAvailable: Bool { uploader.availability == true }
-
-    /// 正式版只在上传或分享时提供日志:那两条路都只带日志末尾一段,并且先看得到说明。
-    private var logOffered: Bool {
-        canExportLogs || uploadAvailable || !canSendMail
-    }
-
     private var selection: DiagnosticReportMail.Selection {
         DiagnosticReportMail.Selection(
             includesReports: includesReports && !reportURLs.isEmpty,
-            includesLogs: includesLogs && logOffered
+            includesLogs: includesLogs
         )
     }
 
@@ -460,11 +452,9 @@ private struct DiagnosticFeedbackView: View {
                     }
                 }
                 .disabled(reportURLs.isEmpty)
-                if logOffered {
-                    Toggle(isOn: $includesLogs) {
-                        SettingsInfoLabel("diagnostics_logs_title") {
-                            Text("diagnostics_log_contents_info")
-                        }
+                Toggle(isOn: $includesLogs) {
+                    SettingsInfoLabel("diagnostics_logs_title") {
+                        Text("diagnostics_log_contents_info")
                     }
                 }
             }
@@ -475,10 +465,6 @@ private struct DiagnosticFeedbackView: View {
                     .accessibilityLabel(String(localized: "diagnostics_feedback_message"))
             } header: {
                 Text("diagnostics_feedback_message")
-            } footer: {
-                if !uploadAvailable {
-                    Text(verbatim: DiagnosticReportMail.recipient)
-                }
             }
         }
         .onChange(of: pickerItems) { _, items in
@@ -488,9 +474,7 @@ private struct DiagnosticFeedbackView: View {
         }
         .disabled(isBusy)
         .safeAreaInset(edge: .bottom) {
-            if uploadAvailable {
-                uploadPanel
-            }
+            uploadPanel
         }
     }
 
@@ -512,23 +496,6 @@ private struct DiagnosticFeedbackView: View {
                 }
                 .disabled(isPreparing)
             }
-            if !uploadAvailable {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(action: sendWithoutUpload) {
-                        if isPreparing || uploader.availability == nil {
-                            ProgressView()
-                        } else if canSendMail {
-                            Text("diagnostics_feedback_compose")
-                        } else {
-                            Text("diagnostics_feedback_share")
-                        }
-                    }
-                    .accessibilityLabel(canSendMail
-                        ? String(localized: "diagnostics_feedback_compose")
-                        : String(localized: "diagnostics_feedback_share"))
-                    .disabled(!canSend || uploader.availability == nil)
-                }
-            }
         }
     }
 
@@ -543,7 +510,7 @@ private struct DiagnosticFeedbackView: View {
                         Text(verbatim: DiagnosticReportUploader.describe(phase))
                             .monospacedDigit()
                     } else {
-                        Label("diagnostics_upload_button", systemImage: "arrow.up.circle")
+                        Label("diagnostics_send_button", systemImage: "paperplane")
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -630,10 +597,6 @@ private struct DiagnosticFeedbackView: View {
             } catch is CancellationError {
                 // 用户自己停的,不提示。
             } catch let failure as DiagnosticUpload.Failure {
-                if failure == .unavailable {
-                    // 中转不收或这台设备注册不上:页面回到邮件 / 分享。
-                    uploader.markUnavailable()
-                }
                 failureMessage = DiagnosticReportUploader.message(for: failure)
             } catch {
                 failureMessage = error.localizedDescription

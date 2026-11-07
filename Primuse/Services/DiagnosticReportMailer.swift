@@ -520,13 +520,16 @@ final class DiagnosticReportUploader {
     /// 问一次收不收:Palveni 用上传密钥问,中转走公开接口(不带设备标识)。走中转而这台设备
     /// 连注册都做不到时直接算不收。
     func refreshAvailability() async {
+        let backend = palveni == nil ? "relay" : "palveni"
         guard palveni != nil || PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
             availability = false
+            plog("Diagnostic upload availability backend=\(backend) unsupportedDevice=true")
             return
         }
         if let cached = Self.cachedAvailability,
            Date().timeIntervalSince(cached.checkedAt) < Self.availabilityLifetime {
             availability = cached.value
+            plog("Diagnostic upload availability backend=\(backend) cached=true available=\(cached.value)")
             return
         }
         let value: Bool?
@@ -539,6 +542,7 @@ final class DiagnosticReportUploader {
             Self.cachedAvailability = (value, Date())
         }
         availability = value ?? false
+        plog("Diagnostic upload availability backend=\(backend) cached=false result=\(value.map { String($0) } ?? "networkUnavailable")")
     }
 
     /// 上传时中转说不收、或这台设备注册不上:这一阵子不再露上传按钮,改走邮件。
