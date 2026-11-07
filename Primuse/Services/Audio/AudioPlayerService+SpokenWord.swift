@@ -1,5 +1,6 @@
 import Foundation
 import MediaPlayer
+import Observation
 import PrimuseKit
 
 /// Spoken-word playback: per-item resume positions, chapter marks, and the
@@ -782,6 +783,10 @@ extension AudioPlayerService {
 
     // MARK: - Books
 
+    var currentItemIsAudiobook: Bool {
+        !isLiveRadio && currentListeningSpace == .spokenWord
+    }
+
     /// The book `song` belongs to — the same id the bookshelf gives it
     /// (`SpokenWordBook.id`), so a per-book setting is found from the item
     /// that is playing. The library groups books once per change; an item it
@@ -1305,8 +1310,8 @@ extension AudioPlayerService {
 
     // MARK: - Remote commands
 
-    /// Republishes the transport so the lock screen, CarPlay and headphones
-    /// offer ±15/30s for spoken word and the ordinary track buttons for music.
+    /// Republishes the selected controls for books, skip intervals for
+    /// podcasts and track controls for music on system playback surfaces.
     /// Which pair is live is decided in one place — the Now Playing
     /// availability projection — because iOS gives both the same two slots.
     func updateSpokenWordRemoteCommands() {
@@ -1350,6 +1355,21 @@ extension AudioPlayerService {
         }
         center.skipForwardCommand.isEnabled = false
         center.skipBackwardCommand.isEnabled = false
+        observeSpokenWordRemoteSettings()
+    }
+
+    private func observeSpokenWordRemoteSettings() {
+        withObservationTracking {
+            _ = playbackSettings.spokenWordLockScreenUsesChapters
+            _ = playbackSettings.spokenWordSkipForwardSeconds
+            _ = playbackSettings.spokenWordSkipBackwardSeconds
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateSpokenWordRemoteCommands()
+                self.observeSpokenWordRemoteSettings()
+            }
+        }
     }
 
     // MARK: - Chapters
@@ -1396,12 +1416,10 @@ extension AudioPlayerService {
     }
 
     func refreshCurrentChapter() {
-        guard !spokenWordChapters.isEmpty else {
-            if currentChapterIndex != nil { currentChapterIndex = nil }
-            return
-        }
         let index = spokenWordChapters.chapterIndex(at: currentTime)
-        if index != currentChapterIndex { currentChapterIndex = index }
+        guard index != currentChapterIndex else { return }
+        currentChapterIndex = index
+        if currentItemIsAudiobook { updateNowPlayingInfo() }
     }
 
     func seekToChapter(at index: Int) {
@@ -1409,6 +1427,7 @@ extension AudioPlayerService {
         seek(to: spokenWordChapters[index].startTime, startPlaying: isPlaying ? true : nil)
         currentChapterIndex = index
         rememberSpokenWordPosition(force: true)
+        if currentItemIsAudiobook { updateNowPlayingInfo() }
     }
 
     /// Goes back to the start of the current chapter first, like every

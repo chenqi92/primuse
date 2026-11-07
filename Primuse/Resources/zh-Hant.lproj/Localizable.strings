@@ -4908,6 +4908,8 @@
 "spoken_word_resume_here" = "從這裡繼續";
 "spoken_word_settings_section" = "有聲書";
 "spoken_word_settings_footer" = "有聲書、評書、廣播劇使用獨立的速度，調快聽書不會讓音樂也變快。倒轉、快轉按鈕在鎖定畫面和車機上同樣有效。";
+"spoken_word_lock_screen_controls" = "聽書鎖定畫面按鈕";
+"spoken_word_lock_screen_skip" = "快退 / 快進";
 "spoken_word_skip_backward" = "倒轉";
 "spoken_word_skip_forward" = "快轉";
 "spoken_word_smart_rewind" = "智慧倒轉";

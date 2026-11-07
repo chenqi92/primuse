@@ -4932,6 +4932,8 @@
 "spoken_word_resume_here" = "ここから再開";
 "spoken_word_settings_section" = "オーディオブック";
 "spoken_word_settings_footer" = "オーディオブックや朗読は音楽とは別の速度で再生されるので、本を速くしても音楽は速くなりません。スキップボタンはロック画面や車でも使えます。";
+"spoken_word_lock_screen_controls" = "オーディオブックのロック画面操作";
+"spoken_word_lock_screen_skip" = "巻き戻し / 早送り";
 "spoken_word_skip_backward" = "戻る秒数";
 "spoken_word_skip_forward" = "進む秒数";
 "spoken_word_smart_rewind" = "スマート巻き戻し";

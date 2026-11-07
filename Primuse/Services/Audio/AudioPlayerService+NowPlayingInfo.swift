@@ -17,6 +17,25 @@ import WidgetKit
 #endif
 
 extension AudioPlayerService {
+    var audiobookNowPlayingPresentation: NowPlayingLyricsMetadataPresentation? {
+        guard currentItemIsAudiobook, let song = currentSong else { return nil }
+        let book = currentSpokenWordBook
+            ?? SpokenWordBookGrouping.books(from: [SpokenWordBookItem(song: song)]).first
+        let title = book?.title ?? song.title
+        let chapter = currentChapter?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let partTitle = chapter.flatMap { $0.isEmpty ? nil : $0 } ?? song.title
+        return NowPlayingLyricsMetadataPresentation(
+            title: title,
+            artist: partTitle == title ? (book?.author ?? displayedArtistName(for: song) ?? "") : partTitle,
+            lyricLineID: nil
+        )
+    }
+
+    private var systemNowPlayingAlbumTitle: String {
+        if isLiveRadio { return currentRadioStation?.name ?? "" }
+        return audiobookNowPlayingPresentation?.title ?? currentSong?.albumTitle ?? ""
+    }
+
     func observeNowPlayingArtworkCache() {
         // 锁屏补图跟随播放器生命周期，不能依赖 SwiftUI 场景仍在接收更新。
         nowPlayingArtworkCacheObservation = NotificationCenter.default
@@ -104,8 +123,9 @@ extension AudioPlayerService {
         // Build a fresh snapshot; artwork is carried forward only when its
         // ownership still matches the current song.
         var info = [String: Any]()
-        var publishedTitle = currentSong?.title ?? ""
-        var publishedArtist = displayedArtistName(for: currentSong) ?? ""
+        let audiobookPresentation = audiobookNowPlayingPresentation
+        var publishedTitle = audiobookPresentation?.title ?? currentSong?.title ?? ""
+        var publishedArtist = audiobookPresentation?.artist ?? displayedArtistName(for: currentSong) ?? ""
         #if os(iOS)
         let lyricsPresentation = lockScreenLyricsPresentation()
         publishedTitle = lyricsPresentation.title
@@ -125,7 +145,7 @@ extension AudioPlayerService {
             info[MPNowPlayingInfoPropertyIsLiveStream] = true
         } else {
             let elapsedTime = max(0, min(currentTime, duration > 0 ? duration : currentTime))
-            info[MPMediaItemPropertyAlbumTitle] = currentSong?.albumTitle ?? ""
+            info[MPMediaItemPropertyAlbumTitle] = systemNowPlayingAlbumTitle
             info[MPMediaItemPropertyPlaybackDuration] = duration
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime
         }
@@ -177,7 +197,7 @@ extension AudioPlayerService {
         return NowPlayingInfoSnapshotKey(
             songID: songID,
             artworkRevision: nowPlayingArtworkRevision,
-            albumTitle: (isLiveRadio ? currentRadioStation?.name : currentSong?.albumTitle) ?? "",
+            albumTitle: systemNowPlayingAlbumTitle,
             duration: duration,
             isLiveStream: isLiveRadio,
             isMusicVideo: isMusicVideoPlaybackActive,
@@ -230,9 +250,8 @@ extension AudioPlayerService {
         let changePlaybackPosition: Bool
         let nextTrack: Bool
         let previousTrack: Bool
-        /// Spoken word replaces the track buttons with skip intervals. iOS
-        /// gives both pairs the same two control slots, so they are decided
-        /// together here rather than by two writers that could both enable.
+        /// Both command pairs share the same two system control slots, so
+        /// only the selected pair may be enabled.
         let skipForward: Bool
         let skipBackward: Bool
         let like: Bool
@@ -260,14 +279,17 @@ extension AudioPlayerService {
         let canLikeCurrentSong = false
         let likeIsActive = false
         #endif
-        let offersSkipIntervals = currentItemIsSpokenWord && !isLiveRadio && currentSong != nil
+        let offersSkipIntervals = !isLiveRadio && (currentListeningSpace == .podcast
+            || (currentItemIsAudiobook && !playbackSettings.spokenWordLockScreenUsesChapters))
+        let offersTrackNavigation = currentSong != nil
+            && (!isLiveRadio || radioStationOrder.count > 1) && !offersSkipIntervals
         let availability = RemoteCommandAvailability(
             play: projection.playCommandEnabled,
             pause: projection.pauseCommandEnabled,
             togglePlayPause: currentSong != nil,
             changePlaybackPosition: playbackCapabilities.canSeek,
-            nextTrack: (!isLiveRadio || radioStationOrder.count > 1) && !offersSkipIntervals,
-            previousTrack: (!isLiveRadio || radioStationOrder.count > 1) && !offersSkipIntervals,
+            nextTrack: offersTrackNavigation && (!currentItemIsAudiobook || canGoToNextSpokenWordPart),
+            previousTrack: offersTrackNavigation,
             skipForward: offersSkipIntervals,
             skipBackward: offersSkipIntervals,
             like: canLikeCurrentSong,

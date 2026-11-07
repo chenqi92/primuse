@@ -4837,6 +4837,8 @@
 "spoken_word_resume_here" = "Continuar aquí";
 "spoken_word_settings_section" = "Audiolibros";
 "spoken_word_settings_footer" = "Los audiolibros y radionovelas tienen su propia velocidad, así que acelerar un libro no acelera tu música. Los botones de salto también aparecen en la pantalla bloqueada y en el auto.";
+"spoken_word_lock_screen_controls" = "Controles del audiolibro en pantalla bloqueada";
+"spoken_word_lock_screen_skip" = "Retroceder / Avanzar";
 "spoken_word_skip_backward" = "Retroceder";
 "spoken_word_skip_forward" = "Adelantar";
 "spoken_word_smart_rewind" = "Retroceso inteligente";

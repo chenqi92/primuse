@@ -4837,6 +4837,8 @@
 "spoken_word_resume_here" = "Kontynuuj tutaj";
 "spoken_word_settings_section" = "Audiobooki";
 "spoken_word_settings_footer" = "Audiobooki i słuchowiska mają własne tempo, więc przyspieszona książka nie przyspiesza muzyki. Przyciski przewijania działają też na ekranie blokady i w samochodzie.";
+"spoken_word_lock_screen_controls" = "Sterowanie audiobookiem na ekranie blokady";
+"spoken_word_lock_screen_skip" = "Przewiń wstecz / dalej";
 "spoken_word_skip_backward" = "Cofnij o";
 "spoken_word_skip_forward" = "Przewiń o";
 "spoken_word_smart_rewind" = "Inteligentne cofanie";

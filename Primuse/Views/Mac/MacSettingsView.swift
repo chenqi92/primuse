@@ -3038,6 +3038,17 @@ private struct MacSTPlaybackView: View {
                 }
                 // 有声内容总走效果链,高保真设置下照样能调速。
                 .settingsAnchor("playback.spokenWordRate")
+                MacSTRow(String(localized: "spoken_word_lock_screen_controls")) {
+                    MacSTPicker(
+                        selection: $s.spokenWordLockScreenUsesChapters,
+                        options: [
+                            (true, String(localized: "player_controls_spoken_chapters")),
+                            (false, String(localized: "spoken_word_lock_screen_skip"))
+                        ],
+                        width: 220
+                    )
+                }
+                .settingsAnchor("playback.spokenWordLockScreen")
                 MacSTRow(String(localized: "spoken_word_skip_backward")) {
                     MacSTPicker(
                         selection: $s.spokenWordSkipBackwardSeconds,

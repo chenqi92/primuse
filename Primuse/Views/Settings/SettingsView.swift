@@ -2584,6 +2584,11 @@ struct PlaybackSettingsView: View {
                 }
                 // 有声内容总走效果链,高保真设置下照样能调速。
                 .settingsAnchor("playback.spokenWordRate")
+                Picker("spoken_word_lock_screen_controls", selection: $settings.spokenWordLockScreenUsesChapters) {
+                    Text("player_controls_spoken_chapters").tag(true)
+                    Text("spoken_word_lock_screen_skip").tag(false)
+                }
+                .settingsAnchor("playback.spokenWordLockScreen")
                 Picker("spoken_word_skip_backward", selection: $settings.spokenWordSkipBackwardSeconds) {
                     ForEach(SpokenWordSkipPolicy.allowedIntervals, id: \.self) { seconds in
                         Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)

@@ -4931,6 +4931,8 @@
 "spoken_word_resume_here" = "Hier weiter";
 "spoken_word_settings_section" = "Hörbücher";
 "spoken_word_settings_footer" = "Hörbücher und Hörspiele haben ein eigenes Tempo – ein schnelleres Buch beschleunigt deine Musik nicht. Die Sprungtasten erscheinen auch auf dem Sperrbildschirm und im Auto.";
+"spoken_word_lock_screen_controls" = "Hörbuchsteuerung im Sperrbildschirm";
+"spoken_word_lock_screen_skip" = "Zurück- / Vorspulen";
 "spoken_word_skip_backward" = "Zurückspringen";
 "spoken_word_skip_forward" = "Vorspringen";
 "spoken_word_smart_rewind" = "Intelligentes Zurückspulen";

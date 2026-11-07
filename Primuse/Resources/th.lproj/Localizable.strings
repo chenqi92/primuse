@@ -4837,6 +4837,8 @@
 "spoken_word_resume_here" = "ฟังต่อจากตรงนี้";
 "spoken_word_settings_section" = "หนังสือเสียง";
 "spoken_word_settings_footer" = "หนังสือเสียงและละครวิทยุใช้ความเร็วแยกต่างหาก การเร่งหนังสือจึงไม่ทำให้เพลงเร็วขึ้น ปุ่มข้ามยังใช้ได้บนหน้าจอล็อกและในรถ";
+"spoken_word_lock_screen_controls" = "ปุ่มหนังสือเสียงบนหน้าจอล็อก";
+"spoken_word_lock_screen_skip" = "ย้อนกลับ / ข้ามไปข้างหน้า";
 "spoken_word_skip_backward" = "ย้อนกลับ";
 "spoken_word_skip_forward" = "ข้ามไปข้างหน้า";
 "spoken_word_smart_rewind" = "ย้อนกลับอัจฉริยะ";

@@ -39,12 +39,10 @@ extension AudioPlayerService {
             return status
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            self?.logRemoteCommand("nextTrackCommand")
-            Task { await self?.next() }; return .success
+            self?.handleRemoteNextTrackCommand() ?? .noActionableNowPlayingItem
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
-            self?.logRemoteCommand("previousTrackCommand")
-            Task { await self?.previous() }; return .success
+            self?.handleRemotePreviousTrackCommand() ?? .noActionableNowPlayingItem
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
@@ -63,6 +61,29 @@ extension AudioPlayerService {
         #endif
         setupSpokenWordRemoteCommands()
         updateNowPlayingInfo()
+    }
+
+    func handleRemoteNextTrackCommand() -> MPRemoteCommandHandlerStatus {
+        guard currentSong != nil else { return .noActionableNowPlayingItem }
+        logRemoteCommand("nextTrackCommand")
+        if currentItemIsAudiobook {
+            guard canGoToNextSpokenWordPart else { return .noSuchContent }
+            goToNextSpokenWordPart()
+        } else {
+            Task { [weak self] in await self?.next() }
+        }
+        return .success
+    }
+
+    func handleRemotePreviousTrackCommand() -> MPRemoteCommandHandlerStatus {
+        guard currentSong != nil else { return .noActionableNowPlayingItem }
+        logRemoteCommand("previousTrackCommand")
+        if currentItemIsAudiobook {
+            goToPreviousSpokenWordPart()
+        } else {
+            Task { [weak self] in await self?.previous() }
+        }
+        return .success
     }
 
     /// 系统转来的遥控指令不带来源, 只能靠当时的现场推断是谁发的:

@@ -124,6 +124,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 有声内容的后退 / 前进秒数, 取值见 `SpokenWordSkipPolicy.allowedIntervals`。
     var spokenWordSkipBackwardSeconds: Int = 15
     var spokenWordSkipForwardSeconds: Int = 30
+    var spokenWordLockScreenUsesChapters: Bool = true
     /// 智能回退(#363): 有声内容停得越久, 继续时往回退得越多, 最多退 `spokenWordSmartRewindLimitSeconds` 秒。
     /// 关掉时续播照旧固定回退 5 秒。
     var spokenWordSmartRewindEnabled: Bool = SpokenWordSmartRewindPolicy.enabledByDefault
@@ -215,6 +216,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         spokenWordPlaybackRate = try c.decodeIfPresent(Float.self, forKey: .spokenWordPlaybackRate) ?? 1.0
         spokenWordSkipBackwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipBackwardSeconds) ?? 15
         spokenWordSkipForwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipForwardSeconds) ?? 30
+        spokenWordLockScreenUsesChapters = try c.decodeIfPresent(Bool.self, forKey: .spokenWordLockScreenUsesChapters) ?? true
         spokenWordSmartRewindEnabled = try c.decodeIfPresent(Bool.self, forKey: .spokenWordSmartRewindEnabled)
             ?? SpokenWordSmartRewindPolicy.enabledByDefault
         spokenWordSmartRewindLimitSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSmartRewindLimitSeconds)
@@ -273,6 +275,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         spokenWordPlaybackRate: Float = 1.0,
         spokenWordSkipBackwardSeconds: Int = 15,
         spokenWordSkipForwardSeconds: Int = 30,
+        spokenWordLockScreenUsesChapters: Bool = true,
         spokenWordSmartRewindEnabled: Bool = SpokenWordSmartRewindPolicy.enabledByDefault,
         spokenWordSmartRewindLimitSeconds: Int = SpokenWordSmartRewindPolicy.defaultLimit,
         medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength,
@@ -325,6 +328,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.spokenWordPlaybackRate = spokenWordPlaybackRate
         self.spokenWordSkipBackwardSeconds = spokenWordSkipBackwardSeconds
         self.spokenWordSkipForwardSeconds = spokenWordSkipForwardSeconds
+        self.spokenWordLockScreenUsesChapters = spokenWordLockScreenUsesChapters
         self.spokenWordSmartRewindEnabled = spokenWordSmartRewindEnabled
         self.spokenWordSmartRewindLimitSeconds = spokenWordSmartRewindLimitSeconds
         self.medleySegmentSeconds = medleySegmentSeconds
@@ -560,6 +564,7 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var spokenWordLockScreenUsesChapters: Bool { didSet { persist() } }
     var spokenWordSmartRewindEnabled: Bool { didSet { persist() } }
     var spokenWordSmartRewindLimitSeconds: Int {
         didSet {
@@ -669,6 +674,7 @@ final class PlaybackSettingsStore {
         self.spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
         self.spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         self.spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
+        self.spokenWordLockScreenUsesChapters = s.spokenWordLockScreenUsesChapters
         self.spokenWordSmartRewindEnabled = s.spokenWordSmartRewindEnabled
         self.spokenWordSmartRewindLimitSeconds = SpokenWordSmartRewindPolicy.clampedLimit(s.spokenWordSmartRewindLimitSeconds)
         self.medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
@@ -759,6 +765,7 @@ final class PlaybackSettingsStore {
         spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
         spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
+        spokenWordLockScreenUsesChapters = s.spokenWordLockScreenUsesChapters
         spokenWordSmartRewindEnabled = s.spokenWordSmartRewindEnabled
         spokenWordSmartRewindLimitSeconds = SpokenWordSmartRewindPolicy.clampedLimit(s.spokenWordSmartRewindLimitSeconds)
         medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
@@ -822,6 +829,7 @@ final class PlaybackSettingsStore {
             spokenWordPlaybackRate: spokenWordPlaybackRate,
             spokenWordSkipBackwardSeconds: spokenWordSkipBackwardSeconds,
             spokenWordSkipForwardSeconds: spokenWordSkipForwardSeconds,
+            spokenWordLockScreenUsesChapters: spokenWordLockScreenUsesChapters,
             spokenWordSmartRewindEnabled: spokenWordSmartRewindEnabled,
             spokenWordSmartRewindLimitSeconds: spokenWordSmartRewindLimitSeconds,
             medleySegmentSeconds: medleySegmentSeconds,

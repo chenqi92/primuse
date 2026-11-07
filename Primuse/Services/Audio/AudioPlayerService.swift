@@ -1252,9 +1252,7 @@ final class AudioPlayerService {
     /// Which of `spokenWordChapters` covers the play head, or nil before the
     /// first mark. Refreshed on the playback clock.
     var currentChapterIndex: Int?
-    /// True while the current item is spoken word, so the transport, the Now
-    /// Playing screen and the remote commands can offer skip intervals
-    /// instead of track changes without reclassifying on every access.
+    /// True while the current item is spoken word, including podcasts.
     var currentItemIsSpokenWord = false
     @ObservationIgnored var lastSpokenWordPositionSave: TimeInterval = 0
     @ObservationIgnored var chapterLoadTask: Task<Void, Never>?
@@ -8277,6 +8275,7 @@ final class AudioPlayerService {
     }
 
     func lockScreenLyricsPresentation() -> NowPlayingLyricsMetadataPresentation {
+        if let presentation = audiobookNowPlayingPresentation { return presentation }
         guard let song = currentSong else {
             return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
         }

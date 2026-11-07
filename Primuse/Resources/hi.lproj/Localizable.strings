@@ -4837,6 +4837,8 @@
 "spoken_word_resume_here" = "यहाँ से जारी";
 "spoken_word_settings_section" = "ऑडियोबुक";
 "spoken_word_settings_footer" = "ऑडियोबुक और रेडियो नाटक अपनी अलग गति से चलते हैं, इसलिए तेज़ किताब से आपका संगीत तेज़ नहीं होता। स्किप बटन लॉक स्क्रीन और कार में भी दिखते हैं।";
+"spoken_word_lock_screen_controls" = "लॉक स्क्रीन पर ऑडियोबुक नियंत्रण";
+"spoken_word_lock_screen_skip" = "पीछे / आगे जाएँ";
 "spoken_word_skip_backward" = "पीछे जाएँ";
 "spoken_word_skip_forward" = "आगे जाएँ";
 "spoken_word_smart_rewind" = "स्मार्ट रिवाइंड";

@@ -4837,6 +4837,8 @@
 "spoken_word_resume_here" = "Buradan devam";
 "spoken_word_settings_section" = "Sesli kitaplar";
 "spoken_word_settings_footer" = "Sesli kitaplar ve radyo tiyatroları kendi hızını kullanır; hızlandırılmış bir kitap müziğini hızlandırmaz. Atlama düğmeleri kilit ekranında ve araçta da görünür.";
+"spoken_word_lock_screen_controls" = "Sesli Kitap Kilit Ekranı Denetimleri";
+"spoken_word_lock_screen_skip" = "Geri / İleri Sar";
 "spoken_word_skip_backward" = "Geri atla";
 "spoken_word_skip_forward" = "İleri atla";
 "spoken_word_smart_rewind" = "Akıllı geri sarma";

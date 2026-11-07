@@ -4695,6 +4695,8 @@
 "spoken_word_resume_here" = "Resume here";
 "spoken_word_settings_section" = "Audiobooks";
 "spoken_word_settings_footer" = "Audiobooks, storytelling and radio dramas use a separate playback speed, so speeding up a book won't speed up your music. The skip buttons also work on the Lock Screen and in the car.";
+"spoken_word_lock_screen_controls" = "Audiobook Lock Screen Controls";
+"spoken_word_lock_screen_skip" = "Skip Back / Forward";
 "spoken_word_skip_backward" = "Skip Back";
 "spoken_word_skip_forward" = "Skip Forward";
 "spoken_word_smart_rewind" = "Smart Rewind";

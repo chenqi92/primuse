@@ -4931,6 +4931,8 @@
 "spoken_word_resume_here" = "Reprendre ici";
 "spoken_word_settings_section" = "Livres audio";
 "spoken_word_settings_footer" = "Les livres audio et fictions radio ont leur propre vitesse : un livre accéléré n’accélère pas votre musique. Les boutons de saut apparaissent aussi sur l’écran verrouillé et en voiture.";
+"spoken_word_lock_screen_controls" = "Commandes du livre sur écran verrouillé";
+"spoken_word_lock_screen_skip" = "Reculer / Avancer";
 "spoken_word_skip_backward" = "Reculer de";
 "spoken_word_skip_forward" = "Avancer de";
 "spoken_word_smart_rewind" = "Retour intelligent";

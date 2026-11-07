@@ -5024,6 +5024,8 @@
 "spoken_word_resume_here" = "从这里继续";
 "spoken_word_settings_section" = "有声书";
 "spoken_word_settings_footer" = "有声书、评书、广播剧使用单独的速度，调快听书不会让音乐也变快。快退、快进按钮在锁屏和车机上同样生效。";
+"spoken_word_lock_screen_controls" = "听书锁屏按钮";
+"spoken_word_lock_screen_skip" = "快退 / 快进";
 "spoken_word_skip_backward" = "快退";
 "spoken_word_skip_forward" = "快进";
 "spoken_word_smart_rewind" = "智能回退";

@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
+import MediaPlayer
 import Network
 import PrimuseKit
 import SwiftUI
@@ -1743,6 +1744,163 @@ final class ListeningFeaturesTests: XCTestCase {
         player.rememberSpokenWordPosition(force: true)
         // 标成音乐后进度留着备用, 但音乐播放不再写它。
         XCTAssertEqual(store.position(forSongID: track.id)?.position, 600)
+    }
+
+    func testAudiobookLockScreenShowsBookAndPartDuringLyricsRefresh() throws {
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        var first = song(UUID().uuidString, genre: "Audiobook", path: "/books/灯塔来信/1035.flac")
+        first.title = "1035"
+        first.albumTitle = "灯塔来信"
+        var chapter = song(UUID().uuidString, genre: "Audiobook", path: "/books/灯塔来信/1036.flac")
+        chapter.title = "1036"
+        chapter.albumTitle = nil
+        library.addSongs([first, chapter])
+        let player = try makePlayer(library: library)
+        defer { player.currentSong = nil; player.stop() }
+        player.currentSong = chapter
+        player.playbackSettings.lockScreenLyricsEnabled = true
+        player.updateNowPlayingInfo()
+        let center = MPNowPlayingInfoCenter.default()
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "灯塔来信")
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyArtist] as? String, "1036")
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyAlbumTitle] as? String, "灯塔来信")
+        player.updateNowPlayingInfo(lyricsLineOnly: true)
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "灯塔来信")
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyArtist] as? String, "1036")
+    }
+
+    func testAudiobookLockScreenFallsBackToFolderWithoutAlbumTags() throws {
+        let player = try makePlayer()
+        defer { player.currentSong = nil; player.stop() }
+        var chapter = song(UUID().uuidString, genre: "Audiobook", path: "/books/山谷邮局/012.flac")
+        chapter.albumTitle = nil
+        chapter.title = "012"
+        player.currentSong = chapter
+        player.updateNowPlayingInfo()
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "山谷邮局")
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtist] as? String, "012")
+    }
+
+    func testAudiobookLockScreenUpdatesEmbeddedChapterAndRoutesRemoteCommands() throws {
+        let player = try makePlayer()
+        let chapter = song(UUID().uuidString, duration: 600, genre: "Audiobook")
+        defer {
+            player.seekTask?.cancel()
+            player.currentSong = nil
+            player.stop()
+            SpokenWordStore.shared.clearPosition(forSongID: chapter.id)
+        }
+        player.currentSong = chapter
+        player.duration = 600
+        player.spokenWordChapters = [
+            MediaChapter(startTime: 0, title: "第一章 来信"),
+            MediaChapter(startTime: 300, title: "第二章 灯塔")
+        ]
+        player.currentTime = 10
+        player.refreshCurrentChapter()
+        let center = MPRemoteCommandCenter.shared()
+        XCTAssertTrue(center.nextTrackCommand.isEnabled)
+        XCTAssertFalse(center.skipForwardCommand.isEnabled)
+        XCTAssertEqual(player.handleRemoteNextTrackCommand(), .success)
+        player.seekTask?.cancel()
+        XCTAssertEqual(player.currentTime, 300)
+        XCTAssertEqual(player.currentChapterIndex, 1)
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtist] as? String, "第二章 灯塔")
+        XCTAssertFalse(center.nextTrackCommand.isEnabled)
+        XCTAssertEqual(player.handleRemoteNextTrackCommand(), .noSuchContent)
+        XCTAssertEqual(player.handleRemotePreviousTrackCommand(), .success)
+        player.seekTask?.cancel()
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertEqual(player.currentChapterIndex, 0)
+        player.currentTime = 350
+        player.refreshCurrentChapter()
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtist] as? String, "第二章 灯塔")
+        XCTAssertFalse(center.nextTrackCommand.isEnabled)
+    }
+
+    func testAudiobookLockScreenChapterControlsStopAtBookBoundary() throws {
+        let first = song(UUID().uuidString, genre: "Audiobook")
+        let second = song(UUID().uuidString, genre: "Audiobook")
+        var other = song(UUID().uuidString, genre: "Audiobook")
+        other.albumTitle = "Another Book"
+        let player = try makeQueuedPlayer([first, second, other])
+        defer { player.currentSong = nil; player.stop() }
+        player.updateNowPlayingInfo()
+        let center = MPRemoteCommandCenter.shared()
+        XCTAssertTrue(center.nextTrackCommand.isEnabled)
+        XCTAssertTrue(center.previousTrackCommand.isEnabled)
+        XCTAssertFalse(center.skipForwardCommand.isEnabled)
+        XCTAssertFalse(center.skipBackwardCommand.isEnabled)
+        player.currentIndex = 1
+        player.currentSong = second
+        player.updateNowPlayingInfo()
+        XCTAssertFalse(center.nextTrackCommand.isEnabled)
+        XCTAssertEqual(player.handleRemoteNextTrackCommand(), .noSuchContent)
+        XCTAssertEqual(player.currentSong?.id, second.id)
+    }
+
+    func testAudiobookLockScreenModeAndSkipIntervalsUpdateWhilePaused() async throws {
+        let first = song(UUID().uuidString, genre: "Audiobook")
+        let second = song(UUID().uuidString, genre: "Audiobook")
+        let player = try makeQueuedPlayer([first, second])
+        defer { player.currentSong = nil; player.stop() }
+        // Allow the player's deferred system-command registration to finish.
+        try await Task.sleep(for: .milliseconds(50))
+        let center = MPRemoteCommandCenter.shared()
+        XCTAssertTrue(center.nextTrackCommand.isEnabled)
+        player.playbackSettings.spokenWordLockScreenUsesChapters = false
+        player.playbackSettings.spokenWordSkipBackwardSeconds = 10
+        player.playbackSettings.spokenWordSkipForwardSeconds = 45
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertTrue(center.skipForwardCommand.isEnabled)
+        XCTAssertTrue(center.skipBackwardCommand.isEnabled)
+        XCTAssertFalse(center.nextTrackCommand.isEnabled)
+        XCTAssertFalse(center.previousTrackCommand.isEnabled)
+        XCTAssertEqual(center.skipBackwardCommand.preferredIntervals, [10])
+        XCTAssertEqual(center.skipForwardCommand.preferredIntervals, [45])
+        player.playbackSettings.spokenWordLockScreenUsesChapters = true
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(center.nextTrackCommand.isEnabled)
+        XCTAssertTrue(center.previousTrackCommand.isEnabled)
+        XCTAssertFalse(center.skipForwardCommand.isEnabled)
+        XCTAssertFalse(center.skipBackwardCommand.isEnabled)
+    }
+
+    func testAudiobookLockScreenModePersistsAndDecodesOlderSettings() throws {
+        let old = try JSONDecoder().decode(PlaybackSettings.self, from: Data("{}".utf8))
+        XCTAssertTrue(old.spokenWordLockScreenUsesChapters)
+        let defaults = try makeDefaults()
+        let settings = PlaybackSettingsStore(defaults: defaults)
+        settings.spokenWordLockScreenUsesChapters = false
+        XCTAssertFalse(PlaybackSettingsStore(defaults: defaults).spokenWordLockScreenUsesChapters)
+        XCTAssertFalse(settings.snapshot().spokenWordLockScreenUsesChapters)
+        settings.spokenWordLockScreenUsesChapters = true
+        XCTAssertTrue(PlaybackSettingsStore(defaults: defaults).spokenWordLockScreenUsesChapters)
+    }
+
+    func testAudiobookLockScreenLeavesPodcastAndMusicControlsUnchanged() throws {
+        let player = try makePlayer()
+        defer { player.currentSong = nil; player.stop() }
+        let center = MPRemoteCommandCenter.shared()
+        player.currentSong = song(UUID().uuidString, genre: "Podcast")
+        player.updateNowPlayingInfo()
+        XCTAssertTrue(center.skipForwardCommand.isEnabled)
+        XCTAssertTrue(center.skipBackwardCommand.isEnabled)
+        XCTAssertFalse(center.nextTrackCommand.isEnabled)
+        XCTAssertNil(player.audiobookNowPlayingPresentation)
+        let music = song(UUID().uuidString)
+        player.currentSong = music
+        player.updateNowPlayingInfo()
+        XCTAssertTrue(center.nextTrackCommand.isEnabled)
+        XCTAssertTrue(center.previousTrackCommand.isEnabled)
+        XCTAssertFalse(center.skipForwardCommand.isEnabled)
+        XCTAssertFalse(center.skipBackwardCommand.isEnabled)
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, music.title)
+        player.currentSong = nil
+        player.updateNowPlayingInfo()
+        XCTAssertFalse(center.nextTrackCommand.isEnabled)
+        XCTAssertFalse(center.previousTrackCommand.isEnabled)
     }
 
     // MARK: - Playback rate and chapter sleep

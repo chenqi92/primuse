@@ -4837,6 +4837,8 @@
 "spoken_word_resume_here" = "Продолжить здесь";
 "spoken_word_settings_section" = "Аудиокниги";
 "spoken_word_settings_footer" = "У аудиокниг и радиоспектаклей своя скорость, поэтому ускоренная книга не ускоряет музыку. Кнопки перемотки работают и на экране блокировки, и в машине.";
+"spoken_word_lock_screen_controls" = "Кнопки аудиокниги на экране блокировки";
+"spoken_word_lock_screen_skip" = "Перемотка назад / вперёд";
 "spoken_word_skip_backward" = "Назад на";
 "spoken_word_skip_forward" = "Вперёд на";
 "spoken_word_smart_rewind" = "Умная перемотка назад";

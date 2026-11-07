@@ -4837,6 +4837,8 @@
 "spoken_word_resume_here" = "استئناف هنا";
 "spoken_word_settings_section" = "الكتب الصوتية";
 "spoken_word_settings_footer" = "للكتب الصوتية والدراما الإذاعية سرعة خاصة، فتسريع الكتاب لا يسرّع موسيقاك. تظهر أزرار التخطي أيضًا في شاشة القفل وفي السيارة.";
+"spoken_word_lock_screen_controls" = "أزرار الكتاب الصوتي على شاشة القفل";
+"spoken_word_lock_screen_skip" = "رجوع / تقديم";
 "spoken_word_skip_backward" = "التخطي للخلف";
 "spoken_word_skip_forward" = "التخطي للأمام";
 "spoken_word_smart_rewind" = "الترجيع الذكي";
