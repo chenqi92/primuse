@@ -140,6 +140,61 @@ final class SearchExperienceUITests: XCTestCase {
         attach(app, "settings-search-results")
     }
 
+    func testSettingsSearchReturnsToStableRoot() {
+        verifySettingsSearchReturn(navigationMode: "standard")
+    }
+
+    func testMinimalSettingsSearchReturnsToStableRoot() {
+        verifySettingsSearchReturn(navigationMode: "minimal")
+    }
+
+    private func verifySettingsSearchReturn(navigationMode: String) {
+        continueAfterFailure = false
+        let app = searchApp(navigationMode: navigationMode)
+        app.launchEnvironment["PRIMUSE_OPEN_PAGE"] = "settings"
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_OPEN_PAGE")
+            app.launchArguments += ["-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0"]
+            app.launch()
+            let home = app.tabBars.buttons["首页"]
+            if home.waitForExistence(timeout: 20) { home.tap() }
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 15))
+            app.terminate()
+        }
+        app.launch()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 90))
+        let rootFieldFrame = field.frame
+        let results = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'settings.result.'"))
+
+        for (index, query) in ["封面", "歌词"].enumerated() {
+            field.tap()
+            field.typeText(query)
+            let result = results.firstMatch
+            XCTAssertTrue(result.waitForExistence(timeout: 5))
+            result.tap()
+            XCTAssertTrue(field.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+            attach(app, "settings-\(navigationMode)-search-detail-\(index)")
+
+            if index == 0 {
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+            } else {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+                    .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
+            }
+
+            XCTAssertTrue(field.waitForExistence(timeout: 5))
+            XCTAssertEqual(results.count, 0)
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+            XCTAssertNotEqual(field.value as? String, query)
+            XCTAssertEqual(field.frame.minY, rootFieldFrame.minY, accuracy: 1)
+            XCTAssertEqual(field.frame.height, rootFieldFrame.height, accuracy: 1)
+            attach(app, "settings-\(navigationMode)-search-return-\(index)")
+        }
+    }
+
     func testStandardSearchSubmissionKeepsQueryAndCanResumeEditing() {
         continueAfterFailure = false
         let app = searchApp(navigationMode: "standard")

@@ -101,6 +101,7 @@ struct SettingsView: View {
     @ViewBuilder private var searchableContent: some View {
         // Search belongs to this column; putting it on the stack hides it in iPad split view.
         settingsContent
+            .modifier(SettingsSearchNavigationDismissal(isNavigating: !path.isEmpty, search: search))
             .searchable(text: $search.query, isPresented: $search.isPresented, placement: searchPlacement,
                         prompt: Text(SettingsStrings.text("Search settings")))
     }
@@ -152,12 +153,6 @@ struct SettingsView: View {
                             if itemID == nil { SettingsSearchHistory.shared.record(page.id) }
                         }
                 }
-            }
-            // 从子页返回根页时结束搜索会话, 免得设置页停在搜索态里,
-            // 让人以为完整设置列表消失了。
-            .onChange(of: path.isEmpty) { _, isRoot in
-                guard isRoot else { return }
-                search.endSession()
             }
             .onChange(of: scraperSettingsRoute.isMetadataScrapingPresented, initial: true) { _, requested in
                 guard requested else { return }

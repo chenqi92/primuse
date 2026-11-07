@@ -36,6 +36,25 @@ final class SettingsSearchState {
     }
 }
 
+struct SettingsSearchNavigationDismissal: ViewModifier {
+    let isNavigating: Bool
+    let search: SettingsSearchState
+    @Environment(\.dismissSearch) private var dismissSearch
+
+    func body(content: Content) -> some View {
+        content.onChange(of: isNavigating) { _, isNavigating in
+            guard isNavigating else { return }
+            // 在 searchable 的环境内结束系统搜索交互，避免返回时恢复搜索焦点并再次调整导航栏。
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                dismissSearch()
+                search.endSession()
+            }
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SettingsNavigation {
