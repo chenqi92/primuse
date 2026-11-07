@@ -100,6 +100,75 @@ public struct ListeningSharePackage: Codable, Sendable, Equatable {
 
     public var itemCount: Int { stations.count + podcasts.count + books.count + (settings.isEmpty ? 0 : 1) }
 
+    public struct Preparation: Sendable {
+        public let package: ListeningSharePackage
+        public let skippedItems: [String]
+    }
+
+    /// Export tolerates individual unavailable items; decoding still validates the entire archive.
+    public func preparedForSharing(publicSharing: Bool = false) throws -> Preparation {
+        guard version == 1 else { throw ListeningShareError.unsupportedVersion }
+        var result = self
+        result.stations = []; result.podcasts = []; result.books = []; result.assets = []
+        var skipped: [String] = []
+        var stationKeys = Set<String>()
+        var assetIDs = Set<String>()
+        var totalAssetBytes: Int64 = 0
+        func image(_ data: Data?) -> Data? {
+            guard let data, !data.isEmpty, data.count <= 2 * 1024 * 1024 else { return nil }
+            return data
+        }
+        for var station in stations {
+            station.logoURL = ListeningShareURLPolicy.optionalMetadataURL(station.logoURL, publicSharing: publicSharing)
+            station.homepageURL = ListeningShareURLPolicy.optionalMetadataURL(station.homepageURL, publicSharing: publicSharing)
+            station.logo = image(station.logo)
+            var item = ListeningSharePackage(title: title)
+            item.stations = [station]
+            guard (try? item.validated(publicSharing: publicSharing)) != nil,
+                  let key = RadioImportParser.streamIdentityKey(station.streamURL),
+                  stationKeys.insert(key).inserted else { skipped.append(station.name); continue }
+            result.stations.append(station)
+        }
+        for var podcast in podcasts {
+            podcast.artworkURL = ListeningShareURLPolicy.optionalMetadataURL(podcast.artworkURL, publicSharing: publicSharing)
+            var item = ListeningSharePackage(title: title)
+            item.podcasts = [podcast]
+            guard (try? item.validated(publicSharing: publicSharing)) != nil else {
+                skipped.append(podcast.title); continue
+            }
+            result.podcasts.append(podcast)
+        }
+        let assetsByID = Dictionary(grouping: assets, by: \.id)
+        for var book in books {
+            let tracks = book.tracks
+            book.tracks = []
+            book.cover = image(book.cover)
+            for track in tracks {
+                var item = ListeningSharePackage(title: title)
+                var chapter = book
+                chapter.tracks = [track]
+                item.books = [chapter]
+                if let id = track.assetID, let matches = assetsByID[id], matches.count == 1 {
+                    item.assets = matches
+                }
+                guard (try? item.validated(publicSharing: publicSharing)) != nil,
+                      item.assets.allSatisfy({ !assetIDs.contains($0.id) && $0.size <= ListeningShareArchive.maximumSize - totalAssetBytes }) else {
+                    skipped.append(track.title); continue
+                }
+                for asset in item.assets {
+                    assetIDs.insert(asset.id)
+                    totalAssetBytes += asset.size
+                    result.assets.append(asset)
+                }
+                book.tracks.append(track)
+            }
+            if !book.tracks.isEmpty { result.books.append(book) }
+            else if tracks.isEmpty { skipped.append(book.title) }
+        }
+        if result.itemCount > 0 { _ = try result.validated(publicSharing: publicSharing) }
+        return Preparation(package: result, skippedItems: skipped)
+    }
+
     public func validated(publicSharing: Bool = false) throws -> Self {
         guard version == 1 else { throw ListeningShareError.unsupportedVersion }
         guard UUID(uuidString: id) != nil, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.utf8.count <= 1024,
@@ -185,17 +254,25 @@ public enum ListeningShareError: Error, LocalizedError, Equatable {
 }
 
 public enum ListeningShareURLPolicy {
+    private static let credentialKeys: Set<String> = [
+        "access_token", "refresh_token", "authorization", "password", "passwd", "secret", "client_secret",
+        "apikey", "api_key", "jwt", "x-amz-signature", "x-amz-credential", "x-goog-signature", "credential"
+    ]
+
+    private static func containsCredentials(_ items: [URLQueryItem]) -> Bool {
+        let keys = Set(items.map { $0.name.lowercased() })
+        return !keys.isDisjoint(with: credentialKeys)
+            || (keys.contains("u") && (keys.contains("p") || keys.isSuperset(of: ["t", "s"])))
+    }
+
     public static func validate(_ raw: String, publicSharing: Bool = false) throws -> URL {
         guard raw.utf8.count <= 8192, let parts = URLComponents(string: raw),
               ["https", "http"].contains(parts.scheme?.lowercased() ?? ""),
               let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil,
-              parts.fragment == nil, let url = parts.url else { throw ListeningShareError.unsafeURL }
-        let secretKeys: Set<String> = ["token", "access_token", "refresh_token", "auth", "authorization", "password",
-                                       "passwd", "secret", "apikey", "api_key", "key", "signature", "sig", "jwt",
-                                       "x-amz-signature", "x-amz-credential", "x-goog-signature", "credential", "username", "user"]
-        let queryKeys = Set((parts.queryItems ?? []).map { $0.name.lowercased() })
-        let subsonicCredentials = queryKeys.contains("u") && (queryKeys.contains("p") || queryKeys.isSuperset(of: ["t", "s"]))
-        if !queryKeys.isDisjoint(with: secretKeys) || subsonicCredentials {
+              let url = parts.url else { throw ListeningShareError.unsafeURL }
+        var fragment = URLComponents()
+        fragment.query = parts.fragment
+        if containsCredentials(parts.queryItems ?? []) || containsCredentials(fragment.queryItems ?? []) {
             throw ListeningShareError.unsafeURL
         }
         if publicSharing {
@@ -203,6 +280,21 @@ public enum ListeningShareURLPolicy {
             catch { throw ListeningShareError.privateURL }
         }
         return url
+    }
+
+    public static func optionalMetadataURL(_ raw: String?, publicSharing: Bool = false) -> String? {
+        guard let raw, var parts = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        parts.user = nil; parts.password = nil
+        let items = parts.queryItems ?? []
+        let keys = Set(items.map { $0.name.lowercased() })
+        let subsonic = keys.contains("u") && (keys.contains("p") || keys.isSuperset(of: ["t", "s"]))
+        let filtered = items.filter { !credentialKeys.contains($0.name.lowercased()) && !(subsonic && ["u", "p", "t", "s"].contains($0.name.lowercased())) }
+        if filtered != items { parts.queryItems = filtered.isEmpty ? nil : filtered }
+        var fragment = URLComponents()
+        fragment.query = parts.fragment
+        if containsCredentials(fragment.queryItems ?? []) { parts.fragment = nil }
+        guard let value = parts.string else { return nil }
+        return try? validate(value, publicSharing: publicSharing).absoluteString
     }
 }
 

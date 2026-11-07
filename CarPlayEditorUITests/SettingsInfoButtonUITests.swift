@@ -2,6 +2,44 @@ import XCTest
 
 @MainActor
 final class SettingsInfoButtonUITests: XCTestCase {
+    func testPartialRadioSharingKeepsAvailableItemsAcrossOfflineAndOnlineModes() {
+        continueAfterFailure = false
+        let app = sharingFixtureApp()
+        app.launchEnvironment["PRIMUSE_SHARE_TEST_BATCH"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["sharing.test.open"].waitForExistence(timeout: 30))
+        app.buttons["sharing.test.open"].tap()
+        XCTAssertTrue(app.buttons["sharing.copyCode"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["2 电台"].exists)
+        let skipped = app.buttons["sharing.skippedItems"]
+        if !skipped.isHittable { app.swipeUp() }
+        XCTAssertTrue(skipped.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(skipped.label.contains("1"), skipped.label)
+        skipped.tap()
+        XCTAssertTrue(app.staticTexts["异常电台"].waitForExistence(timeout: 5))
+        attach(app, "radio-sharing-partial-offline")
+        let method = app.segmentedControls["sharing.method"]
+        if !method.isHittable { app.swipeDown() }
+        method.buttons["联网分享码"].tap()
+        XCTAssertTrue(app.buttons["sharing.createOnlineCode"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["1 电台"].exists)
+        if !skipped.isHittable { app.swipeUp() }
+        XCTAssertTrue(skipped.label.contains("2"), skipped.label)
+        app.swipeUp()
+        if !app.staticTexts["内网电台"].exists {
+            skipped.tap()
+            app.swipeUp()
+        }
+        attach(app, "radio-sharing-partial-online")
+        XCTAssertTrue(app.staticTexts["内网电台"].waitForExistence(timeout: 5), app.debugDescription)
+        if !method.isHittable { app.swipeDown() }
+        method.buttons["离线导入码"].tap()
+        XCTAssertTrue(app.buttons["sharing.copyCode"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["2 电台"].exists)
+        app.buttons["完成"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["sharing.test.open"].waitForExistence(timeout: 5))
+    }
+
     func testWeChatAcceptsSharedLinkWithoutSending() throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("Requires WeChat on a test phone")
@@ -65,6 +103,7 @@ final class SettingsInfoButtonUITests: XCTestCase {
         addTeardownBlock { @MainActor in
             app.terminate()
             app.launchEnvironment.removeValue(forKey: "PRIMUSE_VISUAL_EVIDENCE")
+            app.launchEnvironment.removeValue(forKey: "PRIMUSE_SHARE_TEST_BATCH")
             app.launchArguments += ["-primuse.navigation.mode.v1", "standard", "-primuse.navigation.selectedTab.v1", "0"]
             app.launch()
             let home = app.tabBars.buttons["首页"]

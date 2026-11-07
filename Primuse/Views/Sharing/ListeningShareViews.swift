@@ -41,6 +41,14 @@ struct ListeningShareExportView: View {
     let selection: ListeningShareSelection
     @Environment(\.dismiss) private var dismiss
     private enum Method { case offline, online }
+    private struct PreparationOptions: Hashable {
+        let includeSettings: Bool
+        let publicSharing: Bool
+    }
+    private var preparationOptions: PreparationOptions {
+        PreparationOptions(includeSettings: includeSettings, publicSharing: method == .online &&
+            (!selection.stations.isEmpty || !selection.podcasts.isEmpty || selection.bookURL != nil))
+    }
     @State private var method: Method = .offline
     @State private var copiedCode = false
     @State private var includeSettings: Bool
@@ -50,6 +58,7 @@ struct ListeningShareExportView: View {
     @State private var uploading = false
     @State private var progress = 0.0
     @State private var error: String?
+    @State private var skippedItems: [String] = []
     @State private var publicURL: URL?
     @State private var lifetime = 24
     @State private var password = ""
@@ -67,8 +76,8 @@ struct ListeningShareExportView: View {
             Form {
                 Section {
                     Text(selection.title).font(.headline)
-                    if !selection.stations.isEmpty { Label("\(selection.stations.count) " + t("stations"), systemImage: "dot.radiowaves.left.and.right") }
-                    if !selection.podcasts.isEmpty { Label("\(selection.podcasts.count) " + t("podcasts"), systemImage: "mic") }
+                    if !selection.stations.isEmpty { Label("\(export?.package.stations.count ?? selection.stations.count) " + t("stations"), systemImage: "dot.radiowaves.left.and.right") }
+                    if !selection.podcasts.isEmpty { Label("\(export?.package.podcasts.count ?? selection.podcasts.count) " + t("podcasts"), systemImage: "mic") }
                     if !selection.bookSongs.isEmpty || selection.bookURL != nil { Label(t("audiobook"), systemImage: "book") }
                     if !selection.settings {
                         Toggle(t("includeSettings"), isOn: $includeSettings).disabled(uploading)
@@ -123,6 +132,14 @@ struct ListeningShareExportView: View {
                         Button { nearby = true } label: { Label(t("nearby"), systemImage: "wifi") }
                     }.disabled(uploading)
                 }
+                if !skippedItems.isEmpty {
+                    Section {
+                        DisclosureGroup(String(format: t("skippedItems"), skippedItems.count)) {
+                            ForEach(Array(skippedItems.enumerated()), id: \.offset) { Text($0.element) }
+                        }
+                        .accessibilityIdentifier("sharing.skippedItems")
+                    }
+                }
                 if let error { Section { Text(error).foregroundStyle(.red).textSelection(.enabled) } }
             }
             .formStyle(.grouped)
@@ -138,7 +155,7 @@ struct ListeningShareExportView: View {
         }
         .frame(minWidth: 320, idealWidth: 560, minHeight: 400, idealHeight: 660)
         .interactiveDismissDisabled(uploading)
-        .task(id: includeSettings) { await prepare() }
+        .task(id: preparationOptions) { await prepare() }
         .onChange(of: method) { _, _ in copiedCode = false }
         .onDisappear {
             uploadTask?.cancel()
@@ -158,15 +175,23 @@ struct ListeningShareExportView: View {
 
     private func prepare() async {
         let id = UUID(); preparationID = id
-        preparing = true; error = nil; publicURL = nil; copiedCode = false; progress = 0
+        preparing = true; error = nil; publicURL = nil; copiedCode = false; progress = 0; skippedItems = []
         if let export { try? FileManager.default.removeItem(at: export.directory) }; export = nil
         defer { if preparationID == id { preparing = false } }
         do {
-            let prepared = try await ListeningShareService.prepare(selection, includeSettings: includeSettings) { progress = $0 }
+            let prepared = try await ListeningShareService.prepare(selection, includeSettings: includeSettings, publicSharing: preparationOptions.publicSharing) { value in
+                if preparationID == id { progress = value }
+            }
             if Task.isCancelled || preparationID != id { try? FileManager.default.removeItem(at: prepared.directory); return }
             export = prepared
+            skippedItems = prepared.skippedItems
         } catch is CancellationError { }
-        catch { self.error = ListeningShareText.error(error) }
+        catch let failure as ListeningShareService.NoShareableContent {
+            if preparationID == id {
+                skippedItems = failure.skippedItems
+                error = t("nothingShareable")
+            }
+        } catch { if preparationID == id { self.error = ListeningShareText.error(error) } }
     }
     private func upload(_ export: ListeningShareService.Export) {
         uploading = true; error = nil; progress = 0
@@ -249,14 +274,23 @@ struct ListeningShareEvidenceHost: View {
         Button(ListeningShareText.string("shareLink")) { presented = true }
             .accessibilityIdentifier("sharing.test.open")
             .sheet(isPresented: $presented) {
-                NavigationStack {
-                    Form {
-                        Section { ListeningSharePublishedLinkView(url: url, title: "Radio sharing") }
-                    }
-                    .navigationTitle(ListeningShareText.string("share"))
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("done") { presented = false }
+                if ProcessInfo.processInfo.environment["PRIMUSE_SHARE_TEST_BATCH"] == "1" {
+                    ListeningShareExportView(selection: .init(title: "电台", stations: [
+                        RadioStation(name: "公开电台", streamURL: "https://radio.example.org/live?token=public&key=channel",
+                                     remoteLogoURL: "https://user:secret@radio.example.org/logo.png"),
+                        RadioStation(name: "内网电台", streamURL: "http://192.168.1.2/live"),
+                        RadioStation(name: "异常电台", streamURL: "file:///private/radio.mp3")
+                    ]))
+                } else {
+                    NavigationStack {
+                        Form {
+                            Section { ListeningSharePublishedLinkView(url: url, title: "Radio sharing") }
+                        }
+                        .navigationTitle(ListeningShareText.string("share"))
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("done") { presented = false }
+                            }
                         }
                     }
                 }

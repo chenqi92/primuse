@@ -1,4 +1,6 @@
 "share" = "Share";
+"skippedItems" = "Skipped %lld items";
+"nothingShareable" = "No shareable content.";
 "stations" = "Radio stations";
 "podcasts" = "Podcasts";
 "audiobook" = "Audiobook";

@@ -326,6 +326,75 @@ extension ServerMediaSharingConnectorTests {
     }
 }
 
+@MainActor
+final class ListeningShareExportTests: XCTestCase {
+    func testPublicServerRadioAndPodcastExportDespiteInvalidItemsAndArtwork() async throws {
+        let stream = "https://radio.example.org/live?token=public&key=channel"
+        let stations = [
+            RadioStation(name: "Public radio", streamURL: stream, logoData: Data([0, 1, 2]),
+                         sourceID: "private-source", sourcePlaybackPath: "private-playback-path",
+                         homepageURL: "javascript:invalid", remoteLogoURL: "https://user:secret@radio.example.org/logo.png?size=120"),
+            RadioStation(name: "Unavailable radio", streamURL: "file:///private/radio.mp3")
+        ]
+        let podcasts = [PodcastShow(id: "public-feed", feedURL: URL(string: "https://podcast.example.org/feed?sig=public")!, title: "Podcast", subscribedAt: Date())]
+        let exported = try await ListeningShareService.prepare(
+            .init(title: "Collection", stations: stations, podcasts: podcasts), includeSettings: false
+        ) { _ in }
+        defer { try? FileManager.default.removeItem(at: exported.directory) }
+
+        XCTAssertEqual(exported.skippedItems, ["Unavailable radio"])
+        XCTAssertEqual(exported.package.stations.map(\.streamURL), [stream])
+        XCTAssertNil(exported.package.stations.first?.logo)
+        XCTAssertNil(exported.package.stations.first?.homepageURL)
+        XCTAssertEqual(exported.package.stations.first?.logoURL, "https://radio.example.org/logo.png?size=120")
+        XCTAssertEqual(exported.package.podcasts.count, 1)
+        let json = try Data(contentsOf: XCTUnwrap(exported.jsonURL))
+        XCTAssertEqual(try ListeningShareJSON.decode(json), exported.package)
+        XCTAssertEqual(try ListeningShareCode.decode(XCTUnwrap(exported.offlineCode)), exported.package)
+        XCTAssertEqual(try ListeningShareArchive.read(exported.url).package, exported.package)
+        let serialized = String(decoding: json, as: UTF8.self)
+        XCTAssertFalse(serialized.contains("private-source"))
+        XCTAssertFalse(serialized.contains("private-playback-path"))
+        XCTAssertFalse(serialized.contains("secret"))
+    }
+
+    func testUnavailableBookSourceAndLocalRadioDoNotBlockPublicExport() async throws {
+        let missing = Song(id: "missing-chapter", title: "Unavailable chapter", fileFormat: .mp3,
+                           filePath: "missing.mp3", sourceID: UUID().uuidString, fileSize: 100)
+        let exported = try await ListeningShareService.prepare(
+            .init(title: "Collection", stations: [
+                RadioStation(name: "Public radio", streamURL: "https://radio.example.org/live"),
+                RadioStation(name: "Local radio", streamURL: "http://192.168.1.2/live")
+            ], bookSongs: [missing]), includeSettings: false, publicSharing: true
+        ) { _ in }
+        defer { try? FileManager.default.removeItem(at: exported.directory) }
+        XCTAssertEqual(exported.package.stations.map(\.name), ["Public radio"])
+        XCTAssertTrue(exported.package.books.isEmpty)
+        XCTAssertTrue(exported.package.assets.isEmpty)
+        XCTAssertEqual(Set(exported.skippedItems), ["Unavailable chapter", "Local radio"])
+        XCTAssertNoThrow(try exported.package.validated(publicSharing: true))
+        XCTAssertEqual(try ListeningShareArchive.read(exported.url).package, exported.package)
+    }
+
+    func testAllUnavailableItemsReturnTheirNamesAndCancellationIsNotASkippedItem() async throws {
+        let selection = ListeningShareSelection(title: "Collection", stations: [
+            RadioStation(name: "Unavailable radio", streamURL: "https://radio.example.org/live?password=private")
+        ])
+        do {
+            _ = try await ListeningShareService.prepare(selection, includeSettings: false) { _ in }
+            XCTFail("Expected no shareable content")
+        } catch let failure as ListeningShareService.NoShareableContent {
+            XCTAssertEqual(failure.skippedItems, ["Unavailable radio"])
+        }
+        let task = Task { try await ListeningShareService.prepare(selection, includeSettings: false) { _ in } }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError { }
+    }
+}
+
 #if os(iOS)
 @MainActor
 final class MediaRelayQRCodeLayoutTests: XCTestCase {

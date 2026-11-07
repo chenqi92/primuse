@@ -1,4 +1,6 @@
 "share" = "分享";
+"skippedItems" = "已略過 %lld 項";
+"nothingShareable" = "沒有可分享的內容。";
 "stations" = "電台";
 "podcasts" = "Podcast";
 "audiobook" = "有聲書";

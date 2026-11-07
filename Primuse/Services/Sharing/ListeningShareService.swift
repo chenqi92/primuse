@@ -114,7 +114,9 @@ enum ListeningShareService {
         let jsonURL: URL?
         let offlineCode: String?
         let codeError: ListeningShareCodeError?
+        let skippedItems: [String]
     }
+    struct NoShareableContent: Error { let skippedItems: [String] }
     struct ImportOptions {
         var stationIndices: Set<Int>
         var podcastIndices: Set<Int>
@@ -128,20 +130,19 @@ enum ListeningShareService {
         var failures: [String] = []
     }
 
-    static func prepare(_ selection: ListeningShareSelection, includeSettings: Bool,
+    static func prepare(_ selection: ListeningShareSelection, includeSettings: Bool, publicSharing: Bool = false,
                         progress: @escaping (Double) -> Void) async throws -> Export {
         let services = AppServices.shared
         var package = ListeningSharePackage(title: selection.title)
-        var seen = Set<String>()
+        var skipped: [String] = []
         for station in selection.stations {
-            guard !station.isDeleted,
-                  let key = RadioImportParser.streamIdentityKey(station.streamURL), seen.insert(key).inserted else { continue }
-            guard station.sourcePlaybackPath == nil else { throw ListeningShareError.unsafeURL }
+            try Task.checkCancellation()
+            guard !station.isDeleted else { continue }
             var entry = ListeningSharePackage.Station(station)
             if entry.logo == nil, let name = station.logoFileName {
                 entry.logo = MetadataAssetStore.shared.readCoverData(named: name)
             }
-            if let logo = entry.logo { entry.logo = try portableLogo(logo) }
+            if let logo = entry.logo { entry.logo = try? portableLogo(logo) }
             package.stations.append(entry)
         }
         package.podcasts = selection.podcasts.map(ListeningSharePackage.Podcast.init)
@@ -168,55 +169,76 @@ enum ListeningShareService {
         do {
             if !selection.bookSongs.isEmpty {
                 var tracks: [ListeningSharePackage.Track] = []
+                var songs: [Song] = []
                 var total = Int64(0)
                 for song in selection.bookSongs {
+                    try Task.checkCancellation()
                     guard let source = services.sourcesStore.source(id: song.sourceID),
                           source.isEnabled, !source.isDeleted,
                           MediaRelaySourcePolicy.supports(song: song, sourceType: source.type),
-                          song.fileSize <= ListeningShareArchive.maximumSize - total else { throw ListeningShareError.tooLarge }
+                          song.fileSize > 0, song.fileSize <= ListeningShareArchive.maximumSize - total else {
+                        skipped.append(song.title); continue
+                    }
+                    songs.append(song)
                     total += song.fileSize
                 }
                 var completed: Int64 = 0
-                for song in selection.bookSongs {
+                for song in songs {
                     try Task.checkCancellation()
                     let asset = ListeningSharePackage.Asset(size: song.fileSize)
                     let file = directory.appendingPathComponent(asset.id)
-                    guard FileManager.default.createFile(atPath: file.path, contents: nil) else { throw ListeningShareError.incompleteFile }
-                    let handle = try FileHandle(forWritingTo: file)
-                    defer { try? handle.close() }
-                    let connector = try await services.sourceManager.connectorForSong(song)
-                    var offset: Int64 = 0
-                    while offset < song.fileSize {
+                    do {
+                        guard FileManager.default.createFile(atPath: file.path, contents: nil) else { throw ListeningShareError.incompleteFile }
+                        let handle = try FileHandle(forWritingTo: file)
+                        defer { try? handle.close() }
+                        let connector = try await services.sourceManager.connectorForSong(song)
+                        var offset: Int64 = 0
+                        while offset < song.fileSize {
+                            try Task.checkCancellation()
+                            let count = min(Int64(1024 * 1024), song.fileSize - offset)
+                            let data = try await connector.fetchRange(path: song.filePath, offset: offset, length: count, priority: .background)
+                            guard data.count == count else { throw ListeningShareError.incompleteFile }
+                            try handle.write(contentsOf: data)
+                            offset += count
+                            progress(Double(completed + offset) / Double(max(1, total)))
+                        }
+                        try handle.synchronize()
+                        assets[asset.id] = file; package.assets.append(asset)
+                        tracks.append(.init(title: song.title, fileName: safeAudioName(song), assetID: asset.id,
+                                            duration: song.duration.isFinite ? max(0, song.duration) : 0,
+                                            chapters: services.musicLibrary.generatedChapters(for: song.id) ?? []))
+                    } catch {
+                        try? FileManager.default.removeItem(at: file)
+                        if error is CancellationError { throw error }
                         try Task.checkCancellation()
-                        let count = min(Int64(1024 * 1024), song.fileSize - offset)
-                        let data = try await connector.fetchRange(path: song.filePath, offset: offset, length: count, priority: .background)
-                        guard data.count == count else { throw ListeningShareError.incompleteFile }
-                        try handle.write(contentsOf: data)
-                        offset += count; completed += count
-                        progress(Double(completed) / Double(max(1, total)))
+                        skipped.append(song.title)
                     }
-                    try handle.synchronize()
-                    assets[asset.id] = file; package.assets.append(asset)
-                    tracks.append(.init(title: song.title, fileName: safeAudioName(song), assetID: asset.id,
-                                        duration: song.duration.isFinite ? max(0, song.duration) : 0,
-                                        chapters: services.musicLibrary.generatedChapters(for: song.id) ?? []))
+                    completed += song.fileSize
+                    progress(Double(completed) / Double(max(1, total)))
                 }
                 let first = selection.bookSongs[0]
                 var cover: Data?
                 if let name = first.coverArtFileName, let data = MetadataAssetStore.shared.readCoverData(named: name) {
-                    cover = try portableImage(data)
+                    cover = try? portableImage(data)
                 }
-                package.books = [.init(title: selection.title, author: first.albumArtistName ?? first.artistName,
-                                       cover: cover, tracks: tracks)]
+                if !tracks.isEmpty {
+                    package.books = [.init(title: selection.title, author: first.albumArtistName ?? first.artistName,
+                                           cover: cover, tracks: tracks)]
+                }
             } else if let url = selection.bookURL {
-                _ = try ListeningShareURLPolicy.validate(url.absoluteString, publicSharing: true)
-                guard ListeningShareArchive.validAudioFileName(url.lastPathComponent) else { throw ListeningShareError.unsafeURL }
-                package.books = [.init(title: selection.title, tracks: [.init(title: selection.title,
-                    fileName: url.lastPathComponent, publicURL: url.absoluteString)])]
+                if (try? ListeningShareURLPolicy.validate(url.absoluteString, publicSharing: true)) != nil {
+                    package.books = [.init(title: selection.title, tracks: [.init(title: selection.title,
+                        fileName: url.lastPathComponent, publicURL: url.absoluteString)])]
+                } else { skipped.append(selection.title) }
             }
-            let checked = try package.validated()
+            try Task.checkCancellation()
+            let prepared = try package.preparedForSharing(publicSharing: publicSharing)
+            skipped += prepared.skippedItems
+            let checked = prepared.package
+            guard checked.itemCount > 0 else { throw NoShareableContent(skippedItems: skipped) }
             let file = directory.appendingPathComponent("Primuse.primuseshare")
-            let sources = assets
+            let retainedAssetIDs = Set(checked.assets.map(\.id))
+            let sources = assets.filter { retainedAssetIDs.contains($0.key) }
             try await ListeningShareWork.run { try ListeningShareArchive.write(checked, assets: sources, to: file) }
             // The archive owns the bytes now; remove only this export's staging assets.
             for source in assets.values { try? FileManager.default.removeItem(at: source) }
@@ -231,7 +253,7 @@ enum ListeningShareService {
                 catch let error as ListeningShareCodeError { return (url, nil, error) }
             }
             return Export(package: checked, url: file, directory: directory,
-                          jsonURL: formats.0, offlineCode: formats.1, codeError: formats.2)
+                          jsonURL: formats.0, offlineCode: formats.1, codeError: formats.2, skippedItems: skipped)
         } catch { try? FileManager.default.removeItem(at: directory); throw error }
     }
 

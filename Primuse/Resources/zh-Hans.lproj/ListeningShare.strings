@@ -49,6 +49,8 @@
 "error.invalidPackage" = "分享文件无效或包含不支持的内容。";
 "error.unsupportedVersion" = "请更新 Primuse 后打开此分享文件。";
 "error.unsafeURL" = "该地址需要授权或不支持分享，请使用公开链接或分享音频文件。";
+"skippedItems" = "已跳过 %lld 项";
+"nothingShareable" = "没有可分享的内容。";
 "error.privateURL" = "内网地址无法通过公网链接分享，请使用附近分享。";
 "error.invalidSettings" = "附带的设置无效或不支持分享。";
 "error.tooLarge" = "分享内容超过大小限制，或包含无法导出的音频。";

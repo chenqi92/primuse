@@ -2,6 +2,109 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
+struct ListeningSharePreparationTests {
+    @Test func aBatchOf229StationsKeepsPublicParametersAndCleansOptionalMetadata() throws {
+        var package = ListeningSharePackage(title: "Radio library")
+        package.stations = (0..<229).map { index in
+            var station = RadioStation(name: "Station \(index)", streamURL: "https://radio.example.org/\(index)?key=channel&user=public&token=live&sig=public#listen")
+            station.remoteLogoURL = "https://listener:private@art.example.org/logo.png?access_token=private&size=120"
+            station.homepageURL = index.isMultiple(of: 2) ? "https://radio.example.org/#programmes" : "javascript:invalid"
+            return .init(station)
+        }
+        let prepared = try package.preparedForSharing(publicSharing: true)
+        #expect(prepared.skippedItems.isEmpty)
+        #expect(prepared.package.stations.count == 229)
+        #expect(prepared.package.stations.map(\.streamURL) == package.stations.map(\.streamURL))
+        #expect(prepared.package.stations[0].homepageURL == "https://radio.example.org/#programmes")
+        #expect(prepared.package.stations[1].homepageURL == nil)
+        #expect(prepared.package.stations.allSatisfy { $0.logoURL == "https://art.example.org/logo.png?size=120" })
+        let json = try ListeningShareJSON.encode(prepared.package)
+        #expect(!String(decoding: json, as: UTF8.self).contains("private"))
+        #expect(try ListeningShareJSON.decode(json) == prepared.package)
+        #expect(try ListeningShareCode.decode(ListeningShareCode.encode(prepared.package)) == prepared.package)
+    }
+
+    @Test func invalidItemsDoNotBlockOtherStationsPodcastsOrBookChapters() throws {
+        var package = ListeningSharePackage(title: "Shared library")
+        package.stations = [
+            .init(RadioStation(name: "Public radio", streamURL: "https://radio.example.org/live")),
+            .init(RadioStation(name: "Account radio", streamURL: "https://radio.example.org/live?password=private"))
+        ]
+        package.podcasts = [
+            .init(PodcastShow(id: "public", feedURL: URL(string: "https://podcast.example.org/feed?token=public")!, title: "Public podcast", subscribedAt: Date())),
+            .init(PodcastShow(id: "account", feedURL: URL(string: "https://podcast.example.org/feed?access_token=private")!, title: "Account podcast", subscribedAt: Date()))
+        ]
+        package.podcasts[0].artworkURL = "file:///private/art.png"
+        package.books = [.init(title: "The Lantern Keeper", tracks: [
+            .init(title: "Arrival", fileName: "one.mp3", publicURL: "https://books.example.org/one.mp3?key=public"),
+            .init(title: "Private chapter", fileName: "two.mp3", publicURL: "https://reader:private@books.example.org/two.mp3"),
+            .init(title: "Departure", fileName: "three.mp3", publicURL: "https://books.example.org/three.mp3#chapter")
+        ])]
+        let prepared = try package.preparedForSharing(publicSharing: true)
+        #expect(prepared.skippedItems == ["Account radio", "Account podcast", "Private chapter"])
+        #expect(prepared.package.stations.map(\.name) == ["Public radio"])
+        #expect(prepared.package.podcasts.map(\.title) == ["Public podcast"])
+        #expect(prepared.package.podcasts[0].artworkURL == nil)
+        #expect(prepared.package.books[0].tracks.map(\.title) == ["Arrival", "Departure"])
+        #expect(try ListeningShareJSON.decode(ListeningShareJSON.encode(prepared.package)) == prepared.package)
+        #expect(throws: ListeningShareError.unsafeURL) { try package.validated() }
+    }
+
+    @Test func internetSharingSkipsLocalItemsWhileOfflineSharingKeepsThem() throws {
+        var package = ListeningSharePackage(title: "Radio")
+        package.stations = [
+            .init(RadioStation(name: "Local", streamURL: "http://192.168.1.3/live")),
+            .init(RadioStation(name: "Public", streamURL: "https://radio.example.org/live"))
+        ]
+        package.stations[1].logoURL = "http://192.168.1.3/logo.png"
+        let online = try package.preparedForSharing(publicSharing: true)
+        #expect(online.package.stations.map(\.name) == ["Public"])
+        #expect(online.skippedItems == ["Local"])
+        #expect(online.package.stations[0].logoURL == nil)
+        #expect(try package.preparedForSharing().package == package)
+    }
+
+    @Test func skippedBookChaptersCannotLeaveOrphanedAssetsInTheArchive() throws {
+        let kept = ListeningSharePackage.Asset(size: 3)
+        let dropped = ListeningSharePackage.Asset(size: 4)
+        var package = ListeningSharePackage(title: "The Lantern Keeper")
+        package.assets = [kept, dropped]
+        package.books = [.init(title: package.title, cover: Data(), tracks: [
+            .init(title: "Arrival", fileName: "one.mp3", assetID: kept.id),
+            .init(title: "Invalid path", fileName: "../two.mp3", assetID: dropped.id),
+            .init(title: "Missing audio", fileName: "three.mp3", assetID: UUID().uuidString)
+        ])]
+        let prepared = try package.preparedForSharing()
+        #expect(prepared.package.assets == [kept])
+        #expect(prepared.skippedItems == ["Invalid path", "Missing audio"])
+        #expect(prepared.package.books[0].cover == nil)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let audio = directory.appendingPathComponent("one.mp3")
+        try Data([1, 2, 3]).write(to: audio)
+        let archive = directory.appendingPathComponent("book.primuseshare")
+        try ListeningShareArchive.write(prepared.package, assets: [kept.id: audio], to: archive)
+        #expect(try ListeningShareArchive.read(archive).package == prepared.package)
+    }
+
+    @Test func allInvalidItemsProduceAnEmptyPreparationInsteadOfAnInvalidArchive() throws {
+        var package = ListeningSharePackage(title: "Radio")
+        package.stations = [.init(RadioStation(name: "Unavailable", streamURL: "file:///private/audio"))]
+        let prepared = try package.preparedForSharing()
+        #expect(prepared.package.itemCount == 0)
+        #expect(prepared.skippedItems == ["Unavailable"])
+        #expect(throws: ListeningShareError.invalidPackage) { try ListeningShareJSON.encode(prepared.package) }
+    }
+
+    @Test func credentialsInFragmentsAreRemovedFromMetadataButNotSilentlyRemovedFromPlayback() throws {
+        let url = "https://radio.example.org/live#access_token=private"
+        #expect(throws: ListeningShareError.unsafeURL) { try ListeningShareURLPolicy.validate(url) }
+        #expect(ListeningShareURLPolicy.optionalMetadataURL(url) == "https://radio.example.org/live")
+        #expect(ListeningShareURLPolicy.optionalMetadataURL("https://art.example.org/logo?u=user&t=private&s=salt&size=120") == "https://art.example.org/logo?size=120")
+    }
+}
+
 struct ListeningSharePackageTests {
     @Test func nearbySharingDoesNotAdvertiseToLegacyFileReceivers() throws {
         let old = try JSONDecoder().decode(WiFiTransferIdentity.self, from: Data(#"{"id":"old","name":"Old phone","platform":"iPhone"}"#.utf8))
