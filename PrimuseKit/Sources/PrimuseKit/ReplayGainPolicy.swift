@@ -98,6 +98,14 @@ public struct ReplayGainPlaybackInfo: Equatable, Sendable {
 public enum ReplayGainPolicy {
     public static let preampRange = -12.0...12.0
 
+    public static func supports(_ song: Song, contentKind: ListeningContentKind? = nil) -> Bool {
+        let kind = contentKind ?? SpokenWordContentPolicy.classify(filePath: song.filePath, genre: song.genre)
+        return kind == .music && !PodcastPlaybackSong.isEpisode(song)
+            && song.sourceID != PodcastPlaybackSong.sourceID
+            && !song.id.hasPrefix(RadioStation.playbackSongIDPrefix)
+            && song.sourceID != RadioStation.playbackSourceID
+    }
+
     public static func sanitizedPreamp(_ value: Double) -> Double {
         value.isFinite ? min(preampRange.upperBound, max(preampRange.lowerBound, value)) : 0
     }
@@ -123,11 +131,16 @@ public enum ReplayGainPolicy {
 
     /// Prepare the imminent songs first; album completion must not hold up
     /// the next track. Keep CUE tracks distinct even when they share a file.
-    public static func analysisPlan(current: Song, upcoming: [Song], album: [Song], mode: ReplayGainMode) -> [Song] {
+    public static func analysisPlan(
+        current: Song, upcoming: [Song], album: [Song], mode: ReplayGainMode,
+        contentKind: (Song) -> ListeningContentKind = { SpokenWordContentPolicy.classify(filePath: $0.filePath, genre: $0.genre) }
+    ) -> [Song] {
+        guard supports(current, contentKind: contentKind(current)) else { return [] }
         var seen = Set<String>()
         return (upcoming + [current] + (mode == .album ? album : [])).filter { song in
             let itemMode: ReplayGainMode = albumKey(for: song) == albumKey(for: current) ? mode : .track
             return seen.insert(ReplayGainAnalysisCache.key(for: song)).inserted
+                && supports(song, contentKind: contentKind(song))
                 && !song.isStreamDescriptor
                 && !adjustment(for: song, mode: itemMode).hasValue
         }

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import GRDB
 
 public actor ReplayGainAnalysisCache {
     public static let shared = ReplayGainAnalysisCache()
@@ -11,6 +12,7 @@ public actor ReplayGainAnalysisCache {
     }
     private let directory: URL
     private var entries: [String: Entry]?
+    private var database: DatabaseQueue?
 
     public init(directory: URL? = nil) {
         self.directory = directory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -45,12 +47,33 @@ public actor ReplayGainAnalysisCache {
         guard measurement.peak.isFinite, measurement.duration.isFinite,
               measurement.blockEnergies.allSatisfy({ $0.isFinite && $0 >= 0 }) else { return }
         load()
-        entries?[Self.key(for: song)] = Entry(measurement: measurement,
-                                             filePathHash: Self.hash(fileURL.standardizedFileURL.path),
-                                             fileVersion: Self.fileVersion(fileURL), savedAt: Date())
+        let key = Self.key(for: song)
+        let pathHash = Self.hash(fileURL.standardizedFileURL.path)
+        let version = Self.fileVersion(fileURL)
+        if let existing = entries?[key], existing.measurement == measurement,
+           existing.filePathHash == pathHash, existing.fileVersion == version { return }
+        let previousKeys = Set(entries?.keys.map { $0 } ?? [])
+        entries?[key] = Entry(measurement: measurement, filePathHash: pathHash,
+                              fileVersion: version, savedAt: Date())
+        let kept = Self.pruned(entries ?? [:])
+        entries = kept
+        do {
+            try database?.write { db in
+                for removed in previousKeys.subtracting(kept.keys) {
+                    try db.execute(sql: "DELETE FROM measurements WHERE cacheKey = ?", arguments: [removed])
+                }
+                if let entry = kept[key] {
+                    try db.execute(sql: "INSERT OR REPLACE INTO measurements (cacheKey, payload) VALUES (?, ?)",
+                                   arguments: [key, try JSONEncoder().encode(entry)])
+                }
+            }
+        } catch { /* An evicted or unwritable cache must not prevent playback. */ }
+    }
+
+    private static func pruned(_ entries: [String: Entry]) -> [String: Entry] {
         // Keep only analysis data, never audio. Bound both entry count and the
         // energy-window count, including unusually long concert recordings.
-        let ordered = (entries ?? [:]).sorted { $0.value.savedAt > $1.value.savedAt }
+        let ordered = entries.sorted { $0.value.savedAt > $1.value.savedAt }
         var kept: [String: Entry] = [:]
         var windows = 0
         for (key, value) in ordered {
@@ -58,23 +81,51 @@ public actor ReplayGainAnalysisCache {
             kept[key] = value
             windows += value.measurement.blockEnergies.count
         }
-        entries = kept
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try JSONEncoder().encode(kept).write(to: directory.appendingPathComponent("v1.json"), options: .atomic)
-        } catch { /* An evicted or unwritable cache must not prevent playback. */ }
+        return kept
     }
 
     private func load() {
         guard entries == nil else { return }
+        entries = [:]
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let database = try DatabaseQueue(path: directory.appendingPathComponent("v2.sqlite").path)
+            try database.write { db in
+                try db.execute(sql: "CREATE TABLE IF NOT EXISTS measurements (cacheKey TEXT PRIMARY KEY, payload BLOB NOT NULL)")
+                if try Int.fetchOne(db, sql: "PRAGMA user_version") == 0 {
+                    // Import once in the same transaction as the version marker.
+                    // Later measurements only replace their own row.
+                    for (key, entry) in Self.pruned(legacyEntries()) {
+                        try db.execute(sql: "INSERT OR IGNORE INTO measurements (cacheKey, payload) VALUES (?, ?)",
+                                       arguments: [key, try JSONEncoder().encode(entry)])
+                    }
+                    try db.execute(sql: "PRAGMA user_version = 1")
+                }
+            }
+            entries = try database.read { db in
+                var result: [String: Entry] = [:]
+                for row in try Row.fetchAll(db, sql: "SELECT cacheKey, payload FROM measurements") {
+                    if let entry = try? JSONDecoder().decode(Entry.self, from: row["payload"]) {
+                        result[row["cacheKey"]] = entry
+                    }
+                }
+                return result
+            }
+            self.database = database
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent("v1.json"))
+        } catch {
+            entries = Self.pruned(legacyEntries())
+        }
+    }
+
+    private func legacyEntries() -> [String: Entry] {
         let url = directory.appendingPathComponent("v1.json")
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
               size < 32 * 1024 * 1024, let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([String: Entry].self, from: data) else {
-            entries = [:]
-            return
+            return [:]
         }
-        entries = decoded
+        return decoded
     }
 
     private nonisolated static func hash(_ value: String) -> String {

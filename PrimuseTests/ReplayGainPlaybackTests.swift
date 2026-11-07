@@ -8,6 +8,59 @@ import Vision
 #endif
 
 final class ReplayGainPlaybackTests: XCTestCase {
+    @MainActor func testSpokenWordBypassesTagsCacheAndPreparationAndCancelsPreviousWork() async throws {
+        let suite = "replaygain-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = PlaybackSettingsStore(defaults: defaults, cloudSync: CloudKVSSync(store: nil, defaults: defaults, observing: nil))
+        settings.replayGainEnabled = true
+        let sessionURL = FileManager.default.temporaryDirectory.appendingPathComponent("replaygain-session-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: sessionURL) }
+        let player = AudioPlayerService(playbackSettings: settings, playbackSessionStore: PlaybackSessionStore(url: sessionURL))
+        var book = Song(id: UUID().uuidString, title: "Chapter", duration: 1800,
+                        fileFormat: .mp3, filePath: "chapter.mp3", sourceID: "test", genre: "Audiobook")
+        book.replayGainTrackGain = -8
+        let oldTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
+        player.replayGainAnalysisTask = oldTask
+        player.replayGainAnalysisIdentity = "old-music"
+        player.currentSong = book
+        XCTAssertTrue(oldTask.isCancelled)
+        XCTAssertNil(player.replayGainAnalysisIdentity)
+        let url = URL(fileURLWithPath: "/not-opened.mp3")
+        let volume = await player.targetProgramVolume(for: book, url: url, allowFileRead: true)
+        XCTAssertEqual(volume, 1)
+        XCTAssertFalse(player.replayGainPlaybackInfo.showsBadge)
+        await player.applyReplayGain(for: book, url: url, mode: .track)
+        XCTAssertEqual(player.audioEngine.primaryProgramVolume, 1)
+        try await ReplayGainAnalysisService.shared.prepare([book]) { _ in
+            XCTFail("Spoken word must not request an audio file")
+            return nil
+        }
+        let status = await ReplayGainAnalysisService.shared.status(for: book)
+        XCTAssertEqual(status, .unavailable)
+    }
+
+    func testAnalysisBudgetPacesWorkAndCancellationInterruptsTheWait() throws {
+        let budget = ReplayGainAnalysisBudget()
+        budget.beginWork()
+        let start = ProcessInfo.processInfo.systemUptime
+        Thread.sleep(forTimeInterval: 0.02)
+        try budget.pace()
+        XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - start, 0.12)
+
+        let waiting = expectation(description: "Budget wait interrupted")
+        DispatchQueue.global(qos: .utility).async {
+            budget.beginWork()
+            Thread.sleep(forTimeInterval: 0.1)
+            do { try budget.pace(); XCTFail("Cancelled budget completed") }
+            catch { XCTAssertTrue(error is CancellationError) }
+            waiting.fulfill()
+        }
+        Thread.sleep(forTimeInterval: 0.15)
+        budget.cancel()
+        wait(for: [waiting], timeout: 0.3)
+    }
+
     @MainActor func testBadgePreferenceIsIndependentOfAudioInfoAndReplayGain() throws {
         let suite = "replaygain-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -171,6 +224,30 @@ final class ReplayGainPlaybackTests: XCTestCase {
         XCTAssertNil(cached)
     }
 
+    func testRunningAnalysisCancelsPromptlyWithoutCachingPartialAudio() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("replaygain-\(UUID()).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try writeFixture(to: url, seconds: 15)
+        let song = Song(id: UUID().uuidString, title: "Running cancellation", duration: 15,
+                        fileFormat: .wav, filePath: url.path, sourceID: "test")
+        let task = Task { try await ReplayGainAnalysisService.shared.analyze(song, url: url) }
+        defer { task.cancel() }
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while await ReplayGainAnalysisService.shared.status(for: song) != .analyzing,
+              ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let status = await ReplayGainAnalysisService.shared.status(for: song)
+        XCTAssertEqual(status, .analyzing)
+        let cancelledAt = ProcessInfo.processInfo.systemUptime
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Running analysis ignored cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - cancelledAt, 1)
+        let cached = await ReplayGainAnalysisCache.shared.measurement(for: song)
+        XCTAssertNil(cached)
+    }
+
     func testPlayerNodeAppliesPositiveGainToPCMOffline() throws {
         let engine = AVAudioEngine()
         let node = AVAudioPlayerNode()
@@ -196,12 +273,13 @@ final class ReplayGainPlaybackTests: XCTestCase {
         XCTAssertEqual(peak, 0.2, accuracy: 0.001)
     }
 
-    private func writeFixture(to url: URL) throws {
+    private func writeFixture(to url: URL, seconds: Int = 3) throws {
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2))
-        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 144000))
-        buffer.frameLength = 144000
+        let frames = 48000 * seconds
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)))
+        buffer.frameLength = AVAudioFrameCount(frames)
         for channel in 0..<2 {
-            for frame in 0..<144000 {
+            for frame in 0..<frames {
                 let amplitude = frame < 48000 ? 0.05 : 0.2
                 buffer.floatChannelData![channel][frame] = Float(amplitude * sin(2 * .pi * 1000 * Double(frame) / 48000))
             }

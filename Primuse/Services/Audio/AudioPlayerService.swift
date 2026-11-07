@@ -616,6 +616,7 @@ final class AudioPlayerService {
             prepareLyricsForSystemSurfaces(previousSong: oldValue)
             #endif
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
+            if currentSong.map(ReplayGainAnalysisService.supports) != true { cancelReplayGainAnalysis() }
             if oldValue?.id != currentSong?.id {
                 retainReplayGainSnapshot(for: currentSong)
                 handleSpokenWordItemChange(to: currentSong)

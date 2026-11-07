@@ -10,7 +10,12 @@ actor ReplayGainAnalysisService {
 
     typealias Status = ReplayGainAnalysisStatus
 
+    @MainActor static func supports(_ song: Song) -> Bool {
+        ReplayGainPolicy.supports(song, contentKind: SpokenWordStore.shared.kind(for: song))
+    }
+
     func status(for song: Song) async -> Status {
+        guard await Self.supports(song) else { return .unavailable }
         if await ReplayGainAnalysisCache.shared.measurement(for: song) != nil { return .cached }
         let key = ReplayGainAnalysisCache.key(for: song)
         if pending[key] != nil { return .analyzing }
@@ -24,11 +29,13 @@ actor ReplayGainAnalysisService {
         knownFiles: [String: URL] = [:],
         audioFile: @MainActor @Sendable (Song) async throws -> KaraokeAudioFile?
     ) async throws {
+        let songs = await MainActor.run { songs.filter { Self.supports($0) && !$0.isStreamDescriptor } }
         let preparationID = UUID()
         preparations[preparationID] = Set(songs.map { ReplayGainAnalysisCache.key(for: $0) })
         defer { preparations[preparationID] = nil }
         for song in songs {
             try Task.checkCancellation()
+            guard await Self.supports(song) else { continue }
             let key = ReplayGainAnalysisCache.key(for: song)
             defer { preparations[preparationID]?.remove(key) }
             let local = knownFiles[key]
@@ -47,9 +54,11 @@ actor ReplayGainAnalysisService {
     }
 
     func analyze(_ song: Song, url: URL) async throws -> ReplayGainLoudnessMeasurement {
+        try Task.checkCancellation()
+        guard await Self.supports(song) else { throw ReplayGainFileAnalyzer.Failure.unsupportedContent }
         if let cached = await ReplayGainAnalysisCache.shared.measurement(for: song, fileURL: url) { return cached }
         let key = ReplayGainAnalysisCache.key(for: song)
-        if let job = pending[key] { return try await job.1.value }
+        if let job = pending[key], !job.1.isCancelled { return try await job.1.value }
         let id = UUID()
         let job = Task {
             let value = try await ReplayGainFileAnalyzer.analyze(url: url, song: song)
@@ -67,6 +76,7 @@ actor ReplayGainAnalysisService {
     }
 
     static func cachedSnapshot(for song: Song, mode: ReplayGainMode, album: [Song], url: URL? = nil) async -> ReplayGainPlaybackSnapshot? {
+        guard await supports(song) else { return nil }
         guard let track = await ReplayGainAnalysisCache.shared.measurement(for: song, fileURL: url) else { return nil }
         if mode == .album, !album.isEmpty,
            let measurement = await ReplayGainAnalysisCache.shared.albumMeasurement(for: album) {
@@ -76,15 +86,18 @@ actor ReplayGainAnalysisService {
     }
 }
 
-private final class ReplayGainAnalysisCancellation: @unchecked Sendable {
-    private let lock = NSLock()
+final class ReplayGainAnalysisBudget: @unchecked Sendable {
+    private let lock = NSCondition()
     private var cancelled = false
     private var bridge: FFmpegDecoderBridge?
+    private var workStarted = ProcessInfo.processInfo.systemUptime
+    static let dutyCycle = 0.15
 
     func cancel() {
         lock.lock()
         cancelled = true
         bridge?.cancel()
+        lock.broadcast()
         lock.unlock()
     }
 
@@ -101,22 +114,42 @@ private final class ReplayGainAnalysisCancellation: @unchecked Sendable {
         lock.unlock()
         if value { throw CancellationError() }
     }
+
+    func beginWork() { workStarted = ProcessInfo.processInfo.systemUptime }
+
+    /// Utility QoS sets priority, not a CPU limit. Account for decoding and
+    /// measurement together, and let cancellation wake the worker immediately.
+    func pace() throws {
+        let work = ProcessInfo.processInfo.systemUptime - workStarted
+        guard work >= 0.005 else { return try check() }
+        let deadline = ProcessInfo.processInfo.systemUptime + work * (1 / Self.dutyCycle - 1)
+        lock.lock()
+        defer { lock.unlock() }
+        while !cancelled {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            if remaining <= 0 { break }
+            _ = lock.wait(until: Date(timeIntervalSinceNow: remaining))
+        }
+        if cancelled { throw CancellationError() }
+        workStarted = ProcessInfo.processInfo.systemUptime
+    }
 }
 
 enum ReplayGainFileAnalyzer {
     // Synchronous file decoders never run on the main actor or the
-    // cooperative pool. A single utility lane bounds the CPU / disk load.
+    // cooperative pool. Serialize jobs and pace their work on this lane.
     private static let lane = DispatchQueue(label: "com.welape.primuse.replaygain", qos: .utility)
-    enum Failure: Error { case unreadable, unsupportedChannels, incomplete }
+    enum Failure: Error { case unreadable, unsupportedChannels, unsupportedContent, incomplete }
 
     static func analyze(url: URL, song: Song) async throws -> ReplayGainLoudnessMeasurement {
         guard url.isFileURL else { throw Failure.unreadable }
-        let cancellation = ReplayGainAnalysisCancellation()
+        let cancellation = ReplayGainAnalysisBudget()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 lane.async {
                     continuation.resume(with: Result {
                         try cancellation.check()
+                        cancellation.beginWork()
                         var accumulator = Accumulator(song: song)
                         do {
                             let bridge = try FFmpegDecoderBridge(url: url, ioTimeout: 10)
@@ -125,7 +158,9 @@ enum ReplayGainFileAnalyzer {
                             while true {
                                 try cancellation.check()
                                 guard let buffer = try bridge.readNextBuffer().buffer, buffer.frameLength > 0 else { break }
-                                if try accumulator.append(buffer) { break }
+                                let finished = try accumulator.append(buffer)
+                                try cancellation.pace()
+                                if finished { break }
                             }
                         } catch {
                             try cancellation.check()
@@ -147,7 +182,9 @@ enum ReplayGainFileAnalyzer {
                                 try cancellation.check()
                                 try decoder.decode(into: buffer, length: 8192)
                                 if buffer.frameLength == 0 { break }
-                                if try accumulator.append(buffer) { break }
+                                let finished = try accumulator.append(buffer)
+                                try cancellation.pace()
+                                if finished { break }
                             }
                         }
                         try cancellation.check()

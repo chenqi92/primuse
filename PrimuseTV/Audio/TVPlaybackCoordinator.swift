@@ -1302,6 +1302,8 @@ final class TVPlaybackCoordinator {
     }
 
     private func observeReplayGainSettings() {
+        let wasSupported = replayGainSelection.map { ReplayGainAnalysisService.supports($0.0) }
+        let oldSelectionID = replayGainSelection?.1
         let wasEnabled = TVReplayGainSettings.shared.enabled
         let oldMode = TVReplayGainSettings.shared.mode
         let oldShuffled = store?.shuffleEnabled
@@ -1311,12 +1313,14 @@ final class TVPlaybackCoordinator {
             _ = TVReplayGainSettings.shared.preampDB
             _ = store?.shuffleEnabled
             _ = store?.queueSongIDs
+            _ = replayGainSelection.map { ReplayGainAnalysisService.supports($0.0) }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let (song, requestID) = self.replayGainSelection {
                     if wasEnabled != TVReplayGainSettings.shared.enabled
-                        || oldMode != TVReplayGainSettings.shared.mode || oldShuffled != self.store?.shuffleEnabled {
+                        || oldMode != TVReplayGainSettings.shared.mode || oldShuffled != self.store?.shuffleEnabled
+                        || (oldSelectionID == requestID && wasSupported != ReplayGainAnalysisService.supports(song)) {
                         self.replayGainSnapshot = nil
                     }
                     await self.configureReplayGain(song: song, requestID: requestID)
@@ -1329,12 +1333,13 @@ final class TVPlaybackCoordinator {
     private func replayGainAlbum(for song: Song) -> [Song] {
         guard let store else { return [song] }
         let candidates = song.albumID.map { store.library.songs(forAlbum: $0) } ?? [song]
-        let album = candidates.filter { ReplayGainPolicy.albumKey(for: $0) == ReplayGainPolicy.albumKey(for: song) }
+        let album = candidates.filter { ReplayGainAnalysisService.supports($0) && ReplayGainPolicy.albumKey(for: $0) == ReplayGainPolicy.albumKey(for: song) }
         return album.isEmpty ? [song] : album
     }
 
     private func initialReplayGain(for song: Song, requestID: UUID, url: URL?) async -> ReplayGainAdjustment {
-        guard let store, TVReplayGainSettings.shared.enabled, !store.isLiveRadio else { return .init() }
+        guard let store, TVReplayGainSettings.shared.enabled, !store.isLiveRadio,
+              ReplayGainAnalysisService.supports(song) else { return .init() }
         let queue = store.queueSongIDs.compactMap { store.library.song(id: $0) }
         let mode = ReplayGainPolicy.effectiveMode(TVReplayGainSettings.shared.mode, song: song, queue: queue, shuffled: store.shuffleEnabled)
         if let snapshot = replayGainSnapshot, snapshot.requestID == requestID {
@@ -1373,11 +1378,12 @@ final class TVPlaybackCoordinator {
         replayGainToken = token
         replayGainSelection = (song, requestID)
         let settings = TVReplayGainSettings.shared
-        guard settings.enabled, let store, !store.isLiveRadio else {
+        guard settings.enabled, let store, !store.isLiveRadio, ReplayGainAnalysisService.supports(song) else {
             replayGainTask?.cancel()
             replayGainAnalysisIdentity = nil
             engine.setReplayGain(enabled: false, volume: 1)
-            engine.replayGainPlaybackInfo = .init(enabled: settings.enabled, supported: store?.isLiveRadio != true)
+            engine.replayGainPlaybackInfo = .init(enabled: settings.enabled,
+                                                  supported: store?.isLiveRadio != true && ReplayGainAnalysisService.supports(song))
             return
         }
         let values: ReplayGainAdjustment
@@ -1391,13 +1397,15 @@ final class TVPlaybackCoordinator {
 
     private func scheduleReplayGainAnalysis() {
         guard let (song, requestID) = replayGainSelection, let store,
-              TVReplayGainSettings.shared.enabled, !store.isLiveRadio else { return }
+              TVReplayGainSettings.shared.enabled, !store.isLiveRadio,
+              ReplayGainAnalysisService.supports(song) else { return }
         let queue = store.queueSongIDs.compactMap { store.library.song(id: $0) }
         let mode = ReplayGainPolicy.effectiveMode(TVReplayGainSettings.shared.mode, song: song, queue: queue, shuffled: store.shuffleEnabled)
         let songs = ReplayGainPolicy.analysisPlan(
             current: song,
             upcoming: store.upcomingPrefetchSongs(limit: TVStore.upcomingPrefetchCount),
-            album: replayGainAlbum(for: song), mode: mode
+            album: replayGainAlbum(for: song), mode: mode,
+            contentKind: { SpokenWordStore.shared.kind(for: $0) }
         )
         let identity = songs.map { ReplayGainAnalysisCache.key(for: $0) }.joined(separator: ":")
         guard replayGainAnalysisIdentity != identity else { return }
@@ -1412,8 +1420,7 @@ final class TVPlaybackCoordinator {
                     guard let self, let store = self.store else { throw CancellationError() }
                     try self.ensureCurrent(requestID, store: store)
                     if item.id == song.id, let localURL { return KaraokeAudioFile(url: localURL) }
-                    guard !TVMedleyNetworkState.shared.isMetered else { return nil }
-                    return try await self.karaokeAudioFile(for: item, requestID: requestID)
+                    return nil
                 }
             } catch {
                 if !(error is CancellationError) { plog("TV ReplayGain analysis unavailable: \(type(of: error))") }

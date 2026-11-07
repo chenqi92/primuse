@@ -585,8 +585,9 @@ final class TVStore {
         let sourceType = song.flatMap { sourcesStore.source(id: $0.sourceID) }?.type
         let isAppleMusic = appleMusicSelection != nil
             || sourceType == .appleMusic || sourceType == .appleMusicLibrary
-        guard settings.enabled, !isLiveRadio, !isAppleMusic else {
-            return .init(enabled: settings.enabled, supported: !isLiveRadio && !isAppleMusic)
+        let supportsReplayGain = song.map(ReplayGainAnalysisService.supports) == true
+        guard settings.enabled, !isLiveRadio, !isAppleMusic, supportsReplayGain else {
+            return .init(enabled: settings.enabled, supported: !isLiveRadio && !isAppleMusic && supportsReplayGain)
         }
         return medleyPlayback?.replayGainPlaybackInfo ?? engine.replayGainPlaybackInfo
     }

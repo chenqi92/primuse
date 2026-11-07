@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import PrimuseKit
 
@@ -35,6 +36,25 @@ struct ReplayGainAnalysisTests {
                                                    album: [current, next, rest], mode: .album)
         #expect(planned.map(\.id) == ["next", "current", "rest"])
         #expect(ReplayGainPolicy.analysisPlan(current: current, upcoming: [], album: [rest], mode: .track).map(\.id) == ["current"])
+    }
+
+    @Test func nonMusicNeverEntersAnalysisAndExplicitMusicClassificationIsRespected() {
+        let music = song("music")
+        var book = song("book"), podcast = song("podcast"), radio = song("radio")
+        book.filePath = "book.m4b"
+        book.replayGainTrackGain = -6
+        podcast.genre = "Podcast"
+        radio.sourceID = RadioStation.playbackSourceID
+        #expect(!ReplayGainPolicy.supports(book))
+        #expect(!ReplayGainPolicy.supports(podcast))
+        #expect(!ReplayGainPolicy.supports(radio, contentKind: .music))
+        #expect(ReplayGainPolicy.analysisPlan(current: book, upcoming: [music], album: [], mode: .track).isEmpty)
+        #expect(ReplayGainPolicy.analysisPlan(current: music, upcoming: [book, podcast, radio], album: [], mode: .track) == [music])
+        #expect(ReplayGainPolicy.supports(book, contentKind: .music))
+        #expect(!ReplayGainPolicy.supports(music, contentKind: .spokenWord))
+        var concert = music
+        concert.duration = 7200
+        #expect(ReplayGainPolicy.supports(concert))
     }
 
     @Test func preparationKeepsSeparateCUETracksAndDoesNotFetchStreamDescriptors() {
@@ -118,5 +138,58 @@ struct ReplayGainAnalysisTests {
         changed = track
         changed.cueStartTime = 1
         #expect(ReplayGainAnalysisCache.key(for: changed) != ReplayGainAnalysisCache.key(for: track))
+    }
+
+    @Test func cacheMigratesLegacyMeasurementsAndOnlyWritesChangedTrack() async throws {
+        struct LegacyEntry: Encodable {
+            let measurement: ReplayGainLoudnessMeasurement
+            let savedAt: Date
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = song("a"), b = song("b"), c = song("c")
+        let value = ReplayGainLoudnessMeasurement(blockEnergies: [0.01], peak: 0.8, duration: 3)
+        let legacy = root.appendingPathComponent("v1.json")
+        try JSONEncoder().encode([ReplayGainAnalysisCache.key(for: a): LegacyEntry(measurement: value, savedAt: Date())]).write(to: legacy)
+        let cache = ReplayGainAnalysisCache(directory: root)
+        #expect(await cache.measurement(for: a) == value)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        let db = try DatabaseQueue(path: root.appendingPathComponent("v2.sqlite").path)
+        try await db.write { db in
+            try db.execute(sql: """
+                CREATE TABLE changedKeys (cacheKey TEXT);
+                CREATE TRIGGER recordInsert AFTER INSERT ON measurements BEGIN
+                    INSERT INTO changedKeys VALUES (NEW.cacheKey);
+                END;
+                CREATE TRIGGER recordUpdate AFTER UPDATE ON measurements BEGIN
+                    INSERT INTO changedKeys VALUES (NEW.cacheKey);
+                END;
+                """)
+        }
+        let file = root.appendingPathComponent("audio")
+        try Data([1]).write(to: file)
+        await cache.store(value, for: b, fileURL: file)
+        await cache.store(value, for: b, fileURL: file)
+        await cache.store(value, for: c, fileURL: file)
+        let changed = try await db.read { try String.fetchAll($0, sql: "SELECT cacheKey FROM changedKeys") }
+        #expect(changed == [ReplayGainAnalysisCache.key(for: b), ReplayGainAnalysisCache.key(for: c)])
+        let restarted = ReplayGainAnalysisCache(directory: root)
+        for track in [a, b, c] { #expect(await restarted.measurement(for: track) == value) }
+    }
+
+    @Test func failedMigrationKeepsLegacyCacheReadable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("v2.sqlite"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let track = song("a")
+        let value = ReplayGainLoudnessMeasurement(blockEnergies: [0.01], peak: 0.8, duration: 3)
+        let payload: [String: Any] = [ReplayGainAnalysisCache.key(for: track): [
+            "measurement": ["blockEnergies": [0.01], "peak": 0.8, "duration": 3.0], "savedAt": 0.0
+        ]]
+        let legacy = root.appendingPathComponent("v1.json")
+        try JSONSerialization.data(withJSONObject: payload).write(to: legacy)
+        #expect(await ReplayGainAnalysisCache(directory: root).measurement(for: track) == value)
+        #expect(FileManager.default.fileExists(atPath: legacy.path))
     }
 }

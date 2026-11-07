@@ -28,15 +28,23 @@ extension AudioPlayerService {
         ReplayGainPlaybackInfo(
             enabled: playbackSettings.replayGainEnabled,
             supported: playbackSettings.outputMode == .effects && !isSystemMediaPlaybackActive
-                && !isAppleMusicMode && !isLiveRadio && !isCastingMode,
+                && !isAppleMusicMode && !isLiveRadio && !isCastingMode
+                && currentSong.map(ReplayGainAnalysisService.supports) == true,
             snapshot: currentSong.flatMap { replayGainSnapshots[replayGainSnapshotKey($0)] },
             preampDB: playbackSettings.replayGainPreampDB
         )
     }
 
     func retainReplayGainSnapshot(for song: Song?) {
+        if song.map(ReplayGainAnalysisService.supports) != true { cancelReplayGainAnalysis() }
         replayGainSnapshotGeneration = UUID()
         replayGainSnapshots = replayGainSnapshots.filter { $0.key == song.map(replayGainSnapshotKey) }
+    }
+
+    func cancelReplayGainAnalysis() {
+        replayGainAnalysisTask?.cancel()
+        replayGainAnalysisTask = nil
+        replayGainAnalysisIdentity = nil
     }
 
     /// The node volume a song should play at: its ReplayGain volume, or unity
@@ -87,7 +95,7 @@ extension AudioPlayerService {
         let values = await resolution.value
         guard expectedPlayID == nil || playID == expectedPlayID,
               expectedSongID == nil || currentSong?.id == expectedSongID else { return }
-        audioEngine.applyProgramVolume(programVolume(for: values))
+        audioEngine.applyProgramVolume(ReplayGainAnalysisService.supports(song) ? programVolume(for: values) : 1)
     }
 
     /// The library row answers first. A local file is opened only when the
@@ -101,6 +109,7 @@ extension AudioPlayerService {
         mode: ReplayGainMode,
         allowFileRead: Bool
     ) async -> ReplayGainValues {
+        guard ReplayGainAnalysisService.supports(song) else { return .init() }
         let mode = ReplayGainPolicy.effectiveMode(mode, song: song, queue: queue, shuffled: shuffleEnabled)
         let key = replayGainSnapshotKey(song)
         let generation = replayGainSnapshotGeneration
@@ -133,6 +142,7 @@ extension AudioPlayerService {
                 scheduleReplayGainAnalysis(for: song, mode: mode, album: album, url: allowFileRead ? url : nil)
             }
         }
+        guard ReplayGainAnalysisService.supports(song) else { return .init() }
         // Answers "ReplayGain does nothing for this song" from a log: which
         // values were used, where they came from, and the volume they gave.
         let gain = values.gain.map { String(format: "%+.2f dB", $0) } ?? "-"
@@ -180,6 +190,8 @@ extension AudioPlayerService {
     /// discards a gapless successor whose samples were scaled for the old
     /// setting.
     func observeReplayGainSettings() {
+        let oldSupported = currentSong.map(ReplayGainAnalysisService.supports)
+        let oldSelection = currentSong.map(replayGainSnapshotKey)
         let oldEnabled = playbackSettings.replayGainEnabled
         let oldPreamp = playbackSettings.replayGainPreampDB
         let oldConfiguredMode = playbackSettings.replayGainMode
@@ -191,26 +203,33 @@ extension AudioPlayerService {
             _ = playbackSettings.replayGainPreampDB
             _ = shuffleEnabled
             _ = queueEntries
+            _ = currentSong.map(ReplayGainAnalysisService.supports)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                let newSupported = self.currentSong.map(ReplayGainAnalysisService.supports)
+                let classificationChanged = oldSelection == self.currentSong.map(self.replayGainSnapshotKey)
+                    && oldSupported != newSupported
                 let newMode = self.currentSong.map { ReplayGainPolicy.effectiveMode(self.playbackSettings.replayGainMode, song: $0, queue: self.queue, shuffled: self.shuffleEnabled) }
                 let changed = oldEnabled != self.playbackSettings.replayGainEnabled
+                    || classificationChanged
                     || oldPreamp != self.playbackSettings.replayGainPreampDB
                     || oldConfiguredMode != self.playbackSettings.replayGainMode
                     || (oldShuffled != self.shuffleEnabled && oldMode != newMode)
                 if changed {
                     self.retainReplayGainSnapshot(for: nil)
-                    self.replayGainAnalysisTask?.cancel()
-                    self.replayGainAnalysisTask = nil
-                    self.replayGainAnalysisIdentity = nil
+                    self.cancelReplayGainAnalysis()
                 }
-                if changed && self.shouldRebuildForReplayGainChange {
+                if changed && (oldSupported == true || newSupported == true) && self.shouldRebuildForReplayGainChange {
                     self.seek(to: self.currentTime, startPlaying: self.isPlaying)
                 } else if !changed {
                     // A queue refill may change the automatic mode. Keep the
                     // audible selection fixed; re-plan only its successors.
-                    self.retainReplayGainSnapshot(for: self.currentSong)
+                    // Selection changes already invalidated the previous song
+                    // synchronously, before the new gain resolution started.
+                    if oldSelection == self.currentSong.map(self.replayGainSnapshotKey) {
+                        self.retainReplayGainSnapshot(for: self.currentSong)
+                    }
                     self.prefetchReplayGain()
                 }
                 self.observeReplayGainSettings()
@@ -249,7 +268,7 @@ extension AudioPlayerService {
     func replayGainAlbumSongs(for song: Song) -> [Song] {
         guard let key = ReplayGainPolicy.albumKey(for: song) else { return [song] }
         let candidates = song.albumID.flatMap { library?.songs(forAlbum: $0) } ?? queue
-        let album = candidates.filter { ReplayGainPolicy.albumKey(for: $0) == key }
+        let album = candidates.filter { ReplayGainAnalysisService.supports($0) && ReplayGainPolicy.albumKey(for: $0) == key }
         return album.isEmpty ? [song] : album
     }
 
@@ -263,20 +282,28 @@ extension AudioPlayerService {
     }
 
     func prefetchReplayGain(upcoming: [Song]? = nil) {
-        guard let song = currentSong, shouldApplyReplayGain(playbackSettings.snapshot()) else { return }
+        guard let song = currentSong, ReplayGainAnalysisService.supports(song),
+              shouldApplyReplayGain(playbackSettings.snapshot()) else {
+            cancelReplayGainAnalysis()
+            return
+        }
         let mode = ReplayGainPolicy.effectiveMode(playbackSettings.replayGainMode, song: song, queue: queue, shuffled: shuffleEnabled)
         scheduleReplayGainAnalysis(for: song, mode: mode, album: replayGainAlbumSongs(for: song), url: nil, upcoming: upcoming)
     }
 
     private func scheduleReplayGainAnalysis(for song: Song, mode: ReplayGainMode, album: [Song], url: URL?, upcoming: [Song]? = nil) {
-        guard let sourceManager, !isSystemMediaPlaybackActive, !isAppleMusicMode,
-              !isLiveRadio, !isCastingMode else { return }
+        guard let sourceManager, ReplayGainAnalysisService.supports(song),
+              !isSystemMediaPlaybackActive, !isAppleMusicMode, !isLiveRadio, !isCastingMode else {
+            cancelReplayGainAnalysis()
+            return
+        }
         let next = upcoming ?? nextSongsInQueue(count: UpcomingPlaybackPrefetchPolicy.plannedSongCount(
             configured: playbackSettings.prewarmQueueCount,
             isMeteredNetwork: NetworkMonitor.shared.isExpensive || NetworkMonitor.shared.isConstrained
         ))
-        let songs = ReplayGainPolicy.analysisPlan(current: song, upcoming: next, album: album, mode: mode)
-            .filter { !PodcastPlaybackSong.isEpisode($0) && $0.sourceID != AppleMusicLibraryService.systemSourceID }
+        let songs = ReplayGainPolicy.analysisPlan(current: song, upcoming: next, album: album, mode: mode,
+                                                 contentKind: { SpokenWordStore.shared.kind(for: $0) })
+            .filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
         let identity = songs.map { ReplayGainAnalysisCache.key(for: $0) }.joined(separator: ":")
         guard replayGainAnalysisIdentity != identity else { return }
         replayGainAnalysisTask?.cancel()
@@ -298,17 +325,12 @@ extension AudioPlayerService {
                         return KaraokeAudioFile(url: local)
                     }
                     if let local = await sourceManager.directLocalFileURL(for: item) { return KaraokeAudioFile(url: local) }
-                    guard !NetworkMonitor.shared.isExpensive, !NetworkMonitor.shared.isConstrained else { return nil }
-                    await CloudPlaybackSource.waitForPlaybackNetworkQuiet(maximumWait: .seconds(15))
-                    try Task.checkCancellation()
-                    guard !NetworkMonitor.shared.isExpensive, !NetworkMonitor.shared.isConstrained else { return nil }
-                    return try await KaraokeSeparationService.sourceAudioFile(for: item, sourceManager: sourceManager)
+                    return nil
                 }
             } catch {
                 if !(error is CancellationError) { plog("ReplayGain analysis unavailable: \(type(of: error))") }
             }
-            // Retain the identity until selection/settings change: a failed
-            // source must not be downloaded again on every gain resolution.
+            // Keep unavailable files from being retried on every gain resolution.
         }
     }
 }
