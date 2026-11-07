@@ -162,6 +162,7 @@ struct TVImmersivePlayerView: View {
     private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
     @State private var simulatedWordWindows: [String: KaraokeLineWindow] = [:]
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
@@ -271,6 +272,14 @@ struct TVImmersivePlayerView: View {
 
     private var assistiveNavigationEnabled: Bool {
         voiceOverEnabled || switchControlEnabled
+    }
+
+    private var animationDiagnosticState: String {
+        "effect=\(presentationEffect.rawValue) scene=\(scenePhase) "
+            + "mounted=\(presentationActivity.isMounted) rendering=\(presentationActivity.isRenderingActive) "
+            + "playing=\(store.isPlaying) reduceMotion=\(reduceMotion) lowPower=\(isLowPower) "
+            + "picker=\(showsModePicker) queue=\(showsQueue) discPanel=\(showsDiscPosition) "
+            + "galleryCovers=\(gallerySongs.count)"
     }
 
     /// 实际用的帧率与动效强度:电视发热时临时封顶,不改设置(Apple TV 没有低电量模式)。
@@ -487,6 +496,9 @@ struct TVImmersivePlayerView: View {
         .onDisappear {
             pdiag("tv immersive disappear effect=\(effectRawValue)")
             suspendPresentation(for: .disappeared)
+        }
+        .onChange(of: animationDiagnosticState, initial: true) { _, state in
+            plog("TV immersive animation \(state)")
         }
         .onChange(of: focusedControl) { _, control in
             if control != nil { closeModePickerAfterFocusYielded() }

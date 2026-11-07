@@ -172,6 +172,152 @@ final class TVLiquidBackdropTests: XCTestCase {
 }
 
 @MainActor
+final class TVImmersiveGalleryAnimationTests: XCTestCase {
+    func testPlayerGalleryResumesAfterFullScreenCover() async throws {
+        try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "This regression checks unrestricted background motion")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let defaultsName = "TVImmersiveGalleryAnimationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defaults.set(FullscreenPlayerEffect.coverGallery.rawValue, forKey: FullscreenPlayerEffect.storageKey)
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        try sources.addDurably(MusicSource(id: "gallery-source", name: "Gallery", type: .local))
+        let songs = (0..<4).map { index in
+            Song(id: "gallery-\(index)", title: "Gallery \(index)", albumTitle: "Album \(index)",
+                 artistName: "Gallery Artist", duration: 180, fileFormat: .mp3,
+                 filePath: "/gallery-\(index).mp3", sourceID: "gallery-source",
+                 coverArtFileName: "gallery-cover-\(index).jpg")
+        }
+        library.addSongs(songs)
+        await library.waitForPendingIndex()
+        let store = TVStore(sourcesStore: sources, library: library,
+                            defaults: defaults, sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        store.reload()
+        XCTAssertEqual(store.songs.count, songs.count)
+        store.nowPlaying.songID = songs[0].id
+        store.nowPlaying.title = songs[0].title
+        store.hasNowPlaying = true
+        store.engine.beginExternalPlayback(duration: 180, transport: .init(pause: {}, resume: {}, seek: { _ in }, stop: {}))
+        store.engine.updateExternalPlayback(currentTime: 0, duration: 180, isPlaying: true)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: TVImmersivePlayerView().environment(store)
+            .defaultAppStorage(defaults)
+            .environment(MusicIntelligenceService()).environment(TVThemeState.shared).environment(TVAppearanceState()))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+            store.engine.stop()
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+        for phase in 0..<2 {
+            try await Task.sleep(for: .milliseconds(1200))
+            XCTAssertTrue(store.isPlaying)
+            let first = galleryPixels(window)
+            try await Task.sleep(for: .milliseconds(800))
+            XCTAssertNotEqual(first, galleryPixels(window), "Player gallery must animate before and after a full-screen cover, phase \(phase)")
+            if phase == 0 {
+                let cover = UIHostingController(rootView: Color.black)
+                cover.modalPresentationStyle = .fullScreen
+                await withCheckedContinuation { continuation in
+                    host.present(cover, animated: false) { continuation.resume() }
+                }
+                try await Task.sleep(for: .milliseconds(300))
+                await withCheckedContinuation { continuation in
+                    host.dismiss(animated: false) { continuation.resume() }
+                }
+            }
+        }
+    }
+
+    private func galleryPixels(_ window: UIWindow) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 240, height: 135), format: format).image { context in
+            context.cgContext.scaleBy(x: 960 / window.bounds.width, y: 540 / window.bounds.height)
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }.pngData() ?? Data()
+    }
+
+    func testGalleryStartsAndResumesWithoutPlaybackTicksOrSpectrum() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let probe = GalleryProbe()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: GalleryHarness(probe: probe))
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+        }
+        for _ in 0..<30 where scene.activationState != .foregroundActive {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(scene.activationState, .foregroundActive)
+        for phase in 0..<3 {
+            probe.active = true
+            probe.playing = true
+            probe.reduceMotion = false
+            try await Task.sleep(for: .milliseconds(300))
+            let moving = pixels(window)
+            try await Task.sleep(for: .milliseconds(700))
+            XCTAssertNotEqual(moving, pixels(window), "Gallery must move without spectrum or playback-time updates, phase \(phase)")
+
+            switch phase {
+            case 0: probe.active = false
+            case 1: probe.playing = false
+            default: probe.reduceMotion = true
+            }
+            try await Task.sleep(for: .milliseconds(300))
+            let stopped = pixels(window)
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(stopped, pixels(window), "Hidden, paused, or reduced-motion gallery must remain still")
+        }
+    }
+
+    private func pixels(_ window: UIWindow) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 320, height: 180), format: format).image { context in
+            context.cgContext.scaleBy(x: 320 / window.bounds.width, y: 180 / window.bounds.height)
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }.pngData() ?? Data()
+    }
+
+    @Observable final class GalleryProbe {
+        var active = false
+        var playing = false
+        var reduceMotion = false
+    }
+
+    private struct GalleryHarness: View {
+        let probe: GalleryProbe
+        var body: some View {
+            GeometryReader { geometry in
+                ImmersiveStageView(
+                    style: .coverGallery,
+                    platform: .tvOS,
+                    metrics: ImmersiveStageMetrics(size: geometry.size, prefersWide: true),
+                    track: ImmersiveStageTrack(title: "Gallery", artist: "", album: "", format: "", isPlaying: probe.playing, progress: 0),
+                    galleryArtworkCount: 4,
+                    galleryArtwork: { index, _ in AnyView([Color.red, .green, .blue, .yellow][index]) },
+                    isRenderingActive: probe.active,
+                    reduceMotion: probe.reduceMotion,
+                    showsPlaybackProgress: false
+                ) { _ in Color.gray }
+            }
+            .ignoresSafeArea()
+        }
+    }
+}
+
+@MainActor
 final class TVAppearanceApplicationTests: XCTestCase {
     func testLightAppearanceAppliesImmediatelyAndRemainsAfterDelay() async throws {
         let (state, defaults, suiteName) = makeState()
