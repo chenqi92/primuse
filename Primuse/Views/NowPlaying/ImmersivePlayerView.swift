@@ -1382,7 +1382,8 @@ struct ImmersivePlayerView: View {
             format: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
             bitDepth: song.qualityBitDepth,
-            audioVariants: song.audioVariants
+            audioVariants: song.audioVariants,
+            transcodePlan: player.activeTranscodePlan
         )
     }
 

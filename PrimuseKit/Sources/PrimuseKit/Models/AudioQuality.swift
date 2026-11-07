@@ -394,3 +394,62 @@ public enum NowPlayingAudioInfoTextPolicy {
         )
     }
 }
+
+// MARK: - 规格串
+
+/// 把「格式 + 采样率 + 位深」拼成展示屏用的规格串,例如 "hi-res 96/24 flac"。
+/// 采样率 ≥ 88.2kHz 或位深 ≥ 24 视为 Hi-Res,前面冠 "hi-res"。
+public enum ImmersiveAudioSpec {
+    /// - Parameter audioVariants: Apple Music 目录曲目**提供**的音质版本。有值时
+    ///   追加「无损 / 高解析度无损 / 杜比全景声」档位标，并且不再按采样率去猜
+    ///   hi-res —— 那两个字段对 Apple Music 曲目本来就是空的。
+    public static func line(
+        format: String,
+        sampleRate: Int?,
+        bitDepth: Int?,
+        audioVariants: [AudioVariant]? = nil,
+        transcodePlan: SourceTranscodePlan = .original
+    ) -> String {
+        if let stream = NowPlayingAudioInfoTextPolicy.transcodedStream(
+            plan: transcodePlan, sourceSampleRate: sampleRate
+        ) {
+            return stream.tagDetail ?? stream.formatName
+        }
+
+        var parts: [String] = []
+
+        if let sampleRate, sampleRate > 0 {
+            let khz = Double(sampleRate) / 1000
+            let khzText = khz.truncatingRemainder(dividingBy: 1) == 0
+                ? String(Int(khz))
+                : String(format: "%.1f", khz)
+            if let bitDepth, bitDepth > 0 {
+                parts.append("\(khzText)/\(bitDepth)")
+            } else {
+                parts.append("\(khzText)kHz")
+            }
+        }
+
+        let trimmedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedFormat.isEmpty, trimmedFormat != "—" {
+            parts.append(trimmedFormat.lowercased())
+        }
+
+        if let audioVariants, !audioVariants.isEmpty {
+            // Apple Music 曲目:档位标由曲目自己提供的版本决定,不靠采样率推。
+            if let tier = audioVariants.bestLosslessTier {
+                parts.append(PMString(tier.localizationKey))
+            }
+            if audioVariants.offersDolbyAtmos {
+                parts.append(PMString(AudioVariant.dolbyAtmos.localizationKey))
+            }
+        } else {
+            let isHiRes = (sampleRate ?? 0) >= 88_200 || (bitDepth ?? 0) >= 24
+            if isHiRes {
+                parts.insert("hi-res", at: 0)
+            }
+        }
+
+        return parts.isEmpty ? "—" : parts.joined(separator: " ")
+    }
+}

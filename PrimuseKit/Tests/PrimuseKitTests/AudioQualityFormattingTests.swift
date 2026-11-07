@@ -4,6 +4,69 @@ import Testing
 
 @Suite("Audio quality formatting")
 struct AudioQualityFormattingTests {
+    @Test("Fullscreen describes the same transcoded stream as the playback badge")
+    func immersiveQualityUsesTranscodedStream() throws {
+        for format in StreamTranscodeFormat.allCases {
+            for bitRate in [128, 192, 256, 320] {
+                let plan = SourceTranscodePlan.transcode(bitRateKbps: bitRate, format: format)
+                let line = ImmersiveAudioSpec.line(
+                    format: "FLAC", sampleRate: 44_100, bitDepth: 24,
+                    transcodePlan: plan
+                )
+                let stream = try #require(NowPlayingAudioInfoTextPolicy.transcodedStream(
+                    plan: plan, sourceSampleRate: 44_100
+                ))
+                #expect(line == "\(format.displayName) \(bitRate)k")
+                #expect(line == stream.tagDetail)
+                #expect(!line.lowercased().contains("hi-res"))
+                #expect(!line.contains("FLAC"))
+            }
+        }
+    }
+
+    @Test("Fullscreen follows changes between original and transcoded playback")
+    func immersiveQualityFollowsPlaybackPlan() {
+        let plans: [SourceTranscodePlan] = [
+            .original, .transcode(bitRateKbps: 320, format: .opus),
+            .transcode(bitRateKbps: 192, format: .aac), .original
+        ]
+        let lines = plans.map {
+            ImmersiveAudioSpec.line(
+                format: "FLAC", sampleRate: 44_100, bitDepth: 24, transcodePlan: $0
+            )
+        }
+        #expect(lines == ["hi-res 44.1/24 flac", "Opus 320k", "AAC 192k", "hi-res 44.1/24 flac"])
+    }
+
+    @Test("Fullscreen preserves original specs and handles missing metadata")
+    func immersiveOriginalQuality() {
+        #expect(ImmersiveAudioSpec.line(format: "FLAC", sampleRate: 96_000, bitDepth: 24)
+                == "hi-res 96/24 flac")
+        #expect(ImmersiveAudioSpec.line(format: "ALAC", sampleRate: 44_100, bitDepth: 16)
+                == "44.1/16 alac")
+        #expect(ImmersiveAudioSpec.line(format: "—", sampleRate: nil, bitDepth: nil) == "—")
+        #expect(ImmersiveAudioSpec.line(
+            format: "—", sampleRate: nil, bitDepth: nil,
+            transcodePlan: .transcode(bitRateKbps: 320, format: .opus)
+        ) == "Opus 320k")
+        #expect(ImmersiveAudioSpec.line(
+            format: "FLAC", sampleRate: 44_100, bitDepth: 24,
+            transcodePlan: .transcode(bitRateKbps: 0, format: .opus)
+        ) == "hi-res 44.1/24 flac")
+    }
+
+    @Test("Fullscreen keeps catalog variants on original playback only")
+    func immersiveCatalogVariants() {
+        let variants: [AudioVariant] = [.highResolutionLossless, .dolbyAtmos]
+        #expect(ImmersiveAudioSpec.line(
+            format: "ALAC", sampleRate: nil, bitDepth: nil, audioVariants: variants
+        ) == "alac \(PMString(AudioVariant.highResolutionLossless.localizationKey)) \(PMString(AudioVariant.dolbyAtmos.localizationKey))")
+        #expect(ImmersiveAudioSpec.line(
+            format: "ALAC", sampleRate: nil, bitDepth: nil, audioVariants: variants,
+            transcodePlan: .transcode(bitRateKbps: 256, format: .aac)
+        ) == "AAC 256k")
+    }
+
     @Test func transcodedQualityUsesSelectedCodecAndOpusOutputRate() throws {
         let song = makeSong(bitRate: 1411, sampleRate: 44_100, bitDepth: 16)
         for format in StreamTranscodeFormat.allCases {
