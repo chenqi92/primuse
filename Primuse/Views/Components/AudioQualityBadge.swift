@@ -152,6 +152,8 @@ struct NowPlayingAudioTagRow: View {
                 sourceTag
             }
         }
+        // 用进度条留出的可用宽度选布局，避免标签自身的小数宽度在二次测量时因舍入误判溢出。
+        .frame(maxWidth: .infinity)
     }
 
     private var audioTag: NowPlayingAudioTag? {

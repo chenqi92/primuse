@@ -2,6 +2,10 @@ import AVFoundation
 import PrimuseKit
 import XCTest
 @testable import Primuse
+#if os(iOS)
+import SwiftUI
+import Vision
+#endif
 
 final class ReplayGainPlaybackTests: XCTestCase {
     @MainActor func testBadgePreferenceIsIndependentOfAudioInfoAndReplayGain() throws {
@@ -206,3 +210,118 @@ final class ReplayGainPlaybackTests: XCTestCase {
         try file.write(from: buffer)
     }
 }
+
+#if os(iOS)
+@MainActor
+final class NowPlayingAudioTagRenderingTests: XCTestCase {
+    func testStandardAudioTagSurvivesTrackChangesWithAndWithoutArtwork() async throws {
+        try await withHost { host in
+            for (index, format) in [AudioFormat.flac, .dts, .aac, .mp3, .dts].enumerated() {
+                var song = self.song(format: format, id: String(index))
+                song.coverArtFileName = index.isMultiple(of: 2) ? nil : "cover.jpg"
+                host.rootView = Harness(song: song)
+                let text = try await self.visibleText(in: host)
+                XCTAssertTrue(text.contains("RG"), text)
+                if format == .flac {
+                    XCTAssertTrue(text.contains("16/44.1"), text)
+                } else {
+                    XCTAssertTrue(text.contains(format.displayName), text)
+                    XCTAssertTrue(text.contains("4234"), text)
+                }
+            }
+        }
+    }
+
+    func testAudioTagRemainsVisibleWhenReplayGainArrivesLater() async throws {
+        try await withHost { host in
+            let song = self.song(format: .dts)
+            host.rootView = Harness(song: song, replayGain: .init(enabled: false))
+            let original = try await self.visibleText(in: host)
+            XCTAssertTrue(original.contains("DTS"), original)
+            host.rootView = Harness(song: song)
+            let text = try await self.visibleText(in: host)
+            XCTAssertTrue(text.contains("DTS"), text)
+            XCTAssertTrue(text.contains("RG"), text)
+        }
+    }
+
+    func testNarrowLayoutKeepsReplayGainAndRestoresAudioWhenSpaceReturns() async throws {
+        try await withHost { host in
+            let song = self.song(format: .dts)
+            host.rootView = Harness(song: song, width: 210)
+            let narrow = try await self.visibleText(in: host)
+            XCTAssertTrue(narrow.contains("RG"), narrow)
+            XCTAssertFalse(narrow.contains("DTS"), narrow)
+            host.rootView = Harness(song: song)
+            let restored = try await self.visibleText(in: host)
+            XCTAssertTrue(restored.contains("DTS"), restored)
+            XCTAssertTrue(restored.contains("RG"), restored)
+        }
+    }
+
+    private func song(format: AudioFormat, id: String = "tag-layout") -> Song {
+        Song(id: id, title: "Tag layout", duration: 234, fileFormat: format,
+             filePath: "fixture", sourceID: "test", bitRate: 4234, sampleRate: 44100, bitDepth: 16)
+    }
+
+    private func withHost(_ check: (UIHostingController<Harness>) async throws -> Void) async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 120)
+        let host = UIHostingController(rootView: Harness(song: song(format: .dts)))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+        try await check(host)
+    }
+
+    private func visibleText(in host: UIHostingController<Harness>) async throws -> String {
+        try await Task.sleep(for: .milliseconds(400))
+        host.view.layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        let image = UIGraphicsImageRenderer(bounds: host.view.bounds, format: format).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: " ").replacingOccurrences(of: " ", with: "")
+    }
+
+    private struct Harness: View {
+        let song: Song
+        var replayGain = ReplayGainPlaybackInfo(enabled: true, snapshot: .init(
+            mode: .track, values: .init(gain: -18.4), origin: .analysis))
+        var width: CGFloat = 402
+
+        var body: some View {
+            HStack {
+                Text(verbatim: "0:08")
+                Spacer()
+                Text(verbatim: "-3:46")
+            }
+            .font(.caption2).monospacedDigit()
+            .overlay {
+                NowPlayingAudioTagRow(
+                    song: song, showsAudio: true, isDownloadingFromICloud: false,
+                    source: nil, showsSourceTag: false, outputSampleRate: 48000,
+                    allowsOutputDetail: true, replayGain: replayGain, tint: .black
+                )
+                .padding(.horizontal, 50)
+            }
+            .padding(.horizontal, 26)
+            .frame(width: width, height: 100)
+            .environment(\.dynamicTypeSize, .large)
+            .background(.white)
+        }
+    }
+}
+#endif
