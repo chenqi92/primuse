@@ -198,8 +198,7 @@ struct TVSearchView: View {
 
     var body: some View {
         ZStack {
-            TVAmbientBackdrop(tint: store.albums.first?.tint ?? TVColor.brand,
-                              tint2: store.albums.first?.tint2 ?? .black, strength: 0.4)
+            TVColor.bg.ignoresSafeArea()
             HStack(alignment: .top, spacing: 60) {
                 // 左列 = 输入框 + 主结果;右列 = 建议。两列各自成焦点区:
                 // 左列内上下移动只在「输入框 ↔ 结果」之间走,右移才跨到建议列。
