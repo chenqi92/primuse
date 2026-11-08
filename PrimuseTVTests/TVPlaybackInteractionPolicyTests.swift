@@ -533,13 +533,27 @@ final class TVContentFocusRoutingTests: XCTestCase {
 
     func testPlaylistsDownSurvivesPageReplacementAndReturningToTabsCancelsIt() {
         var state = TVContentFocusRoutingState()
+        XCTAssertEqual(state.requestID(for: .playlistsPrimary), 0)
         let first = state.moveDown(from: .playlists, nowPlayingMode: .song)
         XCTAssertEqual(first?.target, .playlistsPrimary)
+        XCTAssertEqual(state.requestID(for: .playlistsPrimary), first?.id)
         let restored = state.contentDidAppear(in: .playlists, nowPlayingMode: .song)
         XCTAssertEqual(restored?.target, .playlistsPrimary)
         XCTAssertNotEqual(first?.id, restored?.id)
+        XCTAssertEqual(state.requestID(for: .playlistsPrimary), restored?.id)
+        state.returnToTabs()
+        XCTAssertEqual(state.requestID(for: .playlistsPrimary), 0)
+        XCTAssertNil(state.contentDidAppear(in: .playlists, nowPlayingMode: .song))
+
+        _ = state.moveDown(from: .sources, nowPlayingMode: .song)
+        XCTAssertEqual(state.requestID(for: .playlistsPrimary), 0)
         state.returnToTabs()
         XCTAssertNil(state.contentDidAppear(in: .playlists, nowPlayingMode: .song))
+        XCTAssertEqual(state.requestID(for: .playlistsPrimary), 0)
+
+        let next = state.moveDown(from: .playlists, nowPlayingMode: .song)
+        XCTAssertEqual(state.requestID(for: .playlistsPrimary), next?.id)
+        XCTAssertNotEqual(restored?.id, next?.id)
     }
 
     func testSourcesDownRoutesToPrimaryAddAction() {

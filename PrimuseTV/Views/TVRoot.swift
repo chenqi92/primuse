@@ -76,6 +76,11 @@ enum TVContentFocusRoutingPolicy {
 struct TVContentFocusRoutingState: Equatable, Sendable {
     private(set) var latestRequest: TVContentFocusRequest?
 
+    func requestID(for target: TVContentFocusTarget) -> Int {
+        guard let latestRequest, latestRequest.target == target else { return 0 }
+        return latestRequest.id
+    }
+
     private var nextRequestID = 0
     private var keepsContentFocusActive = false
 
@@ -214,7 +219,6 @@ struct TVRoot: View {
     @State private var libraryFocusRequest = 0
     @State private var nowPlayingFocusRequest: TVContentFocusRequest?
     @State private var sourcesFocusRequest = 0
-    @State private var playlistsFocusRequest = 0
     @State private var searchFocusRequest: TVContentFocusRequest?
     @State private var playbackInteractionRequest = 0
     @State private var isRoutingToScrubber = false
@@ -734,7 +738,7 @@ struct TVRoot: View {
             )
         case .playlists:
             TVPlaylistsView(
-                focusRequest: playlistsFocusRequest,
+                focusRequest: contentFocusRouting.requestID(for: .playlistsPrimary),
                 openPlayer: { openPlayerFromPage() },
                 onModalPresentationChanged: childModalPresentationChanged
             )
@@ -965,7 +969,8 @@ struct TVRoot: View {
         case .searchField:
             searchFocusRequest = request
         case .playlistsPrimary:
-            playlistsFocusRequest = request.id
+            // 歌单直接观察当前路由，返回顶栏时不保留可被重放的旧请求。
+            break
         }
     }
 
