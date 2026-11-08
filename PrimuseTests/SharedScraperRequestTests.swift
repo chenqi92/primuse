@@ -6,6 +6,25 @@ import XCTest
 @testable import Primuse
 
 final class SharedScraperRequestTests: XCTestCase {
+    func testLyricsSourceCandidatesKeepPriorityContinueAfterFailureAndStopAtThree() async {
+        let a = StubDirectLyricsScraper(.success("[00:01.00]Paper lanterns"))
+        let b = StubDirectLyricsScraper(.failure(ScraperError.networkError("fixture unavailable")))
+        let c = StubDirectLyricsScraper(.success("[00:01.00]Across the bay"))
+        let d = StubDirectLyricsScraper(.success("[00:01.00]A silver trail"))
+        let e = StubDirectLyricsScraper(.success("[00:01.00]Never requested"))
+        let stubs = ["a": a, "b": b, "c": c, "d": d, "e": e]
+        let manager = ScraperManager(scraperFactory: { stubs[$0.id] ?? e })
+        let settings = ScraperSettings(sources: ["e", "c", "b", "d", "a"].map { id in
+            ScraperSourceConfig(id: id, type: .lrclib, isEnabled: true, priority: ["a", "b", "c", "d", "e"].firstIndex(of: id)!)
+        })
+        let song = Song(id: "candidate-test", title: "Lantern Bay", fileFormat: .flac, filePath: "/fixture.flac", sourceID: "fixture", fileSize: 1)
+        let result = await manager.lyricsSourceCandidates(for: song, settings: settings)
+        XCTAssertEqual(result.compactMap { $0.first?.text }, ["Paper lanterns", "Across the bay", "A silver trail"])
+        XCTAssertTrue(result.allSatisfy { LyricsDocumentSource.of($0)?.kind == .online })
+        let skipped = await e.requestCount
+        XCTAssertEqual(skipped, 0)
+    }
+
     func testLegacyConfigRoundTripPreservesUserFieldsAndFallback() throws {
         let original = Data(#"{"id":"kugou","name":"My source","version":6,"cookie":"fixture-cookie","modifiedAt":12345,"sslTrustDomains":["fixture.test"],"capabilities":["lyrics"],"lyrics":{"url":"https://fixture.test/lyrics","method":"GET","script":"return response;"},"secrets":{"testKey":"fixture-secret"}}"#.utf8)
         let config = try JSONDecoder().decode(ScraperConfig.self, from: original)

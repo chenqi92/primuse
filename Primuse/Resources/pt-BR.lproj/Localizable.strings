@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "Esta letra tem tempos por palavra, traduções, vocais de apoio ou estrutura TTML que seriam perdidos em texto LRC. Você pode editar o arquivo original diretamente em “Origens das letras”.";
 "lyrics_sources_title" = "Origens das letras";
 "lyrics_sources_loading" = "Procurando arquivos de letras…";
-"lyrics_sources_count %lld" = "Arquivos de letras: %lld";
+"lyrics_sources_count %lld" = "Fontes de letras: %lld";
 "lyrics_sources_in_use" = "Em uso";
 "lyrics_sources_edit" = "Editar";
 "lyrics_sources_view" = "Ver";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "Este backup requer uma versão mais recente do Primuse.";
 "settings_backup_too_large" = "Este backup excede o tamanho permitido.";
 "settings_backup_invalid" = "Este arquivo não é um backup válido de ajustes do Primuse ou está danificado.";
+
+"lyrics_sources_fetch_more" = "Buscar mais letras";
+"lyrics_sources_cached" = "Letras em cache";
+"lyrics_sources_transcript" = "Transcrição";
+"lyrics_sources_use" = "Usar esta fonte";

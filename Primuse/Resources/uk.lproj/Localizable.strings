@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "Цей текст містить синхронізацію за словами, переклади, бек-вокал або структуру TTML — у LRC-тексті все це буде втрачено. Вихідний файл можна редагувати безпосередньо в розділі «Джерела тексту».";
 "lyrics_sources_title" = "Джерела тексту";
 "lyrics_sources_loading" = "Пошук файлів із текстом…";
-"lyrics_sources_count %lld" = "Файлів із текстом: %lld";
+"lyrics_sources_count %lld" = "Джерела тексту: %lld";
 "lyrics_sources_in_use" = "Використовується";
 "lyrics_sources_edit" = "Редагувати";
 "lyrics_sources_view" = "Переглянути";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "Для цієї копії потрібна новіша версія Primuse.";
 "settings_backup_too_large" = "Розмір копії перевищує дозволений ліміт.";
 "settings_backup_invalid" = "Це не резервна копія налаштувань Primuse або файл пошкоджено.";
+
+"lyrics_sources_fetch_more" = "Знайти інші тексти";
+"lyrics_sources_cached" = "Кешований текст";
+"lyrics_sources_transcript" = "Розшифрування";
+"lyrics_sources_use" = "Використати це джерело";

@@ -1,12 +1,7 @@
 import SwiftUI
 import PrimuseKit
 
-/// 歌词来源页：这首歌旁边的每一个歌词文件，按格式编号，标出正在用的那个。
-/// 点一行就改用那个文件，「编辑」打开那个文件的完整原文。
-///
-/// 换来源不碰任何文件 —— 只记下选择（`LyricsDocumentPinStore`），再把那份
-/// 歌词立刻放进缓存让播放页换过来。改写原文只写回被编辑的那一个文件，
-/// 格式、编码都照旧，别的来源原样不动。
+/// 选择文件、在线、内嵌或文稿来源；文件原文编辑仍只写回对应文件。
 struct LyricsSourcesView: View {
     let song: Song
     /// 编辑器里有没存的修改：换来源之后编辑器要整个重新载入，先问一声。
@@ -29,10 +24,15 @@ struct LyricsSourcesView: View {
     @State private var editingID: String?
     @State private var notice: LyricsSourcesNotice?
     @State private var switchFeedback = 0
+    @State private var fetchToken = 0
+    @State private var isFetching = false
 
     var body: some View {
         container
             .task(id: reloadToken) { await load() }
+            .task(id: fetchToken) {
+                if fetchToken > 0 { await fetchMore() }
+            }
             .alert(
                 notice?.title ?? "",
                 isPresented: Binding(
@@ -142,12 +142,6 @@ struct LyricsSourcesView: View {
                 }
                 .buttonStyle(.bordered)
             }
-        case .documents(let documents) where documents.entries.isEmpty:
-            ContentUnavailableView {
-                Label(String(localized: "lyrics_sources_empty_title"), systemImage: "doc.text.magnifyingglass")
-            } description: {
-                Text(String(localized: "lyrics_sources_empty_message"))
-            }
         case .documents(let documents):
             documentList(documents)
         }
@@ -158,6 +152,7 @@ struct LyricsSourcesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: PMSpace.m) {
                 notices(documents)
+                fetchMoreButton
                 Text(countText(documents))
                     .font(PMFont.caption.weight(.semibold))
                     .foregroundStyle(PMColor.textMuted)
@@ -190,6 +185,7 @@ struct LyricsSourcesView: View {
     #else
     private func documentList(_ documents: LyricsDocumentCatalog.Documents) -> some View {
         List {
+            if !song.isCueTrack { Section { fetchMoreButton } }
             Section {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(song.title)
@@ -203,7 +199,7 @@ struct LyricsSourcesView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 0, trailing: 4))
             }
-            if documents.usesLocalCopy || editorHasUnsavedChanges {
+            if documents.usesLocalCopy || editorHasUnsavedChanges || documents.sourceError != nil {
                 Section { notices(documents) }
             }
             Section {
@@ -222,6 +218,10 @@ struct LyricsSourcesView: View {
 
     @ViewBuilder
     private func notices(_ documents: LyricsDocumentCatalog.Documents) -> some View {
+        if let error = documents.sourceError {
+            noticeRow(systemImage: "exclamationmark.triangle", text: error)
+            Button(String(localized: "retry")) { reloadToken += 1 }
+        }
         if documents.usesLocalCopy {
             noticeRow(
                 systemImage: "internaldrive",
@@ -261,12 +261,12 @@ struct LyricsSourcesView: View {
 
     private func footerText(_ documents: LyricsDocumentCatalog.Documents) -> String {
         var parts: [String] = []
-        parts.append(String(localized: documents.canSwitch
-                            ? "lyrics_sources_footer"
-                            : "lyrics_sources_footer_cue"))
-        parts.append(String(localized: documents.sourceIsWritable
-                            ? "lyrics_sources_footer_edit"
-                            : "lyrics_sources_footer_read_only"))
+        if !documents.canSwitch { parts.append(String(localized: "lyrics_sources_footer_cue")) }
+        if documents.entries.contains(where: { $0.candidate == nil }) {
+            parts.append(String(localized: documents.sourceIsWritable
+                                ? "lyrics_sources_footer_edit"
+                                : "lyrics_sources_footer_read_only"))
+        }
         return parts.joined(separator: "\n")
     }
 
@@ -295,7 +295,7 @@ struct LyricsSourcesView: View {
                             .truncationMode(.middle)
                             .multilineTextAlignment(.leading)
                         HStack(spacing: 6) {
-                            LyricsDocumentFormatBadge(format: entry.format)
+                            if entry.candidate == nil { LyricsDocumentFormatBadge(format: entry.format) }
                             if entry.isActive {
                                 Text(String(localized: "lyrics_sources_in_use"))
                                     .font(.caption2.weight(.semibold))
@@ -325,12 +325,12 @@ struct LyricsSourcesView: View {
                 ),
                 titleVisibility: .visible
             ) {
-                Button(String(localized: "lyrics_sources_switch_action")) {
+                Button(String(localized: "lyrics_sources_use")) {
                     Task { await activate(entry) }
                 }
                 Button(String(localized: "cancel"), role: .cancel) {}
             } message: {
-                Text(String(localized: "lyrics_sources_switch_confirm_message"))
+                Text(String(localized: "lyrics_sources_unsaved_banner"))
             }
 
             Button(String(localized: entry.isEditable ? "lyrics_sources_edit" : "lyrics_sources_view")) {
@@ -360,7 +360,7 @@ struct LyricsSourcesView: View {
 
     private func detailText(_ entry: LyricsDocumentCatalog.Entry) -> String {
         var parts: [String] = []
-        if let summary = summaries[entry.id] {
+        if let summary = entry.candidate.map({ LyricsDocumentSummary(lines: $0.lines) }) ?? summaries[entry.id] {
             let key: String.LocalizationValue = summary.isWordLevel
                 ? "lyrics_sources_summary_word %lld"
                 : (summary.isSynchronized
@@ -417,7 +417,7 @@ struct LyricsSourcesView: View {
         for entry in documents.entries where summaries[entry.id] == nil || contents[entry.id] == nil {
             guard !Task.isCancelled else { return }
             guard let content = try? await LyricsDocumentCatalog.read(
-                entry.document,
+                entry,
                 for: song,
                 sourceManager: sourceManager
             ) else { continue }
@@ -446,6 +446,37 @@ struct LyricsSourcesView: View {
             return
         }
         Task { await activate(entry) }
+    }
+
+    @ViewBuilder
+    private var fetchMoreButton: some View {
+        if !song.isCueTrack {
+            Button {
+                isFetching = true
+                fetchToken += 1
+            } label: {
+                HStack {
+                    Label(String(localized: "lyrics_sources_fetch_more"), systemImage: "arrow.down.circle")
+                    if isFetching { Spacer(); ProgressView().controlSize(.small) }
+                }
+            }
+            .disabled(isFetching || activatingID != nil)
+        }
+    }
+
+    private func fetchMore() async {
+        defer { isFetching = false }
+        let candidates = await ScraperManager().lyricsSourceCandidates(for: song, settings: .load())
+        guard !Task.isCancelled else { return }
+        var saved = 0
+        for lines in candidates {
+            if await MetadataAssetStore.shared.rememberLyricsCandidate(lines, forSongID: song.id) != nil { saved += 1 }
+        }
+        if saved == 0 {
+            notice = LyricsSourcesNotice(title: String(localized: "lyrics_sources_title"),
+                                         message: String(localized: "scrape_lyrics_not_found"))
+        }
+        reloadToken += 1
     }
 
     private func activate(_ entry: LyricsDocumentCatalog.Entry) async {
@@ -780,11 +811,12 @@ struct LyricsDocumentEditorView: View {
         }
         loadError = nil
         do {
-            let fresh = try await LyricsDocumentCatalog.readFresh(
-                named: entry.name,
-                for: song,
-                sourceManager: sourceManager
-            )
+            let fresh: LyricsDocumentCatalog.Content
+            if entry.candidate != nil {
+                fresh = try await LyricsDocumentCatalog.read(entry, for: song, sourceManager: sourceManager)
+            } else {
+                fresh = try await LyricsDocumentCatalog.readFresh(named: entry.name, for: song, sourceManager: sourceManager)
+            }
             guard !Task.isCancelled else { return }
             content = fresh
             text = fresh.text

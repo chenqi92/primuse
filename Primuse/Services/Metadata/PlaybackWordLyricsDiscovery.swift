@@ -141,11 +141,12 @@ final class PlaybackWordLyricsDiscovery {
             let displayed = await self.load(song)
             guard self.isCurrent(song), !Task.isCancelled else { return }
             let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+            let hasSelectedCandidate = await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil
             guard WordLyricsDiscoveryPolicy.shouldExplore(
                 enabled: self.enabled,
                 isPlaying: self.playback().isPlaying,
                 isSpokenWord: self.playback().isSpokenWord,
-                isPinned: LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil,
+                isPinned: hasSelectedCandidate || LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil,
                 lyrics: cached ?? displayed
             ) else { return }
             let settings = self.settings()

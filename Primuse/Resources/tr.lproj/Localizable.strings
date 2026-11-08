@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "Bu şarkı sözleri sözcük zamanlaması, çeviri, arka vokal veya TTML yapısı içeriyor; LRC metni olarak yazılırsa bunlar kaybolur. Özgün dosyayı “Şarkı Sözü Kaynakları” bölümünde doğrudan düzenleyebilirsiniz.";
 "lyrics_sources_title" = "Şarkı Sözü Kaynakları";
 "lyrics_sources_loading" = "Şarkı sözü dosyaları aranıyor…";
-"lyrics_sources_count %lld" = "%lld şarkı sözü dosyası";
+"lyrics_sources_count %lld" = "Şarkı sözü kaynakları: %lld";
 "lyrics_sources_in_use" = "Kullanımda";
 "lyrics_sources_edit" = "Düzenle";
 "lyrics_sources_view" = "Görüntüle";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "Bu yedek için Primuse uygulamasının daha yeni bir sürümü gerekli.";
 "settings_backup_too_large" = "Bu yedek desteklenen boyut sınırını aşıyor.";
 "settings_backup_invalid" = "Bu dosya geçerli bir Primuse ayar yedeği değil veya hasarlı.";
+
+"lyrics_sources_fetch_more" = "Daha fazla şarkı sözü getir";
+"lyrics_sources_cached" = "Önbellekteki şarkı sözleri";
+"lyrics_sources_transcript" = "Döküm";
+"lyrics_sources_use" = "Bu kaynağı kullan";

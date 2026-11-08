@@ -6281,7 +6281,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "Ces paroles contiennent un minutage mot à mot, des traductions, des chœurs ou une structure TTML que le texte LRC ferait perdre. Vous pouvez modifier directement le fichier d’origine dans « Sources des paroles ».";
 "lyrics_sources_title" = "Sources des paroles";
 "lyrics_sources_loading" = "Recherche des fichiers de paroles…";
-"lyrics_sources_count %lld" = "Fichiers de paroles : %lld";
+"lyrics_sources_count %lld" = "Sources des paroles : %lld";
 "lyrics_sources_in_use" = "Utilisé";
 "lyrics_sources_edit" = "Modifier";
 "lyrics_sources_view" = "Afficher";
@@ -7316,3 +7316,8 @@
 "settings_backup_newer_version" = "Cette sauvegarde nécessite une version plus récente de Primuse.";
 "settings_backup_too_large" = "Cette sauvegarde dépasse la taille prise en charge.";
 "settings_backup_invalid" = "Ce fichier n’est pas une sauvegarde valide des réglages Primuse ou il est endommagé.";
+
+"lyrics_sources_fetch_more" = "Obtenir plus de paroles";
+"lyrics_sources_cached" = "Paroles en cache";
+"lyrics_sources_transcript" = "Transcription";
+"lyrics_sources_use" = "Utiliser cette source";

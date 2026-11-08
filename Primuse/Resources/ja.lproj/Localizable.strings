@@ -6282,7 +6282,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "この歌詞にはワード単位のタイミング、訳文、バックボーカル、または TTML の構造が含まれており、LRC テキストにするとこれらが失われます。「歌詞ソース」で元のファイルを直接編集できます。";
 "lyrics_sources_title" = "歌詞ソース";
 "lyrics_sources_loading" = "歌詞ファイルを探しています…";
-"lyrics_sources_count %lld" = "%lld 件の歌詞ファイル";
+"lyrics_sources_count %lld" = "歌詞ソース：%lld";
 "lyrics_sources_in_use" = "使用中";
 "lyrics_sources_edit" = "編集";
 "lyrics_sources_view" = "表示";
@@ -7317,3 +7317,8 @@
 "settings_backup_newer_version" = "このバックアップには新しいバージョンの Primuse が必要です。";
 "settings_backup_too_large" = "このバックアップは対応するサイズの上限を超えています。";
 "settings_backup_invalid" = "有効な Primuse 設定バックアップではないか、ファイルが破損しています。";
+
+"lyrics_sources_fetch_more" = "歌詞をさらに取得";
+"lyrics_sources_cached" = "キャッシュ済みの歌詞";
+"lyrics_sources_transcript" = "文字起こし";
+"lyrics_sources_use" = "このソースを使用";

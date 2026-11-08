@@ -213,6 +213,7 @@ public enum LyricsStructuredPersistencePolicy {
 /// 保存链路仍然以序列化后的文本为真相(`LyricsContentParser.validateEditableText`
 /// 负责校验和写回),所以这里的 `serialized()` 必须输出那套解析器认得的格式。
 public struct LyricsEditorDocument: Hashable, Sendable {
+    public var source: LyricsDocumentSource? = nil
     /// 前导文档元数据(`[ti:]` / `[ar:]` / `[by:]` 等),原样保留。
     public var metadataLines: [String]
     public var lines: [EditableLyricLine]
@@ -225,6 +226,7 @@ public struct LyricsEditorDocument: Hashable, Sendable {
     /// 从缓存/容器解析得到的结构化模型进入编辑器。与字符串入口不同，这条路
     /// 能保留同文字体系的人工译文、语言代码以及未选中的其它语言字段。
     public init(lyricLines: [LyricLine]) {
+        self.source = LyricsDocumentSource.of(lyricLines)
         self.metadataLines = lyricLines.first?.metadataLines ?? []
         self.lines = lyricLines.map {
             EditableLyricLine(
@@ -368,6 +370,7 @@ public struct LyricsEditorDocument: Hashable, Sendable {
         if !result.isEmpty, !metadataLines.isEmpty {
             result[0].metadataLines = metadataLines
         }
+        if !result.isEmpty { result[0].documentSource = source }
         return result
     }
 

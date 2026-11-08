@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "В этом тексте есть пословная синхронизация, переводы, бэк-вокал или структура TTML — в LRC-тексте всё это потеряется. Исходный файл можно изменить напрямую в разделе «Источники текста».";
 "lyrics_sources_title" = "Источники текста";
 "lyrics_sources_loading" = "Поиск файлов с текстом…";
-"lyrics_sources_count %lld" = "Файлов с текстом: %lld";
+"lyrics_sources_count %lld" = "Источники текста: %lld";
 "lyrics_sources_in_use" = "Используется";
 "lyrics_sources_edit" = "Править";
 "lyrics_sources_view" = "Просмотр";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "Для этой копии нужна более новая версия Primuse.";
 "settings_backup_too_large" = "Размер копии превышает допустимый предел.";
 "settings_backup_invalid" = "Это не резервная копия настроек Primuse, либо файл повреждён.";
+
+"lyrics_sources_fetch_more" = "Найти другие тексты";
+"lyrics_sources_cached" = "Кэшированный текст";
+"lyrics_sources_transcript" = "Расшифровка";
+"lyrics_sources_use" = "Использовать этот источник";

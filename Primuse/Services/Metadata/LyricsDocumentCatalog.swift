@@ -1,12 +1,8 @@
 import Foundation
 import PrimuseKit
 
-/// What the lyric sources page knows about a song: every lyric file beside
-/// it, the one the song reads, and the reads and switches the page performs.
-///
-/// Switching never touches a file. It records the pick
-/// (`LyricsDocumentPinStore`), which every resolver honours, and puts the
-/// picked file's lyrics into the song's cache so playback shows them now.
+/// File-backed documents and retained source candidates share one selection list.
+/// Only file-backed entries can write their original bytes back to the source.
 @MainActor
 enum LyricsDocumentCatalog {
     struct Entry: Identifiable, Equatable, Sendable {
@@ -18,6 +14,7 @@ enum LyricsDocumentCatalog {
         let isEditable: Bool
         /// The machine-translated track that rides under an `-orig` subtitle.
         let translation: LyricsSidecarDocument?
+        var candidate: LyricsSourceCollection.Candidate? = nil
 
         var id: String { document.path }
         var name: String { document.name }
@@ -30,6 +27,7 @@ enum LyricsDocumentCatalog {
         /// The song is showing an edit saved only in Primuse, not any file.
         let usesLocalCopy: Bool
         let sourceIsWritable: Bool
+        var sourceError: String? = nil
 
         /// The same listing after the listener switched to `id`; nil marks
         /// no file as the one playback shows.
@@ -41,12 +39,14 @@ enum LyricsDocumentCatalog {
                         format: entry.format,
                         isActive: entry.id == id,
                         isEditable: entry.isEditable,
-                        translation: entry.translation
+                        translation: entry.translation,
+                        candidate: entry.candidate
                     )
                 },
                 canSwitch: canSwitch,
                 usesLocalCopy: id == nil ? usesLocalCopy : false,
-                sourceIsWritable: sourceIsWritable
+                sourceIsWritable: sourceIsWritable,
+                sourceError: sourceError
             )
         }
     }
@@ -93,6 +93,70 @@ enum LyricsDocumentCatalog {
         for song: Song,
         sourceManager: SourceManager,
         sourcesStore: SourcesStore
+    ) async -> Listing {
+        let sidecars = await loadSidecars(for: song, sourceManager: sourceManager, sourcesStore: sourcesStore)
+        var cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        if cached == nil, case .notFileBased = sidecars {
+            cached = await LyricsLoader.load(for: song, sourceManager: sourceManager, allowsAutomaticOnlineLyrics: false)
+        }
+        if let cached, !cached.isEmpty {
+            await MetadataAssetStore.shared.rememberLyricsCandidate(cached, forSongID: song.id)
+        }
+        if let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id) {
+            await MetadataAssetStore.shared.rememberLyricsCandidate(embedded, forSongID: song.id)
+        }
+        var sources = await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id)
+        if case .notFileBased = sidecars,
+           let type = sourcesStore.source(id: song.sourceID)?.type,
+           !sources.candidates.contains(where: { $0.source?.kind == .server }),
+           case .content(let text) = await LyricsLoader.readAuthoritativeSourceText(for: song, sourceManager: sourceManager) {
+            let lines = LyricsDocumentSource.server(type.rawValue).stamped(LyricsParser.parse(text))
+            await MetadataAssetStore.shared.rememberLyricsCandidate(lines, forSongID: song.id)
+            sources = await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id)
+        }
+        let base: Documents
+        if case .documents(let documents) = sidecars { base = documents }
+        else { base = Documents(entries: [], canSwitch: !song.isCueTrack, usesLocalCopy: false, sourceIsWritable: false) }
+        var entries = base.entries
+        let current = sources.selected ?? sources.candidates.first(where: {
+            guard let cached else { return false }
+            return $0.source == LyricsDocumentSource.of(cached)
+                && $0.lines.first?.documentIsLocalOverride == cached.first?.documentIsLocalOverride
+                && LyricsDocumentFingerprint(lines: $0.lines) == LyricsDocumentFingerprint(lines: cached)
+        })
+        for candidate in sources.candidates {
+            if candidate.source?.kind == .file, !base.entries.isEmpty, candidate.id != sources.selectedID,
+               candidate.lines.first?.documentIsLocalOverride != true { continue }
+            let name = candidateName(candidate)
+            entries.append(Entry(
+                document: LyricsSidecarDocument(name: name, path: "candidate:" + candidate.id, size: 0, modifiedDate: nil),
+                format: nil, isActive: candidate.id == current?.id, isEditable: false,
+                translation: nil, candidate: candidate
+            ))
+        }
+        if entries.contains(where: { $0.candidate != nil && $0.isActive }) {
+            entries = entries.map { entry in
+                guard entry.candidate == nil else { return entry }
+                return Entry(document: entry.document, format: entry.format, isActive: false,
+                             isEditable: entry.isEditable, translation: entry.translation)
+            }
+        }
+        let sourceError: String?
+        if case .unavailable(let message) = sidecars { sourceError = message } else { sourceError = nil }
+        return .documents(Documents(entries: entries, canSwitch: base.canSwitch,
+                                    usesLocalCopy: false, sourceIsWritable: base.sourceIsWritable, sourceError: sourceError))
+    }
+
+    static func candidateName(_ candidate: LyricsSourceCollection.Candidate) -> String {
+        if candidate.lines.first?.documentIsLocalOverride == true {
+            return String(localized: "lyrics_source_badge_local_edit")
+        }
+        if candidate.source?.kind == .transcript { return String(localized: "lyrics_sources_transcript") }
+        return LyricsSourceBadge.resolve(candidate.lines)?.displayTitle ?? String(localized: "lyrics_sources_cached")
+    }
+
+    private static func loadSidecars(
+        for song: Song, sourceManager: SourceManager, sourcesStore: SourcesStore
     ) async -> Listing {
         if song.sourceID == AppleMusicLibraryIdentity.sourceID || PodcastPlaybackSong.isEpisode(song) {
             return .notFileBased
@@ -180,6 +244,15 @@ enum LyricsDocumentCatalog {
 
     // MARK: - Reading
 
+    static func read(_ entry: Entry, for song: Song, sourceManager: SourceManager) async throws -> Content {
+        guard let candidate = entry.candidate else {
+            return try await read(entry.document, for: song, sourceManager: sourceManager)
+        }
+        let text = LyricsContentParser.serialize(candidate.lines)
+        let data = Data(text.utf8)
+        return Content(text: text, data: data, encoding: LyricsRawDocumentEncoding(original: data, decodedEncoding: .utf8))
+    }
+
     static func read(
         _ document: LyricsSidecarDocument,
         for song: Song,
@@ -254,6 +327,14 @@ enum LyricsDocumentCatalog {
         for song: Song,
         sourceManager: SourceManager
     ) async throws {
+        if let candidate = entry.candidate {
+            guard await MetadataAssetStore.shared.selectLyricsCandidate(candidate.id, forSongID: song.id) else {
+                throw CatalogError.cacheBusy
+            }
+            LyricsDocumentPinStore.shared.clearPin(forSongID: song.id)
+            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+            return
+        }
         let content = try await read(entry.document, for: song, sourceManager: sourceManager)
         let lines = LyricsParser.parseDocument(content.text, fileName: entry.name)
         guard !lines.isEmpty else { throw CatalogError.noLyrics(entry.name) }

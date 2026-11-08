@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "เนื้อเพลงนี้มีเวลารายคำ คำแปล เสียงประสาน หรือโครงสร้าง TTML ซึ่งจะหายไปหากเขียนเป็นข้อความ LRC คุณแก้ไขไฟล์ต้นฉบับได้โดยตรงใน “แหล่งเนื้อเพลง”";
 "lyrics_sources_title" = "แหล่งเนื้อเพลง";
 "lyrics_sources_loading" = "กำลังค้นหาไฟล์เนื้อเพลง…";
-"lyrics_sources_count %lld" = "ไฟล์เนื้อเพลง %lld ไฟล์";
+"lyrics_sources_count %lld" = "แหล่งเนื้อเพลง: %lld";
 "lyrics_sources_in_use" = "ใช้อยู่";
 "lyrics_sources_edit" = "แก้ไข";
 "lyrics_sources_view" = "ดู";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "ข้อมูลสำรองนี้ต้องใช้ Primuse เวอร์ชันใหม่กว่า";
 "settings_backup_too_large" = "ข้อมูลสำรองนี้มีขนาดเกินขีดจำกัดที่รองรับ";
 "settings_backup_invalid" = "ไฟล์นี้ไม่ใช่ข้อมูลสำรองการตั้งค่า Primuse ที่ถูกต้อง หรือไฟล์เสียหาย";
+
+"lyrics_sources_fetch_more" = "รับเนื้อเพลงเพิ่มเติม";
+"lyrics_sources_cached" = "เนื้อเพลงที่แคชไว้";
+"lyrics_sources_transcript" = "ข้อความถอดเสียง";
+"lyrics_sources_use" = "ใช้แหล่งนี้";

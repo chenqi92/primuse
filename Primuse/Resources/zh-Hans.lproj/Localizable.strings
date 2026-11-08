@@ -6374,7 +6374,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "这份歌词带有逐字时间、译文、和声或 TTML 结构，写成 LRC 文本会丢掉这些内容。可以到「歌词来源」里直接改原文件。";
 "lyrics_sources_title" = "歌词来源";
 "lyrics_sources_loading" = "正在查找歌词文件…";
-"lyrics_sources_count %lld" = "%lld 个歌词文件";
+"lyrics_sources_count %lld" = "歌词来源：%lld";
 "lyrics_sources_in_use" = "使用中";
 "lyrics_sources_edit" = "编辑";
 "lyrics_sources_view" = "查看";
@@ -7409,3 +7409,8 @@
 "settings_backup_newer_version" = "此备份需要更新版本的 Primuse。";
 "settings_backup_too_large" = "此备份超过支持的大小限制。";
 "settings_backup_invalid" = "这不是有效的 Primuse 设置备份，或文件已损坏。";
+
+"lyrics_sources_fetch_more" = "获取更多歌词";
+"lyrics_sources_cached" = "已缓存歌词";
+"lyrics_sources_transcript" = "转写文稿";
+"lyrics_sources_use" = "使用此来源";

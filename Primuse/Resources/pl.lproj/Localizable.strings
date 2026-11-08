@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "Ten tekst zawiera czasy poszczególnych słów, tłumaczenia, chórki lub strukturę TTML, które przepadłyby po zapisaniu jako tekst LRC. Oryginalny plik możesz edytować bezpośrednio na stronie „Źródła tekstu”.";
 "lyrics_sources_title" = "Źródła tekstu";
 "lyrics_sources_loading" = "Szukanie plików z tekstem…";
-"lyrics_sources_count %lld" = "Pliki z tekstem: %lld";
+"lyrics_sources_count %lld" = "Źródła tekstów: %lld";
 "lyrics_sources_in_use" = "W użyciu";
 "lyrics_sources_edit" = "Edytuj";
 "lyrics_sources_view" = "Pokaż";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "Ta kopia wymaga nowszej wersji Primuse.";
 "settings_backup_too_large" = "Ta kopia przekracza obsługiwany rozmiar.";
 "settings_backup_invalid" = "To nie jest poprawna kopia ustawień Primuse lub plik jest uszkodzony.";
+
+"lyrics_sources_fetch_more" = "Pobierz więcej tekstów";
+"lyrics_sources_cached" = "Tekst w pamięci podręcznej";
+"lyrics_sources_transcript" = "Transkrypcja";
+"lyrics_sources_use" = "Użyj tego źródła";

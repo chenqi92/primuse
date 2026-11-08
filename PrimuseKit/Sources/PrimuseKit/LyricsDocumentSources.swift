@@ -1,5 +1,39 @@
 import Foundation
 
+public struct LyricsSourceCollection: Codable, Equatable, Sendable {
+    public struct Candidate: Codable, Equatable, Identifiable, Sendable {
+        public let id: String
+        public var lines: [LyricLine]
+        public var source: LyricsDocumentSource? { LyricsDocumentSource.of(lines) }
+    }
+
+    public private(set) var candidates: [Candidate] = []
+    public var selectedID: String?
+    public var selected: Candidate? { candidates.first { $0.id == selectedID } }
+
+    public init() {}
+
+    @discardableResult
+    public mutating func remember(_ lines: [LyricLine]) -> Candidate? {
+        guard !lines.isEmpty, !LossyDecodedLyricsRepair.isDamaged(lines) else { return nil }
+        let fingerprint = LyricsDocumentFingerprint(lines: lines)
+        if let index = candidates.firstIndex(where: {
+            $0.source == LyricsDocumentSource.of(lines)
+                && $0.lines.first?.documentIsLocalOverride == lines.first?.documentIsLocalOverride
+                && LyricsDocumentFingerprint(lines: $0.lines) == fingerprint
+        }) {
+            candidates[index].lines = lines
+            return candidates[index]
+        }
+        let candidate = Candidate(id: UUID().uuidString, lines: lines)
+        candidates.append(candidate)
+        while candidates.count > 12, let index = candidates.firstIndex(where: { $0.id != selectedID }) {
+            candidates.remove(at: index)
+        }
+        return candidate
+    }
+}
+
 /// The file formats a song's lyric documents come in, as the lyric sources
 /// page names them.
 public enum LyricsDocumentFormat: String, Sendable, CaseIterable {

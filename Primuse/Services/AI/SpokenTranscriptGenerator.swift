@@ -233,7 +233,7 @@ final class SpokenTranscriptGenerator {
             }
             try Task.checkCancellation()
             setPhase(.finishing)
-            let lines = SpokenTranscriptLayout.lines(from: result)
+            let lines = LyricsDocumentSource.transcript.stamped(SpokenTranscriptLayout.lines(from: result))
             guard !lines.isEmpty else { throw Failure.noSpeech }
             _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: true)
             remember(Record(engine: engine, localeIdentifier: localeIdentifier, generatedAt: Date()), for: song.id)

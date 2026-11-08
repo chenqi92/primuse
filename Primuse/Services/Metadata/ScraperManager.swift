@@ -794,6 +794,23 @@ actor ScraperManager {
 
     // MARK: - Lyrics candidates (manual search)
 
+    func lyricsSourceCandidates(for song: Song, settings: ScraperSettings, limit: Int = 3) async -> [[LyricLine]] {
+        var candidates: [[LyricLine]] = []
+        for config in settings.enabledSources where config.type.supportsLyrics {
+            guard !Task.isCancelled, candidates.count < max(0, min(limit, 3)) else { break }
+            var singleSource = settings
+            singleSource.sources = [config]
+            let result = await scrapeMetadata(
+                title: song.title, artist: song.artistName, album: song.albumTitle,
+                duration: song.duration > 0 ? song.duration : nil,
+                needs: .init(metadata: false, cover: false, lyrics: true), settings: singleSource
+            )
+            guard !Task.isCancelled else { break }
+            if let lines = result.lyrics, !lines.isEmpty { candidates.append(lines) }
+        }
+        return candidates
+    }
+
     struct ManualLyricsCandidate: Sendable {
         let config: ScraperSourceConfig
         let item: ScraperSearchItem

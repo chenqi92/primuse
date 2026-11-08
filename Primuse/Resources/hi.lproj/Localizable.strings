@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "इन बोलों में शब्द-स्तर का समय, अनुवाद, बैकग्राउंड वोकल या TTML संरचना है, जो LRC पाठ में लिखने पर खो जाएगी। आप “गीत के बोल के स्रोत” में मूल फ़ाइल को सीधे संपादित कर सकते हैं।";
 "lyrics_sources_title" = "गीत के बोल के स्रोत";
 "lyrics_sources_loading" = "गीत के बोल की फ़ाइलें खोजी जा रही हैं…";
-"lyrics_sources_count %lld" = "गीत के बोल की फ़ाइलें: %lld";
+"lyrics_sources_count %lld" = "गीत के बोल के स्रोत: %lld";
 "lyrics_sources_in_use" = "उपयोग में";
 "lyrics_sources_edit" = "संपादित करें";
 "lyrics_sources_view" = "देखें";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "इस बैकअप के लिए Primuse का नया संस्करण चाहिए।";
 "settings_backup_too_large" = "यह बैकअप समर्थित आकार सीमा से बड़ा है।";
 "settings_backup_invalid" = "यह मान्य Primuse सेटिंग्स बैकअप नहीं है या फ़ाइल क्षतिग्रस्त है।";
+
+"lyrics_sources_fetch_more" = "और गीत के बोल प्राप्त करें";
+"lyrics_sources_cached" = "कैश किए गए गीत के बोल";
+"lyrics_sources_transcript" = "लिप्यंतरण";
+"lyrics_sources_use" = "इस स्रोत का उपयोग करें";

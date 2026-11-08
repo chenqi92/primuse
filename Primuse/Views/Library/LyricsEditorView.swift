@@ -705,9 +705,10 @@ struct LyricsEditorView: View {
             case .tooLong:
                 transcriptionMessage = String(localized: "ai_audio_transcription_too_long")
             case .success(let execution):
-                let transcribed = AIAudioTranscriptionLyricsFormatter.document(
+                var transcribed = AIAudioTranscriptionLyricsFormatter.document(
                     from: execution.result
                 )
+                transcribed.source = .transcript
                 guard !transcribed.lines.isEmpty else {
                     transcriptionMessage = String(localized: "ai_audio_transcription_no_speech")
                     return

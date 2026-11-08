@@ -6042,7 +6042,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "These lyrics carry word timing, translations, background vocals or TTML structure that LRC text would lose. You can edit the original file directly in Lyrics Sources.";
 "lyrics_sources_title" = "Lyrics Sources";
 "lyrics_sources_loading" = "Looking for lyrics files…";
-"lyrics_sources_count %lld" = "Lyrics files: %lld";
+"lyrics_sources_count %lld" = "Lyrics sources: %lld";
 "lyrics_sources_in_use" = "In Use";
 "lyrics_sources_edit" = "Edit";
 "lyrics_sources_view" = "View";
@@ -7077,3 +7077,8 @@
 "settings_backup_newer_version" = "This backup requires a newer version of Primuse.";
 "settings_backup_too_large" = "This backup exceeds the supported size limit.";
 "settings_backup_invalid" = "This is not a valid Primuse settings backup, or the file is damaged.";
+
+"lyrics_sources_fetch_more" = "Fetch More Lyrics";
+"lyrics_sources_cached" = "Cached Lyrics";
+"lyrics_sources_transcript" = "Transcript";
+"lyrics_sources_use" = "Use This Source";

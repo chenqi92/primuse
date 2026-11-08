@@ -172,6 +172,9 @@ enum LyricsWriteback {
         sourceManager: SourceManager,
         cached: [LyricLine]?
     ) async -> EditablePayload {
+        if let cached, await LyricsLoader.prefersCachedDocument(for: song) {
+            return EditablePayload(text: LyricsContentParser.serialize(cached), structuredLines: cached)
+        }
         let authoritativeRead = await LyricsLoader.readAuthoritativeSourceText(
             for: song,
             sourceManager: sourceManager
@@ -345,6 +348,7 @@ enum LyricsWriteback {
         sourceManager: SourceManager,
         sourcesStore: SourcesStore
     ) async -> Mode {
+        if await LyricsLoader.prefersCachedDocument(for: song) { return .localOnly(reason: nil) }
         if await sourceManager.supportsSidecarWriting(for: song) {
             do {
                 // 全库扫描期间音乐源的连接预算已被占住，预检要排队。
@@ -473,6 +477,10 @@ enum LyricsWriteback {
             )
         }
         await mutationGate.release(mutationKey)
+        if outcome.errorMessage == nil, let structuredLines,
+           LyricsDocumentSource.of(structuredLines)?.kind == .transcript {
+            await MetadataAssetStore.shared.rememberLyricsCandidate(structuredLines, forSongID: song.id)
+        }
         return outcome
     }
 

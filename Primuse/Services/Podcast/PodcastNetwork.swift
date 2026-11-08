@@ -314,7 +314,7 @@ enum PodcastTranscriptLoader {
                 plog("🎙️ Transcript unavailable for '\(title)' host=\(transcriptURL.host ?? "?")")
                 return []
             }
-            let lines = LyricsContentParser.parse(text)
+            let lines = LyricsDocumentSource.transcript.stamped(LyricsContentParser.parse(text))
             guard !lines.isEmpty else { return [] }
             _ = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                 lines,

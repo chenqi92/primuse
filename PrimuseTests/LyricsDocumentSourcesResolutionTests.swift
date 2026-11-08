@@ -10,6 +10,95 @@ import XCTest
 /// replacement written over another source, and that the raw editor's save
 /// rewrites exactly one file, byte for byte, only while it is unchanged.
 final class LyricsDocumentSourcesResolutionTests: XCTestCase {
+    func testSelectedCandidateSurvivesReopenAndRejectsAutomaticReplacement() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MetadataAssetStore(storageDirectory: directory)
+        let original = LyricsDocumentSource.embedded.stamped([LyricLine(timestamp: 1, text: "Paper lanterns")])
+        let online = LyricsDocumentSource.online(identifier: "fixture", name: "Fixture").stamped([LyricLine(timestamp: 2, text: "Across the bay")])
+        let cached = await store.cacheLyrics(original, forSongID: "fixture")
+        XCTAssertTrue(cached)
+        let candidate = await store.rememberLyricsCandidate(online, forSongID: "fixture")
+        let duringFetch = await store.cachedLyrics(forSongID: "fixture")
+        XCTAssertEqual(duringFetch?.map(\.text), ["Paper lanterns"], "Fetching a candidate must not switch playback")
+        let id = try XCTUnwrap(candidate?.id)
+        let selected = await store.selectLyricsCandidate(id, forSongID: "fixture")
+        XCTAssertTrue(selected)
+        let automatic = await store.cacheLyrics(original, forSongID: "fixture")
+        XCTAssertFalse(automatic)
+        let lateRefresh = await store.replaceLyricsIfUnchanged(
+            LyricsDocumentSource.embedded.stamped(online), forSongID: "fixture",
+            expectedFingerprint: LyricsDocumentFingerprint(lines: online), force: true, preservingSelection: true
+        )
+        XCTAssertFalse(lateRefresh, "A stale automatic refresh must keep a manual choice even when the text is identical")
+        let reopened = MetadataAssetStore(storageDirectory: directory)
+        let restored = await reopened.cachedLyrics(forSongID: "fixture")
+        XCTAssertEqual(restored?.map(\.text), ["Across the bay"])
+        let sources = await reopened.lyricsSourceCollection(forSongID: "fixture")
+        XCTAssertEqual(sources.candidates.count, 2)
+        let switchedBack = await reopened.cacheLyrics(original, forSongID: "fixture", force: true)
+        XCTAssertTrue(switchedBack)
+        let afterSwitch = await reopened.lyricsSourceCollection(forSongID: "fixture")
+        XCTAssertNil(afterSwitch.selected)
+        XCTAssertEqual(afterSwitch.candidates.count, 2)
+        let removed = await reopened.invalidateLyricsCache(forSongID: "fixture")
+        XCTAssertTrue(removed)
+        let afterRemoval = await reopened.cachedLyrics(forSongID: "fixture")
+        XCTAssertNil(afterRemoval)
+    }
+
+    @MainActor
+    func testCatalogListsOnlineAndEmbeddedAlongsideSidecarsAndEditorFollowsPick() async throws {
+        let song = song()
+        let fixture = connector(["Night Changes.lrc": lrc])
+        let source = MusicSource(id: "source", name: "Fixture", type: .webdav, host: "fixture.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+        let sourcesDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: sourcesDirectory) }
+        let sourcesStore = SourcesStore(storageDirectoryURL: sourcesDirectory)
+        let embedded = LyricsDocumentSource.embedded.stamped([LyricLine(timestamp: 1, text: "Embedded lantern")])
+        let online = LyricsDocumentSource.online(identifier: "fixture", name: "Fixture Online").stamped([LyricLine(timestamp: 1, text: "Online lantern")])
+        await MetadataAssetStore.shared.storeEmbeddedFallbackLyrics(embedded, forSongID: song.id)
+        _ = await MetadataAssetStore.shared.cacheLyrics(online, forSongID: song.id, force: true)
+        let listing = await LyricsDocumentCatalog.load(for: song, sourceManager: manager, sourcesStore: sourcesStore)
+        guard case .documents(let documents) = listing else { return XCTFail("Expected source candidates") }
+        XCTAssertEqual(documents.entries.count, 3)
+        XCTAssertEqual(documents.entries.filter(\.isActive).count, 1)
+        XCTAssertEqual(documents.entries.first(where: \.isActive)?.candidate?.source?.kind, .online)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let originalWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let host = UIHostingController(rootView: LyricsSourcesView(song: song, editorHasUnsavedChanges: false, onActiveDocumentChanged: { _ in })
+            .environment(manager).environment(sourcesStore).environment(AppServices.shared.musicLibrary)
+            .environment(\.locale, Locale(identifier: "zh-Hans")))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            originalWindow?.makeKeyAndVisible()
+        }
+        try await Task.sleep(for: .milliseconds(500))
+        host.view.layoutIfNeeded()
+        let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "lyrics-sources-online-embedded-file"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let embeddedEntry = try XCTUnwrap(documents.entries.first { $0.candidate?.source?.kind == .embedded })
+        try await LyricsDocumentCatalog.activate(embeddedEntry, for: song, sourceManager: manager)
+        let payload = await LyricsWriteback.loadEditablePayload(for: song, sourceManager: manager)
+        XCTAssertEqual(payload.playbackLines.map(\.text), ["Embedded lantern"])
+        let mode = await LyricsWriteback.resolveMode(for: song, sourceManager: manager, sourcesStore: sourcesStore)
+        XCTAssertTrue(mode.isLocalStructuredOnly)
+        let writes = await fixture.writtenPaths
+        XCTAssertTrue(writes.isEmpty)
+        _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+    }
+
     func testSlowLyricsLookupRemainsPendingWhileRecoveryActionsAreAvailable() {
         var state = LyricsResolutionState()
         state.begin(1)

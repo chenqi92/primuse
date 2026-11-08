@@ -906,6 +906,7 @@ public struct LyricsDocumentSource: Codable, Hashable, Sendable {
         case online
         /// 导入「音乐」App 的本机文件里的歌词。
         case appleMusic
+        case transcript
     }
 
     public var kind: Kind
@@ -932,6 +933,7 @@ public struct LyricsDocumentSource: Codable, Hashable, Sendable {
 
     public static let embedded = LyricsDocumentSource(kind: .embedded)
     public static let appleMusic = LyricsDocumentSource(kind: .appleMusic)
+    public static let transcript = LyricsDocumentSource(kind: .transcript)
 
     public static func server(_ sourceType: String) -> LyricsDocumentSource {
         LyricsDocumentSource(kind: .server, identifier: sourceType)
@@ -993,6 +995,8 @@ public enum LyricsSourceBadge: Hashable, Sendable {
             return .online(identifier: identifier, name: source.name ?? "")
         case .appleMusic:
             return .appleMusic
+        case .transcript:
+            return nil
         }
     }
 }

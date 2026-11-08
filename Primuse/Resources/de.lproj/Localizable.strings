@@ -6281,7 +6281,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "Dieser Songtext enthält wortgenaue Zeiten, Übersetzungen, Hintergrundgesang oder TTML-Struktur, die als LRC-Text verloren gingen. Unter „Songtextquellen“ kannst du die Originaldatei direkt bearbeiten.";
 "lyrics_sources_title" = "Songtextquellen";
 "lyrics_sources_loading" = "Songtextdateien werden gesucht …";
-"lyrics_sources_count %lld" = "Songtextdateien: %lld";
+"lyrics_sources_count %lld" = "Liedtextquellen: %lld";
 "lyrics_sources_in_use" = "Aktiv";
 "lyrics_sources_edit" = "Bearbeiten";
 "lyrics_sources_view" = "Ansehen";
@@ -7316,3 +7316,8 @@
 "settings_backup_newer_version" = "Diese Sicherung erfordert eine neuere Version von Primuse.";
 "settings_backup_too_large" = "Diese Sicherung überschreitet die unterstützte Größe.";
 "settings_backup_invalid" = "Dies ist keine gültige Primuse-Einstellungssicherung oder die Datei ist beschädigt.";
+
+"lyrics_sources_fetch_more" = "Weitere Liedtexte abrufen";
+"lyrics_sources_cached" = "Gespeicherter Liedtext";
+"lyrics_sources_transcript" = "Transkript";
+"lyrics_sources_use" = "Diese Quelle verwenden";

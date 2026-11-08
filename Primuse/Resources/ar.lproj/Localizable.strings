@@ -6187,7 +6187,7 @@
 "lyrics_editor_source_text_unavailable_sources_message" = "تحتوي هذه الكلمات على توقيت لكل كلمة أو ترجمات أو أصوات خلفية أو بنية TTML، وستُفقد عند كتابتها كنص LRC. يمكنك تحرير الملف الأصلي مباشرةً في «مصادر كلمات الأغاني».";
 "lyrics_sources_title" = "مصادر كلمات الأغاني";
 "lyrics_sources_loading" = "جارٍ البحث عن ملفات الكلمات…";
-"lyrics_sources_count %lld" = "ملفات الكلمات: %lld";
+"lyrics_sources_count %lld" = "مصادر كلمات الأغاني: %lld";
 "lyrics_sources_in_use" = "قيد الاستخدام";
 "lyrics_sources_edit" = "تحرير";
 "lyrics_sources_view" = "عرض";
@@ -7222,3 +7222,8 @@
 "settings_backup_newer_version" = "تتطلب هذه النسخة إصدارًا أحدث من Primuse.";
 "settings_backup_too_large" = "تتجاوز هذه النسخة الحد المسموح لحجم الملف.";
 "settings_backup_invalid" = "هذا الملف ليس نسخة إعدادات Primuse صالحة أو أنه تالف.";
+
+"lyrics_sources_fetch_more" = "جلب المزيد من كلمات الأغاني";
+"lyrics_sources_cached" = "كلمات الأغاني المخزنة مؤقتًا";
+"lyrics_sources_transcript" = "النص المفرغ";
+"lyrics_sources_use" = "استخدام هذا المصدر";

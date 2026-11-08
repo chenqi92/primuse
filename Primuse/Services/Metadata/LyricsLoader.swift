@@ -140,7 +140,8 @@ enum LyricsLoader {
                     lines,
                     forSongID: songID,
                     expectedFingerprint: capturedFingerprint,
-                    force: trigger != .automatic
+                    force: trigger != .automatic,
+                    preservingSelection: trigger != .explicit
                 )
                 if wrote {
                     await MainActor.run {
@@ -205,6 +206,10 @@ enum LyricsLoader {
     /// document. Source text wins so LRC/ELRC metadata and blank lines survive
     /// editing; cached line models remain the offline fallback.
     static func loadEditableText(for song: Song, sourceManager: SourceManager) async -> String {
+        if await prefersCachedDocument(for: song),
+           let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
+            return LyricsContentParser.serialize(cached)
+        }
         if let sourceText = await loadSourceText(for: song, sourceManager: sourceManager) {
             let normalized = normalizedEditableText(sourceText)
             if LyricsContentParser.isTTML(normalized)
@@ -318,6 +323,9 @@ enum LyricsLoader {
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
             logLoaded(cached, song: song, tier: "Tier1a")
+            if await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil {
+                return cached
+            }
             scheduleAutomaticSourceRefresh(
                 for: song,
                 sourceType: sourceType,
@@ -632,6 +640,7 @@ enum LyricsLoader {
         sourceManager: SourceManager,
         cachedDocument: [LyricLine]
     ) async -> [LyricLine]? {
+        guard await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected == nil else { return nil }
         guard !song.isCueTrack,
               !song.isStreamDescriptor,
               !PodcastPlaybackSong.isEpisode(song),
@@ -722,7 +731,8 @@ enum LyricsLoader {
                 replacement,
                 forSongID: song.id,
                 expectedFingerprint: cachedFingerprint,
-                force: forced
+                force: forced,
+                preservingSelection: true
             )
             guard wrote else {
                 // 缓存没被别处换掉却没写进去, 是有意留着的(用户自己写的译文等), 不必再核对。
@@ -1036,6 +1046,13 @@ enum LyricsLoader {
               let path = target.existingPath,
               target.fileName.caseInsensitiveCompare(pinned) == .orderedSame else { return nil }
         return (path, target.fileName)
+    }
+
+    static func prefersCachedDocument(for song: Song) async -> Bool {
+        if await MetadataAssetStore.shared.lyricsSourceCollection(forSongID: song.id).selected != nil { return true }
+        guard let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) else { return false }
+        let kind = LyricsDocumentSource.of(cached)?.kind
+        return kind == .online || kind == .transcript
     }
 
     /// A song with a picked lyric file reads it from the source. The

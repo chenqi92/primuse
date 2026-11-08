@@ -4,6 +4,36 @@ import Testing
 
 @Suite("Lyric document sources")
 struct LyricsDocumentSourcesTests {
+    @Test("Candidate identity preserves provenance and survives persistence")
+    func candidateIdentity() throws {
+        let lines = [LyricLine(timestamp: 1, text: "Paper lanterns cross the bay")]
+        let online = LyricsDocumentSource.online(identifier: "fixture", name: "Fixture").stamped(lines)
+        var sources = LyricsSourceCollection()
+        let remembered = sources.remember(online)
+        let first = try #require(remembered)
+        let repeated = sources.remember(online)
+        let embedded = sources.remember(LyricsDocumentSource.embedded.stamped(lines))
+        #expect(repeated?.id == first.id)
+        #expect(embedded?.id != first.id)
+        sources.selectedID = first.id
+        let restored = try JSONDecoder().decode(LyricsSourceCollection.self, from: JSONEncoder().encode(sources))
+        #expect(restored.selected?.id == first.id)
+        #expect(restored.candidates.count == 2)
+    }
+
+    @Test("Candidate retention is bounded without evicting the manual selection")
+    func candidateRetention() throws {
+        var sources = LyricsSourceCollection()
+        let remembered = sources.remember([LyricLine(timestamp: 1, text: "First lantern")])
+        let first = try #require(remembered)
+        sources.selectedID = first.id
+        for index in 0..<20 { sources.remember([LyricLine(timestamp: 1, text: "Lantern \(index)")]) }
+        #expect(sources.candidates.count == 12)
+        #expect(sources.selected?.id == first.id)
+        let empty = sources.remember([])
+        #expect(empty == nil)
+    }
+
     // MARK: - Listing
 
     @Test("Every document of the song is listed in a stable format order")

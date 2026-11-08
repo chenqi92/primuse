@@ -722,6 +722,7 @@ actor MetadataAssetStore {
     @discardableResult
     func cacheLyrics(_ lines: [LyricLine], forSongID songID: String, force: Bool = false) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
+        if !force, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
         // 上游按 UTF-8 解坏了的 GBK / Big5 歌词(`LossyDecodedLyricsRepair`)一律不进缓存:
         // 进去了播放就一直先读到它。
         guard !LossyDecodedLyricsRepair.isDamaged(lines) else {
@@ -764,11 +765,18 @@ actor MetadataAssetStore {
             return false
         }
         guard let data = try? encoder.encode(lines) else { return false }
+        let previousSources = lyricsSourceCollection(forSongID: songID)
+        var sources = previousSources
+        if let previous = cachedLyrics(forSongID: songID) { sources.remember(previous) }
+        sources.remember(lines)
+        sources.selectedID = nil
+        guard storeLyricsSourceCollection(sources, forSongID: songID) else { return false }
         do {
             try data.write(to: fileURL, options: .atomic)
             Self.postLyricsCached(songID: songID, lines: lines)
             return true
         } catch {
+            _ = storeLyricsSourceCollection(previousSources, forSongID: songID)
             return false
         }
     }
@@ -780,9 +788,11 @@ actor MetadataAssetStore {
         _ lines: [LyricLine],
         forSongID songID: String,
         expectedFingerprint: LyricsDocumentFingerprint?,
-        force: Bool = true
+        force: Bool = true,
+        preservingSelection: Bool = false
     ) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
+        if preservingSelection, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
         let currentFingerprint = cachedLyrics(forSongID: songID)
             .map(LyricsDocumentFingerprint.init(lines:))
         guard currentFingerprint == expectedFingerprint else { return false }
@@ -928,6 +938,50 @@ actor MetadataAssetStore {
         )
     }
 
+    func lyricsSourceCollection(forSongID songID: String) -> LyricsSourceCollection {
+        let url = lyricsDirectory.appendingPathComponent(hashedFileName(for: songID, pathExtension: "sources.json"))
+        guard let data = try? Data(contentsOf: url),
+              let sources = try? decoder.decode(LyricsSourceCollection.self, from: data) else {
+            return LyricsSourceCollection()
+        }
+        return sources
+    }
+
+    private func storeLyricsSourceCollection(_ sources: LyricsSourceCollection, forSongID songID: String) -> Bool {
+        let url = lyricsDirectory.appendingPathComponent(hashedFileName(for: songID, pathExtension: "sources.json"))
+        do {
+            try encoder.encode(sources).write(to: url, options: .atomic)
+            return true
+        } catch { return false }
+    }
+
+    @discardableResult
+    func rememberLyricsCandidate(_ lines: [LyricLine], forSongID songID: String) -> LyricsSourceCollection.Candidate? {
+        var sources = lyricsSourceCollection(forSongID: songID)
+        guard let candidate = sources.remember(lines),
+              storeLyricsSourceCollection(sources, forSongID: songID) else { return nil }
+        return candidate
+    }
+
+    func selectLyricsCandidate(_ id: String, forSongID songID: String) -> Bool {
+        guard lyricsMutationReservations[songID] == nil else { return false }
+        var sources = lyricsSourceCollection(forSongID: songID)
+        guard let candidate = sources.candidates.first(where: { $0.id == id }) else { return false }
+        sources.selectedID = candidate.id
+        if let current = cachedLyrics(forSongID: songID) { sources.remember(current) }
+        let cacheURL = lyricsDirectory.appendingPathComponent(hashedFileName(for: songID, pathExtension: "json"))
+        let previousData = try? Data(contentsOf: cacheURL)
+        do { try encoder.encode(candidate.lines).write(to: cacheURL, options: .atomic) }
+        catch { return false }
+        guard storeLyricsSourceCollection(sources, forSongID: songID) else {
+            if let previousData { try? previousData.write(to: cacheURL, options: .atomic) }
+            else { try? FileManager.default.removeItem(at: cacheURL) }
+            return false
+        }
+        Self.postLyricsCached(songID: songID, lines: candidate.lines)
+        return true
+    }
+
     /// Preserve lyrics written while MusicKit exposed a catalog-derived song
     /// ID under the canonical Apple Music user-library ID. The alias is kept
     /// for backwards compatibility; the canonical copy becomes the source of
@@ -1045,6 +1099,7 @@ actor MetadataAssetStore {
     @discardableResult
     func invalidateLyricsCache(forSongID songID: String) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
+        guard storeLyricsSourceCollection(LyricsSourceCollection(), forSongID: songID) else { return false }
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return true }
@@ -1094,10 +1149,10 @@ actor MetadataAssetStore {
                         removeCacheAsset(artworkDirectory.appendingPathComponent(cover, isDirectory: false),
                                          lastWrittenBefore: cleanupStartedAt)
                     }
-                    for suffix in [".json", ".embedded.json", ".recheck"] {
+                    for suffix in [".json", ".sources.json", ".embedded.json", ".recheck"] {
                         let name = base + suffix
                         guard lyricsNames.remove(name) != nil, !preservingLyricsNames.contains(name) else { continue }
-                        if suffix == ".json", lyricsMutationReservations[songID] != nil { continue }
+                        if (suffix == ".json" || suffix == ".sources.json"), lyricsMutationReservations[songID] != nil { continue }
                         removeCacheAsset(lyricsDirectory.appendingPathComponent(name, isDirectory: false),
                                          lastWrittenBefore: cleanupStartedAt)
                     }
