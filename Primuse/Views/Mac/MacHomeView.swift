@@ -120,6 +120,7 @@ struct MacHomeView: View {
         fileprivate var snapshot = DerivedSnapshot()
         var isPrepared = false
         @ObservationIgnored let spokenWordBooks = SpokenWordBooksModel()
+        @ObservationIgnored let diagnostics = MacHomePerformanceDiagnostics()
         @ObservationIgnored var signature: DerivedSignature?
         @ObservationIgnored var recommendationSignature: DerivedSignature?
 
@@ -186,9 +187,9 @@ struct MacHomeView: View {
         .background(PMColor.bg.ignoresSafeArea())
         .background {
             MacHomeLibraryRevisionObserver(
-                onRevisionChange: { scheduleDerivedRefresh(libraryDriven: true) },
+                onRevisionChange: { scheduleDerivedRefresh(reason: "library", libraryDriven: true) },
                 // 扫描期间排着的那次按扫描档在等; 扫完按正常档重排。
-                onScanFinished: { scheduleDerivedRefresh() }
+                onScanFinished: { scheduleDerivedRefresh(reason: "scan_finished") }
             )
         }
         .spokenWordBooksRefresh(model: spokenWordBooks)
@@ -199,31 +200,33 @@ struct MacHomeView: View {
                 try? await Task.sleep(for: .milliseconds(180))
             }
             guard !Task.isCancelled else { return }
-            refreshDerivedIfNeeded()
+            refreshDerivedIfNeeded(logCacheHit: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .primusePlaybackHistoryDidChange)) { _ in
-            scheduleDerivedRefresh()
+            scheduleDerivedRefresh(reason: "play_history")
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseListeningStatsDidChange)) { _ in
-            scheduleDerivedRefresh()
+            scheduleDerivedRefresh(reason: "listening_stats")
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
-            scheduleDerivedRefresh()
+            scheduleDerivedRefresh(reason: "day")
         }
         .onReceive(NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification)) { _ in
-            scheduleDerivedRefresh()
+            scheduleDerivedRefresh(reason: "locale")
         }
         .onAppear {
             isSceneActive = scenePhase == .active
+            model.diagnostics.setActive(isSceneActive)
         }
         .onChange(of: showsExternalAlbums) { _, _ in
             model.snapshot.recentlyAddedAlbums = []
-            scheduleDerivedRefresh()
+            scheduleDerivedRefresh(reason: "external_albums")
         }
         .onChange(of: scenePhase) { _, phase in
             isSceneActive = phase == .active
+            model.diagnostics.setActive(isSceneActive)
             if phase == .active {
-                scheduleDerivedRefresh()
+                scheduleDerivedRefresh(reason: "foreground")
             } else {
                 refreshCoordinator.cancelAll()
             }
@@ -268,6 +271,16 @@ struct MacHomeView: View {
             case .empty:
                 resolvedDashboardContent(hasContent: false)
             }
+        }
+        .onAppear {
+            model.diagnostics.setVisible(true, context: {
+                "prepared=\(model.isPrepared) snapshot_songs=\(model.snapshot.songCount) revision=\(library.searchRevision) scanning=\(scanService.scanningSourceIDs.count) backfill=\(backfill.isRunning) scraping=\(scraperService.isScraping || scraperService.isSingleScraping || scraperService.isBackgroundEnriching) playing=\(player.isPlaying)"
+            })
+            model.diagnostics.markAfterCommit("appear_commit", since: ProcessInfo.processInfo.systemUptime)
+        }
+        .onDisappear { model.diagnostics.setVisible(false) }
+        .onScrollPhaseChange { _, phase in
+            model.diagnostics.scrollChanged(isScrolling: phase != .idle)
         }
     }
 
@@ -654,7 +667,7 @@ struct MacHomeView: View {
     /// 落定后才真正重算。
     /// `libraryDriven`: 由资料库版本触发。只有这一类在扫描期间放宽间隔,
     /// 播放记录、日期、语言这些用户看得见的变化照常。
-    private func scheduleDerivedRefresh(libraryDriven: Bool = false) {
+    private func scheduleDerivedRefresh(reason: String = "followup", libraryDriven: Bool = false) {
         guard isSceneActive, isHomeVisible else { return }
         // 同 iOS HomeView: 去抖只能合并密集到达的版本变化, 而扫描/回填的发布
         // 间隔比去抖窗口长, 所以还要一道最小重算间隔才能真正合并。
@@ -666,6 +679,9 @@ struct MacHomeView: View {
                 libraryIsScanning: libraryDriven && !scanService.scanningSourceIDs.isEmpty
             )
             : 0
+        model.diagnostics.scheduledRefreshes += 1
+        model.diagnostics.refreshReason = reason
+        model.diagnostics.refreshDelay = delay
         refreshCoordinator.debounceTask?.cancel()
         refreshCoordinator.debounceTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
@@ -688,20 +704,31 @@ struct MacHomeView: View {
 
     /// A route change destroys this view; the window retains the snapshot.
     /// Revisions also catch edits made away from Home without changing counts.
-    private func refreshDerivedIfNeeded() {
+    private func refreshDerivedIfNeeded(logCacheHit: Bool = false) {
         guard isSceneActive, isHomeVisible else { return }
+        let signatureStartedAt = ProcessInfo.processInfo.systemUptime
         let signature = derivedSignature
-        guard model.needsRefresh(for: signature) else { return }
+        guard model.needsRefresh(for: signature) else {
+            if logCacheHit { model.diagnostics.mark("cache_hit") }
+            return
+        }
         // 正在算的那一轮不打断: 它算完会先把结果摆出来, 再按最新的版本补算。
         // 打断重来的话, 扫描期间版本一直在变, 可能一轮也算不完, 首页就一直停在骨架上。
         guard refreshCoordinator.computeTask == nil else { return }
         refreshCoordinator.lastRefreshAt = Date()
-        refreshDerived(signature: signature)
+        refreshDerived(signature: signature, signatureMS: MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - signatureStartedAt))
     }
 
     /// Deduplication happens before recommendation inputs traverse the library.
     /// The remaining aggregates run off actor while the cached page stays visible.
-    private func refreshDerived(signature: DerivedSignature) {
+    private func refreshDerived(signature: DerivedSignature, signatureMS: Int) {
+        let diagnostics = model.diagnostics
+        diagnostics.refreshSequence += 1
+        let refresh = diagnostics.refreshSequence
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        diagnostics.refreshStage = "capture"
+        diagnostics.mark("refresh_begin", "refresh=\(refresh) reason=\(diagnostics.refreshReason) scheduled=\(diagnostics.scheduledRefreshes) delay_ms=\(MacHomePerformanceDiagnostics.ms(diagnostics.refreshDelay)) signature_ms=\(signatureMS)")
+        diagnostics.scheduledRefreshes = 0
         if showAlbumPick { AlbumRecommendationService.shared.refresh(library: library) }
         // 首页的计数、最近播放和封面马赛克都只算音乐: 有声内容按书在自己那一栏,
         // 一部几百集的评书不该把「最近播放」和歌曲总数撑满。
@@ -712,18 +739,27 @@ struct MacHomeView: View {
         let recentlyPlayed = library.recentlyPlayedSongs(limit: 100)
             .filter { !spokenWordSongIDs.contains($0.id) }
         let recommendationSnapshot = MusicDiscoveryEngine.recommendationSnapshot(in: library)
+        diagnostics.mark("refresh_capture", "refresh=\(refresh) elapsed_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - startedAt)) songs=\(songs.count) albums=\(albums.count) artists=\(artists.count)")
+        diagnostics.refreshStage = "derive"
+        let deriveRequestedAt = ProcessInfo.processInfo.systemUptime
 
         refreshCoordinator.computeTask = Task { @MainActor in
+            defer {
+                if Task.isCancelled { diagnostics.mark("refresh_cancel", "refresh=\(refresh)") }
+                if diagnostics.refreshSequence == refresh { diagnostics.refreshStage = "idle" }
+            }
             let worker = Task.detached(priority: .utility) {
-                Self.makeDerivedSnapshot(
+                let computeStartedAt = ProcessInfo.processInfo.systemUptime
+                let snapshot = Self.makeDerivedSnapshot(
                     songs: songs,
                     albums: albums,
                     artists: artists,
                     recentlyPlayed: recentlyPlayed,
                     includingExternalSongs: signature.showsExternalAlbums
                 )
+                return (snapshot, ProcessInfo.processInfo.systemUptime - computeStartedAt)
             }
-            var snapshot = await withTaskCancellationHandler {
+            let (derivedSnapshot, deriveSeconds) = await withTaskCancellationHandler {
                 await worker.value
             } onCancel: {
                 worker.cancel()
@@ -731,6 +767,9 @@ struct MacHomeView: View {
             // 只有离开首页/退到后台(cancelAll)才算作废。算的过程中资料库、歌单又变了的结果照样摆出来,
             // 签名记成它真正对应的那一版, 收尾时发现对不上就补算 —— 丢掉它的话骨架会一直等下去。
             guard !Task.isCancelled else { return }
+            var snapshot = derivedSnapshot
+            let publishStartedAt = ProcessInfo.processInfo.systemUptime
+            diagnostics.refreshStage = "publish"
             snapshot.recommendationResults = model.snapshot.recommendationResults.compactMap { result in
                 library.unobservedVisibleSong(id: result.song.id).map {
                     MusicDiscoveryResult(song: $0, score: result.score, reasons: result.reasons)
@@ -742,15 +781,21 @@ struct MacHomeView: View {
             model.snapshot = snapshot
             model.isPrepared = true
             model.signature = signature
+            diagnostics.mark("snapshot_ready", "refresh=\(refresh) compute_ms=\(MacHomePerformanceDiagnostics.ms(deriveSeconds)) worker_roundtrip_ms=\(MacHomePerformanceDiagnostics.ms(publishStartedAt - deriveRequestedAt)) publish_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - publishStartedAt))")
+            diagnostics.markAfterCommit("snapshot_commit", since: publishStartedAt, fields: "refresh=\(refresh)")
 
+            diagnostics.refreshStage = "recommend"
+            let recommendRequestedAt = ProcessInfo.processInfo.systemUptime
             let recommendationWorker = Task.detached(priority: .utility) {
-                MusicDiscoveryEngine.dailyRecommendations(
+                let computeStartedAt = ProcessInfo.processInfo.systemUptime
+                let results = MusicDiscoveryEngine.dailyRecommendations(
                     from: recommendationSnapshot.makeInput(),
                     limit: 12,
                     isCancelled: { Task.isCancelled }
                 )
+                return (results, ProcessInfo.processInfo.systemUptime - computeStartedAt)
             }
-            let recommendations = await withTaskCancellationHandler {
+            let (recommendations, recommendSeconds) = await withTaskCancellationHandler {
                 await recommendationWorker.value
             } onCancel: {
                 recommendationWorker.cancel()
@@ -759,6 +804,7 @@ struct MacHomeView: View {
             model.snapshot.recommendationResults = recommendations
             model.recommendationSignature = signature
             refreshCoordinator.computeTask = nil
+            diagnostics.mark("refresh_end", "refresh=\(refresh) total_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - startedAt)) recommend_compute_ms=\(MacHomePerformanceDiagnostics.ms(recommendSeconds)) recommend_roundtrip_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - recommendRequestedAt)) recommendations=\(recommendations.count)")
 
             let current = derivedSignature
             if current != signature {

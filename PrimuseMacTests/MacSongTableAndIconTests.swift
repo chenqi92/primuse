@@ -247,6 +247,115 @@ final class MacSongTableAndIconTests: XCTestCase {
 }
 
 @MainActor
+final class MacHomePerformanceDiagnosticsTests: XCTestCase {
+    func testIdleAndBackgroundTimeDoNotBecomeBusyTurns() {
+        var time: TimeInterval = 100
+        var lines: [String] = []
+        let diagnostics = MacHomePerformanceDiagnostics(now: { time }, applicationIsActive: { true }, emit: { lines.append($0) })
+        diagnostics.setVisible(true)
+        diagnostics.setActive(true)
+        diagnostics.observe(.beforeWaiting)
+        time += 30
+        diagnostics.observe(.afterWaiting)
+        time += 0.02
+        diagnostics.observe(.beforeWaiting)
+        diagnostics.setActive(false)
+        XCTAssertFalse(diagnostics.isMonitoring)
+        time += 60
+        diagnostics.setActive(true)
+        diagnostics.observe(.beforeWaiting)
+        diagnostics.setCovered(true)
+        XCTAssertFalse(diagnostics.isMonitoring)
+        time += 30
+        diagnostics.setCovered(false)
+        diagnostics.observe(.beforeWaiting)
+        diagnostics.setVisible(false)
+        XCTAssertFalse(diagnostics.isMonitoring)
+        XCTAssertFalse(lines.contains { $0.contains("event=main_busy") })
+    }
+
+    func testBusyTurnsKeepScrollContextAndBoundLogVolume() {
+        var time: TimeInterval = 100
+        var lines: [String] = []
+        let diagnostics = MacHomePerformanceDiagnostics(now: { time }, applicationIsActive: { true }, emit: { lines.append($0) })
+        diagnostics.setVisible(true, context: { "scanning=1" })
+        diagnostics.setActive(true)
+        diagnostics.scrollChanged(isScrolling: true)
+        for _ in 0..<6 {
+            diagnostics.observe(.afterWaiting)
+            time += 0.2
+            diagnostics.observe(.beforeWaiting)
+        }
+        let busy = lines.filter { $0.contains("event=main_busy") }
+        XCTAssertEqual(busy.count, 4)
+        XCTAssertTrue(busy.allSatisfy { $0.contains("busy_ms=200") && $0.contains("scrolling=true") && $0.contains("scanning=1") })
+        diagnostics.setVisible(false)
+        XCTAssertTrue(lines.last?.contains("busy_turns=6 worst_busy_ms=200 suppressed=2") == true)
+        XCTAssertFalse(diagnostics.isMonitoring)
+        let count = lines.count
+        time += 20
+        diagnostics.observe(.beforeWaiting)
+        diagnostics.scrollChanged(isScrolling: false)
+        XCTAssertEqual(lines.count, count)
+    }
+
+    func testNavigationTimingIsConsumedAndModalWaitIsExcluded() {
+        var time: TimeInterval = 100
+        var lines: [String] = []
+        let diagnostics = MacHomePerformanceDiagnostics(now: { time }, applicationIsActive: { true }, emit: { lines.append($0) })
+        diagnostics.navigationRequested()
+        time += 0.25
+        diagnostics.setVisible(true)
+        XCTAssertTrue(lines.last?.contains("navigation_ms=250") == true)
+        diagnostics.setActive(true)
+        diagnostics.observe(.entry)
+        diagnostics.observe(.beforeWaiting)
+        time += 20
+        diagnostics.observe(.afterWaiting)
+        time += 0.01
+        diagnostics.observe(.exit)
+        diagnostics.observe(.beforeWaiting)
+        diagnostics.setVisible(false)
+        diagnostics.setVisible(true)
+        XCTAssertTrue(lines.last?.contains("navigation_ms=-1") == true)
+        diagnostics.setVisible(false)
+        XCTAssertFalse(lines.contains { $0.contains("event=main_busy") })
+    }
+
+    func testCommitCallbackDoesNotCrossVisitsOrWaitForUserInput() async {
+        let committed = expectation(description: "Current visit commits")
+        var lines: [String] = []
+        let diagnostics = MacHomePerformanceDiagnostics(applicationIsActive: { true }, emit: {
+            lines.append($0)
+            if $0.contains("event=current_commit") { committed.fulfill() }
+        })
+        diagnostics.setVisible(true)
+        diagnostics.setActive(true)
+        let start = ProcessInfo.processInfo.systemUptime
+        diagnostics.markAfterCommit("stale_commit", since: start)
+        diagnostics.setVisible(false)
+        diagnostics.setVisible(true)
+        defer { diagnostics.setVisible(false) }
+        diagnostics.markAfterCommit("current_commit", since: start)
+        await fulfillment(of: [committed], timeout: 3)
+        XCTAssertFalse(lines.contains { $0.contains("event=stale_commit") })
+    }
+
+    func testMainRunLoopReportsRealWorkAndStopsAfterLeaving() async {
+        let reported = expectation(description: "Main loop busy turn")
+        reported.assertForOverFulfill = false
+        let diagnostics = MacHomePerformanceDiagnostics(applicationIsActive: { true }, emit: {
+            if $0.contains("event=main_busy") { reported.fulfill() }
+        })
+        diagnostics.setVisible(true)
+        diagnostics.setActive(true)
+        defer { diagnostics.setVisible(false) }
+        DispatchQueue.main.async { Thread.sleep(forTimeInterval: 0.15) }
+        await fulfillment(of: [reported], timeout: 3)
+    }
+}
+
+@MainActor
 final class MacHomeScrollingTests: XCTestCase {
     func testDashboardDefersOffscreenSectionsAndTheirUpdates() async throws {
         let probe = MacHomeScrollProbe()

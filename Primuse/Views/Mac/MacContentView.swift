@@ -327,6 +327,8 @@ struct MacContentView: View {
                                    }
                                })
                             .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .onAppear { homeModel.diagnostics.setCovered(true) }
+                            .onDisappear { homeModel.diagnostics.setCovered(false) }
                         }
                     }
                     .zIndex(1)
@@ -757,6 +759,7 @@ struct MacContentView: View {
     /// 以后再建, 建好了淡入。一步做完的话, 建新页这段时间整个窗口定在旧页上, 侧栏高亮也
     /// 不动, 看着像先把新页加载完才切过去。
     private func requestRoute(_ route: MacRoute) {
+        if route == .home { homeModel.diagnostics.navigationRequested() }
         #if DEBUG
         MacRouteTiming.begin(route)
         #endif
@@ -801,6 +804,7 @@ struct MacContentView: View {
     /// 代码里换页(通知、「在资料库中显示」、恢复上次的页)。一步换完: 有的调用方在换页前
     /// 放了要交给新页的请求(定位到某首歌), 旧页多活一轮会先把它取走。
     private func selectRoute(_ route: MacRoute) {
+        if route == .home { homeModel.diagnostics.navigationRequested() }
         #if DEBUG
         MacRouteTiming.begin(route)
         #endif

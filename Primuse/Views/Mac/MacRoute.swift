@@ -119,6 +119,170 @@ enum MacTool: String, Identifiable, Hashable, CaseIterable {
     }
 }
 
+/// Release-safe, event-driven diagnostics. A busy run-loop turn is not a frame
+/// time or a sampled stack; sleeping and nested modal loops are excluded.
+@MainActor
+final class MacHomePerformanceDiagnostics {
+    private let now: () -> TimeInterval
+    private let emit: (String) -> Void
+    private let applicationIsActive: () -> Bool
+    private var observer: CFRunLoopObserver?
+    private var context: (() -> String)?
+    private var visible = false
+    private var active = false
+    private var covered = false
+    private var visit = ""
+    private var appearedAt: TimeInterval = 0
+    private var navigationStartedAt: TimeInterval?
+    private var busySince: TimeInterval?
+    private var scrollStartedAt: TimeInterval?
+    private var lastScrollLogAt = -Double.infinity
+    private var logWindowAt: TimeInterval = 0
+    private var loggedBusyTurns = 0
+    private var busyTurns = 0
+    private var suppressedBusyTurns = 0
+    private var longestBusyTurn: TimeInterval = 0
+    var refreshStage = "idle"
+    var scheduledRefreshes = 0
+    var refreshReason = "appear"
+    var refreshDelay: TimeInterval = 0
+    var refreshSequence = 0
+
+    init(
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        applicationIsActive: @escaping () -> Bool = { NSApp?.isActive == true },
+        emit: @escaping (String) -> Void = { plog($0) }
+    ) {
+        self.now = now
+        self.applicationIsActive = applicationIsActive
+        self.emit = emit
+    }
+
+    var isMonitoring: Bool { observer != nil }
+
+    func navigationRequested() {
+        navigationStartedAt = now()
+        mark("navigate")
+    }
+
+    func setVisible(_ value: Bool, context: (() -> String)? = nil) {
+        guard value != visible else { return }
+        visible = value
+        if value {
+            self.context = context
+            visit = String(UUID().uuidString.prefix(8))
+            appearedAt = now()
+            busyTurns = 0
+            suppressedBusyTurns = 0
+            longestBusyTurn = 0
+            loggedBusyTurns = 0
+            logWindowAt = appearedAt
+            lastScrollLogAt = -Double.infinity
+            let navigationMS = navigationStartedAt.map { Self.ms(appearedAt - $0) } ?? -1
+            navigationStartedAt = nil
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+            mark("appear", "version=\(version) build=\(build) navigation_ms=\(navigationMS)")
+        } else {
+            mark("disappear", "visible_ms=\(Self.ms(now() - appearedAt)) busy_turns=\(busyTurns) worst_busy_ms=\(Self.ms(longestBusyTurn)) suppressed=\(suppressedBusyTurns)")
+            self.context = nil
+        }
+        updateMonitoring()
+    }
+
+    func setActive(_ value: Bool) {
+        guard active != value else { return }
+        active = value
+        if visible { mark(value ? "resume" : "suspend") }
+        updateMonitoring()
+    }
+
+    func setCovered(_ value: Bool) {
+        guard covered != value else { return }
+        covered = value
+        if visible { mark(value ? "covered" : "uncovered") }
+        updateMonitoring()
+    }
+
+    func mark(_ event: String, _ fields: String = "") {
+        emit("HomePerf v=1 visit=\(visit) uptime_ms=\(Self.ms(now())) event=\(event) stage=\(refreshStage) scrolling=\(scrollStartedAt != nil) \(fields) \(context?() ?? "")")
+    }
+
+    func markAfterCommit(_ event: String, since start: TimeInterval, fields: String = "") {
+        let expectedVisit = visit
+        // onAppear may itself run inside the commit observer. Enqueue first so
+        // the measurement cannot sit idle waiting for the next user event.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isMonitoring, self.visit == expectedVisit else { return }
+            MacFrameCommit.afterCurrentCommit { [weak self] in
+                guard let self, self.isMonitoring, self.visit == expectedVisit else { return }
+                self.mark(event, "elapsed_ms=\(Self.ms(self.now() - start)) \(fields)")
+            }
+        }
+    }
+
+    func scrollChanged(isScrolling: Bool) {
+        guard visible, active, !covered, applicationIsActive() else { return }
+        if isScrolling {
+            if scrollStartedAt == nil { scrollStartedAt = now() }
+        } else if let start = scrollStartedAt {
+            scrollStartedAt = nil
+            let time = now()
+            if time - lastScrollLogAt >= 2 {
+                lastScrollLogAt = time
+                mark("scroll", "duration_ms=\(Self.ms(time - start))")
+            }
+        }
+    }
+
+    private func updateMonitoring() {
+        busySince = nil
+        scrollStartedAt = nil
+        if let observer {
+            CFRunLoopObserverInvalidate(observer)
+            self.observer = nil
+        }
+        guard visible, active, !covered else { return }
+        let activities: CFRunLoopActivity = [.entry, .exit, .afterWaiting, .beforeWaiting]
+        observer = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault, activities.rawValue, true, 2_100_001
+        ) { [weak self] _, activity in
+            MainActor.assumeIsolated { self?.observe(activity) }
+        }
+        if let observer { CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes) }
+        busySince = now()
+    }
+
+    func observe(_ activity: CFRunLoopActivity) {
+        guard visible, active, !covered, applicationIsActive() else {
+            busySince = nil
+            return
+        }
+        let time = now()
+        if activity == .entry || activity == .afterWaiting {
+            busySince = time
+        } else if activity == .beforeWaiting || activity == .exit {
+            defer { busySince = nil }
+            guard let start = busySince else { return }
+            let duration = time - start
+            guard duration >= 0.1 else { return }
+            busyTurns += 1
+            longestBusyTurn = max(longestBusyTurn, duration)
+            if time - logWindowAt >= 10 {
+                logWindowAt = time
+                loggedBusyTurns = 0
+            }
+            guard loggedBusyTurns < 4 else { suppressedBusyTurns += 1; return }
+            loggedBusyTurns += 1
+            mark("main_busy", "busy_ms=\(Self.ms(duration)) busy_turns=\(busyTurns) suppressed=\(suppressedBusyTurns)")
+        } else {
+            busySince = nil
+        }
+    }
+
+    static func ms(_ duration: TimeInterval) -> Int { Int((duration * 1000).rounded()) }
+}
+
 #if DEBUG
 /// 侧栏换页的耗时: 点下去 → 新页 `onAppear` → 这一帧提交给屏幕 → 内容真正摆出来。
 /// 每段一行 🧪 日志, 编译机上用调试脚本的 `route:` 换页量出来; 之后一秒的显示链接
