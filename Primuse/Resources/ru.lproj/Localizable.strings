@@ -6879,7 +6879,8 @@
 "companion_assets_download_progress_format" = "Готово %1$d из %2$d";
 "companion_assets_download_in_progress" = "Загрузка обложек и текстов";
 "companion_assets_download_result_format" = "В прошлый раз сохранено обложек: %1$d, текстов: %2$d.";
-"companion_assets_download_nothing" = "Все обложки и тексты уже есть на этом устройстве.";
+"companion_assets_download_failed_format" = "Не удалось сохранить в кэш %d элементов. Повторите загрузку.";
+"companion_assets_download_nothing" = "Сейчас нет обложек или текстов песен для загрузки.";
 "companion_assets_limit_title" = "Обложки превысят лимит места";
 "companion_assets_limit_message_format" = "Нужно загрузить около %1$@ обложек. После этого обложки займут около %2$@ — больше текущего лимита %3$@, и ежедневная уборка удалит лишние старые обложки. Рекомендуется увеличить лимит до %4$@.";
 "companion_assets_raise_limit_format" = "Увеличить до %@ и загрузить";
@@ -7222,6 +7223,15 @@
 "settings_backup_newer_version" = "Для этой копии нужна более новая версия Primuse.";
 "settings_backup_too_large" = "Размер копии превышает допустимый предел.";
 "settings_backup_invalid" = "Это не резервная копия настроек Primuse, либо файл повреждён.";
+
+"pan115_token_login" = "Использовать Refresh Token";
+"pan115_qr_login" = "Войти по QR-коду";
+"pan115_qr_instruction" = "Отсканируйте в приложении 115";
+"pan115_qr_scanned" = "Код отсканирован. Подтвердите в приложении 115.";
+"pan115_qr_expired" = "Срок действия QR-кода истёк. Повторите попытку.";
+"pan115_qr_denied" = "Авторизация отклонена. Повторите попытку.";
+"pan115_auth_subtitle" = "Подключение через Refresh Token или App ID";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "Найти другие тексты";
 "lyrics_sources_cached" = "Кэшированный текст";

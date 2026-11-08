@@ -6879,7 +6879,8 @@
 "companion_assets_download_progress_format" = "%2$d öğeden %1$d tanesi bitti";
 "companion_assets_download_in_progress" = "Kapaklar ve Şarkı Sözleri İndiriliyor";
 "companion_assets_download_result_format" = "Geçen sefer %1$d kapak ve %2$d şarkı sözü kaydedildi.";
-"companion_assets_download_nothing" = "Tüm kapaklar ve şarkı sözleri zaten bu aygıtta.";
+"companion_assets_download_failed_format" = "%d öğe önbelleğe alınamadı. Yeniden denemek için tekrar indirin.";
+"companion_assets_download_nothing" = "Şu anda indirilmesi gereken kapak veya şarkı sözü yok.";
 "companion_assets_limit_title" = "Kapaklar Alan Sınırını Aşacak";
 "companion_assets_limit_message_format" = "İndirilecek yaklaşık %1$@ kapak var. Ardından kapaklar yaklaşık %2$@ yer kaplayarak şu anki %3$@ sınırını aşar; günlük temizlik fazla eski kapakları siler. Sınırı %4$@ yapmanız önerilir.";
 "companion_assets_raise_limit_format" = "%@ Yap ve İndir";
@@ -7222,6 +7223,15 @@
 "settings_backup_newer_version" = "Bu yedek için Primuse uygulamasının daha yeni bir sürümü gerekli.";
 "settings_backup_too_large" = "Bu yedek desteklenen boyut sınırını aşıyor.";
 "settings_backup_invalid" = "Bu dosya geçerli bir Primuse ayar yedeği değil veya hasarlı.";
+
+"pan115_token_login" = "Refresh Token kullan";
+"pan115_qr_login" = "Tarayarak giriş yap";
+"pan115_qr_instruction" = "115 uygulamasıyla tara";
+"pan115_qr_scanned" = "Tarandı. 115 uygulamasında onaylayın.";
+"pan115_qr_expired" = "QR kodunun süresi doldu. Lütfen tekrar deneyin.";
+"pan115_qr_denied" = "Yetkilendirme reddedildi. Lütfen tekrar deneyin.";
+"pan115_auth_subtitle" = "Refresh Token veya App ID ile bağlan";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "Daha fazla şarkı sözü getir";
 "lyrics_sources_cached" = "Önbellekteki şarkı sözleri";

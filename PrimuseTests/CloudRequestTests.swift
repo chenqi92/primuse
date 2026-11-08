@@ -5,6 +5,107 @@ import XCTest
 @testable import Primuse
 
 final class CloudRequestTests: XCTestCase {
+    func testPan115PastedRefreshTokenNeedsNoAppCredentialsAndKeepsRotation() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
+            #"{"state":true,"data":{"access_token":"fresh","refresh_token":"rotated","expires_in":"7200"}}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let started = Date()
+        let result = try await U115Source(sourceID: fixture.id, session: session)
+            .exchangeRefreshToken("  refresh+token/&=value\n")
+        XCTAssertEqual(result.accessToken, "fresh")
+        XCTAssertEqual(result.refreshToken, "rotated")
+        XCTAssertGreaterThan(try XCTUnwrap(result.expiresAt).timeIntervalSince(started), 7190)
+        let request = try XCTUnwrap(fixture.requests.last)
+        XCTAssertEqual(request.url?.absoluteString, "https://passportapi.115.com/open/refreshToken")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
+        var body = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        var components = URLComponents()
+        components.percentEncodedQuery = String(decoding: body, as: UTF8.self)
+        XCTAssertEqual(components.queryItems, [.init(name: "refresh_token", value: "refresh+token/&=value")])
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testPan115RefreshKeepsOriginalTokenWhenProviderOmitsRotation() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
+            #"{"state":1,"data":{"access_token":"fresh"}}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let result = try await U115Source(sourceID: fixture.id, session: session).exchangeRefreshToken("original")
+        XCTAssertEqual(result.refreshToken, "original")
+        XCTAssertFalse(result.isExpired)
+    }
+
+    func testPan115RejectsEmptyTokenWithoutSending() async throws {
+        let fixture = CloudHTTPFixture(responses: [])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        do {
+            _ = try await U115Source(sourceID: fixture.id, session: session).exchangeRefreshToken(" \n ")
+            XCTFail("Empty token accepted")
+        } catch CloudDriveError.notAuthenticated {}
+        XCTAssertTrue(fixture.requests.isEmpty)
+    }
+
+    func testPan115RejectedImportPreservesExistingCredentials() async throws {
+        for response in [
+            #"{"state":false,"code":40140116,"data":{"access_token":"rejected"}}"#,
+            #"{"state":true,"data":{"access_token":" "}}"#,
+            #"{"state":true,"data":{}}"#
+        ] {
+            let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(response.utf8))])
+            let session = fixture.session()
+            let manager = CloudTokenManager(sourceID: fixture.id)
+            defer {
+                session.invalidateAndCancel(); fixture.remove()
+                _ = CloudTokenManager.deleteStoredCredentials(for: fixture.id)
+            }
+            let saved = await manager.saveTokens(.init(accessToken: "existing", refreshToken: "existing-refresh"))
+            XCTAssertTrue(saved)
+            do {
+                _ = try await U115Source(sourceID: fixture.id, session: session).exchangeRefreshToken("invalid")
+                XCTFail("Rejected token accepted")
+            } catch is CloudDriveError {}
+            let tokens = await manager.getTokens()
+            XCTAssertEqual(tokens?.accessToken, "existing")
+            XCTAssertEqual(tokens?.refreshToken, "existing-refresh")
+            XCTAssertEqual(fixture.requests.count, 1)
+        }
+    }
+
+    func testPan115ExpiredDirectLoginRefreshesAndPersistsWithoutClientID() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 200, body: Data(
+            #"{"state":true,"data":{"access_token":"fresh","refresh_token":"rotated","expires_in":7200}}"#.utf8))])
+        let session = fixture.session()
+        let manager = CloudTokenManager(sourceID: fixture.id)
+        defer {
+            session.invalidateAndCancel(); fixture.remove()
+            _ = CloudTokenManager.deleteStoredCredentials(for: fixture.id)
+        }
+        let saved = await manager.saveTokens(.init(accessToken: "expired", refreshToken: "original", expiresAt: .distantPast))
+        XCTAssertTrue(saved)
+        let credentials = await manager.getAppCredentials()
+        XCTAssertNil(credentials)
+        let connector = U115Source(sourceID: fixture.id, session: session)
+        try await connector.connect()
+        try await connector.connect()
+        let tokens = await manager.getTokens()
+        XCTAssertEqual(tokens?.accessToken, "fresh")
+        XCTAssertEqual(tokens?.refreshToken, "rotated")
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
     func testOAuthPermanentRefreshRejectionKeepsCredentialMeaning() async throws {
         for status in [200, 400] {
             let fixture = CloudHTTPFixture(responses: [.init(status: status,

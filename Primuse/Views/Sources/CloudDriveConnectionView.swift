@@ -16,6 +16,18 @@ struct CloudDriveConnectionView: View {
     @State private var isAuthorizing = false
     @State private var directAccessToken = ""
     @State private var browsingContext: BrowsingContext?
+    @State private var pan115ClientID = ""
+    @State private var pan115RefreshToken = ""
+    @State private var pan115AuthSession: CloudDeviceAuthSession?
+    @State private var pan115Scanned = false
+    @State private var pan115AttemptID = UUID()
+    @State private var pan115AuthTask: Task<Void, Never>?
+    @State private var pendingPan115Authorization: Pan115Authorization?
+
+    private struct Pan115Authorization {
+        let tokens: CloudTokenManager.Tokens
+        let credentials: CloudTokenManager.AppCredentials?
+    }
 
     private struct BrowsingContext {
         let source: MusicSource
@@ -38,6 +50,12 @@ struct CloudDriveConnectionView: View {
     }
 
     var body: some View {
+        connectionContent
+            .onDisappear { pan115AuthTask?.cancel() }
+    }
+
+    @ViewBuilder
+    private var connectionContent: some View {
         if step == .browsing, let browsingContext {
             // ConnectorDirectoryBrowserView has its own NavigationStack
             ConnectorDirectoryBrowserView(
@@ -73,13 +91,23 @@ struct CloudDriveConnectionView: View {
         case .needsSetup:
             if source.type == .drime {
                 drimeTokenSetupView
+            } else if source.type == .pan115 {
+                pan115SetupView
             } else {
                 setupGuideView
             }
         case .readyToAuth:
-            authPromptView
+            if source.type == .pan115 {
+                pan115SetupView
+            } else {
+                authPromptView
+            }
         case .authorizing:
-            authorizingView
+            if source.type == .pan115 {
+                pan115AuthorizingView
+            } else {
+                authorizingView
+            }
         case .failed:
             failedView
         case .browsing:
@@ -98,7 +126,7 @@ struct CloudDriveConnectionView: View {
                     Text(verbatim: "\(source.type.displayName) · \(source.type == .drime ? "API" : "OAuth")")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.text)
-                    Text(String(localized: source.type == .drime ? "drime_auth_subtitle" : "cloud_oauth_browser_subtitle"))
+                    Text(String(localized: source.type == .drime ? "drime_auth_subtitle" : source.type == .pan115 ? "pan115_auth_subtitle" : "cloud_oauth_browser_subtitle"))
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                 }
@@ -154,10 +182,6 @@ struct CloudDriveConnectionView: View {
         ScrollView {
             VStack(spacing: 24) {
                 Spacer().frame(height: 30)
-
-                if source.type == .pan115 {
-                    pendingApprovalBanner
-                }
 
                 Image(systemName: "key.fill")
                     .font(.system(size: 44))
@@ -236,27 +260,81 @@ struct CloudDriveConnectionView: View {
         .padding(.horizontal, 30)
     }
 
-    /// 115 暂未对普通用户开放的说明横幅:告知正在申请官方接入资质。
-    private var pendingApprovalBanner: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "clock.badge.exclamationmark")
-                .font(.system(size: 20))
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(String(format: String(localized: "cloud_pending_unavailable_format"), source.type.displayName))
-                    .font(.subheadline).fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-                Text(String(format: String(localized: "cloud_pending_desc_format"), source.type.displayName))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+    private var pan115SetupView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text(String(format: String(localized: "cloud_auth_connect_format"), source.type.displayName))
+                    .font(.title3.weight(.semibold))
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("pan115_token_login").font(.headline)
+                    RevealableSecureField(title: "Refresh Token", text: $pan115RefreshToken)
+                        .textFieldStyle(.roundedBorder)
+                    Button("connect") { startPan115Authorization(usingRefreshToken: true) }
+                        .buttonStyle(.borderedProminent)
+                        .prominentLabelOnAccent()
+                        .disabled(pan115RefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("pan115_qr_login").font(.headline)
+                    TextField("pan115_app_id", text: $pan115ClientID)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.asciiCapable)
+                        #endif
+                    Button("pan115_qr_login") { startPan115Authorization() }
+                        .buttonStyle(.bordered)
+                        .disabled(pan115ClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
-            Spacer(minLength: 0)
+            .disabled(isAuthorizing)
+            .frame(maxWidth: 430)
+            .padding(30)
+            .frame(maxWidth: .infinity)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12), in: .rect(cornerRadius: 12))
-        .padding(.horizontal, 24)
+    }
+
+    private var pan115AuthorizingView: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                if let session = pan115AuthSession {
+                    Text("pan115_qr_instruction").font(.headline)
+                    switch session.qrCode {
+                    case .content(let payload):
+                        MediaRelayQRCodeView(value: payload)
+                    case .imageURL(let url):
+                        AsyncImage(url: url) { image in
+                            image.resizable().interpolation(.none).scaledToFit()
+                        } placeholder: {
+                            ProgressView()
+                        }
+                        .frame(width: 240, height: 240)
+                    }
+                    if pan115Scanned {
+                        Text("pan115_qr_scanned").foregroundStyle(.secondary)
+                    }
+                    Button("back") {
+                        pan115AuthTask?.cancel()
+                        pan115AuthTask = nil
+                        pan115AttemptID = UUID()
+                        pan115AuthSession = nil
+                        isAuthorizing = false
+                        pmWithAnimation(.pageSwitch) { step = .needsSetup }
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    ProgressView()
+                    Text("cloud_oauth_checking").foregroundStyle(.secondary)
+                }
+            }
+            .padding(30)
+            .frame(maxWidth: .infinity)
+        }
     }
 
     private var platformGuideText: String {
@@ -601,7 +679,13 @@ struct CloudDriveConnectionView: View {
 
             HStack(spacing: 16) {
                 Button {
-                    if source.type == .drime {
+                    if source.type == .pan115 {
+                        if pendingPan115Authorization != nil {
+                            startPan115Authorization()
+                        } else {
+                            pmWithAnimation(.pageSwitch) { step = .needsSetup }
+                        }
+                    } else if source.type == .drime {
                         pmWithAnimation(.pageSwitch) { step = .needsSetup }
                     } else {
                         startOAuth()
@@ -613,7 +697,13 @@ struct CloudDriveConnectionView: View {
                 .buttonStyle(.borderedProminent)
                 .prominentLabelOnAccent()
 
-                Button { checkStatus() } label: {
+                Button {
+                    if source.type == .pan115, pendingPan115Authorization != nil {
+                        startPan115Authorization()
+                    } else {
+                        checkStatus()
+                    }
+                } label: {
                     Label(String(localized: "cloud_recheck"), systemImage: "arrow.triangle.2.circlepath")
                         .fontWeight(.medium)
                 }
@@ -636,7 +726,10 @@ struct CloudDriveConnectionView: View {
 
             if requestReauthorization {
                 do {
-                    if source.type == .drime {
+                    if source.type == .pan115 {
+                        pan115ClientID = try await resolvedCredentials(using: tokenManager)?.clientId ?? ""
+                        pmWithAnimation(.pageSwitch) { step = .needsSetup }
+                    } else if source.type == .drime {
                         pmWithAnimation(.pageSwitch) { step = .needsSetup }
                     } else {
                         let hasCredentials = try await resolvedCredentials(using: tokenManager) != nil
@@ -675,7 +768,7 @@ struct CloudDriveConnectionView: View {
 
             // Check if we already have valid tokens
             switch await tokenManager.lookupTokens() {
-            case .found(let tokens) where !tokens.isExpired:
+            case .found(let tokens) where !tokens.isExpired || (source.type == .pan115 && tokens.refreshToken?.isEmpty == false):
                 do {
                     try await prepareDirectoryBrowser()
                 } catch {
@@ -698,7 +791,8 @@ struct CloudDriveConnectionView: View {
             // Resolve credentials with a preference for built-in credentials unless
             // the source explicitly stores a custom client_id in the model.
             do {
-                if try await resolvedCredentials(using: tokenManager) != nil {
+                if let credentials = try await resolvedCredentials(using: tokenManager) {
+                    if source.type == .pan115 { pan115ClientID = credentials.clientId }
                     // Status checks are read-only. Persist credentials only after
                     // the user explicitly starts authorization; otherwise opening
                     // this screen can show a misleading save failure before any
@@ -713,6 +807,103 @@ struct CloudDriveConnectionView: View {
                 pmWithAnimation(.pageSwitch) { step = .failed }
             } catch {
                 errorMessage = error.localizedDescription
+                pmWithAnimation(.pageSwitch) { step = .failed }
+            }
+        }
+    }
+
+    private func startPan115Authorization(usingRefreshToken: Bool = false) {
+        guard !isAuthorizing else { return }
+        let clientID = pan115ClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refreshToken = pan115RefreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard pendingPan115Authorization != nil || !(usingRefreshToken ? refreshToken : clientID).isEmpty else { return }
+        isAuthorizing = true
+        errorMessage = ""
+        pan115AuthSession = nil
+        pan115Scanned = false
+        let attemptID = UUID()
+        pan115AttemptID = attemptID
+        pmWithAnimation(.pageSwitch) { step = .authorizing }
+
+        pan115AuthTask = Task {
+            defer {
+                if pan115AttemptID == attemptID { isAuthorizing = false }
+            }
+            do {
+                if pendingPan115Authorization == nil {
+                    if usingRefreshToken {
+                        let tokens = try await U115Source(sourceID: source.id).exchangeRefreshToken(refreshToken)
+                        pendingPan115Authorization = .init(tokens: tokens, credentials: nil)
+                    } else {
+                        let session = try await CloudDeviceAuthService.shared.begin(
+                            provider: .pan115, clientID: clientID, clientSecret: nil
+                        )
+                        try Task.checkCancellation()
+                        pan115AuthSession = session
+                        let progress = try await CloudDeviceAuthService.shared.pollUntilFinished(
+                            session, clientID: clientID, clientSecret: nil,
+                            onProgress: { progress in
+                                if pan115AttemptID == attemptID, !Task.isCancelled, progress == .scanned { pan115Scanned = true }
+                            }
+                        )
+                        switch progress {
+                        case .authorized(let result):
+                            guard let token = result.credential.token, !token.isEmpty else {
+                                throw CloudDriveError.invalidResponse
+                            }
+                            pendingPan115Authorization = .init(
+                                tokens: .init(accessToken: token, refreshToken: result.credential.refreshToken,
+                                              expiresAt: result.expiresAt, tokenType: result.tokenType),
+                                credentials: .init(clientId: clientID)
+                            )
+                        case .denied:
+                            errorMessage = String(localized: "pan115_qr_denied")
+                        case .expired:
+                            errorMessage = String(localized: "pan115_qr_expired")
+                        case .pending, .scanned, .slowDown:
+                            throw CloudDriveError.invalidResponse
+                        }
+                    }
+                }
+                guard let authorization = pendingPan115Authorization else {
+                    pmWithAnimation(.pageSwitch) { step = .failed }
+                    return
+                }
+                pan115AuthSession = nil
+                // Keep the rotated pair for a save retry; never exchange the pasted token twice.
+                let tokenManager = CloudTokenManager(sourceID: source.id)
+                try sourceManager.credentialsWillChange(for: source.id)
+                do {
+                    guard await tokenManager.saveTokens(authorization.tokens) else {
+                        throw CloudDriveError.tokenPersistenceFailed
+                    }
+                    if let credentials = authorization.credentials {
+                        guard await tokenManager.saveAppCredentials(credentials) else {
+                            throw CloudDriveError.tokenPersistenceFailed
+                        }
+                    }
+                    try sourceManager.credentialsDidChange(for: source.id)
+                } catch {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                    throw error
+                }
+                pendingPan115Authorization = nil
+                pan115RefreshToken = ""
+                pan115AuthSession = nil
+                try Task.checkCancellation()
+                await sourceManager.refreshConnector(for: source.id, force: true)
+                await linkMountToCloudAccount()
+                try await prepareDirectoryBrowser()
+            } catch {
+                guard pan115AttemptID == attemptID,
+                      !OperationCancellationPolicy.isCancellation(error), !Task.isCancelled else { return }
+                if let error = error as? CloudDriveError {
+                    errorMessage = credentialMessage(for: error)
+                } else if error is CloudDeviceAuthError {
+                    errorMessage = CloudDriveError.invalidResponse.localizedDescription
+                } else {
+                    errorMessage = error.localizedDescription
+                }
                 pmWithAnimation(.pageSwitch) { step = .failed }
             }
         }
@@ -775,7 +966,7 @@ struct CloudDriveConnectionView: View {
             return .init(clientId: builtIn.clientId, clientSecret: builtIn.clientSecret)
         }
 
-        let hasCustomCredentials = !(source.username?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let hasCustomCredentials = source.type == .pan115 || !(source.username?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
 
         if hasCustomCredentials {
             switch await tokenManager.lookupAppCredentials() {

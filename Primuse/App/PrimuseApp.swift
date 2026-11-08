@@ -26,6 +26,8 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         // 第一件事：先把上次没跑完的启动记下来，再给这次立哨兵。排在任何
         // 可能崩的东西之前，否则这次启动自己就报不出来了。
         LaunchDiagnostics.begin()
+        // 系统会跨启动保留已翻译的快捷菜单；切换语言后立即更新，无须等曲库恢复或再次退到后台。
+        application.shortcutItems = HomeScreenQuickAction.localizedShortcutItems(application.shortcutItems ?? [])
         application.registerForRemoteNotifications()
         BackgroundScanResumeTask.register()
         // 年度报告: 启动时把 PlayHistoryStore 按年份归档, 防止 5000 条 FIFO

@@ -6950,7 +6950,8 @@
 "companion_assets_download_progress_format" = "已處理 %1$d / %2$d 項";
 "companion_assets_download_in_progress" = "正在下載封面和歌詞";
 "companion_assets_download_result_format" = "上次存下 %1$d 張封面、%2$d 份歌詞。";
-"companion_assets_download_nothing" = "封面和歌詞都已經存在本機了。";
+"companion_assets_download_failed_format" = "仍有 %d 項未能快取，可再次下載以重試。";
+"companion_assets_download_nothing" = "目前沒有需要下載的封面或歌詞。";
 "companion_assets_limit_title" = "封面會超過空間上限";
 "companion_assets_limit_message_format" = "要下載約 %1$@ 張封面，下載完封面約佔 %2$@，超過現在的上限 %3$@，超出的舊封面每天整理時會被刪掉。建議把上限調到 %4$@。";
 "companion_assets_raise_limit_format" = "調高到 %@ 並下載";
@@ -7293,6 +7294,15 @@
 "settings_backup_newer_version" = "此備份需要更新版本的 Primuse。";
 "settings_backup_too_large" = "此備份超過支援的大小限制。";
 "settings_backup_invalid" = "這不是有效的 Primuse 設定備份，或檔案已損壞。";
+
+"pan115_token_login" = "使用 Refresh Token";
+"pan115_qr_login" = "掃碼登入";
+"pan115_qr_instruction" = "使用 115 App 掃碼";
+"pan115_qr_scanned" = "已掃碼，請在 115 App 中確認。";
+"pan115_qr_expired" = "QR 碼已過期，請重試。";
+"pan115_qr_denied" = "已取消授權，請重試。";
+"pan115_auth_subtitle" = "使用 Refresh Token 或 App ID 連線";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "取得更多歌詞";
 "lyrics_sources_cached" = "已快取歌詞";

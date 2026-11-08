@@ -6974,7 +6974,8 @@
 "companion_assets_download_progress_format" = "%1$d / %2$d 件完了";
 "companion_assets_download_in_progress" = "アートワークと歌詞をダウンロード中";
 "companion_assets_download_result_format" = "前回：アートワーク %1$d 件、歌詞 %2$d 件を保存しました。";
-"companion_assets_download_nothing" = "アートワークと歌詞はすべてこのデバイスにあります。";
+"companion_assets_download_failed_format" = "%d件をキャッシュできませんでした。再度ダウンロードすると再試行できます。";
+"companion_assets_download_nothing" = "現在ダウンロードが必要なアートワークや歌詞はありません。";
 "companion_assets_limit_title" = "アートワークが容量上限を超えます";
 "companion_assets_limit_message_format" = "約 %1$@ 件のアートワークをダウンロードします。完了後のアートワークは約 %2$@ になり、現在の上限 %3$@ を超えるため、毎日の整理で超えた分の古いアートワークが削除されます。上限を %4$@ に上げることをおすすめします。";
 "companion_assets_raise_limit_format" = "%@ に上げてダウンロード";
@@ -7317,6 +7318,15 @@
 "settings_backup_newer_version" = "このバックアップには新しいバージョンの Primuse が必要です。";
 "settings_backup_too_large" = "このバックアップは対応するサイズの上限を超えています。";
 "settings_backup_invalid" = "有効な Primuse 設定バックアップではないか、ファイルが破損しています。";
+
+"pan115_token_login" = "Refresh Token を使用";
+"pan115_qr_login" = "QR コードでログイン";
+"pan115_qr_instruction" = "115 アプリでスキャン";
+"pan115_qr_scanned" = "スキャン済みです。115 アプリで確認してください。";
+"pan115_qr_expired" = "QR コードの有効期限が切れました。再試行してください。";
+"pan115_qr_denied" = "認証がキャンセルされました。再試行してください。";
+"pan115_auth_subtitle" = "Refresh Token または App ID で接続";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "歌詞をさらに取得";
 "lyrics_sources_cached" = "キャッシュ済みの歌詞";

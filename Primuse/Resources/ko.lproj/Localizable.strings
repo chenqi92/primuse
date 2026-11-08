@@ -6973,7 +6973,8 @@
 "companion_assets_download_progress_format" = "%2$d개 중 %1$d개 완료";
 "companion_assets_download_in_progress" = "아트워크 및 가사 다운로드 중";
 "companion_assets_download_result_format" = "지난번: 아트워크 %1$d개, 가사 %2$d개 저장.";
-"companion_assets_download_nothing" = "아트워크와 가사가 모두 이 기기에 있습니다.";
+"companion_assets_download_failed_format" = "%d개 항목을 캐시하지 못했습니다. 다시 다운로드하여 재시도하세요.";
+"companion_assets_download_nothing" = "현재 다운로드할 아트워크나 가사가 없습니다.";
 "companion_assets_limit_title" = "아트워크가 저장 공간 한도를 넘습니다";
 "companion_assets_limit_message_format" = "다운로드할 아트워크가 약 %1$@개입니다. 다운로드 후 아트워크가 약 %2$@를 차지해 현재 한도 %3$@를 넘으므로, 매일 정리할 때 넘친 오래된 아트워크가 삭제됩니다. 한도를 %4$@로 올리는 것을 권장합니다.";
 "companion_assets_raise_limit_format" = "%@로 올리고 다운로드";
@@ -7316,6 +7317,15 @@
 "settings_backup_newer_version" = "이 백업에는 더 최신 버전의 Primuse가 필요합니다.";
 "settings_backup_too_large" = "이 백업은 지원되는 크기 제한을 초과합니다.";
 "settings_backup_invalid" = "올바른 Primuse 설정 백업이 아니거나 파일이 손상되었습니다.";
+
+"pan115_token_login" = "Refresh Token 사용";
+"pan115_qr_login" = "QR 코드로 로그인";
+"pan115_qr_instruction" = "115 앱으로 스캔";
+"pan115_qr_scanned" = "스캔되었습니다. 115 앱에서 확인하세요.";
+"pan115_qr_expired" = "QR 코드가 만료되었습니다. 다시 시도하세요.";
+"pan115_qr_denied" = "인증이 거부되었습니다. 다시 시도하세요.";
+"pan115_auth_subtitle" = "Refresh Token 또는 App ID로 연결";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "가사 더 가져오기";
 "lyrics_sources_cached" = "캐시된 가사";

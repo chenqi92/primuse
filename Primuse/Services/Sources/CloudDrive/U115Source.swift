@@ -3,21 +3,12 @@ import PrimuseKit
 
 /// 115 网盘 Source — 115 开放平台 OpenAPI。
 ///
-/// ⚠️ 占位实现:端点与字段名按 115 开放平台公开资料(proapi.115.com/open、
-/// passportapi.115.com/open)填写,需在拿到开发者 client_id 后对照官方文档
-/// (https://www.yuque.com/115yun/open)核对并联调。结构、token 刷新、列目录、
-/// 取下载直链的整体流程已就位,照搬阿里云盘 connector 模式。
-///
-/// 关键差异(待联调确认):
-///  · 115 的初次授权用「设备码 + 二维码 PKCE」流程(authDeviceCode →
-///    deviceCodeToToken),不是浏览器重定向;当前先复用重定向式 oauthConfig
-///    占位,正式接入时需补设备码授权 UI(或让用户粘贴 refresh_token)。
-///  · refreshToken 不需要 client_secret(115 按 IP 限流)。
-///  · 列表项的目录/文件区分与 id 字段(fid / cid / pc)以官方文档为准。
+/// 支持设备码扫码授权及 Refresh Token 接入；刷新不依赖应用凭据。
 actor U115Source: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     nonisolated let preferredDeleteBatchSize = 100
     private let helper: CloudDriveHelper
+    private let tokenSession: URLSession
 
     /// The playback identity is 115's pick_code, while recycle-bin deletion
     /// requires the numeric file id. Listing/downurl responses contain both;
@@ -33,9 +24,17 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
     /// 115 直链对 UA 敏感,下载请求需带与换链一致的 UA。
     private static let userAgent = "Mozilla/5.0 Primuse/1.0"
 
-    init(sourceID: String) {
+    init(sourceID: String, session: URLSession = .shared) {
         self.sourceID = sourceID
-        self.helper = CloudDriveHelper(sourceID: sourceID)
+        self.helper = CloudDriveHelper(sourceID: sourceID, session: session)
+        self.tokenSession = session
+    }
+
+    /// Exchange before committing so an invalid pasted token cannot replace saved credentials.
+    func exchangeRefreshToken(_ refreshToken: String) async throws -> CloudTokenManager.Tokens {
+        let token = refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { throw CloudDriveError.notAuthenticated }
+        return try await self.refreshToken(.init(accessToken: "", refreshToken: token))
     }
 
     func connect() async throws {
@@ -283,20 +282,20 @@ actor U115Source: MusicSourceConnector, OAuthCloudSource {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        let (data, response) = try await helper.tokenRequest(request, clientID: "", session: URLSession.shared)
+        let (data, response) = try await helper.tokenRequest(request, clientID: "", session: tokenSession)
         let json = try CloudDriveHelper.tokenRefreshJSON(data: data, response: response)
-        let payload = json["data"] as? [String: Any] ?? json
-        guard let at = payload["access_token"] as? String else {
+        guard let result = CloudDeviceAuthParsing.parsePan115Token(data),
+              let accessToken = result.credential.token else {
             let code = json["code"] as? Int
             throw CloudDriveHelper.tokenRefreshFailure(
                 statusCode: code == 0 ? (response as? HTTPURLResponse)?.statusCode : code,
                 providerErrorCode: json["error"] as? String
             )
         }
-        let expiresIn = payload["expires_in"] as? TimeInterval ?? 7200
-        return .init(accessToken: at,
-                     refreshToken: payload["refresh_token"] as? String ?? rt,
-                     expiresAt: Date().addingTimeInterval(expiresIn),
+        return .init(accessToken: accessToken,
+                     refreshToken: result.credential.refreshToken ?? rt,
+                     expiresAt: result.expiresAt ?? Date().addingTimeInterval(7200),
+                     tokenType: result.tokenType ?? tokens.tokenType,
                      extra: tokens.extra)
     }
 

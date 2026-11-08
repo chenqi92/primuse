@@ -610,6 +610,28 @@ actor MetadataAssetStore {
         }
     }
 
+    /// Embedded bytes are a usable offline fallback, not a successful fetch of
+    /// the server's current cover. Keep them outside both server quality slots.
+    @discardableResult
+    func cacheEmbeddedSourceCover(_ data: Data, songID: String, sourceID: String,
+                                  reference: String, ticket: ArtworkLoadTicket? = nil) -> Bool {
+        if let ticket, !isCurrentArtworkLoad(ticket) { return false }
+        let key = "embedded-source-v1\u{1F}" + sourceID + "\u{1F}" + reference + "\u{1F}" + songID
+        guard cacheCover(data, forSongID: key), cacheCover(data, forSongID: songID) else { return false }
+        storeArtworkMirror(songID: key, sourceID: sourceID, reference: reference, cacheID: key)
+        storeArtworkMirror(songID: songID, sourceID: sourceID, reference: reference, cacheID: key)
+        return true
+    }
+
+    nonisolated func hasEmbeddedSourceCover(songID: String, sourceID: String, reference: String) -> Bool {
+        guard let data = try? Data(contentsOf: mirrorURL(songID)),
+              let mirror = try? JSONDecoder().decode(ArtworkMirror.self, from: data),
+              mirror.sourceID == sourceID,
+              mirror.reference == Self.sha256Hex(Data(reference.utf8)),
+              mirror.cacheID.hasPrefix("embedded-source-v1\u{1F}") else { return false }
+        return freshSourceData(cacheID: mirror.cacheID, sourceID: sourceID, checksAge: false) != nil
+    }
+
     nonisolated private func freshSourceData(cacheID: String, sourceID: String?, checksAge: Bool = true) -> Data? {
         guard let date = coverCacheDate(forSongID: cacheID),
               date.timeIntervalSinceReferenceDate >= artworkRefreshClock.date(for: sourceID, at: refreshURL(sourceID)).timeIntervalSinceReferenceDate,
@@ -723,6 +745,7 @@ actor MetadataAssetStore {
     func cacheLyrics(_ lines: [LyricLine], forSongID songID: String, force: Bool = false) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
         if !force, lyricsSourceCollection(forSongID: songID).selected != nil { return false }
+        if !lines.isEmpty { clearSourceLyricsAbsence(songID: songID) }
         // 上游按 UTF-8 解坏了的 GBK / Big5 歌词(`LossyDecodedLyricsRepair`)一律不进缓存:
         // 进去了播放就一直先读到它。
         guard !LossyDecodedLyricsRepair.isDamaged(lines) else {
@@ -1100,6 +1123,7 @@ actor MetadataAssetStore {
     func invalidateLyricsCache(forSongID songID: String) -> Bool {
         guard lyricsMutationReservations[songID] == nil else { return false }
         guard storeLyricsSourceCollection(LyricsSourceCollection(), forSongID: songID) else { return false }
+        clearSourceLyricsAbsence(songID: songID)
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return true }
@@ -1377,7 +1401,7 @@ actor MetadataAssetStore {
         } catch { return nil }
     }
 
-    func cachedArtistImage(forArtistID artistID: String, maximumAge: TimeInterval? = nil) -> Data? {
+    nonisolated func cachedArtistImage(forArtistID artistID: String, maximumAge: TimeInterval? = nil) -> Data? {
         let fileName = hashedFileName(for: "artist_\(artistID)", pathExtension: "jpg")
         let url = artistArtworkDirectory.appendingPathComponent(fileName)
         if let maximumAge {
@@ -1391,6 +1415,49 @@ actor MetadataAssetStore {
     nonisolated func hasArtistImage(forArtistID artistID: String) -> Bool {
         let fileName = hashedFileName(for: "artist_\(artistID)", pathExtension: "jpg")
         return FileManager.default.fileExists(atPath: artistArtworkDirectory.appendingPathComponent(fileName).path)
+    }
+
+    nonisolated func hasReadableArtistImage(forArtistID artistID: String) -> Bool {
+        let fileName = hashedFileName(for: "artist_\(artistID)", pathExtension: "jpg")
+        return hasReadableCoverFile(named: "artist/" + fileName)
+    }
+
+    // These receipts only suppress repeated batch checks. Opening or explicitly
+    // refreshing lyrics still asks the server, and a receipt expires after a day.
+    private struct SourceLyricsAbsence: Codable {
+        let identity: String
+        let checkedAt: Date
+    }
+
+    nonisolated private func sourceLyricsAbsenceURL(songID: String) -> URL {
+        lyricsDirectoryURL.appendingPathComponent("source-absence", isDirectory: true)
+            .appendingPathComponent(hashedFileName(for: songID, pathExtension: "json"))
+    }
+
+    nonisolated private func sourceLyricsIdentity(_ song: Song) -> String {
+        Self.sha256Hex(Data([song.sourceID, song.filePath, song.revision ?? "",
+            String(song.fileSize), song.lastModified.map { String($0.timeIntervalSinceReferenceDate) } ?? "",
+            song.lyricsFileName ?? ""].joined(separator: "\u{1F}").utf8))
+    }
+
+    func recordSourceLyricsAbsence(for song: Song, now: Date = Date()) {
+        let url = sourceLyricsAbsenceURL(songID: song.id)
+        let receipt = SourceLyricsAbsence(identity: sourceLyricsIdentity(song), checkedAt: now)
+        guard let data = try? JSONEncoder().encode(receipt) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    nonisolated func hasConfirmedSourceLyricsAbsence(for song: Song, now: Date = Date()) -> Bool {
+        guard let data = try? Data(contentsOf: sourceLyricsAbsenceURL(songID: song.id)),
+              let receipt = try? JSONDecoder().decode(SourceLyricsAbsence.self, from: data),
+              receipt.identity == sourceLyricsIdentity(song) else { return false }
+        let age = now.timeIntervalSince(receipt.checkedAt)
+        return age >= 0 && age < 24 * 60 * 60
+    }
+
+    func clearSourceLyricsAbsence(songID: String) {
+        try? FileManager.default.removeItem(at: sourceLyricsAbsenceURL(songID: songID))
     }
 
     // MARK: - hashedFileName needs to be nonisolated for sync callers

@@ -775,7 +775,7 @@ struct AddSourceView: View {
             }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123, .guangya,
              .pcloud:
-            if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
+            if sourceType != .pan115 && !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                 macSection("cloud_oauth_config") {
                     macTextRow("cloud_client_id_or_app_key", text: $username, focus: .username)
                     macCustomRow("cloud_client_secret") {
@@ -1521,7 +1521,7 @@ struct AddSourceView: View {
             }
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .pan115, .pan123, .guangya,
              .pcloud:
-            if !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
+            if sourceType != .pan115 && !BuiltInCloudCredentials.hasBuiltIn(for: sourceType) {
                 Section("cloud_oauth_config") {
                     TextField("cloud_client_id_or_app_key", text: $username)
                         .focused($focusedField, equals: .username)
@@ -2306,6 +2306,10 @@ struct AddSourceView: View {
                 }
                 completeSave(source)
             }
+            return
+        } else if sourceType == .pan115 {
+            // 115 credentials are entered in the connection flow; editing the source preserves them.
+            completeSave(source)
             return
         } else if sourceType.requiresOAuth {
             // Store client_id + client_secret via CloudTokenManager

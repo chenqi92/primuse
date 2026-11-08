@@ -55,25 +55,28 @@ enum LyricsLoader {
     /// 存储管理里「下载全部封面和歌词」用(#346):只从音乐源本身取,不按歌名去找在线歌词。
     /// 服务器源读服务器给的歌词(服务器那份乱码时照旧联网换一份能读的);文件类的源读同目录的
     /// `.lrc` 等字幕文件。`load` 不能直接用:服务器说没有歌词时它会按歌名在线兜底。
-    /// 返回这首有没有存下歌词。
-    static func cacheSourceProvidedLyrics(for song: Song, sourceManager: SourceManager) async -> Bool {
+    enum SourceProvidedCacheResult: Sendable {
+        case saved, absent, unsupported, failed
+    }
+
+    static func cacheSourceProvidedLyrics(for song: Song, sourceManager: SourceManager) async -> SourceProvidedCacheResult {
         guard !PodcastPlaybackSong.isEpisode(song),
-              song.sourceID != AppleMusicLibraryIdentity.sourceID,
-              let connector = try? await sourceManager.auxiliaryConnector(for: song),
-              !Task.isCancelled else { return false }
+              song.sourceID != AppleMusicLibraryIdentity.sourceID else { return .unsupported }
+        guard let connector = try? await sourceManager.auxiliaryConnector(for: song),
+              !Task.isCancelled else { return .failed }
         if let server = connector as? any ServerLyricsConnector {
-            guard server.serverLyricsCapabilities.canRead else { return false }
+            guard server.serverLyricsCapabilities.canRead else { return .unsupported }
             switch await refreshFromResolvedServer(for: song, server: server, trigger: .initial) {
-            case .updated(let lines):
-                return !lines.isEmpty
-            case .unchanged:
-                return MetadataAssetStore.shared.hasCachedLyricsFile(forSongID: song.id)
+            case .updated, .unchanged:
+                return MetadataAssetStore.shared.hasCachedLyricsFile(forSongID: song.id) ? .saved : .failed
+            case .emptyPreservingCache:
+                return MetadataAssetStore.shared.hasConfirmedSourceLyricsAbsence(for: song) ? .absent : .failed
             default:
-                return false
+                return .failed
             }
         }
         let lines = await load(for: song, sourceManager: sourceManager, allowsAutomaticOnlineLyrics: false)
-        return !lines.isEmpty
+        return !lines.isEmpty && MetadataAssetStore.shared.hasCachedLyricsFile(forSongID: song.id) ? .saved : .failed
     }
 
     /// Routes every server-document fetch, including ordinary cache misses,
@@ -112,8 +115,11 @@ enum LyricsLoader {
                 let raw: String
                 switch await server.readServerLyrics(for: sourcePath) {
                 case .content(let content):
+                    await MetadataAssetStore.shared.clearSourceLyricsAbsence(songID: songID)
                     raw = content
                 case .absent:
+                    try Task.checkCancellation()
+                    await MetadataAssetStore.shared.recordSourceLyricsAbsence(for: song)
                     return nil
                 case .unavailable:
                     throw SourceError.connectionFailed("Lyrics source unavailable")

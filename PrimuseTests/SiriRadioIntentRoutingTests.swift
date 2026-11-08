@@ -8,6 +8,53 @@ import XCTest
 
 @MainActor
 final class SiriRadioIntentRoutingTests: XCTestCase {
+    func testHomeScreenQuickActionsReplaceCachedChineseTitlesWithEnglish() throws {
+        let english = try XCTUnwrap(Bundle(path: XCTUnwrap(Bundle.main.path(forResource: "en", ofType: "lproj"))))
+        let actions: [HomeScreenQuickAction] = [.resume, .shuffleLibrary, .shuffleLiked, .search]
+        let cachedTitles = ["继续播放", "随机播放全部", "我喜欢的", "搜索"]
+        let cached = zip(actions, cachedTitles).map { action, title in
+            UIApplicationShortcutItem(type: action.rawValue, localizedTitle: title)
+        }
+
+        let localized = HomeScreenQuickAction.localizedShortcutItems(cached, bundle: english)
+
+        XCTAssertEqual(localized.map(\.type), cached.map(\.type))
+        XCTAssertEqual(localized.map(\.localizedTitle), ["Resume Playback", "Shuffle all", "Liked Songs", "Search"])
+        XCTAssertEqual(localized[2].localizedSubtitle, "Shuffle")
+        XCTAssertEqual(cached.map(\.localizedTitle), cachedTitles)
+    }
+
+    func testHomeScreenQuickActionsPreservePlaybackMetadataAndUnknownActions() throws {
+        let english = try XCTUnwrap(Bundle(path: XCTUnwrap(Bundle.main.path(forResource: "en", ofType: "lproj"))))
+        let resume = UIMutableApplicationShortcutItem(
+            type: HomeScreenQuickAction.resume.rawValue,
+            localizedTitle: "继续播放",
+            localizedSubtitle: "晨间列车 · 测试艺术家",
+            icon: UIApplicationShortcutIcon(systemImageName: "play.fill"),
+            userInfo: ["songID": "test-song" as NSString]
+        )
+        resume.targetContentIdentifier = "player"
+        let unknown = UIApplicationShortcutItem(type: "future-action", localizedTitle: "Future Action")
+
+        let localized = HomeScreenQuickAction.localizedShortcutItems([resume, unknown], bundle: english)
+
+        XCTAssertEqual(localized[0].localizedSubtitle, resume.localizedSubtitle)
+        XCTAssertEqual(localized[0].userInfo?["songID"] as? String, "test-song")
+        XCTAssertEqual(localized[0].targetContentIdentifier as? String, "player")
+        XCTAssertEqual(localized[0].icon, resume.icon)
+        XCTAssertTrue(localized[1] === unknown)
+    }
+
+    func testHomeScreenQuickActionsCanSwitchBackToChineseWithoutAddingItems() throws {
+        let chinese = try XCTUnwrap(Bundle(path: XCTUnwrap(Bundle.main.path(forResource: "zh-Hans", ofType: "lproj"))))
+        let cached = [UIApplicationShortcutItem(type: HomeScreenQuickAction.search.rawValue, localizedTitle: "Search")]
+
+        let localized = HomeScreenQuickAction.localizedShortcutItems(cached, bundle: chinese)
+
+        XCTAssertEqual(localized.map(\.localizedTitle), ["搜索"])
+        XCTAssertTrue(HomeScreenQuickAction.localizedShortcutItems([], bundle: chinese).isEmpty)
+    }
+
     func testSongSuggestionsShareConcurrentWorkAndSurviveOneCancelledQuery() async {
         let gate = ShortcutSelectionGate()
         let cache = SiriSongSuggestionCache { songs, _, _ in await gate.select(songs) }

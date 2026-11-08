@@ -6879,7 +6879,8 @@
 "companion_assets_download_progress_format" = "تم %1$d من %2$d";
 "companion_assets_download_in_progress" = "جارٍ تنزيل الأغلفة وكلمات الأغاني";
 "companion_assets_download_result_format" = "في المرة السابقة حُفظ %1$d غلاف و%2$d من كلمات الأغاني.";
-"companion_assets_download_nothing" = "كل الأغلفة وكلمات الأغاني موجودة على هذا الجهاز بالفعل.";
+"companion_assets_download_failed_format" = "تعذر حفظ %d عناصر في ذاكرة التخزين المؤقت. أعد التنزيل للمحاولة مجددًا.";
+"companion_assets_download_nothing" = "لا توجد أغلفة أو كلمات أغانٍ تحتاج إلى التنزيل حاليًا.";
 "companion_assets_limit_title" = "ستتجاوز الأغلفة حد المساحة";
 "companion_assets_limit_message_format" = "هناك نحو %1$@ غلاف للتنزيل. بعدها ستشغل الأغلفة نحو %2$@، أي أكثر من الحد الحالي %3$@، وسيحذف التنظيف اليومي الأغلفة القديمة الزائدة. يُنصح برفع الحد إلى %4$@.";
 "companion_assets_raise_limit_format" = "الرفع إلى %@ والتنزيل";
@@ -7222,6 +7223,15 @@
 "settings_backup_newer_version" = "تتطلب هذه النسخة إصدارًا أحدث من Primuse.";
 "settings_backup_too_large" = "تتجاوز هذه النسخة الحد المسموح لحجم الملف.";
 "settings_backup_invalid" = "هذا الملف ليس نسخة إعدادات Primuse صالحة أو أنه تالف.";
+
+"pan115_token_login" = "استخدام Refresh Token";
+"pan115_qr_login" = "تسجيل الدخول بالمسح";
+"pan115_qr_instruction" = "امسح باستخدام تطبيق 115";
+"pan115_qr_scanned" = "تم المسح. أكّد في تطبيق 115.";
+"pan115_qr_expired" = "انتهت صلاحية رمز QR. حاول مرة أخرى.";
+"pan115_qr_denied" = "تم رفض التفويض. حاول مرة أخرى.";
+"pan115_auth_subtitle" = "الاتصال باستخدام Refresh Token أو App ID";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "جلب المزيد من كلمات الأغاني";
 "lyrics_sources_cached" = "كلمات الأغاني المخزنة مؤقتًا";

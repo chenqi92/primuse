@@ -219,6 +219,27 @@ enum PlaylistArtworkResourceResolver {
         Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
+    static func cachedPreview(
+        playlist: PrimuseKit.Playlist, plan: PlaylistArtworkResolutionPlan,
+        songs: [PrimuseKit.Song], size: CGFloat
+    ) async -> PlaylistArtworkResource? {
+        let songsByID = songs.count > 512
+            ? await Task.detached(priority: .userInitiated) { songIndex(songs) }.value
+            : songIndex(songs)
+        let dedicatedSourceID = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id)?.sourceID
+        for candidate in plan.candidates.prefix(24) {
+            guard !Task.isCancelled else { return nil }
+            let song = candidate.songID.flatMap { songsByID[$0] }
+            let sourceID = candidate.kind == .dedicated ? dedicatedSourceID : song?.sourceID
+            guard sourceID != AppleMusicLibraryIdentity.sourceID else { continue }
+            if let image = await CachedArtworkView.resolveCachedImage(coverRef: candidate.artworkReference,
+                songID: song?.id, size: size, sourceID: sourceID, filePath: song?.filePath) {
+                return .image(image)
+            }
+        }
+        return nil
+    }
+
     static func resolve(
         playlist: PrimuseKit.Playlist,
         plan: PlaylistArtworkResolutionPlan,
@@ -360,6 +381,12 @@ struct PlaylistArtworkView: View {
             if resolvedPlanSignature != currentPlan.signature {
                 resource = nil
                 frameworkFallbackResource = nil
+            }
+            if let preview = await PlaylistArtworkResourceResolver.cachedPreview(
+                playlist: playlistSnapshot, plan: currentPlan, songs: currentSongs, size: size
+            ) {
+                guard !Task.isCancelled, loadRevisionIdentity == identity else { return }
+                resource = preview
             }
             let resolved = await PlaylistArtworkResourceResolver.resolve(
                 playlist: playlistSnapshot,
@@ -1022,7 +1049,7 @@ struct ArtistArtworkView: View {
             }
 
             if currentArtist.thumbnailPath?.isEmpty != false
-                || automaticArtworkResolved == false,
+                || automaticArtworkResolved != true,
                let fallbackSong {
                 let identity = fallbackArtworkIdentity(for: fallbackSong)
                 CachedArtworkView(

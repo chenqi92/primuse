@@ -6879,7 +6879,8 @@
 "companion_assets_download_progress_format" = "เสร็จแล้ว %1$d จาก %2$d";
 "companion_assets_download_in_progress" = "กำลังดาวน์โหลดหน้าปกและเนื้อเพลง";
 "companion_assets_download_result_format" = "ครั้งล่าสุดบันทึกหน้าปก %1$d รายการ และเนื้อเพลง %2$d รายการ";
-"companion_assets_download_nothing" = "หน้าปกและเนื้อเพลงทั้งหมดอยู่ในอุปกรณ์นี้แล้ว";
+"companion_assets_download_failed_format" = "แคช %d รายการไม่สำเร็จ ดาวน์โหลดอีกครั้งเพื่อลองใหม่";
+"companion_assets_download_nothing" = "ขณะนี้ไม่มีภาพปกหรือเนื้อเพลงที่ต้องดาวน์โหลด";
 "companion_assets_limit_title" = "หน้าปกจะเกินขีดจำกัดพื้นที่";
 "companion_assets_limit_message_format" = "มีหน้าปกที่ต้องดาวน์โหลดประมาณ %1$@ รายการ หลังจากนั้นหน้าปกจะใช้พื้นที่ประมาณ %2$@ ซึ่งเกินขีดจำกัดปัจจุบัน %3$@ และการจัดระเบียบรายวันจะลบหน้าปกเก่าที่เกินออก แนะนำให้เพิ่มขีดจำกัดเป็น %4$@";
 "companion_assets_raise_limit_format" = "เพิ่มเป็น %@ แล้วดาวน์โหลด";
@@ -7222,6 +7223,15 @@
 "settings_backup_newer_version" = "ข้อมูลสำรองนี้ต้องใช้ Primuse เวอร์ชันใหม่กว่า";
 "settings_backup_too_large" = "ข้อมูลสำรองนี้มีขนาดเกินขีดจำกัดที่รองรับ";
 "settings_backup_invalid" = "ไฟล์นี้ไม่ใช่ข้อมูลสำรองการตั้งค่า Primuse ที่ถูกต้อง หรือไฟล์เสียหาย";
+
+"pan115_token_login" = "ใช้ Refresh Token";
+"pan115_qr_login" = "สแกนเพื่อเข้าสู่ระบบ";
+"pan115_qr_instruction" = "สแกนด้วยแอป 115";
+"pan115_qr_scanned" = "สแกนแล้ว โปรดยืนยันในแอป 115";
+"pan115_qr_expired" = "คิวอาร์โค้ดหมดอายุแล้ว โปรดลองอีกครั้ง";
+"pan115_qr_denied" = "การอนุญาตถูกปฏิเสธ โปรดลองอีกครั้ง";
+"pan115_auth_subtitle" = "เชื่อมต่อด้วย Refresh Token หรือ App ID";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "รับเนื้อเพลงเพิ่มเติม";
 "lyrics_sources_cached" = "เนื้อเพลงที่แคชไว้";

@@ -4,6 +4,66 @@ import Testing
 
 @Suite("Device authorization polling", .serialized, .timeLimit(.minutes(1)))
 struct CloudDeviceAuthRequestTests {
+    @Test @MainActor func pan115QRCodeAuthorizationUsesAppIDAndPKCEWithoutSecret() async throws {
+        let fixture = DeviceAuthFixture([
+            .json(200, #"{"state":true,"data":{"uid":"handle","time":123,"sign":"signature","qrcode":"https://115.com/scan/fixture"}}"#),
+            .json(200, #"{"state":true,"data":{"status":0}}"#),
+            .json(200, #"{"state":true,"data":{"status":1}}"#),
+            .json(200, #"{"state":true,"data":{"status":2}}"#),
+            .json(200, #"{"state":true,"data":{"access_token":"fresh","refresh_token":"rotated","expires_in":7200}}"#)
+        ])
+        let service = fixture.service()
+        let session = try await service.begin(provider: .pan115, clientID: "  fixture-app  ", clientSecret: nil)
+        #expect(session.qrCode == .content("https://115.com/scan/fixture"))
+        var scanned = false
+        let progress = try await service.pollUntilFinished(session, clientID: "fixture-app", clientSecret: nil) {
+            if $0 == .scanned { scanned = true }
+        }
+        guard case .authorized(let result) = progress else { Issue.record("Expected authorization"); return }
+        #expect(scanned)
+        #expect(result.credential.token == "fresh")
+        #expect(result.credential.refreshToken == "rotated")
+        #expect(result.credential.clientID == "fixture-app")
+        #expect(fixture.times == [0, 3, 6, 9, 9])
+        #expect(fixture.requests.map { $0.url?.path } == [
+            "/open/authDeviceCode", "/get/status", "/get/status", "/get/status", "/open/deviceCodeToToken"
+        ])
+        let begin = try #require(fixture.requests.first)
+        let exchange = try #require(fixture.requests.last)
+        let fields = try formFields(begin)
+        let tokenFields = try formFields(exchange)
+        let verifier = try #require(tokenFields["code_verifier"])
+        #expect(fields == ["client_id": "fixture-app", "code_challenge_method": "sha256",
+                           "code_challenge": CloudDeviceAuthService.codeChallenge(for: verifier)])
+        #expect(tokenFields == ["uid": "handle", "code_verifier": verifier])
+    }
+
+    @Test(arguments: [-1, -2]) func pan115ExpiredOrDeniedQRCodeNeverExchangesTokens(status: Int) async throws {
+        let fixture = DeviceAuthFixture([.json(200, "{\"state\":true,\"data\":{\"status\":\(status)}}")])
+        let session = CloudDeviceAuthSession(provider: .pan115, kind: .qrCode, qrCode: .content("fixture"),
+            handle: "handle", interval: 3, expiresIn: 300, extra: ["time": "123", "sign": "signature"])
+        let progress = try await fixture.service().pollUntilFinished(session, clientID: "fixture-app", clientSecret: nil)
+        #expect(progress == (status == -1 ? .expired : .denied))
+        #expect(fixture.requests.count == 1)
+    }
+
+    private func formFields(_ request: URLRequest) throws -> [String: String] {
+        var data = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                data.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        var components = URLComponents()
+        components.percentEncodedQuery = String(decoding: data, as: UTF8.self)
+        return Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    }
+
     @Test func slowDownIncreasesEverySubsequentInterval() async throws {
         let fixture = DeviceAuthFixture([
             .json(400, #"{"error":"slow_down"}"#), .json(400, #"{"error":"slow_down"}"#),
@@ -125,6 +185,8 @@ private final class DeviceAuthFixture: @unchecked Sendable {
     }
     private let lock = NSLock()
     private var recorded: [TimeInterval] = []
+    private var sent: [URLRequest] = []
+    var requests: [URLRequest] { lock.withLock { sent } }
     let replies: [Reply]
     let clock = DeviceAuthClock()
     lazy var registry = RequestQuotaRegistry(timing: clock.requestTiming)
@@ -141,10 +203,11 @@ private final class DeviceAuthFixture: @unchecked Sendable {
         .init(provider: .oneDrive, kind: .deviceCode, qrCode: .content("fixture"), handle: "device",
               interval: 5, expiresIn: expires)
     }
-    func reply() -> Reply {
+    func reply(to request: URLRequest) -> Reply {
         lock.withLock {
             let reply = replies[min(recorded.count, replies.count - 1)]
             recorded.append(clock.now)
+            sent.append(request)
             return reply
         }
     }
@@ -156,7 +219,7 @@ private final class DeviceAuthProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let reply = Self.lock.withLock { Self.fixture! }.reply()
+        let reply = Self.lock.withLock { Self.fixture! }.reply(to: request)
         if let error = reply.error { client?.urlProtocol(self, didFailWithError: error); return }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: reply.status,
             httpVersion: nil, headerFields: reply.headers)!, cacheStoragePolicy: .notAllowed)

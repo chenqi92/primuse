@@ -3281,7 +3281,7 @@ struct StorageManagementView: View {
             }
         } else {
             Button {
-                companionAssetFlow.begin(songs: library.visibleSongs, sourceManager: sourceManager)
+                companionAssetFlow.begin(library: library, sourceManager: sourceManager)
             } label: {
                 HStack {
                     Label("companion_assets_download", systemImage: "arrow.down.circle")
@@ -4072,14 +4072,23 @@ final class CompanionAssetDownloadFlow {
     private(set) var suggestedLimit: Int64 = ArtworkStoreLimitPolicy.unlimitedBytes
     @ObservationIgnored private weak var sourceManager: SourceManager?
 
-    func begin(songs: [Song], sourceManager: SourceManager) {
+    func begin(library: MusicLibrary, sourceManager: SourceManager) {
         guard !isPlanning, sourceManager.companionAssetProgress == nil else { return }
+        let songs = library.visibleSongs
+        let artists = (library.visibleArtists + library.visibleAlbumArtists).map { artist in
+            var candidate = artist
+            candidate.thumbnailPath = SubsonicArtistArtworkRequest.contextualReference(
+                artist: artist, song: library.scopedPreferredArtworkSong(forArtistID: artist.id)
+            )
+            return candidate
+        }
+        let playlists = library.playlists
         self.sourceManager = sourceManager
         isPlanning = true
         foundNothingToDownload = false
         Task {
             let plan = await Task.detached(priority: .userInitiated) {
-                SourceManager.companionAssetPlan(for: songs)
+                SourceManager.companionAssetPlan(for: songs, artists: artists, playlists: playlists)
             }.value
             isPlanning = false
             guard !plan.isEmpty else {
@@ -4151,11 +4160,18 @@ final class CompanionAssetDownloadFlow {
         }
         if foundNothing { return String(localized: "companion_assets_download_nothing") }
         guard let lastResult else { return nil }
-        return String(
+        let result = String(
             format: String(localized: "companion_assets_download_result_format"),
             lastResult.coversSaved,
             lastResult.lyricsSaved
         )
+        if lastResult.cancelled {
+            return result + " " + String(localized: "source_address_probe_cancelled")
+        }
+        if lastResult.failed > 0 {
+            return result + " " + String(format: String(localized: "companion_assets_download_failed_format"), lastResult.failed)
+        }
+        return result
     }
 }
 
@@ -4176,7 +4192,7 @@ struct CompanionAssetDownloadAlerts: ViewModifier {
             } message: { plan in
                 Text(verbatim: String(
                     format: String(localized: "companion_assets_limit_message_format"),
-                    plan.coverGroups.count.formatted(),
+                    plan.coverCount.formatted(),
                     ByteCountFormatter.string(fromByteCount: plan.projectedCoverBytes, countStyle: .binary),
                     CompanionAssetDownloadFlow.limitLabel(ArtworkStoreLimitSetting.currentBytes),
                     CompanionAssetDownloadFlow.limitLabel(flow.suggestedLimit)
@@ -4192,7 +4208,7 @@ struct CompanionAssetDownloadAlerts: ViewModifier {
             } message: { plan in
                 Text(verbatim: String(
                     format: String(localized: "companion_assets_cellular_message_format"),
-                    plan.coverGroups.count.formatted(),
+                    plan.coverCount.formatted(),
                     plan.lyricsSongs.count.formatted()
                 ))
             }

@@ -10,6 +10,32 @@ enum HomeScreenQuickAction: String {
     case shuffleLibrary = "com.welape.yuanyin.quick-action.shuffle-library"
     case shuffleLiked = "com.welape.yuanyin.quick-action.shuffle-liked"
     case search = "com.welape.yuanyin.quick-action.search"
+
+    func localizedTitle(in bundle: Bundle = .main) -> String {
+        switch self {
+        case .resume: String(localized: "Resume Playback", bundle: bundle)
+        case .shuffleLibrary: String(localized: "shuffle_all", bundle: bundle)
+        case .shuffleLiked: String(localized: "sidebar_liked_songs", bundle: bundle)
+        case .search: String(localized: "search_title", bundle: bundle)
+        }
+    }
+
+    static func localizedShortcutItems(
+        _ items: [UIApplicationShortcutItem],
+        bundle: Bundle = .main
+    ) -> [UIApplicationShortcutItem] {
+        items.map { item in
+            guard let action = Self(rawValue: item.type),
+                  let updated = item.mutableCopy() as? UIMutableApplicationShortcutItem else {
+                return item
+            }
+            updated.localizedTitle = action.localizedTitle(in: bundle)
+            if action == .shuffleLiked {
+                updated.localizedSubtitle = String(localized: "shuffle", bundle: bundle)
+            }
+            return updated
+        }
+    }
 }
 
 /// 主屏幕快捷菜单:继续播放(写着上次那首)、随机播放全部、随机播放「我喜欢的」、搜索。
@@ -58,7 +84,7 @@ final class HomeScreenQuickActionCenter {
             let artist = library.artistDisplayName(for: song) ?? song.artistName ?? ""
             items.append(UIApplicationShortcutItem(
                 type: HomeScreenQuickAction.resume.rawValue,
-                localizedTitle: String(localized: "Resume Playback"),
+                localizedTitle: HomeScreenQuickAction.resume.localizedTitle(),
                 localizedSubtitle: artist.isEmpty ? song.title : "\(song.title) · \(artist)",
                 icon: UIApplicationShortcutIcon(systemImageName: "play.fill")
             ))
@@ -66,7 +92,7 @@ final class HomeScreenQuickActionCenter {
         if !library.musicSongs.isEmpty {
             items.append(UIApplicationShortcutItem(
                 type: HomeScreenQuickAction.shuffleLibrary.rawValue,
-                localizedTitle: String(localized: "shuffle_all"),
+                localizedTitle: HomeScreenQuickAction.shuffleLibrary.localizedTitle(),
                 localizedSubtitle: nil,
                 icon: UIApplicationShortcutIcon(systemImageName: "shuffle")
             ))
@@ -74,14 +100,14 @@ final class HomeScreenQuickActionCenter {
         if library.songCount(forPlaylist: MusicLibrary.likedSongsPlaylistID) > 0 {
             items.append(UIApplicationShortcutItem(
                 type: HomeScreenQuickAction.shuffleLiked.rawValue,
-                localizedTitle: String(localized: "sidebar_liked_songs"),
+                localizedTitle: HomeScreenQuickAction.shuffleLiked.localizedTitle(),
                 localizedSubtitle: String(localized: "shuffle"),
                 icon: UIApplicationShortcutIcon(systemImageName: "heart.fill")
             ))
         }
         items.append(UIApplicationShortcutItem(
             type: HomeScreenQuickAction.search.rawValue,
-            localizedTitle: String(localized: "search_title"),
+            localizedTitle: HomeScreenQuickAction.search.localizedTitle(),
             localizedSubtitle: nil,
             icon: UIApplicationShortcutIcon(systemImageName: "magnifyingglass")
         ))

@@ -9466,20 +9466,28 @@ final class SourceManager {
         /// 每组是同一个源、同一个封面引用的歌:取第一首,其余直接指到同一份内容。
         var coverGroups: [[Song]]
         var lyricsSongs: [Song]
+        var collectionArtwork: [CompanionCollectionArtwork] = []
         /// 封面库现在的张数与大小,估算下载完会占多大。
         var existingCoverCount: Int
         var existingCoverBytes: Int64
 
-        var isEmpty: Bool { coverGroups.isEmpty && lyricsSongs.isEmpty }
-        var itemCount: Int { coverGroups.count + lyricsSongs.count }
+        var coverCount: Int { coverGroups.count + collectionArtwork.count }
+        var isEmpty: Bool { itemCount == 0 }
+        var itemCount: Int { coverCount + lyricsSongs.count }
 
         var projectedCoverBytes: Int64 {
             ArtworkStoreLimitPolicy.projectedBytes(
                 existingBytes: existingCoverBytes,
                 existingCount: existingCoverCount,
-                additionalCount: coverGroups.count
+                additionalCount: coverCount
             )
         }
+    }
+
+    struct CompanionCollectionArtwork: Sendable, Hashable {
+        let sourceID: String
+        let reference: String
+        var artistCacheID: String? = nil
     }
 
     struct CompanionAssetProgress: Equatable, Sendable {
@@ -9487,6 +9495,11 @@ final class SourceManager {
         var total: Int
         var coversSaved: Int
         var lyricsSaved: Int
+        var unavailable: Int = 0
+        var failed: Int = 0
+        var cancelled: Bool = false
+
+        var succeeded: Bool { !cancelled && completed == total && failed == 0 }
     }
 
     /// 正在下载时的进度;nil 表示没在下。
@@ -9500,8 +9513,10 @@ final class SourceManager {
     private nonisolated static let companionAssetConcurrency = 3
 
     /// 挑出本机还没存下的封面与歌词。只查文件在不在,不联网;整库几万首也只是一轮目录查询。
-    nonisolated static func companionAssetPlan(for songs: [Song]) -> CompanionAssetPlan {
-        let store = MetadataAssetStore.shared
+    nonisolated static func companionAssetPlan(
+        for songs: [Song], artists: [Artist] = [], playlists: [Playlist] = [],
+        store: MetadataAssetStore = .shared
+    ) -> CompanionAssetPlan {
         var groupIndex: [String: Int] = [:]
         var coverGroups: [[Song]] = []
         var lyricsSongs: [Song] = []
@@ -9517,15 +9532,40 @@ final class SourceManager {
                     coverGroups.append([song])
                 }
             }
-            if !store.hasCachedLyricsFile(forSongID: song.id),
+            if !PodcastPlaybackSong.isEpisode(song),
+               !store.hasCachedLyricsFile(forSongID: song.id),
+               !store.hasConfirmedSourceLyricsAbsence(for: song),
                !(song.lyricsFileName.map { store.hasLyricsFile(named: $0) } ?? false) {
                 lyricsSongs.append(song)
             }
+        }
+        var collectionArtwork: [CompanionCollectionArtwork] = []
+        var seen = Set<CompanionCollectionArtwork>()
+        for artist in artists {
+            guard let reference = artist.thumbnailPath,
+                  let owned = SourceOwnedArtworkReference.resolve(reference),
+                  owned.sourceID != AppleMusicLibraryIdentity.sourceID else { continue }
+            let baseID = SubsonicArtistArtworkRequest.cacheID(artistID: artist.id, reference: reference)
+            let fullID = ArtistArtworkResolutionPolicy.cacheID(baseID: baseID, maximumPixels: 1536)
+            guard !store.hasReadableArtistImage(forArtistID: baseID),
+                  !store.hasReadableArtistImage(forArtistID: fullID) else { continue }
+            let item = CompanionCollectionArtwork(sourceID: owned.sourceID, reference: owned.reference, artistCacheID: baseID)
+            if seen.insert(item).inserted { collectionArtwork.append(item) }
+        }
+        for playlist in playlists where !playlist.isDeleted && playlist.hasDedicatedCoverArt {
+            guard let reference = playlist.coverArtPath,
+                  let sourceID = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id)?.sourceID,
+                  sourceID != AppleMusicLibraryIdentity.sourceID,
+                  !store.hasFreshSourceCover(sourceID: sourceID, reference: reference, maximumPixels: 480, checksAge: false),
+                  groupIndex[sourceID + "\u{1F}" + reference] == nil else { continue }
+            let item = CompanionCollectionArtwork(sourceID: sourceID, reference: reference)
+            if seen.insert(item).inserted { collectionArtwork.append(item) }
         }
         let usage = store.artworkContentUsage()
         return CompanionAssetPlan(
             coverGroups: coverGroups,
             lyricsSongs: lyricsSongs,
+            collectionArtwork: collectionArtwork,
             existingCoverCount: usage.count,
             existingCoverBytes: usage.bytes
         )
@@ -9538,6 +9578,7 @@ final class SourceManager {
     ) -> Bool {
         if SourceArtworkPolicy.cacheID(sourceID: song.sourceID, reference: reference, maximumPixels: 480) != nil {
             return store.hasFreshSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 480, checksAge: false)
+                || store.hasEmbeddedSourceCover(songID: song.id, sourceID: song.sourceID, reference: reference)
         }
         if MetadataAssetStore.isLocalCoverFileName(reference), store.hasReadableCoverFile(named: reference) {
             return true
@@ -9567,11 +9608,13 @@ final class SourceManager {
 
     private enum CompanionAssetItem: Sendable {
         case cover([Song])
+        case collection(CompanionCollectionArtwork)
         case lyrics(Song)
 
         var sourceID: String {
             switch self {
             case .cover(let songs): songs.first?.sourceID ?? ""
+            case .collection(let artwork): artwork.sourceID
             case .lyrics(let song): song.sourceID
             }
         }
@@ -9586,20 +9629,23 @@ final class SourceManager {
             self?.cancelCompanionAssetDownload()
         }
         defer {
+            companionAssetProgress?.cancelled = Task.isCancelled
             let result = companionAssetProgress
             lastCompanionAssetResult = result
             companionAssetProgress = nil
             companionAssetTask = nil
-            backgroundRun.end(success: !Task.isCancelled)
+            backgroundRun.end(success: result?.succeeded == true)
             if (result?.coversSaved ?? 0) > 0 {
                 onCompanionArtworkDownloaded?()
             }
         }
         // 各个源轮流排:几个源一起下时谁也不会被一个大曲库堵在后面,一个源上同时也只有一两条。
         let items = Self.interleavedBySource(
-            plan.coverGroups.map(CompanionAssetItem.cover) + plan.lyricsSongs.map(CompanionAssetItem.lyrics)
+            plan.coverGroups.map(CompanionAssetItem.cover)
+                + plan.collectionArtwork.map(CompanionAssetItem.collection)
+                + plan.lyricsSongs.map(CompanionAssetItem.lyrics)
         )
-        plog("📥 Companion assets: covers=\(plan.coverGroups.count) lyrics=\(plan.lyricsSongs.count)")
+        plog("📥 Companion assets: covers=\(plan.coverGroups.count) collections=\(plan.collectionArtwork.count) lyrics=\(plan.lyricsSongs.count)")
         await withTaskGroup(of: CompanionAssetOutcome.self) { group in
             var next = 0
 
@@ -9618,13 +9664,18 @@ final class SourceManager {
                 companionAssetProgress?.completed += 1
                 if outcome.savedCover { companionAssetProgress?.coversSaved += 1 }
                 if outcome.savedLyrics { companionAssetProgress?.lyricsSaved += 1 }
+                if outcome.unavailable { companionAssetProgress?.unavailable += 1 }
+                if !outcome.savedCover && !outcome.savedLyrics && !outcome.unavailable {
+                    companionAssetProgress?.failed += 1
+                }
                 backgroundRun.recordSongFinished()
                 enqueueNext()
             }
         }
         plog(
             "📥 Companion assets done: covers=\(companionAssetProgress?.coversSaved ?? 0) "
-                + "lyrics=\(companionAssetProgress?.lyricsSaved ?? 0) cancelled=\(Task.isCancelled)"
+                + "lyrics=\(companionAssetProgress?.lyricsSaved ?? 0) unavailable=\(companionAssetProgress?.unavailable ?? 0) "
+                + "failed=\(companionAssetProgress?.failed ?? 0) cancelled=\(Task.isCancelled)"
         )
     }
 
@@ -9651,17 +9702,40 @@ final class SourceManager {
     private struct CompanionAssetOutcome: Sendable {
         var savedCover = false
         var savedLyrics = false
+        var unavailable = false
     }
 
     private func processCompanionAsset(_ item: CompanionAssetItem) async -> CompanionAssetOutcome {
         switch item {
         case .cover(let songs):
             return CompanionAssetOutcome(savedCover: await downloadCompanionCover(songs))
+        case .collection(let artwork):
+            return CompanionAssetOutcome(savedCover: await downloadCompanionCollectionArtwork(artwork))
         case .lyrics(let song):
-            return CompanionAssetOutcome(
-                savedLyrics: await LyricsLoader.cacheSourceProvidedLyrics(for: song, sourceManager: self)
-            )
+            switch await LyricsLoader.cacheSourceProvidedLyrics(for: song, sourceManager: self) {
+            case .saved: return CompanionAssetOutcome(savedLyrics: true)
+            case .absent, .unsupported: return CompanionAssetOutcome(unavailable: true)
+            case .failed: return CompanionAssetOutcome()
+            }
         }
+    }
+
+    private func downloadCompanionCollectionArtwork(_ artwork: CompanionCollectionArtwork) async -> Bool {
+        if let artistID = artwork.artistCacheID {
+            guard let data = await artworkData(for: artwork.reference, sourceID: artwork.sourceID,
+                maximumBytes: CachedArtworkView.maximumSourceArtworkBytes, purpose: .thumbnail),
+                  !Task.isCancelled else { return false }
+            let image = await Task.detached(priority: .utility) {
+                guard !SourceArtworkDataValidator.isDefaultArtistPlaceholder(data) else { return Data?.none }
+                return CachedArtworkView.staticCoverCacheData(from: data)
+            }.value
+            guard !Task.isCancelled, let image else { return false }
+            return await MetadataAssetStore.shared.storeArtistImage(image, forArtistID: artistID) != nil
+        }
+        _ = await CachedArtworkView.resolveImage(coverRef: artwork.reference, songID: nil, size: 64,
+            sourceID: artwork.sourceID, filePath: nil, fileFormat: nil, sourceManager: self)
+        return MetadataAssetStore.shared.hasFreshSourceCover(sourceID: artwork.sourceID,
+            reference: artwork.reference, maximumPixels: 480, checksAge: false)
     }
 
     /// 取第一首的封面(和界面上显示时同一条路,存成按歌曲 ID 的镜像),同组其余几首直接指到同一份内容。
@@ -9677,6 +9751,15 @@ final class SourceManager {
             sourceManager: self
         )
         let store = MetadataAssetStore.shared
+        if store.hasEmbeddedSourceCover(songID: first.id, sourceID: first.sourceID, reference: reference),
+           let data = store.displayCoverData(songID: first.id, reference: reference) {
+            for song in songs.dropFirst() {
+                let ticket = await store.beginArtworkLoad(songID: song.id, sourceID: song.sourceID, reference: reference)
+                guard await store.cacheEmbeddedSourceCover(data, songID: song.id, sourceID: song.sourceID,
+                    reference: reference, ticket: ticket) else { return false }
+            }
+            return true
+        }
         let scopedKeys = [SubsonicArtworkPolicy.fullResolutionPixels, SubsonicArtworkPolicy.thumbnailPixels]
             .compactMap { SourceArtworkPolicy.cacheID(sourceID: first.sourceID, reference: reference, maximumPixels: $0) }
         let mirror: String

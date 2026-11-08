@@ -178,6 +178,7 @@ struct CachedArtworkView: View {
     }()
 
     static let failedLoadCacheTTL: TimeInterval = 5 * 60
+    nonisolated static let maximumSourceArtworkBytes = 32 * 1024 * 1024
 
     private final class ArtworkDescriptorBox: NSObject {
         let descriptor: ArtworkDescriptor
@@ -1535,6 +1536,16 @@ struct CachedArtworkView: View {
             return
         }
 
+        // Publish the disk thumbnail before waiting for a source slot or TLS.
+        // It stays provisional so the same mount can still upgrade to full size.
+        if !Self.shouldIgnoreGenericFolderCover(ref: coverRef, filePath: filePath),
+           let preview = await Self.loadCachedPreview(ref: coverRef, songID: songID,
+            sourceID: sourceID, artistID: artistID, bucket: bucket, onlyProvisional: true) {
+            guard !Task.isCancelled, loadIdentity == identity, loadTaskIdentity == taskIdentity else { return }
+            showArtwork(preview, decodedAsynchronously: true)
+            onResolutionChange(true)
+        }
+
         if Self.hasRecentFailure(for: failureNSKey) {
             // 命中失败缓存说明这一首这次就是取不到封面，留着上一首的图会张冠李戴。
             // 先无动画地放出占位，留着的图再淡出时就是和占位对着淡。
@@ -1679,6 +1690,48 @@ struct CachedArtworkView: View {
 
     // MARK: - Load + Decode (off-main)
 
+    nonisolated static func resolveCachedImage(
+        coverRef: String?, songID: String?, size: CGFloat, sourceID: String?, artistID: String? = nil,
+        filePath: String? = nil
+    ) async -> PlatformImage? {
+        guard !shouldIgnoreGenericFolderCover(ref: coverRef, filePath: filePath) else { return nil }
+        return await loadCachedPreview(ref: coverRef, songID: songID, sourceID: sourceID,
+            artistID: artistID, bucket: bucket(for: size))
+    }
+
+    private nonisolated static func loadCachedPreview(
+        ref: String?, songID: String?, sourceID: String?, artistID: String?, bucket: Bucket,
+        onlyProvisional: Bool = false
+    ) async -> PlatformImage? {
+        guard sourceID != AppleMusicLibraryIdentity.sourceID else { return nil }
+        let store = MetadataAssetStore.shared
+        if let artistID {
+            let baseID = SourceOwnedArtworkReference.resolve(ref).map { _ in
+                SubsonicArtistArtworkRequest.cacheID(artistID: artistID, reference: ref ?? "")
+            } ?? artistID
+            let requestedID = ArtistArtworkResolutionPolicy.cacheID(baseID: baseID, maximumPixels: bucket.maximumPixels)
+            if onlyProvisional, store.cachedArtistImage(forArtistID: requestedID,
+                maximumAge: SubsonicArtistArtworkRequest.isServerArtist(ref) ? SubsonicArtistArtworkRequest.refreshInterval : nil) != nil {
+                return nil
+            }
+            for key in [requestedID, baseID, artistID] {
+                if let data = store.cachedArtistImage(forArtistID: key),
+                   !SubsonicArtistArtworkRequest.isServerArtist(ref) || !SourceArtworkDataValidator.isDefaultArtistPlaceholder(data),
+                   let image = decode(data, bucket: bucket) { return image }
+            }
+            return nil
+        }
+        if onlyProvisional {
+            guard SourceArtworkPolicy.cacheID(sourceID: sourceID, reference: ref, maximumPixels: bucket.maximumPixels) != nil,
+                  !store.hasFreshSourceCover(sourceID: sourceID, reference: ref,
+                    maximumPixels: bucket.maximumPixels) else { return nil }
+        }
+        let data = store.cachedSourceCover(sourceID: sourceID, reference: ref,
+            maximumPixels: 480, allowsStale: true)
+            ?? store.displayCoverData(songID: songID, reference: ref, allowsStale: true)
+        return data.flatMap { decode($0, bucket: bucket) }
+    }
+
     /// Shared app-layer image resolver used by playlist artwork. It intentionally
     /// goes through the same memory cache, MetadataAssetStore mirror, connector
     /// routing, bounded remote fetch, embedded extraction, and decode validation
@@ -1793,6 +1846,16 @@ struct CachedArtworkView: View {
             return finalize(data: data, bucket: bucket, cacheKey: cacheKey)
         }
 
+        if await NetworkMonitor.shared.isUnsatisfied {
+            if let preview = await loadCachedPreview(ref: effectiveRef, songID: ignoredGenericFolderCover ? nil : songID,
+                sourceID: sourceID, artistID: artistID, bucket: bucket) { return preview }
+            guard artistID == nil,
+                  let data = await loadFromSource(ref: nil, songID: songID, sourceID: sourceID,
+                    filePath: filePath, fileFormat: fileFormat, sourceManager: sourceManager, purpose: .thumbnail)
+            else { return nil }
+            return decode(data, bucket: bucket)
+        }
+
         // Artist path — prefer the originating server, then fall back to the
         // existing name-based artwork provider. Source artwork gets its own
         // disk namespace so an older scraped image cannot mask a server image.
@@ -1815,7 +1878,7 @@ struct CachedArtworkView: View {
                     // never a name-based network search launched by a view mount.
                     guard let owned else { return nil }
                     return await sourceManager.artworkData(for: owned.reference, sourceID: owned.sourceID,
-                        maximumBytes: 8 * 1024 * 1024,
+                        maximumBytes: maximumSourceArtworkBytes,
                         purpose: pixels > SubsonicArtworkPolicy.thumbnailPixels ? .fullResolution : .thumbnail)
                 },
                 store: { data in _ = await store.storeArtistImage(data, forArtistID: requestedID) },
@@ -1833,7 +1896,7 @@ struct CachedArtworkView: View {
                     guard pixels > SubsonicArtworkPolicy.thumbnailPixels, let owned,
                           !Task.isCancelled,
                           let data = await sourceManager.artworkData(for: owned.reference,
-                            sourceID: owned.sourceID, maximumBytes: 8 * 1024 * 1024,
+                            sourceID: owned.sourceID, maximumBytes: maximumSourceArtworkBytes,
                             purpose: .thumbnail), !Task.isCancelled else { return nil }
                     _ = await store.storeArtistImage(data, forArtistID: baseID)
                     return data
@@ -1947,6 +2010,11 @@ struct CachedArtworkView: View {
                         ref: nil, songID: songID, sourceID: sourceID, filePath: filePath,
                         fileFormat: fileFormat, sourceManager: sourceManager, purpose: .thumbnail
                     )
+                    if !Task.isCancelled, let fallback, let songID, let sourceID, let effectiveRef,
+                       let stored = staticCoverCacheData(from: fallback) {
+                        _ = await MetadataAssetStore.shared.cacheEmbeddedSourceCover(stored,
+                            songID: songID, sourceID: sourceID, reference: effectiveRef, ticket: ticket)
+                    }
                 }
                 if !Task.isCancelled, let fallback, let decoded = decode(fallback, bucket: bucket) {
                     return decoded
@@ -2003,11 +2071,17 @@ struct CachedArtworkView: View {
     /// Static artwork mirrors must never retain a multi-frame container. The
     /// animation original has its own bounded cache and is only read by a
     /// visible hero surface.
-    private nonisolated static func staticCoverCacheData(from data: Data) -> Data? {
+    nonisolated static func staticCoverCacheData(from data: Data) -> Data? {
+        guard ArtworkImageCompatibility.isCompleteImage(data),
+              !ArtworkImageCompatibility.hasRedundantJPEGSampling(data) else { return nil }
         guard let source = CGImageSourceCreateWithData(data as CFData, [
             kCGImageSourceShouldCache: false,
         ] as CFDictionary) else { return nil }
-        guard CGImageSourceGetCount(source) > 1 else { return data }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let width = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+        let height = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        guard CGImageSourceGetCount(source) > 1 || data.count > 8 * 1024 * 1024
+            || max(width, height) > fullMaxPixel else { return data }
         return ArtworkImageCompatibility.staticFirstFrameJPEG(
             from: data,
             maximumPixelSize: fullMaxPixel
@@ -2166,7 +2240,7 @@ struct CachedArtworkView: View {
         purpose: ArtworkFetchPurpose,
         priority: ArtworkRequestCoordinator.Priority = .background
     ) async -> Data? {
-        let maximumArtworkBytes = 8 * 1024 * 1024
+        let maximumArtworkBytes = sourceID == nil ? 8 * 1024 * 1024 : maximumSourceArtworkBytes
 
         // 直播电台用的是一个虚拟 sourceID：它背后没有连接器，台标是一个普通
         // 公网地址。把它当成「无归属」处理，否则 Case 1 会去问一个不存在的

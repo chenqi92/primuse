@@ -6734,7 +6734,8 @@
 "companion_assets_download_progress_format" = "%1$d of %2$d done";
 "companion_assets_download_in_progress" = "Downloading Artwork and Lyrics";
 "companion_assets_download_result_format" = "Last time: %1$d covers and %2$d lyrics saved.";
-"companion_assets_download_nothing" = "All artwork and lyrics are already on this device.";
+"companion_assets_download_failed_format" = "%d items could not be cached. Download again to retry.";
+"companion_assets_download_nothing" = "No artwork or lyrics need downloading right now.";
 "companion_assets_limit_title" = "Covers Will Exceed the Space Limit";
 "companion_assets_limit_message_format" = "About %1$@ covers to download. Afterwards covers would take about %2$@, over the current limit of %3$@, and the daily cleanup would delete the extra older covers. Raising the limit to %4$@ is recommended.";
 "companion_assets_raise_limit_format" = "Raise to %@ and Download";
@@ -7077,6 +7078,15 @@
 "settings_backup_newer_version" = "This backup requires a newer version of Primuse.";
 "settings_backup_too_large" = "This backup exceeds the supported size limit.";
 "settings_backup_invalid" = "This is not a valid Primuse settings backup, or the file is damaged.";
+
+"pan115_token_login" = "Use Refresh Token";
+"pan115_qr_login" = "Scan to sign in";
+"pan115_qr_instruction" = "Scan with the 115 app";
+"pan115_qr_scanned" = "Scanned. Confirm in the 115 app.";
+"pan115_qr_expired" = "The QR code has expired. Please try again.";
+"pan115_qr_denied" = "Authorization was declined. Please try again.";
+"pan115_auth_subtitle" = "Connect with a Refresh Token or App ID";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "Fetch More Lyrics";
 "lyrics_sources_cached" = "Cached Lyrics";

@@ -6973,7 +6973,8 @@
 "companion_assets_download_progress_format" = "%1$d sur %2$d traités";
 "companion_assets_download_in_progress" = "Téléchargement des pochettes et paroles";
 "companion_assets_download_result_format" = "La dernière fois : %1$d pochettes et %2$d paroles enregistrées.";
-"companion_assets_download_nothing" = "Toutes les pochettes et paroles sont déjà sur cet appareil.";
+"companion_assets_download_failed_format" = "%d éléments n’ont pas pu être mis en cache. Relancez le téléchargement pour réessayer.";
+"companion_assets_download_nothing" = "Aucune pochette ni parole à télécharger pour le moment.";
 "companion_assets_limit_title" = "Les pochettes dépasseront la limite d’espace";
 "companion_assets_limit_message_format" = "Environ %1$@ pochettes à télécharger. Elles occuperaient ensuite environ %2$@, au-delà de la limite actuelle de %3$@, et le nettoyage quotidien supprimerait les anciennes pochettes en trop. Il est conseillé de passer la limite à %4$@.";
 "companion_assets_raise_limit_format" = "Passer à %@ et télécharger";
@@ -7316,6 +7317,15 @@
 "settings_backup_newer_version" = "Cette sauvegarde nécessite une version plus récente de Primuse.";
 "settings_backup_too_large" = "Cette sauvegarde dépasse la taille prise en charge.";
 "settings_backup_invalid" = "Ce fichier n’est pas une sauvegarde valide des réglages Primuse ou il est endommagé.";
+
+"pan115_token_login" = "Utiliser un Refresh Token";
+"pan115_qr_login" = "Se connecter par QR code";
+"pan115_qr_instruction" = "Scanner avec l’app 115";
+"pan115_qr_scanned" = "Code scanné. Confirmez dans l’app 115.";
+"pan115_qr_expired" = "Le QR code a expiré. Réessayez.";
+"pan115_qr_denied" = "L’autorisation a été refusée. Réessayez.";
+"pan115_auth_subtitle" = "Connexion avec un Refresh Token ou un App ID";
+"pan115_app_id" = "App ID (client_id)";
 
 "lyrics_sources_fetch_more" = "Obtenir plus de paroles";
 "lyrics_sources_cached" = "Paroles en cache";
