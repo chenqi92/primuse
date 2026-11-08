@@ -2,6 +2,10 @@ import Foundation
 
 /// A cached list portrait is not proof that a detail-sized source request ran.
 public enum ArtistArtworkResolutionPolicy {
+    public static func appleMusicCacheID(artistID: String) -> String {
+        "artist-apple-music-v1\u{1F}" + artistID
+    }
+
     public static func requestedPixels(for maximumPixels: Int) -> Int {
         maximumPixels > SubsonicArtworkPolicy.thumbnailPixels
             ? SubsonicArtworkPolicy.fullResolutionPixels

@@ -3320,6 +3320,8 @@
 "lyrics_converter_txt_help" = "Klartext ohne Zeitangaben";
 "artwork_edit" = "Cover ändern";
 "artwork_editor_title" = "Cover auswählen";
+"artwork_artist_from_apple_music" = "Aus Apple Music laden";
+"artwork_artist_apple_music_unavailable" = "Es konnte kein passendes Künstlerfoto aus Apple Music geladen werden. Versuche es später erneut.";
 "artwork_mode_automatic" = "Automatisch";
 "artwork_restore_automatic" = "Automatisches Cover wiederherstellen";
 "artwork_upload" = "Bild hochladen";

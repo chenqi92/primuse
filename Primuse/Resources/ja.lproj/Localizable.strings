@@ -3321,6 +3321,8 @@
 "lyrics_converter_txt_help" = "時間情報のないプレーンテキスト";
 "artwork_edit" = "アートワークを変更";
 "artwork_editor_title" = "アートワークを選択";
+"artwork_artist_from_apple_music" = "Apple Musicから取得";
+"artwork_artist_apple_music_unavailable" = "Apple Musicから一致するアーティストの写真を取得できませんでした。後でもう一度お試しください。";
 "artwork_mode_automatic" = "自動";
 "artwork_restore_automatic" = "自動認識に戻す";
 "artwork_upload" = "画像をアップロード";

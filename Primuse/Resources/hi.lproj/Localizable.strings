@@ -875,6 +875,8 @@
 "artwork_edit" = "कलाकृति बदलें";
 "artwork_editor_title" = "कलाकृति चुनें";
 "artwork_invalid_image" = "एक वैध छवि चुनें जिसे Primuse प्रोसेस कर सके।";
+"artwork_artist_from_apple_music" = "Apple Music से प्राप्त करें";
+"artwork_artist_apple_music_unavailable" = "Apple Music से मेल खाती कलाकार की फ़ोटो नहीं मिल सकी। कृपया बाद में फिर कोशिश करें।";
 "artwork_mode_automatic" = "स्वचालित";
 "artwork_no_songs" = "चुनने के लिए कोई गाना नहीं है।";
 "artwork_processing" = "कलाकृति तैयार की जा रही है...";

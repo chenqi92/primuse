@@ -3306,6 +3306,8 @@
 "lyrics_converter_txt_help" = "不含時間軸的純文字";
 "artwork_edit" = "更換封面";
 "artwork_editor_title" = "選擇封面";
+"artwork_artist_from_apple_music" = "從 Apple Music 取得";
+"artwork_artist_apple_music_unavailable" = "無法從 Apple Music 取得相符的藝人照片，請稍後再試。";
 "artwork_mode_automatic" = "自動";
 "artwork_restore_automatic" = "恢復自動識別";
 "artwork_upload" = "上傳圖片";

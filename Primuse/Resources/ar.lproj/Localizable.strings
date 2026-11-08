@@ -875,6 +875,8 @@
 "artwork_edit" = "تغيير العمل الفني";
 "artwork_editor_title" = "اختر العمل الفني";
 "artwork_invalid_image" = "اختر صورة صالحة يستطيع Primuse معالجتها.";
+"artwork_artist_from_apple_music" = "جلب من Apple Music";
+"artwork_artist_apple_music_unavailable" = "تعذّر جلب صورة مطابقة للفنان من Apple Music. حاول مجددًا لاحقًا.";
 "artwork_mode_automatic" = "آلي";
 "artwork_no_songs" = "لا توجد أغاني للاختيار من بينها.";
 "artwork_processing" = "تحضير العمل الفني…";

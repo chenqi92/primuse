@@ -875,6 +875,8 @@
 "artwork_edit" = "Alterar capa";
 "artwork_editor_title" = "Escolher capa";
 "artwork_invalid_image" = "Escolha uma imagem válida que o Primuse possa processar.";
+"artwork_artist_from_apple_music" = "Obter do Apple Music";
+"artwork_artist_apple_music_unavailable" = "Não foi possível obter uma foto correspondente do artista no Apple Music. Tente novamente mais tarde.";
 "artwork_mode_automatic" = "Automático";
 "artwork_no_songs" = "Não há músicas para escolher.";
 "artwork_processing" = "Preparando capa…";

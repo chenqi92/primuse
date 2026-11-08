@@ -875,6 +875,8 @@
 "artwork_edit" = "เปลี่ยนอาร์ตเวิร์ก";
 "artwork_editor_title" = "เลือกอาร์ตเวิร์ก";
 "artwork_invalid_image" = "เลือกรูปภาพที่ถูกต้องที่ Primuse สามารถประมวลผลได้";
+"artwork_artist_from_apple_music" = "ดึงจาก Apple Music";
+"artwork_artist_apple_music_unavailable" = "ไม่สามารถดึงรูปศิลปินที่ตรงกันจาก Apple Music ได้ โปรดลองอีกครั้งในภายหลัง";
 "artwork_mode_automatic" = "อัตโนมัติ";
 "artwork_no_songs" = "ไม่มีเพลงให้เลือก";
 "artwork_processing" = "กำลังเตรียมอาร์ตเวิร์ค…";

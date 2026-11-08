@@ -3091,6 +3091,8 @@
 "lyrics_converter_txt_help" = "Plain text without timing";
 "artwork_edit" = "Change Artwork";
 "artwork_editor_title" = "Choose Artwork";
+"artwork_artist_from_apple_music" = "Get from Apple Music";
+"artwork_artist_apple_music_unavailable" = "Could not get a matching artist photo from Apple Music. Please try again later.";
 "artwork_mode_automatic" = "Automatic";
 "artwork_restore_automatic" = "Restore Automatic Artwork";
 "artwork_upload" = "Upload an Image";

@@ -150,6 +150,7 @@ struct CachedArtworkView: View {
     /// 只有新旧两个视图并存才能真正交叉淡入。没开交叉淡入时它恒为 0。
     @State private var artworkGeneration = 0
     @State private var cacheInvalidationRevision = 0
+    @State private var artistAuthorization = false
     /// 灰色占位要等加载超过宽限期、或确认没有封面才露出来。冷启动内存缓存是空的，
     /// 满屏封面都要从盘上读，几十毫秒就回来；先闪一下占位再换成封面，整页看起来
     /// 就是在一块块地闪。
@@ -358,6 +359,7 @@ struct CachedArtworkView: View {
         self.coverRef = artworkReference
         self.artistID = artistID
         self.artistName = artistName
+        self._artistAuthorization = State(initialValue: MusicAuthorization.currentStatus == .authorized)
         self.size = size
         self.cornerRadius = cornerRadius
         self.placeholderIcon = "music.mic"
@@ -408,6 +410,12 @@ struct CachedArtworkView: View {
         }
         .onChange(of: hasResolvedArtwork) { _, isResolved in
             if isResolved { onResolutionChange(true) }
+        }
+        .onAppear {
+            if artistID != nil { artistAuthorization = MusicAuthorization.currentStatus == .authorized }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if artistID != nil, phase == .active { artistAuthorization = MusicAuthorization.currentStatus == .authorized }
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
             guard shouldReload(after: note) else { return }
@@ -732,7 +740,7 @@ struct CachedArtworkView: View {
         let suffix = "@\(bucket.rawValue)"
         if let albumID { return "album_\(albumID)\(suffix)" }
         if let artistID {
-            return "artist_\(artistID)#\(coverRef ?? "")#\(SubsonicArtistArtworkRequest.refreshToken(reference: coverRef))\(suffix)"
+            return "artist_\(artistID)#am-v1#\(artistAuthorization)#\(coverRef ?? "")#\(SubsonicArtistArtworkRequest.refreshToken(reference: coverRef))\(Self.memoryRevisions.key(songID: artistID, reference: nil))\(suffix)"
         }
         let songIdentity = ArtworkSourceRequestIdentity.key(
             songID: songID,
@@ -1709,6 +1717,8 @@ struct CachedArtworkView: View {
                 || StoredArtworkOrigin.preservesLocalChoice(ref) else { return nil }
         let store = MetadataAssetStore.shared
         if let artistID {
+            if let data = store.cachedArtistImage(forArtistID: ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: artistID)),
+               let image = decode(data, bucket: bucket) { return image }
             let baseID = SourceOwnedArtworkReference.resolve(ref).map { _ in
                 SubsonicArtistArtworkRequest.cacheID(artistID: artistID, reference: ref ?? "")
             } ?? artistID
@@ -1859,10 +1869,11 @@ struct CachedArtworkView: View {
             return decode(data, bucket: bucket)
         }
 
-        // Artist path — prefer the originating server, then fall back to the
-        // existing name-based artwork provider. Source artwork gets its own
-        // disk namespace so an older scraped image cannot mask a server image.
-        if let artistID, artistName != nil {
+        // Catalog artist photos have a separate namespace from old scrapes
+        // and source portraits, so neither can mask a newly available photo.
+        if let artistID, let artistName {
+            if let data = await ArtworkFetchService.shared.fetchArtistImage(artistName: artistName, artistID: artistID),
+               let image = finalize(data: data, bucket: bucket, cacheKey: cacheKey) { return image }
             let owned = SourceOwnedArtworkReference.resolve(effectiveRef)
             let baseID = owned.map { _ in
                 SubsonicArtistArtworkRequest.cacheID(artistID: artistID, reference: effectiveRef ?? "")
@@ -1877,8 +1888,6 @@ struct CachedArtworkView: View {
                         maximumAge: isServerArtist ? SubsonicArtistArtworkRequest.refreshInterval : nil)
                 },
                 fetch: {
-                    // Missing catalog portraits are still explicit scraper work,
-                    // never a name-based network search launched by a view mount.
                     guard let owned else { return nil }
                     return await sourceManager.artworkData(for: owned.reference, sourceID: owned.sourceID,
                         maximumBytes: maximumSourceArtworkBytes,
@@ -1906,8 +1915,9 @@ struct CachedArtworkView: View {
                 }
             )
             guard let result else { return nil }
-            return result.isProvisional ? decode(result.data, bucket: bucket)
-                : finalize(data: result.data, bucket: bucket, cacheKey: cacheKey)
+            // Keep fallback portraits on disk, without making a memory hit
+            // suppress the catalog retry after authorization/network recovery.
+            return decode(result.data, bucket: bucket)
         }
 
         // Explicit local artwork takes precedence over MusicKit. Other Apple

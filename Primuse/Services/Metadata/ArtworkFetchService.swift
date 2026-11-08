@@ -1,4 +1,5 @@
 import Foundation
+import MusicKit
 import PrimuseKit
 #if canImport(UIKit)
 import UIKit
@@ -10,7 +11,20 @@ import AppKit
 /// the Apple Music catalog.
 actor ArtworkFetchService {
     static let shared = ArtworkFetchService()
-    private let assetStore = MetadataAssetStore.shared
+    private let assetStore: MetadataAssetStore
+    private let artistPhotoLookup: @Sendable (String) async -> Data?
+    private let isArtistLookupAuthorized: @Sendable () -> Bool
+    private var artistRetryAfter: [String: ContinuousClock.Instant] = [:]
+
+    init(
+        assetStore: MetadataAssetStore = .shared,
+        isArtistLookupAuthorized: @escaping @Sendable () -> Bool = { MusicAuthorization.currentStatus == .authorized },
+        artistPhotoLookup: @escaping @Sendable (String) async -> Data? = { await ArtworkFetchService.searchArtistPhoto(artistName: $0) }
+    ) {
+        self.assetStore = assetStore
+        self.isArtistLookupAuthorized = isArtistLookupAuthorized
+        self.artistPhotoLookup = artistPhotoLookup
+    }
 
     /// In-flight deduplication: albumID/artistID → Task
     private var inFlightAlbum: [String: Task<Data?, Never>] = [:]
@@ -62,27 +76,33 @@ actor ArtworkFetchService {
     // MARK: - Artist Image
 
     /// Fetch artist image: check cache → Apple Music artist photo → store
-    func fetchArtistImage(artistName: String, artistID: String) async -> Data? {
-        let cacheID = ArtistArtworkResolutionPolicy.cacheID(baseID: artistID,
-            maximumPixels: SubsonicArtworkPolicy.fullResolutionPixels)
-        if let cached = await assetStore.cachedArtistImage(forArtistID: cacheID) { return cached }
+    func fetchArtistImage(artistName: String, artistID: String, forceRefresh: Bool = false) async -> Data? {
+        let cacheID = ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: artistID)
+        if !forceRefresh, let cached = assetStore.cachedArtistImage(forArtistID: cacheID) { return cached }
+        guard isArtistLookupAuthorized(), !Task.isCancelled,
+              !artistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let existing = inFlightArtist[cacheID] { return await existing.value }
+        if !forceRefresh, let retryAfter = artistRetryAfter[cacheID], retryAfter > .now { return nil }
         let task = Task<Data?, Never> {
-            let result = await ArtistArtworkResolutionPolicy.resolve(
-                cached: { await self.assetStore.cachedArtistImage(forArtistID: cacheID) },
-                fetch: { await self.searchArtistPhoto(artistName: artistName) },
-                store: { data in
-                    _ = await self.assetStore.storeArtistImage(data, forArtistID: cacheID)
-                    // Existing hasArtistImage/list/scrape bookkeeping keeps its legacy index.
-                    _ = await self.assetStore.storeArtistImage(data, forArtistID: artistID)
-                },
-                fallback: { await self.assetStore.cachedArtistImage(forArtistID: artistID) }
-            )
-            return result?.data
+            guard let data = await self.artistPhotoLookup(artistName),
+                  ArtworkImageCompatibility.isCompleteImage(data),
+                  await self.assetStore.storeArtistImage(data, forArtistID: cacheID) != nil else { return nil }
+            // Preserve the batch scraper's legacy availability index.
+            _ = await self.assetStore.storeArtistImage(data, forArtistID: artistID)
+            #if os(iOS) || os(macOS)
+            await MainActor.run { CachedArtworkView.invalidateCache(for: artistID) }
+            #endif
+            return data
         }
         inFlightArtist[cacheID] = task
         let result = await task.value
         inFlightArtist[cacheID] = nil
+        if result == nil {
+            artistRetryAfter = artistRetryAfter.filter { $0.value > .now }
+            artistRetryAfter[cacheID] = .now + .seconds(300)
+        } else {
+            artistRetryAfter[cacheID] = nil
+        }
         return result
     }
 
@@ -124,7 +144,7 @@ actor ArtworkFetchService {
                         throw ScraperError.networkError("Artwork download failed")
                     }
                     clearFailure(config.id)
-                    return compressJPEG(data)
+                    return Self.compressJPEG(data)
                 }
                 clearFailure(config.id)
             } catch {
@@ -141,7 +161,7 @@ actor ArtworkFetchService {
     /// 艺人图只用 Apple Music 目录里的艺人照片。刮削源只能按歌搜, 拿到的是某首歌的
     /// 专辑封面: 当成艺人图就是「按封面配艺人」, 名字互相包含就算对上时还会配到别人。
     /// 没有照片的艺人卡片照旧借自己一首歌的封面, 那至少是他自己的歌。
-    private func searchArtistPhoto(artistName: String) async -> Data? {
+    private nonisolated static func searchArtistPhoto(artistName: String) async -> Data? {
         guard let url = await AppleMusicCatalogNeighbors.artistArtworkURL(
             matchingName: artistName,
             side: SubsonicArtworkPolicy.fullResolutionPixels
@@ -231,7 +251,7 @@ actor ArtworkFetchService {
         return nil
     }
 
-    private func compressJPEG(_ data: Data) -> Data? {
+    private nonisolated static func compressJPEG(_ data: Data) -> Data? {
         #if canImport(UIKit)
         guard let image = UIImage(data: data),
               let compressed = image.jpegData(compressionQuality: 0.85) else {

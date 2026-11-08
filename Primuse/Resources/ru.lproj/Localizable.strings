@@ -488,6 +488,8 @@
 "artwork_processing" = "Готовим иллюстрацию…";
 "dup_cleaning_progress_format" = "Очистка %d / %d";
 "next_song" = "Далее";
+"artwork_artist_from_apple_music" = "Загрузить из Apple Music";
+"artwork_artist_apple_music_unavailable" = "Не удалось получить подходящее фото исполнителя из Apple Music. Повторите попытку позже.";
 "artwork_mode_automatic" = "Автоматический";
 "no_albums_desc" = "Чтобы начать, добавьте источник музыки.";
 "batch_select_all" = "Выбрать все";

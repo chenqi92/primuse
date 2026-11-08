@@ -1134,6 +1134,8 @@ struct LibraryArtworkEditorSheet: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var artworkAvailability: [String: Bool] = [:]
     @State private var isProcessing = false
+    @State private var appleMusicAuthorized = MusicAuthorization.currentStatus == .authorized
+    @Environment(\.scenePhase) private var scenePhase
     @State private var errorMessage: String?
     @State private var isFileImporterPresented = false
     /// 「同时用作专辑内歌曲的封面」(#188)。每次打开都是关着的:写的是每首歌的文件,不该悄悄沿用上次的选择。
@@ -1158,11 +1160,17 @@ struct LibraryArtworkEditorSheet: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        macEditor
-        #else
-        iosEditor
-        #endif
+        Group {
+            #if os(macOS)
+            macEditor
+            #else
+            iosEditor
+            #endif
+        }
+        .onAppear { appleMusicAuthorized = MusicAuthorization.currentStatus == .authorized }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { appleMusicAuthorized = MusicAuthorization.currentStatus == .authorized }
+        }
     }
 
     #if os(iOS)
@@ -1190,6 +1198,9 @@ struct LibraryArtworkEditorSheet: View {
                         )
                     }
 
+                    if owner.kind == .artist, appleMusicAuthorized {
+                        appleMusicArtworkButton
+                    }
                     uploadControl
                 } footer: {
                     Text("artwork_storage_hint")
@@ -1357,6 +1368,10 @@ struct LibraryArtworkEditorSheet: View {
                             systemImage: "wand.and.stars",
                             choice: .automatic
                         )
+
+                        if owner.kind == .artist, appleMusicAuthorized {
+                            appleMusicArtworkButton
+                        }
 
                         Button {
                             isFileImporterPresented = true
@@ -1796,6 +1811,49 @@ struct LibraryArtworkEditorSheet: View {
         resolution == .automatic
             ? "artwork_mode_automatic"
             : "artwork_restore_automatic"
+    }
+
+    private var appleMusicArtworkButton: some View {
+        Button {
+            fetchAppleMusicArtistArtwork()
+        } label: {
+            #if os(macOS)
+            macChoiceLabel(
+                titleKey: "artwork_artist_from_apple_music",
+                systemImage: "music.note",
+                isSelected: false
+            )
+            #else
+            artworkActionLabel(
+                titleKey: "artwork_artist_from_apple_music",
+                systemImage: "music.note",
+                isSelected: false
+            )
+            #endif
+        }
+        #if os(macOS)
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("artwork.artist.appleMusic")
+    }
+
+    private func fetchAppleMusicArtistArtwork() {
+        guard owner.kind == .artist, !isProcessing else { return }
+        guard let artistName = library.scopedVisibleArtist(id: owner.id)?.name else {
+            errorMessage = String(localized: "artwork_artist_apple_music_unavailable")
+            return
+        }
+        isProcessing = true
+        Task {
+            defer { isProcessing = false }
+            guard await ArtworkFetchService.shared.fetchArtistImage(
+                artistName: artistName, artistID: owner.id, forceRefresh: true
+            ) != nil else {
+                errorMessage = String(localized: "artwork_artist_apple_music_unavailable")
+                return
+            }
+            if library.setAutomaticArtwork(for: owner) { dismiss() }
+        }
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {

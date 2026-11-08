@@ -13,6 +13,9 @@ struct ArtistArtworkResolutionPolicyTests {
         #expect(full == ArtistArtworkResolutionPolicy.cacheID(baseID: "portrait", maximumPixels: 768))
         #expect(ArtistArtworkResolutionPolicy.requestedPixels(for: 192) == 480)
         #expect(ArtistArtworkResolutionPolicy.requestedPixels(for: 768) == 1536)
+        let catalog = ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: "portrait")
+        #expect(catalog != small)
+        #expect(catalog != full)
     }
 
     @Test("A list-first thumbnail does not mask a later detail request")

@@ -875,6 +875,8 @@
 "artwork_edit" = "Zmień okładkę";
 "artwork_editor_title" = "Wybierz okładkę";
 "artwork_invalid_image" = "Wybierz prawidłowy obraz, który Primuse może przetworzyć.";
+"artwork_artist_from_apple_music" = "Pobierz z Apple Music";
+"artwork_artist_apple_music_unavailable" = "Nie udało się pobrać pasującego zdjęcia artysty z Apple Music. Spróbuj ponownie później.";
 "artwork_mode_automatic" = "Automatyczny";
 "artwork_no_songs" = "Brak utworów do wyboru.";
 "artwork_processing" = "Przygotowywanie okładki…";

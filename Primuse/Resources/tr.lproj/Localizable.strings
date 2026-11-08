@@ -488,6 +488,8 @@
 "artwork_processing" = "Sanat eseri hazırlanıyor…";
 "dup_cleaning_progress_format" = "%d / %d'nin Temizlenmesi";
 "next_song" = "İleri";
+"artwork_artist_from_apple_music" = "Apple Music’ten al";
+"artwork_artist_apple_music_unavailable" = "Apple Music’ten eşleşen bir sanatçı fotoğrafı alınamadı. Lütfen daha sonra tekrar deneyin.";
 "artwork_mode_automatic" = "Otomatik";
 "no_albums_desc" = "Başlamak için bir müzik kaynağı ekleyin";
 "batch_select_all" = "Tümünü Seç";
