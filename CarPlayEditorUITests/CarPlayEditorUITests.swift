@@ -1,6 +1,102 @@
 import XCTest
 
 @MainActor
+final class FullscreenOrientationUITests: XCTestCase {
+    func testEveryNonNativeEffectCanRotateInBothDirections() {
+        let app = orientationApp()
+        restoreHomeAfterTest(app)
+        for effect in ["coverGallery", "flowingLines", "radialPulse", "vinylDeck", "auroraVeil",
+                       "spectrumHorizon", "particleBloom", "albumFlow", "chladniPlate",
+                       "fireflySync", "flyBrain", "kineticLyrics"] {
+            app.launchArguments = orientationArguments(effect: effect)
+            app.launch()
+            XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForExistence(timeout: 20), effect)
+            rotate(app, toLandscape: true)
+            XCTAssertTrue(app.buttons["Exit full-screen effect"].exists, effect)
+            rotate(app, toLandscape: false)
+            XCTAssertTrue(app.buttons["Exit full-screen effect"].exists,
+                          "Manually opened effects must remain selected after rotating: \(effect)")
+            if ["coverGallery", "vinylDeck", "kineticLyrics"].contains(effect) {
+                let attachment = XCTAttachment(screenshot: app.screenshot())
+                attachment.name = "\(effect)-returned-to-portrait"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            app.terminate()
+        }
+    }
+
+    func testLandscapeTriggeredEffectReturnsToThePortraitPlayer() {
+        let app = orientationApp()
+        restoreHomeAfterTest(app)
+        app.launchEnvironment["PRIMUSE_DEBUG_PLAYER_MODE"] = "lyrics"
+        app.launchArguments = orientationArguments(effect: "kineticLyrics", entersInLandscape: true)
+        app.launch()
+        rotate(app, toLandscape: true)
+        XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForExistence(timeout: 10))
+        rotate(app, toLandscape: false)
+        XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForNonExistence(timeout: 5))
+    }
+
+    func testFullscreenRespectsTheOrientationButtonSetting() {
+        let app = orientationApp()
+        restoreHomeAfterTest(app)
+        app.launchArguments = orientationArguments(effect: "vinylDeck", showsButton: false)
+        app.launch()
+        XCTAssertTrue(app.buttons["Exit full-screen effect"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["player.orientation.toggle"].exists)
+    }
+
+    private func orientationApp() -> XCUIApplication {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "nowPlayingTransition"
+        app.launchEnvironment["PRIMUSE_DEBUG_PLAYER_MODE"] = "fullscreen"
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchEnvironment["PRIMUSE_NO_NOTIFICATION_PROMPT"] = "1"
+        return app
+    }
+
+    private func orientationArguments(effect: String, entersInLandscape: Bool = false,
+                                      showsButton: Bool = true) -> [String] {
+        ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+         "-primuse.hasSeenOnboarding", "YES", "-primuse.iCloudSyncEnabled", "NO",
+         "-primuse.launch.consecutiveAborts", "0", "-primuse.launch.safeModeLatched", "NO",
+         "-primuse.interface.orientation", "automatic", "-primuse.fullscreenPlayerEffect", effect,
+         "-primuse.player.followsDeviceOrientation", "NO",
+         "-primuse.player.showsOrientationButton", showsButton ? "YES" : "NO",
+         "-primuse.player.entersFullscreenInLandscape", entersInLandscape ? "YES" : "NO"]
+    }
+
+    private func rotate(_ app: XCUIApplication, toLandscape: Bool) {
+        let button = app.buttons["player.orientation.toggle"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        XCTAssertTrue(button.isHittable)
+        XCTAssertEqual(button.label, toLandscape ? "Show in Landscape" : "Show in Portrait")
+        button.tap()
+        let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = app.windows.firstMatch.frame
+            return (frame.width > frame.height) == toLandscape && button.exists
+                && button.label == (toLandscape ? "Show in Portrait" : "Show in Landscape")
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [rotated], timeout: 8), .completed)
+        XCTAssertTrue(button.isHittable)
+    }
+
+    private func restoreHomeAfterTest(_ app: XCUIApplication) {
+        addTeardownBlock { @MainActor in
+            app.terminate()
+            app.launchEnvironment = [:]
+            app.launchArguments = []
+            XCUIDevice.shared.orientation = .portrait
+            app.launch()
+            XCTAssertTrue(app.buttons["home.spaceFilter.music"].waitForExistence(timeout: 30))
+        }
+    }
+}
+
+@MainActor
 final class SleepTimerUITests: XCTestCase {
     func testCustomDurationModesAndRunningActionsKeepFooterVisible() throws {
         continueAfterFailure = false

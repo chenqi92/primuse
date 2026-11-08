@@ -3911,6 +3911,7 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true },
+                        onToggleOrientation: immersiveOrientationAction,
                         occlusions: occlusions,
                         onShowAlbum: {
                             guard let album = currentAlbum else { return }
@@ -6109,6 +6110,11 @@ struct NowPlayingView: View {
         showsOrientationButton && orientationControlAvailable
     }
 
+    private var immersiveOrientationAction: (() -> Void)? {
+        guard showsOrientationButton && orientationControlAvailable else { return nil }
+        return { togglePlayerOrientation() }
+    }
+
     /// 横竖屏切换键：竖屏时转到横屏，横屏时转回竖屏，不用等手机转过去。
     private func playerOrientationButton(diameter: CGFloat) -> some View {
         let isLandscape = heightClass.isCompact
@@ -6117,12 +6123,16 @@ struct NowPlayingView: View {
             label: isLandscape ? "player_orientation_to_portrait" : "player_orientation_to_landscape",
             appearance: appearance,
             tint: appearance.primary,
-            diameter: diameter
-        ) {
-            #if os(iOS)
-            PlayerOrientationControl.toggle(fromLandscape: isLandscape, followsDevice: followsDeviceOrientation)
-            #endif
-        }
+            diameter: diameter,
+            action: togglePlayerOrientation
+        )
+        .accessibilityIdentifier("player.orientation.toggle")
+    }
+
+    private func togglePlayerOrientation() {
+        #if os(iOS)
+        PlayerOrientationControl.toggle(fromLandscape: heightClass.isCompact, followsDevice: followsDeviceOrientation)
+        #endif
     }
 
     /// `width` 是这一排可用的宽度,底栏那一串排不下时左边一组少摆几颗(见 `compactLandscapeChromeRow`)。

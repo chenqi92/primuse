@@ -21,6 +21,7 @@ struct ImmersivePlayerView: View {
     let onDismiss: () -> Void
     let onMinimize: () -> Void
     let onShowQueue: () -> Void
+    var onToggleOrientation: (() -> Void)? = nil
     /// 遮挡区(iPhone Duo 外屏竖排的状态栏与前置摄像头),用全屏页自己的坐标,由播放页量好交进来。
     /// 全屏播放是沉浸式、不滚动的界面,按整屏居中,只让开这一块:顶部控件排在遮挡那一侧让开,
     /// 舞台内容只有上沿落进遮挡区那段高度时才在那一侧让。没有竖栏的设备为空,排版不变。
@@ -622,6 +623,19 @@ struct ImmersivePlayerView: View {
                 .accessibilityLabel(Text("immersive_disc_settings"))
             }
             topTrailingChromeControl
+            if let onToggleOrientation {
+                let isLandscape = metrics.size.width > metrics.size.height
+                ImmersiveGlassActionButton(
+                    symbol: isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate",
+                    label: isLandscape ? "player_orientation_to_portrait" : "player_orientation_to_landscape",
+                    tint: chromeInk,
+                    diameter: 44
+                ) {
+                    revealChrome()
+                    onToggleOrientation()
+                }
+                .accessibilityIdentifier("player.orientation.toggle")
+            }
         }
     }
 
