@@ -26,6 +26,9 @@ final class SpokenWordWidgetPublisher {
     private var observers: [NSObjectProtocol] = []
     private var pending: Task<Void, Never>?
     private var lastSignature: String?
+    private var bookProgressIndex: SpokenWordBookProgressIndex?
+    private var bookLibraryRevision: UInt64?
+    private var bookSongsByID: [String: Song] = [:]
     /// Covers written in this launch, so a book's cover is rendered once
     /// rather than on every publish. A new launch refreshes them.
     private var writtenCovers: Set<String> = []
@@ -77,6 +80,9 @@ final class SpokenWordWidgetPublisher {
 
     private func publish() async {
         guard WidgetSettings.syncEnabled() else {
+            bookProgressIndex = nil
+            bookLibraryRevision = nil
+            bookSongsByID = [:]
             if lastSignature != nil || SpokenWordShelfSnapshot.load() != nil {
                 SpokenWordShelfSnapshot.clear()
                 lastSignature = nil
@@ -87,25 +93,42 @@ final class SpokenWordWidgetPublisher {
         }
         let scope = WidgetSettings.sharedDataScope()
         let store = SpokenWordStore.shared
-        // 分书要把整个有声书库过一遍，上千条时要一百多毫秒；进度每 15 秒存一次就来一回，
-        // 放在主线程上会周期性地打断播放页的动画。这里只取快照，分书与写封面都在后台做。
         let songs = library.spokenWordSongs
+        let libraryRevision = library.spokenWordContentRevision
+        let cachedIndex = bookLibraryRevision == libraryRevision ? bookProgressIndex : nil
+        let cachedSongs = bookLibraryRevision == libraryRevision ? bookSongsByID : nil
         let positions = store.positions
         let finishedAt = store.finishedAt
         let archived = store.archivedBookIDs
         let alreadyWritten = writtenCovers
-        let (entries, cachedWrite) = await Task.detached(priority: .utility) {
+        let worker = Task.detached(priority: .utility) {
+            var index = try cachedIndex ?? SpokenWordBookProgressIndex(items: songs.map { song in
+                try Task.checkCancellation()
+                return SpokenWordBookItem(song: song)
+            })
+            index.update(SpokenWordBookProgressIndex.storedProgress(positions: positions, finishedAt: finishedAt))
+            let coverSongIDs = Set(index.books.compactMap { $0.items.first?.id })
+            let songsByID = cachedSongs ?? Dictionary(songs.lazy.filter { coverSongIDs.contains($0.id) }
+                .map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            try Task.checkCancellation()
             let shelf = Self.shelfEntries(
-                songs: songs,
-                positions: positions,
-                finishedAt: finishedAt,
+                books: index.books,
+                songsByID: songsByID,
                 archived: archived,
                 scope: scope,
                 alreadyWritten: alreadyWritten
             )
             let keptCovers = Set(shelf.entries.compactMap(\.coverImageName))
-            return (shelf.entries, Self.writeCovers(shelf.coverJobs, keeping: keptCovers))
-        }.value
+            return (shelf.entries, Self.writeCovers(shelf.coverJobs, keeping: keptCovers), index, songsByID)
+        }
+        let result = await withTaskCancellationHandler {
+            try? await worker.value
+        } onCancel: { worker.cancel() }
+        guard !Task.isCancelled, library.spokenWordContentRevision == libraryRevision, let result else { return }
+        let (entries, cachedWrite, index, songsByID) = result
+        bookProgressIndex = index
+        bookLibraryRevision = libraryRevision
+        bookSongsByID = songsByID
         var written = cachedWrite.written
         // 本机缓存里没有的书封(文件夹里的 cover.jpg、服务器给的封面地址、还没缓存过的内嵌封面)
         // 照书架的取法去源上取一次,书架有封面、小组件却是占位图的就是这一类(#313)。
@@ -118,11 +141,16 @@ final class SpokenWordWidgetPublisher {
         if !sourceJobs.isEmpty {
             for job in sourceJobs { sourceCoverAttempts[job.fileName] = now }
             let sourceManager = AppServices.shared.sourceManager
-            let fetched = await Task.detached(priority: .utility) {
+            let sourceWorker = Task.detached(priority: .utility) {
                 await Self.writeSourceCovers(sourceJobs, sourceManager: sourceManager)
-            }.value
+            }
+            let fetched = await withTaskCancellationHandler {
+                await sourceWorker.value
+            } onCancel: { sourceWorker.cancel() }
             written.formUnion(fetched)
         }
+        guard !Task.isCancelled, library.spokenWordContentRevision == libraryRevision,
+              WidgetSettings.syncEnabled(), WidgetSettings.sharedDataScope() == scope else { return }
         writtenCovers.formUnion(written)
         // A cover that could not be rendered is left to the placeholder
         // rather than pointing the widget at a missing file.
@@ -148,24 +176,12 @@ final class SpokenWordWidgetPublisher {
     /// render. Runs off the main actor on a snapshot of the library and the
     /// stored progress.
     private nonisolated static func shelfEntries(
-        songs: [Song],
-        positions: [String: SpokenWordStore.StoredPosition],
-        finishedAt: [String: Date],
+        books: [SpokenWordBook],
+        songsByID: [String: Song],
         archived: Set<String>,
         scope: WidgetSharedDataScope,
         alreadyWritten: Set<String>
     ) -> (entries: [SpokenWordShelfSnapshot.Book], coverJobs: [CoverJob]) {
-        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let books = SpokenWordBookGrouping.books(from: songs.map { song in
-            let stored = positions[song.id]
-            return SpokenWordBookItem(
-                song: song,
-                knownDuration: stored?.duration,
-                position: stored?.position,
-                positionUpdatedAt: stored?.updatedAt,
-                finishedAt: finishedAt[song.id]
-            )
-        })
         let shelf = SpokenWordWidgetPolicy.shelfBooks(from: books, archivedBookIDs: archived)
 
         var coverJobs: [CoverJob] = []
@@ -284,6 +300,20 @@ final class SpokenWordWidgetPublisher {
         return written
     }
 
+}
+
+extension SpokenWordBookProgressIndex {
+    nonisolated static func storedProgress(
+        positions: [String: SpokenWordStore.StoredPosition], finishedAt: [String: Date]
+    ) -> [String: Progress] {
+        var result = positions.mapValues { Progress(position: $0.position, duration: $0.duration, updatedAt: $0.updatedAt) }
+        for (id, date) in finishedAt {
+            let position = positions[id]
+            result[id] = Progress(position: position?.position, duration: position?.duration,
+                                  updatedAt: position?.updatedAt, finishedAt: date)
+        }
+        return result
+    }
 }
 
 /// 小组件里的书封成图，和 App 里 `bookCoverLayout` 同一个画法：方图直接铺满；

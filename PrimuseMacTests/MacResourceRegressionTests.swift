@@ -94,6 +94,122 @@ final class BackgroundServerEnrichmentTests: XCTestCase {
     }
 }
 
+@MainActor
+final class SpokenWordProgressProjectionTests: XCTestCase {
+    func testProgressCompletionAndArchiveReuseChapterQueues() async throws {
+        let songs = (0..<4).map { index in
+            Song(id: "chapter-\(index)", title: "Chapter \(index + 1)", albumTitle: "Book \(index / 2)",
+                 trackNumber: index % 2 + 1, duration: 600, fileFormat: .mp3,
+                 filePath: "/book-\(index / 2)/\(index).mp3", sourceID: "fixture")
+        }
+        let model = SpokenWordBooksModel()
+        await model.refresh(songs: songs, positions: [:], finishedAt: [:],
+                            inputs: .init(collection: .books, libraryRevision: 1, storeRevision: 0))
+        let date = Date(timeIntervalSince1970: 1000)
+        await model.refresh(songs: songs, positions: [songs[0].id: .init(position: 120, duration: 600, updatedAt: date)],
+                            finishedAt: [:], inputs: .init(collection: .books, libraryRevision: 1, storeRevision: 1))
+        let listening = try XCTUnwrap(model.snapshot.nowListening)
+        XCTAssertEqual(listening.songs.map(\.id), ["chapter-0", "chapter-1"])
+        XCTAssertEqual(listening.book.resumeItem?.position, 120)
+        await model.refresh(songs: songs, positions: [:], finishedAt: ["chapter-0": date, "chapter-1": date],
+                            archived: [listening.id], inputs: .init(collection: .books, libraryRevision: 1, storeRevision: 2))
+        XCTAssertNil(model.snapshot.nowListening)
+        XCTAssertEqual(model.snapshot.archived.first?.id, listening.id)
+        XCTAssertEqual(model.snapshot.archived.first?.songs, listening.songs)
+        XCTAssertTrue(try XCTUnwrap(model.snapshot.archived.first).book.isFinished)
+    }
+
+    func testContentRevisionRebuildsGroupsAndClearingDropsCachedBooks() async {
+        var song = Song(id: "chapter", title: "Chapter", albumTitle: "Before", duration: 600,
+                        fileFormat: .mp3, filePath: "/book/1.mp3", sourceID: "fixture")
+        let model = SpokenWordBooksModel()
+        await model.refresh(songs: [song], positions: [:], finishedAt: [:],
+                            inputs: .init(collection: .books, libraryRevision: 1, storeRevision: 0))
+        song.albumTitle = "After"
+        song.duration = 900
+        await model.refresh(songs: [song], positions: [:], finishedAt: [:],
+                            inputs: .init(collection: .books, libraryRevision: 2, storeRevision: 0))
+        XCTAssertEqual(model.snapshot.shelf.first?.book.title, "After")
+        XCTAssertEqual(model.snapshot.shelf.first?.songs.first?.duration, 900)
+        await model.refresh(songs: [], positions: [:], finishedAt: [:],
+                            inputs: .init(collection: .books, libraryRevision: 3, storeRevision: 0))
+        XCTAssertTrue(model.snapshot.entriesByID.isEmpty)
+    }
+}
+
+@MainActor
+final class ListeningWidgetArtworkCacheTests: XCTestCase {
+    func testProgressUpdatesReuseSuccessfulAndMissingArtwork() async {
+        let cache = ListeningWidgetArtworkCache<String>(fileExists: { _ in true })
+        var reads = 0
+        for _ in 0..<80 {
+            let hit = await cache.imageName(for: "podcast", identity: "cover") { reads += 1; return "cover.jpg" }
+            let miss = await cache.imageName(for: "radio", identity: "remote") { reads += 1; return nil }
+            XCTAssertEqual(hit, "cover.jpg")
+            XCTAssertNil(miss)
+        }
+        XCTAssertEqual(reads, 2)
+        cache.invalidate()
+        let arrived = await cache.imageName(for: "radio", identity: "remote") { reads += 1; return "radio.jpg" }
+        XCTAssertEqual(arrived, "radio.jpg")
+        XCTAssertEqual(reads, 3)
+    }
+
+    func testChangedArtworkAndEvictedExportsAreReloaded() async {
+        var exists = true
+        let cache = ListeningWidgetArtworkCache<String>(fileExists: { _ in exists })
+        var reads = 0
+        _ = await cache.imageName(for: "radio", identity: "old") { reads += 1; return "old.jpg" }
+        let changed = await cache.imageName(for: "radio", identity: "new") { reads += 1; return "new.jpg" }
+        XCTAssertEqual(changed, "new.jpg")
+        exists = false
+        let restored = await cache.imageName(for: "radio", identity: "new") { reads += 1; return "restored.jpg" }
+        XCTAssertEqual(restored, "restored.jpg")
+        XCTAssertEqual(reads, 3)
+    }
+
+    func testInvalidationDuringLoadCannotRestoreStaleArtwork() async {
+        let cache = ListeningWidgetArtworkCache<String>(fileExists: { _ in true })
+        let stale = await cache.imageName(for: "radio", identity: "cover") {
+            cache.invalidate()
+            return "stale.jpg"
+        }
+        XCTAssertNil(stale)
+        let current = await cache.imageName(for: "radio", identity: "cover") { "current.jpg" }
+        XCTAssertEqual(current, "current.jpg")
+    }
+
+    func testCancelledPublicationDoesNotCacheItsResult() async {
+        let cache = ListeningWidgetArtworkCache<String>(fileExists: { _ in true })
+        let task = Task { @MainActor in
+            await cache.imageName(for: "radio", identity: "cover") {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return "cancelled.jpg"
+            }
+        }
+        let cancelled = await task.value
+        XCTAssertNil(cancelled)
+        let next = await cache.imageName(for: "radio", identity: "cover") { "current.jpg" }
+        XCTAssertEqual(next, "current.jpg")
+    }
+
+    func testRemovedItemsReleaseTheirCachedMisses() async {
+        let cache = ListeningWidgetArtworkCache<String>(fileExists: { _ in true })
+        _ = await cache.imageName(for: "radio", identity: "cover") { nil }
+        cache.retain(ids: [])
+        let reintroduced = await cache.imageName(for: "radio", identity: "cover") { "current.jpg" }
+        XCTAssertEqual(reintroduced, "current.jpg")
+    }
+
+    func testOnlyLocalReferencesUseTheNamedFileCache() {
+        XCTAssertFalse(ListeningWidgetPublisher.isLocalCoverReference("https://example.invalid/logo.png"))
+        XCTAssertFalse(ListeningWidgetPublisher.isLocalCoverReference("http://example.invalid/favicon.ico"))
+        XCTAssertFalse(ListeningWidgetPublisher.isLocalCoverReference("tingreader:cover:book:library:cover.jpg"))
+        XCTAssertTrue(ListeningWidgetPublisher.isLocalCoverReference("selected-" + String(repeating: "a", count: 64) + ".jpg"))
+        XCTAssertTrue(ListeningWidgetPublisher.isLocalCoverReference("legacy.jpg"))
+    }
+}
+
 final class ArtworkRefreshClockTests: XCTestCase {
     func testConcurrentCachedReadsResolveTheRefreshPathOnlyOnce() throws {
         let root = try directory()

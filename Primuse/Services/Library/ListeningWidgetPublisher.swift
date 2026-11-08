@@ -13,6 +13,14 @@ final class ListeningWidgetPublisher {
     private var observers: [NSObjectProtocol] = []
     private var pending: Task<Void, Never>?
     private var settingsSignature = ""
+    private enum ArtworkIdentity: Equatable {
+        case podcast(String)
+        case radio(RadioStationArtworkResolutionIdentity)
+    }
+    private let artwork = ListeningWidgetArtworkCache<ArtworkIdentity>(fileExists: { name in
+        guard let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier) else { return false }
+        return FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
+    })
 
     init(library: MusicLibrary, radioStations: @escaping @MainActor () -> [RadioStation]) {
         self.library = library
@@ -25,7 +33,12 @@ final class ListeningWidgetPublisher {
         for name in [Notification.Name.primusePodcastsDidChange, .primuseRadioStationsDidChange,
                      .primuseSpokenWordDidChange, .primuseArtworkDidCache, .primuseListeningStatsDidChange] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.schedule() }
+                MainActor.assumeIsolated {
+                    if name == .primuseArtworkDidCache || name == .primusePodcastsDidChange {
+                        self?.artwork.invalidate()
+                    }
+                    self?.schedule()
+                }
             })
         }
         // UserDefaults 在写入的线程上同步发通知; 挂主队列会让每次写都等主线程跑完回调,
@@ -34,6 +47,7 @@ final class ListeningWidgetPublisher {
             Task { @MainActor in
                 guard let self, self.settingsSignature != self.currentSettingsSignature else { return }
                 self.settingsSignature = self.currentSettingsSignature
+                self.artwork.invalidate()
                 self.schedule()
             }
         })
@@ -52,6 +66,7 @@ final class ListeningWidgetPublisher {
             _ = radioStations()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
+                self?.artwork.invalidate()
                 self?.schedule()
                 self?.observeLibrary()
             }
@@ -70,6 +85,7 @@ final class ListeningWidgetPublisher {
     private func publish() async {
         let scope = WidgetSettings.sharedDataScope()
         guard WidgetSettings.syncEnabled() else {
+            artwork.invalidate()
             for kind in [ListeningWidgetKind.podcast, .radio, .recentPodcast] {
                 kind.clear()
                 WidgetCenter.shared.reloadTimelines(ofKind: kind.widgetKind)
@@ -147,8 +163,11 @@ final class ListeningWidgetPublisher {
         if scope.includesCover {
             for index in podcasts.indices {
                 let key = artworkIDs[podcasts[index].id] ?? podcasts[index].id
-                let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: key)
-                podcasts[index].coverImageName = await Self.writeCover(data, id: podcasts[index].id)
+                let id = podcasts[index].id
+                podcasts[index].coverImageName = await artwork.imageName(for: id, identity: .podcast(key)) {
+                    let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: key)
+                    return await Self.writeCover(data, id: id)
+                }
             }
             for index in recentPodcasts.indices {
                 let id = recentPodcasts[index].id
@@ -156,27 +175,34 @@ final class ListeningWidgetPublisher {
                     recentPodcasts[index].coverImageName = written
                     continue
                 }
-                let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: artworkIDs[id] ?? id)
-                recentPodcasts[index].coverImageName = await Self.writeCover(data, id: id)
+                let key = artworkIDs[id] ?? id
+                recentPodcasts[index].coverImageName = await artwork.imageName(for: id, identity: .podcast(key)) {
+                    let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: key)
+                    return await Self.writeCover(data, id: id)
+                }
             }
             for index in radios.indices {
                 let plan = RadioStationArtworkResolutionPolicy.makePlan(for: stations[index])
-                for candidate in plan.candidates {
-                    let data: Data?
-                    switch candidate {
-                    case .inline(let inline):
-                        data = inline
-                    case .cachedOrSource(let request):
-                        if let stored = await MetadataAssetStore.shared.coverData(named: request.coverReference) {
-                            data = stored
-                        } else {
-                            data = await MetadataAssetStore.shared.cachedCoverData(forSongID: request.songID)
+                let id = radios[index].id
+                radios[index].coverImageName = await artwork.imageName(for: id, identity: .radio(plan.identity)) {
+                    for candidate in plan.candidates {
+                        let data: Data?
+                        switch candidate {
+                        case .inline(let inline):
+                            data = inline
+                        case .cachedOrSource(let request):
+                            if Self.isLocalCoverReference(request.coverReference),
+                               let stored = await MetadataAssetStore.shared.coverData(named: request.coverReference) {
+                                data = stored
+                            } else {
+                                data = await MetadataAssetStore.shared.cachedCoverData(forSongID: request.songID)
+                            }
+                        }
+                        if let name = await Self.writeCover(data, id: id) {
+                            return name
                         }
                     }
-                    if let name = await Self.writeCover(data, id: radios[index].id) {
-                        radios[index].coverImageName = name
-                        break
-                    }
+                    return nil
                 }
             }
         }
@@ -190,6 +216,8 @@ final class ListeningWidgetPublisher {
         let podcastSnapshot = ListeningWidgetSnapshot(items: podcasts).limited(to: scope)
         let radioSnapshot = ListeningWidgetSnapshot(items: radios).limited(to: scope)
         let recentSnapshot = ListeningWidgetSnapshot(items: recentPodcasts).limited(to: scope)
+        artwork.retain(ids: scope.includesCover
+            ? Set((podcasts + radios + recentPodcasts).map(\.id)) : [])
         var deskChanged = false
         for (kind, snapshot) in [(ListeningWidgetKind.podcast, podcastSnapshot), (.radio, radioSnapshot),
                                  (.recentPodcast, recentSnapshot)] {
@@ -204,21 +232,25 @@ final class ListeningWidgetPublisher {
             .compactMap(\.coverImageName)))
     }
 
+    nonisolated static func isLocalCoverReference(_ reference: String) -> Bool {
+        URL(string: reference)?.scheme == nil
+    }
+
     private nonisolated static func writeCover(_ data: Data?, id: String) async -> String? {
         guard let data else { return nil }
         return await Task.detached(priority: .utility) {
-            guard let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+            guard let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier) else { return nil }
+            // Reuse the exported thumbnail before ImageIO decodes the source again.
+            let digest = SHA256.hash(data: Data(id.utf8) + data).prefix(16).map { String(format: "%02x", $0) }.joined()
+            let name = ListeningWidgetPolicy.coverPrefix + digest + ".jpg"
+            let url = directory.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { return name }
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                   let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceThumbnailMaxPixelSize: 240,
                     kCGImageSourceCreateThumbnailWithTransform: true
                   ] as CFDictionary) else { return nil }
-            // Content-addressed names refresh a changed cover even when its item's ID is unchanged.
-            let digest = SHA256.hash(data: Data(id.utf8) + data).prefix(16).map { String(format: "%02x", $0) }.joined()
-            let name = ListeningWidgetPolicy.coverPrefix + digest + ".jpg"
-            let url = directory.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: url.path) { return name }
             let encoded = NSMutableData()
             guard let destination = CGImageDestinationCreateWithData(encoded, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
             CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
@@ -238,6 +270,44 @@ final class ListeningWidgetPublisher {
         for file in files where file.lastPathComponent.hasPrefix(ListeningWidgetPolicy.coverPrefix) && !keeping.contains(file.lastPathComponent) {
             try? FileManager.default.removeItem(at: file)
         }
+    }
+}
+
+@MainActor
+final class ListeningWidgetArtworkCache<Identity: Equatable> {
+    private struct Entry {
+        let identity: Identity
+        let imageName: String?
+    }
+    private var entries: [String: Entry] = [:]
+    private var revision: UInt64 = 0
+    private let fileExists: (String) -> Bool
+
+    init(fileExists: @escaping (String) -> Bool) {
+        self.fileExists = fileExists
+    }
+
+    func imageName(for id: String, identity: Identity, load: () async -> String?) async -> String? {
+        guard !Task.isCancelled else { return nil }
+        if let entry = entries[id], entry.identity == identity,
+           entry.imageName.map(fileExists) ?? true {
+            return entry.imageName
+        }
+        let startedRevision = revision
+        let name = await load()
+        guard !Task.isCancelled, revision == startedRevision else { return nil }
+        // Cache misses too; artwork notifications invalidate them when bytes arrive.
+        entries[id] = Entry(identity: identity, imageName: name)
+        return name
+    }
+
+    func invalidate() {
+        revision &+= 1
+        entries.removeAll(keepingCapacity: true)
+    }
+
+    func retain(ids: Set<String>) {
+        entries = entries.filter { ids.contains($0.key) }
     }
 }
 

@@ -2,6 +2,64 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
+@Suite("Book progress without regrouping the library")
+struct SpokenWordBookProgressIndexTests {
+    private func chapter(_ id: String, book: String, track: Int, duration: Double = 600) -> SpokenWordBookItem {
+        .init(id: id, title: "Chapter \(track)", albumTitle: book, trackNumber: track,
+              duration: duration, fileName: "/\(book)/\(track).mp3", sourceID: "fixture")
+    }
+
+    @Test("Progress, completion, replay and reset match a fresh grouping")
+    func matchesFreshGrouping() {
+        let items = [chapter("a1", book: "Book A", track: 1), chapter("a2", book: "Book A", track: 2, duration: 0),
+                     chapter("b1", book: "Book B", track: 1)]
+        let date = Date(timeIntervalSince1970: 1_000)
+        let states: [[String: SpokenWordBookProgressIndex.Progress]] = [
+            ["a1": .init(position: 30, duration: 900, updatedAt: date)],
+            ["a1": .init(finishedAt: date), "a2": .init(position: 60, duration: 300, updatedAt: date.addingTimeInterval(15))],
+            ["a1": .init(finishedAt: date), "a2": .init(finishedAt: date.addingTimeInterval(30))],
+            ["a1": .init(position: 15, updatedAt: date.addingTimeInterval(45), finishedAt: date),
+             "a2": .init(finishedAt: date.addingTimeInterval(30)), "b1": .init(position: 40, updatedAt: date)],
+            [:]
+        ]
+        var index = SpokenWordBookProgressIndex(items: items)
+        for state in states {
+            index.update(state)
+            let expected = SpokenWordBookGrouping.books(from: items.map { item in
+                var updated = item
+                updated.position = state[item.id]?.position
+                updated.positionUpdatedAt = state[item.id]?.updatedAt
+                updated.finishedAt = state[item.id]?.finishedAt
+                if item.duration <= 0 { updated.duration = state[item.id]?.duration ?? 0 }
+                return updated
+            })
+            #expect(index.books == expected)
+            #expect(index.update(state) == 0)
+        }
+    }
+
+    @Test("Repeated single-chapter updates only rebuild its book")
+    func largeLibraryUpdatesOneBook() {
+        let items = (0..<10_000).map { chapter("item-\($0)", book: "Book \($0 / 100)", track: $0 % 100 + 1) }
+        var index = SpokenWordBookProgressIndex(items: items)
+        let unaffected = index.books.first { $0.items.first?.id == "item-100" }
+        for tick in 1...80 {
+            #expect(index.update(["item-0": .init(position: Double(tick * 15),
+                        updatedAt: Date(timeIntervalSince1970: Double(tick * 15)))]) == 1)
+        }
+        #expect(index.books.first { $0.id == unaffected?.id } == unaffected)
+        #expect(index.books.first?.resumeItemID == "item-0")
+    }
+
+    @Test("Unrelated podcast or removed chapter progress does not touch the books")
+    func ignoresForeignProgress() {
+        var index = SpokenWordBookProgressIndex(items: [chapter("a1", book: "Book A", track: 1)])
+        #expect(index.update(["podcast": .init(position: 30, updatedAt: Date())]) == 0)
+        #expect(index.books.first?.lastListenedAt == nil)
+        #expect(index.update([:]) == 0)
+    }
+}
+
 @Suite("Spoken word bookmarks")
 struct SpokenWordBookmarkPolicyTests {
     private func mark(_ position: TimeInterval, at created: Date = Date()) -> SpokenWordBookmark {

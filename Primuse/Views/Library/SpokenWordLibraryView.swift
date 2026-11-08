@@ -47,10 +47,12 @@ struct SpokenWordLibrarySnapshot: Sendable {
         books: [SpokenWordBook] = [],
         songsByID: [String: Song] = [:],
         archivedBookIDs: Set<String> = [],
+        reusingSongsFrom previous: SpokenWordLibrarySnapshot? = nil,
         isPrepared: Bool = true
     ) {
         let all = books.map { book in
-            Entry(book: book, songs: book.items.compactMap { songsByID[$0.id] })
+            Entry(book: book, songs: previous?.entriesByID[book.id]?.songs
+                ?? book.items.compactMap { songsByID[$0.id] })
         }
         entriesByID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         archived = all.filter { archivedBookIDs.contains($0.id) }
@@ -123,6 +125,7 @@ final class SpokenWordBooksModel {
     @ObservationIgnored private(set) var requestRevision: UInt = 0
     /// 当前 `snapshot` 是按哪一份输入分的。
     @ObservationIgnored private var preparedInputs: Inputs?
+    @ObservationIgnored private var progressIndex: SpokenWordBookProgressIndex?
 
     var inProgress: [(SpokenWordBook, [Song])] { snapshot.inProgress }
 
@@ -142,27 +145,28 @@ final class SpokenWordBooksModel {
         guard !songs.isEmpty else {
             snapshot = SpokenWordLibrarySnapshot()
             preparedInputs = inputs
+            progressIndex = nil
             return
         }
+        let reusesGrouping = inputs != nil && preparedInputs?.collection == inputs?.collection
+            && preparedInputs?.libraryRevision == inputs?.libraryRevision
+        let cachedIndex = reusesGrouping ? progressIndex : nil
+        let previous = reusesGrouping ? snapshot : nil
         // Build sections and chapter queues together, so scrolling and opening
         // a book only read an immutable snapshot on the UI executor.
         let worker = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
-            let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            let items = try songs.map { song in
+            let songsByID = previous == nil
+                ? Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) : [:]
+            var index = try cachedIndex ?? SpokenWordBookProgressIndex(items: songs.map { song in
                 try Task.checkCancellation()
-                let position = positions[song.id]
-                return SpokenWordBookItem(
-                    song: song,
-                    knownDuration: position?.duration,
-                    position: position?.position,
-                    positionUpdatedAt: position?.updatedAt,
-                    finishedAt: finishedAt[song.id]
-                )
-            }
-            let books = SpokenWordBookGrouping.books(from: items)
+                return SpokenWordBookItem(song: song)
+            })
+            index.update(SpokenWordBookProgressIndex.storedProgress(positions: positions, finishedAt: finishedAt))
             try Task.checkCancellation()
-            return SpokenWordLibrarySnapshot(books: books, songsByID: songsByID, archivedBookIDs: archived)
+            let snapshot = SpokenWordLibrarySnapshot(books: index.books, songsByID: songsByID,
+                archivedBookIDs: archived, reusingSongsFrom: previous)
+            return (snapshot, index)
         }
         let result = await withTaskCancellationHandler {
             try? await worker.value
@@ -170,7 +174,8 @@ final class SpokenWordBooksModel {
             worker.cancel()
         }
         guard !Task.isCancelled, revision == requestRevision, let result else { return }
-        snapshot = result
+        snapshot = result.0
+        progressIndex = result.1
         preparedInputs = inputs
     }
 }

@@ -517,7 +517,7 @@ public enum SpokenWordBookGrouping {
         return lhs.id < rhs.id
     }
 
-    private static func shelfOrder(_ lhs: SpokenWordBook, _ rhs: SpokenWordBook) -> Bool {
+    fileprivate static func shelfOrder(_ lhs: SpokenWordBook, _ rhs: SpokenWordBook) -> Bool {
         switch (lhs.isInProgress, rhs.isInProgress) {
         case (true, false): return true
         case (false, true): return false
@@ -564,6 +564,74 @@ public enum SpokenWordBookGrouping {
             resumeItemID: resumeItemID,
             lastListenedAt: lastListenedAt
         )
+    }
+}
+
+/// Keeps chapter membership and ordering across listening-progress updates.
+/// Rebuild this index when the library's content or classification changes.
+public struct SpokenWordBookProgressIndex: Sendable {
+    public struct Progress: Equatable, Sendable {
+        public let position: TimeInterval?
+        public let duration: TimeInterval?
+        public let updatedAt: Date?
+        public let finishedAt: Date?
+
+        public init(position: TimeInterval? = nil, duration: TimeInterval? = nil,
+                    updatedAt: Date? = nil, finishedAt: Date? = nil) {
+            self.position = position
+            self.duration = duration
+            self.updatedAt = updatedAt
+            self.finishedAt = finishedAt
+        }
+    }
+
+    private var grouped: [SpokenWordBook]
+    private let bookIndexByItemID: [String: Int]
+    private let durations: [String: TimeInterval]
+    private var progress: [String: Progress]
+    public private(set) var books: [SpokenWordBook]
+
+    public init(items: [SpokenWordBookItem]) {
+        let grouped = SpokenWordBookGrouping.books(from: items)
+        self.grouped = grouped
+        self.books = grouped
+        self.bookIndexByItemID = Dictionary(grouped.enumerated().flatMap { index, book in
+            book.items.map { ($0.id, index) }
+        }, uniquingKeysWith: { first, _ in first })
+        self.durations = Dictionary(items.map { ($0.id, $0.duration) }, uniquingKeysWith: { first, _ in first })
+        self.progress = Dictionary(items.compactMap { item in
+            guard item.position != nil || item.finishedAt != nil || item.positionUpdatedAt != nil else { return nil }
+            return (item.id, Progress(position: item.position, updatedAt: item.positionUpdatedAt, finishedAt: item.finishedAt))
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Returns how many books changed; unaffected books retain their chapter arrays.
+    @discardableResult
+    public mutating func update(_ current: [String: Progress]) -> Int {
+        let current = current.filter { bookIndexByItemID[$0.key] != nil }
+        var changed = Set<Int>()
+        for (id, value) in current where progress[id] != value {
+            if let index = bookIndexByItemID[id] { changed.insert(index) }
+        }
+        for id in progress.keys where current[id] == nil {
+            if let index = bookIndexByItemID[id] { changed.insert(index) }
+        }
+        guard !changed.isEmpty else { return 0 }
+        progress = current
+        for index in changed {
+            grouped[index] = SpokenWordBookGrouping.updatingProgress(of: grouped[index]) { item in
+                var updated = item
+                let state = current[item.id]
+                updated.position = state?.position
+                updated.positionUpdatedAt = state?.updatedAt
+                updated.finishedAt = state?.finishedAt
+                let duration = durations[item.id] ?? 0
+                updated.duration = duration > 0 ? duration : (state?.duration ?? 0)
+                return updated
+            }
+        }
+        books = grouped.sorted(by: SpokenWordBookGrouping.shelfOrder)
+        return changed.count
     }
 }
 
