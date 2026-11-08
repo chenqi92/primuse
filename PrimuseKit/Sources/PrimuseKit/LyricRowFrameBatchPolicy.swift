@@ -949,8 +949,6 @@ public enum NowPlayingLyricsMetadataPolicy {
 
         let line = synchronizedLyrics[activeIndex]
         if prefersStableTitle {
-            // CarPlay throttles title changes within the same content item.
-            // Keep its track identity stable and advance lyrics in the subtitle.
             return NowPlayingLyricsMetadataPresentation(
                 title: title,
                 artist: line.text.trimmingCharacters(in: .whitespacesAndNewlines),

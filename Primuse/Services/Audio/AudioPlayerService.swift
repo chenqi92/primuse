@@ -8381,10 +8381,11 @@ final class AudioPlayerService {
         let lineChanged = presentation != lastPublishedLockScreenLyricsPresentation
         guard lineChanged || pendingLockScreenLyricsPublish else { return }
 
-        // 每次 nowPlayingInfo 赋值都是主线程上的同步 XPC, 歌词行 2~6 秒一换
-        // 时会和滚动抢主线程。限流到 1 秒一次, 被压住的那一行随后补发。
+        // 车载主标题换行立即发布，避免短句被限流合并；其余系统歌词继续限流。
+        let publishesCarTitle = shouldForceAudioOnly
+            && CarPlaySettingsStore.shared.configuration.lyricsPosition == .title
         let now = Date()
-        guard NowPlayingLyricsPublishPolicy.shouldPublish(
+        guard publishesCarTitle || NowPlayingLyricsPublishPolicy.shouldPublish(
             lastPublishedAt: lastLockScreenLyricsPublishAt,
             now: now,
             lineChanged: true

@@ -10,6 +10,86 @@ import Synchronization
 
 @MainActor
 final class CarPlayEditorRenderingTests: XCTestCase {
+    func testTitleLyricsPublishEachLineAndPreserveTrackIdentity() async throws {
+        let defaultsName = "CarPlayTitleLyricsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        let phone = PlaybackSettingsStore(defaults: defaults)
+        phone.lockScreenLyricsEnabled = false
+        let settings = CarPlaySettingsStore.shared
+        let original = settings.configuration
+        let player = AudioPlayerService(playbackSettings: phone, activateAudioSession: { _ in })
+        let song = Song(id: UUID().uuidString, title: "纸船夜航", artistName: "窗边乐队",
+                        fileFormat: .flac, filePath: "fixture.flac", sourceID: AppleMusicLibraryIdentity.sourceID)
+        let lines = ["纸船经过蓝色的桥", "晚风收起远处的帆", "一盏灯在河岸等候", "我们沿着星光回家"]
+        let cached = await MetadataAssetStore.shared.cacheLyrics(
+            lines.enumerated().map {
+                LyricLine(timestamp: Double($0.offset) * 0.5, text: $0.element, isSynchronized: true)
+            }, forSongID: song.id, force: true)
+        XCTAssertTrue(cached)
+        addTeardownBlock { @MainActor in
+            player.currentSong = nil
+            player.clearNowPlayingInfo()
+            settings.configuration = original
+            NotificationCenter.default.post(name: .primuseCarPlaySceneDidDisconnect, object: nil)
+            _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: song.id)
+            defaults.removePersistentDomain(forName: defaultsName)
+        }
+        settings.configuration.lyricsPosition = .title
+        player.currentSong = song
+        NotificationCenter.default.post(name: .primuseCarPlaySceneDidConnect, object: nil)
+        for _ in 0..<100 {
+            if player.lockScreenLyricsPresentation().title == lines[0] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(player.lockScreenLyricsPresentation().title, lines[0])
+        let center = MPNowPlayingInfoCenter.default()
+        player.duration = 60
+        let cover = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        player.updateNowPlayingArtwork(cover)
+        let artwork = try XCTUnwrap(center.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+
+        // Advance faster than the phone's publish window: every visible line must reach MediaPlayer.
+        for (index, line) in lines.enumerated() {
+            player.currentTime = Double(index) * 0.5
+            XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, line)
+            XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyArtist] as? String, "纸船夜航 · 窗边乐队")
+            XCTAssertEqual(center.nowPlayingInfo?[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String, song.id)
+            XCTAssertTrue(center.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork === artwork)
+            XCTAssertFalse(player.pendingLockScreenLyricsPublish)
+            let publishedAt = player.lastLockScreenLyricsPublishAt
+            player.currentTime += 0.1
+            XCTAssertEqual(player.lastLockScreenLyricsPublishAt, publishedAt,
+                           "Sampling the same line must not republish metadata")
+        }
+        let persistentID = try XCTUnwrap(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber)
+        XCTAssertNotEqual(persistentID.uint64Value, 0)
+        player.currentTime = 0.5
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, lines[1])
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber, persistentID)
+        player.updateNowPlayingInfo()
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber, persistentID)
+
+        NotificationCenter.default.post(name: .primuseCarPlaySceneDidDisconnect, object: nil)
+        for _ in 0..<100 {
+            if center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String == song.title { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, song.title)
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber, persistentID)
+        var nextSong = song
+        nextSong.id = UUID().uuidString
+        player.currentSong = nextSong
+        player.updateNowPlayingInfo()
+        let nextID = try XCTUnwrap(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber)
+        XCTAssertNotEqual(nextID, persistentID)
+        player.currentSong = song
+        player.updateNowPlayingInfo()
+        XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyPersistentID] as? NSNumber, persistentID)
+    }
+
     func testLyricsPositionChangesAndDisconnectRestorePhonePreference() async throws {
         let defaultsName = "CarPlayLyricsTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))

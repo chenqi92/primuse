@@ -89,7 +89,7 @@ extension AudioPlayerService {
         )
         synchronizeRemoteCommandAvailability(projection)
 
-        guard currentSong != nil else {
+        guard let song = currentSong else {
             clearNowPlayingInfo()
             return
         }
@@ -134,7 +134,12 @@ extension AudioPlayerService {
         #endif
         info[MPMediaItemPropertyTitle] = publishedTitle
         info[MPMediaItemPropertyArtist] = publishedArtist
-        info[MPNowPlayingInfoPropertyExternalContentIdentifier] = currentSong?.id
+        info[MPNowPlayingInfoPropertyExternalContentIdentifier] = song.id
+        #if os(iOS)
+        // 主标题可以承载歌词，曲目标识必须独立于标题并在重启后保持稳定。
+        let persistentID = StableFNV1a64.hash("\(song.sourceID)\u{0}\(song.id)")
+        info[MPMediaItemPropertyPersistentID] = NSNumber(value: max(1, persistentID))
+        #endif
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
         info[MPNowPlayingInfoPropertyMediaType] = isMusicVideoPlaybackActive
@@ -487,9 +492,8 @@ extension AudioPlayerService {
     ) async -> PlatformImage? {
         guard !Task.isCancelled else { return nil }
 
-        // Apple Music 歌的封面归 MusicKit 管: 资料库歌的引用是 `musicKit://`, 下面几层一层也读不到,
-        // 锁屏就只剩一个灰方块。播放页画的就是 MusicKit 这一张, 这里也只认它, 不读 songID 底下
-        // 以前刮削存下的旧图。
+        // Apple Music 的本地选图和 MusicKit 专用引用共用同一解析顺序，
+        // 让锁屏与播放页显示同一张封面。
         if sourceID == AppleMusicLibraryIdentity.sourceID, let filePath, !filePath.isEmpty {
             let song = Song(
                 id: songID,
