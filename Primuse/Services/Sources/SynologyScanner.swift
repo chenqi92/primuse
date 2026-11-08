@@ -596,18 +596,26 @@ actor SynologyScanner {
             uniquingKeysWith: { first, _ in first }
         )
 
-        for cueItem in items where !cueItem.isDirectory
-            && PrimuseConstants.supportedVirtualTrackExtensions.contains((cueItem.name as NSString).pathExtension.lowercased()) {
+        var externalSheets: [ISOAlbumMetadataPolicy.Sidecar] = []
+        let ordered = items.filter {
+            !$0.isDirectory && PrimuseConstants.supportedVirtualTrackExtensions.contains(
+                ($0.name as NSString).pathExtension.lowercased()
+            )
+        }.sorted {
+            ($0.name as NSString).pathExtension.lowercased() < ($1.name as NSString).pathExtension.lowercased()
+        }
+        for cueItem in ordered {
             let cue: CueSheet
             if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
                 guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [api] offset, length in
                     try await api.downloadFileRange(path: cueItem.path, offset: offset, length: Int(length))
                 }) else { continue }
-                cue = parsed
+                cue = ISOAlbumMetadataPolicy.merging(parsed, imageFileName: cueItem.name, sidecars: externalSheets)
             } else {
                 guard let data = await cueSheetData(for: cueItem),
                       let parsed = CueSheetParser.parse(data: data) else { continue }
                 cue = parsed
+                externalSheets.append(.init(name: cueItem.name, sheet: parsed))
             }
 
             for cueFile in cue.filesForScanning(sheetFileName: cueItem.name) {

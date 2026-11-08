@@ -1425,20 +1425,26 @@ actor ConnectorScanner {
 
     private func loadCueTracks(from siblings: [RemoteFileItem]) async throws -> [String: [CueTrackDescriptor]] {
         var result: [String: [CueTrackDescriptor]] = [:]
-        for cueItem in siblings where !cueItem.isDirectory
-            && PrimuseConstants.supportedVirtualTrackExtensions.contains(
-                (cueItem.name as NSString).pathExtension.lowercased()
-            ) {
+        var externalSheets: [ISOAlbumMetadataPolicy.Sidecar] = []
+        let ordered = siblings.filter {
+            !$0.isDirectory && PrimuseConstants.supportedVirtualTrackExtensions.contains(
+                ($0.name as NSString).pathExtension.lowercased()
+            )
+        }.sorted {
+            ($0.name as NSString).pathExtension.lowercased() < ($1.name as NSString).pathExtension.lowercased()
+        }
+        for cueItem in ordered {
             let cue: CueSheet
             if (cueItem.name as NSString).pathExtension.lowercased() == "iso" {
                 guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { [connector] offset, length in
                     try await connector.fetchMetadataRange(path: cueItem.path, offset: offset, length: length)
                 }) else { continue }
-                cue = parsed
+                cue = ISOAlbumMetadataPolicy.merging(parsed, imageFileName: cueItem.name, sidecars: externalSheets)
             } else {
                 let data = try await cueSheetData(for: cueItem)
                 guard let parsed = CueSheetParser.parse(data: data) else { continue }
                 cue = parsed
+                externalSheets.append(.init(name: cueItem.name, sheet: parsed))
             }
             for cueFile in cue.filesForScanning(sheetFileName: cueItem.name) {
                 let referencedName = (cueFile.name.replacingOccurrences(of: "\\", with: "/") as NSString)
@@ -1646,7 +1652,7 @@ actor ConnectorScanner {
             replacement.dateAdded = existing.dateAdded
             return SongUserMetadataPolicy.preservingUserEdits(from: existing, in: replacement)
         }
-        var refreshed = existing
+        var refreshed = ISOAlbumMetadataPolicy.refreshingIdentity(of: existing, from: cueSong)
         refreshed.filePath = cueSong.filePath
         refreshed.fileSize = cueSong.fileSize
         refreshed.lastModified = existing.lastModified ?? cueSong.lastModified

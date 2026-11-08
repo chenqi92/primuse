@@ -719,14 +719,30 @@ final class TVMetadataScrapeService {
         if let cached = sheets[cuePath] {
             sheet = cached
         } else if song.isDiscImageTrack {
+            // Without a directory listing we cannot tell an absent sidecar from
+            // an inaccessible one, or recover the filename behind a provider ID.
+            guard let imageName = entries.first(where: { $0.path == song.filePath })?.name else { return song }
             guard let parsed = try? await ISOAudioReader.sheet(
-                fileName: (song.filePath as NSString).lastPathComponent, size: song.fileSize,
+                fileName: imageName, size: song.fileSize,
                 read: { offset, length in
                     try await readerPool.read(path: song.filePath, size: song.fileSize, offset: offset, length: length)
                 }
             ) else { return nil }
-            sheets[cuePath] = parsed
-            sheet = parsed
+            var external: [ISOAlbumMetadataPolicy.Sidecar] = []
+            for entry in entries where !entry.isDir && (entry.name as NSString).pathExtension.lowercased() == "cue" {
+                if let cached = sheets[entry.path] {
+                    external.append(.init(name: entry.name, sheet: cached))
+                } else if entry.size <= Int64(CueSheetScanCache.maximumSheetBytes),
+                          let data = try? await readerPool.read(
+                            path: entry.path, size: entry.size, offset: 0,
+                            length: min(max(entry.size, 64 * 1024), Int64(CueSheetScanCache.maximumSheetBytes))
+                          ), let cue = CueSheetParser.parse(data: data) {
+                    sheets[entry.path] = cue
+                    external.append(.init(name: entry.name, sheet: cue))
+                }
+            }
+            sheet = ISOAlbumMetadataPolicy.merging(parsed, imageFileName: imageName, sidecars: external)
+            sheets[cuePath] = sheet
         } else {
             // 与扫描时一样最多读 1MB。按 ID 寻址的网盘列不了目录,不知道大小时先读 64KB。
             let size = entries.first(where: { !$0.isDir && $0.path == cuePath })?.size ?? 0

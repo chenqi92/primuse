@@ -3214,10 +3214,15 @@ final class TVSourceScanner {
         var result: [String: [CueTrackDescriptor]] = [:]
         var failureMessage: String?
         var failedISOPaths: Set<String> = []
-        for cueItem in siblings where !cueItem.isDir
-            && PrimuseConstants.supportedVirtualTrackExtensions.contains(
-                (cueItem.name as NSString).pathExtension.lowercased()
-            ) {
+        var externalSheets: [ISOAlbumMetadataPolicy.Sidecar] = []
+        let ordered = siblings.filter {
+            !$0.isDir && PrimuseConstants.supportedVirtualTrackExtensions.contains(
+                ($0.name as NSString).pathExtension.lowercased()
+            )
+        }.sorted {
+            ($0.name as NSString).pathExtension.lowercased() < ($1.name as NSString).pathExtension.lowercased()
+        }
+        for cueItem in ordered {
             do {
                 try Task.checkCancellation()
                 let cue: CueSheet
@@ -3225,7 +3230,7 @@ final class TVSourceScanner {
                     guard let parsed = try await ISOAudioReader.sheet(fileName: cueItem.name, size: cueItem.size, read: { offset, length in
                         try await readerPool.read(path: cueItem.path, size: cueItem.size, offset: offset, length: length)
                     }) else { continue }
-                    cue = parsed
+                    cue = ISOAlbumMetadataPolicy.merging(parsed, imageFileName: cueItem.name, sidecars: externalSheets)
                 } else {
                     guard cueItem.size <= 0 || cueItem.size <= 1024 * 1024 else {
                         throw CocoaError(.fileReadTooLarge)
@@ -3262,6 +3267,7 @@ final class TVSourceScanner {
                         throw URLError(.cannotDecodeContentData)
                     }
                     cue = parsed
+                    externalSheets.append(.init(name: cueItem.name, sheet: parsed))
                 }
                 for cueFile in cue.filesForScanning(sheetFileName: cueItem.name) {
                     let referencedName = (

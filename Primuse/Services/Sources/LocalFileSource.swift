@@ -603,7 +603,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                                     + trackLyrics.values.flatMap(\.values).compactMap(\.revision)
                             )
                             let existingTracks = (existingCueOffsetsByPath[item.path] ?? []).map { existingSongs[$0] }
-                            if !existingTracks.isEmpty,
+                            if ext != "iso", !existingTracks.isEmpty,
                                existingTracks.allSatisfy({
                                    $0.revision == expectedRevision
                                }) {
@@ -622,7 +622,18 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                                 trackLyrics: trackLyrics,
                                 combinedRevision: expectedRevision
                             )
-                            for track in tracks { continuation.yield(track) }
+                            let priorByID = Dictionary(existingTracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                            for track in tracks {
+                                var song = track.song
+                                if let existing = priorByID[song.id] {
+                                    song = SongUserMetadataPolicy.preservingUserEdits(from: existing, in: song)
+                                    song.dateAdded = existing.dateAdded
+                                }
+                                continuation.yield(ConnectorScannedSong(
+                                    song: song, displayName: song.title,
+                                    titleMetadataInspected: track.titleMetadataInspected
+                                ))
+                            }
                             continue
                         }
 
@@ -948,7 +959,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     private func loadCueTracks(from cueURLs: [URL]) async throws -> [String: [CueTrackDescriptor]] {
         var result: [String: [CueTrackDescriptor]] = [:]
 
-        for cueURL in cueURLs {
+        var externalSheets: [URL: [ISOAlbumMetadataPolicy.Sidecar]] = [:]
+        let ordered = cueURLs.sorted { $0.pathExtension.lowercased() < $1.pathExtension.lowercased() }
+        for cueURL in ordered {
             try Task.checkCancellation()
             guard let values = try? cueURL.resourceValues(
                 forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
@@ -956,12 +969,17 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             let cue: CueSheet
             if cueURL.pathExtension.lowercased() == "iso" {
                 guard let parsed = try await ISOAudioReader.localSheet(url: cueURL) else { continue }
-                cue = parsed
+                cue = ISOAlbumMetadataPolicy.merging(
+                    parsed, imageFileName: cueURL.lastPathComponent,
+                    sidecars: externalSheets[cueURL.deletingLastPathComponent(), default: []]
+                )
             } else {
                 guard (values.fileSize ?? 0) <= 1024 * 1024,
                       let data = try? Data(contentsOf: cueURL, options: .mappedIfSafe),
                       let parsed = CueSheetParser.parse(data: data) else { continue }
                 cue = parsed
+                externalSheets[cueURL.deletingLastPathComponent(), default: []]
+                    .append(.init(name: cueURL.lastPathComponent, sheet: parsed))
             }
 
             for cueFile in cue.filesForScanning(sheetFileName: cueURL.lastPathComponent) {

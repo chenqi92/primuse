@@ -189,7 +189,7 @@ public enum TVScanPipelinePolicy {
                 in: candidate
             )
         } else {
-            result = existing
+            result = ISOAlbumMetadataPolicy.refreshingIdentity(of: existing, from: candidate)
             result.id = candidate.id
             result.filePath = candidate.filePath
             result.sourceID = candidate.sourceID

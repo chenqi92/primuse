@@ -1300,9 +1300,21 @@ enum LyricsSidecarTargetPolicy {
         let cue: CueSheet?
         do {
             if song.isDiscImageTrack {
-                cue = try await ISOAudioReader.sheet(fileName: sheet.name, size: sheet.size) { offset, length in
+                let embedded = try await ISOAudioReader.sheet(fileName: sheet.name, size: sheet.size) { offset, length in
                     try await connector.fetchMetadataRange(path: sheet.path, offset: offset, length: length)
                 }
+                var external: [ISOAlbumMetadataPolicy.Sidecar] = []
+                for item in items where !item.isDirectory && (item.name as NSString).pathExtension.lowercased() == "cue"
+                    && item.size <= Int64(CueSheetScanCache.maximumSheetBytes) {
+                    let data = try await connector.fetchMetadataRange(
+                        path: item.path, offset: 0,
+                        length: min(max(item.size, 64 * 1024), Int64(CueSheetScanCache.maximumSheetBytes))
+                    )
+                    if let parsed = CueSheetParser.parse(data: data) {
+                        external.append(.init(name: item.name, sheet: parsed))
+                    }
+                }
+                cue = embedded.map { ISOAlbumMetadataPolicy.merging($0, imageFileName: sheet.name, sidecars: external) }
             } else {
                 let data = try await connector.fetchMetadataRange(
                     path: sheet.path, offset: 0,

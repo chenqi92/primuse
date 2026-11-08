@@ -2216,6 +2216,7 @@
 		F7222C3CFAF9D115123894FA /* AppleMusicPlaylistPaginationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7048F8E72921573543E56075 /* AppleMusicPlaylistPaginationTests.swift */; };
 		F7339D3FD0B1E7D0F821ECB5 /* SpokenWordIntroOutro.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE8B7F2DC7B4BB66FC6582F /* SpokenWordIntroOutro.swift */; };
 		F7470F73EEFE3458FDC6D345 /* PodcastComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431799442571F9F1AAF9218B /* PodcastComponents.swift */; };
+		BD378CE4B0B34A35A5C97CA1 /* ISOAlbumMetadataPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5706FAFB0F5B4FE7A9930C1E /* ISOAlbumMetadataPolicy.swift */; };
 		F757718174218BC1E42B5898 /* ISOAudioReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5DA117AA215F5BE77B0D51 /* ISOAudioReader.swift */; };
 		F79F326876ABF324B5E317C6 /* ServerFavoriteSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */; };
 		F7A611EA2879EB502F0E6ADD /* MacMenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3CA857E144784647DBFEC6 /* MacMenuBarController.swift */; };
@@ -3054,6 +3055,7 @@
 		4B2598012B4C119C8C09D1A0 /* SongPlaybackRangeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongPlaybackRangeStore.swift; sourceTree = "<group>"; };
 		4B4D61F000626BCDD16F85D3 /* PlayerOverlayDismissalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerOverlayDismissalState.swift; sourceTree = "<group>"; };
 		4B5098C0B68845BCD185C89B /* TVPlaybackPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackPrefetch.swift; sourceTree = "<group>"; };
+		5706FAFB0F5B4FE7A9930C1E /* ISOAlbumMetadataPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOAlbumMetadataPolicy.swift; sourceTree = "<group>"; };
 		4B5DA117AA215F5BE77B0D51 /* ISOAudioReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOAudioReader.swift; sourceTree = "<group>"; };
 		4B800605B17FB72D56E093AB /* GaplessSuccessorDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessSuccessorDiscardPolicy.swift; sourceTree = "<group>"; };
 		4B974CEAA7EE5FAFE52A11AB /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
@@ -5680,6 +5682,7 @@
 				27F922996E55613A514AD0D4 /* ID3LyricsFramePreservation.swift */,
 				25F35F3F45A8184ACB596613 /* ID3SynchronizedLyricsParser.swift */,
 				DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */,
+				5706FAFB0F5B4FE7A9930C1E /* ISOAlbumMetadataPolicy.swift */,
 				4B5DA117AA215F5BE77B0D51 /* ISOAudioReader.swift */,
 				0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */,
 				5EAD109C14E9AC3B214FCB5B /* ISOBaseMediaLyricsParser.swift */,
@@ -7373,6 +7376,7 @@
 				35B6342BED0D222E166D96FD /* ID3LyricsFramePreservation.swift in Sources */,
 				7CC510CFB7AE45C4AF720D0E /* ID3SynchronizedLyricsParser.swift in Sources */,
 				4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */,
+				BD378CE4B0B34A35A5C97CA1 /* ISOAlbumMetadataPolicy.swift in Sources */,
 				F757718174218BC1E42B5898 /* ISOAudioReader.swift in Sources */,
 				3F874CF4B1939FAE36328711 /* ISOBaseMediaChapterParser.swift in Sources */,
 				E68BF5805987B4DAE9417173 /* ISOBaseMediaLyricsParser.swift in Sources */,
