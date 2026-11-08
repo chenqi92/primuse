@@ -20,38 +20,41 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     /// 听书语速。每个 `AudioPlayer` 在源节点与主混音之间挂一个变速单元;1× 时旁路,
     /// 音乐(APE、DSD 等也走这条路)不经过任何处理。
     private var playbackRate: Float = 1
-    private var timePitch: AVAudioUnitTimePitch?
+    private var timePitch: PlaybackTimePitchProcessor?
 
     func setPlaybackRate(_ rate: Float) {
         let clamped = rate.isFinite ? min(2, max(0.5, rate)) : 1
         playbackRate = clamped
         guard let timePitch else { return }
         player.modifyProcessingGraph { _ in
-            timePitch.rate = clamped
-            timePitch.bypass = abs(clamped - 1) < 0.001
+            timePitch.apply(rate: clamped, isSpokenWord: true)
         }
     }
 
     /// 把变速单元插进 `sourceNode → mainMixerNode` 这一段(SFBAudioEngine 允许改动的唯一一段)。
     /// 之后源格式变化时,SFBAudioEngine 会经代理的 `reconfigureProcessingGraph` 回来问该接到哪个节点。
-    private func insertTimePitch(into player: AudioPlayer) -> AVAudioUnitTimePitch {
-        let unit = AVAudioUnitTimePitch()
+    private func insertTimePitch(into player: AudioPlayer) -> PlaybackTimePitchProcessor {
+        let unit = PlaybackTimePitchProcessor()
         let gainUnit = AVAudioUnitEQ(numberOfBands: 1)
         gainUnit.bands[0].bypass = true
         gainUnit.globalGain = 20 * log10(max(1, programVolume))
         replayGainUnit = gainUnit
-        unit.rate = playbackRate
-        unit.bypass = abs(playbackRate - 1) < 0.001
+        unit.apply(rate: playbackRate, isSpokenWord: true)
         let source = player.sourceNode
         player.modifyProcessingGraph { engine in
             let format = source.outputFormat(forBus: 0)
-            engine.attach(unit)
+            if let timeDomain = unit.timeDomainNode { engine.attach(timeDomain) }
+            engine.attach(unit.spectralNode)
             engine.attach(gainUnit)
             engine.disconnectNodeOutput(source)
             // crash-pattern: allow avaudioengine-connect 格式取自源节点刚接到主混音的输出格式, SFBAudioEngine 已接过一次
-            engine.connect(source, to: unit, format: format)
+            engine.connect(source, to: unit.inputNode, format: format)
+            if let timeDomain = unit.timeDomainNode {
+                // crash-pattern: allow avaudioengine-connect 沿用源节点已验证的处理格式。
+                engine.connect(timeDomain, to: unit.spectralNode, format: format)
+            }
             // crash-pattern: allow avaudioengine-connect 同上, 变速单元按同一格式接回主混音
-            engine.connect(unit, to: gainUnit, format: format)
+            engine.connect(unit.spectralNode, to: gainUnit, format: format)
             // crash-pattern: allow avaudioengine-connect 沿用 SFB 源节点已验证的处理格式。
             engine.connect(gainUnit, to: engine.mainMixerNode, format: format)
         }
@@ -193,10 +196,10 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     private final class DelegateProxy: NSObject, AudioPlayer.Delegate, @unchecked Sendable {
         weak var owner: TVSFBEngine?
         let generation: Generation
-        let timePitch: AVAudioUnitTimePitch
+        let timePitch: PlaybackTimePitchProcessor
         let gainUnit: AVAudioUnitEQ
 
-        init(owner: TVSFBEngine, generation: Generation, timePitch: AVAudioUnitTimePitch, gainUnit: AVAudioUnitEQ) {
+        init(owner: TVSFBEngine, generation: Generation, timePitch: PlaybackTimePitchProcessor, gainUnit: AVAudioUnitEQ) {
             self.owner = owner
             self.generation = generation
             self.timePitch = timePitch
@@ -210,13 +213,20 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
             reconfigureProcessingGraph engine: AVAudioEngine,
             with format: AVAudioFormat
         ) -> AVAudioNode {
-            engine.disconnectNodeOutput(timePitch)
+            if let timeDomain = timePitch.timeDomainNode {
+                engine.disconnectNodeOutput(timeDomain)
+            }
+            engine.disconnectNodeOutput(timePitch.spectralNode)
             engine.disconnectNodeOutput(gainUnit)
+            if let timeDomain = timePitch.timeDomainNode {
+                // crash-pattern: allow avaudioengine-connect 格式来自 SFB 的重建回调。
+                engine.connect(timeDomain, to: timePitch.spectralNode, format: format)
+            }
             // crash-pattern: allow avaudioengine-connect 格式是 SFBAudioEngine 换源后交来的处理链格式。
-            engine.connect(timePitch, to: gainUnit, format: format)
+            engine.connect(timePitch.spectralNode, to: gainUnit, format: format)
             // crash-pattern: allow avaudioengine-connect 沿用 SFB 重建回调提供的有效格式。
             engine.connect(gainUnit, to: engine.mainMixerNode, format: format)
-            return timePitch
+            return timePitch.inputNode
         }
 
         func audioPlayerEndOfAudio(_ audioPlayer: AudioPlayer) {

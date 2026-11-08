@@ -299,9 +299,9 @@ final class AudioEngine {
     private var reverbDryMixer: AVAudioMixerNode?
     private var reverbWetMixer: AVAudioMixerNode?
     private var reverbOutputMixer: AVAudioMixerNode?
-    /// 用于变速 (rate) + 保持音调 (overlap)。1.0 时基本无开销, 用户改速度
-    /// 时调它的 .rate 即可, engine graph 不需要 reconfigure。
-    private(set) var timePitchNode: AVAudioUnitTimePitch?
+    private var timePitchProcessor: PlaybackTimePitchProcessor?
+    private var playbackRate: Float = 1
+    private var playbackIsSpokenWord = false
     /// 卡拉OK人声消除, 夹在播放混音器和 EQ 之间, 淡入淡出/无缝衔接的两路
     /// 已经混成一路再处理。关闭时渲染里直接透传, 没有延迟。
     private var karaokeVocalNode: AVAudioUnitEffect?
@@ -550,7 +550,7 @@ final class AudioEngine {
         reverbDryMixer = nil
         reverbWetMixer = nil
         reverbOutputMixer = nil
-        timePitchNode = nil
+        timePitchProcessor = nil
         karaokeVocalNode = nil
         outputFormat = nil
         #if os(macOS)
@@ -635,12 +635,8 @@ final class AudioEngine {
         let reverbDry = AVAudioMixerNode()
         let reverbWet = AVAudioMixerNode()
         let reverbOutput = AVAudioMixerNode()
-        let timePitch = AVAudioUnitTimePitch()
-        timePitch.rate = 1.0
-        timePitch.pitch = combinedPitchCents
-        // overlap 默认 8.0, 提高到 16 让 0.5x / 2.0x 极端速度声音更稳;
-        // 1.0x 时该节点几乎是 passthrough, 不会有副作用。
-        timePitch.overlap = 16.0
+        let timePitch = PlaybackTimePitchProcessor(spectralOverlap: 16)
+        timePitch.apply(rate: playbackRate, pitchCents: combinedPitchCents, isSpokenWord: playbackIsSpokenWord)
 
         for (index, frequency) in PrimuseConstants.eqBandFrequencies.enumerated() {
             let band = eq.bands[index]
@@ -668,7 +664,8 @@ final class AudioEngine {
         eng.attach(reverbDry)
         eng.attach(reverbWet)
         eng.attach(reverbOutput)
-        eng.attach(timePitch)
+        if let timeDomain = timePitch.timeDomainNode { eng.attach(timeDomain) }
+        eng.attach(timePitch.spectralNode)
         let karaokeVocal = KaraokeVocalReducerUnit.makeNode(control: karaokeControl)
         if let karaokeVocal {
             eng.attach(karaokeVocal)
@@ -700,7 +697,7 @@ final class AudioEngine {
         #endif
 
         // Signal chain: playerA/B → Spatial Environment → mixer → (Karaoke) → EQ → Compressor
-        //   → [reverbDry, Reverb → reverbWet] → reverbOutput → TimePitch → mainMixer → output
+        //   → [reverbDry, Reverb → reverbWet] → reverbOutput → TimeDomain → Spectral → mainMixer → output
         // TimePitch 放最后一站, 让 EQ / 压缩 / 混响 都在原速下处理,
         // visualizer 仍挂 mainMixer 拿到变速后的最终输出。
         try Self.connect(playerA, to: environment, format: format, in: eng)
@@ -725,8 +722,11 @@ final class AudioEngine {
         try Self.connect(reverb, to: reverbWet, format: format, in: eng)
         try Self.connect(reverbDry, fromBus: 0, to: reverbOutput, toBus: 0, format: format, in: eng)
         try Self.connect(reverbWet, fromBus: 0, to: reverbOutput, toBus: 1, format: format, in: eng)
-        try Self.connect(reverbOutput, to: timePitch, format: format, in: eng)
-        try Self.connect(timePitch, to: mainMixer, format: format, in: eng)
+        try Self.connect(reverbOutput, to: timePitch.inputNode, format: format, in: eng)
+        if let timeDomain = timePitch.timeDomainNode {
+            try Self.connect(timeDomain, to: timePitch.spectralNode, format: format, in: eng)
+        }
+        try Self.connect(timePitch.spectralNode, to: mainMixer, format: format, in: eng)
         // 接进图之前设的音量会丢,连好之后再设。压缩器先是不压缩的参数,
         // AudioEffectsService.applySettings 随后按设置改写。
         reverbWet.outputVolume = 0
@@ -756,7 +756,7 @@ final class AudioEngine {
         self.reverbDryMixer = reverbDry
         self.reverbWetMixer = reverbWet
         self.reverbOutputMixer = reverbOutput
-        self.timePitchNode = timePitch
+        self.timePitchProcessor = timePitch
         self.karaokeVocalNode = karaokeVocal
         self.outputFormat = format
         self.isSetUp = true
@@ -2049,12 +2049,12 @@ final class AudioEngine {
 
     // MARK: - Playback Rate
 
-    /// 设定播放速度倍率, 0.5x ~ 2.0x。AVAudioUnitTimePitch.rate 直接生效,
-    /// 不用重启 engine。1.0 是 passthrough。变速不变调; 升降调另走 `applyUserPitch`。
-    func applyPlaybackRate(_ rate: Float) {
-        guard outputMode == .effects else { return }
-        let clamped = max(0.5, min(2.0, rate))
-        timePitchNode?.rate = clamped
+    /// 同时更新速度、内容类型和用户升降调, 避免切歌时短暂选中上一首的算法。
+    func applyPlaybackRate(_ rate: Float, userPitchCents: Float = 0, isSpokenWord: Bool = false) {
+        playbackRate = rate
+        self.userPitchCents = userPitchCents
+        playbackIsSpokenWord = isSpokenWord
+        applyPitchToGraph()
     }
 
     // MARK: - Karaoke
@@ -2082,8 +2082,8 @@ final class AudioEngine {
 
     private func applyPitchToGraph() {
         let cents = combinedPitchCents
-        guard outputMode == .effects, let timePitchNode, timePitchNode.pitch != cents else { return }
-        timePitchNode.pitch = cents
+        guard outputMode == .effects else { return }
+        timePitchProcessor?.apply(rate: playbackRate, pitchCents: cents, isSpokenWord: playbackIsSpokenWord)
     }
 
     /// 渲染 → 扬声器的延迟, 录音对齐人声时要补上。
@@ -2094,7 +2094,7 @@ final class AudioEngine {
     /// 录音时抓伴奏: 变调之后、主音量之前, 所以录下来的电平不跟音量滑块走。
     /// 可视化已经占了 mainMixer 的 tap, 同一个总线只能挂一个。
     var karaokeRecordingTapNode: AVAudioNode? {
-        outputMode == .effects ? timePitchNode : nil
+        outputMode == .effects ? timePitchProcessor?.spectralNode : nil
     }
 
     // MARK: - Spatial Audio
@@ -2261,7 +2261,7 @@ final class AudioEngine {
         reverbDryMixer?.reset()
         reverbWetMixer?.reset()
         reverbOutputMixer?.reset()
-        timePitchNode?.reset()
+        timePitchProcessor?.reset()
         karaokeVocalNode?.reset()
         engine.mainMixerNode.reset()
     }

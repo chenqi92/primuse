@@ -236,6 +236,7 @@
 		1915525554F289A98B5B20DC /* KaraokeStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A193969AEB37D85A2C3D824B /* KaraokeStageView.swift */; };
 		193463D65D5D8855FB50984D /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 449E8C72C7990DCAAE0C289F /* Localizable.strings */; };
 		19483BE566AE65F1BB981D7E /* PlaybackPitchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 557641A3CA3DE27CE579FDB7 /* PlaybackPitchPolicy.swift */; };
+		F36600020000000000000001 /* PlaybackTimePitchProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36600010000000000000001 /* PlaybackTimePitchProcessor.swift */; };
 		195625F2567DFD42CB036420 /* AppleMusicNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCADF5909EF82CB7F02FB896 /* AppleMusicNowPlayingView.swift */; };
 		195CA6B0593D922EAA535E82 /* GoogleDriveAccessChangePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044A76CB0D2743B5FAB2ABE8 /* GoogleDriveAccessChangePolicy.swift */; };
 		19741E9B55DE0BA9BE5F2FDB /* CloudSyncChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD05C51C265711C2B7239F9B /* CloudSyncChannel.swift */; };
@@ -3122,6 +3123,7 @@
 		54D5EDD9A322FF83F0612BEF /* DesktopLyricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopLyricsView.swift; sourceTree = "<group>"; };
 		552EC251CB491F214F263601 /* SynologyAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAPI.swift; sourceTree = "<group>"; };
 		557641A3CA3DE27CE579FDB7 /* PlaybackPitchPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackPitchPolicy.swift; sourceTree = "<group>"; };
+		F36600010000000000000001 /* PlaybackTimePitchProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTimePitchProcessor.swift; sourceTree = "<group>"; };
 		55836FA9C4560040CB077655 /* PCloudAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCloudAPIProtocol.swift; sourceTree = "<group>"; };
 		558E77D4B4999FD2EF4BD75C /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		55C3EE54E111277DC3491406 /* TVKaraokeProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeProcessor.swift; sourceTree = "<group>"; };
@@ -4892,6 +4894,7 @@
 				3F7E1E6323BAAF426686AB6B /* PlaybackOwnershipLease.swift */,
 				05047D65CA70A65F239E5F1A /* PlaybackPipelineFailurePolicy.swift */,
 				557641A3CA3DE27CE579FDB7 /* PlaybackPitchPolicy.swift */,
+				F36600010000000000000001 /* PlaybackTimePitchProcessor.swift */,
 				23B1A6965440571278822185 /* PlaybackScheduleSettlement.swift */,
 				4B0DFA16D66837EFF0DB5E43 /* PlaybackSessionSnapshot.swift */,
 				653ADF21EB30AEA6033B16D7 /* PlaybackSourceAvailabilityPolicy.swift */,
@@ -7541,6 +7544,7 @@
 				B46DB93A08A537C8BB1CF426 /* PlaybackOwnershipLease.swift in Sources */,
 				9DE386E8BC9B78E852269E73 /* PlaybackPipelineFailurePolicy.swift in Sources */,
 				19483BE566AE65F1BB981D7E /* PlaybackPitchPolicy.swift in Sources */,
+				F36600020000000000000001 /* PlaybackTimePitchProcessor.swift in Sources */,
 				DCB677DC234750D404F0D6BA /* PlaybackScheduleSettlement.swift in Sources */,
 				532B9F831AAAFA2A2AEFE6E3 /* PlaybackSessionSnapshot.swift in Sources */,
 				FB1329EFA7F6FA2ECB3F8306 /* PlaybackSourceAvailabilityPolicy.swift in Sources */,

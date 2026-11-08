@@ -1945,7 +1945,7 @@ final class AudioPlayerService {
     }
 
     /// 同步当前 playbackRate 与升降调到 engine. 设置变化或新歌开播都会调它。
-    /// 两者都写同一个 TimePitch 节点; 视频播客的纯音频流由 AVPlayer 自己变速。
+    /// 音频图按内容和升降调选择变速算法; 视频播客的纯音频流由 AVPlayer 自己变速。
     func applyPlaybackRate() {
         let requestedRate = requestedPlaybackRate
         let requestedPitch = requestedPitchSemitones
@@ -1957,8 +1957,11 @@ final class AudioPlayerService {
             }
             return
         }
-        audioEngine.applyPlaybackRate(requestedRate)
-        audioEngine.applyUserPitch(cents: PlaybackPitchPolicy.cents(forSemitones: requestedPitch))
+        audioEngine.applyPlaybackRate(
+            requestedRate,
+            userPitchCents: PlaybackPitchPolicy.cents(forSemitones: requestedPitch),
+            isSpokenWord: currentItemIsSpokenWord
+        )
         // 视频管线自己变速(升降调做不了,和以前一样不管)。
         if isMusicVideoPlaybackActive || systemAudioUsesNativePodcastStream,
            let player = activeSystemMediaPlayer {
