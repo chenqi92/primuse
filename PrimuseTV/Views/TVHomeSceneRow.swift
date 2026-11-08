@@ -9,8 +9,7 @@ import PrimuseKit
 /// 放完按相似歌曲续播。夜间聆听另把睡眠定时设为 60 分钟(电视设置里可关)。
 /// 场景只决定放什么,不改首页其它内容。
 ///
-/// 卡片画成一排小号透明 CD 盒:不聚焦时只有灰色细框,聚焦时盒面映出很淡的封面色。
-/// 原来的整块场景色和上面的专辑封面抢眼,看着也不像 Apple TV 的东西。
+/// 场景各用一张彩色唱片封套,左侧保留盒脊;聚焦时盒面抬起,映出首页封面色。
 struct TVHomeSceneRow: View {
     /// 夜间聆听起播时设睡眠定时;电视设置「播放」里的开关。
     static let nightSleepTimerKey = "primuse.tv.sceneNightSleepTimer"
@@ -72,40 +71,10 @@ struct TVHomeSceneRow: View {
             focusBinding: focusBinding,
             focusID: cardID(scene)
         ) { focused in
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top) {
-                    Image(systemName: scene.symbolName)
-                        .font(.system(size: 36, weight: .medium))
-                        .foregroundStyle(focused ? TVColor.text : TVColor.textMuted)
-                    Spacer(minLength: 8)
-                    if startingScene == scene {
-                        ProgressView()
-                            .tint(TVColor.text)
-                    } else {
-                        Text(verbatim: count)
-                            .tvFont(.meta, weight: .semibold)
-                            .monospacedDigit()
-                            .foregroundStyle(TVColor.textFaint)
-                    }
-                }
-                Spacer(minLength: 8)
-                Text(verbatim: title)
-                    .tvFont(.cardTitle, weight: .bold)
-                    .foregroundStyle(TVColor.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Text(verbatim: subtitle)
-                    .tvFont(.caption)
-                    .foregroundStyle(TVColor.textMuted)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-            }
-            .padding(.vertical, 20)
-            .padding(.leading, Self.hingeWidth + 16)
-            .padding(.trailing, 16)
-            .frame(width: Self.caseSize.width, height: Self.caseSize.height, alignment: .topLeading)
-            .background { TVSceneJewelCase(focused: focused, tint: reflectionTint) }
-            // 不用通用的粗描边焦点:盒子本身的框变亮、浮起一点,反光就够认出来。
+            TVSceneCaseLabel(
+                scene: scene, title: title, subtitle: subtitle, count: count,
+                focused: focused, isStarting: startingScene == scene, reflectionTint: reflectionTint
+            )
             .scaleEffect(focused && !reduceMotion ? 1.05 : 1)
             .offset(y: focused && !reduceMotion ? -4 : 0)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: focused)
@@ -140,82 +109,118 @@ struct TVHomeSceneRow: View {
     static let hingeWidth: CGFloat = 12
 }
 
-/// 透明 CD 盒:灰色细框、左边一道铰链、盒里隐约一张盘。
-/// 聚焦时盒面铺一层很淡的封面色,斜着一道封面色反光,框线变亮。
-private struct TVSceneJewelCase: View {
-    let focused: Bool
-    let tint: Color
+/// 封套文字固定使用白色,不随系统浅色外观变成深色。
+struct TVSceneCaseLabel: View {
+    let scene: ListeningScene
+    let title: String
+    let subtitle: String
+    let count: String
+    var focused = false
+    var isStarting = false
+    var reflectionTint: Color = .white
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: TVHomeSceneRow.cornerRadius, style: .continuous)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                Image(systemName: scene.symbolName)
+                    .font(.system(size: 34, weight: .medium))
+                Spacer(minLength: 8)
+                if isStarting {
+                    ProgressView().tint(.white)
+                } else {
+                    Text(verbatim: count)
+                        .tvFont(.meta, weight: .semibold)
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+            }
+            Spacer(minLength: 8)
+            Text(verbatim: title)
+                .tvFont(.cardTitle, weight: .bold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(verbatim: subtitle)
+                .tvFont(.caption)
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+        }
+        .foregroundStyle(.white)
+        .padding(.vertical, 20)
+        .padding(.leading, TVHomeSceneRow.hingeWidth + 16)
+        .padding(.trailing, 16)
+        .frame(width: TVHomeSceneRow.caseSize.width, height: TVHomeSceneRow.caseSize.height)
+        .background { TVSceneJewelCase(scene: scene, focused: focused, reflectionTint: reflectionTint) }
+    }
+}
+
+private struct TVSceneJewelCase: View {
+    let scene: ListeningScene
+    let focused: Bool
+    let reflectionTint: Color
+
+    private var ink: Color {
+        switch scene {
+        case .guests: Color(red: 0.53, green: 0.29, blue: 0.13)
+        case .leisure: Color(red: 0.16, green: 0.35, blue: 0.27)
+        case .night: Color(red: 0.20, green: 0.22, blue: 0.46)
+        case .focus: Color(red: 0.11, green: 0.32, blue: 0.40)
+        case .party: Color(red: 0.43, green: 0.20, blue: 0.37)
+        }
+    }
+
+    var body: some View {
         let size = TVHomeSceneRow.caseSize
         let hinge = TVHomeSceneRow.hingeWidth
-        let disc = size.height - 28
+        let shape = RoundedRectangle(cornerRadius: TVHomeSceneRow.cornerRadius, style: .continuous)
         ZStack(alignment: .topLeading) {
-            LinearGradient(
-                colors: focused
-                    ? [tint.opacity(0.20), tint.opacity(0.05)]
-                    : [TVColor.text.opacity(0.03), TVColor.text.opacity(0.012)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            // 盒里的盘:外沿和中心两道细圈,透过盒面隐约看得见。
-            ZStack {
-                Circle().strokeBorder(discColor, lineWidth: 1.5)
-                Circle().strokeBorder(discColor, lineWidth: 1.5)
-                    .frame(width: disc * 0.3, height: disc * 0.3)
-            }
-            .frame(width: disc, height: disc)
-            .position(x: hinge + (size.width - hinge) / 2, y: size.height / 2)
+            ink
+            LinearGradient(colors: [.white.opacity(0.12), .clear, .black.opacity(0.45)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            disc
+                .frame(width: 170, height: 170)
+                .offset(x: 124, y: 20)
+            LinearGradient(colors: [.clear, ink.opacity(0.92), ink],
+                           startPoint: .top, endPoint: .bottom)
             Rectangle()
-                .fill(TVColor.text.opacity(focused ? 0.08 : 0.045))
+                .fill(.black.opacity(0.35))
                 .frame(width: hinge)
             Rectangle()
-                .fill(TVColor.text.opacity(focused ? 0.3 : 0.14))
+                .fill(.white.opacity(0.3))
                 .frame(width: 1)
                 .offset(x: hinge)
-            sheen
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.12),
+                    .init(color: .white.opacity(focused ? 0.22 : 0.09), location: 0.28),
+                    .init(color: .clear, location: 0.42),
+                    .init(color: reflectionTint.opacity(focused ? 0.16 : 0), location: 0.72),
+                    .init(color: .clear, location: 0.9),
+                ],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
         }
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
-        .overlay {
-            // 内圈一道很淡的线,看着像有厚度的塑料边。
-            shape.inset(by: 4).strokeBorder(TVColor.text.opacity(focused ? 0.1 : 0.05), lineWidth: 1)
-        }
-        .overlay {
-            shape.strokeBorder(
-                TVColor.text.opacity(focused ? 0.7 : 0.2),
-                lineWidth: focused ? 2 : 1.5
-            )
-        }
+        .overlay { shape.inset(by: 4).strokeBorder(.white.opacity(0.13), lineWidth: 1) }
+        .overlay { shape.strokeBorder(.white.opacity(focused ? 0.9 : 0.3), lineWidth: focused ? 2.5 : 1) }
+        .shadow(color: .black.opacity(focused ? 0.32 : 0.18), radius: focused ? 16 : 6, y: focused ? 10 : 4)
+        .accessibilityHidden(true)
     }
 
-    private var discColor: Color {
-        focused ? tint.opacity(0.4) : TVColor.text.opacity(0.07)
-    }
-
-    /// 两道斜向反光:宽的一道带封面色,窄的一道是白光。不聚焦时只剩一点塑料的亮。
-    private var sheen: some View {
+    private var disc: some View {
         ZStack {
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0.14),
-                    .init(color: focused ? tint.opacity(0.32) : .white.opacity(0.04), location: 0.28),
-                    .init(color: .clear, location: 0.42),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0.47),
-                    .init(color: .white.opacity(focused ? 0.14 : 0.03), location: 0.5),
-                    .init(color: .clear, location: 0.53),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            Circle().fill(AngularGradient(
+                colors: [.white.opacity(0.08), .white.opacity(0.5), ink, .white.opacity(0.32), ink, .white.opacity(0.08)],
+                center: .center, angle: .degrees(-35)
+            ))
+            Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1)
+            Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1).padding(7)
+            Circle().fill(ink.opacity(0.9)).frame(width: 52, height: 52)
+            Circle().strokeBorder(.white.opacity(0.35), lineWidth: 2).frame(width: 52, height: 52)
+            Circle().fill(.black.opacity(0.35)).frame(width: 16, height: 16)
         }
+        .rotationEffect(.degrees(focused ? 12 : 0))
     }
 }
 #endif

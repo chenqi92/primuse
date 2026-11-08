@@ -207,6 +207,7 @@ struct TVRoot: View {
     /// 有声页、播客页从哪张卡片 / 哪个章节页、节目页开始播放;播放页按 Menu 回来时由它恢复。
     @State private var spokenWordMemory = TVSpokenWordReturnMemory()
     @State private var podcastMemory = TVPodcastReturnMemory()
+    @State private var radioMemory = TVRadioReturnMemory()
     #if DEBUG
     /// 截图路由指定的是电台 / 有声页,但曲库和电台还在载入:等内容出现后再切过去,
     /// 否则会因为「这一页暂时不该显示」被送回首页。
@@ -279,8 +280,8 @@ struct TVRoot: View {
 
     var body: some View {
         rootContent
-            .modifier(TVReturnToTabsModifier(enabled: !isTabBarFocused) {
-                returnFocusToTabs()
+            .modifier(TVReturnToTabsModifier(enabled: hidesTabBar || !isTabBarFocused) {
+                if hidesTabBar { leavePlayer() } else { returnFocusToTabs() }
             })
             .modifier(TVRemoteTransportModifier(
                 shortcutsEnabled: store.hasNowPlaying && rootModalPresentationCount == 0
@@ -296,7 +297,7 @@ struct TVRoot: View {
                     guard store.duration > 0,
                           let request = contentFocusRouting.seekInNowPlaying(mode: nowPlayingFocusMode) else { return }
                     isRoutingToScrubber = true
-                    tab = .nowPlaying
+                    selectTab(.nowPlaying, requestsPlayerFocus: false)
                     applyContentFocusRequest(request)
                 }
                 playbackInteractionRequest &+= 1
@@ -358,7 +359,7 @@ struct TVRoot: View {
                     TVTabBar(
                         active: tab,
                         tabs: visibleTabs,
-                        onSelect: selectTab,
+                        onSelect: { selectTab($0) },
                         // 焦点停在「正在播放」上往下走时,下面仍是当前那一页。
                         onContentDown: { item in
                             let destination = TVTabFocusSelectionPolicy.contentDestination(focused: item, active: tab)
@@ -366,7 +367,7 @@ struct TVRoot: View {
                             requestContentFocus(from: destination)
                         },
                         focusRequest: tabFocusRequest,
-                        allowsFocusDrivenSelection: !suppressesFocusDrivenTabSelection && !isRoutingToScrubber,
+                        allowsFocusDrivenSelection: !hidesTabBar && !suppressesFocusDrivenTabSelection && !isRoutingToScrubber,
                         onFocusChanged: tabBarFocusChanged,
                         onSettings: { showSettings = true }
                     )
@@ -428,8 +429,7 @@ struct TVRoot: View {
             }
             if !tabs.contains(tab) { tab = tabs.first ?? .library }
         }
-        .onChange(of: tab) { oldTab, newTab in
-            if newTab == .nowPlaying, oldTab != .nowPlaying { tabBeforePlayer = oldTab }
+        .onChange(of: tab) { _, newTab in
             pendingLaunchTab = nil
             transientTab = tabBarConfiguration.isShown(newTab) ? nil : newTab
         }
@@ -469,20 +469,20 @@ struct TVRoot: View {
             case "nowPlaying", "playerShelf", "nowPlayingArtist":
                 await waitForDemoContent(requireAlbum: true)
                 if let album = store.albums.first { store.play(album: album) }
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
             case "nowPlayingDemo":   // 截图用:注入演示播放态+歌词,不走真实播放
                 await waitForDemoContent()
                 await store.loadDemoNowPlaying()
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
             case "lyricsTranslationDemo":
                 await waitForDemoContent()
                 if await store.loadLyricsTranslationDemo() {
-                    tab = .nowPlaying
+                    selectTab(.nowPlaying)
                 }
             case "nowPlayingSongArtwork":
                 await waitForDemoContent()
                 if await store.loadDemoNowPlaying(preferSongArtwork: true) {
-                    tab = .nowPlaying
+                    selectTab(.nowPlaying)
                 }
             case "queue":
                 await waitForDemoContent()
@@ -502,7 +502,7 @@ struct TVRoot: View {
                     await waitForDemoContent()
                     await store.loadDemoNowPlaying()
                 }
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
             case "settings", "effectPicker", "themePicker", "playerBackdrop", "diagnostics", "scrobble": showSettings = true
             case "albumReturn":
                 // 模拟「专辑页里点一首播放 → 播放页按 Menu」:应回到专辑页、焦点在那一首,
@@ -515,7 +515,7 @@ struct TVRoot: View {
                 libraryBrowseMemory.albumDetailID = album.id
                 libraryBrowseMemory.albumDetailSongID = song.id
                 guard store.play(song, in: songs.map(\.id)) else { break }
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
             case "homeReturn", "homeAlbumReturn":
@@ -535,7 +535,7 @@ struct TVRoot: View {
                 } else {
                     store.play(album: album)
                 }
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
             case "searchReturn":
@@ -552,7 +552,7 @@ struct TVRoot: View {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 searchMemory.lastFocusedResultID = "song:" + hit.id
                 store.play(hit.song)
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
             case "albumShuffleReturn":
@@ -564,7 +564,7 @@ struct TVRoot: View {
                 libraryBrowseMemory.albumID = album.id
                 libraryBrowseMemory.albumDetailID = album.id
                 libraryBrowseMemory.albumDetailSongID = store.currentSongID
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
             case "artistReturn", "genreReturn":
@@ -590,7 +590,7 @@ struct TVRoot: View {
                     libraryBrowseMemory.collectionDetail = TVBrowseDestination(id: genre.id, title: genre.name, songIDs: ids)
                     libraryBrowseMemory.collectionDetailSongID = songID
                 }
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
             case "folderReturn":
@@ -613,7 +613,7 @@ struct TVRoot: View {
                       store.play(song, in: songIDs) else { break }
                 libraryBrowseMemory.folderPath = trail
                 libraryBrowseMemory.folderSongID = songID
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
             case "spokenWordReturn":
@@ -651,7 +651,7 @@ struct TVRoot: View {
                     guard store.playSpokenWordBook(songIDs: itemIDs, startingAt: book.resumeItemID) else { break }
                 }
                 spokenWordMemory.cardID = "shelf:" + book.id
-                tab = .nowPlaying
+                selectTab(.nowPlaying)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
             case "libraryAnchor":
@@ -694,13 +694,13 @@ struct TVRoot: View {
             TVHomeView(
                 browseMemory: homeBrowseMemory,
                 onReturnToTabs: returnFocusToTabs,
-                openPlayer: { openPlayerFromPage() },
+                openPlayer: { openPlayerFromPage(from: item) },
                 openRadioLibrary: { tab = .radio },
                 onModalPresentationChanged: childModalPresentationChanged
             )
         case .library:
             TVLibraryView(
-                openPlayer: { openPlayerFromPage() },
+                openPlayer: { openPlayerFromPage(from: item) },
                 onReturnToTabs: returnFocusToTabs,
                 onModalActivityChanged: childModalActivityChanged,
                 filter: $libraryFilter,
@@ -709,19 +709,20 @@ struct TVRoot: View {
             )
         case .radio:
             TVRadioPageView(
-                openPlayer: { openPlayerFromPage() },
+                openPlayer: { openPlayerFromPage(from: item) },
                 onModalActivityChanged: childModalActivityChanged,
-                onModalPresentationChanged: childModalPresentationChanged
+                onModalPresentationChanged: childModalPresentationChanged,
+                memory: radioMemory
             )
         case .spokenWord:
             TVSpokenWordView(
-                openPlayer: { openPlayerFromPage() },
+                openPlayer: { openPlayerFromPage(from: item) },
                 onModalActivityChanged: childModalPresentationChanged,
                 memory: spokenWordMemory
             )
         case .podcasts:
             TVPodcastsView(
-                openPlayer: { openPlayerFromPage() },
+                openPlayer: { openPlayerFromPage(from: item) },
                 onModalActivityChanged: childModalPresentationChanged,
                 memory: podcastMemory
             )
@@ -739,7 +740,7 @@ struct TVRoot: View {
         case .playlists:
             TVPlaylistsView(
                 focusRequest: contentFocusRouting.requestID(for: .playlistsPrimary),
-                openPlayer: { openPlayerFromPage() },
+                openPlayer: { openPlayerFromPage(from: item) },
                 onModalPresentationChanged: childModalPresentationChanged
             )
         case .sources:
@@ -749,7 +750,7 @@ struct TVRoot: View {
             )
         case .search:
             TVSearchView(
-                openPlayer: { openPlayerFromPage() },
+                openPlayer: { openPlayerFromPage(from: item) },
                 focusRequest: searchFocusRequest,
                 onModalActivityChanged: childModalActivityChanged,
                 memory: searchMemory,
@@ -765,20 +766,9 @@ struct TVRoot: View {
     /// 顶栏上出现哪些页、什么顺序:按用户在设置里的排法,电台、有声只在有内容时出现;
     /// 被带到一个关掉的页时,临时把它插回用户顺序里的位置。
     private var visibleTabs: [Tab] {
-        let spaces = ListeningSpaceVisibilityPolicy.visibleSpaces(
-            hasRadioStations: !store.radioStations.isEmpty,
-            hasSpokenWord: !store.library.spokenWordSongs.isEmpty
-        )
-        let isAvailable: (Tab) -> Bool = { item in
-            switch item {
-            case .radio: return spaces.contains(.radio)
-            case .spokenWord: return spaces.contains(.spokenWord)
-            default: return true
-            }
-        }
         let configuration = tabBarConfiguration
-        var tabs = configuration.visibleItems(isAvailable: isAvailable)
-        if let transientTab, !tabs.contains(transientTab), isAvailable(transientTab) {
+        var tabs = configuration.visibleItems(isAvailable: isTabAvailable)
+        if let transientTab, !tabs.contains(transientTab), isTabAvailable(transientTab) {
             let rank = { (item: Tab) in configuration.order.firstIndex(of: item) ?? 0 }
             let insertAt = tabs.firstIndex { rank($0) > rank(transientTab) } ?? tabs.endIndex
             tabs.insert(transientTab, at: insertAt)
@@ -786,16 +776,25 @@ struct TVRoot: View {
         return tabs
     }
 
+    private func isTabAvailable(_ item: Tab) -> Bool {
+        switch item {
+        case .radio: return !store.radioStations.isEmpty
+        case .spokenWord: return !store.library.spokenWordSongs.isEmpty
+        default: return true
+        }
+    }
+
     /// 正在播放时播放页占满全屏;没在播放时还是普通一页(空状态),顶栏照常。
     private var hidesTabBar: Bool {
         tab == .nowPlaying && store.hasNowPlaying
     }
 
-    private func selectTab(_ item: Tab) {
+    private func selectTab(_ item: Tab, playerOrigin: Tab? = nil, requestsPlayerFocus: Bool = true) {
         guard item != tab else { return }
+        if item == .nowPlaying { tabBeforePlayer = playerOrigin ?? tab }
         plog("TV navigation select \(tab.rawValue)→\(item.rawValue)")
         tab = item
-        guard item == .nowPlaying, store.hasNowPlaying else { return }
+        guard item == .nowPlaying, store.hasNowPlaying, requestsPlayerFocus else { return }
         // 顶栏随即收起,焦点要明确送进播放页(封面)。
         Task { @MainActor in
             await Task.yield()
@@ -808,8 +807,8 @@ struct TVRoot: View {
     /// 卡片消失时 UIKit 自己把焦点挪进播放页 —— 从播放页回来时重开过的播客节目页、有声章节页,
     /// 弹出那一刻焦点在顶栏上,在里面再开播、页面关掉后焦点被还给顶栏;顶栏一收起,焦点就悬在
     /// 藏起来的顶栏上,Menu 没有人接,直接退回系统主屏。
-    private func openPlayerFromPage() {
-        selectTab(.nowPlaying)
+    private func openPlayerFromPage(from source: Tab) {
+        selectTab(.nowPlaying, playerOrigin: source)
     }
 
     /// 播放页上的 Menu:回到进来之前那一页。资料库、首页、搜索、有声、播客把焦点放回起播的那张卡片 /
@@ -821,8 +820,12 @@ struct TVRoot: View {
             return
         }
         let tabs = visibleTabs.filter { $0 != .nowPlaying }
-        let destination = tabBeforePlayer.flatMap { tabs.contains($0) ? $0 : nil }
-            ?? tabs.first ?? .home
+        let destination = TVPlayerReturnPolicy.destination(
+            origin: tabBeforePlayer,
+            available: Tab.allCases.filter(isTabAvailable),
+            visible: tabs
+        )
+        if !tabBarConfiguration.isShown(destination) { transientTab = destination }
         isRoutingToScrubber = false
         contentFocusRouting.returnToTabs()
         nowPlayingFocusRequest = nil
@@ -836,13 +839,15 @@ struct TVRoot: View {
         searchMemory.restoresAfterPlayer = destination == .search && searchMemory.hasReturnTarget
         spokenWordMemory.restoresAfterPlayer = destination == .spokenWord && spokenWordMemory.hasReturnTarget
         podcastMemory.restoresAfterPlayer = destination == .podcasts && podcastMemory.hasReturnTarget
-        let pageRestoresFocus = homeBrowseMemory.restoresAfterPlayer || searchMemory.restoresAfterPlayer
+        radioMemory.restoresAfterPlayer = destination == .radio && radioMemory.stationID != nil
+        let pageRestoresFocus = radioMemory.restoresAfterPlayer || homeBrowseMemory.restoresAfterPlayer || searchMemory.restoresAfterPlayer
             || spokenWordMemory.restoresAfterPlayer || podcastMemory.restoresAfterPlayer
         // 进播放页之前那次「从顶栏下到输入框」的请求还挂着,搜索页一出现就会把焦点抢到输入框。
         searchFocusRequest = nil
         tab = destination
         Task { @MainActor in
             await Task.yield()
+            guard tab == destination else { return }
             if destination == .library {
                 requestContentFocus(from: .library)
             } else if !pageRestoresFocus {
@@ -1046,6 +1051,15 @@ struct TVTabContent<Content: View>: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) { retiring = nil }
         }
+    }
+}
+
+enum TVPlayerReturnPolicy {
+    static func destination(
+        origin: TVTabBarItem?, available: [TVTabBarItem], visible: [TVTabBarItem]
+    ) -> TVTabBarItem {
+        if let origin, origin != .nowPlaying, available.contains(origin) { return origin }
+        return visible.first { $0 != .nowPlaying } ?? .home
     }
 }
 
@@ -1261,8 +1275,12 @@ struct TVTabBar: View {
                   focusedTarget?.tab == selection else { return }
             onSelect(selection)
         }
-        .onChange(of: allowsFocusDrivenSelection) { _, _ in
+        .onChange(of: allowsFocusDrivenSelection) { _, allowsSelection in
             selectionIntentRevision &+= 1
+            // 弹层或播放页收起时留下的顶栏焦点只用于恢复，不能重放成一次换页。
+            if allowsSelection, focusedTarget != nil {
+                focusedTarget = .tab(active)
+            }
         }
         .onChange(of: focusRequest) {
             selectionIntentRevision &+= 1

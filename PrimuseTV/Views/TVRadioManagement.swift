@@ -1140,6 +1140,19 @@ struct TVRadioRenameView: View {
 
 // MARK: - 「电台」一级页
 
+enum TVRadioFolderSelection: Hashable {
+    case all
+    case folder(String)
+    case ungrouped
+}
+
+@MainActor
+final class TVRadioReturnMemory {
+    var stationID: String?
+    var selection: TVRadioFolderSelection = .all
+    var restoresAfterPlayer = false
+}
+
 /// tvOS「电台」一级页:与音乐、有声并列的收听空间。页面主体就是按文件夹筛选的
 /// 全部电台网格(原来资料库里的「电台」筛选),首页那排「全部电台」也跳到这里。
 struct TVRadioPageView: View {
@@ -1147,6 +1160,7 @@ struct TVRadioPageView: View {
     var openPlayer: () -> Void = {}
     var onModalActivityChanged: (Bool) -> Void = { _ in }
     var onModalPresentationChanged: (Bool) -> Void = { _ in }
+    var memory = TVRadioReturnMemory()
 
     /// 与有声书架同一行高、同一间距(见 `TVBrowseGridMetrics`)。
     private let gridMetrics = TVBrowseGridMetrics.radio
@@ -1155,35 +1169,39 @@ struct TVRadioPageView: View {
         GeometryReader { geo in
             let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
             let columns = gridMetrics.gridItems(cell: cell)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 24) {
-                    HStack(alignment: .firstTextBaseline, spacing: 18) {
-                        Text(PMString("ext.tv.radio.title"))
-                            .tvFont(.pageTitle)
-                            .foregroundStyle(TVColor.text)
-                        if !store.radioStations.isEmpty {
-                            Text(TVRadioText.stationCount(store.radioStations.count))
-                                .tvFont(.caption)
-                                .foregroundStyle(TVColor.textFaint)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 24) {
+                        HStack(alignment: .firstTextBaseline, spacing: 18) {
+                            Text(PMString("ext.tv.radio.title"))
+                                .tvFont(.pageTitle)
+                                .foregroundStyle(TVColor.text)
+                            if !store.radioStations.isEmpty {
+                                Text(TVRadioText.stationCount(store.radioStations.count))
+                                    .tvFont(.caption)
+                                    .foregroundStyle(TVColor.textFaint)
+                            }
                         }
+                        TVRadioLibrarySection(
+                            columns: columns,
+                            cell: cell,
+                            spacing: gridMetrics.gap,
+                            openPlayer: openPlayer,
+                            onModalActivityChanged: onModalActivityChanged,
+                            onModalPresentationChanged: onModalPresentationChanged,
+                            memory: memory,
+                            revealStation: { proxy.scrollTo($0, anchor: .center) }
+                        )
                     }
-                    TVRadioLibrarySection(
-                        columns: columns,
-                        cell: cell,
-                        spacing: gridMetrics.gap,
-                        openPlayer: openPlayer,
-                        onModalActivityChanged: onModalActivityChanged,
-                        onModalPresentationChanged: onModalPresentationChanged
-                    )
+                    .padding(.horizontal, TVBrowseGridMetrics.edgeInset)
+                    .padding(.top, 8)
+                    .padding(.bottom, TVSpace.pageBottom)
                 }
-                .padding(.horizontal, TVBrowseGridMetrics.edgeInset)
-                .padding(.top, 8)
-                .padding(.bottom, TVSpace.pageBottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .focusSection()
+                .padding(.horizontal, TVSpace.pageH)
+                .padding(.top, TVSpace.pageTop)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .focusSection()
-            .padding(.horizontal, TVSpace.pageH)
-            .padding(.top, TVSpace.pageTop)
         }
         .background(TVColor.bg)
         .accessibilityIdentifier("tv.radio.page")
@@ -1207,13 +1225,12 @@ struct TVRadioLibrarySection: View {
     /// (重命名回到原卡片,删除交给邻居),TVRoot 不改焦点。
     var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
-    private enum Selection: Hashable {
-        case all
-        case folder(String)   // 文件夹名的比较键
-        case ungrouped
-    }
+    var memory = TVRadioReturnMemory()
+    var revealStation: (String) -> Void = { _ in }
 
+    private typealias Selection = TVRadioFolderSelection
     @State private var selection: Selection = .all
+    @State private var pendingRadioFocus: String?
     @State private var showsAdd = false
     @State private var deleteRequest: TVRadioDeleteRequest?
     @FocusState private var focusedRadioID: String?
@@ -1259,7 +1276,12 @@ struct TVRadioLibrarySection: View {
                 VStack(alignment: .leading, spacing: 26) {
                     chips
                     // 镜像来的电台动辄上千个:分页渲染,焦点走到末尾附近再续;换文件夹从头来。
-                    TVPagedGrid(shown, columns: columns, alignment: .leading, spacing: spacing) { _, station, focusChanged in
+                    TVPagedGrid(
+                        shown, columns: columns, alignment: .leading, spacing: spacing,
+                        revealing: shown.firstIndex {
+                            $0.id == pendingRadioFocus || (memory.restoresAfterPlayer && $0.id == memory.stationID)
+                        }
+                    ) { _, station, focusChanged in
                         TVRadioStationCard(
                             station: station,
                             width: cell,
@@ -1268,13 +1290,37 @@ struct TVRadioLibrarySection: View {
                             onDelete: { deleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: shownIDs) },
                             onModalPresentationChanged: onModalPresentationChanged,
                             onFocusChanged: focusChanged,
-                            action: openPlayer
+                            action: {
+                                memory.stationID = station.id
+                                memory.selection = effectiveSelection
+                                openPlayer()
+                            }
                         )
+                        .id(station.id)
+                        .accessibilityIdentifier("tv.radio.station." + station.id)
                     }
                     .id(effectiveSelection)
                 }
             }
         }
+        .onAppear {
+            selection = memory.selection
+            guard memory.restoresAfterPlayer else { return }
+            memory.restoresAfterPlayer = false
+            pendingRadioFocus = memory.stationID.flatMap { id in
+                store.radioStations.contains { $0.id == id } ? id : nil
+            } ?? TVRadioFocusID.add
+            if let pendingRadioFocus, pendingRadioFocus != TVRadioFocusID.add,
+               !stations.contains(where: { $0.id == pendingRadioFocus }) {
+                selection = .all
+            }
+        }
+        .onChange(of: selection) { _, value in memory.selection = value }
+        .tvRestoresFocus(
+            to: pendingRadioFocus, in: $focusedRadioID,
+            reveal: { if let pendingRadioFocus { revealStation(pendingRadioFocus) } },
+            onSettled: { pendingRadioFocus = nil }
+        )
         .fullScreenCover(isPresented: $showsAdd) {
             TVRadioAddView().environment(store)
         }

@@ -168,6 +168,25 @@ final class TVTabTransitionTests: XCTestCase {
         }
     }
 
+    func testReturningToListeningModulesDoesNotReplayStaleHomeFocus() async throws {
+        let probe = TabProbe()
+        try await withWindow(TabBarHarness(probe: probe)) { _ in
+            for destination in [TVRoot.Tab.library, .radio, .spokenWord, .podcasts] {
+                probe.selection = .home
+                probe.focusRequest += 1
+                try await Task.sleep(for: .milliseconds(300))
+                probe.allowsFocusDrivenSelection = false
+                try await Task.sleep(for: .milliseconds(80))
+                probe.selection = destination
+                try await Task.sleep(for: .milliseconds(80))
+                probe.allowsFocusDrivenSelection = true
+                try await Task.sleep(for: .milliseconds(500))
+                XCTAssertEqual(probe.selection, destination,
+                               "Restoring a module must not replay the home tab's previous focus")
+            }
+        }
+    }
+
     private func withHost(_ probe: TabProbe, run: () async throws -> Void) async throws {
         try await withWindow(TabHarness(probe: probe)) { _ in try await run() }
     }
@@ -191,6 +210,7 @@ final class TVTabTransitionTests: XCTestCase {
     @Observable final class TabProbe {
         var selection = TVRoot.Tab.home
         var allowsAnimation = true
+        var allowsFocusDrivenSelection = true
         var visible: Set<TVRoot.Tab> = []
         var displayed: [TVRoot.Tab] = []
         var enabled: [TVRoot.Tab: Bool] = [:]
@@ -204,10 +224,11 @@ final class TVTabTransitionTests: XCTestCase {
             VStack {
                 TVTabBar(
                     active: probe.selection,
-                    tabs: [.home, .library, .sources, .search, .nowPlaying],
+                    tabs: [.home, .library, .radio, .spokenWord, .podcasts, .sources, .search, .nowPlaying],
                     onSelect: { probe.selection = $0 },
                     onContentDown: { _ in },
                     focusRequest: probe.focusRequest,
+                    allowsFocusDrivenSelection: probe.allowsFocusDrivenSelection,
                     onFocusChanged: { _ in },
                     onSettings: {}
                 )
@@ -571,6 +592,28 @@ final class TVContentFocusRoutingTests: XCTestCase {
             state.moveDown(from: .library, nowPlayingMode: .song)?.target,
             .libraryDefault
         )
+    }
+}
+
+final class TVPlayerReturnPolicyTests: XCTestCase {
+    func testPlayerReturnsToEachOriginalModuleIncludingHiddenModules() {
+        for origin in [TVTabBarItem.library, .radio, .spokenWord, .podcasts, .home, .search] {
+            XCTAssertEqual(TVPlayerReturnPolicy.destination(
+                origin: origin, available: TVTabBarItem.allCases, visible: [.home, .library]
+            ), origin)
+        }
+    }
+
+    func testUnavailableOriginFallsBackToVisibleContentAndNeverToPlayer() {
+        XCTAssertEqual(TVPlayerReturnPolicy.destination(
+            origin: .radio, available: [.home, .library], visible: [.nowPlaying, .library, .home]
+        ), .library)
+        XCTAssertEqual(TVPlayerReturnPolicy.destination(
+            origin: .spokenWord, available: [.home], visible: [.home]
+        ), .home)
+        XCTAssertEqual(TVPlayerReturnPolicy.destination(
+            origin: .nowPlaying, available: TVTabBarItem.allCases, visible: [.nowPlaying, .home]
+        ), .home)
     }
 }
 

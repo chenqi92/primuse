@@ -341,4 +341,76 @@ final class TVLibraryInsightEditingTests: XCTestCase {
         (view as? UITextField).map { [$0] } ?? view.subviews.flatMap { textFields(in: $0) }
     }
 }
+
+@MainActor
+final class TVListeningReturnRenderingTests: XCTestCase {
+    func testRadioReturnRevealsStationBeyondFirstPageInOriginalFolder() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let suite = "TVListeningReturn.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let store = TVStore(
+            sourcesStore: SourcesStore(storageDirectoryURL: directory),
+            library: MusicLibrary(storageDirectory: directory), defaults: defaults,
+            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        )
+        addTeardownBlock { @MainActor [weak store] in
+            for _ in 0..<20 where store != nil {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            if store == nil { try? FileManager.default.removeItem(at: directory) }
+        }
+        store.radioStations = (0..<120).map {
+            RadioStation(id: "return-\($0)", name: "Station \($0)",
+                         streamURL: "https://example.invalid/\($0).mp3", folderName: "Jazz")
+        } + [RadioStation(id: "other", name: "Other", streamURL: "https://example.invalid/other.mp3", folderName: "Talk")]
+        let memory = TVRadioReturnMemory()
+        memory.selection = .folder("jazz")
+        memory.stationID = "return-95"
+        memory.restoresAfterPlayer = true
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: TVRadioPageView(memory: memory).environment(store))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previous?.makeKeyAndVisible()
+            store.engine.stop()
+        }
+        var focusedFrame = CGRect.zero
+        var offset: CGFloat = 0
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(100))
+            focusedFrame = UIFocusSystem(for: host.view)?.focusedItem?.frame ?? .zero
+            offset = verticalScroll(in: host.view)?.contentOffset.y ?? 0
+            if offset > 1000, focusedFrame.height > 200 { break }
+        }
+        try await Task.sleep(for: .milliseconds(400))
+        focusedFrame = UIFocusSystem(for: host.view)?.focusedItem?.frame ?? .zero
+        // SwiftUI 的焦点项不是 UIView；同时检查深处的滚动位置与卡片焦点，避免把首屏回退当成恢复。
+        XCTAssertGreaterThan(offset, 1000)
+        XCTAssertGreaterThan(focusedFrame.width, 200)
+        XCTAssertGreaterThan(focusedFrame.height, 200)
+        let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        })
+        attachment.name = "Radio return to station 95"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertEqual(memory.selection, .folder("jazz"))
+        XCTAssertFalse(memory.restoresAfterPlayer)
+    }
+
+    private func verticalScroll(in view: UIView) -> UIScrollView? {
+        if let scroll = view as? UIScrollView, scroll.contentSize.height > scroll.bounds.height { return scroll }
+        return view.subviews.lazy.compactMap { self.verticalScroll(in: $0) }.first
+    }
+}
+
 #endif

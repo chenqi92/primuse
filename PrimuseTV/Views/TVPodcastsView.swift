@@ -39,6 +39,7 @@ final class TVPodcastReturnMemory {
     /// 从节目页开播的:那一页(从发现页里点进去的也直接回到节目页)与开播的那一集。
     var presentation: TVPodcastPresentation?
     var episodeID: String?
+    var folderScope: PodcastShowFilter.FolderScope = .all
     /// 由 `TVRoot.leavePlayer` 打上,播客页出现时用掉;经顶栏换页回来不恢复。
     var restoresAfterPlayer = false
 
@@ -140,6 +141,7 @@ struct TVPodcastsView: View {
         .onDisappear {
             if presented != nil { onModalActivityChanged(false) }
         }
+        .onChange(of: folderScope) { _, scope in memory.folderScope = scope }
         .onAppear(perform: restoreAfterPlayer)
         .tvSpokenWordShelfRefresh(.localPodcasts)
         .task {
@@ -556,6 +558,7 @@ struct TVPodcastsView: View {
 
     /// 播客页出现:从播放页按 Menu 回来的那一次,先重开起播的节目页,否则把焦点放回起播的那张卡片。
     private func restoreAfterPlayer() {
+        folderScope = memory.folderScope
         let restores = memory.restoresAfterPlayer
         memory.restoresAfterPlayer = false
         guard restores else {
