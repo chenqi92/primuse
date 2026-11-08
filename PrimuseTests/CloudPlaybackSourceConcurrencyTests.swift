@@ -7,6 +7,134 @@ import XCTest
 @testable import Primuse
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
+    @MainActor
+    func testRejectedAdaptiveTranscodeRecoversOrStopsWithoutAdvancing() async throws {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_TRANSCODE_MUSIC_FIXTURE"] else {
+            throw XCTSkip("Requires an ordinary MP3 music fixture for muted playback")
+        }
+        let audio = try Data(contentsOf: URL(fileURLWithPath: path))
+        _ = AppServices.shared
+        await Task.yield()
+        let modes = ListeningPlayModeStore.shared.ledger
+        let historyWasSuspended = PlayHistoryStore.shared.isRecordingSuspended
+        let scrobbleWasSuspended = ScrobbleService.shared.isSuspended
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        defer {
+            ListeningPlayModeStore.shared.update { $0 = modes }
+            PlayHistoryStore.shared.isRecordingSuspended = historyWasSuspended
+            ScrobbleService.shared.isSuspended = scrobbleWasSuspended
+        }
+        for rejectedFormats in [Set(["opus"]), Set(["opus", "mp3"]), Set(["opus", "mp3", "raw"])] {
+            let rejectsMP3 = rejectedFormats.contains("mp3")
+            let rejectsOriginal = rejectedFormats.contains("raw")
+            let server = try WebDAVLifecycleHTTPServer(responseProvider: { request in
+                let components = URLComponents(string: "http://localhost" + request.path)
+                let format = components?.queryItems?.first(where: { $0.name == "format" })?.value
+                if let format, rejectedFormats.contains(format) {
+                    return ("application/json", Data(#"{"subsonic-response":{"status":"failed","error":{"code":0,"message":"Transcoding failed"}}}"#.utf8))
+                }
+                return ("audio/mpeg", audio)
+            })
+            let port = try await server.start()
+            defer { server.stop() }
+            let source = MusicSource(id: UUID().uuidString, name: "Transcode fixture", type: .navidrome,
+                                     host: "127.0.0.1", port: Int(port))
+            let connector = TranscodeFallbackConnector(sourceID: source.id, port: port)
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+            let suite = "transcode-fallback-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+            defer {
+                defaults.removePersistentDomain(forName: suite)
+                try? FileManager.default.removeItem(at: directory)
+            }
+            let settings = PlaybackSettingsStore(defaults: defaults)
+            settings.outputMode = .effects
+            settings.prewarmQueueCount = 0
+            settings.audioCacheEnabled = false
+            settings.replayGainEnabled = false
+            settings.gaplessEnabled = false
+            settings.crossfadeEnabled = false
+            let player = AudioPlayerService(sourceManager: manager, playbackSettings: settings,
+                playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+            let song = Song(id: UUID().uuidString, title: "Music fallback", duration: 30, fileFormat: .mp3,
+                            filePath: "/music.mp3", sourceID: source.id)
+            let next = Song(id: UUID().uuidString, title: "Must not advance", duration: 30, fileFormat: .mp3,
+                            filePath: "/next.mp3", sourceID: source.id)
+            defer {
+                player.stop()
+                CloudPlaybackSource.cancelSessions(sourceID: source.id)
+                manager.deleteAudioCache(for: song)
+                for format in StreamTranscodeFormat.allCases {
+                    if let cached = manager.completedAdaptiveTranscodeURL(for: song, bitRateKbps: 128, format: format) {
+                        try? FileManager.default.removeItem(at: cached)
+                    }
+                }
+            }
+            await Task.yield()
+            player.audioEngine.setVolume(0, persist: false)
+            player.setQueue([song, next])
+            player.shuffleEnabled = false
+            player.repeatMode = .off
+            let url = try await manager.resolveURL(
+                for: song, transcodePlanOverride: .transcode(bitRateKbps: 128, format: .opus)
+            )
+            await player.play(song: song, from: url, bypassSystemMediaPlayback: true, shouldRecordPlaybackStart: false)
+            XCTAssertEqual(player.isPlaying, !rejectsOriginal)
+            XCTAssertEqual(player.audioEngine.isActuallyPlaying, !rejectsOriginal)
+            XCTAssertEqual(player.currentSong?.id, song.id)
+            XCTAssertEqual(player.currentIndex, 0)
+            XCTAssertEqual(player.activeTranscodePlan, rejectsMP3 ? .original : .transcode(bitRateKbps: 128))
+            if rejectsOriginal { XCTAssertNotNil(player.lastPlaybackError) }
+            else { XCTAssertNil(player.adaptiveTranscodeFallbackPlayID) }
+            let plans = await connector.plans
+            XCTAssertEqual(plans, rejectsMP3
+                ? [.transcode(bitRateKbps: 128, format: .opus), .transcode(bitRateKbps: 128), .original]
+                : [.transcode(bitRateKbps: 128, format: .opus), .transcode(bitRateKbps: 128)])
+            XCTAssertNil(manager.completedAdaptiveTranscodeURL(for: song, bitRateKbps: 128, format: .opus))
+            XCTAssertNil(manager.cachedURL(for: song), "Transcoded audio must not replace the original cache")
+        }
+    }
+
+    @MainActor
+    func testTranscodeFallbackCannotRestartPausedSupersededOrInvalidatedPlayback() async throws {
+        for invalidation in ["pause", "new-song", "source"] {
+            let sourceID = UUID().uuidString
+            let suite = "transcode-ownership-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+            defer {
+                defaults.removePersistentDomain(forName: suite)
+                try? FileManager.default.removeItem(at: directory)
+            }
+            let player = AudioPlayerService(playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+                activateAudioSession: { _ in XCTFail("An abandoned fallback must not activate audio") })
+            defer { player.stop() }
+            let song = Song(id: UUID().uuidString, title: "Abandoned", fileFormat: .mp3,
+                            filePath: "/music.mp3", sourceID: sourceID)
+            player.currentSong = song
+            player.registerPlayIntent()
+            player.playID = UUID()
+            player.beginAutomaticAdvanceTransport(itemID: song.id, reason: "test")
+            let id = try XCTUnwrap(player.playID)
+            let epoch = CloudPlaybackSource.streamEpochTicket(sourceID: sourceID)
+            switch invalidation {
+            case "pause": player.registerPauseOrStopIntent()
+            case "new-song": player.playID = UUID()
+            default: CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            }
+            let handled = await player.retryAdaptiveTranscodeAfterStartupFailure(
+                song: song, failedPlan: .transcode(bitRateKbps: 128, format: .opus),
+                playID: id, sourceStreamEpoch: epoch
+            )
+            XCTAssertTrue(handled)
+            XCTAssertNil(player.lastPlaybackError)
+            XCTAssertFalse(player.isPlaying)
+        }
+    }
+
     func testLegacySourceCleanupOnlyRemovesExistingFamiliesAndPreservesScopedCaches() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -3732,6 +3860,33 @@ private final class FixtureRangeConnector: MusicSourceConnector, @unchecked Send
     func requests() async -> [FixtureRangeRequest] { await recorder.requests() }
 }
 
+private actor TranscodeFallbackConnector: NetworkAdaptiveTranscodingConnector {
+    let sourceID: String
+    let port: UInt16
+    private(set) var plans: [SourceTranscodePlan] = []
+
+    init(sourceID: String, port: UInt16) { self.sourceID = sourceID; self.port = port }
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw URLError(.unsupportedURL) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+    func streamingURL(for path: String) async throws -> URL? {
+        try await streamingURL(for: path, transcode: .original)
+    }
+    func streamingURL(for path: String, transcode plan: SourceTranscodePlan) async throws -> URL? {
+        plans.append(plan)
+        var url = URLComponents(string: "http://127.0.0.1:\(port)/rest/stream.view")!
+        url.queryItems = [.init(name: "id", value: path), .init(name: "format", value: plan.transcodedFormat?.rawValue ?? "raw")]
+        if let bitrate = plan.transcodedBitRateKbps {
+            url.queryItems? += [.init(name: "maxBitRate", value: String(bitrate)),
+                               .init(name: SourceStreamQuery.adaptive, value: "1")]
+        }
+        return url.url
+    }
+}
+
 private final class WebDAVLifecycleHTTPServer: @unchecked Sendable {
     struct Request: Sendable {
         let method: String
@@ -3746,15 +3901,18 @@ private final class WebDAVLifecycleHTTPServer: @unchecked Sendable {
     private let holdFirstListing: Bool
     /// Served whole for every GET: like a proxy that ignores `Range`.
     private let audioPayload: Data
+    private let responseProvider: (@Sendable (Request) -> (contentType: String, body: Data))?
     private var recorded: [Request] = []
     private var connections: [NWConnection] = []
     private var didFinishStarting = false
 
     var requests: [Request] { lock.withLock { recorded } }
 
-    init(holdFirstListing: Bool = false, audio: Data = WebDAVLifecycleHTTPServer.audio) throws {
+    init(holdFirstListing: Bool = false, audio: Data = WebDAVLifecycleHTTPServer.audio,
+         responseProvider: (@Sendable (Request) -> (contentType: String, body: Data))? = nil) throws {
         self.holdFirstListing = holdFirstListing
         self.audioPayload = audio
+        self.responseProvider = responseProvider
         listener = try NWListener(using: .tcp, on: .any)
     }
 
@@ -3831,7 +3989,10 @@ private final class WebDAVLifecycleHTTPServer: @unchecked Sendable {
         let status: String
         let contentType: String
         let body: Data
-        if request.method == "PROPFIND", request.path == "/Music/" {
+        if let responseProvider {
+            status = "200 OK"
+            (contentType, body) = responseProvider(request)
+        } else if request.method == "PROPFIND", request.path == "/Music/" {
             status = "207 Multi-Status"
             contentType = "application/xml"
             body = Data("""

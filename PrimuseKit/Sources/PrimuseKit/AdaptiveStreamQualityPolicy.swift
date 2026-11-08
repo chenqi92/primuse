@@ -93,6 +93,19 @@ public enum AdaptiveStreamQualityPolicy {
     /// 所以本功能新增的判断一律只认这个独立标记。
     public static let adaptiveStreamQueryKey = "primuse_adaptive"
 
+    /// Keep the requested bitrate when trying a more widely supported codec,
+    /// then use the original only when it can be played without server transcoding.
+    public static func fallbackPlan(
+        after failedPlan: SourceTranscodePlan,
+        requiresServerTranscode: Bool
+    ) -> SourceTranscodePlan? {
+        guard case .transcode(let bitRateKbps, let format) = failedPlan else { return nil }
+        if format != .mp3 {
+            return .transcode(bitRateKbps: bitRateKbps, format: .mp3)
+        }
+        return requiresServerTranscode ? nil : .original
+    }
+
     // MARK: - 计划判定
 
     /// 当前网络下生效的那一项设置。

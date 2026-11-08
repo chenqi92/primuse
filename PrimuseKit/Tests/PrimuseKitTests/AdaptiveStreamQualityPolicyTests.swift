@@ -5,6 +5,33 @@ import Testing
 @Suite("Adaptive Stream Quality Policy")
 struct AdaptiveStreamQualityPolicyTests {
 
+    @Test(arguments: [128, 192, 256, 320], [StreamTranscodeFormat.aac, .opus])
+    func rejectedTranscodeKeepsBitrateBeforeTryingOriginal(bitrate: Int, format: StreamTranscodeFormat) throws {
+        let preferred = SourceTranscodePlan.transcode(bitRateKbps: bitrate, format: format)
+        let compatible = try #require(AdaptiveStreamQualityPolicy.fallbackPlan(
+            after: preferred, requiresServerTranscode: false
+        ))
+        #expect(compatible == .transcode(bitRateKbps: bitrate, format: .mp3))
+        let original = try #require(AdaptiveStreamQualityPolicy.fallbackPlan(
+            after: compatible, requiresServerTranscode: false
+        ))
+        #expect(original == .original)
+        #expect(AdaptiveStreamQualityPolicy.fallbackPlan(after: original, requiresServerTranscode: false) == nil)
+    }
+
+    @Test(arguments: StreamTranscodeFormat.allCases)
+    func mandatoryTranscodingNeverRetriesAnUnplayableOriginal(format: StreamTranscodeFormat) {
+        var plan = SourceTranscodePlan.transcode(bitRateKbps: 320, format: format)
+        var attempts = 0
+        while let next = AdaptiveStreamQualityPolicy.fallbackPlan(after: plan, requiresServerTranscode: true) {
+            #expect(next == .transcode(bitRateKbps: 320, format: .mp3))
+            attempts += 1
+            guard attempts <= 1 else { Issue.record("Transcode fallback must terminate"); return }
+            plan = next
+        }
+        #expect(attempts == (format == .mp3 ? 0 : 1))
+    }
+
     @Test(arguments: StreamTranscodeFormat.allCases, [StreamQualityPreference.kbps128, .kbps256])
     func selectedFormatSurvivesPlanningAndURLResolution(format: StreamTranscodeFormat, quality: StreamQualityPreference) throws {
         let bitrate = try #require(quality.targetBitRateKbps)

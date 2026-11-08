@@ -1212,6 +1212,7 @@ final class AudioPlayerService {
     /// 从新解析出来的 URL 重新确定 —— 播放途中 Wi-Fi 与蜂窝互切只对下一首
     /// 生效, 不会让正在播的这首换一条取流路径。
     var activeTranscodePlan: SourceTranscodePlan = .original
+    @ObservationIgnored var adaptiveTranscodeFallbackPlayID: UUID?
 
     // MARK: - Sleep Timer
     var sleepTimerEndDate: Date?
@@ -1421,6 +1422,7 @@ final class AudioPlayerService {
     var playID: UUID? {
         didSet {
             if playID != oldValue {
+                adaptiveTranscodeFallbackPlayID = nil
                 replayGainAnalysisTask?.cancel()
                 replayGainAnalysisTask = nil
                 replayGainAnalysisIdentity = nil
@@ -5816,6 +5818,7 @@ final class AudioPlayerService {
             }
             installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
+            adaptiveTranscodeFallbackPlayID = nil
             guard isLocalTransportStartAuthorized(
                 playID: id,
                 itemID: song.id,
@@ -6371,6 +6374,11 @@ final class AudioPlayerService {
                 await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
                 guard playID == id else { return }
                 plog("⚠️ StreamingDownload: empty stream for '\(song.title)'")
+                if await retryAdaptiveTranscodeAfterStartupFailure(
+                    song: song, failedPlan: adaptiveTranscodePlan, playID: id,
+                    sourceStreamEpoch: sourceStreamEpoch,
+                    shouldRecordPlaybackStart: shouldRecordPlaybackStart
+                ) { return }
                 isLoading = false
                 await autoAdvanceAfterFailure()
                 return
@@ -6396,6 +6404,7 @@ final class AudioPlayerService {
             }
             installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
+            adaptiveTranscodeFallbackPlayID = nil
             guard isLocalTransportStartAuthorized(
                 playID: id,
                 itemID: song.id,
@@ -6519,6 +6528,11 @@ final class AudioPlayerService {
             await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
             guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ StreamingDownload first-buffer timeout for '\(song.title)' after \(Self.remoteFallbackFirstBufferTimeoutSeconds)s")
+            if await retryAdaptiveTranscodeAfterStartupFailure(
+                song: song, failedPlan: adaptiveTranscodePlan, playID: id,
+                sourceStreamEpoch: sourceStreamEpoch,
+                shouldRecordPlaybackStart: shouldRecordPlaybackStart
+            ) { return }
             showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
             await autoAdvanceAfterFailure()
@@ -6526,6 +6540,11 @@ final class AudioPlayerService {
             await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
             guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ StreamingDownload failed for '\(song.title)': \(error.localizedDescription)")
+            if await retryAdaptiveTranscodeAfterStartupFailure(
+                song: song, failedPlan: adaptiveTranscodePlan, playID: id,
+                sourceStreamEpoch: sourceStreamEpoch,
+                shouldRecordPlaybackStart: shouldRecordPlaybackStart
+            ) { return }
             if isNetworkTimeout(error) {
                 showPlaybackError(String(localized: "playback_error_connection"))
                 isLoading = false
@@ -6542,6 +6561,64 @@ final class AudioPlayerService {
                 shouldRecordPlaybackStart: shouldRecordPlaybackStart
             )
         }
+    }
+
+    func retryAdaptiveTranscodeAfterStartupFailure(
+        song: Song,
+        failedPlan: SourceTranscodePlan,
+        playID id: UUID,
+        sourceStreamEpoch: UInt64,
+        shouldRecordPlaybackStart: Bool = true
+    ) async -> Bool {
+        guard failedPlan.isTranscode else { return false }
+        func stillOwnsPlayback() -> Bool {
+            !Task.isCancelled
+                && CloudPlaybackSource.isStreamEpochTicketCurrent(
+                    sourceID: song.sourceID, ticket: sourceStreamEpoch
+                )
+                && isLocalTransportStartAuthorized(
+                    playID: id, itemID: song.id, trigger: "transcode-startup-fallback"
+                )
+        }
+        guard stillOwnsPlayback() else { return true }
+        adaptiveTranscodeFallbackPlayID = id
+        guard let manager = sourceManager,
+              let fallbackPlan = AdaptiveStreamQualityPolicy.fallbackPlan(
+                after: failedPlan,
+                requiresServerTranscode: SubsonicSource.requiresServerTranscode(song.fileFormat)
+              ) else {
+            suspendPlaybackAfterFailure(
+                reason: "transcode-fallback-exhausted",
+                message: String(localized: "playback_error_decode")
+            )
+            return true
+        }
+        do {
+            let fallbackURL = try await manager.resolveURL(
+                for: song, transcodePlanOverride: fallbackPlan
+            )
+            guard stillOwnsPlayback() else { return true }
+            let resolvedPlan = AdaptiveStreamQualityPolicy.plan(fromResolvedURL: fallbackURL)
+            // A connector must not send us back to the rejected transcode.
+            guard resolvedPlan == fallbackPlan || resolvedPlan == .original else {
+                throw AudioDecoderError.decodingFailed("transcode fallback plan unavailable")
+            }
+            plog("↳ Retrying current song after transcode failure: \(failedPlan) → \(resolvedPlan)")
+            await playFromURL(
+                song: song, url: fallbackURL, playID: id,
+                sourceStreamEpoch: sourceStreamEpoch,
+                bypassSystemMediaPlayback: true,
+                shouldRecordPlaybackStart: shouldRecordPlaybackStart
+            )
+        } catch {
+            guard stillOwnsPlayback() else { return true }
+            plog("⚠️ Transcode fallback resolution failed: \(error.localizedDescription)")
+            suspendPlaybackAfterFailure(
+                reason: "transcode-fallback-resolution-failed",
+                message: String(localized: "playback_error_connection")
+            )
+        }
+        return true
     }
 
     /// Prefetch the next song in the queue to local cache for instant playback.
@@ -7293,6 +7370,7 @@ final class AudioPlayerService {
             }
             installDecodedBufferGate(gate, playID: id)
             hasPreparedLocalPlayback = true
+            adaptiveTranscodeFallbackPlayID = nil
             guard isLocalTransportStartAuthorized(
                 playID: id,
                 itemID: song.id,

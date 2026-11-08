@@ -65,6 +65,13 @@ extension AudioPlayerService {
             consume: true,
             transportIsActive: transportIsActive
         ) == .accepted else { return }
+        if let playID, adaptiveTranscodeFallbackPlayID == playID {
+            suspendPlaybackAfterFailure(
+                reason: "transcode-fallback-exhausted",
+                message: lastPlaybackError ?? String(localized: "playback_error_decode")
+            )
+            return
+        }
         if let song = currentSong,
            playbackMetadataSourceType?(song.sourceID) == .appleMusicLibrary {
             suspendPlaybackAfterFailure(
