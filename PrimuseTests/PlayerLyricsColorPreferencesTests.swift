@@ -103,34 +103,54 @@ final class LyricsCascadeScrollTests: XCTestCase {
 
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
     @MainActor
-    func testLettersWithinAWordRiseInSequenceWithoutChangingLayout() throws {
-        let line = LyricLine(timestamp: 0, text: "MMMM", syllables: [.init(text: "MMMM", start: 0, end: 2)])
-        func render(inactive: Bool) throws -> CGImage {
+    func testHeldWordStretchesAsOneUnitAndOrdinaryWordsKeepTheirShape() throws {
+        func render(duration: TimeInterval, progress: Double, animated: Bool = true) throws -> CGImage {
+            let line = LyricLine(timestamp: 0, text: "MMMM", syllables: [.init(text: "MMMM", start: 0, end: duration)])
+            let time = duration * progress
             let view = KaraokeLineView(line: line, fontSize: 64, weight: .bold,
-                activeColor: .white, inactiveColor: .white, timeAt: { _ in 0.8 }, fixedTime: 0.8,
-                isAnimationEnabled: !inactive)
-                .padding(20).frame(width: 360, height: 130, alignment: .leading)
+                activeColor: .white, inactiveColor: .white, timeAt: { _ in time }, fixedTime: time,
+                isAnimationEnabled: animated)
+                .padding(20).frame(width: 360, height: 150, alignment: .leading)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 1
             return try XCTUnwrap(renderer.uiImage?.cgImage)
         }
-        let animated = try render(inactive: false)
-        let still = try render(inactive: true)
-        XCTAssertEqual(animated.width, still.width)
-        XCTAssertEqual(animated.height, still.height)
-        let pixels = try rgbaPixels(from: animated)
-        let columns = pixels.indices.filter { pixels[$0].alpha > 100 }.map { $0 % animated.width }
-        let minX = try XCTUnwrap(columns.min())
-        let maxX = try XCTUnwrap(columns.max())
-        let quarter = max(1, (maxX - minX + 1) / 4)
-        func top(in range: Range<Int>) throws -> Int {
-            try XCTUnwrap(pixels.indices.first { pixels[$0].alpha > 100 && range.contains($0 % animated.width) }).quotientAndRemainder(dividingBy: animated.width).quotient
+        func geometry(_ image: CGImage) throws -> (top: Int, height: Int) {
+            let pixels = try rgbaPixels(from: image)
+            let ink = pixels.indices.filter { pixels[$0].alpha > 100 }
+            let minX = try XCTUnwrap(ink.map { $0 % image.width }.min())
+            let maxX = try XCTUnwrap(ink.map { $0 % image.width }.max())
+            let quarter = max(1, (maxX - minX + 1) / 4)
+            func top(in range: Range<Int>) throws -> Int {
+                try XCTUnwrap(ink.first { range.contains($0 % image.width) }) / image.width
+            }
+            // Identical letters share a baseline throughout the sweep, including
+            // letters that have not yet been highlighted.
+            XCTAssertEqual(try top(in: minX..<(minX + quarter)), try top(in: (maxX - quarter)..<maxX))
+            let top = try XCTUnwrap(ink.first) / image.width
+            let bottom = try XCTUnwrap(ink.last) / image.width
+            return (top, bottom - top + 1)
         }
-        XCTAssertLessThan(try top(in: minX..<(minX + quarter)), try top(in: (maxX - quarter)..<maxX))
-        let attachment = XCTAttachment(image: UIImage(cgImage: animated))
-        attachment.name = "glyph-cascade"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        let still = try render(duration: 0.4, progress: 0, animated: false)
+        let ordinary = try render(duration: 0.4, progress: 0.75)
+        let earlyHeld = try render(duration: 2, progress: 0.15)
+        let held = try render(duration: 2, progress: 0.75)
+        let stillBounds = try geometry(still)
+        let ordinaryBounds = try geometry(ordinary)
+        let earlyBounds = try geometry(earlyHeld)
+        let heldBounds = try geometry(held)
+        XCTAssertLessThanOrEqual(ordinaryBounds.height - stillBounds.height, 2)
+        XCTAssertGreaterThan(heldBounds.height, ordinaryBounds.height + 1)
+        XCTAssertLessThan(heldBounds.top, earlyBounds.top)
+        XCTAssertGreaterThan(heldBounds.height, earlyBounds.height)
+        XCTAssertEqual(held.width, still.width)
+        XCTAssertEqual(held.height, still.height)
+        for (name, image) in [("ordinary-word", ordinary), ("held-word-early", earlyHeld), ("held-word-late", held)] {
+            let attachment = XCTAttachment(image: UIImage(cgImage: image))
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
     }
 
     func testLyricsPulseIsSelectableWithoutChangingExistingPreferences() {

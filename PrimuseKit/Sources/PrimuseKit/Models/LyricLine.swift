@@ -129,13 +129,29 @@ public enum LyricSyllableEmphasisPolicy {
     /// 唱过的字放大的比例。只给一点：每个字绕自己的中心放大，会吃掉词与词之间的空格，
     /// 放大 5% 时整句唱完空格只剩三成，主要靠上浮。
     public static let raisedScale: Double = 0.02
-    public static let raisedStretch: Double = 0.04
+    public static let sustainedStretch: Double = 0.06
+    public static let sustainedLiftRatio: Double = 0.04
 
-    /// Glyph positions come from the shaped word, so kerning and ligatures stay intact.
-    public static func glyphRise(progress: Double, lower: Double, upper: Double, hold: Double) -> Double {
-        guard progress.isFinite, lower.isFinite, upper.isFinite, hold.isFinite,
-              upper > lower else { return 0 }
-        return easeOut((progress - lower) / (upper - lower)) * clamp(hold)
+    /// Only a held word gets extra whole-word stretch. Start-only timestamps can
+    /// include silence, so they must not be treated as evidence of a held note.
+    public static func sustainedEmphasis(in syllables: [LyricSyllable]) -> [Double] {
+        let durations: [Double?] = syllables.map { syllable in
+            let duration = syllable.end - syllable.start
+            guard syllable.endTiming == .explicit, syllable.start.isFinite,
+                  duration.isFinite, duration > 0,
+                  LyricSyllableLayoutPolicy.units(of: syllable.text).count == 1,
+                  syllable.text.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
+            return duration
+        }
+        let sorted = durations.compactMap { $0 }.sorted()
+        guard !sorted.isEmpty else { return Array(repeating: 0, count: syllables.count) }
+        // The lower median keeps one held note from raising the ordinary-word baseline.
+        let ordinaryDuration = sorted.count == 1 ? 0.5 : sorted[(sorted.count - 1) / 2]
+        let onset = max(0.9, ordinaryDuration * 1.8)
+        return durations.map { duration in
+            guard let duration else { return 0 }
+            return smoothstep((duration - onset) / max(0.6, ordinaryDuration))
+        }
     }
     /// 整句唱完后保持放大的时长。
     public static let settleHold: TimeInterval = 0.2
@@ -179,9 +195,7 @@ public enum LyricSyllableEmphasisPolicy {
 
     /// 柔光强度：开唱后很快亮起，唱的过程中保持，唱完后散去。
     ///
-    /// 强度对每个字都一样（`glowStrength`），不看这个字唱多久：以前长音更亮、一闪而过的字更淡，
-    /// 「按字的演唱时长分两种显示」正是 US12592007B2 独立权利要求里的一项，我们的对唱又已经按
-    /// 演唱者分左右，两样凑齐就落进去了。这里刻意不再读时长去定强弱。
+    /// 保持统一的柔光亮度；长音强调由整词的上浮和拉伸表达。
     public static func glow(
         for syllable: LyricSyllable,
         nextSyllableStart: TimeInterval? = nil,

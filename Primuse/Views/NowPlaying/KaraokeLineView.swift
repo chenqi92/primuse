@@ -84,7 +84,7 @@ struct KaraokeLineView: View {
     /// 排版用的逐字块:整句或词组只打一个时间时拆到能折行的粒度,不然比歌词栏宽的
     /// 那一块会整句伸出右边(见 `LyricSyllableLayoutPolicy`)。同样建视图时算一次。
     private let layoutSyllables: [LyricSyllable]?
-    private let glyphMotionTexts: Set<String>
+    private let sustainedEmphasis: [Double]
     private let cjkLanguage: LyricsFontLanguage
 
     init(
@@ -125,13 +125,13 @@ struct KaraokeLineView: View {
             for: line,
             documentFallback: writingDirection
         )
-        self.layoutSyllables = line.syllables.map(LyricSyllableLayoutPolicy.layoutSyllables)
-        self.glyphMotionTexts = Set((self.layoutSyllables ?? []).map(\.text).filter { text in
-            text.allSatisfy { character in
-                guard character.unicodeScalars.count == 1, let value = character.unicodeScalars.first?.value else { return false }
-                return value < 0x300 || (0x3000...0x9FFF).contains(value) || (0xAC00...0xD7A3).contains(value)
-            }
-        })
+        let syllables = line.syllables.map(LyricSyllableLayoutPolicy.layoutSyllables)
+        self.layoutSyllables = syllables
+        let originalSyllables = line.syllables ?? []
+        let emphasis = LyricSyllableEmphasisPolicy.sustainedEmphasis(in: originalSyllables)
+        self.sustainedEmphasis = zip(originalSyllables, emphasis).flatMap { syllable, amount in
+            Array(repeating: amount, count: LyricSyllableLayoutPolicy.layoutSyllables([syllable]).count)
+        }
         self.cjkLanguage = LyricsFontLanguage.cjkLanguage(in: line.text)
     }
 
@@ -201,7 +201,9 @@ struct KaraokeLineView: View {
     /// 柔光与上浮都会画到行框外面，扫光那层要比行框大一圈才不会被裁掉。只随参数变，
     /// 暂停/继续不改它，渐变色歌词的色带位置也就不会跟着跳。
     private var activeLayerOverhang: CGFloat {
-        let lift = (fontSize * LyricSyllableEmphasisPolicy.raisedLiftRatio).rounded(.up) + 1
+        let extent = LyricSyllableEmphasisPolicy.raisedLiftRatio
+            + LyricSyllableEmphasisPolicy.sustainedLiftRatio + LyricSyllableEmphasisPolicy.sustainedStretch
+        let lift = (fontSize * extent).rounded(.up) + 1
         return glowsSungSyllables ? max(lift, (fontSize * Self.glowRadiusRatio * 2).rounded(.up)) : lift
     }
 
@@ -524,6 +526,7 @@ struct KaraokeLineView: View {
                         ? syllables[index + 1].start
                         : nil,
                     lineHold: lineHold,
+                    emphasis: sustainedEmphasis[index],
                     at: now
                 )
                     .environment(\.layoutDirection, lyricLayoutDirection)
@@ -551,6 +554,7 @@ struct KaraokeLineView: View {
                         ? syllables[index + 1].start
                         : nil,
                     lineHold: lineHold,
+                    emphasis: sustainedEmphasis[index],
                     at: now
                 )
                     .environment(\.layoutDirection, lyricLayoutDirection)
@@ -559,11 +563,11 @@ struct KaraokeLineView: View {
         .environment(\.layoutDirection, .leftToRight)
     }
 
-    @ViewBuilder
     private func inactiveSyllable(
         _ syllable: LyricSyllable,
         nextSyllableStart: TimeInterval?,
         lineHold: Double,
+        emphasis: Double,
         at now: TimeInterval
     ) -> some View {
         let raise = syllableRaise(
@@ -572,24 +576,17 @@ struct KaraokeLineView: View {
             lineHold: lineHold,
             at: now
         )
-        if #available(tvOS 18.0, *), lyricLayoutDirection == .leftToRight, glyphMotionTexts.contains(syllable.text) {
-            lyricText(syllable.text)
-                .foregroundStyle(inactiveColor)
-                .textRenderer(glyphRenderer(syllable, nextStart: nextSyllableStart, hold: lineHold, now: now))
-                .fixedSize()
-        } else {
-            lyricText(syllable.text)
-                .foregroundStyle(inactiveColor)
-                .modifier(SyllableRaise(amount: raise, fontSize: fontSize))
-                .fixedSize()
-        }
+        return lyricText(syllable.text)
+            .foregroundStyle(inactiveColor)
+            .modifier(SyllableRaise(amount: raise, sustainedAmount: emphasis * raise * raise, fontSize: fontSize))
+            .fixedSize()
     }
 
-    @ViewBuilder
     private func activeSyllableMask(
         _ syllable: LyricSyllable,
         nextSyllableStart: TimeInterval?,
         lineHold: Double,
+        emphasis: Double,
         at now: TimeInterval
     ) -> some View {
         let sweepProgress = computeSweepProgress(
@@ -611,36 +608,12 @@ struct KaraokeLineView: View {
             )
             : 0
         // 柔光画在遮罩里：白色光晕的透明度透出上面那层歌词色，光就是歌词本身的颜色。
-        if #available(tvOS 18.0, *), lyricLayoutDirection == .leftToRight, glyphMotionTexts.contains(syllable.text) {
-            lyricText(syllable.text)
-                .foregroundStyle(.white)
-                .textRenderer(glyphRenderer(
-                    syllable, nextStart: nextSyllableStart, hold: lineHold, now: now,
-                    sweep: sweepProgress, glow: glow
-                ))
-                .fixedSize()
-        } else {
-            lyricText(syllable.text)
-                .foregroundStyle(.white)
-                .mask(sweepMask(progress: sweepProgress))
-                .modifier(SyllableGlow(intensity: glow * Self.glowOpacity, radius: fontSize * Self.glowRadiusRatio))
-                .modifier(SyllableRaise(amount: raise, fontSize: fontSize))
-                .fixedSize()
-        }
-    }
-
-    @available(tvOS 18.0, *)
-    private func glyphRenderer(
-        _ syllable: LyricSyllable, nextStart: TimeInterval?, hold: Double, now: TimeInterval,
-        sweep: Double? = nil, glow: Double = 0
-    ) -> KaraokeGlyphRenderer {
-        let duration = LyricSyllablePlaybackTimingPolicy.effectiveDuration(for: syllable, nextSyllableStart: nextStart)
-        let progress = duration > 0 ? (now - syllable.start) / duration : (now > syllable.start ? 1.0 : 0.0)
-        return KaraokeGlyphRenderer(
-            progress: easeOut(progress), hold: showsSyllableLift ? hold : 0,
-            sweep: sweep, glow: glow * Self.glowOpacity, fontSize: fontSize,
-            overhang: activeLayerOverhang
-        )
+        return lyricText(syllable.text)
+            .foregroundStyle(.white)
+            .mask(sweepMask(progress: sweepProgress))
+            .modifier(SyllableGlow(intensity: glow * Self.glowOpacity, radius: fontSize * Self.glowRadiusRatio))
+            .modifier(SyllableRaise(amount: raise, sustainedAmount: emphasis * raise * raise, fontSize: fontSize))
+            .fixedSize()
     }
 
     /// 0...1：这个字现在浮起了多少（整句落回时一起乘下去）。
@@ -714,69 +687,22 @@ struct KaraokeLineView: View {
     }
 }
 
-/// Transform shaped glyphs at draw time; the word remains one measured Text.
-@available(tvOS 18.0, *)
-private struct KaraokeGlyphRenderer: TextRenderer {
-    let progress: Double
-    let hold: Double
-    let sweep: Double?
-    let glow: Double
-    let fontSize: CGFloat
-    let overhang: CGFloat
-
-    var displayPadding: EdgeInsets { .textRendererOverhang(vertical: overhang, horizontal: overhang) }
-
-    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
-        for line in layout {
-            let word = line.typographicBounds.rect
-            guard word.width > 0 else { continue }
-            for run in line {
-                for glyph in run {
-                    let bounds = glyph.typographicBounds.rect
-                    let amount = LyricSyllableEmphasisPolicy.glyphRise(
-                        progress: progress,
-                        lower: Double((bounds.minX - word.minX) / word.width),
-                        upper: Double((bounds.maxX - word.minX) / word.width), hold: hold
-                    )
-                    var copy = context
-                    copy.translateBy(x: bounds.midX, y: bounds.maxY - fontSize * LyricSyllableEmphasisPolicy.raisedLiftRatio * amount)
-                    copy.scaleBy(
-                        x: 1 + LyricSyllableEmphasisPolicy.raisedScale * amount,
-                        y: 1 + (LyricSyllableEmphasisPolicy.raisedScale + LyricSyllableEmphasisPolicy.raisedStretch) * amount
-                    )
-                    copy.translateBy(x: -bounds.midX, y: -bounds.maxY)
-                    if let sweep {
-                        guard sweep > 0 else { continue }
-                        if sweep < 1 {
-                            copy.clipToLayer { mask in
-                                mask.fill(Path(word.insetBy(dx: -overhang, dy: -overhang)), with: .linearGradient(
-                                    Gradient(stops: [
-                                        .init(color: .white, location: max(0, sweep - 0.06)),
-                                        .init(color: .clear, location: min(1, sweep + 0.06))
-                                    ]), startPoint: CGPoint(x: word.minX, y: 0), endPoint: CGPoint(x: word.maxX, y: 0)
-                                ))
-                            }
-                        }
-                        if glow > 0.01, amount > 0 {
-                            copy.addFilter(.shadow(color: .white.opacity(glow * amount), radius: fontSize * 0.22))
-                        }
-                    }
-                    copy.draw(glyph)
-                }
-            }
-        }
-    }
-}
-
 /// 唱过的字浮起并略微放大。底层暗字与上层亮字用同一个变换，两层始终对齐。
 private struct SyllableRaise: ViewModifier {
     let amount: Double
+    let sustainedAmount: Double
     let fontSize: CGFloat
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(1 + LyricSyllableEmphasisPolicy.raisedScale * amount, anchor: .bottom)
-            .offset(y: -fontSize * LyricSyllableEmphasisPolicy.raisedLiftRatio * amount)
+            .scaleEffect(
+                x: 1 + LyricSyllableEmphasisPolicy.raisedScale * amount,
+                y: 1 + LyricSyllableEmphasisPolicy.raisedScale * amount
+                    + LyricSyllableEmphasisPolicy.sustainedStretch * sustainedAmount,
+                anchor: .bottom
+            )
+            .offset(y: -fontSize * (LyricSyllableEmphasisPolicy.raisedLiftRatio * amount
+                                   + LyricSyllableEmphasisPolicy.sustainedLiftRatio * sustainedAmount))
     }
 }
 

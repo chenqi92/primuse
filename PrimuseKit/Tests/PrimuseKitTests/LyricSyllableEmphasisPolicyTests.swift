@@ -4,23 +4,44 @@ import Testing
 
 @Suite("Lyric syllable emphasis")
 struct LyricSyllableEmphasisPolicyTests {
-    @Test("Letters rise in reading order within a word and settle together")
-    func glyphCascade() {
-        let first = LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0, upper: 0.2, hold: 1)
-        let middle = LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0.3, upper: 0.5, hold: 1)
-        let last = LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0.8, upper: 1, hold: 1)
-        #expect(first == 1)
-        #expect(middle > 0 && middle < first)
-        #expect(last == 0)
-        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: 1, lower: 0.8, upper: 1, hold: 0.5) == 0.5)
-        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0, upper: 0.2, hold: 0) == 0)
+    @Test("Only a held word gets extra emphasis within an otherwise ordinary line")
+    func heldWordEmphasis() {
+        let words = [
+            LyricSyllable(text: "Paper ", start: 0, end: 0.4),
+            LyricSyllable(text: "lanterns ", start: 0.4, end: 0.9),
+            LyricSyllable(text: "glow", start: 0.9, end: 3.1),
+        ]
+        let emphasis = LyricSyllableEmphasisPolicy.sustainedEmphasis(in: words)
+        #expect(emphasis == [0, 0, 1])
+        let equallySlow = words.map { LyricSyllable(text: $0.text, start: $0.start, end: $0.start + 2) }
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: equallySlow) == [0, 0, 0])
     }
 
-    @Test("Invalid glyph bounds and time cannot produce invalid transforms")
-    func glyphBounds() {
-        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: .nan, lower: 0, upper: 1, hold: 1) == 0)
-        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: 0.5, lower: 0.3, upper: 0.3, hold: 1) == 0)
-        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: -1, lower: 0, upper: 1, hold: 1) == 0)
+    @Test("Inferred silent gaps and malformed timing never imply a held note")
+    func inferredTimingDoesNotStretch() {
+        let words = [
+            LyricSyllable(text: "Paper ", start: 0, end: 0.4),
+            LyricSyllable(text: "lanterns ", start: 0.4, end: 4, endTiming: .inferred),
+            LyricSyllable(text: "glow", start: 4, end: 8, endTiming: .legacy),
+            LyricSyllable(text: " ", start: 8, end: 12),
+            LyricSyllable(text: "invalid", start: 12, end: .infinity),
+        ]
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: words) == [0, 0, 0, 0, 0])
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: []) == [])
+    }
+
+    @Test("A phrase with one shared timestamp does not invent held-word emphasis")
+    func phraseTimingDoesNotStretch() {
+        let phrase = LyricSyllable(text: "Paper lanterns glow", start: 0, end: 5)
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: [phrase]) == [0])
+    }
+
+    @Test("A standalone sustained word is emphasized without splitting its letters")
+    func standaloneHeldWord() {
+        let short = LyricSyllable(text: "Glow", start: 0, end: 0.4)
+        let held = LyricSyllable(text: "Glow", start: 0, end: 2)
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: [short]) == [0])
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: [held]) == [1])
     }
 
     private let line = [
