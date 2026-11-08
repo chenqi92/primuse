@@ -609,7 +609,7 @@ private struct MacSTStorageView: View {
                                 ProgressView().controlSize(.small)
                             }
                             MacSTButton(title: String(localized: "companion_assets_download_start")) {
-                                companionAssetFlow.begin(songs: library.visibleSongs, sourceManager: sourceManager)
+                                companionAssetFlow.begin(library: library, sourceManager: sourceManager)
                             }
                             .disabled(companionAssetFlow.isPlanning)
                         }
