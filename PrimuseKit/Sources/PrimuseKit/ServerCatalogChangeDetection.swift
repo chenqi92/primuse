@@ -61,9 +61,6 @@ public enum ServerCatalogRefreshPolicy {
     }
 }
 
-/// File sources require an explicit opt-in because checking for changes can
-/// involve walking every selected directory. Existing server preferences keep
-/// their default-on behavior when upgrading.
 public enum SourceAutomaticRefreshInterval: Int, CaseIterable, Codable, Sendable {
     case oneHour = 1
     case sixHours = 6
@@ -77,6 +74,8 @@ public enum SourceAutomaticRefreshInterval: Int, CaseIterable, Codable, Sendable
     }
 }
 
+/// Server and file sources share an opt-in default. Saved catalogue markers
+/// do not count as enabling automatic refresh.
 public enum SourceAutomaticRefreshPolicy {
     public static func supportsAutomaticRefresh(_ type: MusicSourceType) -> Bool {
         if type.isAwaitingPublicAPI { return false }
@@ -93,7 +92,7 @@ public enum SourceAutomaticRefreshPolicy {
         optedInSourceIDs: Set<String>
     ) -> Bool {
         guard supportsAutomaticRefresh(type), !disabledSourceIDs.contains(sourceID) else { return false }
-        return type.isServerLibrary || optedInSourceIDs.contains(sourceID)
+        return optedInSourceIDs.contains(sourceID)
     }
 
     public static func shouldRefreshFiles(
@@ -113,6 +112,23 @@ public enum SourceAutomaticRefreshPolicy {
 public enum ServerCatalogAutoRefreshPolicy {
     /// Minimum spacing between two automatic checks of one source.
     public static let checkCooldown: TimeInterval = 15 * 60
+
+    /// A completed scan also starts the interval, including one resumed after
+    /// relaunch. Failed probes retain their attempt time without advancing the
+    /// applied catalogue marker.
+    public static func remainingCheckDelay(
+        trigger: ServerCatalogRefreshTrigger,
+        lastScannedAt: Date?,
+        lastCheckedAt: Date?,
+        lastAttemptAt: Date?,
+        interval: SourceAutomaticRefreshInterval,
+        now: Date = Date()
+    ) -> TimeInterval {
+        guard trigger.honorsCooldown,
+              let baseline = [lastScannedAt, lastCheckedAt, lastAttemptAt].compactMap({ $0 }).max()
+        else { return 0 }
+        return max(0, baseline.addingTimeInterval(interval.timeInterval).timeIntervalSince(now))
+    }
 
     /// Subsonic-family servers expose `getScanStatus`: one request, a scan flag,
     /// an item count and a last-scan timestamp. Every member of the family is
@@ -160,12 +176,12 @@ public enum ServerCatalogRefreshTrigger: String, Sendable, Equatable, CaseIterab
 
     public var isUserInitiated: Bool { self == .userRequest }
 
-    /// Automatic checks space themselves out. A retry is already paced by its
-    /// own backoff, and a check the person asked for runs now.
+    /// Automatic retries honor the same interval as launch and foreground
+    /// checks. A check the person asked for runs now.
     public var honorsCooldown: Bool {
         switch self {
-        case .launch, .foreground: true
-        case .userRequest, .retry: false
+        case .launch, .foreground, .retry: true
+        case .userRequest: false
         }
     }
 }

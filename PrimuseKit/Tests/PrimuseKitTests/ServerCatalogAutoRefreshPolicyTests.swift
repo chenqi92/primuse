@@ -29,16 +29,16 @@ struct SourceAutomaticRefreshPolicyTests {
         }
     }
 
-    @Test func newAndExistingFileSourcesDefaultToOff() {
+    @Test func newAndExistingSourcesWithoutExplicitOptInDefaultToOff() {
         for type in MusicSourceType.allCases {
-            #expect(SourceAutomaticRefreshPolicy.isEnabled(
+            #expect(!SourceAutomaticRefreshPolicy.isEnabled(
                 for: type, sourceID: "source", disabledSourceIDs: [], optedInSourceIDs: []
-            ) == type.isServerLibrary)
+            ))
         }
     }
 
-    @Test func fileSourcesCanOptInWithoutEnablingOtherSources() {
-        for type in MusicSourceType.allCases where !type.isServerLibrary {
+    @Test func explicitOptInRemainsEnabledWithoutEnablingOtherSources() {
+        for type in MusicSourceType.allCases {
             let supported = type != .appleMusic && type != .appleMusicLibrary && !type.isAwaitingPublicAPI
             #expect(SourceAutomaticRefreshPolicy.supportsAutomaticRefresh(type) == supported)
             #expect(SourceAutomaticRefreshPolicy.isEnabled(
@@ -141,15 +141,77 @@ struct ServerCatalogAutoRefreshPolicyTests {
         }
     }
 
-    @Test func probeCooldownStaysConservative() {
-        #expect(ServerCatalogAutoRefreshPolicy.checkCooldown == 15 * 60)
+    @Test func selectedIntervalAppliesToLaunchForegroundAndRetries() {
+        let checkedAt = Date(timeIntervalSince1970: 100_000)
+        for interval in SourceAutomaticRefreshInterval.allCases {
+            for trigger in [ServerCatalogRefreshTrigger.launch, .foreground, .retry] {
+                #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+                    trigger: trigger, lastScannedAt: nil, lastCheckedAt: checkedAt,
+                    lastAttemptAt: nil, interval: interval,
+                    now: checkedAt.addingTimeInterval(15 * 60)
+                ) == interval.timeInterval - 15 * 60)
+                #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+                    trigger: trigger, lastScannedAt: nil, lastCheckedAt: checkedAt,
+                    lastAttemptAt: nil, interval: interval,
+                    now: checkedAt.addingTimeInterval(interval.timeInterval)
+                ) == 0)
+            }
+        }
+    }
+
+    @Test func resumedLongScanStartsANewIntervalOnCompletion() {
+        let startedAt = Date(timeIntervalSince1970: 100_000)
+        let completedAt = startedAt.addingTimeInterval(30 * 60 * 60)
+        for trigger in [ServerCatalogRefreshTrigger.launch, .foreground, .retry] {
+            #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+                trigger: trigger, lastScannedAt: completedAt, lastCheckedAt: startedAt,
+                lastAttemptAt: startedAt, interval: .sixHours,
+                now: completedAt.addingTimeInterval(30)
+            ) == 6 * 60 * 60 - 30)
+        }
+    }
+
+    @Test func failedProbeWaitsForSelectedIntervalWithoutAnAppliedMarker() {
+        let attemptedAt = Date(timeIntervalSince1970: 100_000)
+        for trigger in [ServerCatalogRefreshTrigger.launch, .foreground, .retry] {
+            #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+                trigger: trigger, lastScannedAt: attemptedAt.addingTimeInterval(-86_400),
+                lastCheckedAt: nil, lastAttemptAt: attemptedAt, interval: .twelveHours,
+                now: attemptedAt.addingTimeInterval(300)
+            ) == 12 * 60 * 60 - 300)
+        }
+    }
+
+    @Test func changingIntervalUsesTheExistingCheckTime() {
+        let checkedAt = Date(timeIntervalSince1970: 100_000)
+        let now = checkedAt.addingTimeInterval(2 * 60 * 60)
+        #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+            trigger: .retry, lastScannedAt: nil, lastCheckedAt: checkedAt,
+            lastAttemptAt: nil, interval: .oneHour, now: now
+        ) == 0)
+        #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+            trigger: .retry, lastScannedAt: nil, lastCheckedAt: checkedAt,
+            lastAttemptAt: nil, interval: .twentyFourHours, now: now
+        ) == 22 * 60 * 60)
+    }
+
+    @Test func manualAndFirstChecksCanRunImmediately() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+            trigger: .userRequest, lastScannedAt: now, lastCheckedAt: now,
+            lastAttemptAt: now, interval: .twentyFourHours, now: now
+        ) == 0)
+        #expect(ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+            trigger: .launch, lastScannedAt: nil, lastCheckedAt: nil,
+            lastAttemptAt: nil, interval: .sixHours, now: now
+        ) == 0)
     }
 
     @Test func automaticTriggersSpaceThemselvesOutUnlessAsked() {
         #expect(ServerCatalogRefreshTrigger.launch.honorsCooldown)
         #expect(ServerCatalogRefreshTrigger.foreground.honorsCooldown)
         #expect(!ServerCatalogRefreshTrigger.userRequest.honorsCooldown)
-        #expect(!ServerCatalogRefreshTrigger.retry.honorsCooldown)
+        #expect(ServerCatalogRefreshTrigger.retry.honorsCooldown)
         #expect(ServerCatalogRefreshTrigger.userRequest.isUserInitiated)
         #expect(!ServerCatalogRefreshTrigger.foreground.isUserInitiated)
     }

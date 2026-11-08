@@ -4449,6 +4449,9 @@ final class ScanService {
                     let inspectedSongIDs = Set(pageSongs.compactMap { scannedSong in
                         scannedSong.titleMetadataInspected ? scannedSong.song.id : nil
                     })
+                    // The terminal delta merges with the live library. Staging local
+                    // enrichment here duplicates lyrics and pins stale local values.
+                    let catalogPageSongs = pageSongs.map(\.song)
                     let stagedPageSongs = pageSongs.map { scannedSong -> Song in
                         var incoming = scannedSong.song
                         if let existing = existingByID[incoming.id] {
@@ -4477,7 +4480,7 @@ final class ScanService {
                                 offset: offset,
                                 nextOffset: pageNextOffset,
                                 itemIDs: pageItemIDs,
-                                songs: stagedPageSongs,
+                                songs: catalogPageSongs,
                                 metadataInspectedSongIDs: inspectedSongIDs,
                                 hierarchyItems: hierarchyItems,
                                 addedSongCount: addedOnPage

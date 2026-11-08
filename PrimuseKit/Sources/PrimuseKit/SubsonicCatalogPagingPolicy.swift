@@ -203,12 +203,43 @@ public struct PagedSongCatalogStageDelta: Sendable, Equatable {
 /// derived from this store.
 public final class PagedSongCatalogStagingStore: @unchecked Sendable {
     private let database: DatabaseQueue
+    // PMC v1 stores zlib-compressed JSON; unprefixed rows are legacy JSON.
+    private static let compressedPayloadPrefix = Data([0x50, 0x4D, 0x43, 0x01])
 
     public init(path: String) throws {
         var configuration = Configuration()
         configuration.label = "Primuse paged song catalog staging"
+        configuration.journalMode = .wal
         database = try DatabaseQueue(path: path, configuration: configuration)
+        try database.writeWithoutTransaction { db in
+            // Keep each page durable, but coalesce index-page rewrites before checkpointing.
+            try db.execute(sql: "PRAGMA synchronous = FULL")
+            try db.execute(sql: "PRAGMA cache_size = -8192")
+            try db.execute(sql: "PRAGMA wal_autocheckpoint = 8192")
+        }
         try migrate()
+    }
+
+    private static func encodedPayload<T: Encodable>(_ value: T, encoder: JSONEncoder) throws -> Data {
+        let json = try encoder.encode(value)
+        guard json.count >= 256 else { return json }
+        let compressed = try (json as NSData).compressed(using: .zlib) as Data
+        guard compressed.count + compressedPayloadPrefix.count + 32 < json.count else { return json }
+        return compressedPayloadPrefix + compressed
+    }
+
+    private static func decodedPayload<T: Decodable>(
+        _ type: T.Type, from payload: Data, decoder: JSONDecoder
+    ) throws -> T {
+        // Existing checkpoints keep their JSON rows; a resumed scan can contain both formats.
+        let json: Data
+        if payload.starts(with: compressedPayloadPrefix) {
+            json = try (Data(payload.dropFirst(compressedPayloadPrefix.count)) as NSData)
+                .decompressed(using: .zlib) as Data
+        } else {
+            json = payload
+        }
+        return try decoder.decode(type, from: json)
     }
 
     private func migrate() throws {
@@ -319,9 +350,12 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
         // staged Subsonic mtime must round-trip exactly or every later delta
         // misclassifies the stable file as replaced and drops local metadata.
         let encoder = JSONEncoder()
-        let encodedSongs = try songs.map { ($0.id, try encoder.encode($0)) }
-        let encodedHierarchy = try hierarchyItems.map {
-            ($0.stableKey, try encoder.encode($0))
+        let encodedSongs = try songs.map { ($0.id, try Self.encodedPayload($0, encoder: encoder)) }
+        let hierarchyByKey = Dictionary(hierarchyItems.map { ($0.stableKey, $0) },
+                                       uniquingKeysWith: { _, last in last })
+        encoder.outputFormatting = .sortedKeys
+        let encodedHierarchy = try hierarchyByKey.sorted { $0.key < $1.key }.map { key, item in
+            (key, try Self.encodedPayload(item, encoder: encoder))
         }
 
         return try database.write { db in
@@ -358,14 +392,11 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
             ) {
                 throw PagedSongCatalogStagingError.duplicateItemID(existingItemID)
             }
+            let insertItem = try db.cachedStatement(sql: """
+                INSERT INTO pagedCatalogItems (sourceID, itemID, orderKey) VALUES (?, ?, ?)
+                """)
             for (index, itemID) in itemIDs.enumerated() {
-                try db.execute(
-                    sql: """
-                        INSERT INTO pagedCatalogItems (sourceID, itemID, orderKey)
-                        VALUES (?, ?, ?)
-                        """,
-                    arguments: [sourceID, itemID, current.stagedItemCount + index]
-                )
+                try insertItem.execute(arguments: [sourceID, itemID, current.stagedItemCount + index])
             }
 
             if let existingSongID = try Self.firstExistingID(
@@ -377,33 +408,27 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
             ) {
                 throw PagedSongCatalogStagingError.duplicateSongID(existingSongID)
             }
+            let insertSong = try db.cachedStatement(sql: """
+                INSERT INTO pagedCatalogSongs (sourceID, songID, orderKey, payload, metadataInspected)
+                VALUES (?, ?, ?, ?, ?)
+                """)
             for (index, encodedSong) in encodedSongs.enumerated() {
-                try db.execute(
-                    sql: """
-                        INSERT INTO pagedCatalogSongs (
-                            sourceID, songID, orderKey, payload, metadataInspected
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                    arguments: [
-                        sourceID,
-                        encodedSong.0,
-                        current.stagedSongCount + index,
-                        encodedSong.1,
-                        metadataInspectedSongIDs.contains(encodedSong.0),
-                    ]
-                )
+                try insertSong.execute(arguments: [
+                    sourceID,
+                    encodedSong.0,
+                    current.stagedSongCount + index,
+                    encodedSong.1,
+                    metadataInspectedSongIDs.contains(encodedSong.0),
+                ])
             }
 
+            let upsertHierarchy = try db.cachedStatement(sql: """
+                INSERT INTO pagedCatalogHierarchy (sourceID, stableKey, payload) VALUES (?, ?, ?)
+                ON CONFLICT(sourceID, stableKey) DO UPDATE SET payload = excluded.payload
+                WHERE pagedCatalogHierarchy.payload != excluded.payload
+                """)
             for encodedItem in encodedHierarchy {
-                try db.execute(
-                    sql: """
-                        INSERT INTO pagedCatalogHierarchy (sourceID, stableKey, payload)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(sourceID, stableKey) DO UPDATE SET
-                            payload = excluded.payload
-                        """,
-                    arguments: [sourceID, encodedItem.0, encodedItem.1]
-                )
+                try upsertHierarchy.execute(arguments: [sourceID, encodedItem.0, encodedItem.1])
             }
 
             let firstPageItemIDs = current.completedPageCount == 0
@@ -562,7 +587,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                         try Task.checkCancellation()
                         let orderKey: Int = row["orderKey"]
                         let payload: Data = row["payload"]
-                        var song = try decoder.decode(Song.self, from: payload)
+                        var song = try Self.decodedPayload(Song.self, from: payload, decoder: decoder)
                         if let enrichment { song = enrichment.applying(to: song) }
                         if let existing = existingSong(song.id) {
                             song = ServerSongCatalogMergePolicy.merged(
@@ -611,9 +636,9 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 try autoreleasepool {
                     let stableKey: String = row["stableKey"]
                     let payload: Data = row["payload"]
-                    result[stableKey] = try decoder.decode(
+                    result[stableKey] = try Self.decodedPayload(
                         SourceSyncIndexedItem.self,
-                        from: payload
+                        from: payload, decoder: decoder
                     )
                 }
             }

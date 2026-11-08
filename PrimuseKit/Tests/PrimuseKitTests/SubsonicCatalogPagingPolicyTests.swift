@@ -200,6 +200,192 @@ struct SubsonicCatalogPagingPolicyTests {
 
 @Suite("Paged Subsonic catalogue staging")
 struct PagedSongCatalogStagingStoreTests {
+    @Test("Legacy JSON and compressed pages resume together without losing metadata")
+    func mixedPayloadFormatsSurviveRestart() throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        var legacy = makeSong(index: 1)
+        legacy.lyricsText = String(repeating: "灯塔收起晚风，纸船驶向星河。\n", count: 100)
+        legacy.lastModified = Date(timeIntervalSince1970: 1_700_000_000.123_456)
+        var compressed = legacy
+        compressed.id = "song-2"
+        compressed.title = "灯塔与纸船"
+        let folder = SourceSyncIndexedItem(stableKey: "folder", path: "/Music",
+            displayName: String(repeating: "夜间观测站", count: 100), parentPath: nil,
+            isDirectory: true, size: 0, modifiedDate: nil, revision: nil)
+        do {
+            let store = try PagedSongCatalogStagingStore(path: url.path)
+            try store.reset(sourceID: "source", stageSessionID: "mixed", ownerGeneration: 1,
+                replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "r1")
+            try store.stagePage(sourceID: "source", stageSessionID: "mixed", scopeFingerprint: "account",
+                catalogRevision: "r1", offset: 0, nextOffset: 1, itemIDs: [legacy.id], songs: [legacy],
+                metadataInspectedSongIDs: [legacy.id], hierarchyItems: [folder], addedSongCount: 1)
+            let observer = try DatabaseQueue(path: url.path)
+            try observer.write { db in
+                try db.execute(sql: "UPDATE pagedCatalogSongs SET payload = ?",
+                    arguments: [try JSONEncoder().encode(legacy)])
+                try db.execute(sql: "UPDATE pagedCatalogHierarchy SET payload = ?",
+                    arguments: [try JSONEncoder().encode(folder)])
+            }
+        }
+        let reopened = try PagedSongCatalogStagingStore(path: url.path)
+        #expect(try reopened.snapshot(sourceID: "source")?.nextOffset == 1)
+        #expect(try reopened.loadHierarchyIndex(sourceID: "source")[folder.stableKey] == folder)
+        try reopened.stagePage(sourceID: "source", stageSessionID: "mixed", scopeFingerprint: "account",
+            catalogRevision: "r1", offset: 1, nextOffset: nil, itemIDs: [compressed.id], songs: [compressed],
+            metadataInspectedSongIDs: [], hierarchyItems: [folder], addedSongCount: 1)
+        let delta = try reopened.delta(sourceID: "source", existingByID: [:], batchSize: 1)
+        #expect(delta.upserts == [legacy, compressed])
+        #expect(delta.authoritativeSongIDs == [legacy.id, compressed.id])
+        #expect(delta.metadataInspectedSongIDs == [legacy.id])
+        #expect(try reopened.loadHierarchyIndex(sourceID: "source")[folder.stableKey] == folder)
+        let observer = try DatabaseQueue(path: url.path)
+        try observer.read { (db: Database) throws -> Void in
+            let storedPayload = try Data.fetchOne(db,
+                sql: "SELECT payload FROM pagedCatalogSongs WHERE songID = ?", arguments: [compressed.id])
+            let payload = try #require(storedPayload)
+            #expect(payload.count < (try JSONEncoder().encode(compressed)).count / 2)
+            #expect(try String.fetchOne(db, sql: "PRAGMA quick_check") == "ok")
+        }
+    }
+
+    @Test("Shared folders write once per page and unchanged later pages do not update them")
+    func sharedHierarchySkipsDuplicateWritesButKeepsLatestValue() throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        try store.reset(sourceID: "source", stageSessionID: "folders", ownerGeneration: 1,
+            replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "r1")
+        let observer = try DatabaseQueue(path: url.path)
+        try observer.write { db in
+            try db.execute(sql: "CREATE TABLE hierarchyWrites (kind TEXT)")
+            try db.execute(sql: """
+                CREATE TRIGGER hierarchyInsert AFTER INSERT ON pagedCatalogHierarchy
+                BEGIN INSERT INTO hierarchyWrites VALUES ('insert'); END
+                """)
+            try db.execute(sql: """
+                CREATE TRIGGER hierarchyUpdate AFTER UPDATE ON pagedCatalogHierarchy
+                BEGIN INSERT INTO hierarchyWrites VALUES ('update'); END
+                """)
+        }
+        let original = SourceSyncIndexedItem(stableKey: "root", path: "/Music", displayName: "旧目录",
+            parentPath: nil, isDirectory: true, size: 0, modifiedDate: nil, revision: nil)
+        var renamed = original
+        renamed.displayName = "新目录"
+        for offset in 0..<3 {
+            let song = makeSong(index: offset)
+            let items = offset == 0 ? Array(repeating: original, count: 500)
+                : Array(repeating: original, count: 500) + [renamed]
+            try store.stagePage(sourceID: "source", stageSessionID: "folders", scopeFingerprint: "account",
+                catalogRevision: "r1", offset: offset, nextOffset: offset < 2 ? offset + 1 : nil,
+                itemIDs: [song.id], songs: [song], metadataInspectedSongIDs: [],
+                hierarchyItems: items, addedSongCount: 1)
+        }
+        #expect(try store.loadHierarchyIndex(sourceID: "source") == ["root": renamed])
+        try observer.read { (db: Database) throws -> Void in
+            #expect(try String.fetchAll(db, sql: "SELECT kind FROM hierarchyWrites ORDER BY rowid") == ["insert", "update"])
+        }
+    }
+
+    @Test("Raw staged catalogue rows merge with current local edits and discard replaced-file enrichment")
+    func rawCatalogRowsPreserveCurrentLocalMetadata() throws {
+        try withStore { store in
+            try store.reset(sourceID: "source", stageSessionID: "raw", ownerGeneration: 1,
+                replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "r1")
+            let raw = makeSong(index: 1)
+            var replacement = makeSong(index: 2)
+            replacement.revision = "r2"
+            try store.stagePage(sourceID: "source", stageSessionID: "raw", scopeFingerprint: "account",
+                catalogRevision: "r1", offset: 0, nextOffset: nil,
+                itemIDs: [raw.id, replacement.id], songs: [raw, replacement],
+                metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 0)
+            var edited = raw
+            edited.title = "用户更新的标题"
+            edited.userMetadataEditedAt = Date(timeIntervalSince1970: 1_800_000_000)
+            edited.lyricsText = "晚风停在窗边，星光落在纸上。"
+            edited.replayGainTrackGain = -7.25
+            var replaced = makeSong(index: 2)
+            replaced.lyricsText = "旧文件里的虚构歌词。"
+            replaced.replayGainTrackGain = -6
+            let delta = try store.delta(sourceID: "source", existingByID: [edited.id: edited, replaced.id: replaced])
+            #expect(delta.authoritativeSongIDs == [edited.id, replaced.id])
+            #expect(delta.upserts == [replacement])
+        }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PRIMUSE_CATALOG_IO_BENCHMARK"] == "1"))
+    func catalogStagingWriteBenchmark() throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        try store.reset(sourceID: "source", stageSessionID: "benchmark", ownerGeneration: 1,
+                        replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "r1")
+        func writtenBytes() throws -> UInt64 {
+            var info = rusage_info_v4()
+            let result = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                    proc_pid_rusage(getpid(), RUSAGE_INFO_V4, $0)
+                }
+            }
+            #expect(result == 0)
+            return info.ri_diskio_byteswritten
+        }
+        let before = try writtenBytes()
+        let started = ContinuousClock.now
+        for offset in stride(from: 0, to: 50_000, by: 2_000) {
+            let songs = (offset..<offset + 2_000).map { index in
+                var song = makeSong(index: index)
+                song.id = String(format: "%08x-%08x", UInt32(index) &* 2_654_435_761, index)
+                song.artistName = "Catalogue Artist \(index / 200)"
+                song.albumTitle = "Evening Observatory \(index / 20)"
+                song.albumArtistName = song.artistName
+                song.filePath = "/Music/\(song.artistName!)/\(song.albumTitle!)/\(song.title).flac"
+                song.fileFormat = .flac
+                song.fileSize = 32_000_000
+                song.trackNumber = index % 20 + 1
+                song.sampleRate = 44_100
+                song.bitDepth = 16
+                song.bitRate = 900
+                song.genre = "Instrumental"
+                song.year = 2024
+                song.lastModified = Date(timeIntervalSince1970: 1_700_000_000.123_456)
+                song.coverArtFileName = "server-cover/album-\(index / 20)"
+                return song
+            }
+            let hierarchy = songs.enumerated().flatMap { relativeIndex, song in
+                let index = offset + relativeIndex
+                return [
+                    SourceSyncIndexedItem(stableKey: "root", path: "/Music", parentPath: nil,
+                        isDirectory: true, size: 0, modifiedDate: nil, revision: nil),
+                    SourceSyncIndexedItem(stableKey: "artist-\(index / 200)", path: "/Music/\(song.artistName!)",
+                        parentPath: "/Music", isDirectory: true, size: 0, modifiedDate: nil, revision: nil),
+                    SourceSyncIndexedItem(stableKey: "album-\(index / 20)", path: "/Music/\(song.artistName!)/\(song.albumTitle!)",
+                        parentPath: "/Music/\(song.artistName!)", isDirectory: true, size: 0, modifiedDate: nil, revision: nil),
+                    SourceSyncIndexedItem(stableKey: song.id, path: song.filePath,
+                        parentPath: "/Music/\(song.artistName!)/\(song.albumTitle!)", isDirectory: false,
+                        songIDs: [song.id], size: song.fileSize, modifiedDate: song.lastModified, revision: song.revision),
+                ]
+            }
+            try store.stagePage(sourceID: "source", stageSessionID: "benchmark", scopeFingerprint: "account",
+                catalogRevision: "r1", offset: offset, nextOffset: offset + 2_000 < 50_000 ? offset + 2_000 : nil,
+                itemIDs: songs.map(\.id), songs: songs, metadataInspectedSongIDs: [],
+                hierarchyItems: hierarchy, addedSongCount: songs.count)
+        }
+        let observer = try DatabaseQueue(path: url.path)
+        try observer.writeWithoutTransaction { db in
+            try db.execute(sql: "PRAGMA wal_checkpoint(TRUNCATE)")
+        }
+        let elapsed = started.duration(to: .now)
+        let writes = try writtenBytes() - before
+        let payloadBytes = try observer.read { db in
+            (try Int.fetchOne(db, sql: "SELECT sum(length(payload)) FROM pagedCatalogSongs") ?? 0)
+                + (try Int.fetchOne(db, sql: "SELECT sum(length(payload)) FROM pagedCatalogHierarchy") ?? 0)
+        }
+        #expect(try store.snapshot(sourceID: "source")?.stagedSongCount == 50_000)
+        #expect(try store.loadHierarchyIndex(sourceID: "source").count == 52_751)
+        print("CATALOG_IO songs=50000 hierarchy=52751 diskWrittenBytes=\(writes) payloadBytes=\(payloadBytes) elapsed=\(elapsed)")
+    }
+
     @Test("Discarded catalogue pages are reused without shrinking or growing the database")
     func discardedPagesAreReusedByTheNextScan() async throws {
         let url = temporaryStoreURL()

@@ -95,8 +95,8 @@ private enum DeviceLocalSongFilePresence {
 }
 #endif
 
-/// Server catalogues probe for changes before scanning. File sources require
-/// opt-in and use a configurable cooldown because a refresh may walk directories.
+/// Automatic refresh requires opt-in and uses a per-source interval. Server
+/// catalogues probe for changes before scanning; file sources walk directories.
 @MainActor
 @Observable
 final class ServerCatalogAutoRefreshCoordinator {
@@ -117,6 +117,7 @@ final class ServerCatalogAutoRefreshCoordinator {
         var optedInSourceIDs: Set<String>?
         var lastFileRefreshAttemptAt: [String: Date]?
         var fileRefreshIntervalHours: [String: Int]?
+        var lastProbeStartedAt: [String: Date]?
         var serverScanOnLaunchSourceIDs: Set<String>?
         var markers: [String: SourceMarker] = [:]
         /// 「服务端删掉的歌」选了「立即移除」的源。可选：旧版本存下的没有这个键。
@@ -163,7 +164,6 @@ final class ServerCatalogAutoRefreshCoordinator {
     /// applied-scan markers that users already have on disk.
     private static let defaultsKey = "primuse.navidrome-auto-refresh.v1"
     private static let launchDelay: Duration = .seconds(4)
-    private static let checkCooldown = ServerCatalogAutoRefreshPolicy.checkCooldown
     private static let maximumRetryCount = 8
     /// How long a pull to refresh keeps its spinner waiting for answers.
     /// Checks still running afterwards finish, and refresh, on their own.
@@ -186,10 +186,13 @@ final class ServerCatalogAutoRefreshCoordinator {
     /// When each source was last asked, whatever the answer. Automatic
     /// triggers space themselves out from this, so a failed or deferred check
     /// does not turn every foreground return into another round trip.
-    @ObservationIgnored private var lastProbeStartedAt: [String: Date] = [:]
+    @ObservationIgnored private var lastProbeStartedAt: [String: Date]
     @ObservationIgnored private var lastFileRefreshAttemptAt: [String: Date]
     @ObservationIgnored private var serverScanRequestFingerprints: [String: String] = [:]
     @ObservationIgnored private var serverScanRequestInFlightSourceIDs: Set<String> = []
+    /// An explicitly requested server scan may finish before the next automatic
+    /// interval. Its status follow-up belongs to that request, not a new refresh.
+    @ObservationIgnored private var serverScanFollowUpSourceIDs: Set<String> = []
     @ObservationIgnored private var userRequestedRefreshes: [String: UserRequestedRefresh] = [:]
     @ObservationIgnored private var feedbackDismissTask: Task<Void, Never>?
     @ObservationIgnored private var didScheduleColdLaunch = false
@@ -227,6 +230,7 @@ final class ServerCatalogAutoRefreshCoordinator {
         optedInSourceIDs = state.optedInSourceIDs ?? []
         fileRefreshIntervalHours = state.fileRefreshIntervalHours ?? [:]
         lastFileRefreshAttemptAt = state.lastFileRefreshAttemptAt ?? [:]
+        lastProbeStartedAt = state.lastProbeStartedAt ?? [:]
         serverScanOnLaunchSourceIDs = state.serverScanOnLaunchSourceIDs ?? []
         immediateCatalogRemovalSourceIDs = state.immediateCatalogRemovalSourceIDs ?? []
         markers = state.markers
@@ -252,6 +256,7 @@ final class ServerCatalogAutoRefreshCoordinator {
             retryTasks.removeValue(forKey: sourceID)?.cancel()
             deferredSourceIDs.remove(sourceID)
             pendingMarkers.removeValue(forKey: sourceID)
+            serverScanFollowUpSourceIDs.remove(sourceID)
             scanService.cancelQueuedAutomaticRefresh(for: sourceID)
         }
         persistState()
@@ -306,6 +311,7 @@ final class ServerCatalogAutoRefreshCoordinator {
             serverScanRequestFingerprints.removeValue(forKey: sourceID)
         } else {
             serverScanOnLaunchSourceIDs.remove(sourceID)
+            serverScanFollowUpSourceIDs.remove(sourceID)
         }
         persistState()
     }
@@ -458,6 +464,7 @@ final class ServerCatalogAutoRefreshCoordinator {
         immediateCatalogRemovalSourceIDs.remove(sourceID)
         serverScanRequestFingerprints.removeValue(forKey: sourceID)
         serverScanRequestInFlightSourceIDs.remove(sourceID)
+        serverScanFollowUpSourceIDs.remove(sourceID)
         markers.removeValue(forKey: sourceID)
         pendingMarkers.removeValue(forKey: sourceID)
         deferredSourceIDs.remove(sourceID)
@@ -525,12 +532,23 @@ final class ServerCatalogAutoRefreshCoordinator {
         let hasPendingLaunchScanRequest = isServerScanOnLaunchEnabled(for: source.id)
             && ServerCatalogAutoRefreshPolicy.supportsServerScanRequest(source.type)
             && serverScanRequestFingerprints[source.id] != identityFingerprint
-        if trigger.honorsCooldown, !hasPendingLaunchScanRequest {
-            let lastAsked = [existingMarker?.lastCheckedAt, lastProbeStartedAt[source.id]]
-                .compactMap { $0 }
-                .max()
-            if let lastAsked, Date().timeIntervalSince(lastAsked) < Self.checkCooldown {
-                return .upToDate
+        if !hasPendingLaunchScanRequest, !serverScanFollowUpSourceIDs.contains(source.id) {
+            let remainingDelay = ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+                trigger: trigger,
+                lastScannedAt: source.lastScannedAt,
+                lastCheckedAt: existingMarker?.lastCheckedAt,
+                lastAttemptAt: lastProbeStartedAt[source.id],
+                interval: refreshInterval(for: source.id)
+            )
+            if remainingDelay > 0 {
+                if trigger == .retry {
+                    scheduleRetry(
+                        sourceID: source.id,
+                        retryCount: retryCount,
+                        minimumDelay: Int(ceil(remainingDelay))
+                    )
+                }
+                return .postponed
             }
         }
         guard workEligibility(for: trigger) == .allowed else {
@@ -538,6 +556,7 @@ final class ServerCatalogAutoRefreshCoordinator {
             return .postponed
         }
         lastProbeStartedAt[source.id] = Date()
+        persistState()
 
         do {
             let status = try await sourceManager.serverCatalogScanStatus(
@@ -582,6 +601,7 @@ final class ServerCatalogAutoRefreshCoordinator {
                     // same server mutation twice while this request is in flight.
                     serverScanRequestFingerprints[source.id] = identityFingerprint
                     serverScanRequestInFlightSourceIDs.insert(source.id)
+                    serverScanFollowUpSourceIDs.insert(source.id)
                     let result: ServerCatalogScanRequestResult?
                     do {
                         result = try await sourceManager.requestServerCatalogScan(
@@ -599,6 +619,7 @@ final class ServerCatalogAutoRefreshCoordinator {
                             // started the scan, so a later credential recovery
                             // may safely retry during this launch.
                             serverScanRequestFingerprints.removeValue(forKey: source.id)
+                            serverScanFollowUpSourceIDs.remove(source.id)
                             SourceAuthAlert.report(
                                 sourceID: source.id,
                                 message: error.localizedDescription
@@ -652,6 +673,7 @@ final class ServerCatalogAutoRefreshCoordinator {
                     }
                     // nil / unsupported / permissionDenied all fall through to
                     // the read-only status path below.
+                    serverScanFollowUpSourceIDs.remove(source.id)
                 }
             }
             let lastAppliedContentRevision = existingMarker?.contentRevision
@@ -676,6 +698,7 @@ final class ServerCatalogAutoRefreshCoordinator {
                 )
                 return .postponed
             }
+            serverScanFollowUpSourceIDs.remove(source.id)
             let changeWindowStart = ServerCatalogChangeWindowPolicy.nextWindowStart(
                 serverObservedAt: status.serverObservedAt,
                 deviceCheckedAt: checkedAt
@@ -692,6 +715,7 @@ final class ServerCatalogAutoRefreshCoordinator {
                     changeWindowStart: changeWindowStart
                 )
                 retryTasks.removeValue(forKey: source.id)?.cancel()
+                deferredSourceIDs.remove(source.id)
                 persistState()
                 return .upToDate
             }
@@ -890,7 +914,22 @@ final class ServerCatalogAutoRefreshCoordinator {
         let backoff = retryCount >= Self.maximumRetryCount
             ? 300
             : min(30 * (1 << exponent), 300)
-        let seconds = max(minimumDelay, backoff)
+        let intervalDelay: TimeInterval
+        if let source = sourcesStore.source(id: sourceID), source.type.isServerLibrary,
+           !(isServerScanOnLaunchEnabled(for: sourceID)
+                && serverScanRequestFingerprints[sourceID] != Self.identityFingerprint(for: source)),
+           !serverScanFollowUpSourceIDs.contains(sourceID) {
+            intervalDelay = ServerCatalogAutoRefreshPolicy.remainingCheckDelay(
+                trigger: .retry,
+                lastScannedAt: source.lastScannedAt,
+                lastCheckedAt: markers[sourceID]?.lastCheckedAt,
+                lastAttemptAt: lastProbeStartedAt[sourceID],
+                interval: refreshInterval(for: sourceID)
+            )
+        } else {
+            intervalDelay = 0
+        }
+        let seconds = max(minimumDelay, backoff, Int(ceil(intervalDelay)))
         retryTasks[sourceID] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled, let self,
@@ -998,6 +1037,7 @@ final class ServerCatalogAutoRefreshCoordinator {
             optedInSourceIDs: optedInSourceIDs,
             lastFileRefreshAttemptAt: lastFileRefreshAttemptAt,
             fileRefreshIntervalHours: fileRefreshIntervalHours,
+            lastProbeStartedAt: lastProbeStartedAt,
             serverScanOnLaunchSourceIDs: serverScanOnLaunchSourceIDs,
             markers: markers,
             immediateCatalogRemovalSourceIDs: immediateCatalogRemovalSourceIDs

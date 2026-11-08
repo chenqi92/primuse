@@ -1470,8 +1470,7 @@ struct SourcesContentView: View {
             .accessibilityHint(Text(LocalizedStringKey(source.type.isServerLibrary
                 ? "server_auto_refresh_description" : "source_auto_refresh_description")))
 
-            if !source.type.isServerLibrary,
-               AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
+            if AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
                 Divider()
                 HStack {
                     Text("source_auto_refresh_interval").font(.subheadline.weight(.semibold))

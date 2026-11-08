@@ -428,8 +428,7 @@ struct MacSourcesView: View {
                     ? "server_auto_refresh_description" : "source_auto_refresh_description",
                 isOn: serverCatalogAutoRefreshBinding(for: source.id)
             )
-            if !source.type.isServerLibrary,
-               AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
+            if AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id) {
                 Rectangle().fill(PMColor.divider).frame(height: 0.5)
                 HStack(spacing: 12) {
                     Text("source_auto_refresh_interval")
