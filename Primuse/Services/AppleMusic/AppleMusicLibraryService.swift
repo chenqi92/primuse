@@ -775,13 +775,10 @@ final class AppleMusicLibraryService {
     }
 
     /// 主线程上整库读资料库条目 (同步时那几遍) 也排进 `AppleMusicMediaLibraryGate`:
-    /// 冷启动时它们正好跟列表封面的后台查询同时进行。`body` 是同步的, 拿着门的这段
-    /// 不会让出主线程; 等门时主线程只是挂起。
-    private func withMediaLibraryGate<T>(_ body: () -> T) async -> T {
-        await AppleMusicMediaLibraryGate.shared.acquire()
-        let result = body()
-        await AppleMusicMediaLibraryGate.shared.release()
-        return result
+    /// 冷启动时它们正好跟列表封面的后台查询同时进行。属性读取保留在主线程;
+    /// 分页请求挂起期间也持有门, 避免后台封面查询穿入。
+    private func withMediaLibraryGate<T>(_ body: @MainActor () async throws -> T) async rethrows -> T {
+        try await AppleMusicMediaLibraryGate.runOnMainActor(body)
     }
 
     func cachedMusicKitPlaylistArtwork(playlistID: String) -> MusicKit.Artwork? {
@@ -1441,11 +1438,9 @@ final class AppleMusicLibraryService {
             // This is a full snapshot, so replace rather than append. Otherwise
             // tracks removed from Apple Music (including the two stale local
             // rows seen on macOS) remain playable in the in-memory queue.
-            let fetchedSongCache = Dictionary(
-                uniqueKeysWithValues: allMusicKitSongs.map { ($0.id.rawValue, $0) }
-            )
-            let fetchedTrackIdentities = await withMediaLibraryGate {
-                allMusicKitSongs.map(Self.trackIdentity)
+            let (fetchedSongCache, fetchedTrackIdentities) = await withMediaLibraryGate {
+                let cache = Dictionary(uniqueKeysWithValues: allMusicKitSongs.map { ($0.id.rawValue, $0) })
+                return (cache, allMusicKitSongs.map(Self.trackIdentity))
             }
             guard syncGeneration == generation, !Task.isCancelled else { return }
             if fetchResult.syncMode == .authoritative {
@@ -1980,21 +1975,24 @@ final class AppleMusicLibraryService {
     }
 
     private func fetchDeviceLibrarySongs() async throws -> [MusicKit.Song] {
-        var request = MusicLibraryRequest<MusicKit.Song>()
-        request.limit = 100
-        request.includeOnlyDownloadedContent = false
-        let response = try await request.response()
-        markSyncProgress()
-        var songs = Array(response.items)
-        var currentBatch = response.items
-        while currentBatch.hasNextBatch {
+        return try await withMediaLibraryGate {
             try Task.checkCancellation()
-            guard let next = try await currentBatch.nextBatch() else { break }
-            songs.append(contentsOf: next)
-            currentBatch = next
+            var request = MusicLibraryRequest<MusicKit.Song>()
+            request.limit = 100
+            request.includeOnlyDownloadedContent = false
+            let response = try await request.response()
             markSyncProgress()
+            var songs = Array(response.items)
+            var currentBatch = response.items
+            while currentBatch.hasNextBatch {
+                try Task.checkCancellation()
+                guard let next = try await currentBatch.nextBatch() else { break }
+                songs.append(contentsOf: next)
+                currentBatch = next
+                markSyncProgress()
+            }
+            return Self.uniquedMusicItems(songs)
         }
-        return Self.uniquedMusicItems(songs)
     }
 
     /// Loads a complete Apple Music API collection with MusicKit-managed
@@ -2195,24 +2193,37 @@ final class AppleMusicLibraryService {
         let listed: CloudLibraryItems<MusicKit.Playlist> = try await fetchCloudLibraryItems(endpoint: .playlists)
         return (listed.items, listed.unreadableIDs)
         #else
-        var request = MusicLibraryRequest<MusicKit.Playlist>()
-        request.limit = 100
-        let response = try await request.response()
-        markSyncProgress()
-        var playlists = Array(response.items)
-        var currentBatch = response.items
-        while currentBatch.hasNextBatch {
+        return try await withMediaLibraryGate {
             try Task.checkCancellation()
-            guard let next = try await currentBatch.nextBatch() else { break }
-            playlists.append(contentsOf: next)
-            currentBatch = next
+            var request = MusicLibraryRequest<MusicKit.Playlist>()
+            request.limit = 100
+            let response = try await request.response()
             markSyncProgress()
+            var playlists = Array(response.items)
+            var currentBatch = response.items
+            while currentBatch.hasNextBatch {
+                try Task.checkCancellation()
+                guard let next = try await currentBatch.nextBatch() else { break }
+                playlists.append(contentsOf: next)
+                currentBatch = next
+                markSyncProgress()
+            }
+            return (Self.uniquedMusicItems(playlists), [])
         }
-        return (Self.uniquedMusicItems(playlists), [])
         #endif
     }
 
     private func fetchUserPlaylistMirror(
+        _ amPlaylist: MusicKit.Playlist,
+        librarySongIDs: Set<String>
+    ) async -> UserPlaylistFetchResult {
+        await withMediaLibraryGate {
+            await loadUserPlaylistMirror(amPlaylist, librarySongIDs: librarySongIDs)
+        }
+    }
+
+    /// 调用方持有媒体库访问门, 包括详情请求、分页与懒加载属性读取。
+    private func loadUserPlaylistMirror(
         _ amPlaylist: MusicKit.Playlist,
         librarySongIDs: Set<String>
     ) async -> UserPlaylistFetchResult {
@@ -2249,25 +2260,22 @@ final class AppleMusicLibraryService {
             var songIDs: [String] = []
             var seenSongIDs = Set<String>()
             var playlistOnlySongs: [PrimuseKit.Song] = []
-            // 逐首读曲目属性, 跟封面查询一起排队 (见 `AppleMusicMediaLibraryGate`)。
-            await withMediaLibraryGate {
-                for track in tracks {
-                    guard case let .song(s) = track else { continue }
-                    // 顺手填 cache: 不在资料库里的那些, 播放时也从这里取。
-                    songCache[s.id.rawValue] = s
-                    invalidateSongArtwork(amID: s.id.rawValue)
-                    // Playlist relationships may expose catalog songs even when
-                    // the same track exists as an `i.*` user-library item. Store
-                    // the relationship with the canonical ID so the mirrored
-                    // playlist continues to reference the persisted library row.
-                    let projected = Self.toPrimuseSong(canonicalForNowPlaying(s))
-                    guard seenSongIDs.insert(projected.id).inserted else { continue }
-                    songIDs.append(projected.id)
-                    // 资料库「歌曲」里没有的 (第三方 App 导入的歌单、关掉了「添加歌单
-                    // 歌曲」, 或资料库还没收全): 跟资料库一起落一行, 只出现在歌单里。
-                    if !librarySongIDs.contains(projected.id) {
-                        playlistOnlySongs.append(projected)
-                    }
+            for track in tracks {
+                guard case let .song(s) = track else { continue }
+                // 顺手填 cache: 不在资料库里的那些, 播放时也从这里取。
+                songCache[s.id.rawValue] = s
+                invalidateSongArtwork(amID: s.id.rawValue)
+                // Playlist relationships may expose catalog songs even when
+                // the same track exists as an `i.*` user-library item. Store
+                // the relationship with the canonical ID so the mirrored
+                // playlist continues to reference the persisted library row.
+                let projected = Self.toPrimuseSong(canonicalForNowPlaying(s))
+                guard seenSongIDs.insert(projected.id).inserted else { continue }
+                songIDs.append(projected.id)
+                // 资料库「歌曲」里没有的 (第三方 App 导入的歌单、关掉了「添加歌单
+                // 歌曲」, 或资料库还没收全): 跟资料库一起落一行, 只出现在歌单里。
+                if !librarySongIDs.contains(projected.id) {
+                    playlistOnlySongs.append(projected)
                 }
             }
             plog("""
@@ -2449,6 +2457,19 @@ actor AppleMusicMediaLibraryGate {
             isLocked = false
         } else {
             waiters.removeFirst().resume()
+        }
+    }
+
+    @MainActor
+    static func runOnMainActor<T>(_ operation: @MainActor () async throws -> T) async rethrows -> T {
+        await shared.acquire()
+        do {
+            let result = try await operation()
+            await shared.release()
+            return result
+        } catch {
+            await shared.release()
+            throw error
         }
     }
 

@@ -3,6 +3,86 @@ import PrimuseKit
 import XCTest
 @testable import Primuse
 
+final class AppleMusicMediaLibraryGateTests: XCTestCase, @unchecked Sendable {
+    private actor AccessProbe {
+        var active = 0
+        var maximumActive = 0
+        var completed = 0
+
+        func enter() {
+            active += 1
+            maximumActive = max(maximumActive, active)
+        }
+
+        func leave() {
+            active -= 1
+            completed += 1
+        }
+    }
+
+    private enum ReadFailure: Error { case unavailable }
+
+    func testSyncAndArtworkReadsRemainExclusiveWhileRequestsSuspend() async throws {
+        let probe = AccessProbe()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<24 {
+                group.addTask {
+                    if index.isMultiple(of: 2) {
+                        try await AppleMusicMediaLibraryGate.runOnMainActor {
+                            MainActor.preconditionIsolated()
+                            await probe.enter()
+                            try await Task.sleep(for: .milliseconds(2))
+                            MainActor.preconditionIsolated()
+                            await probe.leave()
+                        }
+                    } else {
+                        try await AppleMusicMediaLibraryGate.run {
+                            await probe.enter()
+                            try await Task.sleep(for: .milliseconds(2))
+                            await probe.leave()
+                        }
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        let maximum = await probe.maximumActive
+        let completed = await probe.completed
+        XCTAssertEqual(maximum, 1, "Suspended sync requests must exclude background artwork reads")
+        XCTAssertEqual(completed, 24)
+    }
+
+    func testFailedSyncReleasesAccessForArtwork() async {
+        do {
+            try await AppleMusicMediaLibraryGate.runOnMainActor {
+                await Task.yield()
+                throw ReadFailure.unavailable
+            }
+            XCTFail("Expected the query error")
+        } catch is ReadFailure { } catch { XCTFail("Unexpected error: \(error)") }
+        let result = await AppleMusicMediaLibraryGate.run { 42 }
+        XCTAssertEqual(result, 42)
+    }
+
+    func testCancelledSyncReleasesAccessForArtwork() async {
+        let entered = expectation(description: "Sync request entered the media library")
+        let sync = Task {
+            try await AppleMusicMediaLibraryGate.runOnMainActor {
+                entered.fulfill()
+                try await Task.sleep(for: .seconds(30))
+            }
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        sync.cancel()
+        do {
+            try await sync.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError { } catch { XCTFail("Unexpected error: \(error)") }
+        let result = await AppleMusicMediaLibraryGate.run { 42 }
+        XCTAssertEqual(result, 42)
+    }
+}
+
 final class AppleMusicLibrarySyncHistoryTests: XCTestCase {
     private func defaults() throws -> UserDefaults {
         let suite = "AppleMusicLibrarySyncHistoryTests.\(UUID().uuidString)"
