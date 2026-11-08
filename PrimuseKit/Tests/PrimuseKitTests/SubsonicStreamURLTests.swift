@@ -67,19 +67,161 @@ import Testing
 }
 
 @Test func subsonicWMATranscodes() async throws {
+    let host = "subsonic-stream.example.com"
+    let session = subsonicLyricsTestSession(host: host) { _ in
+        (200, Data(#"{"subsonic-response":{"status":"ok"}}"#.utf8))
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
     let song = Song(id: "s2", title: "Old", duration: 180,
                     fileFormat: .wma, filePath: "/songs/old1.wma", sourceID: "src1")
-    let source = MusicSource(name: "Navi", type: .subsonic, host: "h.com",
-                             port: 4533, useSsl: false, username: "u")
-    let url = try await SubsonicStreamResolver().streamURL(for: song, source: source,
-                                                           credential: SourceCredential(password: "p"))
+    let source = MusicSource(name: "Subsonic", type: .subsonic, host: host,
+                             port: 443, useSsl: true, username: "u")
+    let resolver = SubsonicStreamResolver(session: session)
+    let url = try await resolver.streamURL(for: song, source: source,
+                                          credential: SourceCredential(password: "p"))
     let q = Dictionary(uniqueKeysWithValues:
         (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     #expect(q["format"] == "mp3")
     #expect(q["maxBitRate"] == "320")
-    #expect(q["p"] == "enc:70")
-    #expect(q["t"] == nil)
-    #expect(q["s"] == nil)
+    #expect(q["p"] == nil)
+    #expect(q["t"] == SubsonicStreamResolver.md5Hex("p" + (q["s"] ?? "")))
+    _ = try await resolver.streamURL(for: song, source: source, credential: SourceCredential(password: "p"))
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.count == 1)
+    #expect(requests.first?.url?.lastPathComponent == "ping.view")
+    let pingQuery = subsonicTestQuery(try #require(requests.first?.url))
+    #expect(pingQuery["p"] == nil)
+    #expect(pingQuery["t"] == SubsonicStreamResolver.md5Hex("p" + (pingQuery["s"] ?? "")))
+}
+
+@Test func subsonicStreamFallsBackOnlyAfterTokenUnsupported() async throws {
+    let host = "legacy-subsonic-stream.example.com"
+    let session = subsonicLyricsTestSession(host: host) { request in
+        let query = subsonicTestQuery(request.url!)
+        if query["p"] == nil {
+            return (200, Data(#"{"subsonic-response":{"_attributes":{"status":"failed"},"error":{"_attributes":{"code":41}}}}"#.utf8))
+        }
+        return (200, Data(#"{"subsonic-response":{"status":"ok"}}"#.utf8))
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(name: "Legacy", type: .subsonic, host: host, useSsl: true, username: "u")
+    let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
+    let resolver = SubsonicStreamResolver(session: session)
+    let credential = SourceCredential(password: "测试+&口令")
+    async let first = resolver.streamURL(for: song, source: source, credential: credential)
+    async let second = resolver.streamURL(for: song, source: source, credential: credential)
+    let urls = try await [first, second]
+    let expectedPassword = "enc:" + SubsonicStreamResolver.hexEncoded(credential.password!)
+    for url in urls {
+        let query = subsonicTestQuery(url)
+        #expect(query["p"] == expectedPassword)
+        #expect(query["t"] == nil)
+        #expect(query["s"] == nil)
+        #expect(query["format"] == "raw")
+    }
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.count == 2)
+    #expect(subsonicTestQuery(try #require(requests.first?.url))["p"] == nil)
+    #expect(subsonicTestQuery(try #require(requests.last?.url))["p"] == expectedPassword)
+    _ = try await resolver.streamURL(for: song, source: source, credential: credential)
+    #expect(SubsonicLyricsURLProtocol.requests(host: host).count == 2)
+}
+
+@Test(arguments: [40, 50, 0, 401, 403, -1])
+func subsonicStreamDoesNotDowngradeOnOtherFailures(code: Int) async throws {
+    let host = "failed-subsonic-\(code).example.com"
+    let session = subsonicLyricsTestSession(host: host) { _ in
+        if code == -1 { return (200, Data("invalid response".utf8)) }
+        if code >= 400 { return (code, Data()) }
+        return (200, Data("{\"subsonic-response\":{\"status\":\"failed\",\"error\":{\"code\":\(code)}}}".utf8))
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(name: "Failure", type: .subsonic, host: host, useSsl: true, username: "u")
+    let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
+    let resolver = SubsonicStreamResolver(session: session)
+    for _ in 0..<2 {
+        await #expect(throws: (any Error).self) {
+            try await resolver.streamURL(for: song, source: source, credential: SourceCredential(password: "p"))
+        }
+    }
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.count == 2)
+    #expect(requests.allSatisfy { subsonicTestQuery($0.url!)["p"] == nil })
+}
+
+@Test func subsonicStreamRechecksAuthenticationWhenSourceChanges() async throws {
+    let host = "changed-subsonic-stream.example.com"
+    let session = subsonicLyricsTestSession(host: host) { request in
+        if request.url!.path.hasPrefix("/legacy/"), subsonicTestQuery(request.url!)["p"] == nil {
+            return (200, Data(#"{"subsonic-response":{"status":"failed","error":{"code":41}}}"#.utf8))
+        }
+        return (200, Data(#"{"subsonic-response":{"status":"ok"}}"#.utf8))
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    var source = MusicSource(name: "Changed", type: .subsonic, host: host, useSsl: true, username: "u", basePath: "/legacy")
+    let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
+    let resolver = SubsonicStreamResolver(session: session)
+    let legacy = try await resolver.streamURL(for: song, source: source, credential: SourceCredential(password: "p"))
+    #expect(subsonicTestQuery(legacy)["p"] == "enc:70")
+    source.basePath = "/modern"
+    let modern = try await resolver.streamURL(for: song, source: source, credential: SourceCredential(password: "p"))
+    #expect(subsonicTestQuery(modern)["p"] == nil)
+    _ = try await resolver.streamURL(for: song, source: source, credential: SourceCredential(password: "changed"))
+    _ = try await resolver.streamURL(for: song, source: source, credential: SourceCredential(username: "other", password: "changed"))
+    await resolver.invalidateSession(sourceID: source.id)
+    _ = try await resolver.streamURL(for: song, source: source, credential: SourceCredential(username: "other", password: "changed"))
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.count == 6)
+    #expect(requests.dropFirst(2).allSatisfy { subsonicTestQuery($0.url!)["p"] == nil })
+    #expect(requests.last?.url?.path == "/modern/rest/ping.view")
+}
+
+@Test func subsonicStreamRejectsFailedPasswordFallback() async throws {
+    let host = "rejected-fallback-subsonic.example.com"
+    let session = subsonicLyricsTestSession(host: host) { _ in
+        (200, Data(#"{"subsonic-response":{"status":"failed","error":{"code":41}}}"#.utf8))
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(name: "Rejected", type: .subsonic, host: host, useSsl: true, username: "u")
+    let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
+    let resolver = SubsonicStreamResolver(session: session)
+    for _ in 0..<2 {
+        await #expect(throws: StreamResolveError.authFailed) {
+            try await resolver.streamURL(for: song, source: source, credential: SourceCredential(password: "p"))
+        }
+    }
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.count == 4)
+    #expect(requests.map { subsonicTestQuery($0.url!)["p"] } == [nil, "enc:70", nil, "enc:70"])
+}
+
+@Test(.timeLimit(.minutes(1)))
+func subsonicStreamInvalidationCancelsAuthenticationInProgress() async throws {
+    let host = "invalidated-subsonic.example.com"
+    let entered = AsyncStream<Void>.makeStream()
+    defer { entered.continuation.finish() }
+    let session = subsonicLyricsTestSession(host: host) { _ in
+        if SubsonicLyricsURLProtocol.requests(host: host).count == 1 {
+            entered.continuation.yield(())
+            try await Task.sleep(for: .seconds(10))
+            return (200, Data(#"{"subsonic-response":{"status":"failed","error":{"code":41}}}"#.utf8))
+        }
+        return (200, Data(#"{"subsonic-response":{"status":"ok"}}"#.utf8))
+    }
+    defer { SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(name: "Invalidated", type: .subsonic, host: host, useSsl: true, username: "u")
+    let song = Song(id: "s", title: "Track", fileFormat: .flac, filePath: "/songs/track.flac", sourceID: source.id)
+    let resolver = SubsonicStreamResolver(session: session)
+    let credential = SourceCredential(password: "p")
+    let first = Task { try await resolver.streamURL(for: song, source: source, credential: credential) }
+    for await _ in entered.stream { break }
+    await resolver.invalidateSession(sourceID: source.id)
+    await #expect(throws: (any Error).self) { try await first.value }
+    let url = try await resolver.streamURL(for: song, source: source, credential: credential)
+    #expect(subsonicTestQuery(url)["p"] == nil)
+    let requests = SubsonicLyricsURLProtocol.requests(host: host)
+    #expect(requests.count == 2)
+    #expect(requests.allSatisfy { subsonicTestQuery($0.url!)["p"] == nil })
 }
 
 @Test func airsonicUsesCompatibleProtocolVersion() async throws {
@@ -110,8 +252,9 @@ import Testing
     }
 }
 
-@Test func subsonicLyricsClientLoadsOpenSubsonicLyrics() async throws {
-    let host = "navidrome-lyrics.example.com"
+@Test(arguments: [MusicSourceType.navidrome, .subsonic])
+func subsonicLyricsClientLoadsOpenSubsonicLyrics(sourceType: MusicSourceType) async throws {
+    let host = "\(sourceType.rawValue)-lyrics.example.com"
     let session = subsonicLyricsTestSession(host: host) { request in
         switch request.url?.lastPathComponent {
         case "ping.view":
@@ -125,7 +268,7 @@ import Testing
     defer { SubsonicLyricsURLProtocol.reset(host: host) }
     let source = MusicSource(
         name: "Navidrome",
-        type: .navidrome,
+        type: sourceType,
         host: host,
         port: 443,
         useSsl: true,
@@ -152,6 +295,7 @@ import Testing
             .map { ($0.name, $0.value ?? "") })
     #expect(lyricsQuery["id"] == "song-42")
     #expect(lyricsQuery["enhanced"] == "true")
+    #expect(requests.allSatisfy { subsonicTestQuery($0.url!)["p"] == nil })
     #expect(lyricsQuery["t"] == SubsonicStreamResolver.md5Hex("secret" + (lyricsQuery["s"] ?? "")))
 }
 
@@ -234,8 +378,9 @@ func subsonicLyricsClientDoesNotRestartHTTPBudgetForBasicLyrics(status: Int) asy
     #expect(SubsonicLyricsURLProtocol.requests(host: host).filter { $0.url?.lastPathComponent == "getLyricsBySongId.view" }.count == (status == 500 ? 3 : 1))
 }
 
-@Test func subsonicLyricsClientRetriesCompatibleAuthenticationAndBasicLyrics() async throws {
-    let host = "fallback-lyrics.example.com"
+@Test(arguments: [MusicSourceType.navidrome, .subsonic])
+func subsonicLyricsClientRetriesCompatibleAuthenticationAndBasicLyrics(sourceType: MusicSourceType) async throws {
+    let host = "\(sourceType.rawValue)-fallback-lyrics.example.com"
     let session = subsonicLyricsTestSession(host: host) { request in
         let query = Dictionary(uniqueKeysWithValues:
             (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [])
@@ -256,7 +401,7 @@ func subsonicLyricsClientDoesNotRestartHTTPBudgetForBasicLyrics(status: Int) asy
     defer { SubsonicLyricsURLProtocol.reset(host: host) }
     let source = MusicSource(
         name: "Compatible server",
-        type: .navidrome,
+        type: sourceType,
         host: host,
         port: 443,
         useSsl: true,
@@ -316,12 +461,19 @@ private func subsonicLyricsTestSession(
     return URLSession(configuration: configuration)
 }
 
+private func subsonicTestQuery(_ url: URL) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+        .map { ($0.name, $0.value ?? "") })
+}
+
 private final class SubsonicLyricsURLProtocol: URLProtocol, @unchecked Sendable {
-    typealias Handler = @Sendable (URLRequest) -> (statusCode: Int, body: Data)
+    typealias Handler = @Sendable (URLRequest) async throws -> (statusCode: Int, body: Data)
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
     nonisolated(unsafe) private static var capturedRequests: [String: [URLRequest]] = [:]
+    private let taskLock = NSLock()
+    private var responseTask: Task<Void, Never>?
 
     static func configure(host: String, handler: @escaping Handler) {
         lock.lock()
@@ -362,20 +514,26 @@ private final class SubsonicLyricsURLProtocol: URLProtocol, @unchecked Sendable 
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
-        let result = handler(request)
-        guard let response = HTTPURLResponse(
-                url: url,
-                statusCode: result.statusCode,
-                httpVersion: "HTTP/1.1",
-                headerFields: ["Content-Type": "application/json"]
-              ) else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
+        taskLock.withLock {
+            responseTask = Task { @Sendable [self, request] in
+                do {
+                    let result = try await handler(request)
+                    try Task.checkCancellation()
+                    guard let response = HTTPURLResponse(
+                        url: url, statusCode: result.statusCode, httpVersion: "HTTP/1.1",
+                        headerFields: ["Content-Type": "application/json"]
+                    ) else { throw URLError(.badServerResponse) }
+                    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                    client?.urlProtocol(self, didLoad: result.body)
+                    client?.urlProtocolDidFinishLoading(self)
+                } catch {
+                    client?.urlProtocol(self, didFailWithError: error)
+                }
+            }
         }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: result.body)
-        client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        taskLock.withLock { responseTask?.cancel() }
+    }
 }

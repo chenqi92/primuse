@@ -43,22 +43,67 @@ public enum SubsonicResponseCompatibility {
 
 /// Subsonic / OpenSubsonic 家族(Subsonic / Navidrome / Airsonic / gonic)的流式解析。
 ///
-/// stream URL 是**无状态**的:Navidrome / gonic 通常以
-/// salt + token=md5(password+salt) 鉴权；通用 Subsonic 与 Airsonic 兼容模式
-/// 使用协议规定的 `p=enc:<UTF-8 hex>`。参数直接拼在 query 里,
-/// 没有会话、不会过期,AVPlayer 可直接播。这是从 iOS `SubsonicSource` 抽出的纯逻辑核心,
-/// 不依赖任何 iOS-only 类型(`NetworkURLBuilder` / `SmartSSLDelegate` 的逻辑在此内联)。
-public struct SubsonicStreamResolver: StreamResolver {
+/// 通用 Subsonic 先探测 token 鉴权，仅在服务端返回 41 时回退编码密码。
+/// 认证方式按来源、地址与凭据缓存，流 URL 仍可交给播放器直接使用。
+public actor SubsonicStreamResolver: StreamResolver {
     static let apiVersion = "1.16.1"
     static let airsonicAPIVersion = "1.15.0"
     static let clientName = "Primuse"
     static let transcodeBitRate = 320   // WMA → 服务端转码 mp3 的目标码率 kbps
 
-    public init() {}
+    private struct AuthenticationIdentity: Equatable, Sendable {
+        let base: URL
+        let username: String
+        let passwordHash: SHA256.Digest
+    }
+
+    private struct AuthenticationEntry {
+        let identity: AuthenticationIdentity
+        let usesEncodedPassword: Bool
+    }
+
+    private struct AuthenticationRun {
+        let id: UUID
+        let identity: AuthenticationIdentity
+        let task: Task<Bool, Error>
+    }
+
+    private struct PingEnvelope: Decodable {
+        struct Response: Decodable {
+            struct APIError: Decodable { let code: Int }
+            let status: String
+            let error: APIError?
+        }
+        let response: Response
+        enum CodingKeys: String, CodingKey { case response = "subsonic-response" }
+    }
+
+    private enum AuthenticationError: Error { case tokenUnsupported }
+
+    private let session: URLSession
+    private var authentication: [String: AuthenticationEntry] = [:]
+    private var authenticationRuns: [String: AuthenticationRun] = [:]
+
+    public init(session: URLSession? = nil) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 20
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.httpShouldSetCookies = false
+        self.session = session ?? StreamResolverSessionFactory.make(configuration: configuration)
+    }
+
+    deinit { session.invalidateAndCancel() }
+
+    public func invalidateSession(sourceID: String) async {
+        authentication[sourceID] = nil
+        authenticationRuns.removeValue(forKey: sourceID)?.task.cancel()
+    }
 
     public func streamURL(for song: Song,
                           source: MusicSource,
                           credential: SourceCredential?) async throws -> URL {
+        try Task.checkCancellation()
         let username = credential?.username ?? source.username ?? ""
         guard let password = credential?.password, !password.isEmpty, !username.isEmpty else {
             throw StreamResolveError.missingCredential
@@ -73,13 +118,16 @@ public struct SubsonicStreamResolver: StreamResolver {
         let salt = Self.randomSalt()
         let token = Self.md5Hex(password + salt)
         let apiVersion = source.type == .airsonic ? Self.airsonicAPIVersion : Self.apiVersion
-        // `.subsonic` is the compatibility entry point for implementations
-        // that do not advertise a dedicated Primuse source type. Some of them
-        // (including DaoLiYu) reject salted-token authentication with error 41
-        // while accepting the protocol-standard encoded-password form.
-        let encodedPassword = source.type == .airsonic || source.type == .subsonic
-            ? Self.hexEncoded(password)
-            : nil
+        let usesEncodedPassword: Bool
+        if source.type == .subsonic {
+            usesEncodedPassword = try await negotiatedAuthentication(
+                sourceID: source.id, base: base, username: username, password: password
+            )
+        } else {
+            usesEncodedPassword = source.type == .airsonic
+        }
+        try Task.checkCancellation()
+        let encodedPassword = usesEncodedPassword ? Self.hexEncoded(password) : nil
         // 本地能解的格式取原文件(format=raw);WMA 让服务端转码 mp3 渐进流。
         let transcode = song.fileFormat == .wma
         guard let url = Self.streamURL(base: base, username: username, token: token, salt: salt,
@@ -88,6 +136,89 @@ public struct SubsonicStreamResolver: StreamResolver {
             throw StreamResolveError.cannotBuildURL
         }
         return url
+    }
+
+    private func negotiatedAuthentication(
+        sourceID: String, base: URL, username: String, password: String
+    ) async throws -> Bool {
+        let identity = AuthenticationIdentity(
+            base: base, username: username, passwordHash: SHA256.hash(data: Data(password.utf8))
+        )
+        if let cached = authentication[sourceID], cached.identity == identity {
+            return cached.usesEncodedPassword
+        }
+        if let run = authenticationRuns[sourceID], run.identity == identity {
+            return try await CloudResolverRequests.wait(for: run.task)
+        }
+        authentication[sourceID] = nil
+        authenticationRuns.removeValue(forKey: sourceID)?.task.cancel()
+        let id = UUID()
+        let task = Task<Bool, Error> { [self] in
+            defer {
+                if authenticationRuns[sourceID]?.id == id { authenticationRuns[sourceID] = nil }
+            }
+            var usesEncodedPassword = false
+            do {
+                try await ping(base: base, username: username, password: password, usesEncodedPassword: false)
+            } catch AuthenticationError.tokenUnsupported {
+                try Task.checkCancellation()
+                usesEncodedPassword = true
+                try await ping(base: base, username: username, password: password, usesEncodedPassword: true)
+            }
+            try Task.checkCancellation()
+            guard authenticationRuns[sourceID]?.id == id else { throw StreamResolveError.authFailed }
+            authentication[sourceID] = AuthenticationEntry(
+                identity: identity, usesEncodedPassword: usesEncodedPassword
+            )
+            return usesEncodedPassword
+        }
+        authenticationRuns[sourceID] = AuthenticationRun(id: id, identity: identity, task: task)
+        return try await CloudResolverRequests.wait(for: task)
+    }
+
+    private func ping(
+        base: URL, username: String, password: String, usesEncodedPassword: Bool
+    ) async throws {
+        let url = ProxyPrefixedBasePathPolicy.appending("rest/ping.view", to: base)
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        var query = [URLQueryItem(name: "u", value: username)]
+        if usesEncodedPassword {
+            query.append(URLQueryItem(name: "p", value: "enc:\(Self.hexEncoded(password))"))
+        } else {
+            let salt = Self.randomSalt()
+            query.append(URLQueryItem(name: "t", value: Self.md5Hex(password + salt)))
+            query.append(URLQueryItem(name: "s", value: salt))
+        }
+        query += [
+            URLQueryItem(name: "v", value: Self.apiVersion),
+            URLQueryItem(name: "c", value: Self.clientName),
+            URLQueryItem(name: "f", value: "json"),
+        ]
+        components.queryItems = query
+        guard let url = FormSafeQueryURLBuilder.url(from: components) else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
+        let executor = ServerRequestScheduler.shared.executor(baseURL: base, account: "subsonic:" + username)
+        let readRequest = request
+        let (data, _) = try await executor.execute(replay: .idempotent) { [session] in
+            try await StreamResolverHTTPTransport.data(for: readRequest, session: session, maximumBytes: 64 * 1_024)
+        }
+        try Task.checkCancellation()
+        let normalized = try SubsonicResponseCompatibility.normalizedJSONData(data)
+        let response = try JSONDecoder().decode(PingEnvelope.self, from: normalized).response
+        guard response.status.caseInsensitiveCompare("ok") != .orderedSame else { return }
+        let code = response.error?.code ?? -1
+        if SubsonicResponseCompatibility.shouldRetryWithEncodedPassword(
+            errorCode: code, alreadyUsingEncodedPassword: usesEncodedPassword
+        ) {
+            throw AuthenticationError.tokenUnsupported
+        }
+        if [40, 41, 50].contains(code) { throw StreamResolveError.authFailed }
+        throw StreamResolveError.badServerResponse(code)
     }
 
     // MARK: - 纯函数(可单测)
@@ -301,7 +432,7 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
             apiVersion: source.type == .airsonic
                 ? SubsonicStreamResolver.airsonicAPIVersion
                 : SubsonicStreamResolver.apiVersion,
-            usesEncodedPassword: source.type == .airsonic || source.type == .subsonic
+            usesEncodedPassword: source.type == .airsonic
         )
 
         do {
