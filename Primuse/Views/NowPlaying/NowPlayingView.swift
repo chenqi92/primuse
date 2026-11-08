@@ -16510,7 +16510,8 @@ struct LyricsScrollView: View {
                 )
             },
             tint: appearance.primary,
-            restingOpacity: showsLyricsInterludeAlways ? appearance.futureLyricOpacity * 0.5 : 0
+            restingOpacity: showsLyricsInterludeAlways ? appearance.futureLyricOpacity * 0.5 : 0,
+            dotSize: max(8, Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale) * 0.31)
         )
         .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
         .frame(height: Self.interludeMarkerHeight)
@@ -16726,7 +16727,7 @@ struct LyricsScrollView: View {
         visualScale: CGFloat = 1,
         rowAlignment: PlayerLyricsAlignment
     ) -> some View {
-        let isActive = index == currentLineIndex
+        let isActive = activeInterlude == nil && index == currentLineIndex
         let fontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale)
         let companionFontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveCompanionScale) * 0.65
         // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
@@ -16777,7 +16778,7 @@ struct LyricsScrollView: View {
                         dimmedByAmbient
                             ? appearance.secondary
                             : isActive ? appearance.secondary
-                            : index < currentLineIndex
+                            : (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
                                 ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
                                 : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
                     )
@@ -16799,7 +16800,7 @@ struct LyricsScrollView: View {
                 // 只有带和声的行才读播放进度:放在每行开头读,逐行歌词整列每 0.5s 重建一次。
                 let playbackTime = timelineTime ?? player.currentTime
                 ForEach(bgs) { bg in
-                    let isBackgroundActive = LyricVoiceTimelinePolicy.isActive(
+                    let isBackgroundActive = activeInterlude == nil && LyricVoiceTimelinePolicy.isActive(
                         bg,
                         at: playbackTime,
                         lookahead: Self.wordLevelLineLookahead
@@ -16909,7 +16910,7 @@ struct LyricsScrollView: View {
             let inactiveOpacity: Double = dimmedByAmbient ? appearance.inactiveSyllableOpacity
                 : (isActive
                     ? appearance.inactiveSyllableOpacity
-                    : (index < currentLineIndex
+                    : ((index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
                         ? appearance.pastLyricOpacity
                         : appearance.futureLyricOpacity))
             let activeOpacity: Double = dimmedByAmbient ? 1.0
@@ -16963,7 +16964,7 @@ struct LyricsScrollView: View {
             return AnyShapeStyle(appearance.primary)
         }
         return AnyShapeStyle(
-            index < currentLineIndex
+            (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
                 ? appearance.primary.opacity(appearance.pastLyricOpacity)
                 : appearance.primary.opacity(appearance.futureLyricOpacity)
         )
@@ -16987,12 +16988,12 @@ struct LyricsScrollView: View {
             LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
         } ?? false
         return RowActivity(
-            opacity: index == currentLineIndex || hasActiveBackground
+            opacity: activeInterlude == nil && (index == currentLineIndex || hasActiveBackground)
                 ? 1.0
-                : (index < currentLineIndex
+                : ((index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
                     ? appearance.pastLyricOpacity
                     : appearance.futureLyricOpacity) * cascadeDepthOpacity(forRow: index),
-            scale: index == currentLineIndex ? Self.lyricsActiveVisualScale : 1.0
+            scale: activeInterlude == nil && index == currentLineIndex ? Self.lyricsActiveVisualScale : 1.0
         )
     }
 
@@ -17005,13 +17006,13 @@ struct LyricsScrollView: View {
         guard index >= 0, index < lyrics.count else {
             return RowActivity(opacity: appearance.futureLyricOpacity, scale: 1.0)
         }
-        let isActive = index == currentLineIndex
+        let isActive = activeInterlude == nil && (index == currentLineIndex
             || (lyrics[index].background?.contains {
                 LyricVoiceTimelinePolicy.isActive($0, at: player.currentTime)
-            } ?? false)
+            } ?? false))
         let opacity = isActive
             ? 1.0
-            : (index < currentLineIndex
+            : ((index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
                 ? appearance.pastLyricOpacity
                 : appearance.futureLyricOpacity) * cascadeDepthOpacity(forRow: index)
         return RowActivity(
@@ -17040,7 +17041,8 @@ struct LyricsScrollView: View {
                 && !reduceTransparency
                 && !isManuallyBrowsingLyrics
                 && !isPinchingLyrics,
-            isSynchronized: hasSynchronizedLyrics
+            isSynchronized: hasSynchronizedLyrics,
+            interludeActive: activeInterlude != nil
         ))
     }
 

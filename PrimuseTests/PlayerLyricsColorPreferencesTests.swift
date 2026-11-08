@@ -103,6 +103,92 @@ final class LyricsCascadeScrollTests: XCTestCase {
 
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
     @MainActor
+    func testLineLyricsYieldFocusToInterludeAndResume() async throws {
+        try await checkInterludeFocus(wordTimed: false)
+    }
+
+    @MainActor
+    func testWordLyricsYieldFocusToInterludeAndResume() async throws {
+        try await checkInterludeFocus(wordTimed: true)
+    }
+
+    @MainActor
+    private func checkInterludeFocus(wordTimed: Bool) async throws {
+        try XCTSkipIf(UIAccessibility.isReduceTransparencyEnabled,
+                      "The current accessibility setting disables lyric blur")
+        let suite = "InterludeFocus.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        defaults.set(true, forKey: PlayerAppearancePreferences.blursInactiveLyricsKey)
+        defaults.set("standard", forKey: PlayerAppearancePreferences.lyricsMotionKey)
+        let player = AudioPlayerService(
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            activateAudioSession: { _ in }
+        )
+        player.currentTime = 1
+        let lines = [0.0, 20, 40].enumerated().map { index, time in
+            let text = ["晚风点亮窗边的灯", "纸船载着星光回航", "清晨微光落在肩上"][index]
+            return LyricLine(
+                timestamp: time, text: text,
+                syllables: wordTimed ? [.init(text: text, start: time, end: time + 2)] : nil
+            )
+        }
+        let content = LyricsScrollView(
+            lyrics: lines, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+            isResolvingLyrics: false, player: player, songID: "interlude-focus",
+            isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
+            isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
+            onBackgroundTap: {}, onShareLyricLine: { _ in },
+            translatedTextByLineID: [:], translationActivity: .idle
+        )
+        .defaultAppStorage(defaults)
+        .environment(\.colorScheme, .dark)
+        .frame(width: 390, height: 540)
+        .background(.black)
+        let host = UIHostingController(rootView: content)
+        host.safeAreaRegions = []
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 540)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+        host.view.layoutIfNeeded()
+        var brightPixelCounts: [Int] = []
+        for (name, time) in [("singing", 1.8), ("interlude", 12.0), ("resumed", 21.8), ("hidden-marker", 12.0)] {
+            if name == "hidden-marker" {
+                defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+            }
+            player.currentTime = time
+            try await Task.sleep(for: .milliseconds(900))
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let image = UIGraphicsImageRenderer(size: host.view.bounds.size, format: format).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let pixels = try rgbaPixels(from: XCTUnwrap(image.cgImage))
+            brightPixelCounts.append(pixels.filter { $0.red > 190 && $0.blue > 190 }.count)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "\(wordTimed ? "word" : "line")-\(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTAssertGreaterThan(brightPixelCounts[0], 500, "The singing lyric must be highlighted")
+        XCTAssertLessThan(brightPixelCounts[1], brightPixelCounts[0] / 2,
+                          "Only the small interlude marker may remain bright during the gap")
+        XCTAssertGreaterThan(brightPixelCounts[2], brightPixelCounts[1] * 2,
+                             "The next lyric must regain the highlight when singing resumes")
+        XCTAssertGreaterThan(brightPixelCounts[3], brightPixelCounts[1] * 2,
+                             "Disabling interlude markers keeps the previous lyric highlighted")
+    }
+
+    @MainActor
     func testHeldWordStretchesAsOneUnitAndOrdinaryWordsKeepTheirShape() throws {
         func render(duration: TimeInterval, progress: Double, animated: Bool = true) throws -> CGImage {
             let line = LyricLine(timestamp: 0, text: "MMMM", syllables: [.init(text: "MMMM", start: 0, end: duration)])

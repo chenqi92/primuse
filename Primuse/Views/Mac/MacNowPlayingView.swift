@@ -108,6 +108,9 @@ struct MacNowPlayingView: View {
     private var simulatesWordLyrics = PlayerAppearancePreferences.simulatesWordLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsSourceKey)
     private var showsLyricsSource = PlayerAppearancePreferences.showsLyricsSourceByDefault
+    @Environment(\.accessibilityReduceTransparency) private var reduceLyricsTransparency
+    @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
+    private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeAlwaysKey)
@@ -1164,7 +1167,7 @@ struct MacNowPlayingView: View {
                                     macLyricLine(
                                         line: line,
                                         index: i,
-                                        isActive: i == currentIndex,
+                                        isActive: activeInterludeAnchor == nil && i == currentIndex,
                                         fontSize: lyricLayoutFontSize,
                                         isDuet: isDuet
                                     )
@@ -1516,7 +1519,7 @@ struct MacNowPlayingView: View {
             activeBackgroundLineIDs.contains($0.id)
         } ?? false
         let opacity = lyricOpacity(
-            isActive: isActive || hasActiveBackground,
+            isActive: activeInterludeAnchor == nil && (isActive || hasActiveBackground),
             distance: distance
         )
         let visualScale = lyricVisualScale(isActive: isActive)
@@ -1543,7 +1546,7 @@ struct MacNowPlayingView: View {
                     macSingleLyricLine(
                         line: background,
                         index: index,
-                        isActive: activeBackgroundLineIDs.contains(background.id),
+                        isActive: activeInterludeAnchor == nil && activeBackgroundLineIDs.contains(background.id),
                         fontSize: scaledSize * 0.7,
                         weight: .medium,
                         tint: tint,
@@ -1554,6 +1557,12 @@ struct MacNowPlayingView: View {
             }
         }
         .opacity(opacity)
+        .blur(radius: LyricDepthEffectPolicy.blurRadius(
+            forRow: index, activeRow: currentIndex,
+            isEnabled: activeInterludeAnchor != nil && blursInactiveLyrics && !reduceLyricsTransparency
+                && Date().timeIntervalSince(lastManualLyricsScroll) >= Self.manualLyricsScrollGracePeriod,
+            isSynchronized: line.isSynchronized, interludeActive: activeInterludeAnchor != nil
+        ))
         .frame(minHeight: scaledSize * 1.3, alignment: frameAlignment)
         .scaleEffect(visualScale, anchor: isTrailing ? .trailing : .leading)
         .animation(

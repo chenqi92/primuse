@@ -64,6 +64,9 @@ struct TVNowPlayingView: View {
     @State private var showTranslation = false
     @AppStorage(TVLyricsFontLevel.storageKey)
     private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
+    @Environment(\.accessibilityReduceTransparency) private var reduceLyricsTransparency
+    @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
+    private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     /// 和 iPhone、Mac 同一个键(设置 › 歌词 › 间奏提示点)。
     @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
@@ -1328,7 +1331,7 @@ struct TVNowPlayingView: View {
                     ForEach(lyricsListEntries()) { entry in
                         switch entry.id {
                         case .line(let i):
-                            lyricLine(index: i, current: cur, isDuet: isDuet)
+                            lyricLine(index: i, current: cur, isDuet: isDuet, interludeActive: position.anchor?.isMarker == true)
                                 .id(entry.id)
                                 .padding(.top, Self.lyricsRowSpacing)
                         case .intro, .interlude:
@@ -1420,7 +1423,7 @@ struct TVNowPlayingView: View {
     }
 
     private struct TVLyricsPosition: Equatable {
-        /// 高亮哪一句。间奏里仍是上一句,前奏里没有。
+        /// 当前或刚结束的歌词行，用于相邻行的明暗距离。
         var current: Int?
         /// 滚到哪:当前这一句,或正在走的那一行提示点。
         var anchor: TVLyricsAnchor?
@@ -1507,7 +1510,7 @@ struct TVNowPlayingView: View {
     }
 
     @ViewBuilder
-    private func lyricLine(index i: Int, current cur: Int?, isDuet: Bool) -> some View {
+    private func lyricLine(index i: Int, current cur: Int?, isDuet: Bool, interludeActive: Bool) -> some View {
         // 按「罗马音显示」换过正文或附属罗马音；当前行、时间仍按原来那一行。
         let source = TVLyricsRomanizationController.shared.displayLine(store.lyrics[i], songID: store.currentSongID)
         let ln = TVSimulatedWordLyrics.displayLine(
@@ -1518,7 +1521,7 @@ struct TVNowPlayingView: View {
         let flowAlignment: LyricFlowHorizontalAlignment = isTrailing ? .trailing : .leading
         // 下一句开唱时这一行让位，唱过的字要在那之前落回原大小。
         let nextLineTime = store.lyrics.indices.contains(i + 1) ? store.lyrics[i + 1].time : nil
-        let isCur = cur == i
+        let isCur = !interludeActive && cur == i
         let dist = cur.map { abs(i - $0) }
         let opacity = isCur ? 1 : dist.map { max(0.42, 0.72 - Double($0) * 0.08) } ?? 0.82
         // 字号固定、靠 scaleEffect 缩放——缩放能平滑动画,直接换 font size 会硬跳。
@@ -1592,6 +1595,12 @@ struct TVNowPlayingView: View {
         }
         .scaleEffect(scale, anchor: isTrailing ? .trailing : .leading)
         .opacity(opacity)
+        .blur(radius: LyricDepthEffectPolicy.blurRadius(
+            forRow: i, activeRow: cur ?? -1,
+            isEnabled: interludeActive && blursInactiveLyrics && !reduceLyricsTransparency && store.lyricsFollowPlayback,
+            isSynchronized: store.lyricsFollowPlayback, interludeActive: interludeActive
+        ))
+        .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: interludeActive)
         .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: cur)
         .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
         .accessibilityElement(children: .combine)

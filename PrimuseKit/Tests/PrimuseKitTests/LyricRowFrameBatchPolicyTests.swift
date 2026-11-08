@@ -65,6 +65,41 @@ struct LyricRowLayoutPolicyTests {
 
 @Suite("Lyric row depth effect")
 struct LyricDepthEffectPolicyTests {
+    @Test("An interlude takes focus from both neighboring lyrics, including the intro")
+    func interludeDepth() {
+        for activeRow in [-1, 0, 4] {
+            let neighbors = [activeRow, activeRow + 1].filter { $0 >= 0 }
+            for row in neighbors {
+                #expect(LyricDepthEffectPolicy.blurRadius(
+                    forRow: row, activeRow: activeRow, isEnabled: true,
+                    isSynchronized: true, interludeActive: true
+                ) == 1.25)
+            }
+            #expect(LyricDepthEffectPolicy.blurRadius(
+                forRow: activeRow + 2, activeRow: activeRow, isEnabled: true,
+                isSynchronized: true, interludeActive: true
+            ) == 2.5)
+            #expect(LyricDepthEffectPolicy.blurRadius(
+                forRow: activeRow + 8, activeRow: activeRow, isEnabled: true,
+                isSynchronized: true, interludeActive: true
+            ) == 5)
+        }
+    }
+
+    @Test("Interludes respect disabled blur and unsynchronized lyrics; singing restores sharp focus")
+    func interludeFocusRestores() {
+        for (enabled, synchronized) in [(false, true), (true, false)] {
+            #expect(LyricDepthEffectPolicy.blurRadius(
+                forRow: 0, activeRow: 0, isEnabled: enabled,
+                isSynchronized: synchronized, interludeActive: true
+            ) == 0)
+        }
+        #expect(LyricDepthEffectPolicy.blurRadius(
+            forRow: 1, activeRow: 1, isEnabled: true,
+            isSynchronized: true, interludeActive: false
+        ) == 0)
+    }
+
     @Test("Current, disabled, and unsynchronized lyrics stay sharp")
     func sharpStates() {
         #expect(LyricDepthEffectPolicy.blurRadius(

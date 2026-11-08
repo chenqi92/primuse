@@ -42,13 +42,19 @@ public enum LyricDepthEffectPolicy {
         forRow rowIndex: Int,
         activeRow activeIndex: Int,
         isEnabled: Bool,
-        isSynchronized: Bool
+        isSynchronized: Bool,
+        interludeActive: Bool = false
     ) -> Double {
         guard isEnabled,
               isSynchronized,
-              rowIndex >= 0,
-              activeIndex >= 0,
-              rowIndex != activeIndex else { return 0 }
+              rowIndex >= 0 else { return 0 }
+        if interludeActive {
+            // The marker sits between the completed row and the upcoming row.
+            // An intro uses -1, putting the first lyric one step behind it.
+            let distance = rowIndex <= activeIndex ? activeIndex - rowIndex + 1 : rowIndex - activeIndex
+            return min(maximumRadius, Double(max(1, distance)) * radiusStep)
+        }
+        guard activeIndex >= 0, rowIndex != activeIndex else { return 0 }
 
         let distance = abs(rowIndex - activeIndex)
         let depth = distance + (rowIndex < activeIndex ? passedLineDepthOffset : 0)

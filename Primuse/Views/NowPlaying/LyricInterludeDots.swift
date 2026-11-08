@@ -58,8 +58,8 @@ struct LyricInterludeDots: View {
                 Circle()
                     .fill(tint)
                     .frame(width: dotSize, height: dotSize)
-                    .opacity(isActive ? 0.28 + 0.72 * levels[index] : restingOpacity)
-                    .scaleEffect(isActive ? (0.82 + 0.18 * levels[index]) * pulse : 0.82)
+                    .opacity(isActive ? 0.4 + 0.6 * levels[index] : restingOpacity)
+                    .scaleEffect(isActive ? 1.25 * (0.9 + 0.1 * levels[index]) * pulse : 0.82)
             }
         }
     }
