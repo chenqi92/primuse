@@ -2026,7 +2026,9 @@ final class MusicScraperService {
         // complete file. Background enrichment used to do that for every song
         // in a freshly scanned SMB library (several GiB for a 99-song folder)
         // even though scraping only needs the scanned/backfilled identity.
-        let fileURL = shouldResolvePlaybackURL
+        // MusicKit identities are not file paths. Scrape their known catalogue
+        // fields directly and keep the result in Primuse's metadata store.
+        let fileURL = song.sourceID != AppleMusicLibraryIdentity.sourceID && shouldResolvePlaybackURL
             ? try await sourceManager.resolveURL(for: song)
             : nil
         let placeholderTitle = fileURL?.deletingPathExtension().lastPathComponent ?? fallbackTitle
@@ -2308,6 +2310,7 @@ final class MusicScraperService {
     }
 
     private func resolvedScrapeFallbackTitle(for song: Song) async -> String {
+        if song.sourceID == AppleMusicLibraryIdentity.sourceID { return song.title }
         // 服务端曲库源的歌名由服务端给出, 路径只是按条目 id 合成的传输标识
         // (Emby/Plex 是 `/items/823881.flac`), 拿它的文件名去搜一首也搜不到。
         let serverTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -609,6 +609,7 @@ struct CachedArtworkView: View {
     /// Read only prepared Artwork values; MusicKit.Song getters can perform IO.
     private var appleMusicArtwork: MusicKit.Artwork? {
         guard isArtworkVisible,
+              !StoredArtworkOrigin.preservesLocalChoice(coverRef),
               sourceID == AppleMusicLibraryService.systemSourceID,
               let amID = filePath else { return nil }
         if resolvedAppleMusicArtworkID == amID, let resolvedAppleMusicArtwork {
@@ -650,7 +651,8 @@ struct CachedArtworkView: View {
     }
 
     private var appleMusicArtworkIdentity: String {
-        guard sourceID == AppleMusicLibraryService.systemSourceID,
+        guard !StoredArtworkOrigin.preservesLocalChoice(coverRef),
+              sourceID == AppleMusicLibraryService.systemSourceID,
               let filePath, !filePath.isEmpty else { return "" }
         return filePath
     }
@@ -667,7 +669,7 @@ struct CachedArtworkView: View {
             resolvedAppleMusicArtwork = nil
             resolvedAppleMusicArtworkID = nil
             if sourceID == AppleMusicLibraryService.systemSourceID {
-                onResolutionChange(false)
+                onResolutionChange(displayedImage != nil)
             }
             return
         }
@@ -1703,7 +1705,8 @@ struct CachedArtworkView: View {
         ref: String?, songID: String?, sourceID: String?, artistID: String?, bucket: Bucket,
         onlyProvisional: Bool = false
     ) async -> PlatformImage? {
-        guard sourceID != AppleMusicLibraryIdentity.sourceID else { return nil }
+        guard sourceID != AppleMusicLibraryIdentity.sourceID
+                || StoredArtworkOrigin.preservesLocalChoice(ref) else { return nil }
         let store = MetadataAssetStore.shared
         if let artistID {
             let baseID = SourceOwnedArtworkReference.resolve(ref).map { _ in
@@ -1793,7 +1796,7 @@ struct CachedArtworkView: View {
         size: CGFloat,
         displayScale: CGFloat
     ) async -> Bool {
-        guard sourceID != AppleMusicLibraryIdentity.sourceID,
+        guard sourceID != AppleMusicLibraryIdentity.sourceID || StoredArtworkOrigin.preservesLocalChoice(coverRef),
               let identity = ArtworkSourceRequestIdentity.key(
                 songID: songID,
                 artworkReference: coverRef,
@@ -1907,11 +1910,10 @@ struct CachedArtworkView: View {
                 : finalize(data: result.data, bucket: bucket, cacheKey: cacheKey)
         }
 
-        // Song path. Apple Music artwork is always owned by MusicKit. Do not
-        // reuse a legacy scraped cover cached under this Primuse song ID; the
-        // official artwork resolver above will fill cold MusicKit caches.
+        // Explicit local artwork takes precedence over MusicKit. Other Apple
+        // Music rows keep using official artwork instead of a stale song mirror.
         let isAppleMusic = sourceID == AppleMusicLibraryIdentity.sourceID
-        if !isAppleMusic,
+        if !isAppleMusic || StoredArtworkOrigin.preservesLocalChoice(effectiveRef),
            let data = await loadFromDiskCache(
             songID: ignoredGenericFolderCover ? nil : songID,
             ref: effectiveRef,

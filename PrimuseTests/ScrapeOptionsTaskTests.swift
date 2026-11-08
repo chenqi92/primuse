@@ -87,7 +87,7 @@ final class ScrapeContentSelectionTests: XCTestCase {
         XCTAssertFalse(selection.lyrics)
     }
 
-    func testAppleMusicAndCueIdentityKeepTheirExistingRestrictions() {
+    func testAppleMusicAllowsAllFieldsWhileCueKeepsAlbumIdentity() {
         var original = song()
         let candidate = changedSong(original)
         original.sourceID = AppleMusicLibraryIdentity.sourceID
@@ -95,8 +95,14 @@ final class ScrapeContentSelectionTests: XCTestCase {
             original: original, updated: candidate, preferredParts: .all,
             hasCover: true, hasLyrics: true
         )
-        XCTAssertFalse(appleMusic.hasMetadata)
-        XCTAssertFalse(appleMusic.cover)
+        XCTAssertTrue(appleMusic.title)
+        XCTAssertTrue(appleMusic.artist)
+        XCTAssertTrue(appleMusic.album)
+        XCTAssertTrue(appleMusic.year)
+        XCTAssertTrue(appleMusic.track)
+        XCTAssertTrue(appleMusic.disc)
+        XCTAssertTrue(appleMusic.genre)
+        XCTAssertTrue(appleMusic.cover)
         XCTAssertTrue(appleMusic.lyrics)
 
         original = song()
@@ -165,6 +171,28 @@ final class ExistingCoverScrapeTests: XCTestCase {
     func testExplicitRescrapeCanStillRequestAReplacementCover() async throws {
         try await withFixture { service, probe, song, _ in
             _ = try await service.processedSongWithAssets(song, forceRescrape: true)
+            let coverRequests = await probe.coverRequests
+            XCTAssertEqual(coverRequests, 1)
+        }
+    }
+
+    func testAppleMusicScrapeUsesMetadataWithoutResolvingAnAudioFile() async throws {
+        try await withFixture { service, probe, original, _ in
+            var song = original
+            song.sourceID = AppleMusicLibraryIdentity.sourceID
+            song.filePath = "8090148269108553694"
+            song.bitRate = 320
+            song.sampleRate = 44_100
+            let processed = try await service.processedSongWithAssets(
+                song, forceRescrape: true, storeAssets: false
+            )
+            let result = try XCTUnwrap(processed)
+            XCTAssertEqual(result.song.year, 2026)
+            XCTAssertEqual(result.song.genre, "Ambient")
+            XCTAssertEqual(result.song.sourceID, song.sourceID)
+            XCTAssertEqual(result.song.filePath, song.filePath)
+            XCTAssertEqual(result.song.bitRate, song.bitRate)
+            XCTAssertEqual(result.song.sampleRate, song.sampleRate)
             let coverRequests = await probe.coverRequests
             XCTAssertEqual(coverRequests, 1)
         }
@@ -250,6 +278,89 @@ final class ExistingCoverScrapeTests: XCTestCase {
             return []
         }
         func getLyrics(externalId: String) async throws -> ScraperLyricsResult? { nil }
+    }
+}
+
+@MainActor
+final class AppleMusicScrapePersistenceTests: XCTestCase {
+    func testLibraryRefreshPreservesChosenMetadataCoverAndLyrics() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        var original = Song(id: "apple-local", title: "Window at Dawn", albumTitle: "Quiet Windows",
+                            artistName: "Paper Harbor", duration: 180, fileFormat: .aac,
+                            filePath: "123456", sourceID: AppleMusicLibraryIdentity.sourceID)
+        original.coverArtFileName = "musicKit://official-cover"
+        library.addSongs([original])
+        var chosen = try XCTUnwrap(library.storedSong(id: original.id))
+        chosen.title = "Window at Dawn — Alternate"
+        chosen.albumTitle = "Lantern Sketches"
+        chosen.artistName = "Harbor Ensemble"
+        chosen.coverArtFileName = "selected-" + String(repeating: "a", count: 64) + ".jpg"
+        chosen.lyricsFileName = "local-lyrics.json"
+        chosen.lyricsText = "Paper lanterns cross the quiet sky"
+        chosen = SongUserMetadataPolicy.stampingUserEdit(original: original, updated: chosen)
+        library.replaceSong(chosen)
+        chosen = try XCTUnwrap(library.storedSong(id: original.id))
+
+        var incoming = original
+        incoming.duration = 181
+        incoming.bitRate = 256
+        incoming.coverArtFileName = "musicKit://refreshed-cover"
+        let prepared = await library.prepareIncomingSongsOffMain([incoming])
+        library.addSongs(prepared, affectedSourceIDs: [original.sourceID],
+                         mergeServerCatalogRows: false, indexMaintenance: .immediate)
+        let refreshed = try XCTUnwrap(library.storedSong(id: original.id))
+        XCTAssertEqual(refreshed.title, chosen.title)
+        XCTAssertEqual(refreshed.albumTitle, chosen.albumTitle)
+        XCTAssertEqual(refreshed.artistName, chosen.artistName)
+        XCTAssertEqual(refreshed.albumID, chosen.albumID)
+        XCTAssertEqual(refreshed.coverArtFileName, chosen.coverArtFileName)
+        XCTAssertEqual(refreshed.lyricsFileName, chosen.lyricsFileName)
+        XCTAssertEqual(refreshed.lyricsText, chosen.lyricsText)
+        XCTAssertEqual(refreshed.userMetadataEditedAt, chosen.userMetadataEditedAt)
+        XCTAssertEqual(refreshed.filePath, original.filePath)
+        XCTAssertEqual(refreshed.duration, 181)
+        XCTAssertEqual(refreshed.bitRate, 256)
+    }
+
+    func testCoverOnlyChoiceDoesNotFreezeUneditedCatalogText() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let selectedCover = "selected-" + String(repeating: "b", count: 64) + ".jpg"
+        let song = Song(id: "apple-cover", title: "Window", duration: 180, fileFormat: .aac,
+                        filePath: "i.library-song", sourceID: AppleMusicLibraryIdentity.sourceID,
+                        coverArtFileName: selectedCover)
+        library.addSongs([song])
+        var incoming = song
+        incoming.title = "Window at Dawn"
+        incoming.coverArtFileName = "musicKit://official-cover"
+        library.addSongs([incoming], affectedSourceIDs: [song.sourceID])
+        let refreshed = try XCTUnwrap(library.storedSong(id: song.id))
+        XCTAssertEqual(refreshed.coverArtFileName, selectedCover)
+        XCTAssertEqual(refreshed.title, incoming.title)
+        XCTAssertNil(refreshed.userMetadataEditedAt)
+    }
+
+    func testChosenAppleMusicCoverResolvesFromLocalStorage() async throws {
+        let songID = UUID().uuidString
+        let assets = MetadataAssetStore.shared
+        let data = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }.pngData())
+        let stored = await assets.storeAttributedCover(data, songID: songID, origin: .selected)
+        let reference = try XCTUnwrap(stored)
+        defer { CachedArtworkView.invalidateCache(for: songID) }
+        let song = Song(id: songID, title: "Window", fileFormat: .aac, filePath: "i.local-test",
+                        sourceID: AppleMusicLibraryIdentity.sourceID, coverArtFileName: reference)
+        let image = try await AsyncOperationTimeout.run(seconds: 5) {
+            await AppleMusicSongArtwork.image(for: song, pixelSize: 32, mirrorsIntoSongCache: false)
+        }
+        XCTAssertNotNil(image)
+        XCTAssertGreaterThan(image?.size.width ?? 0, 0)
+        await assets.invalidateRemovedSongCaches(songs: [song], songIDs: [songID], retainingSongs: [], lastWrittenBefore: Date())
     }
 }
 

@@ -6863,6 +6863,13 @@ final class MusicLibrary {
         let derivedIDMemo = DerivedIDMemo()
         for song in newSongs where !blockedIDs.contains(song.id) {
             var newSong = song
+            if newSong.sourceID == AppleMusicLibraryIdentity.sourceID,
+               let index = existingIndexByID[newSong.id] {
+                let existing = mergedSongs[index]
+                newSong = SongUserMetadataPolicy.preservingUserEdits(from: existing, in: newSong)
+                newSong.lyricsFileName = existing.lyricsFileName ?? newSong.lyricsFileName
+                newSong.lyricsText = existing.lyricsText ?? newSong.lyricsText
+            }
             if mergeServerCatalogRows,
                let idx = existingIndexByID[newSong.id] {
                 let existing = mergedSongs[idx]

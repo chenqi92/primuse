@@ -93,7 +93,8 @@ actor CarPlayAppleMusicArtwork {
     }
 }
 
-/// Apple Music 歌的官方封面。资料库歌的引用是 MusicKit 专用的 `musicKit://`, 本地封面库里不会有它,
+/// Apple Music 歌的封面优先使用用户在 Primuse 选择的本地图，其余读取官方封面。
+/// 资料库歌的官方引用是 MusicKit 专用的 `musicKit://`, 本地封面库里不会有它,
 /// 也没有连接器可问: 先用 MusicKit 缓存给的地址或歌曲自带的公网地址, 都没有再查资料库接口换成公网地址。
 /// CarPlay、手表、小组件和系统「正在播放」共用, 所以不限平台。
 @MainActor
@@ -101,6 +102,14 @@ enum AppleMusicSongArtwork {
     /// 手表、小组件和系统「正在播放」传 `mirrorsIntoSongCache: false`: 按 songID 存进封面库会发
     /// 封面已缓存的通知, 播放页随即改按像素取色(播放中途变色), 它们只要这一张图。
     static func image(for song: Song, pixelSize: Int, mirrorsIntoSongCache: Bool = true) async -> PlatformImage? {
+        if StoredArtworkOrigin.preservesLocalChoice(song.coverArtFileName),
+           let image = await CachedArtworkView.resolveImage(
+            coverRef: song.coverArtFileName, songID: song.id, size: CGFloat(pixelSize),
+            sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat,
+            sourceManager: AppServices.shared.sourceManager
+           ) {
+            return image
+        }
         let songID = mirrorsIntoSongCache ? song.id : nil
         let reference = AppServices.shared.appleMusicLibrary.cachedMusicKitSong(amID: song.filePath)?.artwork?
             .url(width: pixelSize, height: pixelSize)?.absoluteString
