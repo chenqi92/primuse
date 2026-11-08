@@ -119,7 +119,7 @@ struct LocalTranslationModelSection: View {
                 }
             }
         }
-        .task { service.refreshAvailability() }
+        .task { await service.refreshAvailability() }
     }
 
     @ViewBuilder

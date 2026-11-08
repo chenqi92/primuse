@@ -274,7 +274,7 @@ struct LocalLyricsTranslationOutcome: Sendable {
 final class LocalLyricsTranslationService {
     static let shared = LocalLyricsTranslationService()
 
-    enum ModelState: Equatable {
+    enum ModelState: Equatable, Sendable {
         case unsupportedSystem
         case notDownloaded
         case downloading(Double)
@@ -294,60 +294,77 @@ final class LocalLyricsTranslationService {
     @ObservationIgnored private var locatedPacks: [Pack: LocalLyricsTranslationModel.Located] = [:]
     @ObservationIgnored private var downloadTasks: [Pack: Task<Void, Never>] = [:]
     @ObservationIgnored private let runner = LocalLyricsTranslationRunner()
+    @ObservationIgnored private var availabilityRefresh: Task<Void, Never>?
+    @ObservationIgnored private var availabilityRevisions: [Pack: UInt] = [:]
+    @ObservationIgnored private var removingPacks: Set<Pack> = []
+    @ObservationIgnored private let locatePack: @Sendable (Pack) -> LocalLyricsTranslationModel.Located?
 
-    private init() {
-        // 查包在不在本机要同步问系统的 Background Assets 服务,真机上头一次约 80ms;第一次用到这个
-        // 服务往往就是打开歌词那一下(翻译任务要读 `modelRevision`)。先记作没下载,到后台查完再改成可用。
-        let isSupported = LocalLyricsTranslationModel.isSystemSupported
+    init(
+        isSupported: Bool = LocalLyricsTranslationModel.isSystemSupported,
+        refreshOnInit: Bool = true,
+        locatePack: @escaping @Sendable (Pack) -> LocalLyricsTranslationModel.Located? = LocalLyricsTranslationModel.locate
+    ) {
+        self.locatePack = locatePack
         for pack in Pack.allCases {
             states[pack] = isSupported ? .notDownloaded : .unsupportedSystem
         }
-        guard isSupported else { return }
-        Task { await locateInstalledPacks() }
-    }
-
-    private func locateInstalledPacks() async {
-        let found = await Task.detached(priority: .utility) {
-            Pack.allCases.compactMap { pack in
-                LocalLyricsTranslationModel.locate(pack).map { (pack, $0) }
-            }
-        }.value
-        var changed = false
-        // 查的这段时间里已经开始下载的包不动,下载完自己会标成可用。
-        for (pack, located) in found where modelState(for: pack) == .notDownloaded {
-            locatedPacks[pack] = located
-            states[pack] = .ready
-            changed = true
-        }
-        if changed { modelRevision &+= 1 }
+        guard isSupported, refreshOnInit else { return }
+        Task { await refreshAvailability() }
     }
 
     func modelState(for pack: Pack) -> ModelState { states[pack] ?? .unsupportedSystem }
     func modelFailureReason(for pack: Pack) -> String? { failureReasons[pack] }
     var isModelReady: Bool { modelState == .ready }
 
-    func refreshAvailability() {
-        for pack in Pack.allCases {
-            let state = modelState(for: pack)
-            guard state == .ready || state == .notDownloaded else { continue }
-            let current = LocalLyricsTranslationModel.locate(pack)
-            if current == nil, state == .ready {
-                locatedPacks[pack] = nil
-                states[pack] = .notDownloaded
-                modelRevision &+= 1
-                Task { await runner.unload() }
-            } else if let current, state == .notDownloaded {
-                locatedPacks[pack] = current
-                states[pack] = .ready
-                modelRevision &+= 1
-            }
+    func refreshAvailability() async {
+        if let task = availabilityRefresh {
+            await task.value
+            return
         }
+        let packs = Pack.allCases.filter {
+            !removingPacks.contains($0) && [.ready, .notDownloaded].contains(modelState(for: $0))
+        }
+        guard !packs.isEmpty else { return }
+        let revisions = availabilityRevisions
+        let locate = locatePack
+        let task = Task {
+            defer { availabilityRefresh = nil }
+            let found = await Task.detached(priority: .utility) {
+                Dictionary(uniqueKeysWithValues: packs.compactMap { pack in
+                    locate(pack).map { (pack, $0) }
+                })
+            }.value
+            var changed = false
+            var needsUnload = false
+            for pack in packs {
+                // 下载或移除已改变了这个包时，丢弃查询开始前的状态。
+                guard availabilityRevisions[pack] == revisions[pack], !removingPacks.contains(pack) else { continue }
+                let state = modelState(for: pack)
+                guard state == .ready || state == .notDownloaded else { continue }
+                if let current = found[pack], state == .notDownloaded {
+                    locatedPacks[pack] = current
+                    states[pack] = .ready
+                    changed = true
+                } else if found[pack] == nil, state == .ready {
+                    locatedPacks[pack] = nil
+                    states[pack] = .notDownloaded
+                    changed = true
+                    needsUnload = true
+                }
+            }
+            if changed { modelRevision &+= 1 }
+            if needsUnload { await runner.unload() }
+        }
+        availabilityRefresh = task
+        await task.value
     }
 
     func downloadModel(_ selectedPack: Pack? = nil) {
         let pack = selectedPack ?? requestedPack
         let state = modelState(for: pack)
-        guard state == .notDownloaded || state == .failed, downloadTasks[pack] == nil else { return }
+        guard state == .notDownloaded || state == .failed,
+              downloadTasks[pack] == nil, !removingPacks.contains(pack) else { return }
+        availabilityRevisions[pack, default: 0] &+= 1
         states[pack] = .downloading(0)
         failureReasons[pack] = nil
         downloadTasks[pack] = Task { @MainActor in
@@ -376,7 +393,10 @@ final class LocalLyricsTranslationService {
     }
 
     func removeModel(_ pack: Pack = .persian) async {
-        guard downloadTasks[pack] == nil else { return }
+        guard downloadTasks[pack] == nil, !removingPacks.contains(pack) else { return }
+        removingPacks.insert(pack)
+        availabilityRevisions[pack, default: 0] &+= 1
+        defer { removingPacks.remove(pack) }
         locatedPacks[pack] = nil
         await runner.unload()
         await LocalLyricsTranslationModel.remove(pack)
@@ -508,10 +528,7 @@ final class LocalLyricsTranslationService {
             } catch {
                 outcome.failed = true
                 plog("⚠️ LocalTranslation: \(group.sourceLanguageCode ?? "auto") -> \(targetLanguageCode) failed: \(String(describing: error))")
-                if packs.contains(where: { LocalLyricsTranslationModel.locate($0) == nil }) {
-                    // The system purged the pack while it was in use.
-                    refreshAvailability()
-                }
+                await refreshAvailability()
             }
         }
         return outcome

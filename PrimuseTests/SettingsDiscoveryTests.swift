@@ -2,6 +2,96 @@ import XCTest
 import PrimuseKit
 @testable import Primuse
 
+@MainActor
+final class LyricsSettingsLoadingTests: XCTestCase {
+    func testFontPreviewChecksRunOffMainThreadAndReuseResults() async {
+        let library = PlayerTextFontLibrary(loadsImportedFonts: false)
+        let started = expectation(description: "Font lookup started")
+        let release = DispatchSemaphore(value: 0)
+        let calls = LyricsSettingsProbeCalls()
+        defer { release.signal() }
+        let probe: @Sendable (String) -> Bool = { name in
+            if calls.record(name) == 1 {
+                started.fulfill()
+                _ = release.wait(timeout: .now() + 5)
+            }
+            return name == "PingFangSC-Regular"
+        }
+        let first = Task { await library.preparePreviews(probe: probe) }
+        await fulfillment(of: [started], timeout: 2)
+        let second = Task { await library.preparePreviews(probe: probe) }
+        await Task.yield()
+        XCTAssertEqual(calls.count, 1, "The UI executor remains available while the lookup is blocked")
+        XCTAssertFalse(calls.usedMainThread)
+        release.signal()
+        await first.value
+        await second.value
+        let expected = PlayerTextFont.Builtin.allCases.compactMap(\.postScriptName).count
+        XCTAssertEqual(calls.count, expected)
+        await library.preparePreviews(probe: probe)
+        XCTAssertEqual(library.state(of: .builtin(.pingFang)), .available)
+        XCTAssertEqual(library.state(of: .builtin(.songti)), .needsDownload)
+        XCTAssertEqual(calls.count, expected, "Re-entering the page must reuse availability results")
+    }
+
+    func testModelAvailabilityRefreshDoesNotBlockUIAndCoalescesCallers() async {
+        let started = expectation(description: "Model lookup started")
+        let release = DispatchSemaphore(value: 0)
+        let calls = LyricsSettingsProbeCalls()
+        defer { release.signal() }
+        let service = LocalLyricsTranslationService(isSupported: true, refreshOnInit: false) { pack in
+            if calls.record(pack.rawValue) == 1 {
+                started.fulfill()
+                _ = release.wait(timeout: .now() + 5)
+            }
+            return nil
+        }
+        let first = Task { await service.refreshAvailability() }
+        await fulfillment(of: [started], timeout: 2)
+        let second = Task { await service.refreshAvailability() }
+        await Task.yield()
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertFalse(calls.usedMainThread)
+        first.cancel()
+        release.signal()
+        await first.value
+        await second.value
+        XCTAssertEqual(calls.count, LocalLyricsTranslationModel.Pack.allCases.count)
+        XCTAssertEqual(service.modelState(for: .persian), .notDownloaded)
+        XCTAssertEqual(service.modelState(for: .cjk), .notDownloaded)
+        XCTAssertEqual(service.modelRevision, 0)
+    }
+
+    func testUnsupportedSystemsDoNotQueryAssetPacks() async {
+        let calls = LyricsSettingsProbeCalls()
+        let service = LocalLyricsTranslationService(isSupported: false, refreshOnInit: false) { pack in
+            calls.record(pack.rawValue)
+            return nil
+        }
+        await service.refreshAvailability()
+        XCTAssertEqual(calls.count, 0)
+        XCTAssertEqual(service.modelState, .unsupportedSystem)
+    }
+}
+
+private final class LyricsSettingsProbeCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var names: [String] = []
+    private var onMainThread = false
+
+    @discardableResult
+    func record(_ name: String) -> Int {
+        lock.withLock {
+            names.append(name)
+            onMainThread = onMainThread || Thread.isMainThread
+            return names.count
+        }
+    }
+
+    var count: Int { lock.withLock { names.count } }
+    var usedMainThread: Bool { lock.withLock { onMainThread } }
+}
+
 final class SettingsDiscoveryTests: XCTestCase {
     @MainActor
     func testStreamTranscodeFormatPersistsAndIsDiscoverable() throws {

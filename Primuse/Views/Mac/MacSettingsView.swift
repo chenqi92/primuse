@@ -6051,7 +6051,7 @@ private struct MacSTLyricsView: View {
             }
         }
         .task {
-            localTranslation.refreshAvailability()
+            await localTranslation.refreshAvailability()
             await languageCatalog.refresh()
         }
         .sheet(isPresented: $showTranscriptionSettings) {

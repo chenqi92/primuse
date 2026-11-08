@@ -290,6 +290,7 @@ final class PlayerTextFontLibrary {
     var activatedNames: Set<String> = []
     /// 查过的「这台设备上现在有没有」。每次都去系统字体库里找一遍不便宜,歌词又重画得勤。
     @ObservationIgnored private var installedCache: [String: Bool] = [:]
+    @ObservationIgnored private var previewPreparation: Task<[String: Bool], Never>?
 
     /// 用户导入的字体,一个家族一项(选择器「我导入的」那一组)。
     var importedFonts: [ImportedFontEntry] = []
@@ -300,13 +301,34 @@ final class PlayerTextFontLibrary {
     /// 导入目录里每个文件读出来的每个字体,`importedFonts` 由它排出来。
     @ObservationIgnored var importedFaces: [ImportedFontFace] = []
 
-    private init() {
+    init(loadsImportedFonts: Bool = true) {
         #if os(iOS) || os(macOS)
-        loadImportedFonts()
+        if loadsImportedFonts { loadImportedFonts() }
         #else
         // 电视上没有导入入口:同步过来的导入字体一律按「这台设备没有」、画系统字体。
         importedFontsLoaded = true
         #endif
+    }
+
+    /// 字体预览先用系统字体占位，后台一次查好，避免列表测量时同步访问字体服务。
+    func preparePreviews(
+        probe: @escaping @Sendable (String) -> Bool = PlayerTextFontLibrary.isInstalled
+    ) async {
+        if previewPreparation == nil {
+            let names = PlayerTextFont.Builtin.allCases.compactMap(\.postScriptName)
+                .filter { installedCache[$0] == nil }
+            guard !names.isEmpty else { return }
+            previewPreparation = Task.detached(priority: .utility) {
+                Dictionary(uniqueKeysWithValues: names.map { ($0, probe($0)) })
+            }
+        }
+        guard let task = previewPreparation else { return }
+        let installed = await task.value
+        // 等待期间点选的字体可能已经下载完成，不用较早的查询覆盖它。
+        for (name, available) in installed where installedCache[name] == nil {
+            installedCache[name] = available
+        }
+        previewPreparation = nil
     }
 
     func state(of font: PlayerTextFont) -> State {
@@ -761,6 +783,8 @@ struct PlayerTextFontPicker: View {
     @State private var showsImporter = false
     @State private var pendingImportURLs: [URL] = []
     @State private var showsMissingExplanation = false
+    @State private var previewsReady = false
+    @ScaledMetric(relativeTo: .caption) private var chipTitleHeight: CGFloat = 18
 
     private var library: PlayerTextFontLibrary { .shared }
 
@@ -796,6 +820,11 @@ struct PlayerTextFontPicker: View {
             }
         }
         .padding(.vertical, 4)
+        .task {
+            await library.preparePreviews()
+            guard !Task.isCancelled else { return }
+            previewsReady = true
+        }
         #if os(macOS)
         // Mac 上可以直接把字体文件拖到这一片导入。
         .dropDestination(for: URL.self) { urls, _ in
@@ -823,11 +852,12 @@ struct PlayerTextFontPicker: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
+                LazyHStack(spacing: 10) {
                     chips()
                 }
                 .padding(.vertical, 2)
             }
+            .frame(height: 54 + chipTitleHeight)
             if let footnote {
                 Text(verbatim: footnote)
                     .font(.caption)
@@ -839,7 +869,7 @@ struct PlayerTextFontPicker: View {
 
     private func chip(_ font: PlayerTextFont) -> some View {
         let isSelected = font == selectedFont
-        let state = library.state(of: font)
+        let state = previewsReady ? library.state(of: font) : nil
         return Button {
             selection = font.rawValue
             library.prepare(font)
@@ -853,16 +883,17 @@ struct PlayerTextFontPicker: View {
                 font.title
                     .font(.caption)
                     .lineLimit(1)
+                    .frame(height: chipTitleHeight)
             }
             .modifier(PlayerTextFontChipStyle(isSelected: isSelected))
             .overlay(alignment: .topTrailing) {
-                Self.stateBadge(state)
+                if let state { Self.stateBadge(state) }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityValue(Self.stateAccessibilityText(state))
+        .accessibilityValue(state.map(Self.stateAccessibilityText) ?? Text(verbatim: ""))
     }
 
     /// 「我导入的」最后一块:选字体文件(.ttf / .otf / .ttc,可以多选)。
@@ -884,6 +915,7 @@ struct PlayerTextFontPicker: View {
                 Text("transcript_reader_font_import")
                     .font(.caption)
                     .lineLimit(1)
+                    .frame(height: chipTitleHeight)
             }
             .foregroundStyle(Color.accentColor)
             .modifier(PlayerTextFontChipStyle(isSelected: false))

@@ -1217,7 +1217,7 @@ struct TVLyricsTranslationPanel: View {
                 dismiss()
             }
         }
-        .task { local.refreshAvailability() }
+        .task { await local.refreshAvailability() }
         .builtInAIConsentSheet($builtInConsent)
         .fullScreenCover(isPresented: $showsLanguagePicker) {
             TVLyricsTranslationLanguagePicker(codes: targetCodes, selected: target) { code in
