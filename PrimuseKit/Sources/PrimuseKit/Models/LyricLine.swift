@@ -129,6 +129,14 @@ public enum LyricSyllableEmphasisPolicy {
     /// 唱过的字放大的比例。只给一点：每个字绕自己的中心放大，会吃掉词与词之间的空格，
     /// 放大 5% 时整句唱完空格只剩三成，主要靠上浮。
     public static let raisedScale: Double = 0.02
+    public static let raisedStretch: Double = 0.04
+
+    /// Glyph positions come from the shaped word, so kerning and ligatures stay intact.
+    public static func glyphRise(progress: Double, lower: Double, upper: Double, hold: Double) -> Double {
+        guard progress.isFinite, lower.isFinite, upper.isFinite, hold.isFinite,
+              upper > lower else { return 0 }
+        return easeOut((progress - lower) / (upper - lower)) * clamp(hold)
+    }
     /// 整句唱完后保持放大的时长。
     public static let settleHold: TimeInterval = 0.2
     /// 整句落回原大小用的时长。

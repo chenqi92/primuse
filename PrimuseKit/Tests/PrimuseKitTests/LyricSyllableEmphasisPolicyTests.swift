@@ -4,6 +4,25 @@ import Testing
 
 @Suite("Lyric syllable emphasis")
 struct LyricSyllableEmphasisPolicyTests {
+    @Test("Letters rise in reading order within a word and settle together")
+    func glyphCascade() {
+        let first = LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0, upper: 0.2, hold: 1)
+        let middle = LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0.3, upper: 0.5, hold: 1)
+        let last = LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0.8, upper: 1, hold: 1)
+        #expect(first == 1)
+        #expect(middle > 0 && middle < first)
+        #expect(last == 0)
+        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: 1, lower: 0.8, upper: 1, hold: 0.5) == 0.5)
+        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: 0.4, lower: 0, upper: 0.2, hold: 0) == 0)
+    }
+
+    @Test("Invalid glyph bounds and time cannot produce invalid transforms")
+    func glyphBounds() {
+        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: .nan, lower: 0, upper: 1, hold: 1) == 0)
+        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: 0.5, lower: 0.3, upper: 0.3, hold: 1) == 0)
+        #expect(LyricSyllableEmphasisPolicy.glyphRise(progress: -1, lower: 0, upper: 1, hold: 1) == 0)
+    }
+
     private let line = [
         LyricSyllable(text: "Hel", start: 10.0, end: 10.4),
         LyricSyllable(text: "lo ", start: 10.4, end: 10.8),

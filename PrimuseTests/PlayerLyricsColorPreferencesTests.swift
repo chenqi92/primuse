@@ -102,6 +102,37 @@ final class LyricsCascadeScrollTests: XCTestCase {
 }
 
 final class PlayerLyricsColorPreferencesTests: XCTestCase {
+    @MainActor
+    func testLettersWithinAWordRiseInSequenceWithoutChangingLayout() throws {
+        let line = LyricLine(timestamp: 0, text: "MMMM", syllables: [.init(text: "MMMM", start: 0, end: 2)])
+        func render(inactive: Bool) throws -> CGImage {
+            let view = KaraokeLineView(line: line, fontSize: 64, weight: .bold,
+                activeColor: .white, inactiveColor: .white, timeAt: { _ in 0.8 }, fixedTime: 0.8,
+                isAnimationEnabled: !inactive)
+                .padding(20).frame(width: 360, height: 130, alignment: .leading)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage?.cgImage)
+        }
+        let animated = try render(inactive: false)
+        let still = try render(inactive: true)
+        XCTAssertEqual(animated.width, still.width)
+        XCTAssertEqual(animated.height, still.height)
+        let pixels = try rgbaPixels(from: animated)
+        let columns = pixels.indices.filter { pixels[$0].alpha > 100 }.map { $0 % animated.width }
+        let minX = try XCTUnwrap(columns.min())
+        let maxX = try XCTUnwrap(columns.max())
+        let quarter = max(1, (maxX - minX + 1) / 4)
+        func top(in range: Range<Int>) throws -> Int {
+            try XCTUnwrap(pixels.indices.first { pixels[$0].alpha > 100 && range.contains($0 % animated.width) }).quotientAndRemainder(dividingBy: animated.width).quotient
+        }
+        XCTAssertLessThan(try top(in: minX..<(minX + quarter)), try top(in: (maxX - quarter)..<maxX))
+        let attachment = XCTAttachment(image: UIImage(cgImage: animated))
+        attachment.name = "glyph-cascade"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testLyricsPulseIsSelectableWithoutChangingExistingPreferences() {
         XCTAssertEqual(PlayerLyricsMotion.allCases.map(\.rawValue), ["standard", "cascade", "pulse"])
         XCTAssertEqual(PlayerLyricsMotion.defaultValue, .standard)
