@@ -173,7 +173,7 @@ final class TVLiquidBackdropTests: XCTestCase {
 
 @MainActor
 final class TVImmersiveGalleryAnimationTests: XCTestCase {
-    func testPlayerGalleryResumesAfterFullScreenCover() async throws {
+    func testPlayerGalleryAnimatesAcrossFullScreenEntryCoverAndReentry() async throws {
         try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "This regression checks unrestricted background motion")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -203,9 +203,11 @@ final class TVImmersiveGalleryAnimationTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.keyWindow
         let window = UIWindow(windowScene: scene)
-        let host = UIHostingController(rootView: TVImmersivePlayerView().environment(store)
+        let presentation = GalleryPresentationProbe()
+        let player = TVImmersivePlayerView().environment(store)
             .defaultAppStorage(defaults)
-            .environment(MusicIntelligenceService()).environment(TVThemeState.shared).environment(TVAppearanceState()))
+            .environment(MusicIntelligenceService()).environment(TVThemeState.shared).environment(TVAppearanceState())
+        let host = UIHostingController(rootView: GalleryPresentationHarness(probe: presentation, player: player))
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer {
@@ -214,34 +216,65 @@ final class TVImmersiveGalleryAnimationTests: XCTestCase {
             previous?.makeKeyAndVisible()
             store.engine.stop()
             defaults.removePersistentDomain(forName: defaultsName)
+            try? FileManager.default.removeItem(at: directory)
         }
-        for phase in 0..<2 {
+        for _ in 0..<30 where scene.activationState != .foregroundActive {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(scene.activationState, .foregroundActive)
+        try await Task.sleep(for: .milliseconds(200))
+        presentation.isPresented = true
+        for phase in 0..<3 {
             try await Task.sleep(for: .milliseconds(1200))
+            let playerHost = try XCTUnwrap(host.presentedViewController)
             XCTAssertTrue(store.isPlaying)
             let first = galleryPixels(window)
             try await Task.sleep(for: .milliseconds(800))
-            XCTAssertNotEqual(first, galleryPixels(window), "Player gallery must animate before and after a full-screen cover, phase \(phase)")
+            try assertMotion(between: first, and: galleryPixels(window), expected: true,
+                             "Player gallery on entry, after a cover, and on reentry, phase \(phase)")
             if phase == 0 {
                 let cover = UIHostingController(rootView: Color.black)
                 cover.modalPresentationStyle = .fullScreen
                 await withCheckedContinuation { continuation in
-                    host.present(cover, animated: false) { continuation.resume() }
+                    playerHost.present(cover, animated: false) { continuation.resume() }
                 }
                 try await Task.sleep(for: .milliseconds(300))
                 await withCheckedContinuation { continuation in
-                    host.dismiss(animated: false) { continuation.resume() }
+                    playerHost.dismiss(animated: false) { continuation.resume() }
                 }
+            } else if phase == 1 {
+                presentation.isPresented = false
+                try await Task.sleep(for: .milliseconds(800))
+                XCTAssertNil(host.presentedViewController)
+                presentation.isPresented = true
             }
         }
     }
 
-    private func galleryPixels(_ window: UIWindow) -> Data {
+    @Observable final class GalleryPresentationProbe {
+        var isPresented = false
+    }
+
+    private struct GalleryPresentationHarness<Player: View>: View {
+        let probe: GalleryPresentationProbe
+        let player: Player
+
+        var body: some View {
+            Color.black
+                .fullScreenCover(isPresented: Binding(
+                    get: { probe.isPresented },
+                    set: { probe.isPresented = $0 }
+                )) { player }
+        }
+    }
+
+    private func galleryPixels(_ window: UIWindow) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         return UIGraphicsImageRenderer(size: CGSize(width: 240, height: 135), format: format).image { context in
             context.cgContext.scaleBy(x: 960 / window.bounds.width, y: 540 / window.bounds.height)
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }.pngData() ?? Data()
+        }
     }
 
     func testGalleryStartsAndResumesWithoutPlaybackTicksOrSpectrum() async throws {
@@ -267,7 +300,8 @@ final class TVImmersiveGalleryAnimationTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(300))
             let moving = pixels(window)
             try await Task.sleep(for: .milliseconds(700))
-            XCTAssertNotEqual(moving, pixels(window), "Gallery must move without spectrum or playback-time updates, phase \(phase)")
+            try assertMotion(between: moving, and: pixels(window), expected: true,
+                             "Gallery without spectrum or playback-time updates, phase \(phase)")
 
             switch phase {
             case 0: probe.active = false
@@ -277,17 +311,56 @@ final class TVImmersiveGalleryAnimationTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(300))
             let stopped = pixels(window)
             try await Task.sleep(for: .milliseconds(300))
-            XCTAssertEqual(stopped, pixels(window), "Hidden, paused, or reduced-motion gallery must remain still")
+            try assertMotion(between: stopped, and: pixels(window), expected: false,
+                             "Hidden, paused, or reduced-motion gallery, phase \(phase)")
         }
     }
 
-    private func pixels(_ window: UIWindow) -> Data {
+    private func pixels(_ window: UIWindow) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         return UIGraphicsImageRenderer(size: CGSize(width: 320, height: 180), format: format).image { context in
             context.cgContext.scaleBy(x: 320 / window.bounds.width, y: 180 / window.bounds.height)
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }.pngData() ?? Data()
+        }
+    }
+
+    private func assertMotion(between first: UIImage, and second: UIImage, expected: Bool,
+                              _ message: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        func rgba(_ image: UIImage) throws -> [UInt8] {
+            let image = try XCTUnwrap(image.cgImage)
+            var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            try bytes.withUnsafeMutableBytes { buffer in
+                let context = try XCTUnwrap(CGContext(
+                    data: buffer.baseAddress, width: image.width, height: image.height,
+                    bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ))
+                context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            }
+            return bytes
+        }
+        let lhs = try rgba(first), rhs = try rgba(second)
+        XCTAssertEqual(lhs.count, rhs.count, file: file, line: line)
+        guard lhs.count == rhs.count, !lhs.isEmpty else { return }
+        var difference = 0
+        for index in lhs.indices where index % 4 != 3 {
+            difference += abs(Int(lhs[index]) - Int(rhs[index]))
+        }
+        let meanDifference = Double(difference) / Double(lhs.count / 4 * 3)
+        // Ignore rasterization noise while detecting the gallery's slow tile movement.
+        let moves = meanDifference > 0.05
+        print("\(message): mean RGB difference=\(meanDifference)")
+        if moves != expected {
+            for (name, image) in [("before", first), ("after", second)] {
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "\(message) \(name)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+        }
+        XCTAssertEqual(moves, expected, "\(message); mean RGB difference=\(meanDifference)", file: file, line: line)
     }
 
     @Observable final class GalleryProbe {
