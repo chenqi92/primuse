@@ -66,7 +66,7 @@ struct ExternalDisplaySceneAccessoryModifier: ViewModifier {
     }
 }
 
-private struct ExternalDisplaySceneContent: View {
+struct ExternalDisplaySceneContent: View {
     @AppStorage(AppThemePreferences.iOSAppearanceKey) private var appearanceRawValue = ""
 
     var body: some View {
@@ -81,6 +81,7 @@ private struct ExternalDisplaySceneContent: View {
         .environment(services.playerService)
         .environment(services.themeService)
         .environment(services.musicLibrary)
+        .environment(services.sourcesStore)
         .environment(services.sourceManager)
         .environment(services.scraperService)
         .environment(services.visualizer)
