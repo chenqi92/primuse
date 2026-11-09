@@ -79,6 +79,13 @@ extension AudioPlayerService {
 
     /// Follows the store when the playing item's kind changes under it.
     func observeSpokenWordClassification() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseRemoteListeningProgressDidChange,
+            object: SpokenWordStore.shared,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.followSpokenWordBookIfPaused() }
+        }
         NotificationCenter.default.addObserver(forName: .primuseGeneratedChaptersDidChange, object: nil, queue: .main) { [weak self] notification in
             let changedID = notification.object as? String
             MainActor.assumeIsolated {
@@ -258,7 +265,7 @@ extension AudioPlayerService {
             let selectedAt = (saved?["songID"] as? String) == song.id
                 ? (saved?["at"] as? Double).map(Date.init(timeIntervalSince1970:))
                 : nil
-            let localChange = store.serverAdoptedChange(forSongID: song.id) == nil
+            let localChange = store.remoteListeningChange(forSongID: song.id) == nil
                 ? store.lastChange(forSongID: song.id)
                 : nil
             spokenWordLocalTouchAt = [selectedAt, localChange].compactMap { $0 }.max()
@@ -310,7 +317,7 @@ extension AudioPlayerService {
                       positionUpdatedAt: item.positionUpdatedAt,
                       finishedAt: item.finishedAt
                   ),
-                  store.serverAdoptedChange(forSongID: item.id) == record.updatedAt else { return nil }
+                  store.remoteListeningChange(forSongID: item.id) == record.updatedAt else { return nil }
             return record
         }
         guard !records.isEmpty else { return nil }

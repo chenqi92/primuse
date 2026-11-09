@@ -6394,7 +6394,7 @@ final class TVStore {
         let selectedAt = (saved?["songID"] as? String) == songID
             ? (saved?["at"] as? Double).map(Date.init(timeIntervalSince1970:))
             : nil
-        let localChange = store.serverAdoptedChange(forSongID: songID) == nil ? store.lastChange(forSongID: songID) : nil
+        let localChange = store.remoteListeningChange(forSongID: songID) == nil ? store.lastChange(forSongID: songID) : nil
         return [selectedAt, localChange].compactMap { $0 }.max()
     }
 
@@ -6412,7 +6412,7 @@ final class TVStore {
                       positionUpdatedAt: item.positionUpdatedAt,
                       finishedAt: item.finishedAt
                   ),
-                  store.serverAdoptedChange(forSongID: item.id) == record.updatedAt else { return nil }
+                  store.remoteListeningChange(forSongID: item.id) == record.updatedAt else { return nil }
             return record
         }
         guard !records.isEmpty else { return nil }

@@ -1118,7 +1118,7 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertNil(store.position(forSongID: "unscanned"))
         await sync.refresh(manual: true)
         XCTAssertEqual(requests, 2)
-        XCTAssertEqual(finishedRounds, 1, "a round that changed nothing leaves the player alone")
+        XCTAssertEqual(finishedRounds, 2, "an unchanged refresh must still reconsider the paused book after restoration")
     }
 
     func testServerAdoptedChangeNamesOnlyAServerDecisionThatIsStillTheLatest() throws {
@@ -1126,13 +1126,13 @@ final class ListeningFeaturesTests: XCTestCase {
         let stamp = Date().addingTimeInterval(-60)
         XCTAssertTrue(store.adoptServerProgress(songID: "heard-elsewhere", position: 600, duration: 3_600,
                                                 isFinished: false, updatedAt: stamp))
-        XCTAssertEqual(store.serverAdoptedChange(forSongID: "heard-elsewhere"), stamp)
+        XCTAssertEqual(store.remoteListeningChange(forSongID: "heard-elsewhere"), stamp)
         XCTAssertEqual(store.lastChange(forSongID: "heard-elsewhere"), stamp)
         store.markFinished(true, songIDs: ["heard-elsewhere"])
-        XCTAssertNil(store.serverAdoptedChange(forSongID: "heard-elsewhere"),
+        XCTAssertNil(store.remoteListeningChange(forSongID: "heard-elsewhere"),
                      "marking it heard here is this device's decision")
         store.rememberPosition(300, duration: 3_600, forSongID: "local")
-        XCTAssertNil(store.serverAdoptedChange(forSongID: "local"))
+        XCTAssertNil(store.remoteListeningChange(forSongID: "local"))
     }
 
     private func introOutroChapter() -> Song {

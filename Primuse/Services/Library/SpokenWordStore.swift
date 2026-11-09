@@ -14,7 +14,7 @@ final class TingReaderProgressSyncCoordinator {
     private let fetch: @MainActor (MusicSource) async throws -> [TingReaderListeningProgress]
     private let protectedSongID: () -> String?
     private let didAdopt: (Song) -> Void
-    /// 一个源这一轮采纳完了(至少改了一条):播放器停着的那本书可能该换到别的设备听到的那一章。
+    /// 一轮读取确认了可用进度后，重新判断暂停中的播放器该接哪一章。
     private let didFinishAdopting: () -> Void
     private var disabledSourceIDs: Set<String>
     private(set) var refreshingSourceIDs: Set<String> = []
@@ -85,22 +85,22 @@ final class TingReaderProgressSyncCoordinator {
                         return (ref.chapterID, song)
                     }, uniquingKeysWith: { first, _ in first }
                 )
-                var adoptedAny = false
+                var hasListeningProgress = false
                 for record in records {
                     guard let song = byChapter[record.chapterID],
                           TingReaderAPIProtocol.trackReference(from: song.filePath)?.bookID == record.bookID,
                           song.id != protectedAtStart, song.id != protectedSongID() else { continue }
                     let progress = record.progress
+                    hasListeningProgress = true
                     if store.adoptServerProgress(
                         songID: song.id, position: progress.position, duration: progress.duration,
                         isFinished: progress.isFinished, updatedAt: progress.updatedAt
                     ) {
-                        adoptedAny = true
                         didAdopt(song)
                     }
                 }
                 store.persistLocally()
-                if adoptedAny { didFinishAdopting() }
+                if hasListeningProgress { didFinishAdopting() }
             } catch is CancellationError {
                 return
             } catch {
@@ -149,6 +149,7 @@ final class SpokenWordStore {
         /// Songs whose `overrides` entry (written as spoken word) is a podcast.
         var podcastSongIDs: [String]?
         var ledger: SpokenWordSyncLedger?
+        var remoteListeningAt: [String: Date]?
     }
 
     /// How soon a change should reach the other devices.
@@ -186,9 +187,9 @@ final class SpokenWordStore {
     /// When removals and edits happened, so they survive a merge with a
     /// device that has not seen them yet.
     @ObservationIgnored private var ledger = SpokenWordSyncLedger()
-    /// 这次运行里从服务端采纳的进度,按条目记采纳时那条的时间。条目最后一次改动正是这个时间,
-    /// 就是别的设备听的,不是本机手动标的(手动标听完不该把停着的播放器挪走)。只在内存里。
-    @ObservationIgnored private var serverAdoptedAt: [String: Date] = [:]
+    /// 服务端确认或 iCloud 带回的收听位置。只在本机保存来源，重启后仍能识别远端续播；
+    /// 本机后续播放或手动修改改变时间戳后，这份确认即失效。
+    @ObservationIgnored private var remoteListeningAt: [String: Date] = [:]
     /// Bumped on every change so views and the library aggregation can depend
     /// on one cheap value instead of observing two dictionaries.
     @ObservationIgnored private(set) var revision = 0
@@ -792,7 +793,7 @@ final class SpokenWordStore {
 
     /// 采纳服务端记的进度(Audiobookshelf 这类自己记进度的源)。和 iCloud 一样按最后写入者获胜:
     /// 本机对这一条的任何更晚的决定(位置、听完、清掉、取消听完)都留着,服务端更新才按它改。
-    /// 存下的时间戳就用服务端的,这样再经 iCloud 合并时顺序不乱。返回有没有改动本机。
+    /// 存下的时间戳就用服务端的。返回进度是否改变，或已有记录是否首次得到服务端确认。
     @discardableResult
     func adoptServerProgress(
         songID: String,
@@ -801,7 +802,21 @@ final class SpokenWordStore {
         isFinished: Bool,
         updatedAt: Date
     ) -> Bool {
-        if let newest = lastChange(forSongID: songID), newest.timeIntervalSinceReferenceDate >= updatedAt.timeIntervalSinceReferenceDate { return false }
+        if let newest = lastChange(forSongID: songID), newest >= updatedAt {
+            guard newest == updatedAt, remoteListeningChange(forSongID: songID) == nil else { return false }
+            let matches: Bool
+            if isFinished {
+                matches = finishedAt[songID] == updatedAt && positions[songID] == nil
+            } else {
+                matches = positions[songID] == StoredPosition(
+                    position: position, duration: duration, updatedAt: updatedAt
+                )
+            }
+            guard matches else { return false }
+            remoteListeningAt[songID] = updatedAt
+            scheduleSave()
+            return true
+        }
         var changed = false
         if isFinished {
             // Only a newly finished item ends its position; one already
@@ -822,15 +837,15 @@ final class SpokenWordStore {
             changed = true
         }
         guard changed else { return false }
-        serverAdoptedAt[songID] = updatedAt
+        remoteListeningAt[songID] = updatedAt
         evictOldestIfNeeded()
         didChange(cloud: .relaxed, progressOnly: true)
         return true
     }
 
-    /// 这一条最后一次改动是这次运行里从服务端采纳来的,就是那次的时间;否则 nil。
-    func serverAdoptedChange(forSongID songID: String) -> Date? {
-        guard let adopted = serverAdoptedAt[songID], lastChange(forSongID: songID) == adopted else { return nil }
+    /// 只把仍是最新决定的远端收听记录交给跨设备续播；本机手动标记不会成为换章依据。
+    func remoteListeningChange(forSongID songID: String) -> Date? {
+        guard let adopted = remoteListeningAt[songID], lastChange(forSongID: songID) == adopted else { return nil }
         return adopted
     }
 
@@ -1048,6 +1063,7 @@ final class SpokenWordStore {
         bookRates = payload.bookRates ?? [:]
         archivedAt = payload.archivedAt ?? [:]
         ledger = payload.ledger ?? SpokenWordSyncLedger()
+        remoteListeningAt = payload.remoteListeningAt ?? [:]
     }
 
     private func scheduleSave() {
@@ -1086,7 +1102,8 @@ final class SpokenWordStore {
             bookRates: bookRates,
             archivedAt: archivedAt,
             podcastSongIDs: podcastOverrideIDs.sorted(),
-            ledger: ledger
+            ledger: ledger,
+            remoteListeningAt: remoteListeningAt.filter { lastChange(forSongID: $0.key) == $0.value }
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? data.write(to: storeURL, options: .atomic)
@@ -1168,7 +1185,26 @@ final class SpokenWordStore {
         guard let remote = SpokenWordSyncPolicy.decode(
             UserDefaults.standard.data(forKey: Self.cloudStorageKey)
         ) else { return }
+        mergeCloudState(remote)
+    }
+
+    func mergeCloudState(_ remote: SpokenWordSyncState) {
         settle(SpokenWordSyncPolicy.merge(SpokenWordSyncPolicy.state(from: localRecords), remote), over: remote)
+        var confirmed = false
+        // 完成标记也可能是手动设置的；只有云端位置与合并后的最新收听记录一致才确认来源。
+        for (songID, register) in remote.positions {
+            guard let value = register.value,
+                  positions[songID] == StoredPosition(position: value.position, duration: value.duration,
+                                                       updatedAt: register.stamp),
+                  lastChange(forSongID: songID) == register.stamp,
+                  remoteListeningChange(forSongID: songID) == nil else { continue }
+            remoteListeningAt[songID] = register.stamp
+            confirmed = true
+        }
+        if confirmed {
+            scheduleSave()
+            NotificationCenter.default.post(name: .primuseRemoteListeningProgressDidChange, object: self)
+        }
     }
 
     /// Keeps the merge here and uploads it within the key-value store's room.
@@ -1219,6 +1255,7 @@ final class SpokenWordStore {
     /// Writes the upload document and pushes it, unless the cloud already
     /// holds exactly that.
     private func publish(_ merged: SpokenWordSyncState, over remote: SpokenWordSyncState) {
+        guard syncsThroughICloud else { return }
         let upload = SpokenWordSyncPolicy.uploadState(merged)
         guard upload != remote, let data = SpokenWordSyncPolicy.encode(upload) else { return }
         UserDefaults.standard.set(data, forKey: Self.cloudStorageKey)
@@ -1227,6 +1264,7 @@ final class SpokenWordStore {
 }
 
 extension Notification.Name {
+    static let primuseRemoteListeningProgressDidChange = Notification.Name("primuse.remoteListeningProgressDidChange")
     static let primuseSpokenWordDidChange = Notification.Name("primuse.spokenWordDidChange")
     /// Posted when kind corrections arrived from another device, so the
     /// library can re-run the music / spoken-word split.
