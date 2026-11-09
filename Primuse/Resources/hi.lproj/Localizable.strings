@@ -7239,3 +7239,4 @@
 "lyrics_sources_cached" = "कैश किए गए गीत के बोल";
 "lyrics_sources_transcript" = "लिप्यंतरण";
 "lyrics_sources_use" = "इस स्रोत का उपयोग करें";
+"library_review_comment_marquee" = "टिप्पणियों को एक पंक्ति में स्क्रॉल करें";

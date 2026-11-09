@@ -1801,6 +1801,7 @@
 		C4568C96218F66C7E3141581 /* MacSourcesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 086F7E4EDFB6719527A8AECF /* MacSourcesView.swift */; };
 		C4B18A3D45ED3DE5B9652FD2 /* AppleIntelligenceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93DE271CA63A6287693A0C7 /* AppleIntelligenceProviderTests.swift */; };
 		C4E05A9233779CA5C5E26EEC /* PlayerActivityBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75D2785104A3437943C8F439 /* PlayerActivityBar.swift */; };
+		C129959B7D23EC48CD856B34 /* MarqueeText.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB2883B7014164E7125933B /* MarqueeText.swift */; };
 		C5017C7E189A5C943BF203B0 /* DesktopLyricsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A682DE882BF7C18268F9428 /* DesktopLyricsWindowController.swift */; };
 		C50DFAF285078C89CB860BEC /* WiFiTransferHTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67EDF7DB74CD3E0D6F725125 /* WiFiTransferHTTP.swift */; };
 		C51472A9362732BF6F6AD79F /* SpokenWordPartTitleLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261E99DCB9BCEC6791F9CB50 /* SpokenWordPartTitleLabel.swift */; };
@@ -8529,6 +8530,7 @@
 				E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */,
 				6B85210F058C84E396B2A43B /* PlaybackWordLyricsDiscovery.swift in Sources */,
 				C4E05A9233779CA5C5E26EEC /* PlayerActivityBar.swift in Sources */,
+				C129959B7D23EC48CD856B34 /* MarqueeText.swift in Sources */,
 				2B8D5E33B66016E4399472FA /* PlayerBackdropImaging.swift in Sources */,
 				8151A11712C2EC0E1B58A83E /* PlayerBackdropSettingsStore.swift in Sources */,
 				CDBD0B8CE2640CC6AE815FAD /* PlayerTextFont.swift in Sources */,

@@ -7426,3 +7426,4 @@
 "lyrics_sources_cached" = "已缓存歌词";
 "lyrics_sources_transcript" = "转写文稿";
 "lyrics_sources_use" = "使用此来源";
+"library_review_comment_marquee" = "评论单行滚动";

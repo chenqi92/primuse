@@ -7239,3 +7239,4 @@
 "lyrics_sources_cached" = "Кешований текст";
 "lyrics_sources_transcript" = "Розшифрування";
 "lyrics_sources_use" = "Використати це джерело";
+"library_review_comment_marquee" = "Прокручувати коментарі в один рядок";

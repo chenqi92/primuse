@@ -7239,3 +7239,4 @@
 "lyrics_sources_cached" = "เนื้อเพลงที่แคชไว้";
 "lyrics_sources_transcript" = "ข้อความถอดเสียง";
 "lyrics_sources_use" = "ใช้แหล่งนี้";
+"library_review_comment_marquee" = "เลื่อนความคิดเห็นในบรรทัดเดียว";

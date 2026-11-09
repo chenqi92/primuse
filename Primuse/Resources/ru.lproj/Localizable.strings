@@ -7239,3 +7239,4 @@
 "lyrics_sources_cached" = "Кэшированный текст";
 "lyrics_sources_transcript" = "Расшифровка";
 "lyrics_sources_use" = "Использовать этот источник";
+"library_review_comment_marquee" = "Прокручивать комментарии в одну строку";

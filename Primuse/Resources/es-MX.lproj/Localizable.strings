@@ -7239,3 +7239,4 @@
 "lyrics_sources_cached" = "Letras en caché";
 "lyrics_sources_transcript" = "Transcripción";
 "lyrics_sources_use" = "Usar esta fuente";
+"library_review_comment_marquee" = "Desplazar comentarios en una línea";

@@ -119,8 +119,12 @@ struct TVSwitchRow: View {
 }
 
 struct TVLibraryReviewControl: View {
+    /// 评论单行横向慢慢滚动(电视设置里的开关)。关着照原样最多两行、放不下截断。
+    static let scrollsCommentKey = "primuse.tv.review.scrollsComment"
+
     @Environment(TVStore.self) private var store
     @AppStorage(LibraryReviewPreferences.enabledKey) private var isEnabled = false
+    @AppStorage(TVLibraryReviewControl.scrollsCommentKey) private var scrollsComment = false
 
     let subject: LibraryReviewSubject
     @State private var showsCommentEditor = false
@@ -142,10 +146,9 @@ struct TVLibraryReviewControl: View {
                 }
 
                 if let comment = review?.comment, !comment.isEmpty {
-                    Text(verbatim: comment)
+                    commentText(comment)
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textMuted)
-                        .lineLimit(2)
                         .frame(maxWidth: 560, alignment: .leading)
                 }
             }
@@ -153,6 +156,22 @@ struct TVLibraryReviewControl: View {
                 TVLibraryReviewCommentEditor(subject: subject)
                     .environment(store)
             }
+        }
+    }
+
+    /// 滚动时换行并成一行,长评论在原来那块地方从头滚到尾,不往下多占行、不挤歌词;
+    /// 放得下就不滚。
+    @ViewBuilder
+    private func commentText(_ comment: String) -> some View {
+        if scrollsComment {
+            MarqueeText(
+                text: comment.split(whereSeparator: \.isNewline).joined(separator: "  "),
+                font: nil,
+                speed: 40,
+                pause: .seconds(2)
+            )
+        } else {
+            Text(verbatim: comment).lineLimit(2)
         }
     }
 

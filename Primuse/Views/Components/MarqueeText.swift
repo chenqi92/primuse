@@ -5,7 +5,8 @@ import SwiftUI
 /// 读屏读完整的文字。滚动只在这一行自己的视图里发生,不让外层重画。
 struct MarqueeText: View {
     let text: String
-    var font: Font = .body
+    /// nil 时沿用外面设好的字体(电视上由 `tvFont` 按系统文字大小缩放)。
+    var font: Font? = .body
     /// 每秒滚多少点。
     var speed: CGFloat = 30
     /// 每轮开始前停多久。
@@ -30,7 +31,7 @@ struct MarqueeText: View {
     var body: some View {
         // 占位的这一行定高度与可用宽度,真正画出来的在上面一层。
         Text(verbatim: text)
-            .font(font)
+            .marqueeFont(font)
             .lineLimit(1)
             .hidden()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -38,7 +39,7 @@ struct MarqueeText: View {
             .background(alignment: .leading) {
                 // 量这一行不换行、不截断时有多宽。
                 Text(verbatim: text)
-                    .font(font)
+                    .marqueeFont(font)
                     .lineLimit(1)
                     .fixedSize()
                     .hidden()
@@ -50,7 +51,7 @@ struct MarqueeText: View {
                         Text(verbatim: text)
                         Text(verbatim: text)
                     }
-                    .font(font)
+                    .marqueeFont(font)
                     .lineLimit(1)
                     .fixedSize()
                     .offset(x: offset)
@@ -58,7 +59,7 @@ struct MarqueeText: View {
                     .mask(edgeFade)
                 } else {
                     Text(verbatim: text)
-                        .font(font)
+                        .marqueeFont(font)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -103,5 +104,12 @@ struct MarqueeText: View {
             withTransaction(reset) { offset = 0 }
             withAnimation(.easeOut(duration: 0.25)) { isScrolling = false }
         }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func marqueeFont(_ font: Font?) -> some View {
+        if let font { self.font(font) } else { self }
     }
 }

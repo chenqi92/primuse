@@ -7310,3 +7310,4 @@
 "lyrics_sources_cached" = "已快取歌詞";
 "lyrics_sources_transcript" = "轉寫文稿";
 "lyrics_sources_use" = "使用此來源";
+"library_review_comment_marquee" = "評論單行捲動";

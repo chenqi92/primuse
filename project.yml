@@ -787,6 +787,7 @@ targets:
       - path: Primuse/Services/Metadata/AutomaticOnlineLyricsLedger.swift
       - path: Primuse/Services/Metadata/PlaybackWordLyricsDiscovery.swift
       - path: Primuse/Views/Components/PlayerActivityBar.swift
+      - path: Primuse/Views/Components/MarqueeText.swift
       - path: Primuse/Services/Metadata/Scrapers
       - path: Primuse/Services/Metadata/ArtworkFetchService.swift
       # 矢量台标(SVG)栅格化成位图,与 iOS / macOS 同一份实现。
