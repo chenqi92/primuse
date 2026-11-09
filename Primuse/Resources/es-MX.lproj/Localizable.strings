@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "No se pudo obtener el contenido de Last.fm. Inténtalo más tarde.";
 "library_insight_lastfm_replace_title" = "¿Reemplazar la descripción?";
 "library_insight_lastfm_replace_message" = "La descripción y las etiquetas de estilo se reemplazarán con contenido de Last.fm.";
+"library_insight_apple_music_fetch" = "Obtener de Apple Music";
+"library_insight_apple_music_fetching" = "Obteniendo de Apple Music…";
+"library_insight_apple_music_empty" = "No se encontró una descripción en Apple Music.";
+"library_insight_apple_music_failed" = "No se pudo obtener el contenido de Apple Music. Inténtalo más tarde.";
+"library_insight_apple_music_replace_title" = "¿Reemplazar la descripción?";
+"library_insight_apple_music_replace_message" = "La descripción y las etiquetas de estilo se reemplazarán con contenido de Apple Music.";
 "song_file_rename_busy" = "Finaliza la transmisión o la transición de pista antes de renombrar este archivo.";
 
 "song_list_layout" = "Estilo de lista";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "Sincronización simulada";
 
 "explore_word_lyrics" = "Explorar letras sincronizadas por palabra";
+"explore_word_lyrics_footer" = "Desactivado de forma predeterminada. Al activarlo, durante la reproducción busca automáticamente letras sincronizadas palabra por palabra en las fuentes habilitadas y las muestra con prioridad, aunque la canción ya tenga letras normales. Esta función es independiente de “Buscar letras en línea si faltan”. Para detener la búsqueda automática de letras sincronizadas palabra por palabra, desactiva esta opción.";
 "player_activity_status" = "Estado de tareas";
 "word_lyrics_searching" = "Buscando letras sincronizadas por palabra";
 "word_lyrics_source_format" = "Obteniendo letras sincronizadas de %@";

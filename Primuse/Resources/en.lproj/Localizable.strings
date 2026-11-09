@@ -6877,6 +6877,12 @@
 "library_insight_lastfm_failed" = "Could not fetch from Last.fm. Try again later.";
 "library_insight_lastfm_replace_title" = "Replace Introduction?";
 "library_insight_lastfm_replace_message" = "The introduction and style tags will be replaced with content from Last.fm.";
+"library_insight_apple_music_fetch" = "Fetch from Apple Music";
+"library_insight_apple_music_fetching" = "Fetching from Apple Music…";
+"library_insight_apple_music_empty" = "No introduction found on Apple Music.";
+"library_insight_apple_music_failed" = "Could not fetch from Apple Music. Try again later.";
+"library_insight_apple_music_replace_title" = "Replace Introduction?";
+"library_insight_apple_music_replace_message" = "The introduction and style tags will be replaced with content from Apple Music.";
 "song_file_rename_busy" = "Finish casting or the track transition before renaming this file.";
 
 "song_list_layout" = "List appearance";
@@ -6899,6 +6905,7 @@
 "lyrics_simulated_word_badge" = "Simulated Timing";
 
 "explore_word_lyrics" = "Explore Word-Synced Lyrics";
+"explore_word_lyrics_footer" = "Off by default. When enabled, playback automatically searches enabled lyrics sources for word-synced lyrics and displays them in preference to existing regular lyrics. This is independent of “Fetch Lyrics Online When Missing”. To stop automatic word-synced lyrics searches, turn this option off.";
 "player_activity_status" = "Task Status";
 "word_lyrics_searching" = "Finding word-synced lyrics";
 "word_lyrics_source_format" = "Fetching word-synced lyrics from %@";

@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "Last.fm से प्राप्त नहीं किया जा सका। बाद में फिर कोशिश करें।";
 "library_insight_lastfm_replace_title" = "परिचय बदलें?";
 "library_insight_lastfm_replace_message" = "परिचय और शैली टैग Last.fm की सामग्री से बदल दिए जाएँगे।";
+"library_insight_apple_music_fetch" = "Apple Music से प्राप्त करें";
+"library_insight_apple_music_fetching" = "Apple Music से प्राप्त किया जा रहा है…";
+"library_insight_apple_music_empty" = "Apple Music पर कोई परिचय नहीं मिला।";
+"library_insight_apple_music_failed" = "Apple Music से प्राप्त नहीं किया जा सका। बाद में फिर कोशिश करें।";
+"library_insight_apple_music_replace_title" = "परिचय बदलें?";
+"library_insight_apple_music_replace_message" = "परिचय और शैली टैग Apple Music की सामग्री से बदल दिए जाएँगे।";
 "song_file_rename_busy" = "इस फ़ाइल का नाम बदलने से पहले कास्टिंग या ट्रैक का बदलाव पूरा होने दें।";
 
 "song_list_layout" = "सूची की शैली";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "अनुमानित समय";
 
 "explore_word_lyrics" = "शब्द-सिंक बोल खोजें";
+"explore_word_lyrics_footer" = "डिफ़ॉल्ट रूप से बंद है। चालू होने पर, प्लेबैक के दौरान सक्षम लिरिक्स स्रोतों में शब्द-दर-शब्द सिंक किए गए लिरिक्स अपने-आप खोजे जाते हैं और उन्हें प्राथमिकता से दिखाया जाता है, भले ही गाने के सामान्य लिरिक्स पहले से मौजूद हों। यह सुविधा “लिरिक्स न होने पर ऑनलाइन लाएं” से स्वतंत्र है। शब्द-दर-शब्द सिंक किए गए लिरिक्स की अपने-आप खोज रोकने के लिए इस विकल्प को बंद करें।";
 "player_activity_status" = "कार्य स्थिति";
 "word_lyrics_searching" = "शब्द-सिंक बोल खोजे जा रहे हैं";
 "word_lyrics_source_format" = "%@ से शब्द-सिंक बोल प्राप्त किए जा रहे हैं";

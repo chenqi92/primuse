@@ -826,6 +826,7 @@ private struct MacSTGroup<Content: View>: View {
 private struct MacSTRow<Content: View>: View {
     let label: String
     let hint: String?
+    let help: String?
     let hintLineLimit: Int
     let divider: Bool
     let block: Bool
@@ -833,12 +834,14 @@ private struct MacSTRow<Content: View>: View {
 
     init(_ label: String,
          hint: String? = nil,
+         help: String? = nil,
          hintLineLimit: Int = 2,
          divider: Bool = true,
          block: Bool = false,
          @ViewBuilder content: () -> Content) {
         self.label = label
         self.hint = hint
+        self.help = help
         self.hintLineLimit = hintLineLimit
         self.divider = divider
         self.block = block
@@ -876,10 +879,15 @@ private struct MacSTRow<Content: View>: View {
         VStack(alignment: .leading, spacing: 2) {
             let visibleLabel = PMTextWithoutDesignCodes(label)
             if !visibleLabel.isEmpty {
-                Text(verbatim: visibleLabel)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(verbatim: visibleLabel)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    if let help {
+                        SettingsInfoButton { Text(verbatim: help) }
+                    }
+                }
             }
             if let hint {
                 let visibleHint = PMTextWithoutDesignCodes(hint)
@@ -5732,7 +5740,11 @@ private struct MacSTLyricsView: View {
         VStack(alignment: .leading, spacing: 0) {
             MacSTSection(String(localized: "Lyrics")) {
                 MacSTGroup {
-                    MacSTRow(String(localized: "explore_word_lyrics"), divider: false) {
+                    MacSTRow(
+                        String(localized: "explore_word_lyrics"),
+                        help: String(localized: "explore_word_lyrics_footer"),
+                        divider: false
+                    ) {
                         MacSTToggle(isOn: $exploresWordLyrics)
                     }
                     .settingsAnchor("lyrics.exploreWordTiming")

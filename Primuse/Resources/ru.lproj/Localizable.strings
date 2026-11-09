@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "Не удалось загрузить данные из Last.fm. Повторите попытку позже.";
 "library_insight_lastfm_replace_title" = "Заменить описание?";
 "library_insight_lastfm_replace_message" = "Описание и теги стиля будут заменены содержимым из Last.fm.";
+"library_insight_apple_music_fetch" = "Загрузить из Apple Music";
+"library_insight_apple_music_fetching" = "Загрузка из Apple Music…";
+"library_insight_apple_music_empty" = "Описание в Apple Music не найдено.";
+"library_insight_apple_music_failed" = "Не удалось загрузить данные из Apple Music. Повторите попытку позже.";
+"library_insight_apple_music_replace_title" = "Заменить описание?";
+"library_insight_apple_music_replace_message" = "Описание и теги стиля будут заменены содержимым из Apple Music.";
 "song_file_rename_busy" = "Завершите трансляцию или переход между треками перед переименованием файла.";
 
 "song_list_layout" = "Вид списка";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "Имитация синхронизации";
 
 "explore_word_lyrics" = "Искать тексты с пословной синхронизацией";
+"explore_word_lyrics_footer" = "По умолчанию выключено. При включении во время воспроизведения выполняется автоматический поиск текстов с пословной синхронизацией в активных источниках. Найденные тексты отображаются вместо обычных, даже если у песни уже есть текст. Эта функция не зависит от настройки «Искать недостающие тексты онлайн». Чтобы остановить автоматический поиск пословных текстов, выключите эту настройку.";
 "player_activity_status" = "Статус задач";
 "word_lyrics_searching" = "Поиск текстов с пословной синхронизацией";
 "word_lyrics_source_format" = "Загрузка синхронизированных текстов из %@";

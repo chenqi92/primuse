@@ -7209,6 +7209,12 @@
 "library_insight_lastfm_failed" = "从 Last.fm 获取失败，请稍后重试。";
 "library_insight_lastfm_replace_title" = "替换简介？";
 "library_insight_lastfm_replace_message" = "现有简介和风格标签将替换为 Last.fm 的内容。";
+"library_insight_apple_music_fetch" = "从 Apple Music 获取";
+"library_insight_apple_music_fetching" = "正在从 Apple Music 获取…";
+"library_insight_apple_music_empty" = "Apple Music 暂无相关简介。";
+"library_insight_apple_music_failed" = "从 Apple Music 获取失败，请稍后重试。";
+"library_insight_apple_music_replace_title" = "替换简介？";
+"library_insight_apple_music_replace_message" = "现有简介和风格标签将替换为 Apple Music 的内容。";
 "song_file_rename_busy" = "请在投放或歌曲过渡结束后重命名此文件。";
 
 "song_list_layout" = "列表样式";
@@ -7231,6 +7237,7 @@
 "lyrics_simulated_word_badge" = "模拟逐字";
 
 "explore_word_lyrics" = "探索逐字歌词";
+"explore_word_lyrics_footer" = "默认关闭。开启后，播放时会自动从已启用的歌词来源查找逐字歌词，并优先显示找到的逐字歌词，即使歌曲已有普通歌词。此功能独立于“找不到歌词时自动在线获取”开关；如需停止自动查找逐字歌词，请关闭本开关。";
 "player_activity_status" = "任务状态";
 "word_lyrics_searching" = "正在探索逐字歌词";
 "word_lyrics_source_format" = "正在从 %@ 获取逐字歌词";

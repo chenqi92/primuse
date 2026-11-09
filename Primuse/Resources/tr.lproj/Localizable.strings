@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "Last.fm’den alınamadı. Daha sonra tekrar deneyin.";
 "library_insight_lastfm_replace_title" = "Açıklama değiştirilsin mi?";
 "library_insight_lastfm_replace_message" = "Açıklama ve tarz etiketleri Last.fm içeriğiyle değiştirilecek.";
+"library_insight_apple_music_fetch" = "Apple Music’den getir";
+"library_insight_apple_music_fetching" = "Apple Music’den getiriliyor…";
+"library_insight_apple_music_empty" = "Apple Music’de açıklama bulunamadı.";
+"library_insight_apple_music_failed" = "Apple Music’den alınamadı. Daha sonra tekrar deneyin.";
+"library_insight_apple_music_replace_title" = "Açıklama değiştirilsin mi?";
+"library_insight_apple_music_replace_message" = "Açıklama ve tarz etiketleri Apple Music içeriğiyle değiştirilecek.";
 "song_file_rename_busy" = "Bu dosyayı yeniden adlandırmadan önce yayının veya parça geçişinin bitmesini bekleyin.";
 
 "song_list_layout" = "Liste görünümü";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "Simüle zamanlama";
 
 "explore_word_lyrics" = "Kelime Eşzamanlı Şarkı Sözlerini Ara";
+"explore_word_lyrics_footer" = "Varsayılan olarak kapalıdır. Açıldığında, çalma sırasında etkin şarkı sözü kaynaklarında kelime eşzamanlı sözleri otomatik olarak arar ve şarkının normal sözleri zaten bulunsa bile bulunan sözleri öncelikli olarak gösterir. Bu özellik “Eksik Şarkı Sözlerini İnternetten Al” ayarından bağımsızdır. Kelime eşzamanlı sözlerin otomatik aranmasını durdurmak için bu seçeneği kapatın.";
 "player_activity_status" = "Görev Durumu";
 "word_lyrics_searching" = "Kelime eşzamanlı şarkı sözleri aranıyor";
 "word_lyrics_source_format" = "%@ kaynağından eşzamanlı şarkı sözleri alınıyor";

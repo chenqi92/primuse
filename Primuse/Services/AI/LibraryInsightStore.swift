@@ -17,12 +17,21 @@ final class LibraryInsightStore {
     private(set) var retryDates: [String: Date] = [:]
     private(set) var fetchingLastFmIDs: Set<String> = []
     private(set) var lastFmFailures: [String: String] = [:]
+    private(set) var fetchingAppleMusicIDs: Set<String> = []
+    private(set) var appleMusicFailures: [String: String] = [:]
     private let lastFm: LastFmSimilarAPI
+    private let appleMusicLookup: @Sendable (String) async throws -> LibraryInsightImportedDraft?
     /// 最近一次写回音乐源的结果(写进了哪些、哪些没写成),只给界面看。
     private(set) var writebackNotes: [String: String] = [:]
 
-    init(lastFm: LastFmSimilarAPI = LastFmSimilarAPI()) {
+    init(
+        lastFm: LastFmSimilarAPI = LastFmSimilarAPI(),
+        appleMusicLookup: @escaping @Sendable (String) async throws -> LibraryInsightImportedDraft? = {
+            try await AppleMusicCatalogNeighbors.artistInsight(matchingName: $0)
+        }
+    ) {
         self.lastFm = lastFm
+        self.appleMusicLookup = appleMusicLookup
         // 上一版只在本机 Caches 里缓存过一份,现在改存曲库,旧文件清掉。
         let legacy = FileManager.default
             .primuseDirectoryURL(for: .cachesDirectory)
@@ -58,8 +67,19 @@ final class LibraryInsightStore {
         lastFmFailures[recordID(for: subject)]
     }
 
+    func isFetchingImport(_ subject: LibraryInsightSubject) -> Bool {
+        isFetchingLastFm(subject) || fetchingAppleMusicIDs.contains(recordID(for: subject))
+    }
+
+    func importFailure(for subject: LibraryInsightSubject) -> String? {
+        appleMusicFailures[recordID(for: subject)] ?? lastFmFailure(for: subject)
+    }
+
     func progressMessage(for subject: LibraryInsightSubject) -> String {
-        isFetchingLastFm(subject)
+        if fetchingAppleMusicIDs.contains(recordID(for: subject)) {
+            return String(localized: "library_insight_apple_music_fetching")
+        }
+        return isFetchingLastFm(subject)
             ? String(localized: "library_insight_lastfm_fetching")
             : String(localized: "library_insight_generating")
     }
@@ -103,6 +123,7 @@ final class LibraryInsightStore {
         failures[id] = nil
         retryDates[id] = nil
         lastFmFailures[id] = nil
+        appleMusicFailures[id] = nil
         return true
     }
 
@@ -115,6 +136,45 @@ final class LibraryInsightStore {
         failures[id] = nil
         retryDates[id] = nil
         lastFmFailures[id] = nil
+        appleMusicFailures[id] = nil
+    }
+
+    @discardableResult
+    func fetchAppleMusic(_ subject: LibraryInsightSubject, library: MusicLibrary) async -> Bool {
+        let id = recordID(for: subject)
+        let previous = library.storedLibraryInsightRecord(id: id)
+        guard let draft = await appleMusicDraft(for: subject),
+              library.storedLibraryInsightRecord(id: id) == previous,
+              let record = LibraryInsightEditing.recordFromImport(
+                summary: draft.summary, tags: draft.tags, subject: subject, id: id,
+                sourceLabel: draft.sourceLabel, sourceURL: draft.sourceURL,
+                previous: previous, now: Date()
+              ) else { return false }
+        library.saveLibraryInsightRecord(record)
+        return true
+    }
+
+    func appleMusicDraft(for subject: LibraryInsightSubject) async -> LibraryInsightImportedDraft? {
+        guard subject.kind == .artist, Self.isIntroducible(subject), beginBatchGeneration(subject) else { return nil }
+        let id = recordID(for: subject)
+        fetchingAppleMusicIDs.insert(id)
+        defer {
+            fetchingAppleMusicIDs.remove(id)
+            endBatchGeneration(subject)
+        }
+        do {
+            let draft = try await appleMusicLookup(subject.artistName)
+            try Task.checkCancellation()
+            if draft == nil { appleMusicFailures[id] = String(localized: "library_insight_apple_music_empty") }
+            return draft
+        } catch is CancellationError {
+            return nil
+        } catch AppleMusicCatalogNeighbors.ArtistInsightError.authorizationRequired {
+            appleMusicFailures[id] = String(localized: "apple_music_notice_denied")
+        } catch {
+            if !Task.isCancelled { appleMusicFailures[id] = String(localized: "library_insight_apple_music_failed") }
+        }
+        return nil
     }
 
     @discardableResult
@@ -248,9 +308,9 @@ final class LibraryInsightStore {
 
     /// 卡片底部的出处:自己写/改过的标「已编辑」,AI 原样给的标服务名和「可能有误」。
     nonisolated static func footer(for record: LibraryInsightRecord) -> String {
-        if record.isUserEdited, record.importedFrom == "Last.fm" {
+        if record.isUserEdited, let source = record.importedFrom, ["Last.fm", "Apple Music"].contains(source) {
             return String(localized: "library_insight_footer_edited") + " · "
-                + String(format: String(localized: "library_insight_footer_imported_format"), "Last.fm")
+                + String(format: String(localized: "library_insight_footer_imported_format"), source)
         }
         if !record.isUserEdited, let source = record.importedFrom {
             return String(format: String(localized: "library_insight_footer_imported_format"), source)

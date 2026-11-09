@@ -17,8 +17,12 @@ struct LyricsSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("explore_word_lyrics", isOn: $exploresWordLyrics)
-                    .settingsAnchor("lyrics.exploreWordTiming")
+                Toggle(isOn: $exploresWordLyrics) {
+                    SettingsInfoLabel("explore_word_lyrics") {
+                        Text("explore_word_lyrics_footer")
+                    }
+                }
+                .settingsAnchor("lyrics.exploreWordTiming")
             }
             Section {
                 Toggle(isOn: $settings.isEnabled) {

@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "Nie udało się pobrać z Last.fm. Spróbuj ponownie później.";
 "library_insight_lastfm_replace_title" = "Zastąpić opis?";
 "library_insight_lastfm_replace_message" = "Opis i tagi stylu zostaną zastąpione treścią z Last.fm.";
+"library_insight_apple_music_fetch" = "Pobierz z Apple Music";
+"library_insight_apple_music_fetching" = "Pobieranie z Apple Music…";
+"library_insight_apple_music_empty" = "Nie znaleziono opisu w Apple Music.";
+"library_insight_apple_music_failed" = "Nie udało się pobrać z Apple Music. Spróbuj ponownie później.";
+"library_insight_apple_music_replace_title" = "Zastąpić opis?";
+"library_insight_apple_music_replace_message" = "Opis i tagi stylu zostaną zastąpione treścią z Apple Music.";
 "song_file_rename_busy" = "Zakończ przesyłanie lub przejście między utworami przed zmianą nazwy pliku.";
 
 "song_list_layout" = "Wygląd listy";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "Symulowana synchronizacja";
 
 "explore_word_lyrics" = "Szukaj tekstów synchronizowanych słowo po słowie";
+"explore_word_lyrics_footer" = "Domyślnie wyłączone. Po włączeniu podczas odtwarzania automatycznie wyszukuje w aktywnych źródłach teksty synchronizowane słowo po słowie i wyświetla je w pierwszej kolejności, nawet jeśli utwór ma już zwykły tekst. Ta funkcja działa niezależnie od ustawienia „Pobieraj brakujące teksty z sieci”. Aby zatrzymać automatyczne wyszukiwanie tekstów synchronizowanych słowo po słowie, wyłącz tę opcję.";
 "player_activity_status" = "Stan zadań";
 "word_lyrics_searching" = "Wyszukiwanie tekstów synchronizowanych słowo po słowie";
 "word_lyrics_source_format" = "Pobieranie tekstów synchronizowanych z %@";

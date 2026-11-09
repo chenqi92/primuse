@@ -7116,6 +7116,12 @@
 "library_insight_lastfm_failed" = "Impossible de récupérer le contenu de Last.fm. Réessayez plus tard.";
 "library_insight_lastfm_replace_title" = "Remplacer la présentation ?";
 "library_insight_lastfm_replace_message" = "La présentation et les tags de style seront remplacés par le contenu de Last.fm.";
+"library_insight_apple_music_fetch" = "Récupérer depuis Apple Music";
+"library_insight_apple_music_fetching" = "Récupération depuis Apple Music…";
+"library_insight_apple_music_empty" = "Aucune présentation trouvée sur Apple Music.";
+"library_insight_apple_music_failed" = "Impossible de récupérer le contenu de Apple Music. Réessayez plus tard.";
+"library_insight_apple_music_replace_title" = "Remplacer la présentation ?";
+"library_insight_apple_music_replace_message" = "La présentation et les tags de style seront remplacés par le contenu de Apple Music.";
 "song_file_rename_busy" = "Terminez la diffusion ou la transition entre les titres avant de renommer ce fichier.";
 
 "song_list_layout" = "Présentation de la liste";
@@ -7138,6 +7144,7 @@
 "lyrics_simulated_word_badge" = "Synchronisation simulée";
 
 "explore_word_lyrics" = "Rechercher des paroles synchronisées mot à mot";
+"explore_word_lyrics_footer" = "Désactivé par défaut. Une fois activé, recherche automatiquement des paroles synchronisées mot à mot dans les sources de paroles activées pendant la lecture et les affiche en priorité, même si le morceau possède déjà des paroles classiques. Ce réglage est indépendant de « Chercher les paroles en ligne si absentes ». Désactivez cette option pour arrêter la recherche automatique de paroles synchronisées mot à mot.";
 "player_activity_status" = "État des tâches";
 "word_lyrics_searching" = "Recherche de paroles synchronisées mot à mot";
 "word_lyrics_source_format" = "Récupération des paroles synchronisées depuis %@";

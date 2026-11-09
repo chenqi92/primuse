@@ -591,10 +591,14 @@ struct TVSettingsView: View {
         settingsSection(String(localized: "Lyrics")) {
             TVLyricsColorSettings()
             settingDivider
-            toggleRow("text.magnifyingglass", String(localized: "explore_word_lyrics"), isOn: Binding(
-                get: { exploresWordLyrics },
-                set: { exploresWordLyrics = $0; CloudKVSSync.shared.markChanged(key: WordLyricsDiscoveryPreferences.enabledKey) }
-            ))
+            HStack(spacing: 12) {
+                toggleRow("text.magnifyingglass", String(localized: "explore_word_lyrics"), isOn: Binding(
+                    get: { exploresWordLyrics },
+                    set: { exploresWordLyrics = $0; CloudKVSSync.shared.markChanged(key: WordLyricsDiscoveryPreferences.enabledKey) }
+                ))
+                TVWordLyricsHelpButton()
+                    .padding(.trailing, 22)
+            }
             settingDivider
             toggleRow("ellipsis.rectangle", String(localized: "player_activity_status"), isOn: Binding(
                 get: { showsActivity },
@@ -1146,6 +1150,28 @@ private struct TVSettingsToggleRow: View {
                 : PMString("ext.tv.sources.status.disabled")))
         }
         .accessibilityHint(Text(detail ?? ""))
+    }
+}
+
+private struct TVWordLyricsHelpButton: View {
+    @State private var isPresented = false
+
+    var body: some View {
+        TVFocusButton(radius: 14, scale: 1.0, lift: 0) {
+            isPresented = true
+        } label: { focused in
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 24))
+                .foregroundStyle(focused ? TVColor.text : TVColor.textMuted)
+                .frame(width: 64, height: 64)
+                .background(focused ? TVColor.surfaceStrong : .clear)
+        }
+        .accessibilityLabel(Text("settings_info_button"))
+        .alert("explore_word_lyrics", isPresented: $isPresented) {
+            Button("done", role: .cancel) {}
+        } message: {
+            Text("explore_word_lyrics_footer")
+        }
     }
 }
 

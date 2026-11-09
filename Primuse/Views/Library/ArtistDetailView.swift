@@ -485,16 +485,6 @@ struct ArtistDetailView: View {
                         allSongsLink.padding(.horizontal, 20)
                     }
                 }
-
-                if !heightClass.isCompact {
-                    LibraryInsightSynopsis(
-                        subject: insightIdentity,
-                        details: insightDetails,
-                        songs: { songs },
-                        compact: false
-                    )
-                    .padding(.horizontal, 20)
-                }
             }
             .padding(.top, heightClass.isCompact ? 26 : 14)
             .padding(.bottom, 16)
@@ -503,7 +493,6 @@ struct ArtistDetailView: View {
 
     /// 竖屏:人像海报铺满上半屏,名字压在海报下沿居中,海报往下渐隐进整页底色(2.0 经典版式的艺人头图)。
     /// 手机横屏只剩三百多点高,海报会把热门单曲挤出首屏,还是一条矮的信息带:头像、名字、首数。
-    /// 竖屏把最新发行接在播放键后面;简介保留在正文下方,不把发行卡片挤出首屏。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = heightClass.isCompact
         return VStack(alignment: .leading, spacing: 0) {
@@ -525,14 +514,12 @@ struct ArtistDetailView: View {
                     favorite: artistFavorite
                 )
 
-                if compact {
-                    LibraryInsightSynopsis(
-                        subject: insightIdentity,
-                        details: insightDetails,
-                        songs: { songs },
-                        compact: true
-                    )
-                }
+                LibraryInsightSynopsis(
+                    subject: insightIdentity,
+                    details: insightDetails,
+                    songs: { songs },
+                    compact: compact
+                )
             }
             // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
             .padding(.leading, insets.leading + 20)

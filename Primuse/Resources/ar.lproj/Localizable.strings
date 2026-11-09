@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "تعذر الجلب من Last.fm. حاول لاحقًا.";
 "library_insight_lastfm_replace_title" = "استبدال النبذة؟";
 "library_insight_lastfm_replace_message" = "سيتم استبدال النبذة ووسوم الأسلوب بمحتوى من Last.fm.";
+"library_insight_apple_music_fetch" = "جلب من Apple Music";
+"library_insight_apple_music_fetching" = "جارٍ الجلب من Apple Music…";
+"library_insight_apple_music_empty" = "لم يتم العثور على نبذة في Apple Music.";
+"library_insight_apple_music_failed" = "تعذر الجلب من Apple Music. حاول لاحقًا.";
+"library_insight_apple_music_replace_title" = "استبدال النبذة؟";
+"library_insight_apple_music_replace_message" = "سيتم استبدال النبذة ووسوم الأسلوب بمحتوى من Apple Music.";
 "song_file_rename_busy" = "انتظر انتهاء البث أو الانتقال بين المقاطع قبل إعادة تسمية هذا الملف.";
 
 "song_list_layout" = "مظهر القائمة";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "توقيت محاكى";
 
 "explore_word_lyrics" = "استكشاف كلمات متزامنة كلمة بكلمة";
+"explore_word_lyrics_footer" = "معطّل افتراضيًا. عند تفعيله، يبحث أثناء التشغيل تلقائيًا في مصادر الكلمات المفعّلة عن كلمات متزامنة كلمة بكلمة ويعرضها بالأولوية، حتى إذا كانت للأغنية كلمات عادية بالفعل. هذه الميزة مستقلة عن «جلب الكلمات المفقودة عبر الإنترنت». لإيقاف البحث التلقائي عن الكلمات المتزامنة كلمة بكلمة، عطّل هذا الخيار.";
 "player_activity_status" = "حالة المهام";
 "word_lyrics_searching" = "جارٍ البحث عن كلمات متزامنة كلمة بكلمة";
 "word_lyrics_source_format" = "جارٍ جلب الكلمات المتزامنة من %@";

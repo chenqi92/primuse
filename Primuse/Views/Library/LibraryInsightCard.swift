@@ -36,6 +36,12 @@ struct LibraryInsightActions {
         }
     }
 
+    func fetchAppleMusic() {
+        Task {
+            if await store.fetchAppleMusic(subject, library: library) { writeBack() }
+        }
+    }
+
     func grantConsentAndGenerate() {
         do {
             try intelligence.grantRemoteConsent()
@@ -102,6 +108,7 @@ struct LibraryInsightSynopsis: View {
     @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var confirmsRegenerate = false
     @State private var confirmsLastFm = false
+    @State private var confirmsAppleMusic = false
     @State private var isExpanded = false
     @State private var collapsedTextHeight: CGFloat = 0
     @State private var expandedTextHeight: CGFloat = 0
@@ -197,6 +204,16 @@ struct LibraryInsightSynopsis: View {
                         Text("library_insight_lastfm_replace_message")
                     }
                     .builtInAIConsentSheet($builtInConsent)
+                    .confirmationDialog(
+                        Text("library_insight_apple_music_replace_title"),
+                        isPresented: $confirmsAppleMusic,
+                        titleVisibility: .visible
+                    ) {
+                        Button("library_insight_apple_music_fetch", role: .destructive) { actions.fetchAppleMusic() }
+                        Button("cancel", role: .cancel) {}
+                    } message: {
+                        Text("library_insight_apple_music_replace_message")
+                    }
                     .libraryDetailPresentationReset()
             }
             #if DEBUG
@@ -384,7 +401,7 @@ struct LibraryInsightSynopsis: View {
             }
             .font(metaFont)
             .foregroundStyle(.white.opacity(0.72))
-        } else if let message = store.lastFmFailure(for: subject) {
+        } else if let message = store.importFailure(for: subject) {
             Text(verbatim: message)
                 .font(metaFont)
                 .foregroundStyle(.white.opacity(0.72))
@@ -422,6 +439,14 @@ struct LibraryInsightSynopsis: View {
             Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
         }
         .disabled(store.isGenerating(subject))
+        if subject.kind == .artist {
+            Button {
+                confirmsAppleMusic = true
+            } label: {
+                Label("library_insight_apple_music_fetch", systemImage: "applelogo")
+            }
+            .disabled(store.isGenerating(subject))
+        }
         if actions.canAskAI {
             Button {
                 if record.isWorthKeeping {
@@ -454,13 +479,16 @@ struct LibraryInsightSynopsis: View {
                     .font(chipFont)
                     .foregroundStyle(.white.opacity(0.78))
             }
-        } else if let message = store.lastFmFailure(for: subject) {
+        } else if let message = store.importFailure(for: subject) {
             noteAndActions(Text(verbatim: message)) {
                 if actions.canAskAI {
                     chip("library_insight_generate", systemImage: "sparkles") { generate() }
                         .disabled(store.retryDate(for: subject) != nil)
                 }
                 chip("library_insight_lastfm_fetch", systemImage: "arrow.down.circle") { actions.fetchLastFm() }
+                if subject.kind == .artist {
+                    chip("library_insight_apple_music_fetch", systemImage: "applelogo") { actions.fetchAppleMusic() }
+                }
                 chip("library_insight_write_own", systemImage: "pencil") {
                     store.clearFailure(for: subject)
                     isEditing = true
@@ -498,6 +526,13 @@ struct LibraryInsightSynopsis: View {
                     actions.fetchLastFm()
                 } label: {
                     Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
+                }
+                if subject.kind == .artist {
+                    Button {
+                        actions.fetchAppleMusic()
+                    } label: {
+                        Label("library_insight_apple_music_fetch", systemImage: "applelogo")
+                    }
                 }
                 Button {
                     isEditing = true
@@ -751,10 +786,16 @@ struct LibraryInsightEditorSheet: View {
                     Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
                 }
                 .disabled(isFilling || store.isGenerating(subject))
+                if subject.kind == .artist {
+                    Button(action: fillFromAppleMusic) {
+                        Label("library_insight_apple_music_fetch", systemImage: "applelogo")
+                    }
+                    .disabled(isFilling || store.isGenerating(subject))
+                }
                 if canAskAI {
                     Button(action: fillWithAI) {
                         HStack(spacing: 8) {
-                            if isFilling && !store.isFetchingLastFm(subject) {
+                            if isFilling && !store.isFetchingImport(subject) {
                                 ProgressView().controlSize(.small)
                                 Text("library_insight_ai_filling")
                             } else {
@@ -767,8 +808,8 @@ struct LibraryInsightEditorSheet: View {
                     LibraryInsightSettingsLink(title: "library_insight_ai_fill", systemImage: "sparkles")
                         .disabled(isFilling || store.isGenerating(subject))
                 }
-                if store.isFetchingLastFm(subject) {
-                    ProgressView(String(localized: "library_insight_lastfm_fetching"))
+                if store.isFetchingImport(subject) {
+                    ProgressView(store.progressMessage(for: subject))
                 }
                 if let aiMessage {
                     Text(verbatim: aiMessage)
@@ -842,7 +883,24 @@ struct LibraryInsightEditorSheet: View {
         Task {
             defer { isFilling = false }
             guard let draft = await store.lastFmDraft(for: subject) else {
-                aiMessage = store.lastFmFailure(for: subject)
+                aiMessage = store.importFailure(for: subject)
+                store.clearFailure(for: subject)
+                return
+            }
+            importedDraft = draft
+            aiDraft = nil
+            summary = draft.summary
+            tagText = LibraryInsightEditing.tagText(draft.tags)
+        }
+    }
+
+    private func fillFromAppleMusic() {
+        aiMessage = nil
+        isFilling = true
+        Task {
+            defer { isFilling = false }
+            guard let draft = await store.appleMusicDraft(for: subject) else {
+                aiMessage = store.importFailure(for: subject)
                 store.clearFailure(for: subject)
                 return
             }

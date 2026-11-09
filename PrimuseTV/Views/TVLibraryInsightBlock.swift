@@ -19,6 +19,7 @@ struct TVLibraryInsightBlock: View {
     @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var summaryOverflows = false
     @State private var confirmsLastFm = false
+    @State private var confirmsAppleMusic = false
 
     private var store: LibraryInsightStore { .shared }
 
@@ -74,6 +75,15 @@ struct TVLibraryInsightBlock: View {
                 } message: {
                     Text("library_insight_lastfm_replace_message")
                 }
+                .confirmationDialog(
+                    String(localized: "library_insight_apple_music_replace_title"),
+                    isPresented: $confirmsAppleMusic, titleVisibility: .visible
+                ) {
+                    Button("library_insight_apple_music_fetch", role: .destructive) { fetchAppleMusic() }
+                    Button("cancel", role: .cancel) {}
+                } message: {
+                    Text("library_insight_apple_music_replace_message")
+                }
                 .contextMenu {
                     Button("library_insight_edit", systemImage: "pencil") { showsEditor = true }
                         .disabled(store.isGenerating(subject))
@@ -81,6 +91,12 @@ struct TVLibraryInsightBlock: View {
                         if showsSynopsis { confirmsLastFm = true } else { fetchLastFm() }
                     }
                     .disabled(store.isGenerating(subject))
+                    if subject.kind == .artist {
+                        Button("library_insight_apple_music_fetch", systemImage: "applelogo") {
+                            if showsSynopsis { confirmsAppleMusic = true } else { fetchAppleMusic() }
+                        }
+                        .disabled(store.isGenerating(subject))
+                    }
                     if let insight, !store.isGenerating(subject) {
                         // 自己写的简介在电视上不给一键覆盖。
                         if !insight.isWorthKeeping, canAskAI {
@@ -104,6 +120,12 @@ struct TVLibraryInsightBlock: View {
                     .disabled(store.isGenerating(subject))
                 }
                 if !showsSynopsis {
+                    if subject.kind == .artist {
+                        TVPillButton(title: String(localized: "library_insight_apple_music_fetch"), systemImage: "applelogo") {
+                            fetchAppleMusic()
+                        }
+                        .disabled(store.isGenerating(subject))
+                    }
                     TVPillButton(title: String(localized: "library_insight_lastfm_fetch"), systemImage: "arrow.down.circle") {
                         fetchLastFm()
                     }
@@ -170,7 +192,7 @@ struct TVLibraryInsightBlock: View {
                     .tvFont(.body)
                     .foregroundStyle(TVColor.textMuted)
             }
-        } else if let message = store.lastFmFailure(for: subject) {
+        } else if let message = store.importFailure(for: subject) {
             Text(verbatim: message)
                 .tvFont(.body)
                 .foregroundStyle(TVColor.textMuted)
@@ -237,7 +259,7 @@ struct TVLibraryInsightBlock: View {
                 Group {
                     if store.isGenerating(subject) {
                         Text(verbatim: store.progressMessage(for: subject))
-                    } else if let message = store.lastFmFailure(for: subject) {
+                    } else if let message = store.importFailure(for: subject) {
                         Text(verbatim: message)
                     } else if let failure = store.failure(for: subject) {
                         Text(verbatim: LibraryInsightStore.message(for: failure))
@@ -264,8 +286,12 @@ struct TVLibraryInsightBlock: View {
             return
         }
         guard !store.isGenerating(subject) else { return }
-        if store.lastFmFailure(for: subject) != nil {
-            fetchLastFm()
+        if store.importFailure(for: subject) != nil {
+            if store.lastFmFailure(for: subject) != nil {
+                fetchLastFm()
+            } else {
+                fetchAppleMusic()
+            }
             return
         }
         guard canAskAI else {
@@ -301,6 +327,10 @@ struct TVLibraryInsightBlock: View {
 
     private func fetchLastFm() {
         Task { await store.fetchLastFm(subject, library: tvStore.library) }
+    }
+
+    private func fetchAppleMusic() {
+        Task { await store.fetchAppleMusic(subject, library: tvStore.library) }
     }
 }
 
@@ -461,7 +491,7 @@ private struct TVLibraryInsightReader: View {
         .sheet(isPresented: $showsSource) {
             if let url = insight?.importedURL {
                 VStack(spacing: 28) {
-                    Text("Last.fm").tvFont(.sectionTitle)
+                    Text(verbatim: insight?.importedFrom ?? "").tvFont(.sectionTitle)
                     TVQRCode(content: url.absoluteString, size: 300)
                     TVPillButton(title: String(localized: "done"), systemImage: "checkmark") { showsSource = false }
                 }
@@ -589,14 +619,30 @@ struct TVLibraryInsightEditor: View {
                             summary = draft.summary
                             tagText = LibraryInsightEditing.tagText(draft.tags)
                         } else {
-                            fetchMessage = store.lastFmFailure(for: subject)
+                            fetchMessage = store.importFailure(for: subject)
                             store.clearFailure(for: subject)
                         }
                     }
                 }
                 .disabled(store.isGenerating(subject))
-                if store.isFetchingLastFm(subject) {
-                    ProgressView(String(localized: "library_insight_lastfm_fetching"))
+                if subject.kind == .artist {
+                    TVPillButton(title: String(localized: "library_insight_apple_music_fetch"), systemImage: "applelogo") {
+                        Task {
+                            fetchMessage = nil
+                            if let draft = await store.appleMusicDraft(for: subject) {
+                                importedDraft = draft
+                                summary = draft.summary
+                                tagText = LibraryInsightEditing.tagText(draft.tags)
+                            } else {
+                                fetchMessage = store.importFailure(for: subject)
+                                store.clearFailure(for: subject)
+                            }
+                        }
+                    }
+                    .disabled(store.isGenerating(subject))
+                }
+                if store.isFetchingImport(subject) {
+                    ProgressView(store.progressMessage(for: subject))
                 } else if let fetchMessage {
                     Text(verbatim: fetchMessage).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                 }

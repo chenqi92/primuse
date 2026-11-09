@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "Не вдалося завантажити дані з Last.fm. Спробуйте пізніше.";
 "library_insight_lastfm_replace_title" = "Замінити опис?";
 "library_insight_lastfm_replace_message" = "Опис і теги стилю буде замінено вмістом із Last.fm.";
+"library_insight_apple_music_fetch" = "Завантажити з Apple Music";
+"library_insight_apple_music_fetching" = "Завантаження з Apple Music…";
+"library_insight_apple_music_empty" = "Опис у Apple Music не знайдено.";
+"library_insight_apple_music_failed" = "Не вдалося завантажити дані з Apple Music. Спробуйте пізніше.";
+"library_insight_apple_music_replace_title" = "Замінити опис?";
+"library_insight_apple_music_replace_message" = "Опис і теги стилю буде замінено вмістом із Apple Music.";
 "song_file_rename_busy" = "Завершіть трансляцію або перехід між треками перед перейменуванням файлу.";
 
 "song_list_layout" = "Вигляд списку";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "Імітація синхронізації";
 
 "explore_word_lyrics" = "Шукати тексти з послівною синхронізацією";
+"explore_word_lyrics_footer" = "Типово вимкнено. Якщо ввімкнути, під час відтворення активні джерела автоматично перевірятимуться на наявність текстів із послівною синхронізацією. Знайдені тексти показуватимуться замість звичайних, навіть якщо пісня вже має текст. Ця функція не залежить від налаштування «Шукати відсутні тексти онлайн». Щоб зупинити автоматичний пошук послівних текстів, вимкніть цю опцію.";
 "player_activity_status" = "Стан завдань";
 "word_lyrics_searching" = "Пошук текстів із послівною синхронізацією";
 "word_lyrics_source_format" = "Завантаження синхронізованих текстів із %@";

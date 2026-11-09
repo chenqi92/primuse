@@ -6,6 +6,39 @@ import PrimuseKit
 /// 同一首、按专辑名艺人对上的专辑和它的全部曲目。只问 MusicKit 目录,不碰曲库;手机、Mac 的
 /// 目录续播与专辑补全和电视的同名功能共用这一份。怎么拼成一批在 `AppleMusicCatalogContinuationPolicy`。
 enum AppleMusicCatalogNeighbors {
+    enum ArtistInsightError: Error { case authorizationRequired }
+
+    static func artistInsight(matchingName name: String) async throws -> LibraryInsightImportedDraft? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !TagCleanupPolicy.isPlaceholder(name) else { return nil }
+        try Task.checkCancellation()
+        let status = MusicAuthorization.currentStatus == .notDetermined
+            ? await MusicAuthorization.request() : MusicAuthorization.currentStatus
+        guard status == .authorized else { throw ArtistInsightError.authorizationRequired }
+        var search = MusicCatalogSearchRequest(term: name, types: [MusicKit.Artist.self])
+        search.limit = 10
+        let artists = Array(try await search.response().artists)
+        guard let index = AppleMusicCatalogContinuationPolicy.uniqueArtistMatchIndex(name: name, in: artists.map(\.name)) else {
+            return nil
+        }
+        try Task.checkCancellation()
+        let request = MusicCatalogResourceRequest<MusicKit.Artist>(matching: \.id, equalTo: artists[index].id)
+        guard let artist = try await request.response().items.first else { return nil }
+        return artistInsightDraft(standard: artist.editorialNotes?.standard, short: artist.editorialNotes?.short,
+                                  genres: artist.genreNames ?? [], url: artist.url)
+    }
+
+    static func artistInsightDraft(standard: String?, short: String?, genres: [String], url: URL?) -> LibraryInsightImportedDraft? {
+        let summary = [standard, short].compactMap { $0 }.map { text in
+            let paragraphs = text.replacingOccurrences(of: #"(?i)</p\s*>"#, with: "\n\n", options: .regularExpression)
+            return LibraryInsightEditing.normalizedSummary(
+                LibraryInsightNFO.plainText(fromMarkup: paragraphs).replacingOccurrences(of: "&apos;", with: "'")
+            )
+        }.first { !$0.isEmpty }
+        guard let summary else { return nil }
+        return LibraryInsightImportedDraft(summary: summary, tags: genres, sourceLabel: "Apple Music", sourceURL: url)
+    }
+
     /// 相似艺人(按目录给的顺序)与本人的热门曲,每位一组。本人那组排在第二,
     /// 轮流取时开头是一首别人的,接着才是本人的。`seed` 得是目录曲,资料库条目没有这些关系。
     static func artistTopSongs(around seed: MusicKit.Song) async -> [[MusicKit.Song]] {

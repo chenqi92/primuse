@@ -8,6 +8,130 @@ import SwiftUI
 import Vision
 #endif
 
+@MainActor
+final class AppleMusicLibraryInsightTests: XCTestCase {
+    private let subject = LibraryInsightSubject.artist(name: "Paper Lantern", genres: [], albums: [], tracks: [])
+    private let sourceURL = URL(string: "https://music.apple.com/us/artist/paper-lantern/123")!
+
+    func testFullEditorialNotesWinAndMarkupIsDecoded() throws {
+        let draft = try XCTUnwrap(AppleMusicCatalogNeighbors.artistInsightDraft(
+            standard: "<p>A <b>fictional</b> band &amp; friends.</p><p>The band&apos;s second chapter.<br>New songs.</p>",
+            short: "Short version", genres: ["Pop", "Pop"], url: sourceURL))
+        XCTAssertEqual(draft.summary, "A fictional band & friends.\n\nThe band's second chapter.\nNew songs.")
+        XCTAssertEqual(draft.tags, ["Pop"])
+        XCTAssertEqual(draft.sourceLabel, "Apple Music")
+        XCTAssertEqual(draft.sourceURL, sourceURL)
+    }
+
+    func testBlankFullNotesFallBackToShortButGenresAloneAreNotAnIntro() throws {
+        let draft = try XCTUnwrap(AppleMusicCatalogNeighbors.artistInsightDraft(
+            standard: "<p>&nbsp;</p>", short: "A fictional artist.", genres: [], url: nil))
+        XCTAssertEqual(draft.summary, "A fictional artist.")
+        XCTAssertNil(AppleMusicCatalogNeighbors.artistInsightDraft(
+            standard: nil, short: "<br>", genres: ["Pop"], url: sourceURL))
+    }
+
+    func testFailedOrEmptyFetchPreservesExistingIntro() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let lookups: [@Sendable (String) async throws -> LibraryInsightImportedDraft?] = [
+            { _ in nil },
+            { _ in throw URLError(.notConnectedToInternet) },
+            { _ in throw AppleMusicCatalogNeighbors.ArtistInsightError.authorizationRequired }
+        ]
+        for lookup in lookups {
+            let store = LibraryInsightStore(appleMusicLookup: lookup)
+            store.saveEdit(subject, summary: "My introduction", tags: ["Jazz"], aiDraft: nil, library: library)
+            let before = store.record(for: subject, in: library)
+            let saved = await store.fetchAppleMusic(subject, library: library)
+            XCTAssertFalse(saved)
+            XCTAssertEqual(store.record(for: subject, in: library), before)
+            XCTAssertNotNil(store.importFailure(for: subject))
+            XCTAssertFalse(store.isGenerating(subject))
+            XCTAssertFalse(store.isFetchingImport(subject))
+        }
+        _ = await library.persistNowAndWait()
+    }
+
+    func testImportedIntroPersistsWithAppleMusicSourceAndRetainsEditedAttribution() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let draft = LibraryInsightImportedDraft(summary: "An original artist introduction.", tags: ["Pop"],
+                                               sourceLabel: "Apple Music", sourceURL: sourceURL)
+        let store = LibraryInsightStore(appleMusicLookup: { _ in draft })
+        let saved = await store.fetchAppleMusic(subject, library: library)
+        XCTAssertTrue(saved)
+        let record = try XCTUnwrap(store.record(for: subject, in: library))
+        XCTAssertEqual(record.summary, draft.summary)
+        XCTAssertEqual(record.importedFrom, "Apple Music")
+        XCTAssertEqual(record.importedURL, sourceURL)
+        XCTAssertFalse(record.isUserEdited)
+        XCTAssertTrue(LibraryInsightStore.footer(for: record).contains("Apple Music"))
+        _ = await library.persistNowAndWait()
+        let reopened = MusicLibrary(storageDirectory: directory)
+        let persisted = try XCTUnwrap(store.record(for: subject, in: reopened))
+        XCTAssertEqual(persisted.updatedAt.timeIntervalSince1970, record.updatedAt.timeIntervalSince1970, accuracy: 1)
+        var expected = record
+        expected.updatedAt = persisted.updatedAt
+        XCTAssertEqual(persisted, expected)
+        store.saveEdit(subject, summary: "Edited introduction.", tags: [], aiDraft: nil, library: library)
+        let edited = try XCTUnwrap(store.record(for: subject, in: library))
+        XCTAssertTrue(edited.isUserEdited)
+        XCTAssertTrue(LibraryInsightStore.footer(for: edited).contains("Apple Music"))
+        _ = await library.persistNowAndWait()
+    }
+
+    func testManualEditDuringFetchWinsOverImportedResult() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let subject = subject
+        let store = LibraryInsightStore(appleMusicLookup: { _ in
+            await MainActor.run {
+                LibraryInsightStore.shared.saveEdit(subject, summary: "New manual edit", tags: [], aiDraft: nil, library: library)
+            }
+            return LibraryInsightImportedDraft(summary: "Stale imported text", tags: [], sourceLabel: "Apple Music")
+        })
+        let saved = await store.fetchAppleMusic(subject, library: library)
+        XCTAssertFalse(saved)
+        XCTAssertEqual(store.record(for: subject, in: library)?.summary, "New manual edit")
+        _ = await library.persistNowAndWait()
+    }
+
+    func testCancellationReleasesBusyStateAndPreventsConcurrentImports() async throws {
+        let store = LibraryInsightStore(appleMusicLookup: { _ in
+            try await Task.sleep(for: .seconds(30))
+            return LibraryInsightImportedDraft(summary: "Cancelled result", tags: [], sourceLabel: "Apple Music")
+        })
+        let subject = subject
+        let task = Task { await store.appleMusicDraft(for: subject) }
+        for _ in 0..<100 where !store.isFetchingImport(subject) { await Task.yield() }
+        XCTAssertTrue(store.isFetchingImport(subject))
+        XCTAssertFalse(store.beginBatchGeneration(subject))
+        let duplicate = await store.appleMusicDraft(for: subject)
+        XCTAssertNil(duplicate)
+        task.cancel()
+        let cancelled = await task.value
+        XCTAssertNil(cancelled)
+        XCTAssertNil(store.importFailure(for: subject))
+        XCTAssertFalse(store.isGenerating(subject))
+        XCTAssertFalse(store.isFetchingImport(subject))
+    }
+
+    func testAlbumAndPlaceholderArtistDoNotStartLookup() async {
+        let store = LibraryInsightStore(appleMusicLookup: { _ in
+            XCTFail("Unsupported subjects must not start a catalog request")
+            return nil
+        })
+        let album = await store.appleMusicDraft(for: .album(title: "Album", artist: "Artist", year: nil, genres: [], tracks: []))
+        let unknown = await store.appleMusicDraft(for: .artist(name: " ", genres: [], albums: [], tracks: []))
+        XCTAssertNil(album)
+        XCTAssertNil(unknown)
+    }
+}
+
 final class LastFmSimilarQuotaTests: XCTestCase {
     private var insightSubject: LibraryInsightSubject {
         .album(title: "A & B", artist: "Artist + Band", year: nil, genres: [], tracks: [])

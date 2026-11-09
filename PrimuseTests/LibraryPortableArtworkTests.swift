@@ -7,6 +7,7 @@ import PrimuseKit
 import UIKit
 import UniformTypeIdentifiers
 import SwiftUI
+import Vision
 import XCTest
 @testable import Primuse
 
@@ -967,10 +968,51 @@ final class LibraryPortableArtworkTests: XCTestCase {
         try await verifyArtistPageTint(portrait: .green, checksMeshSwitch: true)
     }
 
+    func testArtistIntroAndAddEntryAppearBeforeReleasesInPortrait() async throws {
+        try await verifyArtistPageTint(portrait: .black, synopsisLayout: .regular)
+    }
+
+    func testIntroEditorOffersAppleMusicOnlyForArtists() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let subjects: [LibraryInsightSubject] = [
+            .artist(name: "Paper Lantern", genres: [], albums: [], tracks: []),
+            .album(title: "Evening Window", artist: "Paper Lantern", year: nil, genres: [], tracks: [])
+        ]
+        for subject in subjects {
+            let view = LibraryInsightEditorSheet(subject: subject, details: { subject }, record: nil) {}
+                .environment(library).environment(AppServices.shared.musicIntelligence)
+            let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 390, height: 844))
+            defer {
+                window.isHidden = true
+                window.rootViewController = nil
+                original?.makeKeyAndVisible()
+            }
+            try await Task.sleep(for: .milliseconds(400))
+            let snapshot = try heroTestSnapshot(host.view)
+            let request = VNRecognizeTextRequest()
+            request.recognitionLanguages = ["zh-Hans", "en-US"]
+            try VNImageRequestHandler(cgImage: snapshot).perform([request])
+            let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+            XCTAssertEqual(text.contains("Apple Music"), subject.kind == .artist, text)
+            XCTAssertTrue(text.contains("Last.fm"), text)
+            let attachment = XCTAttachment(image: UIImage(cgImage: snapshot))
+            attachment.name = "intro-editor-\(subject.kind.rawValue)-sources"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    func testArtistIntroAndAddEntryRemainVisibleInLandscape() async throws {
+        try await verifyArtistPageTint(portrait: .black, synopsisLayout: .compact)
+    }
+
     private func verifyArtistPageTint(
         portrait: UIColor?,
         includesSkinTone: Bool = false,
-        checksMeshSwitch: Bool = false
+        checksMeshSwitch: Bool = false,
+        synopsisLayout: UserInterfaceSizeClass? = nil
     ) async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1033,10 +1075,11 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let originalWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let size = synopsisLayout == .compact ? CGSize(width: 844, height: 390) : CGSize(width: 390, height: 844)
+        window.frame = CGRect(origin: .zero, size: size)
         let host = UIHostingController(rootView:
             NavigationStack { ArtistDetailView(artist: artist, appearanceDefaults: defaults) }
-                .frame(width: 390, height: 844)
+                .frame(width: size.width, height: size.height)
                 .environment(library)
                 .environment(SourceManager(sourcesProvider: { [] }))
                 .environment(SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources")))
@@ -1048,7 +1091,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
                 .environment(services.batchRemoval)
                 .environment(\.scenePhase, .inactive)
                 .environment(\.horizontalSizeClass, .compact)
-                .environment(\.verticalSizeClass, .regular)
+                .environment(\.verticalSizeClass, synopsisLayout ?? .regular)
                 .environment(\.colorScheme, .light))
         host.safeAreaRegions = []
         window.rootViewController = host
@@ -1138,6 +1181,39 @@ final class LibraryPortableArtworkTests: XCTestCase {
 
         // Wait for the initial song/portrait race to settle before accepting a neutral loading state.
         try await Task.sleep(for: .milliseconds(700))
+        if let synopsisLayout {
+            let subject = LibraryInsightSubject.artist(name: name, genres: [], albums: [], tracks: [])
+            let summary = "Fictional artist biography."
+            for hasIntro in [false, true] {
+                if hasIntro {
+                    LibraryInsightStore.shared.saveEdit(subject, summary: summary, tags: [], aiDraft: nil, library: library)
+                    _ = await library.persistNowAndWait()
+                    try await Task.sleep(for: .milliseconds(300))
+                }
+                host.view.layoutIfNeeded()
+                let rendered = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                    host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+                }
+                let attachment = XCTAttachment(image: rendered)
+                attachment.name = "artist-intro-\(synopsisLayout == .compact ? "landscape" : "portrait")-\(hasIntro ? "saved" : "empty")"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                let request = VNRecognizeTextRequest()
+                request.recognitionLanguages = ["zh-Hans", "en-US"]
+                try VNImageRequestHandler(cgImage: XCTUnwrap(rendered.cgImage)).perform([request])
+                let lines = request.results ?? []
+                let expected = hasIntro ? summary : String(localized: "library_insight_add")
+                let intro = try XCTUnwrap(lines.first {
+                    $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "")
+                        .localizedCaseInsensitiveContains(expected.replacingOccurrences(of: " ", with: "")) == true
+                }, "The intro or its add entry must be readable without scrolling")
+                let release = try XCTUnwrap(lines.first {
+                    $0.topCandidates(1).first?.string.contains("Tint Album") == true
+                }, "The latest release must remain below the intro")
+                XCTAssertGreaterThan(intro.boundingBox.minY, release.boundingBox.maxY)
+            }
+            return
+        }
         if checksMeshSwitch {
             try await assertBackgroundVariation(true)
             try await assertSoftensEdges(top: false, bottom: true)

@@ -7117,6 +7117,12 @@
 "library_insight_lastfm_failed" = "Last.fmから取得できませんでした。後でもう一度お試しください。";
 "library_insight_lastfm_replace_title" = "紹介文を置き換えますか？";
 "library_insight_lastfm_replace_message" = "紹介文とスタイルタグがLast.fmの内容に置き換わります。";
+"library_insight_apple_music_fetch" = "Apple Musicから取得";
+"library_insight_apple_music_fetching" = "Apple Musicから取得中…";
+"library_insight_apple_music_empty" = "Apple Musicに紹介文が見つかりません。";
+"library_insight_apple_music_failed" = "Apple Musicから取得できませんでした。後でもう一度お試しください。";
+"library_insight_apple_music_replace_title" = "紹介文を置き換えますか？";
+"library_insight_apple_music_replace_message" = "紹介文とスタイルタグがApple Musicの内容に置き換わります。";
 "song_file_rename_busy" = "キャストまたは曲の切り替えが終わってから名前を変更してください。";
 
 "song_list_layout" = "リストの表示";
@@ -7139,6 +7145,7 @@
 "lyrics_simulated_word_badge" = "擬似タイミング";
 
 "explore_word_lyrics" = "単語同期の歌詞を探す";
+"explore_word_lyrics_footer" = "初期設定ではオフです。オンにすると、再生中に有効な歌詞ソースから単語同期の歌詞を自動的に探し、通常の歌詞がすでにある曲でも、見つかった単語同期の歌詞を優先して表示します。この機能は「歌詞がないときはオンラインで自動取得」とは独立しています。単語同期の歌詞の自動検索を止めるには、この設定をオフにしてください。";
 "player_activity_status" = "タスクの状態";
 "word_lyrics_searching" = "単語同期の歌詞を検索中";
 "word_lyrics_source_format" = "%@ から単語同期の歌詞を取得中";

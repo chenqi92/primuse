@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "Não foi possível buscar no Last.fm. Tente novamente mais tarde.";
 "library_insight_lastfm_replace_title" = "Substituir descrição?";
 "library_insight_lastfm_replace_message" = "A descrição e as tags de estilo serão substituídas pelo conteúdo do Last.fm.";
+"library_insight_apple_music_fetch" = "Buscar no Apple Music";
+"library_insight_apple_music_fetching" = "Buscando no Apple Music…";
+"library_insight_apple_music_empty" = "Nenhuma descrição encontrada no Apple Music.";
+"library_insight_apple_music_failed" = "Não foi possível buscar no Apple Music. Tente novamente mais tarde.";
+"library_insight_apple_music_replace_title" = "Substituir descrição?";
+"library_insight_apple_music_replace_message" = "A descrição e as tags de estilo serão substituídas pelo conteúdo do Apple Music.";
 "song_file_rename_busy" = "Aguarde o fim da transmissão ou da transição de faixa antes de renomear este arquivo.";
 
 "song_list_layout" = "Estilo da lista";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "Sincronização simulada";
 
 "explore_word_lyrics" = "Explorar letras sincronizadas por palavra";
+"explore_word_lyrics_footer" = "Desativado por padrão. Quando ativado, busca automaticamente letras sincronizadas por palavra nas fontes habilitadas durante a reprodução e as exibe com prioridade, mesmo que a música já tenha letras comuns. Esta função é independente de “Buscar letras online quando faltarem”. Para interromper a busca automática de letras sincronizadas por palavra, desative esta opção.";
 "player_activity_status" = "Status das tarefas";
 "word_lyrics_searching" = "Buscando letras sincronizadas por palavra";
 "word_lyrics_source_format" = "Obtendo letras sincronizadas de %@";

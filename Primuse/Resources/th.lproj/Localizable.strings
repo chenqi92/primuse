@@ -7022,6 +7022,12 @@
 "library_insight_lastfm_failed" = "ดึงข้อมูลจาก Last.fm ไม่สำเร็จ โปรดลองอีกครั้งภายหลัง";
 "library_insight_lastfm_replace_title" = "แทนที่คำแนะนำหรือไม่";
 "library_insight_lastfm_replace_message" = "คำแนะนำและแท็กสไตล์จะถูกแทนที่ด้วยเนื้อหาจาก Last.fm";
+"library_insight_apple_music_fetch" = "ดึงข้อมูลจาก Apple Music";
+"library_insight_apple_music_fetching" = "กำลังดึงข้อมูลจาก Apple Music…";
+"library_insight_apple_music_empty" = "ไม่พบคำแนะนำบน Apple Music";
+"library_insight_apple_music_failed" = "ดึงข้อมูลจาก Apple Music ไม่สำเร็จ โปรดลองอีกครั้งภายหลัง";
+"library_insight_apple_music_replace_title" = "แทนที่คำแนะนำหรือไม่";
+"library_insight_apple_music_replace_message" = "คำแนะนำและแท็กสไตล์จะถูกแทนที่ด้วยเนื้อหาจาก Apple Music";
 "song_file_rename_busy" = "รอให้การแคสต์หรือการเปลี่ยนเพลงสิ้นสุดก่อนเปลี่ยนชื่อไฟล์";
 
 "song_list_layout" = "รูปแบบรายการ";
@@ -7044,6 +7050,7 @@
 "lyrics_simulated_word_badge" = "จังหวะจำลอง";
 
 "explore_word_lyrics" = "ค้นหาเนื้อเพลงที่ซิงค์รายคำ";
+"explore_word_lyrics_footer" = "ปิดไว้ตามค่าเริ่มต้น เมื่อเปิด ระหว่างเล่นจะค้นหาเนื้อเพลงที่ซิงค์รายคำจากแหล่งเนื้อเพลงที่เปิดใช้งานโดยอัตโนมัติ และเลือกแสดงเนื้อเพลงที่พบก่อนเนื้อเพลงทั่วไปที่มีอยู่ ฟังก์ชันนี้แยกจาก “ดึงเนื้อเพลงออนไลน์อัตโนมัติเมื่อไม่พบ” หากต้องการหยุดการค้นหาเนื้อเพลงที่ซิงค์รายคำโดยอัตโนมัติ ให้ปิดตัวเลือกนี้";
 "player_activity_status" = "สถานะงาน";
 "word_lyrics_searching" = "กำลังค้นหาเนื้อเพลงที่ซิงค์รายคำ";
 "word_lyrics_source_format" = "กำลังดึงเนื้อเพลงที่ซิงค์รายคำจาก %@";
