@@ -1642,8 +1642,15 @@ struct SpokenWordBookDetailView: View {
     }
 
     private func phoneHeader(_ book: SpokenWordBook, songs: [Song]) -> some View {
-        phoneHeaderTop(book, songs: songs)
-            .padding(.vertical, 8)
+        VStack(alignment: .leading, spacing: 14) {
+            phoneHeaderTop(book, songs: songs)
+            // 「跳过片头片尾」不常用:放在封面那一行下面,不和书名、进度挤在最上面(#413)。
+            if collection == .books, let song = songs.first {
+                SpokenWordIntroOutroMenu(bookID: book.id, song: song)
+                    .font(.footnote.weight(.medium))
+            }
+        }
+        .padding(.vertical, 8)
     }
 
     private func phoneHeaderTop(_ book: SpokenWordBook, songs: [Song]) -> some View {
@@ -1682,10 +1689,6 @@ struct SpokenWordBookDetailView: View {
             Text(SpokenWordBookSupport.summary(book))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-            if collection == .books, let song = songs.first {
-                SpokenWordIntroOutroMenu(bookID: book.id, song: song)
-                    .font(.caption)
-            }
             if book.lastListenedAt != nil {
                 // 撑满右栏:右缘和下面章节的时长对齐。
                 ProgressView(value: book.fractionComplete)
@@ -1699,21 +1702,9 @@ struct SpokenWordBookDetailView: View {
             // 这类三位数的倍数时 mini 上原来会把语速和「自动下载」挤到下一行)。「继续」撑满剩下的宽度,
             // 一排的左右两头和上面的进度条对齐。只有辅助功能那几档大字号才挪到两行。
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    phoneContinueButton(book, songs: songs)
-                    SpokenWordBookSpeedMenu(bookID: book.id)
-                    if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: true) }
-                }
-                HStack(spacing: 8) {
-                    phoneContinueButton(book, songs: songs)
-                    SpokenWordBookSpeedMenu(bookID: book.id)
-                    if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
-                }
-                HStack(spacing: 8) {
-                    phoneContinueButton(book, songs: songs)
-                    SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: false)
-                    if let offline { autoDownloadKey(book, songs: songs, offline: offline, titled: false) }
-                }
+                phoneActionRow(book, songs: songs, offline: offline, showsSpeedIcon: true, titlesDownload: true)
+                phoneActionRow(book, songs: songs, offline: offline, showsSpeedIcon: true, titlesDownload: false)
+                phoneActionRow(book, songs: songs, offline: offline, showsSpeedIcon: false, titlesDownload: false)
                 if dynamicTypeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: 8) {
                         phoneContinueButton(book, songs: songs)
@@ -1723,17 +1714,10 @@ struct SpokenWordBookDetailView: View {
                         }
                     }
                 } else {
-                    HStack(spacing: 6) {
-                        phoneContinueButton(book, songs: songs)
-                        SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: false)
-                            .fixedSize()
-                            .layoutPriority(1)
-                        if let offline {
-                            autoDownloadKey(book, songs: songs, offline: offline, titled: false)
-                                .fixedSize()
-                                .layoutPriority(1)
-                        }
-                    }
+                    phoneActionRow(
+                        book, songs: songs, offline: offline,
+                        showsSpeedIcon: false, titlesDownload: false, spacing: 6
+                    )
                 }
             }
             // 开着还没下完时写下到第几章、在等什么(#313);下完了键上是对勾,不再占一行。
@@ -1854,6 +1838,30 @@ struct SpokenWordBookDetailView: View {
         sourceManager.removeOfflineDownloads(offline.downloadedSongs)
     }
 
+    /// 「继续」、语速、「自动下载」一排。语速和「自动下载」按自己的宽度画,剩下的宽度才给「继续」:
+    /// 原先三颗键一起分这一排,「继续」撑满时语速最多只分到一半,1.25×、0.75× 这种三位数的倍数
+    /// 在 iPhone Pro Max 上也被压成省略号(#413)。整排放不放得下由外面的 `ViewThatFits` 挑。
+    private func phoneActionRow(
+        _ book: SpokenWordBook,
+        songs: [Song],
+        offline: SpokenWordBookOfflineStatus?,
+        showsSpeedIcon: Bool,
+        titlesDownload: Bool,
+        spacing: CGFloat = 8
+    ) -> some View {
+        HStack(spacing: spacing) {
+            phoneContinueButton(book, songs: songs)
+            SpokenWordBookSpeedMenu(bookID: book.id, showsIcon: showsSpeedIcon)
+                .fixedSize()
+                .layoutPriority(1)
+            if let offline {
+                autoDownloadKey(book, songs: songs, offline: offline, titled: titlesDownload)
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
+        }
+    }
+
     private func phoneContinueButton(_ book: SpokenWordBook, songs: [Song]) -> some View {
         let isPlayingBook = isPlaying(songs)
         return Button {
@@ -1882,14 +1890,16 @@ struct SpokenWordBookDetailView: View {
 struct SpokenWordBookOfflineStatus {
     let availability: AudiobookOfflinePolicy.Availability
     let isEnabled: Bool
-    let progress: AudiobookOfflinePolicy.Progress
+    /// nil:还没读到下了几章。
+    let progress: AudiobookOfflinePolicy.Progress?
     let waitingReason: AutomaticOfflineDownloadDeferralReason?
     /// 已经下到本机的章节:「删除所有缓存」删的就是它们。
     let downloadedSongs: [Song]
 
     /// 开着却还没下完:页面上要写出下到第几章、在等什么(#313)。
     var isInProgress: Bool {
-        availability == .available && isEnabled && !progress.isComplete
+        availability == .available
+            && AudiobookOfflinePolicy.showsProgressLine(isEnabled: isEnabled, progress: progress)
     }
 
     var statusText: String {
@@ -1901,6 +1911,7 @@ struct SpokenWordBookOfflineStatus {
         case .available:
             break
         }
+        guard let progress else { return String(localized: "spoken_word_keep_offline_hint") }
         if isEnabled, progress.isComplete {
             return String(localized: "spoken_word_keep_offline_complete")
         }
@@ -1941,8 +1952,17 @@ struct SpokenWordBookOfflineStatus {
     }
 }
 
+/// 每本书上次读到的已下载章节,只在这次运行里记着。
+@MainActor
+private enum SpokenWordBookOfflineMemory {
+    static var downloadedIDs: [String: Set<String>] = [:]
+}
+
 /// 读出一本书的 `SpokenWordBookOfflineStatus` 交给 `content`:已下载几章,开着却没下完时常驻下载在等什么
 /// (播放在缓冲、等 Wi-Fi、低电量……)。
+///
+/// 书详情页的头部放在懒加载的章节列表里,滑走再滑回顶上时整块重建,这里的状态也跟着从头来。
+/// 重建时先用这本书上次读到的已下载章节,从没读过时当作还不知道,读完再换成新的(#413)。
 struct SpokenWordBookOfflineTracker<Content: View>: View {
     let book: SpokenWordBook
     let songs: [Song]
@@ -1950,7 +1970,7 @@ struct SpokenWordBookOfflineTracker<Content: View>: View {
 
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
-    @State private var downloadedIDs: Set<String> = []
+    @State private var downloadedIDs: Set<String>?
     @State private var waitingReason: AutomaticOfflineDownloadDeferralReason?
 
     private var coordinator: AlwaysDownloadCoordinator { AppServices.shared.alwaysDownload }
@@ -1975,17 +1995,18 @@ struct SpokenWordBookOfflineTracker<Content: View>: View {
         let availability = AudiobookOfflinePolicy.availability(kinds)
         let downloadable = zip(songs, kinds).compactMap { $0.1 == .downloadable ? $0.0 : nil }
         let isEnabled = coordinator.isEnabled(forBook: book.id)
-        let progress = AudiobookOfflinePolicy.progress(
-            downloadableIDs: downloadable.map(\.id),
-            downloadedIDs: downloadedIDs
-        )
-        content(SpokenWordBookOfflineStatus(
+        let known = downloadedIDs ?? SpokenWordBookOfflineMemory.downloadedIDs[book.id]
+        let status = SpokenWordBookOfflineStatus(
             availability: availability,
             isEnabled: isEnabled,
-            progress: progress,
+            progress: known.map {
+                AudiobookOfflinePolicy.progress(downloadableIDs: downloadable.map(\.id), downloadedIDs: $0)
+            },
             waitingReason: waitingReason,
-            downloadedSongs: downloadable.filter { downloadedIDs.contains($0.id) }
-        ))
+            downloadedSongs: downloadable.filter { known?.contains($0.id) == true }
+        )
+        let isWaiting = status.isInProgress
+        content(status)
         .task(id: ProgressKey(
             bookID: book.id,
             songIDs: downloadable.map(\.id),
@@ -1993,26 +2014,30 @@ struct SpokenWordBookOfflineTracker<Content: View>: View {
             snapshotRevision: sourceManager.offlineAudioSnapshotRevision,
             pinRevision: coordinator.pinRevision
         )) {
+            let bookID = book.id
             guard !downloadable.isEmpty else {
                 downloadedIDs = []
+                SpokenWordBookOfflineMemory.downloadedIDs[bookID] = []
                 return
             }
             let items = await sourceManager.offlineDownloadItems(in: downloadable)
             guard !Task.isCancelled else { return }
-            downloadedIDs = Set(items.map(\.song.id))
+            let ids = Set(items.map(\.song.id))
+            downloadedIDs = ids
+            SpokenWordBookOfflineMemory.downloadedIDs[bookID] = ids
         }
         // 开着还没下完时说明在等什么:播放、网络换了马上重算,电量、发热、空间这类隔一会儿再看一次。
         .task(id: WaitingKey(
-            isWaiting: availability == .available && isEnabled && !progress.isComplete,
+            isWaiting: isWaiting,
             isPlaying: player.isPlaybackActive,
             isBuffering: player.isLoading,
             networkGeneration: NetworkMonitor.shared.pathGeneration
         )) {
-            guard availability == .available, isEnabled, !progress.isComplete else {
+            guard isWaiting, let known else {
                 waitingReason = nil
                 return
             }
-            let nextChapterBytes = downloadable.first { !downloadedIDs.contains($0.id) }?.fileSize ?? 0
+            let nextChapterBytes = downloadable.first { !known.contains($0.id) }?.fileSize ?? 0
             while !Task.isCancelled {
                 waitingReason = coordinator.waitingReason(expectedDownloadBytes: nextChapterBytes)
                 try? await Task.sleep(for: .seconds(15))
@@ -2042,7 +2067,7 @@ struct SpokenWordBookOfflineRow: View {
     private func row(_ status: SpokenWordBookOfflineStatus) -> some View {
         let availability = status.availability
         return HStack(alignment: .center, spacing: 12) {
-            Image(systemName: status.progress.isComplete ? "arrow.down.circle.fill" : "arrow.down.circle")
+            Image(systemName: status.progress?.isComplete == true ? "arrow.down.circle.fill" : "arrow.down.circle")
                 .font(.title3)
                 .foregroundStyle(availability == .available ? ListeningSpace.spokenWord.tint : Color.secondary)
                 .accessibilityHidden(true)

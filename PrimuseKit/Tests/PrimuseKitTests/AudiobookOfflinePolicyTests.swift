@@ -52,6 +52,18 @@ struct AudiobookOfflinePolicyTests {
         #expect(!AudiobookOfflinePolicy.progress(downloadableIDs: [], downloadedIDs: []).isComplete)
     }
 
+    @Test("The downloaded line waits until the count is read, then shows only while unfinished")
+    func progressLine() {
+        let partial = AudiobookOfflinePolicy.Progress(downloaded: 2, total: 5)
+        let complete = AudiobookOfflinePolicy.Progress(downloaded: 5, total: 5)
+        #expect(AudiobookOfflinePolicy.showsProgressLine(isEnabled: true, progress: partial))
+        #expect(!AudiobookOfflinePolicy.showsProgressLine(isEnabled: true, progress: complete))
+        // The header was just rebuilt (page opened, or scrolled back to the
+        // top) and the count is not read yet: no "0/5" flashing in (#413).
+        #expect(!AudiobookOfflinePolicy.showsProgressLine(isEnabled: true, progress: nil))
+        #expect(!AudiobookOfflinePolicy.showsProgressLine(isEnabled: false, progress: partial))
+    }
+
     @Test("Records survive encoding and junk reads as none")
     func records() throws {
         let records = [

@@ -83,6 +83,14 @@ public enum AudiobookOfflinePolicy {
         return Progress(downloaded: unique.intersection(downloadedIDs).count, total: unique.count)
     }
 
+    /// 书详情页要不要写出「已下载 N/M 章」那一行:开着却还没下完时写(#313)。还没读到下了几章时
+    /// (`progress` 为 nil)不写:页面刚打开、滑走再滑回顶上时头部重建,先当成 0 章写出来,读到已经
+    /// 下完又收起,这一行会闪一下(#413)。
+    public static func showsProgressLine(isEnabled: Bool, progress: Progress?) -> Bool {
+        guard isEnabled, let progress else { return false }
+        return !progress.isComplete
+    }
+
     // MARK: 存取
 
     public static func decode(_ data: Data?) -> [String: Record] {
