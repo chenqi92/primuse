@@ -41,17 +41,20 @@ struct RepeatBehaviorTests {
         #expect(ledger.queueInstalled(ownedBy: .music, current: .inOrder) == songBySong)
     }
 
-    @Test("Changing repeat during a book is kept, each-track stop included")
-    func repeatChangeDuringBookWins() {
-        let songBySong = ListeningPlayMode(shuffleEnabled: false, repeatMode: .off, eachTrackStop: .cueNext)
+    @Test("Changing repeat during a book is kept, each-track stop included", arguments: [false, true])
+    func repeatChangeDuringBookWins(musicShuffleEnabled: Bool) {
+        let songBySong = ListeningPlayMode(shuffleEnabled: musicShuffleEnabled, repeatMode: .off, eachTrackStop: .cueNext)
         var ledger = ListeningPlayModeLedger()
         _ = ledger.queueInstalled(ownedBy: .spokenWord, current: songBySong)
         ledger.repeatChanged()
+        let current = ListeningPlayMode(shuffleEnabled: false, repeatMode: .off, eachTrackStop: .stay)
         let restored = ledger.queueInstalled(
             ownedBy: .music,
-            current: ListeningPlayMode(shuffleEnabled: false, repeatMode: .off, eachTrackStop: .stay)
+            current: current
         )
-        #expect(restored == ListeningPlayMode(shuffleEnabled: false, repeatMode: .off, eachTrackStop: .stay))
+        #expect((restored ?? current) == ListeningPlayMode(
+            shuffleEnabled: musicShuffleEnabled, repeatMode: .off, eachTrackStop: .stay
+        ))
     }
 
     @Test("Play modes saved before each-track stops still decode")
