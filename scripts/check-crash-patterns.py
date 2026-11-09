@@ -175,6 +175,22 @@ def index_as_count(lines):
             yield number
 
 
+@rule("media-artwork-isolated-closure",
+      "MPMediaItemArtwork 的取图闭包由 MediaPlayer 在后台队列调用;在主 actor 方法里创建会继承隔离,"
+      "Swift 6 运行时断言直接闪退。放到 nonisolated 的静态方法里创建(参考 AudioPlayerService.makeArtwork)",
+      "Apple Watch 离线播放点歌闪退")
+def media_artwork_isolated_closure(lines):
+    text = [strip_comment(line) for line in lines]
+    for index, code in enumerate(text):
+        if not re.search(r"\bMPMediaItemArtwork\s*\(", code):
+            continue
+        # 按最近的 func 声明判断;属性写在上一行的也算。
+        enclosing = next((i for i in range(index, -1, -1) if re.search(r"\bfunc\s+\w+", text[i])), None)
+        header = "" if enclosing is None else text[enclosing] + (" " + text[enclosing - 1] if enclosing else "")
+        if not re.search(r"\bnonisolated\b", header):
+            yield index + 1
+
+
 # ---------------------------------------------------------------------------
 
 def allowed(rule_id, lines, number):
@@ -294,6 +310,14 @@ SELF_TEST = [
     ("index-as-count", "buffer.removeSubrange(..<range.upperBound)", False),
     ("index-as-count", "let head = data.prefix(upTo: match.lowerBound)", False),
     ("index-as-count", "buffer.removeFirst(range.count)", False),
+    ("media-artwork-isolated-closure", "private func publish() {\n"
+                                       "  info[key] = MPMediaItemArtwork(boundsSize: cover.size) { _ in cover }\n}", True),
+    ("media-artwork-isolated-closure", "nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {\n"
+                                       "  MPMediaItemArtwork(boundsSize: image.size) { _ in image }\n}", False),
+    ("media-artwork-isolated-closure", "nonisolated\nprivate static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {\n"
+                                       "  let safeImage = image\n"
+                                       "  return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }\n}", False),
+    ("media-artwork-isolated-closure", "let cache = NSCache<NSString, MPMediaItemArtwork>()", False),
     ("filehandle-legacy", "// crash-pattern: allow filehandle-legacy 只在测试里造异常\n"
                           "handle.closeFile()", False),
     ("filehandle-legacy", "handle.closeFile() // crash-pattern: allow filehandle-legacy", True),

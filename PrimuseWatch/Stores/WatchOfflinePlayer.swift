@@ -14,6 +14,7 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
     var onChange: (() -> Void)?
     private(set) var cover: UIImage?
     private(set) var lyrics: [WatchOfflineLyric] = []
+    private var artwork: MPMediaItemArtwork?
     private var player: AVAudioPlayer?
     private var playTask: Task<Void, Never>?
     private var interruptionObserver: NSObjectProtocol?
@@ -64,6 +65,7 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
         player = nil
         current = track
         cover = nil
+        artwork = nil
         lyrics = []
         error = nil
         isLoading = true
@@ -151,7 +153,7 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
     func stop() {
         generation = UUID(); playTask?.cancel(); playTask = nil
         player?.stop(); player = nil; current = nil; isLoading = false
-        lyrics = []; cover = nil; error = nil
+        lyrics = []; cover = nil; artwork = nil; error = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -161,9 +163,12 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
     func reloadCompanions() {
         guard let current, let storage else { return }
         cover = nil
+        artwork = nil
         lyrics = []
-        if let url = storage.companionURL(for: current.path, extensions: ["jpg", "jpeg", "png", "heic", "webp"]) {
-            cover = Self.thumbnail(at: url)
+        if let url = storage.companionURL(for: current.path, extensions: ["jpg", "jpeg", "png", "heic", "webp"]),
+           let image = Self.thumbnail(at: url) {
+            cover = image
+            artwork = Self.makeArtwork(image)
         }
         if let url = storage.companionURL(for: current.path, extensions: ["watchlyrics"]),
            let data = try? Data(contentsOf: url), data.count <= 8 * 1024 * 1024,
@@ -181,6 +186,11 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
                 kCGImageSourceThumbnailMaxPixelSize: 400,
               ] as CFDictionary) else { return nil }
         return UIImage(cgImage: image)
+    }
+
+    /// MediaPlayer 在后台队列取封面；闭包若继承主线程隔离，Swift 6 运行时断言会直接闪退。
+    nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     func updateQueue(_ files: [WatchOfflineFile]) { queue = files; publish() }
@@ -219,7 +229,7 @@ final class WatchOfflinePlayer: NSObject, AVAudioPlayerDelegate {
                                       MPMediaItemPropertyPlaybackDuration: duration,
                                       MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
                                       MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0]
-            if let cover { info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: cover.size) { _ in cover } }
+            if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
         onChange?()
