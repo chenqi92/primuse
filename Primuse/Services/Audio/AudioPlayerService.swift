@@ -783,13 +783,14 @@ final class AudioPlayerService {
 
     /// 在 `currentTime` 与下一次 0.5s 采样之间做线性外推，每次 currentTime
     /// 真实更新（didSet 重置 anchor）就跟引擎报告时间校准一次,不会累积漂移。
-    func interpolatedTime(at date: Date = Date()) -> TimeInterval {
+    func interpolatedTime(at date: Date = Date(), rate: Double = 1) -> TimeInterval {
         PlaybackClockFreezePolicy.frozenTime(
             cachedCurrentTime: currentTime,
             currentTimeAnchor: currentTimeAnchor,
             eventTime: date,
             isAdvancing: isPlaying && !isLoading && remotePlaybackBufferingStartedAt == nil,
-            duration: duration
+            duration: duration,
+            rate: rate
         )
     }
 
@@ -2678,6 +2679,7 @@ final class AudioPlayerService {
         // currentRoute performs synchronous IPC; lyric ticks only need the
         // latest route snapshot, which route-change notifications keep current.
         isCarAudioRouteConnected = Self.isCarAudioRouteActive()
+        refreshAudioSessionOutputDelay()
         let center = NotificationCenter.default
 
         carPlayConnectObserver = center.addObserver(
@@ -2688,6 +2690,7 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isCarPlaySceneActive = true
+                self.refreshAudioSessionOutputDelay()
                 self.applyAudioSessionMixing()
                 self.refreshSystemLyricsPresentation()
                 self.forceAudioOnlyIfNeeded()
@@ -2737,6 +2740,7 @@ final class AudioPlayerService {
                 let handlingOutputs = session.currentRoute.outputs
                 let wasCarAudioConnected = self.isCarAudioRouteConnected
                 self.isCarAudioRouteConnected = handlingOutputs.contains { $0.portType == .carAudio }
+                self.refreshAudioSessionOutputDelay()
                 if wasCarAudioConnected != self.isCarAudioRouteConnected {
                     self.refreshSystemLyricsPresentation()
                 }
@@ -8117,6 +8121,12 @@ final class AudioPlayerService {
     /// 单调递增的令牌代替身份比较: 只有仍然是最新一次调度的任务才可以清空
     /// 句柄, 否则被取消的旧任务会抹掉后继任务的句柄。
     @ObservationIgnored private var lockScreenLyricsCatchUpToken: UInt64 = 0
+    /// CarPlay 主标题下一行的准点发布任务, 令牌用法同上面的补发任务。
+    @ObservationIgnored private var carTitleLyricsBoundaryTask: Task<Void, Never>?
+    @ObservationIgnored private var carTitleLyricsBoundaryToken: UInt64 = 0
+    @ObservationIgnored private var carTitleLyricsBoundaryFireDate: Date?
+    /// 输出缓冲加线路延迟。读取要走 IPC, 路由变化时刷新, 歌词 tick 只读这份快照。
+    @ObservationIgnored private var audioSessionOutputDelay: TimeInterval = 0
     @ObservationIgnored private var lastPublishedWidgetLyricsSignature: String?
     @ObservationIgnored private var lyricsWidgetConfigurationRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var lastLyricsWidgetConfigurationRefreshAt = Date.distantPast
@@ -8248,6 +8258,7 @@ final class AudioPlayerService {
         lockScreenLyricsCatchUpTask?.cancel()
         lockScreenLyricsCatchUpTask = nil
         lockScreenLyricsCatchUpToken &+= 1
+        cancelCarTitleLyricsBoundary()
         pendingLockScreenLyricsPublish = false
         clearWidgetLyricsSnapshotIfNeeded()
         publishLyricsActivityProbe()
@@ -8362,19 +8373,54 @@ final class AudioPlayerService {
             return NowPlayingLyricsMetadataPresentation(title: "", artist: "", lyricLineID: nil)
         }
         let lyrics = systemLyricsSongID == song.id ? systemSynchronizedLyrics : []
+        let carTitle = publishesCarTitleLyrics
         return NowPlayingLyricsMetadataPolicy.presentation(
             canonicalTitle: song.title,
             artistName: displayedArtistName(for: song),
             synchronizedLyrics: lyrics,
-            playbackTime: currentTime,
+            playbackTime: carTitle ? systemLyricsPlaybackTime() : currentTime,
             isEnabled: systemNowPlayingLyricsEnabled,
             isLiveStream: isLiveRadio,
-            prefersStableTitle: shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition != .title
+            prefersStableTitle: shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition != .title,
+            lookahead: carTitle ? carTitleLyricsLookahead : 0
         )
+    }
+
+    /// CarPlay 或车载线路用主标题显示歌词。这种模式逐行立即发布, 按下一行时间
+    /// 精确定时, 并提前一点发布抵消车机的显示延迟。
+    var publishesCarTitleLyrics: Bool {
+        shouldForceAudioOnly && CarPlaySettingsStore.shared.configuration.lyricsPosition == .title
+    }
+
+    /// 系统播放信息里的时间按这个倍速走; 系统音频播放器不变速。
+    private var systemNowPlayingClockRate: Double {
+        let rate = isSystemAudioPlaybackActive ? 1 : Double(requestedPlaybackRate)
+        return rate.isFinite && rate > 0 ? rate : 1
+    }
+
+    /// 两次 0.5 秒采样之间的播放位置, 按倍速外推。歌词边界定时器到点时
+    /// `currentTime` 还是上一拍的值, 换行判断和发布的进度都用它。
+    func systemLyricsPlaybackTime(at date: Date = Date()) -> TimeInterval {
+        interpolatedTime(at: date, rate: systemNowPlayingClockRate)
+    }
+
+    /// 本地引擎的时钟是渲染位置, 声音还要过输出缓冲和线路才出来, 这段已经
+    /// 替显示延迟抵掉一部分; 系统播放器、Apple Music 和投放给的是出声位置。
+    var carTitleLyricsLookahead: TimeInterval {
+        let usesRenderClock = !isSystemMediaPlaybackActive && !isAppleMusicMode && !isCastingMode
+        return CarPlayLyricsTimingPolicy.lookahead(
+            audioOutputDelay: usesRenderClock ? audioSessionOutputDelay : 0
+        )
+    }
+
+    private func refreshAudioSessionOutputDelay() {
+        let session = AVAudioSession.sharedInstance()
+        audioSessionOutputDelay = session.outputLatency + session.ioBufferDuration
     }
 
     private func publishLockScreenLyricsIfNeeded() {
         publishLyricsActivityProbe()
+        defer { scheduleCarTitleLyricsBoundary() }
         guard systemNowPlayingLyricsEnabled,
               !isLiveRadio,
               systemLyricsSongID == currentSong?.id,
@@ -8385,8 +8431,7 @@ final class AudioPlayerService {
         guard lineChanged || pendingLockScreenLyricsPublish else { return }
 
         // 车载主标题换行立即发布，避免短句被限流合并；其余系统歌词继续限流。
-        let publishesCarTitle = shouldForceAudioOnly
-            && CarPlaySettingsStore.shared.configuration.lyricsPosition == .title
+        let publishesCarTitle = publishesCarTitleLyrics
         let now = Date()
         guard publishesCarTitle || NowPlayingLyricsPublishPolicy.shouldPublish(
             lastPublishedAt: lastLockScreenLyricsPublishAt,
@@ -8424,6 +8469,64 @@ final class AudioPlayerService {
             guard !Task.isCancelled else { return }
             self.publishLockScreenLyricsIfNeeded()
         }
+    }
+
+    /// 车机主标题在下一行(含提前量)到点时就发布, 不等 0.5 秒一拍的时钟采样。
+    /// 每次采样、拖动、换行后重算; 暂停、缓冲、采样过期或没有下一行时撤销。
+    private func scheduleCarTitleLyricsBoundary() {
+        let now = Date()
+        guard publishesCarTitleLyrics,
+              !isLiveRadio,
+              !currentItemIsAudiobook,
+              isPlaying,
+              !isLoading,
+              remotePlaybackBufferingStartedAt == nil,
+              now.timeIntervalSince(currentTimeAnchor) < PlaybackClockFreezePolicy.maximumExtrapolation,
+              let song = currentSong,
+              systemLyricsSongID == song.id else {
+            cancelCarTitleLyricsBoundary()
+            return
+        }
+        let position = systemLyricsPlaybackTime(at: now)
+        guard let changeTime = CarPlayLyricsTimingPolicy.nextChangeTime(
+                  in: systemSynchronizedLyrics,
+                  after: position,
+                  lookahead: carTitleLyricsLookahead
+              ),
+              duration <= 0 || changeTime < duration,
+              let delay = CarPlayLyricsTimingPolicy.delay(
+                  until: changeTime,
+                  from: position,
+                  rate: systemNowPlayingClockRate
+              ) else {
+            cancelCarTitleLyricsBoundary()
+            return
+        }
+        let fireDate = now.addingTimeInterval(delay)
+        // 每拍采样只带来几毫秒抖动, 沿用已排好的任务, 不必每 0.5 秒重建。
+        if carTitleLyricsBoundaryTask != nil,
+           let scheduled = carTitleLyricsBoundaryFireDate,
+           abs(scheduled.timeIntervalSince(fireDate)) < 0.015 {
+            return
+        }
+        cancelCarTitleLyricsBoundary()
+        let token = carTitleLyricsBoundaryToken
+        carTitleLyricsBoundaryFireDate = fireDate
+        carTitleLyricsBoundaryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay), tolerance: .milliseconds(5))
+            guard let self, self.carTitleLyricsBoundaryToken == token else { return }
+            self.carTitleLyricsBoundaryTask = nil
+            self.carTitleLyricsBoundaryFireDate = nil
+            guard !Task.isCancelled else { return }
+            self.publishLockScreenLyricsIfNeeded()
+        }
+    }
+
+    private func cancelCarTitleLyricsBoundary() {
+        carTitleLyricsBoundaryToken &+= 1
+        carTitleLyricsBoundaryTask?.cancel()
+        carTitleLyricsBoundaryTask = nil
+        carTitleLyricsBoundaryFireDate = nil
     }
 
     func publishLyricsActivityProbe() {

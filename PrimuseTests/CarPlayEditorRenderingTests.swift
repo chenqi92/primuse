@@ -52,15 +52,19 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         let artwork = try XCTUnwrap(center.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
 
         // Advance faster than the phone's publish window: every visible line must reach MediaPlayer.
+        // The car title switches `lead` seconds before each timestamp to absorb the head unit's display delay.
+        let lead = player.carTitleLyricsLookahead
+        XCTAssertGreaterThanOrEqual(lead, 0)
+        XCTAssertLessThanOrEqual(lead, CarPlayLyricsTimingPolicy.displayLead)
         for (index, line) in lines.enumerated() {
-            player.currentTime = Double(index) * 0.5
+            player.currentTime = max(0, Double(index) * 0.5 - lead + 0.01)
             XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, line)
             XCTAssertEqual(center.nowPlayingInfo?[MPMediaItemPropertyArtist] as? String, "纸船夜航 · 窗边乐队")
             XCTAssertEqual(center.nowPlayingInfo?[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String, song.id)
             XCTAssertTrue(center.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork === artwork)
             XCTAssertFalse(player.pendingLockScreenLyricsPublish)
             let publishedAt = player.lastLockScreenLyricsPublishAt
-            player.currentTime += 0.1
+            player.currentTime += 0.05
             XCTAssertEqual(player.lastLockScreenLyricsPublishAt, publishedAt,
                            "Sampling the same line must not republish metadata")
         }

@@ -108,9 +108,12 @@ extension AudioPlayerService {
             info[MPMediaItemPropertyTitle] = lyricsPresentation.title
             info[MPMediaItemPropertyArtist] = lyricsPresentation.artist
             info[MPNowPlayingInfoPropertyPlaybackRate] = projection.playbackRate
+            // 车机主标题按下一行准点发布, 那时 currentTime 还是上一拍的采样,
+            // 直接发出去车机进度条会往回跳。
+            let elapsed = publishesCarTitleLyrics ? systemLyricsPlaybackTime() : currentTime
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(
                 0,
-                min(currentTime, duration > 0 ? duration : currentTime)
+                min(elapsed, duration > 0 ? duration : elapsed)
             )
             nowPlayingCenter.nowPlayingInfo = info
             cachedNowPlayingInfo = info

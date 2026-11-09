@@ -53,7 +53,8 @@ public enum PlaybackClockFreezePolicy {
         currentTimeAnchor: Date,
         eventTime: Date,
         isAdvancing: Bool,
-        duration: TimeInterval
+        duration: TimeInterval,
+        rate: Double = 1
     ) -> TimeInterval {
         let cachedTimeIsValid = cachedCurrentTime.isFinite
         let safeCachedTime = cachedTimeIsValid ? max(0, cachedCurrentTime) : 0
@@ -62,7 +63,8 @@ public enum PlaybackClockFreezePolicy {
         if isAdvancing, cachedTimeIsValid {
             let elapsed = eventTime.timeIntervalSince(currentTimeAnchor)
             if elapsed.isFinite, elapsed > 0 {
-                let extrapolation = min(elapsed, maximumExtrapolation)
+                let safeRate = rate.isFinite && rate > 0 ? rate : 1
+                let extrapolation = min(elapsed, maximumExtrapolation) * safeRate
                 let extrapolated = safeCachedTime + extrapolation
                 if extrapolated.isFinite {
                     result = extrapolated

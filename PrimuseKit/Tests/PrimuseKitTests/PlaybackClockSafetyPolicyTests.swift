@@ -46,6 +46,38 @@ struct PlaybackClockSafetyPolicyTests {
         ) == 43)
     }
 
+    @Test("Projection follows the playback rate within the same one-second window")
+    func frozenProgressFollowsRate() {
+        let anchor = Date(timeIntervalSinceReferenceDate: 1_000)
+
+        let fast = PlaybackClockFreezePolicy.frozenTime(
+            cachedCurrentTime: 42,
+            currentTimeAnchor: anchor,
+            eventTime: anchor.addingTimeInterval(0.4),
+            isAdvancing: true,
+            duration: 180,
+            rate: 1.5
+        )
+        #expect(abs(fast - 42.6) < 0.000_001)
+        #expect(PlaybackClockFreezePolicy.frozenTime(
+            cachedCurrentTime: 42,
+            currentTimeAnchor: anchor,
+            eventTime: anchor.addingTimeInterval(20),
+            isAdvancing: true,
+            duration: 180,
+            rate: 2
+        ) == 44)
+        let invalidRate = PlaybackClockFreezePolicy.frozenTime(
+            cachedCurrentTime: 42,
+            currentTimeAnchor: anchor,
+            eventTime: anchor.addingTimeInterval(0.4),
+            isAdvancing: true,
+            duration: 180,
+            rate: 0
+        )
+        #expect(abs(invalidRate - 42.4) < 0.000_001)
+    }
+
     @Test("Paused and out-of-order events preserve the cached sample")
     func frozenProgressDoesNotInventMovement() {
         let anchor = Date(timeIntervalSinceReferenceDate: 1_000)

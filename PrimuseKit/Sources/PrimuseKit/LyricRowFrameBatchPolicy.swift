@@ -904,7 +904,8 @@ public enum NowPlayingLyricsMetadataPolicy {
         playbackTime: TimeInterval,
         isEnabled: Bool,
         isLiveStream: Bool,
-        prefersStableTitle: Bool = false
+        prefersStableTitle: Bool = false,
+        lookahead: TimeInterval = 0
     ) -> NowPlayingLyricsMetadataPresentation {
         presentation(
             canonicalTitle: canonicalTitle,
@@ -913,11 +914,14 @@ public enum NowPlayingLyricsMetadataPolicy {
             playbackTime: playbackTime,
             isEnabled: isEnabled,
             isLiveStream: isLiveStream,
-            prefersStableTitle: prefersStableTitle
+            prefersStableTitle: prefersStableTitle,
+            lookahead: lookahead
         )
     }
 
     /// Variant for callers that already hold `synchronizedLines(_:)` output.
+    /// `lookahead` switches each line that many seconds before its timestamp,
+    /// for surfaces whose display lags behind the published metadata.
     public static func presentation(
         canonicalTitle: String,
         artistName: String?,
@@ -925,7 +929,8 @@ public enum NowPlayingLyricsMetadataPolicy {
         playbackTime: TimeInterval,
         isEnabled: Bool,
         isLiveStream: Bool,
-        prefersStableTitle: Bool = false
+        prefersStableTitle: Bool = false,
+        lookahead: TimeInterval = 0
     ) -> NowPlayingLyricsMetadataPresentation {
         let title = canonicalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let artist = artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -940,11 +945,13 @@ public enum NowPlayingLyricsMetadataPolicy {
               playbackTime.isFinite,
               playbackTime >= 0 else { return canonical }
 
+        let lead = lookahead.isFinite ? max(0, lookahead) : 0
         guard let firstLine = synchronizedLyrics.first,
-              playbackTime >= firstLine.timestamp,
+              playbackTime + lead >= firstLine.timestamp,
               let activeIndex = LyricPlaybackPositionPolicy.activeLineIndex(
                 in: synchronizedLyrics,
-                at: playbackTime
+                at: playbackTime,
+                lookahead: lead
               ) else { return canonical }
 
         let line = synchronizedLyrics[activeIndex]
@@ -961,6 +968,62 @@ public enum NowPlayingLyricsMetadataPolicy {
             artist: secondary,
             lyricLineID: line.id
         )
+    }
+}
+
+/// CarPlay 主标题显示歌词的发布时机。
+///
+/// 主标题从 `nowPlayingInfo` 赋值到车机屏幕上换字, 还要经过 MediaRemote、
+/// CarPlay 渲染和送往车机的视频流; 到了时间戳才发布, 字总比声音晚。所以每一行
+/// 提前一点发布, 并按「下一行时间戳 − 提前量」精确定时, 不跟 0.5 秒的时钟采样走。
+public enum CarPlayLyricsTimingPolicy {
+    /// 显示链路的延迟, 也是声音没有额外输出延迟时的提前量。
+    public static let displayLead: TimeInterval = 0.4
+    /// 到点后再多等一点, 保证播放位置已越过边界, 不会因浮点误差没换行又重排一次。
+    static let boundaryMargin: TimeInterval = 0.005
+    /// 定时下限, 时钟异常时也不会在主线程上空转。
+    static let minimumDelay: TimeInterval = 0.02
+
+    /// 显示链路的延迟减去声音从播放时钟到出声的延迟。声音更慢时只是不再提前,
+    /// 不往后拖: 线路报的延迟不准时, 歌词也不会比准点发布更晚。
+    public static func lookahead(audioOutputDelay: TimeInterval) -> TimeInterval {
+        guard audioOutputDelay.isFinite, audioOutputDelay > 0 else { return displayLead }
+        return max(0, displayLead - audioOutputDelay)
+    }
+
+    /// 播放位置走到哪一刻, 主标题(已含提前量)会换成下一行; 没有下一行时为 nil。
+    /// 与当前行时间戳相同的伴随行同屏显示, 不算换行。
+    public static func nextChangeTime(
+        in synchronizedLyrics: [LyricLine],
+        after playbackTime: TimeInterval,
+        lookahead: TimeInterval
+    ) -> TimeInterval? {
+        guard playbackTime.isFinite, lookahead.isFinite else { return nil }
+        let lead = max(0, lookahead)
+        let target = playbackTime + lead
+        var lower = 0
+        var upper = synchronizedLyrics.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if synchronizedLyrics[middle].timestamp <= target {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        guard synchronizedLyrics.indices.contains(lower) else { return nil }
+        return synchronizedLyrics[lower].timestamp - lead
+    }
+
+    /// 从现在起要等多少墙钟秒, 播放位置才走到 `changeTime`; 按倍速折算。
+    public static func delay(
+        until changeTime: TimeInterval,
+        from playbackTime: TimeInterval,
+        rate: Double
+    ) -> TimeInterval? {
+        guard changeTime.isFinite, playbackTime.isFinite else { return nil }
+        let safeRate = rate.isFinite && rate > 0 ? rate : 1
+        return max(minimumDelay, (changeTime - playbackTime) / safeRate + boundaryMargin)
     }
 }
 
