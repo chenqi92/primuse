@@ -14,12 +14,22 @@ public struct ScrobbleEntry: Codable, Sendable, Hashable {
     public let trackNumber: Int?
     /// 听歌开始的 Unix timestamp (秒)。Last.fm / LB 都要求是开始时间。
     public let startedAt: Int64
+    /// Classification inputs survive offline listening and removal from the library.
+    /// Older queue entries have no content and must be resolved before retrying.
+    public let content: Content?
+
+    public struct Content: Codable, Sendable, Hashable {
+        let sourceID: String
+        let filePath: String
+        let genre: String?
+        let serverLibraryID: String?
+    }
 
     public init(
         songID: String, title: String, artist: String,
         album: String? = nil, albumArtist: String? = nil,
         durationSec: Int? = nil, trackNumber: Int? = nil,
-        startedAt: Int64
+        startedAt: Int64, content: Content? = nil
     ) {
         self.songID = songID
         self.title = title
@@ -29,6 +39,7 @@ public struct ScrobbleEntry: Codable, Sendable, Hashable {
         self.durationSec = durationSec
         self.trackNumber = trackNumber
         self.startedAt = startedAt
+        self.content = content
     }
 }
 

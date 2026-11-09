@@ -323,6 +323,194 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(service.pendingCount, 0)
         XCTAssertEqual(fixture.count, 4)
     }
+    @MainActor
+    func testNonMusicNeverReachesProvidersButKeepsSourcePlaybackFeedback() async throws {
+        try await withContentFixture { defaults, store in
+            let providers = ScrobbleProviderID.allCases.map { ScrobbleRecordingProvider(id: $0) }
+            let service = ScrobbleService(defaults: defaults, providers: { providers },
+                                          spokenWordStore: store, songLookup: { _ in nil })
+            defer { service.clearQueue() }
+            ScrobbleSettingsStore.shared.isEnabled = true
+            var serverStarts: [String] = []
+            var serverListens: [String] = []
+            service.serverScrobbleHandler = { song, submission in
+                if submission { serverListens.append(song.id) }
+                else { serverStarts.append(song.id) }
+            }
+            store.setKind(.spokenWord, forSongIDs: ["marked-book"])
+            store.setFolderKind(.spokenWord, sourceID: "fixture", path: "/Books")
+            let blocked = [
+                contentSong("rss", sourceID: PodcastPlaybackSong.sourceID),
+                contentSong("audiobook", path: "/chapter.m4b"),
+                contentSong("podcast-file", genre: "Podcast"),
+                contentSong("lecture", genre: "Lecture"),
+                contentSong("marked-book"),
+                contentSong("folder-book", path: "/Books/part.mp3"),
+                contentSong("server-book", sourceID: "books-server"),
+                contentSong("radio", sourceID: RadioStation.playbackSourceID)
+            ]
+            for song in blocked {
+                service.handlePlaybackStarted(song: song)
+                service.handleProgressTick(playedDelta: 240)
+            }
+            var videoPodcast = contentSong("video-podcast", sourceID: PodcastPlaybackSong.sourceID)
+            videoPodcast.duration = 0
+            videoPodcast.mvPath = "https://fixture.invalid/episode.mp4"
+            service.handlePlaybackStarted(song: videoPodcast)
+            service.handlePlaybackDurationResolved(songID: videoPodcast.id, duration: 900)
+            service.handleProgressTick(playedDelta: 240)
+
+            store.setKind(.music, forSongIDs: ["corrected-music"])
+            var videoMusic = contentSong("music-video")
+            videoMusic.duration = 0
+            videoMusic.mvPath = "https://fixture.invalid/music.mp4"
+            let music = [contentSong("long-music"), contentSong("corrected-music", path: "/music.m4b"), videoMusic]
+            for song in music {
+                service.handlePlaybackStarted(song: song)
+                if song.duration == 0 { service.handlePlaybackDurationResolved(songID: song.id, duration: 900) }
+                service.handleProgressTick(playedDelta: 239)
+                XCTAssertFalse(providers.contains { $0.listens.contains(song.id) })
+                service.handleProgressTick(playedDelta: 1)
+            }
+            for _ in 0..<500 where service.pendingCount > 0 || providers.contains(where: { $0.listens.count < music.count || $0.nowPlaying.count < music.count }) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            for provider in providers {
+                XCTAssertEqual(Set(provider.nowPlaying), Set(music.map(\.id)))
+                XCTAssertEqual(Set(provider.listens), Set(music.map(\.id)))
+            }
+            XCTAssertEqual(serverStarts.count, blocked.count + 1 + music.count)
+            XCTAssertEqual(serverListens, serverStarts)
+            XCTAssertEqual(service.pendingCount, 0)
+        }
+    }
+
+    @MainActor
+    func testSwitchingToSpokenWordAndReclassificationDoNotSubmitMusicSession() async throws {
+        try await withContentFixture { defaults, store in
+            let provider = ScrobbleRecordingProvider(id: .lastFm)
+            let service = ScrobbleService(defaults: defaults, providers: { [provider] },
+                                          spokenWordStore: store, songLookup: { _ in nil })
+            defer { service.clearQueue() }
+            service.handlePlaybackStarted(song: contentSong("music"))
+            service.handleProgressTick(playedDelta: 239)
+            service.handlePlaybackStarted(song: contentSong("book", path: "/chapter.m4b"))
+            service.handleProgressTick(playedDelta: 240)
+            service.handlePlaybackStarted(song: contentSong("reclassified"))
+            store.setKind(.podcast, forSongIDs: ["reclassified"])
+            service.handleProgressTick(playedDelta: 240)
+            service.handlePlaybackStarted(song: contentSong("control"))
+            service.handleProgressTick(playedDelta: 240)
+            for _ in 0..<500 where provider.listens.isEmpty || service.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(provider.listens, ["control"])
+            XCTAssertEqual(service.pendingCount, 0)
+        }
+    }
+
+    @MainActor
+    func testLegacyQueueFiltersKnownNonMusicAndHoldsUnknownUntilLibraryResolves() async throws {
+        try await withContentFixture { defaults, store in
+            let provider = ScrobbleRecordingProvider(id: .lastFm)
+            let podcastID = PodcastIdentity.episodeID(showID: "fixture", guid: "episode")
+            store.setKind(.spokenWord, forSongIDs: ["marked-book"])
+            var songs = ["music": contentSong("music"), "book": contentSong("book", path: "/chapter.m4b")]
+            let ids = ["music", "book", "marked-book", podcastID, RadioStation.playbackSongIDPrefix + "fixture", "unknown"]
+            let rows: [[String: Any]] = ids.map { id in
+                ["entry": ["songID": id, "title": id, "artist": "Fixture", "startedAt": Int(Date().timeIntervalSince1970)],
+                 "pendingProviders": ["lastFm"], "attempts": 0, "nextRetryAt": 0]
+            }
+            defaults.set(try JSONSerialization.data(withJSONObject: rows), forKey: "primuse.scrobble.queue.v1")
+            let service = ScrobbleService(defaults: defaults, providers: { [provider] },
+                                          spokenWordStore: store, songLookup: { songs[$0] })
+            defer { service.clearQueue() }
+            XCTAssertEqual(service.pendingCount, 2)
+            ScrobbleSettingsStore.shared.isEnabled = true
+            service.retryPendingNow()
+            for _ in 0..<500 where service.pendingCount != 1 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(provider.listens, ["music"])
+            XCTAssertEqual(service.pendingCount, 1, "Unknown legacy records remain pending without being sent")
+
+            ScrobbleSettingsStore.shared.isEnabled = false
+            let saved = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v1"))
+            service.clearQueue()
+            defaults.set(saved, forKey: "primuse.scrobble.queue.v1")
+            songs["unknown"] = contentSong("unknown")
+            let reopened = ScrobbleService(defaults: defaults, providers: { [provider] },
+                                           spokenWordStore: store, songLookup: { songs[$0] })
+            defer { reopened.clearQueue() }
+            ScrobbleSettingsStore.shared.isEnabled = true
+            reopened.retryPendingNow()
+            for _ in 0..<500 where reopened.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(provider.listens, ["music", "unknown"])
+            XCTAssertEqual(reopened.pendingCount, 0)
+        }
+    }
+
+    @MainActor
+    func testPersistedContentSupportsRetryWithoutLibraryAndRechecksFolderClassification() async throws {
+        try await withContentFixture { defaults, store in
+            let initial = ScrobbleRecordingProvider(id: .lastFm)
+            let service = ScrobbleService(defaults: defaults, providers: { [initial] },
+                                          spokenWordStore: store, songLookup: { _ in nil })
+            defer { service.clearQueue() }
+            for song in [contentSong("music"), contentSong("later-book", path: "/Books/part.mp3")] {
+                service.handlePlaybackStarted(song: song)
+                service.handleProgressTick(playedDelta: 240)
+            }
+            XCTAssertEqual(service.pendingCount, 2)
+            let saved = try XCTUnwrap(defaults.data(forKey: "primuse.scrobble.queue.v1"))
+            for _ in 0..<500 where service.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(service.pendingCount, 0)
+            service.clearQueue()
+            defaults.set(saved, forKey: "primuse.scrobble.queue.v1")
+            store.setFolderKind(.spokenWord, sourceID: "fixture", path: "/Books")
+            let online = ScrobbleRecordingProvider(id: .lastFm)
+            let reopened = ScrobbleService(defaults: defaults, providers: { [online] },
+                                           spokenWordStore: store, songLookup: { _ in nil })
+            defer { reopened.clearQueue() }
+            XCTAssertEqual(reopened.pendingCount, 1)
+            ScrobbleSettingsStore.shared.isEnabled = true
+            reopened.retryPendingNow()
+            for _ in 0..<500 where reopened.pendingCount > 0 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(online.listens, ["music"])
+            XCTAssertEqual(reopened.pendingCount, 0)
+        }
+    }
+
+    @MainActor
+    private func withContentFixture(_ body: @MainActor (UserDefaults, SpokenWordStore) async throws -> Void) async throws {
+        let suite = "scrobble-content-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let store = SpokenWordStore(storeURL: folder.appendingPathComponent("spoken.json"))
+        store.updateFolderTagSources([
+            MusicSource(id: "fixture", name: "Fixture", type: .webdav),
+            MusicSource(id: "books-server", name: "Books", type: .tingReader)
+        ], pruningStaleTags: false)
+        let settings = ScrobbleSettingsStore.shared
+        let previous = (settings.isEnabled, settings.enabledProviders, settings.sendNowPlaying)
+        settings.isEnabled = false
+        settings.enabledProviders = Set(ScrobbleProviderID.allCases)
+        settings.sendNowPlaying = true
+        defer {
+            settings.isEnabled = false
+            settings.enabledProviders = previous.1
+            settings.sendNowPlaying = previous.2
+            settings.isEnabled = previous.0
+            store.persistLocally()
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        try await body(defaults, store)
+    }
+
+    private func contentSong(_ id: String, path: String = "/fixture.flac", genre: String? = nil,
+                             sourceID: String = "fixture") -> Song {
+        Song(id: id, title: id, artistName: "Fixture", duration: 3600, fileFormat: .flac,
+             filePath: path, sourceID: sourceID, genre: genre)
+    }
+
     private func queueDeadline(_ defaults: UserDefaults, key: String = "nextRetryAt") -> TimeInterval {
         guard let data = defaults.data(forKey: "primuse.scrobble.queue.v1"),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return 0 }
@@ -330,6 +518,25 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
     }
 
     static let entry = ScrobbleEntry(songID: "fixture", title: "Title + &", artist: "Artist", startedAt: 1_700_000_000)
+}
+
+private final class ScrobbleRecordingProvider: ScrobbleProvider, @unchecked Sendable {
+    let id: ScrobbleProviderID
+    let credentialFingerprint = "content-fixture"
+    private let lock = NSLock()
+    private var recordedNowPlaying: [String] = []
+    private var recordedListens: [String] = []
+    var nowPlaying: [String] { lock.withLock { recordedNowPlaying } }
+    var listens: [String] { lock.withLock { recordedListens } }
+
+    init(id: ScrobbleProviderID) { self.id = id }
+    func validateCredentials() async -> Bool? { true }
+    func sendNowPlaying(_ entry: ScrobbleEntry) async throws {
+        lock.withLock { recordedNowPlaying.append(entry.songID) }
+    }
+    func submitListens(_ entries: [ScrobbleEntry]) async throws {
+        lock.withLock { recordedListens.append(contentsOf: entries.map(\.songID)) }
+    }
 }
 
 private final class ScrobbleHTTPFixture: @unchecked Sendable {

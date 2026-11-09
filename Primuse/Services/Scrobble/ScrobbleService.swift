@@ -10,6 +10,8 @@ final class ScrobbleService {
 
     private let defaults: UserDefaults
     private let providersOverride: (() -> [any ScrobbleProvider])?
+    private let spokenWordStore: SpokenWordStore
+    private let songLookup: (String) -> Song?
     /// 当前正在播放的歌曲信息 (用于 50%/4min 触发判断)。
     /// AudioPlayerService 切歌时会 reset。
     private var currentSession: PlaySession?
@@ -83,9 +85,18 @@ final class ScrobbleService {
         var unavailable: Set<ScrobbleProviderID> = []
     }
 
-    init(defaults: UserDefaults = .standard, providers: (() -> [any ScrobbleProvider])? = nil) {
+    init(
+        defaults: UserDefaults = .standard,
+        providers: (() -> [any ScrobbleProvider])? = nil,
+        spokenWordStore: SpokenWordStore = .shared,
+        songLookup: @escaping (String) -> Song? = {
+            PlayHistoryStore.shared.classification.library?.song(id: $0)
+        }
+    ) {
         self.defaults = defaults
         self.providersOverride = providers
+        self.spokenWordStore = spokenWordStore
+        self.songLookup = songLookup
         loadQueue()
         loadRecentReports()
         loadRejectedCredentials()
@@ -132,6 +143,7 @@ final class ScrobbleService {
         // 服务端源回报 "正在播放"(submission=false)。非服务端源在 handler 内 no-op。
         serverScrobbleHandler?(song, false)
 
+        guard canReport(entry) == true else { return }
         let settings = ScrobbleSettingsStore.shared
         guard settings.isEnabled, !settings.enabledProviders.isEmpty else { return }
         if settings.sendNowPlaying {
@@ -160,7 +172,8 @@ final class ScrobbleService {
             albumArtist: old.albumArtist,
             durationSec: durationSec,
             trackNumber: old.trackNumber,
-            startedAt: old.startedAt
+            startedAt: old.startedAt,
+            content: old.content
         )
         currentSession = session
 
@@ -241,6 +254,7 @@ final class ScrobbleService {
 
     /// Now Playing 同步发送 — 失败不入队 (now playing 是实时状态, 没必要补)。
     private func sendNowPlayingAcrossProviders(entry: ScrobbleEntry) {
+        guard canReport(entry) == true else { return }
         let snapshot = providerSnapshot()
         let providers = snapshot.ready
         if !snapshot.unavailable.isEmpty {
@@ -248,6 +262,7 @@ final class ScrobbleService {
         }
         guard !providers.isEmpty else { return }
         Task {
+            guard canReport(entry) == true else { return }
             let rejected = await withTaskGroup(
                 of: (any ScrobbleProvider)?.self,
                 returning: [any ScrobbleProvider].self
@@ -276,6 +291,7 @@ final class ScrobbleService {
     /// Scrobble 提交。先同步持久化，再尝试网络；进程在请求期间被终止时，
     /// 下次启动仍能补报。语义是 at-least-once，provider 以 startedAt 去重。
     private func scrobbleAcrossProviders(entry: ScrobbleEntry) {
+        guard canReport(entry) == true else { return }
         let snapshot = providerSnapshot()
         let providers = snapshot.ready
         let providerIDs = Set(providers.map(\.id)).union(snapshot.unavailable)
@@ -292,6 +308,10 @@ final class ScrobbleService {
         }
 
         Task {
+            guard canReport(entry) == true else {
+                saveQueue()
+                return
+            }
             await withTaskGroup(of: (ScrobbleProviderID, Bool, Bool, TimeInterval?, (any ScrobbleProvider)?).self) { group in
                 for provider in providers {
                     group.addTask {
@@ -430,6 +450,14 @@ final class ScrobbleService {
                     $0.entry.songID == key.songID && $0.entry.startedAt == key.startedAt
                 }) else { continue }  // 条目在 await 期间被清空/出队
                 let item = queue[idx]
+                let eligible = canReport(item.entry)
+                guard eligible == true else {
+                    // An unresolved legacy listen is retained until its library
+                    // becomes available; it must not default to music on launch.
+                    if eligible == false { queue.remove(at: idx) }
+                    else { queue[idx].nextRetryAt = now + 60 }
+                    continue
+                }
                 let providers = available.filter { item.pendingProviders.contains($0.id) }
                 guard !providers.isEmpty else {
                     // 走到这里 isEnabled 必为 true (总开关已在循环顶部拦掉)。空集只
@@ -455,6 +483,10 @@ final class ScrobbleService {
 
                 var stillFailed: Set<ScrobbleProviderID> = []
                 for provider in providers {
+                    guard canReport(item.entry) == true else {
+                        stillFailed.formUnion(item.pendingProviders)
+                        break
+                    }
                     do {
                         try await provider.submitListens([item.entry])
                         plog("🎵 scrobble retry [\(provider.id.displayName)] OK")
@@ -571,8 +603,28 @@ final class ScrobbleService {
                 ? song.duration.finiteInt()
                 : nil,
             trackNumber: song.trackNumber,
-            startedAt: Int64(Date().timeIntervalSince1970)
+            startedAt: Int64(Date().timeIntervalSince1970),
+            content: .init(sourceID: song.sourceID, filePath: song.filePath,
+                           genre: song.genre, serverLibraryID: song.serverLibraryID)
         )
+    }
+
+    /// nil means a legacy record has no reliable classification yet.
+    private func canReport(_ entry: ScrobbleEntry) -> Bool? {
+        guard ListeningHistorySpacePolicy.space(
+            songID: entry.songID, sourceID: entry.content?.sourceID ?? "", spokenWordSongIDs: []
+        ) == .music else { return false }
+        if let song = songLookup(entry.songID) {
+            return ListeningHistorySpacePolicy.space(
+                songID: song.id, sourceID: song.sourceID, spokenWordSongIDs: []
+            ) == .music && !spokenWordStore.isSpokenWord(song)
+        }
+        if let kind = spokenWordStore.overrides[entry.songID] { return kind == .music }
+        guard let content = entry.content else { return nil }
+        return spokenWordStore.classificationSnapshot.kind(
+            songID: entry.songID, sourceID: content.sourceID, filePath: content.filePath,
+            genre: content.genre, serverLibraryID: content.serverLibraryID
+        ) == .music
     }
 
     // MARK: - Persistence
@@ -600,6 +652,7 @@ final class ScrobbleService {
         let cutoff = now - Self.queueRetention
         queue.removeAll {
             $0.pendingProviders.isEmpty || TimeInterval($0.entry.startedAt) < cutoff
+                || canReport($0.entry) == false
         }
         if queue.count > Self.queueLimit {
             queue.sort {
