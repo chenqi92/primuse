@@ -1348,6 +1348,11 @@ final class AppleMusicLibraryService {
         lastSyncProgressAt = Date()
     }
 
+    private func markSyncProgress(generation: UUID) {
+        guard syncGeneration == generation, !Task.isCancelled else { return }
+        markSyncProgress()
+    }
+
     /// 进度看门狗: 不给整个 sync 一个固定总时限 (大库会被误杀), 而是每隔一小段轮询,
     /// 只要 `lastSyncProgressAt` 还在持续刷新就一直等; 连续 `syncStallTimeout` 秒没有
     /// 任何进度才判定卡死, cancel 并置 .failed。这样几千首 + 几十个歌单的大库只要还在
@@ -1975,21 +1980,25 @@ final class AppleMusicLibraryService {
     }
 
     private func fetchDeviceLibrarySongs() async throws -> [MusicKit.Song] {
-        return try await withMediaLibraryGate {
+        let generation = syncGeneration
+        // 请求初始化/配置就可能同步等待 iTunesCloud，必须在进入 MusicKit 前离开主线程。
+        return try await AppleMusicMediaLibraryGate.run {
             try Task.checkCancellation()
             var request = MusicLibraryRequest<MusicKit.Song>()
             request.limit = 100
             request.includeOnlyDownloadedContent = false
             let response = try await request.response()
-            markSyncProgress()
+            try Task.checkCancellation()
+            await self.markSyncProgress(generation: generation)
             var songs = Array(response.items)
             var currentBatch = response.items
             while currentBatch.hasNextBatch {
                 try Task.checkCancellation()
                 guard let next = try await currentBatch.nextBatch() else { break }
+                try Task.checkCancellation()
                 songs.append(contentsOf: next)
                 currentBatch = next
-                markSyncProgress()
+                await self.markSyncProgress(generation: generation)
             }
             return Self.uniquedMusicItems(songs)
         }
@@ -2193,20 +2202,23 @@ final class AppleMusicLibraryService {
         let listed: CloudLibraryItems<MusicKit.Playlist> = try await fetchCloudLibraryItems(endpoint: .playlists)
         return (listed.items, listed.unreadableIDs)
         #else
-        return try await withMediaLibraryGate {
+        let generation = syncGeneration
+        return try await AppleMusicMediaLibraryGate.run {
             try Task.checkCancellation()
             var request = MusicLibraryRequest<MusicKit.Playlist>()
             request.limit = 100
             let response = try await request.response()
-            markSyncProgress()
+            try Task.checkCancellation()
+            await self.markSyncProgress(generation: generation)
             var playlists = Array(response.items)
             var currentBatch = response.items
             while currentBatch.hasNextBatch {
                 try Task.checkCancellation()
                 guard let next = try await currentBatch.nextBatch() else { break }
+                try Task.checkCancellation()
                 playlists.append(contentsOf: next)
                 currentBatch = next
-                markSyncProgress()
+                await self.markSyncProgress(generation: generation)
             }
             return (Self.uniquedMusicItems(playlists), [])
         }
@@ -2333,7 +2345,7 @@ final class AppleMusicLibraryService {
             : trimmed
     }
 
-    private static func uniquedMusicItems<Item: MusicKit.MusicItem>(_ items: [Item]) -> [Item] {
+    nonisolated private static func uniquedMusicItems<Item: MusicKit.MusicItem>(_ items: [Item]) -> [Item] {
         var seen = Set<MusicItemID>()
         return items.filter { seen.insert($0.id).inserted }
     }
@@ -2434,7 +2446,8 @@ final class AppleMusicLibraryService {
 /// iOS 18.7 上列表冷启动, 四条后台线程同时这样读, MediaLibraryCore 拼 SQL 时空指针崩溃
 /// (1.11.3(100) `SQLBinaryExpression::sql`, 四条线程都停在 `EntityQueryResult::entityAtIndex`)。
 /// 离开主线程去碰媒体库的地方 (资料库查询、读资料库条目属性、`MPMediaQuery`) 都从这里排队;
-/// 主线程上同步时那几遍整库遍历也排进来, 主线程只是挂起等, 不会卡住。
+/// 主线程上的整库投影也排进来；请求初始化、配置与分页则通过 `run` 在后台执行。
+/// 只串行化不能防止主线程阻塞：MusicKit 在 `response()` 之前就可能同步等待 iTunesCloud。
 /// 整段 (含 `response()`) 都在门里: 查询本身也走同一个媒体库。
 actor AppleMusicMediaLibraryGate {
     static let shared = AppleMusicMediaLibraryGate()
@@ -2473,9 +2486,9 @@ actor AppleMusicMediaLibraryGate {
         }
     }
 
-    /// 在调用方自己的执行上下文里跑 `operation`, 前后拿 / 还这道门。
-    /// 只给后台 (非隔离) 代码用; 主线程用 `AppleMusicLibraryService.withMediaLibraryGate`。
-    nonisolated static func run<T>(_ operation: () async throws -> T) async rethrows -> T {
+    /// 包括第一个 await 之前的同步准备也在后台执行，不继承调用方的 MainActor。
+    @concurrent
+    nonisolated static func run<T: Sendable>(_ operation: @Sendable () async throws -> T) async rethrows -> T {
         await shared.acquire()
         do {
             let result = try await operation()

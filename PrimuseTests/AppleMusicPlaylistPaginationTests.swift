@@ -22,6 +22,41 @@ final class AppleMusicMediaLibraryGateTests: XCTestCase, @unchecked Sendable {
 
     private enum ReadFailure: Error { case unavailable }
 
+    private nonisolated static func synchronousRequestSetup(
+        entered: XCTestExpectation,
+        releasedBy semaphore: DispatchSemaphore
+    ) -> (onMainThread: Bool, released: Bool) {
+        let onMainThread = Thread.isMainThread
+        entered.fulfill()
+        // MusicKit can block synchronously before its asynchronous response begins.
+        let released = semaphore.wait(timeout: .now() + 2) == .success
+        return (onMainThread, released)
+    }
+
+    private nonisolated static func isRunningOnMainThread() -> Bool {
+        Thread.isMainThread
+    }
+
+    @MainActor
+    func testSynchronousRequestSetupKeepsMainActorResponsive() async {
+        let entered = expectation(description: "Synchronous MusicKit setup started")
+        let mainActorResponded = DispatchSemaphore(value: 0)
+        let read = Task {
+            await AppleMusicMediaLibraryGate.run {
+                let setup = Self.synchronousRequestSetup(entered: entered, releasedBy: mainActorResponded)
+                await MainActor.run { MainActor.preconditionIsolated() }
+                return (setup.onMainThread, setup.released, Self.isRunningOnMainThread())
+            }
+        }
+        await fulfillment(of: [entered], timeout: 3)
+        MainActor.preconditionIsolated()
+        mainActorResponded.signal()
+        let (setupWasOnMainThread, respondedDuringSetup, resumedOnMainThread) = await read.value
+        XCTAssertFalse(setupWasOnMainThread)
+        XCTAssertTrue(respondedDuringSetup, "UI and sync timeout must run while MusicKit setup is blocked")
+        XCTAssertFalse(resumedOnMainThread, "Progress reporting must not move subsequent pages onto the main thread")
+    }
+
     func testSyncAndArtworkReadsRemainExclusiveWhileRequestsSuspend() async throws {
         let probe = AccessProbe()
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -54,7 +89,7 @@ final class AppleMusicMediaLibraryGateTests: XCTestCase, @unchecked Sendable {
 
     func testFailedSyncReleasesAccessForArtwork() async {
         do {
-            try await AppleMusicMediaLibraryGate.runOnMainActor {
+            try await AppleMusicMediaLibraryGate.run {
                 await Task.yield()
                 throw ReadFailure.unavailable
             }
@@ -67,7 +102,7 @@ final class AppleMusicMediaLibraryGateTests: XCTestCase, @unchecked Sendable {
     func testCancelledSyncReleasesAccessForArtwork() async {
         let entered = expectation(description: "Sync request entered the media library")
         let sync = Task {
-            try await AppleMusicMediaLibraryGate.runOnMainActor {
+            try await AppleMusicMediaLibraryGate.run {
                 entered.fulfill()
                 try await Task.sleep(for: .seconds(30))
             }
@@ -77,6 +112,27 @@ final class AppleMusicMediaLibraryGateTests: XCTestCase, @unchecked Sendable {
         do {
             try await sync.value
             XCTFail("Expected cancellation")
+        } catch is CancellationError { } catch { XCTFail("Unexpected error: \(error)") }
+        let result = await AppleMusicMediaLibraryGate.run { 42 }
+        XCTAssertEqual(result, 42)
+    }
+
+    func testCancellationDuringSynchronousSetupDiscardsLateResponseAndReleasesAccess() async {
+        let entered = expectation(description: "Synchronous request started")
+        let finishSetup = DispatchSemaphore(value: 0)
+        let sync = Task {
+            try await AppleMusicMediaLibraryGate.run {
+                _ = Self.synchronousRequestSetup(entered: entered, releasedBy: finishSetup)
+                try Task.checkCancellation()
+                return ["late-library-row"]
+            }
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        sync.cancel()
+        finishSetup.signal()
+        do {
+            _ = try await sync.value
+            XCTFail("A timed-out sync must not publish the late response")
         } catch is CancellationError { } catch { XCTFail("Unexpected error: \(error)") }
         let result = await AppleMusicMediaLibraryGate.run { 42 }
         XCTAssertEqual(result, 42)
