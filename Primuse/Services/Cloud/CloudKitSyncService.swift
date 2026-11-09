@@ -580,10 +580,11 @@ final class CloudKitSyncService {
     /// 边的 family zone 数据进本地 library。
     @MainActor
     func acceptShare(metadata: CKShare.Metadata) async {
-        guard let container else {
-            plog("⚠️ acceptShare: CloudKit container not ready")
+        guard metadata.containerIdentifier == Self.containerID else {
+            plog("⚠️ acceptShare: unexpected CloudKit container")
             return
         }
+        guard let container = configuredContainer() else { return }
         let op = CKAcceptSharesOperation(shareMetadatas: [metadata])
         op.qualityOfService = .userInitiated
         let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
@@ -603,6 +604,8 @@ final class CloudKitSyncService {
         isParticipantOfShare = true
         // 之后本机的共享类型记录都写到所有者的这个 zone。
         Self.participantSharedZoneID = metadata.share.recordID.zoneID
+        // 冷启动接受邀请时，云端记录不能抢在磁盘资料库发布之前落地。
+        await library.whenReady()
         await startSharedDatabaseEngine()
         plog("☁️ Family share accepted, participant engine started")
     }

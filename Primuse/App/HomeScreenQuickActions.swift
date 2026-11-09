@@ -1,4 +1,5 @@
 #if os(iOS)
+import CloudKit
 import CoreSpotlight
 import Observation
 import PrimuseKit
@@ -324,6 +325,11 @@ final class SystemActivityRouter {
 /// 主窗口场景的代理,接住 App 已在后台时点的快捷菜单和 Spotlight 结果。窗口仍由 SwiftUI 管。
 @MainActor
 final class PrimuseWindowSceneDelegate: UIResponder, UIWindowSceneDelegate {
+    func windowScene(_ windowScene: UIWindowScene,
+                     userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        FamilyShareInvitationHandler.accept(metadata)
+    }
+
     func windowScene(
         _ windowScene: UIWindowScene,
         performActionFor shortcutItem: UIApplicationShortcutItem,

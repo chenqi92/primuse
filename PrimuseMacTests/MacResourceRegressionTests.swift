@@ -5,6 +5,15 @@ import XCTest
 import PrimuseKit
 @testable import Primuse
 
+@MainActor
+final class MacFamilyShareInvitationTests: XCTestCase {
+    func testFamilyShareInvitationsAreSupportedByInstalledAppAndDelegate() {
+        XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "CKSharingSupported") as? Bool, true)
+        XCTAssertTrue(PrimuseAppDelegate().responds(to:
+            #selector(NSApplicationDelegate.application(_:userDidAcceptCloudKitShareWith:))))
+    }
+}
+
 final class MacDiagnosticsMetricsTests: XCTestCase {
     func testCPUUsesIntervalAndPreservesMultipleCoreUsage() throws {
         let before = MacDiagnosticsMetrics.CPUSample(uptime: 100, cpuSeconds: 40)

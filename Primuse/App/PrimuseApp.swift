@@ -2,6 +2,16 @@ import CloudKit
 import SwiftUI
 import PrimuseKit
 
+@MainActor
+enum FamilyShareInvitationHandler {
+    static func accept(_ metadata: CKShare.Metadata) {
+        // 邀请可在首个窗口的 .task 绑定同步服务前到达，不能依赖 delegate 的弱引用。
+        Task { @MainActor in
+            await AppServices.shared.cloudSync.acceptShare(metadata: metadata)
+        }
+    }
+}
+
 /// `primuse://pair` 扫码端点的 Identifiable 包装,供 `.sheet(item:)` 驱动「直传到 Apple TV」。
 struct PairTarget: Identifiable {
     let id = UUID()
@@ -43,9 +53,7 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
     /// 完成 share 接受 + 启动 participant 侧的 sharedEngine。
     func application(_ application: UIApplication,
                      userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata) {
-        Task { @MainActor in
-            await Self.sync?.acceptShare(metadata: cloudKitShareMetadata)
-        }
+        FamilyShareInvitationHandler.accept(cloudKitShareMetadata)
     }
 
 
@@ -84,6 +92,9 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         let role = connectingSceneSession.role
         guard role == .windowApplication else {
             return UISceneConfiguration(name: Self.manifestConfigurationName(for: role), sessionRole: role)
+        }
+        if let metadata = options.cloudKitShareMetadata {
+            FamilyShareInvitationHandler.accept(metadata)
         }
         if let shortcutItem = options.shortcutItem {
             HomeScreenQuickActionCenter.shared.handle(shortcutItem)
@@ -554,6 +565,11 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private var desktopLyrics: DesktopLyricsWindowController?
     @MainActor private var miniPlayer: MiniPlayerWindowController?
     @MainActor private var keyboardShortcutMonitor: Any?
+
+    func application(_ application: NSApplication,
+                     userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        FamilyShareInvitationHandler.accept(metadata)
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         MacTaskExceptionGuard.install()

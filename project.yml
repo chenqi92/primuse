@@ -201,6 +201,7 @@ targets:
     info:
       path: Primuse/Info.plist
       properties:
+        CKSharingSupported: true
         # 最多三个:超了系统直接拒绝安装(maximum of 3 allowed)。显示名 Primuse 本身不用再列。
         INAlternativeAppNames:
           - INAlternativeAppName: "猿音"
@@ -639,6 +640,7 @@ targets:
     info:
       path: Primuse/Info-macOS.plist
       properties:
+        CKSharingSupported: true
         # 最多三个:超了系统直接拒绝安装(maximum of 3 allowed)。显示名 Primuse 本身不用再列。
         INAlternativeAppNames:
           - INAlternativeAppName: "猿音"
