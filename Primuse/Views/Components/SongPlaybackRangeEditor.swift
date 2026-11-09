@@ -861,3 +861,204 @@ struct SongPlaybackRangeStartTick: View {
     }
 }
 
+
+/// 播放页进度条上的 A-B 循环:设了 A 时一道刻度;循环中把 A 到 B 那一段铺亮,两头各一道刻度。
+struct ABRepeatProgressMarks: View {
+    let color: Color
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        let state = player.abRepeat
+        let total = player.duration
+        if state.isActive, total.isFinite, total > 0 {
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                let midY = proxy.size.height / 2
+                switch state {
+                case .pointA(let start):
+                    tick(at: position(start, width: width, total: total), midY: midY)
+                case .looping(let loop):
+                    let startX = position(loop.start, width: width, total: total)
+                    let endX = position(loop.end, width: width, total: total)
+                    Capsule()
+                        .fill(color.opacity(0.22))
+                        .frame(width: max(2, endX - startX), height: 12)
+                        .position(x: (startX + endX) / 2, y: midY)
+                    tick(at: startX, midY: midY)
+                    tick(at: endX, midY: midY)
+                case .off:
+                    EmptyView()
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func position(_ time: TimeInterval, width: CGFloat, total: TimeInterval) -> CGFloat {
+        width * CGFloat(min(1, max(0, time / total)))
+    }
+
+    private func tick(at x: CGFloat, midY: CGFloat) -> some View {
+        Capsule()
+            .fill(color)
+            .frame(width: 2, height: 14)
+            .position(x: x, y: midY)
+    }
+}
+
+/// A-B 循环的区间:两个把手框出一段,A、B 各自能微调、能设到播放头。打开时还没有区间就从播放头
+/// (或已经设好的 A)起框一段,马上开始循环,边听边调。
+struct ABRepeatEditor: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = SongPlaybackRange(start: 0, end: 0, isEnabled: true)
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let song = player.currentSong {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(song.title)
+                                .font(.headline)
+                                .lineLimit(2)
+                            if let artist = song.artistName, !artist.isEmpty {
+                                Text(artist)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 14) {
+                        SongPlaybackRangeTrack(
+                            range: $draft,
+                            songDuration: player.abRepeatPlayableRange.upperBound,
+                            playhead: player.currentTime,
+                            onCommit: { commit() }
+                        )
+                        edgeRow(.start)
+                        edgeRow(.end)
+                    }
+                    .padding(16)
+                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    Button {
+                        player.seek(to: draft.start, startPlaying: true)
+                    } label: {
+                        Label(String(localized: "ab_repeat_play_from_a"), systemImage: "play.fill")
+                    }
+                    .buttonStyle(.bordered)
+
+                    if player.abRepeat.isActive {
+                        Button(role: .destructive) {
+                            player.clearABRepeat()
+                            dismiss()
+                        } label: {
+                            Label(String(localized: "ab_repeat_off"), systemImage: "xmark.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle(Text("ab_repeat"))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "done")) { dismiss() }
+                }
+            }
+        }
+        .onAppear(perform: start)
+        // 换了歌,这一段就不是它的了。
+        .onChange(of: player.currentSong?.id) { _, _ in dismiss() }
+        #if os(macOS)
+        .frame(minWidth: 420, idealWidth: 460, minHeight: 320, idealHeight: 380)
+        #else
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        #endif
+    }
+
+    private func edgeRow(_ edge: ABRepeatPolicy.Edge) -> some View {
+        let value = edge == .start ? draft.start : draft.end
+        let title = edge == .start ? "A" : "B"
+        return HStack(spacing: 8) {
+            Text(verbatim: title)
+                .font(.subheadline.weight(.semibold))
+                .frame(minWidth: 24, alignment: .leading)
+            Button {
+                move(edge, to: value - ABRepeatPolicy.nudgeStep)
+            } label: {
+                Image(systemName: "minus")
+                    .frame(width: 16, height: 16)
+            }
+            .buttonRepeatBehavior(.enabled)
+            .accessibilityLabel(Text("playback_range_nudge_earlier"))
+            Text(verbatim: SongPlaybackRangePolicy.timeLabel(value, showsTenths: true))
+                .font(.body.monospacedDigit())
+                .frame(minWidth: 64)
+                .accessibilityLabel(Text(verbatim: title))
+            Button {
+                move(edge, to: value + ABRepeatPolicy.nudgeStep)
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 16, height: 16)
+            }
+            .buttonRepeatBehavior(.enabled)
+            .accessibilityLabel(Text("playback_range_nudge_later"))
+            Spacer(minLength: 4)
+            Button {
+                move(edge, to: (player.currentTime * 10).rounded() / 10)
+            } label: {
+                ViewThatFits(in: .horizontal) {
+                    Label(String(localized: "playback_range_set_to_current"), systemImage: "scope")
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .fixedSize()
+                    Image(systemName: "scope")
+                }
+            }
+            .accessibilityLabel(Text("playback_range_set_to_current"))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    /// 已经在循环就接着调那一段;只设了 A 就从 A 起框,还没开就从播放头起框,并且马上开始循环。
+    private func start() {
+        if let loop = player.abRepeat.loop {
+            draft = SongPlaybackRange(start: loop.start, end: loop.end, isEnabled: true)
+            return
+        }
+        let anchor: TimeInterval
+        if case .pointA(let start) = player.abRepeat {
+            anchor = start
+        } else {
+            anchor = player.currentTime
+        }
+        guard let initial = ABRepeatPolicy.initialLoop(at: anchor, playable: player.abRepeatPlayableRange) else { return }
+        draft = SongPlaybackRange(start: initial.start, end: initial.end, isEnabled: true)
+        player.setABRepeatLoop(initial)
+    }
+
+    private func move(_ edge: ABRepeatPolicy.Edge, to value: TimeInterval) {
+        let current = ABRepeatLoop(start: draft.start, end: draft.end)
+        let moved = ABRepeatPolicy.moving(edge, of: current, to: value, playable: player.abRepeatPlayableRange)
+        draft = SongPlaybackRange(start: moved.start, end: moved.end, isEnabled: true)
+        commit()
+    }
+
+    /// 改好的一段交给播放器;超出播放范围的部分截掉,截完不够一段就保持原样。
+    private func commit() {
+        player.setABRepeatLoop(ABRepeatLoop(start: draft.start, end: draft.end))
+        if let loop = player.abRepeat.loop {
+            draft = SongPlaybackRange(start: loop.start, end: loop.end, isEnabled: true)
+        }
+    }
+}

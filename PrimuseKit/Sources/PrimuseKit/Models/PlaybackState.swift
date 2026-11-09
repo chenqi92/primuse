@@ -58,6 +58,82 @@ public enum PlaybackOrderMode: String, CaseIterable, Sendable {
     }
 }
 
+/// 循环关着时每首播完都停。锁屏、CarPlay、Siri、Apple Music、小组件和手表只认 `RepeatMode`
+/// 那三种,这两种在它们那里都是「循环关」;从那些地方打开列表循环或单曲循环就换掉它。
+public enum EachTrackStop: String, Codable, Sendable {
+    /// 停在播完的这首上,再按播放从头放它(「单曲播一遍」)。
+    case stay
+    /// 停下时下一首已经就位,再按播放接着放下一首(「逐首播放」)。
+    case cueNext
+}
+
+/// 循环键、「播放方式」键菜单里的「播完之后」:`RepeatMode` 的三种,加上每首播完都停的两种。
+public enum RepeatBehavior: String, CaseIterable, Sendable, Identifiable {
+    case off
+    case all
+    case one
+    case playOnce
+    case trackByTrack
+
+    public var id: String { rawValue }
+
+    public init(repeatMode: RepeatMode, eachTrackStop: EachTrackStop?) {
+        switch repeatMode {
+        case .all: self = .all
+        case .one: self = .one
+        case .off:
+            switch eachTrackStop {
+            case .stay?: self = .playOnce
+            case .cueNext?: self = .trackByTrack
+            case nil: self = .off
+            }
+        }
+    }
+
+    public var repeatMode: RepeatMode {
+        switch self {
+        case .all: .all
+        case .one: .one
+        case .off, .playOnce, .trackByTrack: .off
+        }
+    }
+
+    public var eachTrackStop: EachTrackStop? {
+        switch self {
+        case .playOnce: .stay
+        case .trackByTrack: .cueNext
+        case .off, .all, .one: nil
+        }
+    }
+
+    /// 点一下循环键换到的下一种:关 → 列表循环 → 单曲循环 → 关。每首播完都停的两种只在长按菜单里,
+    /// 点一下回到关。
+    public var next: RepeatBehavior {
+        switch self {
+        case .off: .all
+        case .all: .one
+        case .one, .playOnce, .trackByTrack: .off
+        }
+    }
+
+    /// 菜单里列出来的几种。每首播完都停要靠本机判断曲终,Apple Music 自己排队列时做不到。
+    public static func choices(includingEachTrackStops: Bool) -> [RepeatBehavior] {
+        includingEachTrackStops ? allCases : [.off, .all, .one]
+    }
+
+    /// 按钮上的图标。关着时和列表循环同一个,只是不亮。
+    public var symbolName: String {
+        switch self {
+        case .off, .all: "repeat"
+        case .one: "repeat.1"
+        case .playOnce: "arrow.right.to.line"
+        case .trackByTrack: "forward.frame"
+        }
+    }
+
+    public var isActive: Bool { self != .off }
+}
+
 public struct PlaybackState: Codable, Sendable {
     public var currentSongID: String?
     public var songTitle: String?

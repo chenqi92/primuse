@@ -103,6 +103,16 @@ extension AudioPlayerService {
             stopAtTrackEnd()
             return
         }
+        // 播完要停、A-B 循环中:不接下一首,交给曲终处理。
+        if holdsQueueAtCurrentTrackEnd {
+            transition.shouldCancelPreparation = true
+            cancelGaplessPreparation()
+            await handleTrackEnd(
+                advanceTicket: transition.advanceTicket,
+                trigger: "gapless-hold"
+            )
+            return
+        }
 
         let plan = continuousTransitionPlan(
             settings: settings,
@@ -501,6 +511,7 @@ extension AudioPlayerService {
         guard playID == id,
               queueGeneration == transition.queueGeneration,
               !transition.shouldCancelPreparation,
+              !holdsQueueAtCurrentTrackEnd,
               shouldAttemptGapless(settings: playbackSettings.snapshot()),
               let nextEntry = nextQueueEntryInQueue() else { return }
         let nextSong = songApplyingPlaybackRange(nextEntry.song)

@@ -187,6 +187,8 @@ extension AudioPlayerService {
             plog("⚠️ Cast: Apple Music playback ownership is active or pending, ignored")
             return
         }
+        // 投放的设备自己放,跳不回 A;A-B 在这里结束,不然放到曲尾还会一直回到 A。
+        clearABRepeat()
         // During a committed fade currentSong already names the incoming
         // track while the primary node still names the outgoing one. Complete
         // the node swap before handing the incoming track and time to casting.
@@ -1011,6 +1013,9 @@ extension AudioPlayerService {
         reacquiringLocalRouteFocus: Bool = false
     ) {
         guard !isLiveRadio else { return }
+        if !isRecovery, !isConfigurationRecovery, !isColdSessionRestore, !reacquiringLocalRouteFocus {
+            noteABRepeatSeek(to: time)
+        }
         noteSpokenWordSeekWhilePaused(to: time, isRecovery: isRecovery)
         if isAppleMusicMode {
             AppServices.shared.appleMusic.seekAppleMusic(to: TimeInterval.sanitized(time))

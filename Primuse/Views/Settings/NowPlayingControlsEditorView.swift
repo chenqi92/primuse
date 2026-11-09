@@ -2377,6 +2377,8 @@ extension NowPlayingControlAction {
         case .addToPlaylist: "text.badge.plus"
         case .share: "square.and.arrow.up"
         case .cast: "hifispeaker"
+        case .playMode: "list.number"
+        case .abRepeat: "selection.pin.in.out"
         }
     }
 
@@ -2397,6 +2399,8 @@ extension NowPlayingControlAction {
         case .addToPlaylist: "add_to_playlist"
         case .share: "share"
         case .cast: "cast_to_device"
+        case .playMode: "queue_play_mode"
+        case .abRepeat: "ab_repeat"
         }
     }
 }

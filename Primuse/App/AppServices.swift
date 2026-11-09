@@ -3477,7 +3477,7 @@ final class AppServices {
             }
         }
 
-        bridge.setRepeatMode = { player.repeatMode = $0 }
+        bridge.setRepeatMode = { player.repeatBehavior = RepeatBehavior(repeatMode: $0, eachTrackStop: nil) }
         bridge.setPlaybackSpeed = { [self] requested in
             guard playbackSettingsStore.outputMode == .effects else { return nil }
             if player.currentBookID != nil {

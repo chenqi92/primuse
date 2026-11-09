@@ -603,9 +603,7 @@ final class WatchSessionBridge: NSObject {
     private func applyPlaybackModeFromWatch(_ mode: PlaybackOrderMode) {
         guard let player, !player.isLiveRadio, !player.currentItemIsSpokenWord else { return }
         if mode == .shuffle, player.queueCount < 2 { return }
-        let target = mode.settings(from: player.repeatMode)
-        if player.repeatMode != target.repeatMode { player.repeatMode = target.repeatMode }
-        if player.shuffleEnabled != target.shuffleEnabled { player.shuffleEnabled = target.shuffleEnabled }
+        player.applyPlaybackOrderMode(mode)
     }
 
     private static func readOutputRoute() -> WatchOutputRoute {

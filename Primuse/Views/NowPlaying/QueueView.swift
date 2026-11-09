@@ -83,9 +83,7 @@ struct QueueView: View {
     private var allowsShuffle: Bool { player.queueCount >= 2 }
 
     private func applyPlaybackMode(_ mode: PlaybackOrderMode) {
-        let target = mode.settings(from: player.repeatMode)
-        if player.repeatMode != target.repeatMode { player.repeatMode = target.repeatMode }
-        if player.shuffleEnabled != target.shuffleEnabled { player.shuffleEnabled = target.shuffleEnabled }
+        player.applyPlaybackOrderMode(mode)
     }
 
     private static func titleKey(for mode: PlaybackOrderMode) -> LocalizedStringKey {
@@ -102,30 +100,59 @@ struct QueueView: View {
         ToolbarItem(placement: .primaryAction) {
             let mode = playbackMode
             let allowsShuffle = allowsShuffle
+            let behavior = player.repeatBehavior
+            // 「单曲播一遍」「逐首播放」不在四种轮换里,顺序播放时换成它们自己的图标和名字。
+            let showsEachTrackStop = behavior.eachTrackStop != nil && mode == .sequential
+            let symbol = showsEachTrackStop ? behavior.symbolName : mode.symbolName
+            let title = showsEachTrackStop ? behavior.titleKey : Self.titleKey(for: mode)
             Menu {
+                // 顺序还是随机,和下面的「播完之后」各选各的,可以随意搭配。
                 Picker(selection: Binding(
-                    get: { mode },
-                    set: { applyPlaybackMode($0) }
+                    get: { player.shuffleEnabled },
+                    set: { player.shuffleEnabled = $0 }
                 )) {
-                    ForEach(PlaybackOrderMode.allCases.filter { $0 != .shuffle || allowsShuffle || mode == .shuffle }, id: \.self) { option in
+                    Label {
+                        Text("play_mode_sequential")
+                    } icon: {
+                        Image(systemName: "list.number")
+                    }
+                    .tag(false)
+                    if allowsShuffle || player.shuffleEnabled {
                         Label {
-                            Text(Self.titleKey(for: option))
+                            Text("play_mode_shuffle")
+                        } icon: {
+                            Image(systemName: "shuffle")
+                        }
+                        .tag(true)
+                    }
+                } label: {
+                    Text("queue_play_mode")
+                }
+                Picker(selection: Binding(
+                    get: { player.repeatBehavior },
+                    set: { player.repeatBehavior = $0 }
+                )) {
+                    ForEach(RepeatBehavior.choices(
+                        includingEachTrackStops: player.supportsEachTrackStop || behavior.eachTrackStop != nil
+                    )) { option in
+                        Label {
+                            Text(option.titleKey)
                         } icon: {
                             Image(systemName: option.symbolName)
                         }
                         .tag(option)
                     }
                 } label: {
-                    Text("queue_play_mode")
+                    Text("repeat")
                 }
             } label: {
-                let icon = Image(systemName: mode.symbolName)
-                    .foregroundStyle(mode == .sequential ? Color.secondary : Color.accentColor)
+                let icon = Image(systemName: symbol)
+                    .foregroundStyle(mode == .sequential && !behavior.isActive ? Color.secondary : Color.accentColor)
                     // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
                     .contentTransition(.symbolEffect(.replace))
                 if titled {
                     Label {
-                        Text(Self.titleKey(for: mode))
+                        Text(title)
                     } icon: {
                         icon
                     }
@@ -136,7 +163,7 @@ struct QueueView: View {
                 applyPlaybackMode(mode.next(allowsShuffle: allowsShuffle))
             }
             .accessibilityLabel(Text("queue_play_mode"))
-            .accessibilityValue(Text(Self.titleKey(for: mode)))
+            .accessibilityValue(Text(title))
             .accessibilityHint(Text("queue_play_mode_hint"))
         }
     }
@@ -223,7 +250,8 @@ struct QueueView: View {
                             ordinal: 1,
                             totalCount: displayedCount,
                             displayedSong: player.currentSong ?? currentEntry.song,
-                            isPlaying: true
+                            isPlaying: true,
+                            offersStopPoint: true
                         )
                     }
 
@@ -284,7 +312,8 @@ struct QueueView: View {
             ),
             allowsRemoval: player.canRemoveUpcomingQueueEntries
                 && presentation.id.queueEntryID != currentEntry.id,
-            unreachable: isUnreachable(presentation.entry.song)
+            unreachable: isUnreachable(presentation.entry.song),
+            offersStopPoint: true
         )
     }
 
@@ -314,9 +343,13 @@ struct QueueView: View {
         dimmed: Bool = false,
         reorderID: QueueReorderOccurrenceID? = nil,
         allowsRemoval: Bool = false,
-        unreachable: Bool = false
+        unreachable: Bool = false,
+        offersStopPoint: Bool = false
     ) -> some View {
         let song = displayedSong ?? entry.song
+        // 停止点只给正在放和接下来的歌;Apple Music 自己排着队列时看不到曲终,不提供。
+        let showsStopPoint = offersStopPoint && player.supportsEachTrackStop
+        let stopsHere = player.stopsAfterQueueEntry(entry.id)
         let isDropTarget = dropTarget == reorderID && reorderID != nil
         let accessibilityLabel = [ordinal.formatted(), song.title, library.artistDisplayName(for: song)]
             .compactMap { value in
@@ -376,6 +409,14 @@ struct QueueView: View {
             // 时长与删除键放进同一个固定高度的容器, 与 44pt 封面同高居中,
             // 不再各自按内容高度对齐而显得偏上。
             HStack(spacing: 2) {
+                if stopsHere {
+                    // 播完这首就停在这里。
+                    Image(systemName: "stop.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.trailing, 4)
+                        .accessibilityHidden(true)
+                }
                 if song.duration > 0 {
                     Text(song.duration.formattedDuration)
                         .font(.caption.monospacedDigit())
@@ -430,6 +471,9 @@ struct QueueView: View {
         // 表现为一碰拖动就闪退。显式带上, 让预览宿主解析得到。
         .environment(library)
         .environment(sourceManager)
+        .modifier(QueueStopPointMenu(isOffered: showsStopPoint) {
+            stopPointButton(for: entry, stopsHere: stopsHere)
+        })
 
         if let reorderID {
             let accessibleRow = row
@@ -469,8 +513,18 @@ struct QueueView: View {
                             _ = player.removeUpcomingQueueEntry(reorderID)
                         }
                     }
+                    .modifier(QueueStopPointAccessibility(
+                        isOffered: showsStopPoint,
+                        stopsHere: stopsHere,
+                        toggle: { player.toggleStopAfterQueueEntry(entry.id) }
+                    ))
             } else {
                 accessibleRow
+                    .modifier(QueueStopPointAccessibility(
+                        isOffered: showsStopPoint,
+                        stopsHere: stopsHere,
+                        toggle: { player.toggleStopAfterQueueEntry(entry.id) }
+                    ))
             }
         } else {
             row
@@ -478,6 +532,24 @@ struct QueueView: View {
                 .accessibilityLabel(Text(verbatim: accessibilityLabel))
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { playEntry(entry) }
+                .modifier(QueueStopPointAccessibility(
+                    isOffered: showsStopPoint,
+                    stopsHere: stopsHere,
+                    toggle: { player.toggleStopAfterQueueEntry(entry.id) }
+                ))
+        }
+    }
+
+    /// 长按一首:「播完这首后停止」,已经标着时换成取消。整个队列只有一个停止点。
+    private func stopPointButton(for entry: QueueEntry, stopsHere: Bool) -> some View {
+        Button {
+            player.toggleStopAfterQueueEntry(entry.id)
+        } label: {
+            if stopsHere {
+                Label("queue_stop_after_cancel", systemImage: "stop.circle")
+            } else {
+                Label("queue_stop_after_this", systemImage: "stop.circle")
+            }
         }
     }
 
@@ -544,6 +616,41 @@ struct QueueSheetPresentation: ViewModifier {
 extension View {
     func queueSheetPresentation() -> some View {
         modifier(QueueSheetPresentation())
+    }
+}
+
+/// 长按出「播完这首后停止」。已经播过的行不挂菜单,长按照旧只是拖动。
+private struct QueueStopPointMenu<MenuContent: View>: ViewModifier {
+    let isOffered: Bool
+    @ViewBuilder let menuContent: () -> MenuContent
+
+    func body(content: Content) -> some View {
+        if isOffered {
+            content.contextMenu { menuContent() }
+        } else {
+            content
+        }
+    }
+}
+
+/// 读屏用的「播完这首后停止」:标上或取消,和长按菜单里那一项一样。
+private struct QueueStopPointAccessibility: ViewModifier {
+    let isOffered: Bool
+    let stopsHere: Bool
+    let toggle: () -> Void
+
+    func body(content: Content) -> some View {
+        if isOffered {
+            content
+                .accessibilityAction(
+                    named: Text(stopsHere
+                        ? LocalizedStringKey("queue_stop_after_cancel")
+                        : LocalizedStringKey("queue_stop_after_this")),
+                    toggle
+                )
+        } else {
+            content
+        }
     }
 }
 

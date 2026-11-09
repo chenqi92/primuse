@@ -29,6 +29,8 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
     /// Feed episodes are not library rows. Keep their metadata in the same
     /// atomic write as the selected occurrence and position.
     public var podcastQueue: [Song]?
+    /// 「单曲播一遍」「逐首播放」。Optional so older session files decode unchanged.
+    public var eachTrackStop: EachTrackStop?
 
     public init(
         version: Int = PlaybackSessionSnapshot.currentVersion,
@@ -48,7 +50,8 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         queueContinuationToken: String? = nil,
         radioStation: RadioStation? = nil,
         radioStationOrderIDs: [String]? = nil,
-        podcastQueue: [Song]? = nil
+        podcastQueue: [Song]? = nil,
+        eachTrackStop: EachTrackStop? = nil
     ) {
         self.version = version
         self.queueSongIDs = queueSongIDs
@@ -68,6 +71,7 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         self.radioStation = radioStation
         self.radioStationOrderIDs = radioStationOrderIDs
         self.podcastQueue = podcastQueue
+        self.eachTrackStop = eachTrackStop
     }
 }
 
@@ -170,6 +174,7 @@ public struct PlaybackSessionRestorationPlan: Equatable, Sendable {
     public var repeatMode: RepeatMode
     public var isAtTrackEnd: Bool
     public var shouldStartPlayback: Bool
+    public var eachTrackStop: EachTrackStop? = nil
 }
 
 public enum PlaybackSessionRestorationPolicy {
@@ -255,7 +260,8 @@ public enum PlaybackSessionRestorationPolicy {
             pendingNextShuffleIndices: pendingOrder,
             repeatMode: snapshot.repeatMode,
             isAtTrackEnd: snapshot.isAtTrackEnd,
-            shouldStartPlayback: false
+            shouldStartPlayback: false,
+            eachTrackStop: snapshot.repeatMode == .off ? snapshot.eachTrackStop : nil
         )
     }
 

@@ -1605,6 +1605,7 @@ struct NowPlayingView: View {
     /// 「更多」› 播放时间段 打开的编辑面板；打开时冻结目标，自然切歌后仍改这一首。
     @State private var playbackRangeEditorRequest: SongPlaybackRangeEditor.Request?
     @State private var showSleepTimer = false
+    @State private var showABRepeatEditor = false
     /// 音乐的上一首 / 下一首按住不放时快退 / 快进的预览位置。
     @State private var transportHoldScrub = TransportHoldScrub()
     /// 「更多」› 均衡器 › 调整均衡器… 打开的完整均衡器页。
@@ -1684,6 +1685,7 @@ struct NowPlayingView: View {
             || showMusicVideoFullScreen
             || isAlbumPresentationActive
             || showSleepTimer
+            || showABRepeatEditor
             || showEqualizer
             || showEqualizerBypassNotice
             || controlNotice != nil
@@ -2274,6 +2276,7 @@ struct NowPlayingView: View {
             showMusicVideoFullScreen = false
             radioDetailStationID = nil
             showSleepTimer = false
+            showABRepeatEditor = false
             controlNotice = nil
             scrapeAlertMessage = nil
             sourceLyricsReloadAlertMessage = nil
@@ -4353,6 +4356,10 @@ struct NowPlayingView: View {
             SleepTimerSheet()
                 .playerPresentationColorScheme()
         }
+        .sheet(isPresented: $showABRepeatEditor) {
+            ABRepeatEditor()
+                .playerPresentationColorScheme()
+        }
         .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
             Task { await player.playMedley(songs) }
         }
@@ -6323,12 +6330,29 @@ struct NowPlayingView: View {
         .frame(height: height)
     }
 
+    /// 循环键点一下:关 → 列表循环 → 单曲循环 → 关。A-B 开着、页面上又没摆 A-B 键时,这一下管 A-B。
     private func cycleRepeatMode() {
-        switch player.repeatMode {
-        case .off: player.repeatMode = .all
-        case .all: player.repeatMode = .one
-        case .one: player.repeatMode = .off
+        if abRepeatTakesOverModeKeys {
+            player.advanceABRepeat()
+            return
         }
+        player.repeatBehavior = player.repeatBehavior.next
+    }
+
+    /// 「播放方式」键点一下:顺序 → 列表循环 → 单曲循环 → 随机,和队列页那颗一样。
+    private func cyclePlayMode() {
+        if abRepeatTakesOverModeKeys {
+            player.advanceABRepeat()
+            return
+        }
+        let mode = PlaybackOrderMode(shuffleEnabled: player.shuffleEnabled, repeatMode: player.repeatMode)
+        player.applyPlaybackOrderMode(mode.next(allowsShuffle: player.queueCount >= 2))
+    }
+
+    /// 从循环键或「播放方式」键开了 A-B、页面上没有 A-B 键:这两颗键换成 A-B 的样子,
+    /// 点一下设 B、再点关掉,长按照样能换循环方式。
+    private var abRepeatTakesOverModeKeys: Bool {
+        player.abRepeat.isActive && !musicControlLayout.placedActions.contains(.abRepeat)
     }
 
     // MARK: - iPad 横屏 layout (左封面 / 右歌词)
@@ -8958,7 +8982,8 @@ struct NowPlayingView: View {
             isShowingLyrics: showLyrics,
             isShuffleEnabled: player.shuffleEnabled,
             shufflePreference: playbackSettings.shufflePreference,
-            repeatMode: player.repeatMode,
+            repeatBehavior: player.repeatBehavior,
+            offersEachTrackStops: player.supportsEachTrackStop || player.eachTrackStop != nil,
             isMedleyActive: player.isMedleyActive,
             canStartMedley: !isSpokenWord && !player.isAppleMusicMode && !player.isLiveRadio
                 && player.canPlayMedleyFromQueue && shows(.medley),
@@ -9088,7 +9113,10 @@ struct NowPlayingView: View {
             onShowPitchNotice: { showPitchNotice(currentPitchAvailability) },
             onToggleShuffle: { player.shuffleEnabled.toggle() },
             onSelectShufflePreference: { playbackSettings.shufflePreference = $0 },
-            onCycleRepeatMode: { cycleRepeatMode() },
+            onSelectRepeatBehavior: { behavior in
+                PMHaptics.playbackModeToggled()
+                player.repeatBehavior = behavior
+            },
             onStartMedley: {
                 let songs = medleyCandidateSongs
                 if player.medleyNeedsDataUsageConfirmation(for: songs) {
@@ -10184,11 +10212,12 @@ struct NowPlayingView: View {
             return AnyView(barColumnQueueButton(itemSize: itemSize))
         } else if action == .shuffle, unavailableNotice(for: .shuffle) == nil {
             return AnyView(shuffleControl(style: style))
-        } else if style == .edge, action == .repeatMode {
-            return AnyView(ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
-                PMHaptics.playbackModeToggled()
-                cycleRepeatMode()
-            })
+        } else if action == .repeatMode {
+            return AnyView(repeatControl(style: style))
+        } else if action == .playMode {
+            return AnyView(playModeControl(style: style))
+        } else if action == .abRepeat {
+            return AnyView(abRepeatControl(style: style))
         } else if action == .playbackSpeed, unavailableNotice(for: .playbackSpeed) == nil {
             return AnyView(playbackSpeedControl(style: style))
         } else {
@@ -10297,6 +10326,200 @@ struct NowPlayingView: View {
         .accessibilityLabel(Text(face.label))
         .accessibilityValue(controlAccessibilityValue(face, notice: nil))
         .accessibilityHint(Text("shuffle_preference_long_press_hint"))
+    }
+
+    /// 循环键:点一下在关、列表循环、单曲循环之间轮换,长按选全部「播完之后」和 A-B 循环。
+    private func repeatControl(style: NowPlayingControlStyle) -> some View {
+        let face = controlFace(.repeatMode)
+        return Menu {
+            repeatBehaviorPicker
+            abRepeatMenuSection
+        } label: {
+            controlLabel(face, style: style)
+        } primaryAction: {
+            performControl(.repeatMode, style: style)
+        }
+        .frame(width: style.fixedFrame, height: style.fixedFrame)
+        .accessibilityLabel(Text(face.label))
+        .accessibilityValue(Text(verbatim: modeKeyAccessibilityValue))
+        .accessibilityHint(Text("repeat_long_press_hint"))
+    }
+
+    /// 「播放方式」键:随机与循环合成一颗。点一下顺序 → 列表循环 → 单曲循环 → 随机轮换,
+    /// 长按分开选随机、「播完之后」、抽歌偏好和 A-B 循环,随机和循环可以任意搭配。
+    private func playModeControl(style: NowPlayingControlStyle) -> some View {
+        let face = controlFace(.playMode)
+        return Menu {
+            playOrderPicker
+            repeatBehaviorPicker
+            if player.shuffleEnabled {
+                shufflePreferencePicker
+            }
+            abRepeatMenuSection
+        } label: {
+            controlLabel(face, style: style)
+        } primaryAction: {
+            performControl(.playMode, style: style)
+        }
+        .frame(width: style.fixedFrame, height: style.fixedFrame)
+        .accessibilityLabel(Text(face.label))
+        .accessibilityValue(Text(verbatim: modeKeyAccessibilityValue))
+        .accessibilityHint(Text("play_mode_long_press_hint"))
+    }
+
+    /// A-B 键:点一下设 A、再点设 B 开始循环、再点关掉;长按拖出一段区间。
+    private func abRepeatControl(style: NowPlayingControlStyle) -> some View {
+        let face = controlFace(.abRepeat)
+        let isAvailable = player.canUseABRepeat || player.abRepeat.isActive
+        return Menu {
+            abRepeatMenuSection
+        } label: {
+            controlLabel(face, style: style)
+                .opacity(isAvailable ? 1 : 0.4)
+        } primaryAction: {
+            performControl(.abRepeat, style: style)
+        }
+        .frame(width: style.fixedFrame, height: style.fixedFrame)
+        .disabled(!isAvailable)
+        .accessibilityLabel(Text(face.label))
+        .accessibilityValue(Text(verbatim: abRepeatAccessibilityValue))
+        .accessibilityHint(Text("ab_repeat_hint"))
+    }
+
+    private var repeatBehaviorBinding: Binding<RepeatBehavior> {
+        Binding(
+            get: { player.repeatBehavior },
+            set: { behavior in
+                PMHaptics.playbackModeToggled()
+                player.repeatBehavior = behavior
+            }
+        )
+    }
+
+    /// 「播完之后」的几种。Apple Music 自己排队列时做不到每首播完都停,那两种不列出来。
+    private var repeatBehaviorPicker: some View {
+        Picker(selection: repeatBehaviorBinding) {
+            ForEach(RepeatBehavior.choices(
+                includingEachTrackStops: player.supportsEachTrackStop || player.eachTrackStop != nil
+            )) { behavior in
+                Label(behavior.titleKey, systemImage: behavior.symbolName)
+                    .tag(behavior)
+            }
+        } label: {
+            Text("repeat")
+        }
+    }
+
+    /// 顺序还是随机。队列不到两首时打不开随机。
+    private var playOrderPicker: some View {
+        Picker(selection: Binding(
+            get: { player.shuffleEnabled },
+            set: { enabled in
+                PMHaptics.playbackModeToggled()
+                player.shuffleEnabled = enabled
+            }
+        )) {
+            Label("play_mode_sequential", systemImage: "list.number")
+                .tag(false)
+            if player.queueCount >= 2 || player.shuffleEnabled {
+                Label("play_mode_shuffle", systemImage: "shuffle")
+                    .tag(true)
+            }
+        } label: {
+            Text("queue_play_mode")
+        }
+    }
+
+    private var shufflePreferencePicker: some View {
+        Picker(selection: Binding(
+            get: { playbackSettings.shufflePreference },
+            set: { playbackSettings.shufflePreference = $0 }
+        )) {
+            ForEach(ShufflePreference.allCases) { preference in
+                Text(verbatim: preference.displayName).tag(preference)
+            }
+        } label: {
+            Label("shuffle_preference_title", systemImage: "dice")
+            Text(verbatim: playbackSettings.shufflePreference.displayName)
+        }
+        .pickerStyle(.menu)
+    }
+
+    /// A-B 循环那一节:设 A / 设 B、挑区间、关掉。用不了时整节不出现。
+    @ViewBuilder
+    private var abRepeatMenuSection: some View {
+        let state = player.abRepeat
+        if player.canUseABRepeat || state.isActive {
+            Section {
+                switch state {
+                case .off:
+                    Button {
+                        PMHaptics.playbackModeToggled()
+                        player.advanceABRepeat()
+                    } label: {
+                        Label("ab_repeat_set_a", systemImage: "a.circle")
+                    }
+                case .pointA:
+                    Button {
+                        PMHaptics.playbackModeToggled()
+                        player.advanceABRepeat()
+                    } label: {
+                        Label("ab_repeat_set_b", systemImage: "b.circle")
+                    }
+                case .looping:
+                    EmptyView()
+                }
+                if player.canUseABRepeat {
+                    Button {
+                        showABRepeatEditor = true
+                    } label: {
+                        Label(
+                            state.loop == nil
+                                ? LocalizedStringKey("ab_repeat_choose_range")
+                                : LocalizedStringKey("ab_repeat_edit_range"),
+                            systemImage: "selection.pin.in.out"
+                        )
+                    }
+                }
+                if state.isActive {
+                    Button(role: .destructive) {
+                        PMHaptics.playbackModeToggled()
+                        player.clearABRepeat()
+                    } label: {
+                        Label("ab_repeat_off", systemImage: "xmark.circle")
+                    }
+                }
+            }
+        }
+    }
+
+    /// A-B 键此刻的图标:设了 A 等 B 时是 A,其余是框出一段的那个。
+    private var abRepeatSymbol: String {
+        if case .pointA = player.abRepeat { return "a.circle" }
+        return "selection.pin.in.out"
+    }
+
+    private var abRepeatAccessibilityValue: String {
+        switch player.abRepeat {
+        case .off:
+            return String(localized: "a11y_value_off")
+        case .pointA(let start):
+            return String(format: String(localized: "ab_repeat_a11y_point_a_format"), start.formattedDuration)
+        case .looping(let loop):
+            return String(
+                format: String(localized: "ab_repeat_a11y_loop_format"),
+                loop.start.formattedDuration,
+                loop.end.formattedDuration
+            )
+        }
+    }
+
+    /// 循环键、「播放方式」键读屏读出来的现状。
+    private var modeKeyAccessibilityValue: String {
+        if abRepeatTakesOverModeKeys { return abRepeatAccessibilityValue }
+        let repeatTitle = player.repeatBehavior.localizedTitle
+        guard player.shuffleEnabled else { return repeatTitle }
+        return "\(String(localized: "play_mode_shuffle")), \(repeatTitle)"
     }
 
     /// 速度键直接弹出档位,和「更多」里那一项是同一个开关。升降调(#332)在下面一节,
@@ -10442,12 +10665,28 @@ struct NowPlayingView: View {
                 isToggle: true
             )
         case .repeatMode:
+            if abRepeatTakesOverModeKeys { return abRepeatFace }
+            let behavior = player.repeatBehavior
             return NowPlayingControlFace(
-                symbol: player.repeatMode == .one ? "repeat.1" : "repeat",
+                symbol: behavior.symbolName,
                 label: String(localized: "a11y_repeat"),
-                isActive: player.repeatMode != .off,
-                isToggle: true
+                isActive: behavior.isActive
             )
+        case .playMode:
+            if abRepeatTakesOverModeKeys { return abRepeatFace }
+            let behavior = player.repeatBehavior
+            let mode = PlaybackOrderMode(shuffleEnabled: player.shuffleEnabled, repeatMode: player.repeatMode)
+            // 每首播完都停的两种在四种轮换之外,换成它们自己的图标,免得看着像顺序播放。
+            let symbol = behavior.eachTrackStop != nil && mode == .sequential
+                ? behavior.symbolName
+                : mode.symbolName
+            return NowPlayingControlFace(
+                symbol: symbol,
+                label: String(localized: "queue_play_mode"),
+                isActive: mode != .sequential || behavior.isActive
+            )
+        case .abRepeat:
+            return abRepeatFace
         case .sleepTimer:
             return NowPlayingControlFace(
                 symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz",
@@ -10501,6 +10740,15 @@ struct NowPlayingView: View {
                 requiresSong: true
             )
         }
+    }
+
+    private var abRepeatFace: NowPlayingControlFace {
+        NowPlayingControlFace(
+            symbol: abRepeatSymbol,
+            label: String(localized: "ab_repeat"),
+            isActive: player.abRepeat.isActive,
+            requiresSong: true
+        )
     }
 
     /// 因模式暂时用不了的说明。没有歌这种「根本没有」的情况走置灰,不在这里。
@@ -10575,6 +10823,12 @@ struct NowPlayingView: View {
         case .repeatMode:
             PMHaptics.playbackModeToggled()
             cycleRepeatMode()
+        case .playMode:
+            PMHaptics.playbackModeToggled()
+            cyclePlayMode()
+        case .abRepeat:
+            PMHaptics.playbackModeToggled()
+            player.advanceABRepeat()
         case .sleepTimer: showSleepTimer = true
         case .equalizer: openEqualizer()
         case .karaoke: showKaraoke = true
@@ -10599,25 +10853,6 @@ struct NowPlayingView: View {
 
     // MARK: - Helpers
 
-    private func ctrlBtn(_ icon: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.body)
-                .foregroundStyle(active ? themedControlAccent : appearance.tertiary)
-                .playbackToggleHighlight(
-                    isActive: active,
-                    tint: themedControlAccent,
-                    diameter: 32
-                )
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .frame(width: 44, height: 44)
-        .accessibilityLabel(Self.iconA11yLabel(icon))
-        .accessibilityValue(active
-            ? String(localized: "a11y_value_on")
-            : String(localized: "a11y_value_off"))
-    }
-
     private var usesWhiteTheme: Bool {
         #if os(iOS)
         ThemeColorSettings.shared.isWhiteTheme
@@ -10635,15 +10870,6 @@ struct NowPlayingView: View {
         }
         guard theme.colorID != "default" else { return appearance.primary }
         return appearance.isLight ? theme.darkAccent : theme.accentColor
-    }
-
-    /// SF Symbol -> VoiceOver 标签的映射, 用在 transport 控件上。
-    private static func iconA11yLabel(_ icon: String) -> LocalizedStringKey {
-        switch icon {
-        case "shuffle": return "a11y_shuffle"
-        case "repeat", "repeat.1": return "a11y_repeat"
-        default: return "a11y_button_generic"
-        }
     }
 
     private func loadLyrics() async {
@@ -13567,7 +13793,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isShuffleEnabled: Bool
     /// 随机键没摆在播放页上时,菜单里随机播放下面跟着抽歌偏好(#332)。
     let shufflePreference: ShufflePreference
-    let repeatMode: RepeatMode
+    let repeatBehavior: RepeatBehavior
+    /// 「单曲播一遍」「逐首播放」此刻做得到(Apple Music 自己排队列时做不到)。
+    let offersEachTrackStops: Bool
     let isMedleyActive: Bool
     let canStartMedley: Bool
     let canStartKaraoke: Bool
@@ -13904,7 +14132,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowPitchNotice: () -> Void
     let onToggleShuffle: () -> Void
     let onSelectShufflePreference: (ShufflePreference) -> Void
-    let onCycleRepeatMode: () -> Void
+    let onSelectRepeatBehavior: (RepeatBehavior) -> Void
     let onStartMedley: () -> Void
     let onContinueMedleySongInFull: () -> Void
     let onStartKaraoke: () -> Void
@@ -13971,13 +14199,13 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
         )
     }
 
-    /// 循环模式当前状态对应的图标。菜单项文案沿用 `repeat` 这一个 key,
-    /// 三种状态靠图标区分。
-    private static func repeatSymbol(for mode: RepeatMode) -> String {
-        switch mode {
+    /// 「循环」那一项(展开后选「播完之后」的五种)此刻的图标。
+    private static func repeatSymbol(for behavior: RepeatBehavior) -> String {
+        switch behavior {
         case .off: return "repeat"
         case .all: return "repeat.circle.fill"
         case .one: return "repeat.1.circle.fill"
+        case .playOnce, .trackByTrack: return behavior.symbolName
         }
     }
 
@@ -14059,12 +14287,18 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
             .pickerStyle(.menu)
         case .repeatMode:
-            Button(action: onCycleRepeatMode) {
-                Label(
-                    String(localized: "repeat"),
-                    systemImage: Self.repeatSymbol(for: snapshot.repeatMode)
-                )
+            Picker(selection: Binding(
+                get: { snapshot.repeatBehavior },
+                set: { onSelectRepeatBehavior($0) }
+            )) {
+                ForEach(RepeatBehavior.choices(includingEachTrackStops: snapshot.offersEachTrackStops)) { behavior in
+                    Label(behavior.titleKey, systemImage: behavior.symbolName).tag(behavior)
+                }
+            } label: {
+                Label(String(localized: "repeat"), systemImage: Self.repeatSymbol(for: snapshot.repeatBehavior))
+                Text(verbatim: snapshot.repeatBehavior.localizedTitle)
             }
+            .pickerStyle(.menu)
         default:
             EmptyView()
         }
@@ -17654,8 +17888,12 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                         if isSpokenWord {
                             SpokenWordBookmarkTicks(color: appearance.primary.opacity(0.8))
                         } else {
-                            // 开着播放时间段时标出它从哪里开始。
-                            SongPlaybackRangeStartTick(color: appearance.primary.opacity(0.8))
+                            ZStack {
+                                // 开着播放时间段时标出它从哪里开始。
+                                SongPlaybackRangeStartTick(color: appearance.primary.opacity(0.8))
+                                // A-B 循环的 A、B 和中间那一段。
+                                ABRepeatProgressMarks(color: fillTint ?? appearance.primary)
+                            }
                         }
                     }
                     HStack {
@@ -18396,6 +18634,29 @@ private struct SpokenWordVideoToggleLabelStyle: LabelStyle {
                 configuration.icon
                 configuration.title
             }
+        }
+    }
+}
+
+extension RepeatBehavior {
+    /// 菜单里的名字。关着叫「不循环」,和随机搭着也说得通。
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .off: "repeat_behavior_off"
+        case .all: "play_mode_repeat_all"
+        case .one: "play_mode_repeat_one"
+        case .playOnce: "repeat_behavior_play_once"
+        case .trackByTrack: "repeat_behavior_track_by_track"
+        }
+    }
+
+    var localizedTitle: String {
+        switch self {
+        case .off: String(localized: "repeat_behavior_off")
+        case .all: String(localized: "play_mode_repeat_all")
+        case .one: String(localized: "play_mode_repeat_one")
+        case .playOnce: String(localized: "repeat_behavior_play_once")
+        case .trackByTrack: String(localized: "repeat_behavior_track_by_track")
         }
     }
 }

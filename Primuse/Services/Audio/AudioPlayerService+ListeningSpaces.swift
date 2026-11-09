@@ -88,16 +88,16 @@ extension AudioPlayerService {
     /// had. Called with the new queue in place, before its shuffle order is
     /// built.
     func applyListeningPlayMode(forQueueStartingWith song: Song) {
-        let current = ListeningPlayMode(shuffleEnabled: shuffleEnabled, repeatMode: repeatMode)
+        let current = ListeningPlayMode(shuffleEnabled: shuffleEnabled, repeatMode: repeatMode, eachTrackStop: eachTrackStop)
         let space = listeningSpace(of: song)
         guard let mode = ListeningPlayModeStore.shared.update({
             $0.queueInstalled(ownedBy: space, current: current)
         }) else { return }
         isApplyingListeningPlayMode = true
         defer { isApplyingListeningPlayMode = false }
-        repeatMode = mode.repeatMode
+        repeatBehavior = RepeatBehavior(repeatMode: mode.repeatMode, eachTrackStop: mode.eachTrackStop)
         shuffleEnabled = mode.shuffleEnabled
-        plog("🎚️ Play mode for \(space.rawValue): shuffle=\(mode.shuffleEnabled) repeat=\(mode.repeatMode.rawValue)")
+        plog("🎚️ Play mode for \(space.rawValue): shuffle=\(mode.shuffleEnabled) repeat=\(repeatBehavior.rawValue)")
     }
 
     /// The space the current item belongs to, or nil when nothing is loaded.
@@ -165,7 +165,8 @@ extension AudioPlayerService {
             shufflePosition: shuffleEnabled ? shufflePosition : 0,
             pendingNextShuffleIndices: nil,
             repeatMode: repeatMode,
-            isAtTrackEnd: false
+            isAtTrackEnd: false,
+            eachTrackStop: eachTrackStop
         )
         MusicSessionMemoryStore.shared.save(.init(
             snapshot: snapshot,
@@ -255,7 +256,10 @@ extension AudioPlayerService {
         let resumeAt = startIndex == rememberedIndex && songs[startIndex].id == snapshot.currentSongID
             ? snapshot.currentTime
             : 0
-        repeatMode = snapshot.repeatMode
+        repeatBehavior = RepeatBehavior(
+            repeatMode: snapshot.repeatMode,
+            eachTrackStop: snapshot.eachTrackStop
+        )
         shuffleEnabled = snapshot.shuffleEnabled
         await play(queue: songs, startingAt: startIndex)
         MusicSessionMemoryStore.shared.clear()

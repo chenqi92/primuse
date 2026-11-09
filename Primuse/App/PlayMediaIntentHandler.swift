@@ -1360,7 +1360,8 @@ final class PlayMediaIntentHandler: NSObject,
     ) {
         switch intent.playbackRepeatMode {
         case .none:
-            player.repeatMode = .off
+            // 明说不要循环,「单曲播一遍」「逐首播放」也一起关掉。
+            player.repeatBehavior = .off
         case .all:
             player.repeatMode = .all
         case .one:

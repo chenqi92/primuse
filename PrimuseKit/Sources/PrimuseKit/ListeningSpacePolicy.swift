@@ -344,10 +344,13 @@ public enum ListeningResumePolicy {
 public struct ListeningPlayMode: Codable, Equatable, Sendable {
     public var shuffleEnabled: Bool
     public var repeatMode: RepeatMode
+    /// 「单曲播一遍」「逐首播放」;旧版本存的没有这一项,读出来是 nil。
+    public var eachTrackStop: EachTrackStop?
 
-    public init(shuffleEnabled: Bool, repeatMode: RepeatMode) {
+    public init(shuffleEnabled: Bool, repeatMode: RepeatMode, eachTrackStop: EachTrackStop? = nil) {
         self.shuffleEnabled = shuffleEnabled
         self.repeatMode = repeatMode
+        self.eachTrackStop = eachTrackStop
     }
 
     /// How a book is heard: chapter after chapter, once.
@@ -409,7 +412,8 @@ public struct ListeningPlayModeLedger: Codable, Equatable, Sendable {
             let parked = parkedMusicMode ?? current
             let restored = ListeningPlayMode(
                 shuffleEnabled: shuffleChangedDuringBook ? current.shuffleEnabled : parked.shuffleEnabled,
-                repeatMode: repeatChangedDuringBook ? current.repeatMode : parked.repeatMode
+                repeatMode: repeatChangedDuringBook ? current.repeatMode : parked.repeatMode,
+                eachTrackStop: repeatChangedDuringBook ? current.eachTrackStop : parked.eachTrackStop
             )
             activeSpace = .music
             parkedMusicMode = nil

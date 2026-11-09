@@ -2705,9 +2705,7 @@ private struct DebugLaunchAutomation: ViewModifier {
                         await player.play(song: song)
                     }
                     if let mode = env["PRIMUSE_AUTOPLAY_MODE"].flatMap(PlaybackOrderMode.init(rawValue:)) {
-                        let target = mode.settings(from: player.repeatMode)
-                        player.repeatMode = target.repeatMode
-                        player.shuffleEnabled = target.shuffleEnabled
+                        player.applyPlaybackOrderMode(mode)
                         plog("🧪 DebugLaunchAutomation: play mode \(mode.rawValue)")
                     }
                     let seekTarget = env["PRIMUSE_AUTOPLAY_SEEK"].flatMap(Double.init)

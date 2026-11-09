@@ -104,6 +104,7 @@ extension AudioPlayerService {
                     }
 
                     self.runSpokenWordClockTick()
+                    self.followABRepeatLoop()
                 }
                 if !transitionWasActive {
                     // Check if crossfade should start
@@ -221,6 +222,10 @@ extension AudioPlayerService {
             stopAtTrackEnd()  // 进 "已播完但保留 currentSong" 状态, 跟用户手动暂停一致
             return
         }
+        // A-B 的 B 就在曲尾:回到 A,不管循环方式。
+        if restartABRepeatAtTrackEndIfNeeded() { return }
+        // 「单曲播一遍」停在这首上,用不着先把队列续长。
+        if currentTrackEndStop == .stay, stopForTrackEndIfNeeded() { return }
         // 音乐队列播完: 续播的相似歌曲通常在这首开始时就已经排上了; 极短的歌
         // 可能还没算完, 等它落地再判断是否到头 (#166)。
         if nextSongInQueue() == nil,
@@ -232,6 +237,8 @@ extension AudioPlayerService {
         if shuffleEnabled, repeatMode != .one, nextSongInQueue() == nil {
             _ = extendExhaustedShuffleFromLibrary()
         }
+        // 队列里的停止点标在这首上,或者是「逐首播放」:停下,下一首(含刚续上的)就位。
+        if stopForTrackEndIfNeeded() { return }
         switch repeatMode {
         case .one:
             if let song = currentSong, isSongAvailableForNewPlayback(song) {

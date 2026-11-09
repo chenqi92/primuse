@@ -286,7 +286,7 @@ public struct NowPlayingEffectPlayerControls: Equatable, Sendable {
 
     /// 全屏效果页上能放的。这一页没有「更多」,歌词、全屏、卡拉OK、投放这类会换走整页的不放。
     public static let allowedActions: [NowPlayingControlAction] = [
-        .like, .dislike, .queue, .shuffle, .repeatMode, .sleepTimer,
+        .like, .dislike, .queue, .shuffle, .repeatMode, .playMode, .abRepeat, .sleepTimer,
         .airPlay, .equalizer, .playbackSpeed, .addToPlaylist, .share,
     ]
 

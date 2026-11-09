@@ -176,6 +176,7 @@ extension AudioPlayerService {
         // item cannot write into ApplicationMusicPlayer during AppServices init.
         shuffleEnabled = plan.shuffleEnabled
         repeatMode = plan.repeatMode
+        eachTrackStop = plan.eachTrackStop
         shuffledIndices = plan.shuffledIndices
         shufflePosition = plan.shufflePosition
         pendingNextShuffleIndices = plan.pendingNextShuffleIndices
@@ -368,7 +369,8 @@ extension AudioPlayerService {
             queueContinuationToken: isLiveRadio ? nil : queueContinuation?.token,
             radioStation: isLiveRadio ? currentRadioStation : nil,
             radioStationOrderIDs: isLiveRadio ? radioStationOrder.map(\.id) : nil,
-            podcastQueue: podcastQueue.isEmpty ? nil : podcastQueue
+            podcastQueue: podcastQueue.isEmpty ? nil : podcastQueue,
+            eachTrackStop: eachTrackStop
         )
         // 只有在协调器确认这一代(或更顶掉它的更新一代)真的落盘之后, 才允许
         // 后续的空状态清空旧快照: 写失败时上一次启动留下的有效快照必须保留。

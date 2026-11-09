@@ -20,6 +20,11 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     case addToPlaylist
     case share
     case cast
+    /// 「播放方式」:随机与循环合成一颗,点一下按顺序、列表循环、单曲循环、随机轮换,长按什么都能选。
+    /// 和分开的随机键、循环键可以同时摆,也可以只摆它、把空出来的那一格给别的按钮。
+    case playMode
+    /// A-B 循环:点一下设 A、再点设 B,在一首歌里反复放这一段。
+    case abRepeat
 
     public var id: String { rawValue }
 
@@ -44,7 +49,7 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
         case .dislike, .sleepTimer, .equalizer, .playbackSpeed, .karaoke,
              .fullScreen, .addToPlaylist, .share, .cast:
             true
-        case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode:
+        case .like, .lyrics, .airPlay, .queue, .shuffle, .repeatMode, .playMode, .abRepeat:
             false
         }
     }
@@ -728,6 +733,8 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     ) -> [NowPlayingControlAction] {
         var reachable = visibleActions(on: surface).union(surface.alwaysReachable)
         if lyricsReachableFromArtwork { reachable.insert(.lyrics) }
+        // 「播放方式」那一颗里随机、循环都选得到,摆着它时不再往「更多」里补。
+        if reachable.contains(.playMode) { reachable.formUnion([.shuffle, .repeatMode]) }
         return NowPlayingControlAction.allCases.filter {
             $0.needsMenuFallback && !reachable.contains($0) && ($0 != .like || showsMenuItem(.like))
         }

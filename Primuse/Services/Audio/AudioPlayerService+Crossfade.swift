@@ -411,6 +411,8 @@ extension AudioPlayerService {
         if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
             return
         }
+        // 播完要停、A-B 循环中,这首的结尾同样不交给下一首。
+        guard !holdsQueueAtCurrentTrackEnd else { return }
         // Skip under repeat-one — `nextSongInQueue()` returns the
         // current song there, which would crossfade-to-self. Pre-fix
         // `currentIndex < queue.count - 1` was always false in the
@@ -683,7 +685,8 @@ extension AudioPlayerService {
             // Settings and the sleep lock can change while remote resolution
             // or prefetch is in flight. Revalidate at the commit boundary.
             guard shouldUseCrossfade(playbackSettings.snapshot()),
-                  sleepStopAfterSongID != currentSong?.id else {
+                  sleepStopAfterSongID != currentSong?.id,
+                  !holdsQueueAtCurrentTrackEnd else {
                 failCrossfadeAttempt(attemptID)
                 return
             }

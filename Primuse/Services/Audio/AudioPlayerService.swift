@@ -618,6 +618,8 @@ final class AudioPlayerService {
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
             if currentSong.map(ReplayGainAnalysisService.supports) != true { cancelReplayGainAnalysis() }
             if oldValue?.id != currentSong?.id {
+                // A-B 是这一首里的一段,换了歌就不再算数。
+                if abRepeat != .off { abRepeat = .off }
                 retainReplayGainSnapshot(for: currentSong)
                 handleSpokenWordItemChange(to: currentSong)
                 // A station replaces the current song without touching the
@@ -909,6 +911,8 @@ final class AudioPlayerService {
     var repeatMode: RepeatMode = .off {
         didSet {
             guard repeatMode != oldValue else { return }
+            // 每首播完都停只在循环关着时成立;从锁屏、车机、Siri 或手表打开循环就换掉它。
+            if repeatMode != .off, eachTrackStop != nil { eachTrackStop = nil }
             if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic {
                 ListeningPlayModeStore.shared.update { $0.repeatChanged() }
             }
@@ -928,6 +932,64 @@ final class AudioPlayerService {
             // `invalidateQueueTransitions()` is reserved for changes that
             // replace current transport ownership; it rebuilds the decoder
             // with a seek and creates an audible pause for policy-only edits.
+            prefetchNextSong()
+        }
+    }
+
+    /// 「单曲播一遍」「逐首播放」:循环关着时每首播完都停。和 `repeatMode` 合起来就是菜单里的
+    /// `repeatBehavior`;对锁屏、车机、小组件、Apple Music 来说仍是循环关。
+    var eachTrackStop: EachTrackStop? {
+        didSet {
+            guard eachTrackStop != oldValue else { return }
+            if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic {
+                ListeningPlayModeStore.shared.update { $0.repeatChanged() }
+            }
+            guard !isRestoringPlaybackSession else { return }
+            persistPlaybackSession()
+            // Apple Music 同步过来的循环换掉它时不回写队列,免得同步来回打转。
+            guard !isMirroringFromAppleMusic else { return }
+            queueEndHoldDidChange(wasHolding: oldValue != nil && !isMedleyActive)
+        }
+    }
+
+    /// 队列里「播完这首后停止」标在哪一条上。那一条自然播完就停,下一首就位;停过一次就摘掉。
+    var queueStopAfterEntryID: UUID? {
+        didSet {
+            guard queueStopAfterEntryID != oldValue else { return }
+            let currentEntryID = queueEntries.indices.contains(currentIndex) ? queueEntries[currentIndex].id : nil
+            queueEndHoldDidChange(wasHolding: oldValue != nil && oldValue == currentEntryID)
+        }
+    }
+
+    /// A-B 循环,只跟着当前这首(换歌就关掉,见 `currentSong`)。
+    var abRepeat: ABRepeatState = .off {
+        didSet {
+            guard abRepeat != oldValue else { return }
+            abRepeatJumpTask?.cancel()
+            abRepeatJumpTask = nil
+            if abRepeat.loop != nil || oldValue.loop != nil {
+                queueEndHoldDidChange(wasHolding: oldValue.loop != nil)
+            }
+            switch abRepeat {
+            case .off:
+                plog("🔁 A-B off")
+            case .pointA(let start):
+                plog("🔁 A-B point A \(String(format: "%.2f", start))s")
+            case .looping(let loop):
+                plog("🔁 A-B loop \(String(format: "%.2f", loop.start))s–\(String(format: "%.2f", loop.end))s")
+            }
+        }
+    }
+    /// 离 B 不到一拍时排好的那一下准点跳回。
+    @ObservationIgnored var abRepeatJumpTask: Task<Void, Never>?
+
+    /// 这一首播完时停住、不接着放下一首的几种情况变了:停住时先把已经备好的下一首放掉,免得 gapless
+    /// 或淡入淡出抢先接过去;放开时重新准备下一首。
+    private func queueEndHoldDidChange(wasHolding: Bool) {
+        synchronizeAppleMusicQueue()
+        if holdsQueueAtCurrentTrackEnd {
+            cancelPreparedQueueSuccessor()
+        } else if wasHolding {
             prefetchNextSong()
         }
     }
@@ -1974,6 +2036,8 @@ final class AudioPlayerService {
     /// 卡拉OK舞台打开/关闭。打开时正在走系统播放器的歌切回 PCM 引擎。
     func setKaraokeSessionActive(_ active: Bool) {
         isKaraokeSessionActive = active
+        // 舞台上有自己的逐句循环,两套来回跳会打架。
+        if active { clearABRepeat() }
         guard active, isSystemAudioPlaybackActive, let id = playID else { return }
         Task { @MainActor [weak self] in
             await self?.fallbackSystemAudioToPCM(playID: id, error: nil)
@@ -3909,6 +3973,7 @@ final class AudioPlayerService {
                 }
                 // 放画面的有声内容和音频引擎那边一样每拍记位置、跳片尾、更新章节。
                 self.runSpokenWordClockTick()
+                self.followABRepeatLoop()
             }
         }
 
@@ -4792,16 +4857,23 @@ final class AudioPlayerService {
         guard queueEntries.indices.contains(currentIndex),
               queueEntries[currentIndex].song.id == currentSong?.id
                 || queueEntries[currentIndex].song.filePath == currentSong?.filePath else { return nil }
-        if sleepStopAfterSongID == currentSong?.id {
+        // 这首播完就停(睡眠定时、每首播完都停、停止点标在这首上):只交给 MusicKit 这一首。
+        if sleepStopAfterSongID == currentSong?.id || currentTrackEndStop != nil {
             return .init(entries: [queueEntries[currentIndex]], startIndex: 0, repeatMode: .off)
         }
         let traversal = (usesManagedShuffleOrder ? shuffledIndices : Array(queueEntries.indices))
             .filter { queueEntries.indices.contains($0) && isSongAvailableForNewPlayback(queueEntries[$0].song) }
-        let indices = PlaybackQueueSegmentPolicy.indices(traversal: traversal, currentIndex: currentIndex) {
+        var indices = PlaybackQueueSegmentPolicy.indices(traversal: traversal, currentIndex: currentIndex) {
             queueEntries[$0].song.sourceID == AppleMusicLibraryService.systemSourceID
         }
         guard let startIndex = indices.firstIndex(of: currentIndex) else { return nil }
-        let nativeRepeat = repeatMode == .all && indices.count != traversal.count ? .off : repeatMode
+        var nativeRepeat = repeatMode == .all && indices.count != traversal.count ? .off : repeatMode
+        // 停止点标在后面某一条上:MusicKit 放到那一条为止,停下由曲终处理接手。
+        if let stopEntryID = queueStopAfterEntryID,
+           let stopPosition = indices[startIndex...].firstIndex(where: { queueEntries[$0].id == stopEntryID }) {
+            indices = Array(indices[...stopPosition])
+            nativeRepeat = .off
+        }
         return .init(entries: indices.map { queueEntries[$0] }, startIndex: startIndex, repeatMode: nativeRepeat)
     }
 

@@ -974,7 +974,7 @@ struct ImmersivePlayerView: View {
                     Task { await player.next() }
                 }
                 Spacer()
-                modeButton(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+                modeButton(player.repeatBehavior.symbolName, active: player.repeatBehavior.isActive) {
                     PMHaptics.playbackModeToggled()
                     advanceRepeatMode()
                 }
@@ -1067,12 +1067,9 @@ struct ImmersivePlayerView: View {
         }
     }
 
+    /// 和播放页的循环键一样:关 → 列表循环 → 单曲循环 → 关;每首播完都停的两种点一下回到关。
     private func advanceRepeatMode() {
-        switch player.repeatMode {
-        case .off: player.repeatMode = .all
-        case .all: player.repeatMode = .one
-        case .one: player.repeatMode = .off
-        }
+        player.repeatBehavior = player.repeatBehavior.next
     }
 
     private func transportButton(
