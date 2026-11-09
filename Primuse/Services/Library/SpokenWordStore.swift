@@ -802,7 +802,8 @@ final class SpokenWordStore {
         isFinished: Bool,
         updatedAt: Date
     ) -> Bool {
-        if let newest = lastChange(forSongID: songID), newest >= updatedAt {
+        if let newest = lastChange(forSongID: songID),
+           newest.timeIntervalSinceReferenceDate >= updatedAt.timeIntervalSinceReferenceDate {
             guard newest == updatedAt, remoteListeningChange(forSongID: songID) == nil else { return false }
             let matches: Bool
             if isFinished {
