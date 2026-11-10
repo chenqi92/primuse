@@ -183,6 +183,61 @@ struct NowPlayingInteractionPolicyTests {
         ) == 140)
     }
 
+    @Test func scrubPositionStaysAnchoredWhenThePlayerMoves() {
+        var session = ProgressScrubSession(interactionID: "song-a")
+        session.update(horizontalTranslation: 0, verticalTranslation: 0,
+                       location: 65, trackWidth: 100, duration: 200)
+        session.update(horizontalTranslation: 10, verticalTranslation: 1,
+                       location: 0, trackWidth: 100, duration: 200)
+        #expect(session.preview == 150)
+        #expect(session.committedValue(currentInteractionID: "song-a",
+            horizontalTranslation: 20, verticalTranslation: 2,
+            location: -30, trackWidth: 100, duration: 200) == 170)
+    }
+
+    @Test func downwardSwipeCannotSeekEvenWhenTheTrackMovesUnderTheTouch() {
+        var session = ProgressScrubSession(interactionID: "song-a")
+        session.update(horizontalTranslation: 0, verticalTranslation: 0,
+                       location: 5, trackWidth: 100, duration: 200)
+        session.update(horizontalTranslation: 2, verticalTranslation: 20,
+                       location: 0, trackWidth: 100, duration: 200)
+        session.update(horizontalTranslation: 40, verticalTranslation: 60,
+                       location: -10, trackWidth: 100, duration: 200)
+        #expect(session.preview == nil)
+        #expect(session.committedValue(currentInteractionID: "song-a",
+            horizontalTranslation: 50, verticalTranslation: 60,
+            location: 0, trackWidth: 100, duration: 200) == nil)
+    }
+
+    @Test func touchAndSmallJitterDoNotSeek() {
+        var session = ProgressScrubSession(interactionID: "song-a")
+        session.update(horizontalTranslation: 0, verticalTranslation: 0,
+                       location: 0, trackWidth: 100, duration: 200)
+        #expect(session.preview == nil)
+        #expect(session.committedValue(currentInteractionID: "song-a",
+            horizontalTranslation: 3, verticalTranslation: 2,
+            location: 3, trackWidth: 100, duration: 200) == nil)
+    }
+
+    @Test func downwardDismissalCancelsAnInitialSidewaysMovement() {
+        var session = ProgressScrubSession(interactionID: "song-a")
+        session.update(horizontalTranslation: 10, verticalTranslation: 1,
+                       location: 10, trackWidth: 100, duration: 200)
+        #expect(session.preview == 20)
+        #expect(session.committedValue(currentInteractionID: "song-a",
+            horizontalTranslation: 10, verticalTranslation: 60,
+            location: 0, trackWidth: 100, duration: 200) == nil)
+        session.update(horizontalTranslation: 10, verticalTranslation: 60,
+                       location: 0, trackWidth: 100, duration: 200)
+        #expect(session.preview == nil)
+        session.update(horizontalTranslation: 80, verticalTranslation: 60,
+                       location: 80, trackWidth: 100, duration: 200)
+        #expect(session.preview == nil)
+        #expect(session.committedValue(currentInteractionID: "song-a",
+            horizontalTranslation: 80, verticalTranslation: 60,
+            location: 80, trackWidth: 100, duration: 200) == nil)
+    }
+
     @Test func persistentScrubSessionRejectsAReplacementTrack() {
         var session = ProgressScrubSession(interactionID: "song-a")
         session.update(

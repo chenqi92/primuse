@@ -35,6 +35,7 @@ public struct ProgressScrubSession: Equatable, Sendable {
     public let interactionID: String?
     public private(set) var intent: ProgressScrubGestureIntent = .undecided
     public private(set) var preview: TimeInterval?
+    private var touchDownLocation: Double?
 
     public init(interactionID: String?) {
         self.interactionID = interactionID
@@ -47,14 +48,19 @@ public struct ProgressScrubSession: Equatable, Sendable {
         trackWidth: Double,
         duration: TimeInterval
     ) {
-        intent = NowPlayingInteractionPolicy.scrubGestureIntent(
-            currentIntent: intent,
+        if touchDownLocation == nil, location.isFinite, horizontalTranslation.isFinite {
+            touchDownLocation = location - horizontalTranslation
+        }
+        intent = resolvedIntent(
             horizontalTranslation: horizontalTranslation,
             verticalTranslation: verticalTranslation
         )
-        guard intent == .horizontal else { return }
+        guard intent == .horizontal else {
+            preview = nil
+            return
+        }
         preview = NowPlayingInteractionPolicy.scrubValue(
-            location: location,
+            location: touchDownLocation.map { $0 + horizontalTranslation } ?? location,
             trackWidth: trackWidth,
             duration: duration
         )
@@ -68,8 +74,7 @@ public struct ProgressScrubSession: Equatable, Sendable {
         trackWidth: Double,
         duration: TimeInterval
     ) -> TimeInterval? {
-        let finalIntent = NowPlayingInteractionPolicy.scrubGestureIntent(
-            currentIntent: intent,
+        let finalIntent = resolvedIntent(
             horizontalTranslation: horizontalTranslation,
             verticalTranslation: verticalTranslation
         )
@@ -79,10 +84,28 @@ public struct ProgressScrubSession: Equatable, Sendable {
             currentInteractionID: currentInteractionID
         ) else { return nil }
         return NowPlayingInteractionPolicy.scrubValue(
-            location: location,
+            location: touchDownLocation.map { $0 + horizontalTranslation } ?? location,
             trackWidth: trackWidth,
             duration: duration
         )
+    }
+
+    private func resolvedIntent(
+        horizontalTranslation: Double,
+        verticalTranslation: Double
+    ) -> ProgressScrubGestureIntent {
+        guard horizontalTranslation.isFinite, verticalTranslation.isFinite else { return .vertical }
+        let resolved = NowPlayingInteractionPolicy.scrubGestureIntent(
+            currentIntent: intent, horizontalTranslation: horizontalTranslation,
+            verticalTranslation: verticalTranslation
+        )
+        // A downward dismissal can start with a short sideways movement.
+        if resolved == .horizontal,
+           abs(verticalTranslation) >= NowPlayingInteractionPolicy.minimumScrubDistance,
+           abs(verticalTranslation) > abs(horizontalTranslation) * 1.25 {
+            return .vertical
+        }
+        return resolved
     }
 }
 

@@ -586,6 +586,8 @@ struct SongLocationEvidenceHost: View {
     @ViewBuilder
     private var pageContent: some View {
         switch page {
+        case "progressGestures":
+            ProgressScrubGestureEvidence()
         case "folders":
             HomeFolderBrowser()
         case "otherFolder":
@@ -604,6 +606,34 @@ struct SongLocationEvidenceHost: View {
             if let artist = fixture.library.visibleArtists.first { ArtistDetailView(artist: artist) }
         default:
             SongListView(locationRequest: $request)
+        }
+    }
+}
+
+private struct ProgressScrubGestureEvidence: View {
+    @State private var value: TimeInterval = 120
+    @State private var seekCount = 0
+    @State private var preview: TimeInterval?
+    @State private var offset = CGSize.zero
+
+    var body: some View {
+        VStack(spacing: 24) {
+            ProgressSlider(value: value, total: 200, interactionID: "progress-fixture",
+                onPreview: { preview = $0 },
+                onSeek: { value = $0; seekCount += 1 })
+                .frame(width: 280)
+                .accessibilityIdentifier("progressFixture.slider")
+                .offset(offset)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                        .onChanged { gesture in
+                            offset = CGSize(width: -gesture.translation.width / 2,
+                                            height: gesture.translation.height / 2)
+                        }
+                        .onEnded { _ in offset = .zero }
+                )
+            Text("\(seekCount):\(Int(value.rounded())):\(preview == nil ? "idle" : "preview")")
+                .accessibilityIdentifier("progressFixture.result")
         }
     }
 }

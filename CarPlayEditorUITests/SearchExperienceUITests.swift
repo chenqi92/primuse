@@ -687,6 +687,41 @@ final class SongLocationUITests: XCTestCase {
         attach(app, "player-controls-tap-after-swipe")
     }
 
+    func testProgressSliderKeepsPositionDuringDownwardSwipesAndMovingLayout() {
+        let app = launch("progressGestures")
+        defer { app.terminate() }
+        let slider = app.descendants(matching: .any).matching(identifier: "progressFixture.slider").firstMatch
+        let result = app.staticTexts["progressFixture.result"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 30))
+        XCTAssertEqual(result.label, "0:120:idle")
+
+        let leading = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5))
+        leading.tap()
+        XCTAssertEqual(result.label, "0:120:idle")
+        leading.press(forDuration: 0.05, thenDragTo: leading.withOffset(CGVector(dx: 3, dy: 80)))
+        XCTAssertEqual(result.label, "0:120:idle")
+
+        let start = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 56, dy: 0)))
+        let fields = result.label.split(separator: ":")
+        XCTAssertEqual(fields.first, "1")
+        XCTAssertEqual(Double(fields.dropFirst().first ?? "") ?? -1, 140, accuracy: 3)
+        XCTAssertEqual(fields.last, "idle")
+        let afterSeek = result.label
+
+        for _ in 0..<2 {
+            let nextStart = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5))
+            nextStart.press(forDuration: 0.05, thenDragTo: nextStart.withOffset(CGVector(dx: 2, dy: 70)))
+            XCTAssertEqual(result.label, afterSeek)
+        }
+        let next = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        next.press(forDuration: 0.05, thenDragTo: next.withOffset(CGVector(dx: -28, dy: 0)))
+        let finalFields = result.label.split(separator: ":")
+        XCTAssertEqual(finalFields.first, "2")
+        XCTAssertEqual(Double(finalFields.dropFirst().first ?? "") ?? -1, 80, accuracy: 3)
+        XCTAssertEqual(finalFields.last, "idle")
+    }
+
     private func launch(_ page: String, appearance: String? = "list", colorScheme: String = "dark",
                         coverWall: Bool = false, folders: Bool = false, target: String? = nil,
                         playerGestures: Bool = false) -> XCUIApplication {

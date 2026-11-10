@@ -12318,16 +12318,15 @@ struct ProgressSlider: View {
             .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: CGFloat(
-                    NowPlayingInteractionPolicy.minimumScrubDistance
-                ))
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .updating($isPressing) { _, pressing, _ in pressing = true }
                     .onChanged { gesture in
                         var session = scrubSession
                             ?? ProgressScrubSession(interactionID: interactionID)
                         session.update(
                             horizontalTranslation: Double(gesture.translation.width),
                             verticalTranslation: Double(gesture.translation.height),
-                            location: Double(gesture.location.x),
+                            location: Double(gesture.location.x - geo.frame(in: .global).minX),
                             trackWidth: Double(width),
                             duration: safeTotal
                         )
@@ -12338,7 +12337,7 @@ struct ProgressSlider: View {
                             currentInteractionID: interactionID,
                             horizontalTranslation: Double(gesture.translation.width),
                             verticalTranslation: Double(gesture.translation.height),
-                            location: Double(gesture.location.x),
+                            location: Double(gesture.location.x - geo.frame(in: .global).minX),
                             trackWidth: Double(width),
                             duration: safeTotal
                         )
@@ -12348,11 +12347,6 @@ struct ProgressSlider: View {
                         }
                     }
             )
-            // 一碰到就进入操作态;拖动方向还没定时不改进度,只是先加粗。
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .updating($isPressing) { _, pressing, _ in pressing = true }
-            )
             // 按下时弹一下变粗,松手、取消后慢慢收回;减弱动态效果时只是轻微地变。
             .animation(
                 reduceMotion ? .easeOut(duration: 0.12) : .spring(duration: 0.3, bounce: 0.2),
@@ -12360,6 +12354,13 @@ struct ProgressSlider: View {
             )
         }
         .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
+        .task(id: isPressing) {
+            guard !isPressing else { return }
+            // Cancellation has no onEnded callback. Let a normal end commit before clearing its session.
+            await Task.yield()
+            guard !Task.isCancelled, !isPressing else { return }
+            scrubSession = nil
+        }
         .onChange(of: activePreview) { _, preview in
             onPreview(preview)
             updateScrubEdge(preview: preview)
