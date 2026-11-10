@@ -4858,6 +4858,35 @@ final class MusicLibrary {
         return songs
     }
 
+    /// 曲库就绪前给专辑页、歌手页先看的一屏。
+    struct StartupBrowsePreview: Sendable {
+        let albums: [Album]
+        let artists: [Artist]
+    }
+
+    /// 直接读上次落盘的启动缓存里的专辑和歌手,取前面一屏。整库的歌还在读的时候页面外层就有内容可看;
+    /// 缓存可能比曲库旧一点(刚删的、刚停用的来源还在里面),就绪后整页换成真实内容。
+    func prepareStartupBrowsePreview(limit: Int = 60) async -> StartupBrowsePreview? {
+        guard !isReady else { return nil }
+        let url = startupCacheURL
+        let worker = Task.detached(priority: .userInitiated) { () -> StartupBrowsePreview? in
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
+                  cache.formatVersion == MusicLibrary.startupCacheFormatVersion else { return nil }
+            return StartupBrowsePreview(
+                albums: Array(cache.albums.prefix(limit)),
+                artists: Array(cache.artists.prefix(limit))
+            )
+        }
+        let preview = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard !Task.isCancelled, !isReady else { return nil }
+        return preview
+    }
+
     private nonisolated static func startupSongReader(
         directory: URL, sourceIDs: Set<String>, requiresExclusionReconciliation: Bool = true
     ) throws -> IncrementalSongPageReader? {

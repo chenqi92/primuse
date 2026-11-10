@@ -1009,28 +1009,160 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     }
 }
 
+/// 资料库还在装载时的占位:照这一页的大致样子画骨架(专辑、发行日期是封面网格,歌手是圆头像的行,
+/// 其余是带小封面的行),装好后原地换成内容。比一个转圈更像「页面已经在了,内容马上到」。
 private struct LibraryPreparingView: View {
-    @State private var showsProgress = false
+    var section: LibrarySection? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+    @State private var isDimmed = false
+
+    private enum Shape { case grid, rows(circular: Bool) }
+
+    private var shape: Shape {
+        switch section {
+        case .albums, .releaseDate, .spokenWord: .grid
+        case .artists: .rows(circular: true)
+        default: .rows(circular: false)
+        }
+    }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Color(.systemBackground).ignoresSafeArea()
-            if showsProgress {
-                VStack(spacing: 16) {
-                    ProgressView().controlSize(.large)
-                    Text("library_preparing")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            if isVisible {
+                skeleton
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .opacity(isDimmed ? 0.55 : 1)
+                    .pmFadeTransition(motion: .contentAppear)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text("library_preparing"))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .clipped()
+        .allowsHitTesting(false)
+        .task {
+            // 一两百毫秒就装好的时候只铺底色,免得骨架闪一下。
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            isVisible = true
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { isDimmed = true }
+        }
+    }
+
+    private var fill: Color { Color.secondary.opacity(0.14) }
+
+    @ViewBuilder
+    private var skeleton: some View {
+        switch shape {
+        case .grid:
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 20) {
+                ForEach(0..<8, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 8) {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(fill)
+                            .aspectRatio(1, contentMode: .fit)
+                        bar(width: 110, height: 12)
+                        bar(width: 70, height: 10)
+                    }
                 }
-                .pmFadeTransition(motion: .contentAppear)
+            }
+        case .rows(let circular):
+            VStack(spacing: 14) {
+                ForEach(0..<12, id: \.self) { index in
+                    HStack(spacing: 12) {
+                        Group {
+                            if circular {
+                                Circle().fill(fill)
+                            } else {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(fill)
+                            }
+                        }
+                        .frame(width: 48, height: 48)
+                        VStack(alignment: .leading, spacing: 8) {
+                            bar(width: index.isMultiple(of: 3) ? 150 : 200, height: 12)
+                            bar(width: index.isMultiple(of: 2) ? 90 : 120, height: 10)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+    }
+
+    private func bar(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+            .fill(fill)
+            .frame(width: width, height: height)
+    }
+}
+
+/// 专辑页、歌手页在曲库就绪前先摆出上次的前一屏(来自启动缓存),整库装好后换成真实页面。
+/// 能点:点进去的详情页自己等曲库就绪。
+struct LibraryStartupBrowsePreview: View {
+    @Environment(MusicLibrary.self) private var library
+    let section: LibrarySection
+    @State private var preview: MusicLibrary.StartupBrowsePreview?
+
+    var body: some View {
+        Group {
+            if section == .artists, let artists = preview?.artists, !artists.isEmpty {
+                List {
+                    ForEach(artists) { artist in
+                        NavigationLink(value: artist) {
+                            HStack(spacing: 12) {
+                                ArtistArtworkView(artist: artist, size: 48, cornerRadius: 24)
+                                    .frame(width: 48, height: 48)
+                                    .clipShape(Circle())
+                                Text(artist.name).lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(minHeight: 52)
+                        }
+                    }
+                    preparingFooter.listRowSeparator(.hidden)
+                }
+                .listStyle(.plain)
+                .accessibilityIdentifier("library.startup.artists")
+            } else if section == .albums, let albums = preview?.albums, !albums.isEmpty {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 20) {
+                        ForEach(albums) { album in
+                            NavigationLink(value: album) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    AlbumArtworkView(album: album, cornerRadius: 10)
+                                        .aspectRatio(1, contentMode: .fit)
+                                    Text(album.title).font(.subheadline).lineLimit(1)
+                                        .foregroundStyle(.primary)
+                                    Text(album.artistName ?? "").font(.caption).lineLimit(1)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    preparingFooter.padding(.vertical, 20)
+                }
+                .accessibilityIdentifier("library.startup.albums")
+            } else {
+                LibraryPreparingView(section: section)
             }
         }
         .task {
-            // 快速启动只铺底色，避免短暂闪出加载提示。
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            showsProgress = true
+            preview = await library.prepareStartupBrowsePreview()
         }
+    }
+
+    private var preparingFooter: some View {
+        ProgressView("library_preparing")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
     }
 }
 
@@ -1043,7 +1175,7 @@ struct LibraryStartupSongPreview: View {
     var body: some View {
         Group {
             if songs.isEmpty {
-                LibraryPreparingView()
+                LibraryPreparingView(section: .songs)
             } else {
                 List {
                     ForEach(songs) { song in
@@ -1108,8 +1240,10 @@ struct LibraryReadyContent<Content: View>: View {
                 Group {
                     if startupSection == .songs {
                         LibraryStartupSongPreview(sourceIDs: sourceIDs, play: playStartupSong)
+                    } else if startupSection == .albums || startupSection == .artists, let startupSection {
+                        LibraryStartupBrowsePreview(section: startupSection)
                     } else {
-                        LibraryPreparingView()
+                        LibraryPreparingView(section: startupSection)
                     }
                 }
                     .safeAreaInset(edge: .top) {
@@ -1741,9 +1875,9 @@ struct ContentView: View {
         case .librarySpokenWord:
             librarySubpane(title: "tab_spoken_word") { SpokenWordLibraryView() }
         case .libraryAlbums:
-            librarySubpane(title: "tab_albums") { AlbumGridView() }
+            librarySubpane(title: "tab_albums", startupSection: .albums) { AlbumGridView() }
         case .libraryArtists:
-            librarySubpane(title: "tab_artists") { ArtistListView() }
+            librarySubpane(title: "tab_artists", startupSection: .artists) { ArtistListView() }
         case .libraryGenres:
             librarySubpane(title: "tab_genres") { GenreLibraryView() }
         case .libraryPlaylists:
