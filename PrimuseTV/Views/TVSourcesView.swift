@@ -1725,7 +1725,8 @@ struct TVMetadataMaintenanceView: View {
                 guard !Task.isCancelled else { return }
                 artistArtworkProgress = PMString("batch_scrape_artwork_progress_format", index + 1, candidates.count)
                 let data = await ArtworkFetchService.shared.fetchArtistImage(
-                    artistName: artist.name, artistID: artist.id
+                    artistName: artist.name, artistID: artist.id,
+                    isAppleMusicArtist: store.library.artistHasAppleMusicSongs(artist.id)
                 )
                 guard !Task.isCancelled else { return }
                 if data != nil {

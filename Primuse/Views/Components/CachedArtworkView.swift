@@ -1718,8 +1718,6 @@ struct CachedArtworkView: View {
                 || StoredArtworkOrigin.preservesLocalChoice(ref) else { return nil }
         let store = MetadataAssetStore.shared
         if let artistID {
-            if let data = store.cachedArtistImage(forArtistID: ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: artistID)),
-               let image = decode(data, bucket: bucket) { return image }
             let baseID = SourceOwnedArtworkReference.resolve(ref).map { _ in
                 SubsonicArtistArtworkRequest.cacheID(artistID: artistID, reference: ref ?? "")
             } ?? artistID
@@ -1873,7 +1871,11 @@ struct CachedArtworkView: View {
         // Catalog artist photos have a separate namespace from old scrapes
         // and source portraits, so neither can mask a newly available photo.
         if let artistID, let artistName {
-            if let data = await ArtworkFetchService.shared.fetchArtistImage(artistName: artistName, artistID: artistID),
+            let isAppleMusicArtist = await MainActor.run {
+                AppServices.shared.musicLibrary.artistHasAppleMusicSongs(artistID)
+            }
+            if let data = await ArtworkFetchService.shared.fetchArtistImage(
+                artistName: artistName, artistID: artistID, isAppleMusicArtist: isAppleMusicArtist),
                let image = finalize(data: data, bucket: bucket, cacheKey: cacheKey) { return image }
             let owned = SourceOwnedArtworkReference.resolve(effectiveRef)
             let baseID = owned.map { _ in

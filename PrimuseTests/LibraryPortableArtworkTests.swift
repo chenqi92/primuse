@@ -32,14 +32,18 @@ final class LibraryPortableArtworkTests: XCTestCase {
         _ = await store.storeArtistImage(old, forArtistID: ArtistArtworkResolutionPolicy.cacheID(baseID: "artist", maximumPixels: 1536))
         let stub = ArtistPhotoStub(portrait)
         let fetcher = ArtworkFetchService(assetStore: store, isArtistLookupAuthorized: { true }, artistPhotoLookup: { _ in await stub.fetch() })
-        let first = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist")
+        let first = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", isAppleMusicArtist: true)
         XCTAssertEqual(first, portrait)
         await stub.set(updated)
-        let cached = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist")
+        let cached = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", isAppleMusicArtist: true)
         XCTAssertEqual(cached, portrait)
-        let refreshed = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", forceRefresh: true)
+        let refreshed = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", isAppleMusicArtist: true, forceRefresh: true)
         XCTAssertEqual(refreshed, updated)
-        XCTAssertEqual(store.cachedArtistImage(forArtistID: ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: "artist")), updated)
+        XCTAssertNil(store.cachedArtistImage(forArtistID: ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: "artist")),
+                     "Catalog artist photos stay in memory and are never written to disk")
+        let otherSource = await fetcher.fetchArtistImage(
+            artistName: "Paper Lantern", artistID: "artist", isAppleMusicArtist: false, forceRefresh: true)
+        XCTAssertNil(otherSource, "Artists without Apple Music songs never use the catalog photo")
         let requests = await stub.requests
         XCTAssertEqual(requests, 2)
     }
@@ -53,17 +57,17 @@ final class LibraryPortableArtworkTests: XCTestCase {
         _ = await store.storeArtistImage(portrait, forArtistID: key)
         let stub = ArtistPhotoStub(nil)
         let fetcher = ArtworkFetchService(assetStore: store, isArtistLookupAuthorized: { true }, artistPhotoLookup: { _ in await stub.fetch() })
-        let failed = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", forceRefresh: true)
+        let failed = await fetcher.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", isAppleMusicArtist: true, forceRefresh: true)
         XCTAssertNil(failed, "A failed manual refresh must not report an old cache as success")
         XCTAssertEqual(store.cachedArtistImage(forArtistID: key), portrait)
-        let missing = await fetcher.fetchArtistImage(artistName: "Other Artist", artistID: "other")
+        let missing = await fetcher.fetchArtistImage(artistName: "Other Artist", artistID: "other", isAppleMusicArtist: true)
         XCTAssertNil(missing)
-        let suppressed = await fetcher.fetchArtistImage(artistName: "Other Artist", artistID: "other")
+        let suppressed = await fetcher.fetchArtistImage(artistName: "Other Artist", artistID: "other", isAppleMusicArtist: true)
         XCTAssertNil(suppressed)
         let requests = await stub.requests
         XCTAssertEqual(requests, 2)
         await stub.set(portrait)
-        let retried = await fetcher.fetchArtistImage(artistName: "Other Artist", artistID: "other", forceRefresh: true)
+        let retried = await fetcher.fetchArtistImage(artistName: "Other Artist", artistID: "other", isAppleMusicArtist: true, forceRefresh: true)
         XCTAssertEqual(retried, portrait)
         let requestsAfterRetry = await stub.requests
         XCTAssertEqual(requestsAfterRetry, 3)
@@ -75,68 +79,14 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let store = MetadataAssetStore(storageDirectory: root)
         let stub = ArtistPhotoStub(Data("not an image".utf8))
         let denied = ArtworkFetchService(assetStore: store, isArtistLookupAuthorized: { false }, artistPhotoLookup: { _ in await stub.fetch() })
-        let result = await denied.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", forceRefresh: true)
+        let result = await denied.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", isAppleMusicArtist: true, forceRefresh: true)
         XCTAssertNil(result)
         let requests = await stub.requests
         XCTAssertEqual(requests, 0)
         let authorized = ArtworkFetchService(assetStore: store, isArtistLookupAuthorized: { true }, artistPhotoLookup: { _ in await stub.fetch() })
-        let invalid = await authorized.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist")
+        let invalid = await authorized.fetchArtistImage(artistName: "Paper Lantern", artistID: "artist", isAppleMusicArtist: true)
         XCTAssertNil(invalid)
         XCTAssertNil(store.cachedArtistImage(forArtistID: ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: "artist")))
-    }
-
-    func testMixedLocalAndAppleMusicArtistUsesCatalogPortraitAndKeepsManualChoice() async throws {
-        let root = try directory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let library = MusicLibrary(storageDirectory: root)
-        let name = "Mixed Artist \(UUID().uuidString)"
-        let local = Song(id: UUID().uuidString, title: "Local track", artistName: name,
-            fileFormat: .mp3, filePath: "/LocalMusic/local.mp3", sourceID: "local-import")
-        let am = Song(id: UUID().uuidString, title: "Catalog track", artistName: name,
-            fileFormat: .mp3, filePath: "", sourceID: AppleMusicLibraryIdentity.sourceID)
-        library.addSongs([local, am])
-        await library.waitForPendingIndex()
-        let artist = try XCTUnwrap(library.visibleArtists.first { $0.name == name })
-        XCTAssertEqual(library.visibleArtists.filter { $0.name == name }.count, 1)
-        let store = MetadataAssetStore.shared
-        let red = try image(color: .red)
-        let green = try image(color: .green)
-        let blue = try image(color: .blue)
-        await store.cacheCover(red, forSongID: local.id)
-        let legacy = await store.storeArtistImage(red, forArtistID: artist.id)
-        let catalog = await store.storeArtistImage(green, forArtistID: ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: artist.id))
-        defer {
-            for file in [legacy, catalog].compactMap({ $0 }) {
-                try? FileManager.default.removeItem(at: store.artworkDirectoryURL.appendingPathComponent("artist").appendingPathComponent(file))
-            }
-            try? FileManager.default.removeItem(at: store.artworkDirectoryURL.appendingPathComponent(store.expectedCoverFileName(for: local.id)))
-            CachedArtworkView.invalidateCache(for: artist.id)
-        }
-        let view = ArtistArtworkView(artist: artist, size: 80, cornerRadius: 0)
-            .environment(library)
-            .environment(SourceManager(sourcesProvider: { [] }))
-            .environment(\.scenePhase, .inactive)
-        let (window, host, original) = try hostHeroTestView(view, size: CGSize(width: 80, height: 80))
-        defer { window.isHidden = true; window.rootViewController = nil; original?.makeKeyAndVisible() }
-        func waitForColor(_ channel: Int) async throws {
-            for _ in 0..<40 {
-                try await Task.sleep(for: .milliseconds(50))
-                let pixel = try rgb(heroTestSnapshot(host.view), x: 40, y: 40)
-                let channels = [pixel.0, pixel.1, pixel.2]
-                if channels[channel] > 220 && channels.enumerated().filter({ $0.offset != channel }).allSatisfy({ $0.element < 35 }) { return }
-            }
-            XCTFail("Expected artwork channel \(channel)")
-        }
-        try await waitForColor(1)
-        let owner = LibraryArtworkOwner(kind: .artist, id: artist.id)
-        XCTAssertTrue(library.setArtwork(for: owner, to: local))
-        try await waitForColor(0)
-        XCTAssertTrue(library.setAutomaticArtwork(for: owner))
-        try await waitForColor(1)
-        let fetcher = ArtworkFetchService(isArtistLookupAuthorized: { true }, artistPhotoLookup: { _ in blue })
-        let refreshed = await fetcher.fetchArtistImage(artistName: name, artistID: artist.id, forceRefresh: true)
-        XCTAssertEqual(refreshed, blue)
-        try await waitForColor(2)
     }
 
     private func animatedUploadGIF(paddingBytes: Int = 0) throws -> Data {

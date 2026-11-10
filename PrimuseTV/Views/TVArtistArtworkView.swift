@@ -95,6 +95,11 @@ struct TVArtistArtworkView: View {
                 }
             }
         }
+        // Apple 目录里的照片只给有 Apple Music 歌曲的歌手，现取、不存盘。
+        if store.library.artistHasAppleMusicSongs(artist.id),
+           let data = await ArtworkFetchService.shared.fetchArtistImage(
+            artistName: artist.name, artistID: artist.id, isAppleMusicArtist: true
+           ) { return data }
         let cached = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artist.id)
         if SubsonicArtistArtworkRequest.isServerArtist(reference), let cached,
            SourceArtworkDataValidator.isDefaultArtistPlaceholder(cached) { return nil }

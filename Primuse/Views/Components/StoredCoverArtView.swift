@@ -1210,7 +1210,7 @@ struct LibraryArtworkEditorSheet: View {
                         )
                     }
 
-                    if owner.kind == .artist, appleMusicAuthorized {
+                    if owner.kind == .artist, appleMusicAuthorized, library.artistHasAppleMusicSongs(owner.id) {
                         appleMusicArtworkButton
                     }
                     uploadControl
@@ -1381,7 +1381,7 @@ struct LibraryArtworkEditorSheet: View {
                             choice: .automatic
                         )
 
-                        if owner.kind == .artist, appleMusicAuthorized {
+                        if owner.kind == .artist, appleMusicAuthorized, library.artistHasAppleMusicSongs(owner.id) {
                             appleMusicArtworkButton
                         }
 
@@ -1859,7 +1859,8 @@ struct LibraryArtworkEditorSheet: View {
         Task {
             defer { isProcessing = false }
             guard await ArtworkFetchService.shared.fetchArtistImage(
-                artistName: artistName, artistID: owner.id, forceRefresh: true
+                artistName: artistName, artistID: owner.id,
+                isAppleMusicArtist: library.artistHasAppleMusicSongs(owner.id), forceRefresh: true
             ) != nil else {
                 errorMessage = String(localized: "artwork_artist_apple_music_unavailable")
                 return

@@ -1848,11 +1848,8 @@ final class MusicScraperService {
             currentSongTitle = String(localized: "scraping_artist_images")
             for artist in artistsNeedingImage {
                 guard !Task.isCancelled else { return }
+                // Apple 目录里的歌手照片只在显示时现取、不存盘，批量补全不再去取；这里只记音乐源给的头像在不在。
                 currentSongTitle = artist.name
-                _ = await artworkService.fetchArtistImage(
-                    artistName: artist.name, artistID: artist.id
-                )
-                guard !Task.isCancelled else { return }
                 recordArtworkResult(
                     isAvailable: assetStore.hasArtistImage(forArtistID: artist.id)
                 )

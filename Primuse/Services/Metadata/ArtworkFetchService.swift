@@ -15,6 +15,10 @@ actor ArtworkFetchService {
     private let artistPhotoLookup: @Sendable (String) async -> Data?
     private let isArtistLookupAuthorized: @Sendable () -> Bool
     private var artistRetryAfter: [String: ContinuousClock.Instant] = [:]
+    /// Apple 目录里的歌手照片只在这次运行里留着，不写进磁盘。
+    private var artistPhotos: [String: Data] = [:]
+    private var artistPhotoOrder: [String] = []
+    private static let artistPhotoLimit = 120
 
     init(
         assetStore: MetadataAssetStore = .shared,
@@ -75,35 +79,49 @@ actor ArtworkFetchService {
 
     // MARK: - Artist Image
 
-    /// Fetch artist image: check cache → Apple Music artist photo → store
-    func fetchArtistImage(artistName: String, artistID: String, forceRefresh: Bool = false) async -> Data? {
+    /// Apple 目录里的歌手照片。只给曲库里有 Apple Music 歌曲的歌手用（`isAppleMusicArtist`），
+    /// 只在内存里留着：不存盘、不写进文件标签，下次启动重新取。
+    func fetchArtistImage(
+        artistName: String,
+        artistID: String,
+        isAppleMusicArtist: Bool,
+        forceRefresh: Bool = false
+    ) async -> Data? {
+        guard isAppleMusicArtist else { return nil }
         let cacheID = ArtistArtworkResolutionPolicy.appleMusicCacheID(artistID: artistID)
-        if !forceRefresh, let cached = assetStore.cachedArtistImage(forArtistID: cacheID) { return cached }
+        if !forceRefresh, let cached = artistPhotos[cacheID] { return cached }
         guard isArtistLookupAuthorized(), !Task.isCancelled,
               !artistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let existing = inFlightArtist[cacheID] { return await existing.value }
         if !forceRefresh, let retryAfter = artistRetryAfter[cacheID], retryAfter > .now { return nil }
         let task = Task<Data?, Never> {
             guard let data = await self.artistPhotoLookup(artistName),
-                  ArtworkImageCompatibility.isCompleteImage(data),
-                  await self.assetStore.storeArtistImage(data, forArtistID: cacheID) != nil else { return nil }
-            // Preserve the batch scraper's legacy availability index.
-            _ = await self.assetStore.storeArtistImage(data, forArtistID: artistID)
-            #if os(iOS) || os(macOS)
-            await MainActor.run { CachedArtworkView.invalidateCache(for: artistID) }
-            #endif
+                  ArtworkImageCompatibility.isCompleteImage(data) else { return nil }
             return data
         }
         inFlightArtist[cacheID] = task
         let result = await task.value
         inFlightArtist[cacheID] = nil
-        if result == nil {
+        if let result {
+            rememberArtistPhoto(result, for: cacheID)
+            artistRetryAfter[cacheID] = nil
+            #if os(iOS) || os(macOS)
+            await MainActor.run { CachedArtworkView.invalidateCache(for: artistID) }
+            #endif
+        } else {
             artistRetryAfter = artistRetryAfter.filter { $0.value > .now }
             artistRetryAfter[cacheID] = .now + .seconds(300)
-        } else {
-            artistRetryAfter[cacheID] = nil
         }
         return result
+    }
+
+    private func rememberArtistPhoto(_ data: Data, for cacheID: String) {
+        artistPhotos[cacheID] = data
+        artistPhotoOrder.removeAll { $0 == cacheID }
+        artistPhotoOrder.append(cacheID)
+        while artistPhotoOrder.count > Self.artistPhotoLimit {
+            artistPhotos[artistPhotoOrder.removeFirst()] = nil
+        }
     }
 
     // MARK: - Online Search
@@ -172,7 +190,7 @@ actor ArtworkFetchService {
         do {
             let (data, response) = try await TrustedHTTPTransport.data(
                 for: request,
-                session: .shared,
+                session: artistPhotoSession,
                 maxBytes: 8 * 1024 * 1024
             )
             guard let http = response as? HTTPURLResponse,
@@ -186,6 +204,14 @@ actor ArtworkFetchService {
             return nil
         }
     }
+
+    /// 不带磁盘缓存的会话：系统的网络缓存也不留这些照片。
+    private static let artistPhotoSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
+    }()
 
     // MARK: - Helpers
 

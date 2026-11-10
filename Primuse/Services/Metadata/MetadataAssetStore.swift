@@ -117,7 +117,10 @@ actor MetadataAssetStore {
         let oldRoot = fileManager.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("primuse_metadata", isDirectory: true)
         if storageDirectory == nil { migrateIfNeeded(from: oldRoot, fileManager: fileManager) }
-        if storageDirectory == nil { discardSongCoverArtistImagesOnce(fileManager: fileManager) }
+        if storageDirectory == nil {
+            discardSongCoverArtistImagesOnce(fileManager: fileManager)
+            discardStoredCatalogArtistPhotosOnce(fileManager: fileManager)
+        }
 
         // Dedup/GC can traverse every artwork reference. It is deliberately
         // started by the scene's scheduled file-maintenance window instead of
@@ -159,6 +162,25 @@ actor MetadataAssetStore {
             for file in files { try? fileManager.removeItem(at: file) }
             if !files.isEmpty {
                 plog("MetadataAssetStore: discarded \(files.count) artist images found by song covers")
+            }
+        }
+        defaults.set(true, forKey: key)
+    }
+
+    /// Apple 目录里的歌手照片以前存在这个目录里（连同按歌手 id 的副本），现在只在内存里用。
+    /// 分不出哪张是哪来的，整个目录清一次：音乐源给的头像下次显示时从源重新取回，
+    /// 用户自己选的图在 custom/，不受影响。
+    private nonisolated func discardStoredCatalogArtistPhotosOnce(fileManager: FileManager) {
+        let key = "primuse.artistArtwork.catalogPhotosNotStored.v1"
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: key) else { return }
+        if let files = try? fileManager.contentsOfDirectory(
+            at: artistArtworkDirectory,
+            includingPropertiesForKeys: nil
+        ) {
+            for file in files { try? fileManager.removeItem(at: file) }
+            if !files.isEmpty {
+                plog("MetadataAssetStore: discarded \(files.count) stored artist images")
             }
         }
         defaults.set(true, forKey: key)
