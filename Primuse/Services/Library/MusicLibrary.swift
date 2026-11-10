@@ -4957,6 +4957,7 @@ final class MusicLibrary {
     @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
     @ObservationIgnored private var preparingAlbumArtistFolders: AlbumArtistFolderIndex?
+    @ObservationIgnored private var preparingGenreSeparatorsChanged = false
     @ObservationIgnored private var preparingContentClassificationRefresh = false
     @ObservationIgnored private var visibleContentClassification: SpokenWordClassificationInputs = .empty
     /// S1: `.preparing` 期间被拦截的持久化请求, 发布后各补一次。
@@ -5112,6 +5113,10 @@ final class MusicLibrary {
         if let folders = preparingAlbumArtistFolders {
             preparingAlbumArtistFolders = nil
             updateAlbumArtistFolders(folders)
+        }
+        if preparingGenreSeparatorsChanged {
+            preparingGenreSeparatorsChanged = false
+            genreSeparatorsDidChange()
         }
         if preparingContentClassificationRefresh {
             preparingContentClassificationRefresh = false
@@ -6133,6 +6138,19 @@ final class MusicLibrary {
             guard let value = notification.object as? ArtistNameConfiguration else { return }
             Task { @MainActor [weak self, value] in
                 self?.updateArtistNameConfiguration(value)
+            }
+        }
+
+        // 流派拆分符号是普通的设置项，设置页、设备间传输设置都会改它；
+        // 这里只在值真的变了时才重建。
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            guard GenreSplitPreference.refresh() else { return }
+            Task { @MainActor [weak self] in
+                self?.genreSeparatorsDidChange()
             }
         }
 
@@ -9485,6 +9503,21 @@ final class MusicLibrary {
     func albums(forGenre genreID: String) -> [Album] {
         _ = visibleAlbumsReference
         return visibleAlbumIDsByGenreID[genreID]?.compactMap { visibleAlbumByID[$0] } ?? []
+    }
+
+    /// 流派索引随可见缓存一起重算，歌曲本身不动。
+    func genreSeparatorsDidChange() {
+        if sourceRemovalInProgress {
+            deferredMutations.append { [weak self] in self?.genreSeparatorsDidChange() }
+            return
+        }
+        if isPreparing {
+            preparingGenreSeparatorsChanged = true
+            return
+        }
+        requestLibraryIndexMaintenance(.immediate)
+        invalidateSearchCaches()
+        playlistCollectionRevision &+= 1
     }
 
     func updateArtistNameConfiguration(_ value: ArtistNameConfiguration) {

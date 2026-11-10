@@ -24,6 +24,42 @@ struct LibraryGenreIndexTests {
         }
     }
 
+    @Test("Slashes, commas and bars stay part of a genre name unless the user opted in")
+    func keepsCompoundNamesByDefault() {
+        let raw = "Hip-hop/Rap, Soul | Funk"
+        #expect(GenreTagValues.names(in: raw) == [raw])
+        #expect(GenreTagValues.names(in: raw, alsoSplitting: []) == [raw])
+        #expect(GenreTagValues.joined(["R&B/Soul", "Pop"]) == "R&B/Soul; Pop")
+    }
+
+    @Test("Each opted-in separator splits only at its own characters")
+    func splitsAtChosenSeparators() {
+        #expect(GenreTagValues.names(in: "Hip-hop/Rap", alsoSplitting: .slash) == ["Hip-hop", "Rap"])
+        #expect(GenreTagValues.names(in: "Pop／Rock; Jazz", alsoSplitting: .slash) == ["Pop", "Rock", "Jazz"])
+        #expect(GenreTagValues.names(in: "Rock, Pop、民谣，流行", alsoSplitting: .comma) == ["Rock", "Pop", "民谣", "流行"])
+        #expect(GenreTagValues.names(in: "Rock|Pop\\Jazz", alsoSplitting: .bar) == ["Rock", "Pop", "Jazz"])
+        #expect(GenreTagValues.names(in: "Hip-hop/Rap, Soul", alsoSplitting: .comma) == ["Hip-hop/Rap", "Soul"])
+        #expect(GenreTagValues.names(in: "R&B / Soul / r&b", alsoSplitting: [.slash, .comma, .bar]) == ["R&B", "Soul"])
+        #expect(GenreTagValues.names(in: "Drum & Bass", alsoSplitting: [.slash, .comma, .bar]) == ["Drum & Bass"])
+    }
+
+    @Test("An opted-in separator files a song under every part and merges with existing genres")
+    func indexSplitsAtChosenSeparators() {
+        let songs = [
+            song("a", genre: "Hip-hop/Rap", albumID: "one"),
+            song("b", genre: "rap", albumID: "two"),
+            song("c", genre: "Hip-Hop", albumID: "two"),
+        ]
+        let plain = LibraryGenreIndexBuilder.build(from: songs, alsoSplitting: [])
+        #expect(plain.genres.map(\.id) == ["hip-hop", "hip-hop/rap", "rap"])
+
+        let split = LibraryGenreIndexBuilder.build(from: songs, alsoSplitting: .slash)
+        #expect(split.genres.map(\.id) == ["hip-hop", "rap"])
+        #expect(split.songIDsByGenreID["hip-hop"] == ["a", "c"])
+        #expect(split.songIDsByGenreID["rap"] == ["a", "b"])
+        #expect(split.albumIDsByGenreID["rap"] == ["one", "two"])
+    }
+
     @Test("Explicit genre separators do not duplicate membership or counts")
     func indexesDistinctGenreNames() {
         let index = LibraryGenreIndexBuilder.build(from: [

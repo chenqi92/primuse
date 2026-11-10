@@ -1016,3 +1016,10 @@
 "immersive_disc_settings" = "Ustawienia płyty";
 
 "artist_name_settings_merge_collaborative_albums" = "Scal albumy współtworzone o tym samym tytule";
+
+"genre_split_title" = "Dzielenie gatunków";
+"genre_split_footer" = "Domyślnie gatunki są dzielone tylko na średnikach. Po włączeniu tag taki jak „Hip-Hop/Rap” liczy się do obu gatunków, a „R&B/Soul” też zostanie podzielony. Dotyczy to tylko przeglądania; tagi w plikach nie są zmieniane.";
+"genre_split_slash" = "Dziel gatunki na ukośnikach";
+"genre_split_comma" = "Dziel gatunki na przecinkach";
+"genre_split_bar" = "Dziel gatunki na pionowych kreskach i ukośnikach wstecznych";
+"genre_split_tv_detail" = "Dotyczy tylko przeglądania; tagi w plikach się nie zmieniają";

@@ -1067,3 +1067,10 @@
 "immersive_disc_settings" = "Disc Settings";
 
 "artist_name_settings_merge_collaborative_albums" = "Merge same-title collaboration albums";
+
+"genre_split_title" = "Genre Splitting";
+"genre_split_footer" = "Genres are split only at semicolons by default. When turned on, a tag like “Hip-Hop/Rap” counts toward both genres, and “R&B/Soul” is split as well. This only affects browsing; tags in your files are not changed.";
+"genre_split_slash" = "Split Genres at Slashes";
+"genre_split_comma" = "Split Genres at Commas";
+"genre_split_bar" = "Split Genres at Vertical Bars and Backslashes";
+"genre_split_tv_detail" = "Only affects browsing; file tags are not changed";

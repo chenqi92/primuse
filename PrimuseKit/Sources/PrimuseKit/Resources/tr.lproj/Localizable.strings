@@ -1016,3 +1016,10 @@
 "immersive_disc_settings" = "Disk Ayarları";
 
 "artist_name_settings_merge_collaborative_albums" = "Aynı adlı ortak albümleri birleştir";
+
+"genre_split_title" = "Türleri Bölme";
+"genre_split_footer" = "Türler varsayılan olarak yalnızca noktalı virgülden bölünür. Açıldığında “Hip-Hop/Rap” gibi bir etiket iki türe de sayılır, “R&B/Soul” da bölünür. Yalnızca göz atmayı etkiler; dosyalarınızdaki etiketler değişmez.";
+"genre_split_slash" = "Türleri Eğik Çizgiden Böl";
+"genre_split_comma" = "Türleri Virgülden Böl";
+"genre_split_bar" = "Türleri Dikey Çizgi ve Ters Eğik Çizgiden Böl";
+"genre_split_tv_detail" = "Yalnızca göz atmayı etkiler; dosya etiketleri değişmez";

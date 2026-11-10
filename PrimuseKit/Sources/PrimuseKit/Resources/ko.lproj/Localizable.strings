@@ -1069,3 +1069,10 @@
 "immersive_disc_settings" = "디스크 설정";
 
 "artist_name_settings_merge_collaborative_albums" = "제목이 같은 협업 앨범 병합";
+
+"genre_split_title" = "장르 분리";
+"genre_split_footer" = "장르는 기본적으로 세미콜론에서만 분리됩니다. 켜면 “Hip-Hop/Rap” 같은 표기는 두 장르 모두에 포함되고 “R&B/Soul”도 분리됩니다. 탐색에만 영향을 주며 파일의 태그는 바뀌지 않습니다.";
+"genre_split_slash" = "슬래시로 장르 분리";
+"genre_split_comma" = "쉼표로 장르 분리";
+"genre_split_bar" = "세로선과 백슬래시로 장르 분리";
+"genre_split_tv_detail" = "탐색에만 영향을 주며 파일 태그는 바뀌지 않습니다";

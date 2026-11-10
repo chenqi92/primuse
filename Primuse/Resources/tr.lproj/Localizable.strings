@@ -7276,3 +7276,10 @@
 "lyrics_comments_all" = "Tüm yorumları gör";
 "lyrics_comments_empty" = "Henüz yorum yok";
 "lyrics_comment_save_failed" = "Yorumlarınıza erişilemedi. Lütfen tekrar deneyin.";
+
+"genre_split_title" = "Türleri Bölme";
+"genre_split_footer" = "Türler varsayılan olarak yalnızca noktalı virgülden bölünür. Açıldığında “Hip-Hop/Rap” gibi bir etiket iki türe de sayılır, “R&B/Soul” da bölünür. Yalnızca göz atmayı etkiler; dosyalarınızdaki etiketler değişmez.";
+"genre_split_slash" = "Türleri Eğik Çizgiden Böl";
+"genre_split_comma" = "Türleri Virgülden Böl";
+"genre_split_bar" = "Türleri Dikey Çizgi ve Ters Eğik Çizgiden Böl";
+"genre_split_tv_detail" = "Yalnızca göz atmayı etkiler; dosya etiketleri değişmez";

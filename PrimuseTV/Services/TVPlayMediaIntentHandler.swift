@@ -929,7 +929,7 @@ final class TVPlayMediaIntentHandler: NSObject,
         var items: [SiriNamedMediaItem] = []
         for song in store.library.visibleSongs {
             guard let raw = song.genre, seenRaw.insert(raw).inserted else { continue }
-            for genre in GenreTagValues.names(in: raw) where seen.insert(genre.lowercased()).inserted {
+            for genre in GenreTagValues.browseNames(in: raw) where seen.insert(genre.lowercased()).inserted {
                 items.append(SiriNamedMediaItem(id: genre, name: genre))
             }
         }

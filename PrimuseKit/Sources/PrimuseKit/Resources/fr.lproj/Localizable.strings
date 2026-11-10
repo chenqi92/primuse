@@ -1069,3 +1069,10 @@
 "immersive_disc_settings" = "Réglages du disque";
 
 "artist_name_settings_merge_collaborative_albums" = "Fusionner les albums collaboratifs de même titre";
+
+"genre_split_title" = "Séparation des genres";
+"genre_split_footer" = "Par défaut, les genres ne sont séparés qu’aux points-virgules. Une fois activé, une étiquette comme « Hip-Hop/Rap » compte pour les deux genres, et « R&B/Soul » est également séparé. Cela ne concerne que la navigation ; les étiquettes de vos fichiers ne sont pas modifiées.";
+"genre_split_slash" = "Séparer les genres aux barres obliques";
+"genre_split_comma" = "Séparer les genres aux virgules";
+"genre_split_bar" = "Séparer les genres aux barres verticales et obliques inverses";
+"genre_split_tv_detail" = "Ne concerne que la navigation ; les étiquettes des fichiers ne changent pas";

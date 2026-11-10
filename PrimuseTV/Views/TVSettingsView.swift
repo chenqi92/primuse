@@ -135,6 +135,18 @@ struct TVSettingsView: View {
     @State private var isSyncing = false
     @State private var syncMsg: String?
     @State private var artistNameSettings = ArtistNameSettingsStore.shared
+    @AppStorage(GenreSplitPreference.storageKey) private var genreSeparatorsRaw = 0
+
+    private func genreSeparatorBinding(_ option: GenreSeparatorOptions) -> Binding<Bool> {
+        Binding(
+            get: { GenreSeparatorOptions(rawValue: genreSeparatorsRaw).contains(option) },
+            set: { isOn in
+                var options = GenreSeparatorOptions(rawValue: genreSeparatorsRaw)
+                if isOn { options.insert(option) } else { options.remove(option) }
+                genreSeparatorsRaw = options.rawValue
+            }
+        )
+    }
     @State private var translationSettings = LyricsTranslationSettingsStore.shared
     @State private var romanizationSettings = LyricsRomanizationSettingsStore.shared
     @State private var googleRomanizationAccount = GoogleCloudRomanizationAccount.shared
@@ -415,6 +427,12 @@ struct TVSettingsView: View {
                                 get: { artistNameSettings.configuration.mergesCollaborativeAlbums },
                                 set: { artistNameSettings.setMergesCollaborativeAlbums($0) }
                             ))
+                            settingDivider
+                            toggleRow("guitars", PMString("genre_split_slash"), detail: PMString("genre_split_tv_detail"), isOn: genreSeparatorBinding(.slash))
+                            settingDivider
+                            toggleRow("guitars", PMString("genre_split_comma"), isOn: genreSeparatorBinding(.comma))
+                            settingDivider
+                            toggleRow("guitars", PMString("genre_split_bar"), isOn: genreSeparatorBinding(.bar))
                             settingDivider
                             navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlistCount)) { go(.playlists) }
                             settingDivider

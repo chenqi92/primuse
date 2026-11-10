@@ -7370,3 +7370,10 @@
 "lyrics_comments_all" = "모든 댓글 보기";
 "lyrics_comments_empty" = "아직 가사 댓글이 없습니다";
 "lyrics_comment_save_failed" = "댓글에 접근할 수 없습니다. 다시 시도해 주세요.";
+
+"genre_split_title" = "장르 분리";
+"genre_split_footer" = "장르는 기본적으로 세미콜론에서만 분리됩니다. 켜면 “Hip-Hop/Rap” 같은 표기는 두 장르 모두에 포함되고 “R&B/Soul”도 분리됩니다. 탐색에만 영향을 주며 파일의 태그는 바뀌지 않습니다.";
+"genre_split_slash" = "슬래시로 장르 분리";
+"genre_split_comma" = "쉼표로 장르 분리";
+"genre_split_bar" = "세로선과 백슬래시로 장르 분리";
+"genre_split_tv_detail" = "탐색에만 영향을 주며 파일 태그는 바뀌지 않습니다";
