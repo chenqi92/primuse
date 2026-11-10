@@ -3156,6 +3156,7 @@
 "player_lyrics_color_default" = "Default";
 "player_lyrics_color_custom" = "Custom";
 "player_lyrics_color_gradient" = "Gradient";
+"player_lyrics_color_artwork" = "From Artwork";
 "player_lyrics_custom_color" = "Custom Color";
 "player_lyrics_gradient_start_color" = "Gradient Start Color";
 "player_lyrics_gradient_end_color" = "Gradient End Color";

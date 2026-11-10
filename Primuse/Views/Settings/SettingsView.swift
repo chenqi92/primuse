@@ -427,7 +427,7 @@ struct LyricsAppearanceSections: View {
 
     private var lyricsColorPreviewStyle: AnyShapeStyle {
         switch selectedLyricsColorMode {
-        case .defaultColor:
+        case .defaultColor, .artwork:
             AnyShapeStyle(Color.primary)
         case .custom:
             AnyShapeStyle(color(from: customLyricsColorHex, fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex))
@@ -459,7 +459,7 @@ struct LyricsAppearanceSections: View {
             .accessibilityIdentifier("playerLyricsColorModePicker")
 
             switch selectedLyricsColorMode {
-            case .defaultColor:
+            case .defaultColor, .artwork:
                 EmptyView()
             case .custom:
                 ColorPicker(

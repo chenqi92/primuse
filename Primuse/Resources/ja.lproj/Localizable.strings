@@ -3386,6 +3386,7 @@
 "player_lyrics_color_default" = "デフォルト";
 "player_lyrics_color_custom" = "カスタム";
 "player_lyrics_color_gradient" = "グラデーション";
+"player_lyrics_color_artwork" = "アートワークから";
 "player_lyrics_custom_color" = "カスタムカラー";
 "player_lyrics_gradient_start_color" = "グラデーションの開始色";
 "player_lyrics_gradient_end_color" = "グラデーションの終了色";

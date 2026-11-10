@@ -2631,6 +2631,7 @@
 "player_lyrics_color_custom" = "कस्टम";
 "player_lyrics_color_default" = "डिफ़ॉल्ट";
 "player_lyrics_color_gradient" = "ग्रेडिएंट";
+"player_lyrics_color_artwork" = "आर्टवर्क से";
 "player_lyrics_color_preview" = "पूर्वावलोकन";
 "player_lyrics_color_preview_sample" = "अब गीत के बोल बज रहे हैं";
 "player_lyrics_custom_color" = "कस्टम रंग";

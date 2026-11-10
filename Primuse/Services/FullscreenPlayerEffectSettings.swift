@@ -363,6 +363,8 @@ enum PlayerLyricsColorMode: String, CaseIterable, Identifiable {
     case defaultColor = "default"
     case custom
     case gradient
+    /// 跟正在播放的封面走，换歌跟着换。
+    case artwork
 
     static let defaultValue = PlayerLyricsColorMode.defaultColor
 
@@ -376,7 +378,71 @@ enum PlayerLyricsColorMode: String, CaseIterable, Identifiable {
             "player_lyrics_color_custom"
         case .gradient:
             "player_lyrics_color_gradient"
+        case .artwork:
+            "player_lyrics_color_artwork"
         }
+    }
+}
+
+/// 正在播放的封面的代表色，给「封面取色」的歌词用。各窗口的根视图按当前封面注入，
+/// 没有封面、封面没有彩色时不注入，歌词用默认颜色。
+struct PlayerLyricsArtworkTint: Equatable, Sendable {
+    var red: Double
+    var green: Double
+    var blue: Double
+
+    init(red: Double, green: Double, blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+
+    init?(_ color: Color) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        #if os(macOS)
+        guard let rgb = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        rgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+        #else
+        guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        #endif
+        self.init(red: Double(r), green: Double(g), blue: Double(b))
+    }
+
+    /// 歌词要用的颜色：色相跟封面，明度按文字所在的底调到读得清。
+    /// `onDarkBackdrop` 为真时（默认歌词是浅色字）提亮并收一点饱和度，否则压暗。
+    /// 封面接近黑白灰时返回空，歌词用默认颜色。
+    func lyricColor(onDarkBackdrop: Bool) -> Color? {
+        let maxC = max(red, green, blue), minC = min(red, green, blue)
+        let delta = maxC - minC
+        let saturation = maxC <= 0 ? 0 : delta / maxC
+        guard saturation >= Self.minimumSaturation else { return nil }
+        var hue: Double
+        if maxC == red {
+            hue = ((green - blue) / delta).truncatingRemainder(dividingBy: 6)
+        } else if maxC == green {
+            hue = (blue - red) / delta + 2
+        } else {
+            hue = (red - green) / delta + 4
+        }
+        hue /= 6
+        if hue < 0 { hue += 1 }
+        if onDarkBackdrop {
+            return Color(hue: hue, saturation: min(max(saturation, 0.3), 0.55), brightness: 1)
+        }
+        return Color(hue: hue, saturation: max(saturation, 0.6), brightness: min(maxC, 0.42))
+    }
+
+    private static let minimumSaturation = 0.08
+}
+
+private struct PlayerLyricsArtworkTintKey: EnvironmentKey {
+    static let defaultValue: PlayerLyricsArtworkTint? = nil
+}
+
+extension EnvironmentValues {
+    var playerLyricsArtworkTint: PlayerLyricsArtworkTint? {
+        get { self[PlayerLyricsArtworkTintKey.self] }
+        set { self[PlayerLyricsArtworkTintKey.self] = newValue }
     }
 }
 
@@ -390,6 +456,7 @@ struct PlayerLyricsColors: DynamicProperty {
     var startHex = PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
     @AppStorage(PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
     var endHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+    @Environment(\.playerLyricsArtworkTint) private var artworkTint
 
     static let keys = [
         PlayerAppearancePreferences.lyricsColorModeKey,
@@ -424,7 +491,17 @@ struct PlayerLyricsColors: DynamicProperty {
                 startPoint: layoutDirection == .rightToLeft ? .trailing : .leading,
                 endPoint: layoutDirection == .rightToLeft ? .leading : .trailing
             ))
+        case .artwork:
+            let onDarkBackdrop = Self.isLight(defaultColor)
+            let color = artworkTint?.lyricColor(onDarkBackdrop: onDarkBackdrop) ?? defaultColor
+            return AnyShapeStyle(color.opacity(opacity))
         }
+    }
+
+    /// 默认歌词颜色是不是浅色字 —— 是的话文字压在深色底上。读不出来时按浅色字算（播放页多数是深底）。
+    private static func isLight(_ color: Color) -> Bool {
+        guard let rgb = PlayerLyricsArtworkTint(color) else { return true }
+        return 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue >= 0.5
     }
 
     static func color(_ hex: String, fallback: String) -> Color {

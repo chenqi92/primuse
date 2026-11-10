@@ -2631,6 +2631,7 @@
 "player_lyrics_color_custom" = "กำหนดเอง";
 "player_lyrics_color_default" = "ค่าเริ่มต้น";
 "player_lyrics_color_gradient" = "ไล่ระดับ";
+"player_lyrics_color_artwork" = "ตามปก";
 "player_lyrics_color_preview" = "ดูตัวอย่าง";
 "player_lyrics_color_preview_sample" = "กำลังเล่นเนื้อเพลงอยู่";
 "player_lyrics_custom_color" = "สีที่กำหนดเอง";

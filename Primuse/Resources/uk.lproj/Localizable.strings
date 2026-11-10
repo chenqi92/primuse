@@ -1841,6 +1841,7 @@
 "baidu_error_path_not_found" = "Шлях Baidu Netdisk більше не існує (помилка -9). Знову виберіть папку.";
 "relay_share_short_code_footer" = "Рекомендується шість цифр. Короткі коди діють протягом 24 годин, і їх легко ввести на іншому пристрої.";
 "player_lyrics_color_gradient" = "Градієнт";
+"player_lyrics_color_artwork" = "З обкладинки";
 "encoding_fix_section_header" = "Виберіть варіант, який читається правильно";
 "insecure_http_warning_title" = "Дозволити незахищене з’єднання HTTP?";
 "Checking..." = "Перевірка...";

@@ -3385,6 +3385,7 @@
 "player_lyrics_color_default" = "기본";
 "player_lyrics_color_custom" = "사용자 지정";
 "player_lyrics_color_gradient" = "그라데이션";
+"player_lyrics_color_artwork" = "앨범 아트 색상";
 "player_lyrics_custom_color" = "사용자 지정 색상";
 "player_lyrics_gradient_start_color" = "그라데이션 시작 색상";
 "player_lyrics_gradient_end_color" = "그라데이션 끝 색상";

@@ -3385,6 +3385,7 @@
 "player_lyrics_color_default" = "Par défaut";
 "player_lyrics_color_custom" = "Personnalisée";
 "player_lyrics_color_gradient" = "Dégradé";
+"player_lyrics_color_artwork" = "Selon la pochette";
 "player_lyrics_custom_color" = "Couleur personnalisée";
 "player_lyrics_gradient_start_color" = "Couleur de début du dégradé";
 "player_lyrics_gradient_end_color" = "Couleur de fin du dégradé";

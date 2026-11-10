@@ -2631,6 +2631,7 @@
 "player_lyrics_color_custom" = "Niestandardowe";
 "player_lyrics_color_default" = "Domyślnie";
 "player_lyrics_color_gradient" = "Gradient";
+"player_lyrics_color_artwork" = "Z okładki";
 "player_lyrics_color_preview" = "Podgląd";
 "player_lyrics_color_preview_sample" = "Tekst odtwarzanego utworu";
 "player_lyrics_custom_color" = "Kolor niestandardowy";

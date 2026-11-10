@@ -1689,6 +1689,7 @@ struct PrimuseApp: App {
             .environment(audioCacheSync)
             #endif
             .modifier(LyricsTypefaceProvider())
+            .modifier(PlayerLyricsArtworkTintProvider())
         return injected.modifier(AppThemeTintModifier(theme: themeService))
     }
 

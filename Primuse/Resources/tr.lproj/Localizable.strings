@@ -1841,6 +1841,7 @@
 "baidu_error_path_not_found" = "Baidu Netdisk yolu artık mevcut değil (hata -9). Klasörü tekrar seçin.";
 "relay_share_short_code_footer" = "Altı hane önerilir. Kısa kodların geçerliliği 24 saat içinde sona erer ve başka bir cihaza girilmesi kolaydır.";
 "player_lyrics_color_gradient" = "Degrade";
+"player_lyrics_color_artwork" = "Kapaktan";
 "encoding_fix_section_header" = "Doğru okunan versiyonu seçin";
 "insecure_http_warning_title" = "Güvenli Olmayan HTTP Bağlantısına İzin Verilsin mi?";
 "Checking..." = "Kontrol ediliyor...";

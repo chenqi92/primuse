@@ -3371,6 +3371,7 @@
 "player_lyrics_color_default" = "預設";
 "player_lyrics_color_custom" = "自訂";
 "player_lyrics_color_gradient" = "漸層";
+"player_lyrics_color_artwork" = "封面取色";
 "player_lyrics_custom_color" = "自訂顏色";
 "player_lyrics_gradient_start_color" = "漸層起始色";
 "player_lyrics_gradient_end_color" = "漸層結束色";

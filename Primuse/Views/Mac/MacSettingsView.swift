@@ -5675,7 +5675,7 @@ struct MacLyricsColorSettings: View {
         }
         .settingsAnchor("lyrics.colorMode")
         switch colors.mode {
-        case .defaultColor:
+        case .defaultColor, .artwork:
             EmptyView()
         case .custom:
             colorRow("player_lyrics_custom_color", selection: colors.$customHex,

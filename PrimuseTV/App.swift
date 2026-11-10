@@ -179,6 +179,7 @@ struct PrimuseTVApp: App {
                 .modifier(TVWindowAppearanceModifier(preference: appearance))
                 // 歌词字体(#332):播放页、卡拉OK、全屏效果的歌词都从这里取。
                 .modifier(LyricsTypefaceProvider())
+                .modifier(TVLyricsArtworkTintProvider())
                 .tint(themeState.accent)
                 .onOpenURL { store.handleDeepLink($0) }
                 .onAppear {
@@ -310,3 +311,17 @@ enum TVWindowAppearanceApplicator {
     }
 }
 #endif
+
+/// 给「封面取色」的歌词注入当前封面的代表色；电台没有封面色，不注入。
+private struct TVLyricsArtworkTintProvider: ViewModifier {
+    @Environment(TVStore.self) private var store: TVStore?
+
+    func body(content: Content) -> some View {
+        content.environment(\.playerLyricsArtworkTint, tint)
+    }
+
+    private var tint: PlayerLyricsArtworkTint? {
+        guard let store, !store.isLiveRadio, store.currentSongID != nil else { return nil }
+        return PlayerLyricsArtworkTint(store.nowPlayingPresentationColors.primary)
+    }
+}

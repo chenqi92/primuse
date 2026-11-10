@@ -2631,6 +2631,7 @@
 "player_lyrics_color_custom" = "العرف";
 "player_lyrics_color_default" = "الافتراضي";
 "player_lyrics_color_gradient" = "التدرج";
+"player_lyrics_color_artwork" = "من الغلاف";
 "player_lyrics_color_preview" = "المعاينة";
 "player_lyrics_color_preview_sample" = "يتم الآن تشغيل كلمات الأغاني";
 "player_lyrics_custom_color" = "اللون المخصص";

@@ -2631,6 +2631,7 @@
 "player_lyrics_color_custom" = "Personalizado";
 "player_lyrics_color_default" = "Padrão";
 "player_lyrics_color_gradient" = "Gradiente";
+"player_lyrics_color_artwork" = "Da capa";
 "player_lyrics_color_preview" = "Pré-visualização";
 "player_lyrics_color_preview_sample" = "Letra da música atual";
 "player_lyrics_custom_color" = "Cor Personalizada";

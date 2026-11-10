@@ -1042,3 +1042,19 @@ private struct PlayerTextFontChipStyle: ViewModifier {
     }
 }
 #endif
+
+#if !os(tvOS) && !os(watchOS)
+/// 给「封面取色」的歌词注入当前封面的代表色，和 `LyricsTypefaceProvider` 挂在同样的根上。
+struct PlayerLyricsArtworkTintProvider: ViewModifier {
+    @Environment(ThemeService.self) private var theme: ThemeService?
+
+    func body(content: Content) -> some View {
+        content.environment(\.playerLyricsArtworkTint, tint)
+    }
+
+    private var tint: PlayerLyricsArtworkTint? {
+        guard let theme, theme.colorID != "default" else { return nil }
+        return PlayerLyricsArtworkTint(theme.artworkAccentColor)
+    }
+}
+#endif
