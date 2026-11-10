@@ -2008,6 +2008,11 @@ struct NowPlayingView: View {
         prefersMatchedArtworkSource: Bool
     ) {
         #if os(iOS)
+        // 和「转到歌手」走同一条路:收起播放页,到资料库里整屏打开。宿主没给回调时才在播放页上弹出。
+        if let onOpenAlbum {
+            onOpenAlbum(album)
+            return
+        }
         if prefersMatchedArtworkSource,
            !reduceMotion,
            !player.isMusicVideoPlaybackActive {
