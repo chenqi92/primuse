@@ -917,7 +917,7 @@ struct MacHomeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityLabel(Text("later"))
             }
-            .help(Text("later"))
+            .pmScrollingHelp(Text("later"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -1154,7 +1154,7 @@ struct MacHomeView: View {
                     .background(PMColor.glassBtn, in: Circle())
             }
             .buttonStyle(.plain)
-            .help(Text("home_section_view_all"))
+            .pmScrollingHelp(Text("home_section_view_all"))
             .accessibilityLabel(Text("home_section_view_all"))
 
             Button {
@@ -1167,7 +1167,7 @@ struct MacHomeView: View {
                     .background(PMColor.brand, in: Circle())
             }
             .buttonStyle(.plain)
-            .help(Text(isActive ? "pause" : "play"))
+            .pmScrollingHelp(Text(isActive ? "pause" : "play"))
             .accessibilityLabel(Text(isActive ? "pause" : "play"))
         }
         .padding(PMSpace.m14)
@@ -1737,7 +1737,7 @@ struct MacHomeView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(PMColor.brand)
-                .help(Text("home_play_latest_album"))
+                .pmScrollingHelp(Text("home_play_latest_album"))
                 .accessibilityIdentifier("home.recentAlbums.playLatest")
             }
             if let destination {
@@ -1756,7 +1756,7 @@ struct MacHomeView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(Text("home_section_view_all"))
+                .pmScrollingHelp(Text("home_section_view_all"))
             }
         }
     }
@@ -2612,10 +2612,10 @@ private struct MacHomeResumeTile<Artwork: View>: View {
             .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
+        .pmScrollingOnHover { hovering in
             pmWithAnimation(.hover) { isHovered = hovering }
         }
-        .help(Text("home_continue_spaces_hint"))
+        .pmScrollingHelp(Text("home_continue_spaces_hint"))
         .accessibilityElement(children: .combine)
         .accessibilityHint(Text("home_continue_spaces_hint"))
     }
@@ -2755,8 +2755,8 @@ private struct MacHomeBooksStrip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pmHoverLift()
-        .help(Text("spoken_word_continue"))
+        .pmScrollingHoverLift()
+        .pmScrollingHelp(Text("spoken_word_continue"))
     }
 }
 

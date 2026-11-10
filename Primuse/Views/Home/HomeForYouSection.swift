@@ -993,7 +993,7 @@ struct MacHomeForYouSection: View {
                 AlbumArtworkView(album: album, size: 78, cornerRadius: PMRadius.m)
             }
             .buttonStyle(.plain)
-            .help(Text("go_to_album"))
+            .pmScrollingHelp(Text("go_to_album"))
 
             Button { playAlbum(pick.albumID) } label: {
                 VStack(alignment: .leading, spacing: 4) {

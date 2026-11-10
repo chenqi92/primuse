@@ -108,7 +108,7 @@ struct MacHomePodcastsStrip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pmHoverLift()
+        .pmScrollingHoverLift()
         .podcastEpisodeContextMenu(episode, continuing: continuing)
     }
 }

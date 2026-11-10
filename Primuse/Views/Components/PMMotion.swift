@@ -130,6 +130,67 @@ extension View {
     }
 }
 
+extension View {
+    /// 放在跟着页面一起滚动的内容里的悬停提示。
+    ///
+    /// macOS 15 的 SwiftUI 每滚一帧都会给滚动内容里所有的提示区域、悬停区域各排一个回调，
+    /// 而且每排一个就把整条队列拷一遍，区域一多整页滚动就卡（#380 的取样里占了主线程一半以上）。
+    /// macOS 26 起系统不再这样做。所以老系统上滚动内容里不登记提示，只留给旁白的说明。
+    @ViewBuilder
+    func pmScrollingHelp(_ text: Text) -> some View {
+        #if os(macOS)
+        if PMScrollingPointerRegions.isAffordable {
+            help(text)
+        } else {
+            accessibilityHint(text)
+        }
+        #else
+        help(text)
+        #endif
+    }
+
+    /// 放在跟着页面一起滚动的内容里的悬停回调，老系统上不登记，原因同 `pmScrollingHelp`。
+    @ViewBuilder
+    func pmScrollingOnHover(perform action: @escaping (Bool) -> Void) -> some View {
+        #if os(macOS)
+        if PMScrollingPointerRegions.isAffordable {
+            onHover(perform: action)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
+    /// 放在跟着页面一起滚动的内容里的悬停抬起，老系统上不登记，原因同 `pmScrollingHelp`。
+    @ViewBuilder
+    func pmScrollingHoverLift(scale: CGFloat = 1.02, cornerRadius: CGFloat? = nil) -> some View {
+        #if os(macOS)
+        if PMScrollingPointerRegions.isAffordable {
+            pmHoverLift(scale: scale, cornerRadius: cornerRadius)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(macOS)
+enum PMScrollingPointerRegions {
+    /// 滚动内容里登记指针区域是否划算。调试时可用 `PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS=1` 走老系统那条路。
+    static let isAffordable: Bool = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS"] == "1" { return false }
+        #endif
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }()
+}
+#endif
+
 extension Binding {
     /// 让这个绑定的写入自带动画事务，等价于 SwiftUI 的 `animation(_:)`，但会照顾「减少动态效果」。
     ///
