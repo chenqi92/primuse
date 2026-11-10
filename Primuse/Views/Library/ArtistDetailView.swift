@@ -104,6 +104,8 @@ struct ArtistDetailView: View {
     @State private var songLocation = SongListLocation()
     @State private var allSongsLocationID: String?
     @State private var showArtworkEditor = false
+    /// 「批量编辑标签」:这位歌手的全部歌一起改同一项,不用先进多选。
+    @State private var showsBatchTagEditor = false
     /// 「全部歌曲」从页面根上推进去:链接在染色正文里(深色外观),从那里推的页面会带着深色外观。
     @State private var showsAllSongs = false
     @State private var expandedAlbumCollections: Set<ArtistAlbumCollection> = []
@@ -342,6 +344,9 @@ struct ArtistDetailView: View {
             ArtistAllSongsView(artist: artist, initialLocationID: allSongsLocationID)
         }
         #if os(iOS) || os(macOS)
+        .sheet(isPresented: $showsBatchTagEditor) {
+            BatchTagEditorView(songs: songs)
+        }
         .sheet(isPresented: $showArtworkEditor) {
             LibraryArtworkEditorSheet(
                 owner: LibraryArtworkOwner(kind: .artist, id: artist.id),
@@ -432,6 +437,13 @@ struct ArtistDetailView: View {
                 showArtworkEditor = true
             } label: {
                 Label("artwork_edit", systemImage: "photo.badge.plus")
+            }
+            if !songs.isEmpty {
+                Button {
+                    showsBatchTagEditor = true
+                } label: {
+                    Label("batch_edit_title", systemImage: "square.and.pencil")
+                }
             }
         }
     }
@@ -870,6 +882,10 @@ struct ArtistDetailView: View {
         var items: [MacHeaderMoreMenu.Item] = [
             .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
                 showArtworkEditor = true
+            },
+            .init(icon: "square.and.pencil", title: String(localized: "batch_edit_title"),
+                  enabled: !songs.isEmpty) {
+                showsBatchTagEditor = true
             },
         ]
         if let target = artistServerMediaShareTarget {

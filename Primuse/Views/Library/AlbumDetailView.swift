@@ -30,6 +30,8 @@ struct AlbumDetailView: View {
 
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
+    /// 「批量编辑标签」:整张专辑的歌一起改同一项(流派、年份、专辑名…),不用先进多选。
+    @State private var showsBatchTagEditor = false
     @State private var showsRestoreFileTagsConfirmation = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var selection = SongSelectionModel()
@@ -232,6 +234,9 @@ struct AlbumDetailView: View {
             restoreFileTagsActions
         } message: {
             Text("restore_file_tags_message")
+        }
+        .sheet(isPresented: $showsBatchTagEditor) {
+            BatchTagEditorView(songs: songs)
         }
         .sheet(isPresented: $showArtworkEditor) {
             LibraryArtworkEditorSheet(
@@ -470,6 +475,13 @@ struct AlbumDetailView: View {
                     showArtworkEditor = true
                 } label: {
                     Label("artwork_edit", systemImage: "photo.badge.plus")
+                }
+                if !songs.isEmpty {
+                    Button {
+                        showsBatchTagEditor = true
+                    } label: {
+                        Label("batch_edit_title", systemImage: "square.and.pencil")
+                    }
                 }
                 // 只在有改过的歌时出现。
                 if hasUserEditedSongs {
@@ -961,6 +973,10 @@ struct AlbumDetailView: View {
             artworkItem,
             .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
                 showArtworkEditor = true
+            },
+            .init(icon: "square.and.pencil", title: String(localized: "batch_edit_title"),
+                  enabled: !songs.isEmpty) {
+                showsBatchTagEditor = true
             },
             .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
                   trailing: songs.count.formatted(),
