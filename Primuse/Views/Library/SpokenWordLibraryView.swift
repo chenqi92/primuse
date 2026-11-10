@@ -820,6 +820,9 @@ struct SpokenWordShelfContent: View {
                 }
             }
         }
+        // 首页「有声书」的筛选页签（全部、正在收听、书架、已听完）换一档也整块重建，
+        // 不让上一档的惰性网格尺寸留到这一档；外面的分组任务挂在更外层，不跟着重跑。
+        .id(section)
     }
 
     private var sectionTitleFont: Font {
@@ -904,24 +907,28 @@ struct SpokenWordShelfContent: View {
         .accessibilityIdentifier("spokenWord.shelf.layout.\(mode.rawValue)")
     }
 
-    @ViewBuilder
     private func bookCollection(_ entries: [SpokenWordLibrarySnapshot.Entry]) -> some View {
-        if layout.isGrid {
-            LazyVGrid(columns: gridColumns, spacing: gridRowSpacing) {
-                ForEach(entries) { @Sendable entry in LazyItemCell { reorderableBookCell(entry, entries: entries) } }
-            }
-            // iPhone Duo 竖栏：只有封面的版式最右一列伸进竖栏；书架版式每本书右上角有「⋯」，照旧停在竖栏左侧。
-            .pmCoversExtendUnderVerticalBar(layout == .covers)
-        } else {
-            LazyVStack(spacing: 0) {
-                ForEach(entries) { @Sendable entry in
-                    LazyItemCell {
-                        reorderableBookCell(entry, entries: entries)
-                            .overlay(alignment: .bottom) { Divider().padding(.leading, 66) }
+        Group {
+            if layout.isGrid {
+                LazyVGrid(columns: gridColumns, spacing: gridRowSpacing) {
+                    ForEach(entries) { @Sendable entry in LazyItemCell { reorderableBookCell(entry, entries: entries) } }
+                }
+                // iPhone Duo 竖栏：只有封面的版式最右一列伸进竖栏；书架版式每本书右上角有「⋯」，照旧停在竖栏左侧。
+                .pmCoversExtendUnderVerticalBar(layout == .covers)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(entries) { @Sendable entry in
+                        LazyItemCell {
+                            reorderableBookCell(entry, entries: entries)
+                                .overlay(alignment: .bottom) { Divider().padding(.leading, 66) }
+                        }
                     }
                 }
             }
         }
+        // 换版式时整块重建。「书架」和「只显示封面」是同一个惰性网格、每本书身份不变，网格会按身份
+        // 沿用上一种版式量出的格子高度：切到只显示封面后底下空出一大片，切回书架又按旧高度排，看着像没切过去。
+        .id(layout)
     }
 
     private func ordered(_ entries: [SpokenWordLibrarySnapshot.Entry], preferred: [String]) -> [SpokenWordLibrarySnapshot.Entry] {
