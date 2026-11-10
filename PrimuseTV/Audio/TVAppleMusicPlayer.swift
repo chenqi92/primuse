@@ -94,15 +94,42 @@ final class TVAppleMusicPlayer {
 
     /// 播放用户自己的 Apple Music 歌单。
     func playLibraryPlaylist(id: String, autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
+        guard let tracks = try await Self.libraryPlaylistSongs(id: id) else {
+            throw StartFailure.itemNotFound
+        }
+        try checkCurrent(canContinue)
+        return try await playSongs(tracks, autoPlay: autoPlay, canContinue: canContinue)
+    }
+
+    /// 资料库请求从创建起就可能同步等 iTunesCloud，放在主线程会卡住整个界面：
+    /// 查歌单和翻页取曲目都在后台做，主线程只接结果。资料库里没有这个歌单时返回 nil。
+    @concurrent
+    nonisolated private static func libraryPlaylistSongs(id: String) async throws -> [MusicKit.Song]? {
         var request = MusicLibraryRequest<MusicKit.Playlist>()
         request.filter(matching: \.id, equalTo: MusicItemID(rawValue: id))
         request.limit = 1
-        guard let playlist = try await request.response().items.first else {
-            throw StartFailure.itemNotFound
+        guard let playlist = try await request.response().items.first else { return nil }
+        guard var batch = try await playlist.with([.tracks]).tracks else { return [] }
+        var collected = Array(batch)
+        while batch.hasNextBatch {
+            try Task.checkCancellation()
+            guard let next = try await batch.nextBatch() else { break }
+            collected.append(contentsOf: next)
+            batch = next
         }
-        let tracks = try await Self.songs(in: playlist.with([.tracks]).tracks)
-        try checkCurrent(canContinue)
-        return try await playSongs(tracks, autoPlay: autoPlay, canContinue: canContinue)
+        return collected.compactMap { track in
+            if case .song(let song) = track { return song }
+            return nil
+        }
+    }
+
+    /// 同上：按资料库 id 查一首歌，也在后台创建和执行请求。
+    @concurrent
+    nonisolated private static func librarySong(id: MusicItemID) async throws -> MusicKit.Song? {
+        var request = MusicLibraryRequest<MusicKit.Song>()
+        request.filter(matching: \.id, equalTo: id)
+        request.limit = 1
+        return try await request.response().items.first
     }
 
     /// 专辑页补全(#2 的电视版):资料库里这张 Apple Music 专辑只收了几首时,目录里其余的曲目。
@@ -429,10 +456,7 @@ final class TVAppleMusicPlayer {
         let id = MusicItemID(rawValue: itemID)
         let song: MusicKit.Song?
         if AppleMusicTVPlaybackPolicy.usesUserLibraryLookup(itemID: itemID) {
-            var request = MusicLibraryRequest<MusicKit.Song>()
-            request.filter(matching: \.id, equalTo: id)
-            request.limit = 1
-            song = try await request.response().items.first
+            song = try await Self.librarySong(id: id)
         } else {
             let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
             song = try await request.response().items.first

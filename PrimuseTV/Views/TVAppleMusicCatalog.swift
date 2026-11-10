@@ -86,16 +86,7 @@ final class TVAppleMusicCatalog {
         isLoadingPlaylists = true
         defer { isLoadingPlaylists = false }
         do {
-            var request = MusicLibraryRequest<MusicKit.Playlist>()
-            request.limit = 100
-            var batch = try await request.response().items
-            var collected = Array(batch)
-            while batch.hasNextBatch {
-                try Task.checkCancellation()
-                guard let next = try await batch.nextBatch() else { break }
-                collected.append(contentsOf: next)
-                batch = next
-            }
+            let collected = try await Self.fetchLibraryPlaylists()
             guard !Task.isCancelled else { return }
             playlists = AppleMusicCatalogSearchPolicy.deduplicatedByID(
                 collected.map(Self.hit(from:))
@@ -139,6 +130,23 @@ final class TVAppleMusicCatalog {
             artists = []
             lastError = error.localizedDescription
         }
+    }
+
+    /// MusicKit 的资料库请求从创建起就可能同步等 iTunesCloud。放在主线程上，进「歌单」页时
+    /// 整个界面会卡住，最后被系统结束；请求的创建、执行和分页都放到后台，主线程只接结果。
+    @concurrent
+    nonisolated private static func fetchLibraryPlaylists() async throws -> [MusicKit.Playlist] {
+        var request = MusicLibraryRequest<MusicKit.Playlist>()
+        request.limit = 100
+        var batch = try await request.response().items
+        var collected = Array(batch)
+        while batch.hasNextBatch {
+            try Task.checkCancellation()
+            guard let next = try await batch.nextBatch() else { break }
+            collected.append(contentsOf: next)
+            batch = next
+        }
+        return collected
     }
 
     private static func hit(from song: MusicKit.Song) -> AppleMusicCatalogHit {

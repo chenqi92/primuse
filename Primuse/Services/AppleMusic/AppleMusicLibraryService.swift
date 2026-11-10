@@ -619,10 +619,14 @@ final class AppleMusicLibraryService {
                 do {
                     let songs: [MusicKit.Song]
                     if useLibrary {
-                        var request = MusicLibraryRequest<MusicKit.Song>()
-                        request.filter(matching: \.id, memberOf: batch)
-                        request.limit = batch.count
-                        songs = Array(try await request.response().items)
+                        // 资料库请求从创建起就可能同步等 iTunesCloud，留在主线程会被看门狗结束；
+                        // 跟整库同步一样整段放到后台、走媒体库互斥。
+                        songs = try await AppleMusicMediaLibraryGate.run {
+                            var request = MusicLibraryRequest<MusicKit.Song>()
+                            request.filter(matching: \.id, memberOf: batch)
+                            request.limit = batch.count
+                            return Array(try await request.response().items)
+                        }
                     } else {
                         var request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, memberOf: batch)
                         // 音质版本是扩展属性，不带这一句 `song.audioVariants` 永远是 nil。
