@@ -13,9 +13,13 @@ struct CoverArtView: View {
     var body: some View {
         Group {
             if let data, let image = PlatformImage(data: data) {
-                Image(platformImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                if ArtworkContentLayout.isRectangular(image.size) {
+                    UncroppedArtwork(image: image) {
+                        Image(platformImage: image).resizable().scaledToFill()
+                    }
+                } else {
+                    Image(platformImage: image).resizable().scaledToFill()
+                }
             } else {
                 #if os(macOS)
                 if showsMissingArtworkIcon {

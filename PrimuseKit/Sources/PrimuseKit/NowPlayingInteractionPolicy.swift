@@ -6,6 +6,28 @@ public enum ProgressScrubGestureIntent: Equatable, Sendable {
     case vertical
 }
 
+/// Volume changes are relative to touch-down, and only start after horizontal intent is clear.
+public struct VolumeScrubSession: Equatable, Sendable {
+    public let initialValue: Double
+    public let trackWidth: Double
+    public private(set) var intent: ProgressScrubGestureIntent = .undecided
+
+    public init(initialValue: Double, trackWidth: Double) {
+        self.initialValue = initialValue
+        self.trackWidth = trackWidth
+    }
+
+    public mutating func update(horizontalTranslation: Double, verticalTranslation: Double) -> Double? {
+        intent = NowPlayingInteractionPolicy.scrubGestureIntent(
+            currentIntent: intent, horizontalTranslation: horizontalTranslation,
+            verticalTranslation: verticalTranslation
+        )
+        guard intent == .horizontal, initialValue.isFinite,
+              horizontalTranslation.isFinite, trackWidth.isFinite, abs(trackWidth) > 0 else { return nil }
+        return min(max(initialValue + horizontalTranslation / trackWidth, 0), 1)
+    }
+}
+
 /// Persistent state for one progress-bar drag. Unlike `GestureState`, this
 /// value remains available to the gesture's end callback, so the track that
 /// began the interaction can be verified before committing a seek.

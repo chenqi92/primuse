@@ -826,14 +826,17 @@ struct AlbumArtworkView: View {
             }
 
             if let uploadedImage, uploadedContentID != nil {
-                UploadedArtworkAnimation(
-                    contentID: uploadedContentID, presentationRole: presentationRole,
-                    isVisible: isAnimationVisible, requiresPlayback: animationRequiresPlayback, isPlaying: isPlaying
-                ) {
-                    Image(platformImage: uploadedImage).resizable().aspectRatio(contentMode: .fill)
+                Group {
+                    if ArtworkContentLayout.isRectangular(uploadedImage.size) {
+                        UncroppedArtwork(image: uploadedImage) {
+                            uploadedArtwork(uploadedImage, contentID: uploadedContentID)
+                        }
+                    } else {
+                        uploadedArtwork(uploadedImage, contentID: uploadedContentID)
+                    }
                 }
-                    .frame(width: side, height: side)
-                    .clipped()
+                .frame(width: side, height: side)
+                .clipped()
             } else if let song = selectedSong {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
@@ -854,6 +857,15 @@ struct AlbumArtworkView: View {
         }
         .frame(width: side, height: side)
         .clipped()
+    }
+
+    private func uploadedArtwork(_ image: PlatformImage, contentID: String?) -> some View {
+        UploadedArtworkAnimation(
+            contentID: contentID, presentationRole: presentationRole,
+            isVisible: isAnimationVisible, requiresPlayback: animationRequiresPlayback, isPlaying: isPlaying
+        ) {
+            Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
+        }
     }
 
     @ViewBuilder

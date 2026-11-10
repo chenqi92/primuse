@@ -646,8 +646,50 @@ final class SongLocationUITests: XCTestCase {
         attach(app, "song-location-full-player-menu")
     }
 
+    func testPlayerControlsIgnoreSwipesAndAcceptTheNextTap() {
+        let app = launch("playlist", playerGestures: true)
+        defer { app.terminate() }
+        let mini = app.buttons.matching(identifier: "locationFixture.miniPlayer")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "正在播放:")).firstMatch
+        XCTAssertTrue(mini.waitForExistence(timeout: 30))
+        mini.tap()
+        let shuffle = app.buttons["随机播放"].firstMatch
+        XCTAssertTrue(shuffle.waitForExistence(timeout: 10))
+        let original = shuffle.value as? String
+        let start = shuffle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 3, dy: 48)))
+        XCTAssertEqual(shuffle.value as? String, original)
+        shuffle.tap()
+        XCTAssertNotEqual(shuffle.value as? String, original)
+        shuffle.tap()
+        XCTAssertEqual(shuffle.value as? String, original)
+
+        let volume = app.descendants(matching: .any).matching(identifier: "音量").firstMatch
+        XCTAssertTrue(volume.isHittable)
+        let originalVolume = volume.value as? String
+        XCTAssertNotNil(originalVolume)
+        let volumeStart = volume.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        volumeStart.press(forDuration: 0.05, thenDragTo: volumeStart.withOffset(CGVector(dx: 2, dy: 32)))
+        XCTAssertEqual(volume.value as? String, originalVolume)
+        let volumeValue = Double((originalVolume ?? "100%").replacingOccurrences(of: "%", with: "")) ?? 100
+        let adjustment: CGFloat = volumeValue > 50 ? -36 : 36
+        volumeStart.press(forDuration: 0.05, thenDragTo: volumeStart.withOffset(CGVector(dx: adjustment, dy: 0)))
+        XCTAssertNotEqual(volume.value as? String, originalVolume)
+        volumeStart.press(forDuration: 0.05, thenDragTo: volumeStart.withOffset(CGVector(dx: -adjustment, dy: 0)))
+
+        let queue = app.buttons["播放队列"].firstMatch
+        XCTAssertTrue(queue.isHittable)
+        let queueStart = queue.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        queueStart.press(forDuration: 0.05, thenDragTo: queueStart.withOffset(CGVector(dx: 2, dy: 40)))
+        XCTAssertTrue(shuffle.isHittable, "Swiping a bottom button must not open its panel")
+        queue.tap()
+        XCTAssertFalse(shuffle.isHittable, "A separate tap must still open the queue")
+        attach(app, "player-controls-tap-after-swipe")
+    }
+
     private func launch(_ page: String, appearance: String? = "list", colorScheme: String = "dark",
-                        coverWall: Bool = false, folders: Bool = false, target: String? = nil) -> XCUIApplication {
+                        coverWall: Bool = false, folders: Bool = false, target: String? = nil,
+                        playerGestures: Bool = false) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
         app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "songLocation"
         app.launchEnvironment["PRIMUSE_LOCATION_PAGE"] = page
@@ -675,6 +717,9 @@ final class SongLocationUITests: XCTestCase {
             app.launchEnvironment["PRIMUSE_LOCATION_REFERENCE_ARTWORK"] = "1"
         }
         app.launchArguments += ["-primuse.appearance", colorScheme]
+        if playerGestures {
+            app.launchArguments += ["-primuse.player.showsVolumeBar", "YES", "-primuse.player.controls.music.v1", "{}"]
+        }
         app.launch()
         return app
     }

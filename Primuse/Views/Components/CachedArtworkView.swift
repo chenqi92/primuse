@@ -539,7 +539,16 @@ struct CachedArtworkView: View {
     private func decodedArtwork(_ image: PlatformImage) -> some View {
         if fitsWholeArtwork {
             wholeArtwork(image)
-        } else if let motionArtworkVideoURL {
+        } else if artistID == nil, ArtworkContentLayout.isRectangular(image.size) {
+            UncroppedArtwork(image: image) { animatedOrStaticArtwork(image) }
+        } else {
+            animatedOrStaticArtwork(image)
+        }
+    }
+
+    @ViewBuilder
+    private func animatedOrStaticArtwork(_ image: PlatformImage) -> some View {
+        if let motionArtworkVideoURL {
             MotionArtworkVideoView(url: motionArtworkVideoURL, shouldAnimate: animationPlaybackPolicy.shouldAnimate) {
                 Image(platformImage: image).resizable().aspectRatio(contentMode: .fill)
             }
@@ -2451,6 +2460,47 @@ struct CachedArtworkView: View {
                     userInfo: userInfo
                 )
             }
+        }
+    }
+}
+
+private struct ArtworkContentViewportKey: EnvironmentKey {
+    static let defaultValue: CGRect? = nil
+}
+
+extension EnvironmentValues {
+    var artworkContentViewport: CGRect? {
+        get { self[ArtworkContentViewportKey.self] }
+        set { self[ArtworkContentViewportKey.self] = newValue }
+    }
+}
+
+/// Keep rectangular covers intact, including animated frames and uploaded album art.
+/// The player supplies the unobscured portion of its moving artwork layer.
+struct UncroppedArtwork<Content: View>: View {
+    let image: PlatformImage
+    @ViewBuilder var content: () -> Content
+    @Environment(\.artworkContentViewport) private var viewport
+
+    var body: some View {
+        GeometryReader { geometry in
+            let bounds = CGRect(origin: .zero, size: geometry.size)
+            let fitted = ArtworkContentLayout.fittedRect(imageSize: image.size, in: viewport ?? bounds)
+            Color.clear
+                .overlay {
+                    Image(platformImage: image).resizable().scaledToFill()
+                }
+                .clipped()
+                .blur(radius: max(6, min(geometry.size.width, geometry.size.height) * 0.08), opaque: true)
+                .overlay(Color.black.opacity(0.16))
+                .drawingGroup()
+                .overlay(alignment: .topLeading) {
+                    content()
+                        .frame(width: fitted.width, height: fitted.height)
+                        .clipped()
+                        .position(x: fitted.midX, y: fitted.midY)
+                }
+                .clipped()
         }
     }
 }

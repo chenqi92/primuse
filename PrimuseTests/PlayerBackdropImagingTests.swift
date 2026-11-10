@@ -521,6 +521,65 @@ final class PlayerBackdropImagingTests: XCTestCase {
         }
     }
 
+    func testRectangularArtworkKeepsEveryEdgeInCardsAndFullBleed() throws {
+        for sourceSize in [CGSize(width: 120, height: 240), CGSize(width: 240, height: 120)] {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let source = UIGraphicsImageRenderer(size: sourceSize, format: format).image { context in
+                UIColor.darkGray.setFill()
+                context.fill(CGRect(origin: .zero, size: sourceSize))
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: sourceSize.width, height: 12))
+                UIColor.blue.setFill()
+                context.fill(CGRect(x: 0, y: sourceSize.height - 12, width: sourceSize.width, height: 12))
+                UIColor.green.setFill()
+                context.fill(CGRect(x: 0, y: 12, width: 12, height: sourceSize.height - 24))
+                UIColor.yellow.setFill()
+                context.fill(CGRect(x: sourceSize.width - 12, y: 12, width: 12, height: sourceSize.height - 24))
+            }
+            for rect in [CGRect(x: 0, y: 0, width: 320, height: 320),
+                         CGRect(x: 0, y: 0, width: 320, height: 400),
+                         CGRect(x: 0, y: 0, width: 480, height: 300)] {
+                let isCard = rect.width == rect.height
+                let isPortrait = rect.height > rect.width
+                let top: CGFloat = isPortrait ? 120 : 0
+                let bottom: CGFloat = isPortrait ? 0.15 : 0
+                let trailing: CGFloat = !isCard && !isPortrait ? 0.15 : 0
+                let artwork = UncroppedArtwork(image: source) {
+                    Image(uiImage: source).resizable().scaledToFill()
+                }
+                .modifier(LyricsArtworkFlight(rect: rect, cornerRadius: 0, shadow: .init(),
+                    bottomFade: bottom, trailingFade: trailing, renderSize: 512, topContentInset: top))
+                .frame(width: rect.width, height: rect.height)
+                let renderer = ImageRenderer(content: artwork)
+                renderer.scale = 1
+                let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+                let attachment = XCTAttachment(image: UIImage(cgImage: image))
+                attachment.name = "rectangular-cover-\(Int(sourceSize.width))x\(Int(sourceSize.height))-\(Int(rect.width))x\(Int(rect.height))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                let pixels = try rgbaPixels(of: image)
+                let visible = CGRect(x: 0, y: top, width: rect.width * (1 - trailing),
+                                     height: rect.height * (1 - bottom) - top)
+                let fitted = ArtworkContentLayout.fittedRect(imageSize: sourceSize, in: visible)
+                let edgeInset = 6 * fitted.width / sourceSize.width
+                let samples: [(CGPoint, [Int])] = [
+                    (CGPoint(x: fitted.midX, y: fitted.minY + edgeInset), [255, 0, 0]),
+                    (CGPoint(x: fitted.midX, y: fitted.maxY - edgeInset), [0, 0, 255]),
+                    (CGPoint(x: fitted.minX + edgeInset, y: fitted.midY), [0, 255, 0]),
+                    (CGPoint(x: fitted.maxX - edgeInset, y: fitted.midY), [255, 255, 0]),
+                ]
+                for (point, expected) in samples {
+                    let offset = (Int(point.y) * image.width + Int(point.x)) * 4
+                    for channel in 0..<3 {
+                        XCTAssertEqual(Double(pixels[offset + channel]), Double(expected[channel]), accuracy: 10,
+                                       "\(sourceSize) in \(rect.size), edge at \(point)")
+                    }
+                }
+            }
+        }
+    }
+
     func testAudiobookProgressMovesTrackWithoutShrinkingScrubArea() async throws {
         let suite = "AudiobookProgress-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -281,6 +281,7 @@ private struct NowPlayingGlassActionButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(label))
+        .modifier(NowPlayingControlDragCancellation())
     }
 }
 
@@ -1111,7 +1112,7 @@ private struct LyricsArtworkAnchorKey: PreferenceKey {
 /// 外框和图片是同一层，不会出现外框先缩、图片后追上的情况。布局尺寸固定为绘制尺寸，
 /// 移动途中只变换不重新排版。
 ///
-/// 槽位不是正方形时（铺满封面在矮屏上被压扁、手机横屏的铺满封面）按长边铺满、居中裁掉多出来的那截，
+/// 非方形槽位中的方封面仍按长边铺满；长方形封面通过 artworkContentViewport 完整放入未遮挡区域。
 /// 下沿与尾侧渐隐也在同一层里随位置一起插值，飞向歌词小封面途中渐隐慢慢收掉。
 struct LyricsArtworkFlight: ViewModifier, Animatable {
     var rect: CGRect
@@ -1121,10 +1122,11 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
     var trailingFade: CGFloat
     let renderSize: CGFloat
     var usesShadowSprite = false
+    var topContentInset: CGFloat = 0
 
     nonisolated var animatableData: AnimatablePair<
         AnimatablePair<CGRect.AnimatableData, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>,
-        AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>>
+        AnimatablePair<Double, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>
     > {
         get {
             AnimatablePair(
@@ -1132,7 +1134,7 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
                     rect.animatableData,
                     AnimatablePair(cornerRadius, AnimatablePair(bottomFade, trailingFade))
                 ),
-                AnimatablePair(shadow.opacity, AnimatablePair(shadow.radius, shadow.y))
+                AnimatablePair(shadow.opacity, AnimatablePair(shadow.radius, AnimatablePair(shadow.y, topContentInset)))
             )
         }
         set {
@@ -1142,7 +1144,8 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
             trailingFade = newValue.first.second.second.second
             shadow.opacity = newValue.second.first
             shadow.radius = newValue.second.second.first
-            shadow.y = newValue.second.second.second
+            shadow.y = newValue.second.second.second.first
+            topContentInset = newValue.second.second.second.second
         }
     }
 
@@ -1150,7 +1153,14 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
         let scale = max(rect.width, rect.height, 1) / renderSize
         let visible = CGSize(width: max(rect.width, 0) / scale, height: max(rect.height, 0) / scale)
         let shadowScale = renderSize / 320
+        let artworkViewport = CGRect(
+            x: (renderSize - visible.width) / 2,
+            y: (renderSize - visible.height) / 2 + topContentInset / scale,
+            width: max(0, visible.width * (1 - trailingFade)),
+            height: max(0, visible.height * (1 - bottomFade) - topContentInset / scale)
+        )
         content
+            .environment(\.artworkContentViewport, artworkViewport)
             .frame(width: renderSize, height: renderSize)
             .clipShape(LyricsArtworkClipShape(size: visible, cornerRadius: max(0, cornerRadius) / scale))
             .mask {
@@ -3057,6 +3067,7 @@ struct NowPlayingView: View {
     private func barColumnGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         let stack = VStack(spacing: 0) { content() }
             .padding(4)
+            .modifier(NowPlayingControlDragCancellation())
         if #available(iOS 26.0, *) {
             stack.glassEffect(.regular.interactive(), in: Capsule())
         } else {
@@ -3272,7 +3283,7 @@ struct NowPlayingView: View {
     ) -> some Gesture {
         // The player moves with this gesture, so a local coordinate space would
         // also move under the finger and feed the offset back into translation.
-        DragGesture(minimumDistance: NowPlayingHeaderDragCancellation.minimumDistance, coordinateSpace: .global)
+        DragGesture(minimumDistance: NowPlayingControlDragCancellation.minimumDistance, coordinateSpace: .global)
             .onChanged { value in
                 let activity = minimizeDragActivity
                 let isRTL = layoutDirection == .rightToLeft
@@ -4627,6 +4638,7 @@ struct NowPlayingView: View {
         }
         .disabled(!player.canSwitchRadioStation)
         .accessibilityLabel(Text(label))
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 电台的播放键：直播没有暂停，播着时画停止。
@@ -4650,6 +4662,7 @@ struct NowPlayingView: View {
             }
         }
         .accessibilityLabel(Text((player.isPlaying || player.isLoading) ? "radio_stop" : "a11y_play"))
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     // MARK: - 电台：手机横屏
@@ -4942,6 +4955,7 @@ struct NowPlayingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: diameter)
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     @ViewBuilder
@@ -5060,36 +5074,40 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private func radioControlItem(_ item: NowPlayingRadioControlItem) -> some View {
-        switch item {
-        case .airPlay:
-            AirPlayButton()
-                .frame(width: 36, height: 36)
-        case .info:
-            Text(radioTechnicalSummary)
-                .font(.caption2)
-                .foregroundStyle(appearance.faint)
-        case .share:
-            if let url = player.currentRadioStation?.url {
-                ShareLink(item: url) {
-                    Image(systemName: "square.and.arrow.up")
-                        .frame(width: 36, height: 36)
+        Group {
+            switch item {
+            case .airPlay:
+                AirPlayButton()
+                    .frame(width: 36, height: 36)
+            case .info:
+                Text(radioTechnicalSummary)
+                    .font(.caption2)
+                    .foregroundStyle(appearance.faint)
+            case .share:
+                if let url = player.currentRadioStation?.url {
+                    ShareLink(item: url) {
+                        Image(systemName: "square.and.arrow.up")
+                            .frame(width: 36, height: 36)
+                    }
+                    .accessibilityLabel(Text("share"))
                 }
-                .accessibilityLabel(Text("share"))
-            }
-        case .history:
-            if let stationID = player.currentRadioStation?.id {
-                Button {
-                    radioDetailStationID = stationID
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .frame(width: 36, height: 36)
+            case .history:
+                if let stationID = player.currentRadioStation?.id {
+                    Button {
+                        radioDetailStationID = stationID
+                    } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .frame(width: 36, height: 36)
+                    }
+                    .foregroundStyle(appearance.secondary)
+                    .accessibilityLabel(Text("radio_detail_heard_title"))
                 }
-                .foregroundStyle(appearance.secondary)
-                .accessibilityLabel(Text("radio_detail_heard_title"))
+            case .sleepTimer:
+                radioSleepTimerButton
             }
-        case .sleepTimer:
-            radioSleepTimerButton
+
         }
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 电台没有曲终可等，睡眠定时是这里唯一的自动停止手段。歌曲布局把它收在
@@ -5121,6 +5139,7 @@ struct NowPlayingView: View {
                 ? String(localized: "sleep_timer_active")
                 : String(localized: "sleep_timer")
         ))
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     private var radioTechnicalSummary: String {
@@ -5704,7 +5723,7 @@ struct NowPlayingView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .modifier(NowPlayingHeaderDragCancellation())
+        .modifier(NowPlayingControlDragCancellation())
         .accessibilityLabel(Text("a11y_close_lyrics"))
     }
 
@@ -6093,6 +6112,7 @@ struct NowPlayingView: View {
         .accessibilityLabel(player.isPlaying || player.isLoading
             ? String(localized: "a11y_pause")
             : String(localized: "a11y_play"))
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 这块画布上能不能手动横竖屏：手机，不是平板或展开的折叠屏内屏(见 `PlayerOrientationControl`)。
@@ -6282,7 +6302,7 @@ struct NowPlayingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: diameter)
-        .modifier(NowPlayingHeaderDragCancellation())
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// AirPlay 用系统的 `AVRoutePickerView`，套进与相邻圆钮同一套玻璃圆底里，
@@ -6578,7 +6598,7 @@ struct NowPlayingView: View {
 
                     immersiveMoreMenu(offersArtworkToggle: false)
                 }
-                .modifier(NowPlayingHeaderDragCancellation())
+                .modifier(NowPlayingControlDragCancellation())
                 .padding(.leading, max(safeInsets.leading, 18))
                 .padding(.trailing, max(safeInsets.trailing, 18))
                 .padding(.top, max(safeInsets.top, 10))
@@ -6769,7 +6789,7 @@ struct NowPlayingView: View {
                             .overlay(alignment: .trailing) {
                                 if showsPortraitOrientationButton(usesToolColumn: usesToolColumn) {
                                     playerOrientationButton(diameter: 30)
-                                        .modifier(NowPlayingHeaderDragCancellation())
+                                        .modifier(NowPlayingControlDragCancellation())
                                         .padding(.trailing, 18 + insets.rows)
                                 }
                             }
@@ -6865,7 +6885,7 @@ struct NowPlayingView: View {
                                 }
                             }
                             }
-                            .modifier(NowPlayingHeaderDragCancellation())
+                            .modifier(NowPlayingControlDragCancellation())
                             .padding(.horizontal, 20).padding(.bottom, 6)
                             .padding(.leading, insets.lyricsLeading)
                             .padding(.trailing, insets.lyricsTrailing)
@@ -7567,7 +7587,7 @@ struct NowPlayingView: View {
             .accessibilityLabel(Text("a11y_close_lyrics"))
             transcriptReaderButton
         }
-        .modifier(NowPlayingHeaderDragCancellation())
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 快退 · 播放 · 快进。播放键是实心圆:墨黑橙红、暖白近黑,三角取底色。
@@ -7663,6 +7683,7 @@ struct NowPlayingView: View {
         }
         .pmAnimation(.control, value: controls.leadingSide)
         .pmAnimation(.control, value: controls.trailingSide)
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 快退 15 / 快进 30 秒(秒数随设置);长按跳章、跳集。
@@ -7704,6 +7725,7 @@ struct NowPlayingView: View {
             onContents: { openContentsPanel() },
             customTile: spokenWordCustomTile(layout: layout, tileHeight: tileHeight, palette: style.palette)
         )
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 竖版的传输键一行(随机 · 上一首 · 播放 · 下一首 · 循环)。桌面半折的下半屏也用这一行。
@@ -7768,6 +7790,7 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: .infinity)
         }
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 有声内容的传输键一行:播放键左右两半各自把键平均排开 —— 空着的格不占位、不在一头留个空洞,
@@ -7823,6 +7846,7 @@ struct NowPlayingView: View {
         .pmAnimation(.control, value: controls.leadingSide)
         .pmAnimation(.control, value: controls.trailingSide)
         .pmAnimation(.control, value: controls.showsInnerChapters)
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 一个键位大小的空白(只在三颗键时用来收拢,见 `spokenWordTransportRow`)。
@@ -7878,6 +7902,7 @@ struct NowPlayingView: View {
                 onUpNext: { openContentsPanel(tab: .upNext) },
                 customTile: spokenWordCustomTile(layout: .stacked, tileHeight: 54, palette: spokenWordControlPalette)
             )
+            .modifier(NowPlayingControlDragCancellation())
             .padding(.horizontal, 22)
             .padding(.top, 12)
         } else {
@@ -8009,7 +8034,7 @@ struct NowPlayingView: View {
                         dismissImmersiveLyrics()
                     }
                 }
-                .modifier(NowPlayingHeaderDragCancellation())
+                .modifier(NowPlayingControlDragCancellation())
                 .padding(.leading, topRowLeadingInset + (isLandscape ? 24 : 20))
                 .padding(.trailing, topRowTrailingInset + (isLandscape ? 24 : 20))
                 .padding(.top, max(topSafeArea, 10) + (isLandscape ? 0 : 8))
@@ -8114,6 +8139,7 @@ struct NowPlayingView: View {
         }
         .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: forward) }
         .modifier(transportHoldScrubGesture(forward: forward))
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 竖屏原生全屏底部那一块(进度条 + 传输键)的上沿以下:控件在时歌词在这里之前淡完。
@@ -8366,7 +8392,8 @@ struct NowPlayingView: View {
                     bottomFade: fullBleedMiddleSoftening ? anchor.bottomFade : 0,
                     trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
                     renderSize: renderSize,
-                    usesShadowSprite: currentItemIsPodcast
+                    usesShadowSprite: currentItemIsPodcast,
+                    topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0
                 ))
                 .animation(standardLyricsAnimation, value: placement)
                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
@@ -8852,6 +8879,7 @@ struct NowPlayingView: View {
             )
         }
         .accessibilityIdentifier("nowPlaying.more")
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     private func buildMoreMenu(
@@ -9299,6 +9327,7 @@ struct NowPlayingView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text("transcript_read_fullscreen"))
+            .modifier(NowPlayingControlDragCancellation())
         }
     }
 
@@ -9309,6 +9338,15 @@ struct NowPlayingView: View {
         metadataFont: Font,
         inlineActions: Bool = true,
         controlSurface: NowPlayingControlSurface = .portrait
+    ) -> AnyView {
+        AnyView(resolvedSongHeader(titleFont: titleFont, metadataFont: metadataFont,
+            inlineActions: inlineActions, controlSurface: controlSurface)
+            .modifier(NowPlayingControlDragCancellation()))
+    }
+
+    private func resolvedSongHeader(
+        titleFont: Font, metadataFont: Font, inlineActions: Bool,
+        controlSurface: NowPlayingControlSurface
     ) -> AnyView {
         if usesSpokenWordTransport {
             return AnyView(spokenWordHeading(
@@ -9654,6 +9692,7 @@ struct NowPlayingView: View {
                 .frame(width: 44, height: height)
                 .contentShape(Rectangle())
         }
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     /// 文字稿键的点按与按住(两侧那一格、最下面那一排共用):点一下在封面与文字稿之间切换,按住全屏读文稿。
@@ -9713,6 +9752,7 @@ struct NowPlayingView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
+        .modifier(NowPlayingControlDragCancellation())
     }
 
     private var spokenWordPalette: SpokenWordPlayerPalette {
@@ -10204,6 +10244,10 @@ struct NowPlayingView: View {
     }
 
     private func controlButton(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> AnyView {
+        AnyView(resolvedControlButton(action, style: style).modifier(NowPlayingControlDragCancellation()))
+    }
+
+    private func resolvedControlButton(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> AnyView {
         if action == .airPlay {
             return AnyView(airPlayControl(style: style))
         } else if case .column(let itemSize) = style, action == .lyrics {
@@ -12541,6 +12585,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
         private var isActive = false
         private var edge: SliderScrubFeedbackPolicy.Edge = .none
         private var playedDragFeedback = false
+        private var scrubSession: VolumeScrubSession?
         private let dragFeedback = UIImpactFeedbackGenerator(style: .light)
         private let edgeFeedback = UIImpactFeedbackGenerator(style: .rigid)
 
@@ -12555,6 +12600,9 @@ struct SystemVolumeSlider: UIViewRepresentable {
             self.volumeView = volumeView
             self.styleKey = styleKey
             volumeView.onLayout = { [weak self] in self?.synchronizeSlider() }
+            volumeView.touchView.onBegin = { [weak self] in self?.beginScrub() }
+            volumeView.touchView.onMove = { [weak self] in self?.updateScrub($0) }
+            volumeView.touchView.onEnd = { [weak self] in self?.endScrub(cancelled: $0) }
             if appearanceChanged {
                 let appearance = NowPlayingAppearance(
                     colorScheme: styleKey.isLight ? .light : .dark,
@@ -12578,10 +12626,12 @@ struct SystemVolumeSlider: UIViewRepresentable {
             guard let volumeView else { return }
             guard let slider = volumeView.volumeSlider else {
                 volumeView.trackView.isHidden = true
+                volumeView.touchView.isHidden = true
                 return
             }
             let sliderChanged = self.slider !== slider
             if sliderChanged {
+                endScrub(cancelled: true)
                 self.slider?.removeTarget(self, action: nil, for: .allEvents)
                 self.slider = slider
                 isActive = false
@@ -12602,13 +12652,55 @@ struct SystemVolumeSlider: UIViewRepresentable {
                 }
             }
             updateTrack(animated: false)
+            volumeView.touchView.isHidden = slider.isHidden || !slider.isEnabled
         }
 
         func detach() {
+            endScrub(cancelled: true)
             slider?.removeTarget(self, action: nil, for: .allEvents)
             volumeObservation?.invalidate()
             volumeObservation = nil
             volumeView?.onLayout = nil
+            volumeView?.touchView.onBegin = nil
+            volumeView?.touchView.onMove = nil
+            volumeView?.touchView.onEnd = nil
+        }
+
+        private func beginScrub() {
+            guard let slider, slider.isEnabled else { return }
+            let track = slider.trackRect(forBounds: slider.bounds)
+            let minimum = slider.thumbRect(forBounds: slider.bounds, trackRect: track, value: slider.minimumValue)
+            let maximum = slider.thumbRect(forBounds: slider.bounds, trackRect: track, value: slider.maximumValue)
+            let span = slider.maximumValue - slider.minimumValue
+            guard span > 0 else { return }
+            scrubSession = VolumeScrubSession(
+                initialValue: Double((slider.value - slider.minimumValue) / span),
+                trackWidth: Double(maximum.midX - minimum.midX)
+            )
+            slider.sendActions(for: .touchDown)
+        }
+
+        private func updateScrub(_ translation: CGSize) {
+            guard let slider, var session = scrubSession else { return }
+            let value = session.update(horizontalTranslation: Double(translation.width),
+                                       verticalTranslation: Double(translation.height))
+            scrubSession = session
+            guard let value else {
+                if session.intent == .vertical {
+                    isActive = false
+                    updateTrack(animated: true)
+                }
+                return
+            }
+            slider.setValue(slider.minimumValue + Float(value) * (slider.maximumValue - slider.minimumValue), animated: false)
+            slider.sendActions(for: .valueChanged)
+        }
+
+        private func endScrub(cancelled: Bool) {
+            guard scrubSession != nil else { return }
+            let didScrub = scrubSession?.intent == .horizontal
+            scrubSession = nil
+            slider?.sendActions(for: cancelled || !didScrub ? .touchCancel : .touchUpInside)
         }
 
         @objc private func touchDown(_ slider: UISlider) {
@@ -12622,7 +12714,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
 
         @objc private func valueChanged(_ slider: UISlider) {
             updateTrack(animated: false)
-            guard slider.isTracking else { return }
+            guard slider.isTracking || scrubSession?.intent == .horizontal else { return }
             if !playedDragFeedback {
                 playedDragFeedback = true
                 dragFeedback.impactOccurred(intensity: 0.7)
@@ -12712,6 +12804,7 @@ struct SystemVolumeSlider: UIViewRepresentable {
 
 class PlayerSystemVolumeView: MPVolumeView {
     let trackView = SystemVolumeTrackView(frame: .zero)
+    let touchView = PlayerVolumeTouchView(frame: .zero)
     var onLayout: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -12720,6 +12813,8 @@ class PlayerSystemVolumeView: MPVolumeView {
         trackView.isUserInteractionEnabled = false
         trackView.accessibilityElementsHidden = true
         addSubview(trackView)
+        touchView.accessibilityElementsHidden = true
+        addSubview(touchView)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -12737,9 +12832,70 @@ class PlayerSystemVolumeView: MPVolumeView {
         subviews.compactMap { $0 as? UIButton }.forEach { $0.isHidden = true }
         // 发光和放大的圆钮允许越出紧凑音量行，不在绘图画布边缘截断。
         trackView.frame = bounds.insetBy(dx: -12, dy: -12)
+        touchView.frame = bounds
         bringSubviewToFront(trackView)
+        bringSubviewToFront(touchView)
         // 内部滑块可能晚于 makeUIView 创建，也可能在输出线路变化后被系统替换。
         onLayout?()
+    }
+}
+
+/// Intercepts touches before MPVolumeView can change volume on a vertical swipe.
+/// Window coordinates remain stable while the enclosing player moves down.
+final class PlayerVolumeTouchView: UIView, UIGestureRecognizerDelegate {
+    var onBegin: (() -> Void)?
+    var onMove: ((CGSize) -> Void)?
+    var onEnd: ((Bool) -> Void)?
+    private var startLocation: CGPoint?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = self
+        addGestureRecognizer(pan)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        true
+    }
+
+    func beginTracking(at point: CGPoint) {
+        startLocation = point
+        onBegin?()
+    }
+
+    func continueTracking(at point: CGPoint) {
+        guard let startLocation else { return }
+        onMove?(CGSize(width: point.x - startLocation.x, height: point.y - startLocation.y))
+    }
+
+    func endTracking(cancelled: Bool) {
+        guard startLocation != nil else { return }
+        startLocation = nil
+        onEnd?(cancelled)
+    }
+
+    @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+        let point = pan.location(in: window)
+        switch pan.state {
+        case .began:
+            let translation = pan.translation(in: window)
+            beginTracking(at: CGPoint(x: point.x - translation.x, y: point.y - translation.y))
+            continueTracking(at: point)
+        case .changed:
+            continueTracking(at: point)
+        case .ended:
+            continueTracking(at: point)
+            endTracking(cancelled: false)
+        case .cancelled, .failed:
+            endTracking(cancelled: true)
+        default:
+            break
+        }
     }
 }
 
@@ -12847,6 +13003,9 @@ struct VolumeSlider: View {
 
     @State private var isDragging = false
     @State private var localValue: Double?
+    @State private var scrubSession: VolumeScrubSession?
+    @GestureState private var isPressing = false
+    @Environment(\.layoutDirection) private var layoutDirection
     /// 开始拖、拖到一头各震一次(PRIM-45)。
     @State private var dragFeedbackToken = 0
     @State private var edgeFeedbackToken = 0
@@ -12899,13 +13058,23 @@ struct VolumeSlider: View {
             .frame(height: 20)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .updating($isPressing) { _, state, _ in state = true }
                     .onChanged { gesture in
+                        var session = scrubSession ?? VolumeScrubSession(
+                            initialValue: value,
+                            trackWidth: Double(width) * (layoutDirection == .rightToLeft ? -1 : 1)
+                        )
+                        let next = session.update(
+                            horizontalTranslation: Double(gesture.translation.width),
+                            verticalTranslation: Double(gesture.translation.height)
+                        )
+                        scrubSession = session
+                        guard let next else { return }
                         if !isDragging {
                             isDragging = true
                             dragFeedbackToken += 1
                         }
-                        let next = Double(max(0, min(1, gesture.location.x / max(width, 1))))
                         let nextEdge = SliderScrubFeedbackPolicy.edge(fraction: next)
                         if SliderScrubFeedbackPolicy.playsEdgeFeedback(from: edge, to: nextEdge) {
                             edgeFeedbackToken += 1
@@ -12915,9 +13084,7 @@ struct VolumeSlider: View {
                         value = next
                     }
                     .onEnded { _ in
-                        localValue = nil
-                        edge = .none
-                        isDragging = false
+                        endScrub()
                     }
             )
             // 按下时弹一下变粗,松手后慢慢收回;减弱动态效果时只是轻微地变。
@@ -12927,6 +13094,10 @@ struct VolumeSlider: View {
             )
         }
         .frame(height: 20)
+        .onChange(of: isPressing) { _, pressing in
+            if !pressing { endScrub() }
+        }
+        .onDisappear { endScrub() }
         #if os(iOS)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: dragFeedbackToken)
         .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.8), trigger: edgeFeedbackToken)
@@ -12941,6 +13112,13 @@ struct VolumeSlider: View {
             @unknown default: break
             }
         }
+    }
+
+    private func endScrub() {
+        scrubSession = nil
+        localValue = nil
+        edge = .none
+        isDragging = false
     }
 }
 
@@ -17684,11 +17862,11 @@ extension MusicLibrary {
     }
 }
 
-// MARK: - 下拉收起与顶栏按钮
+// MARK: - 下拉收起与控件点按
 
-/// 顶栏跟着整页移动，松手仍可能落在原按钮里。拖动先取消子控件的点击，
+/// 控件跟着整页移动，松手仍可能落在原按钮里。拖动先取消子控件的点击，
 /// 外层的 simultaneousGesture 继续收起页面；不延迟下一次独立点按。
-private struct NowPlayingHeaderDragCancellation: ViewModifier {
+struct NowPlayingControlDragCancellation: ViewModifier {
     static let minimumDistance: CGFloat = 12
 
     func body(content: Content) -> some View {

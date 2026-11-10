@@ -994,6 +994,44 @@ final class NowPlayingStylePresetTests: XCTestCase {
 
 @MainActor
 final class SystemVolumeSliderTests: XCTestCase {
+    func testVerticalSwipeDoesNotChangeNativeVolumeOrLeakIntoNextDrag() {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let slider = view.installSlider(value: 0.65)
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        coordinator.configure(in: view, styleKey: key())
+        view.layoutIfNeeded()
+        XCTAssertTrue(view.hitTest(CGPoint(x: 150, y: 12), with: nil) === view.touchView)
+
+        view.touchView.beginTracking(at: CGPoint(x: 150, y: 300))
+        view.touchView.continueTracking(at: CGPoint(x: 153, y: 330))
+        view.touchView.continueTracking(at: CGPoint(x: 0, y: 400))
+        view.touchView.endTracking(cancelled: false)
+        XCTAssertEqual(slider.value, 0.65, accuracy: 0.001)
+        XCTAssertFalse(view.trackView.isActive)
+
+        view.touchView.beginTracking(at: CGPoint(x: 10, y: 300))
+        view.touchView.continueTracking(at: CGPoint(x: 30, y: 301))
+        XCTAssertGreaterThan(slider.value, 0.65)
+        XCTAssertLessThan(slider.value, 0.8)
+        view.touchView.endTracking(cancelled: true)
+        XCTAssertFalse(view.trackView.isActive)
+    }
+
+    func testTapAndCancelledTouchDoNotSetVolumeAtTouchLocation() {
+        let view = VolumeView(frame: CGRect(x: 0, y: 0, width: 300, height: 24))
+        let slider = view.installSlider(value: 0.7)
+        let coordinator = SystemVolumeSlider.Coordinator()
+        defer { coordinator.detach() }
+        coordinator.configure(in: view, styleKey: key())
+        for cancelled in [false, true] {
+            view.touchView.beginTracking(at: .zero)
+            view.touchView.endTracking(cancelled: cancelled)
+            XCTAssertEqual(slider.value, 0.7, accuracy: 0.001)
+            XCTAssertFalse(view.trackView.isActive)
+        }
+    }
+
     private final class VolumeView: PlayerSystemVolumeView {
         var testSlider: UISlider?
         override var volumeSlider: UISlider? { testSlider }
