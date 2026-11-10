@@ -385,7 +385,8 @@ actor MacWidgetPlaybackPublisher {
             albumCoverContents = result.albumCoverContents
             if result.needsAppleMusicArtwork, pending == nil,
                artworkTask == nil, appleMusicArtwork == nil,
-               Date() >= nextArtworkAttempt, let song = request.currentSong {
+               Date().timeIntervalSinceReferenceDate >= nextArtworkAttempt.timeIntervalSinceReferenceDate,
+               let song = request.currentSong {
                 let generation = artworkGeneration
                 let loadArtwork = self.loadArtwork
                 nextArtworkAttempt = Date().addingTimeInterval(30)
