@@ -284,7 +284,157 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 table.primaryKey(["sourceID", "stableKey"])
             }
         }
+        // 三张暂存表去掉「来源 + 文本 id」的唯一主键。这类随机键的索引在几十万首的曲库上，
+        // 每个事务都要改写几乎所有叶子页，一次整库走查要写十几 GB；查重改在内存里做
+        // (`StagedIndex`)，表只按写入顺序追加，索引也只按写入顺序增长。旧的暂存行连同各源的
+        // 进度一起作废，下次走查从头开始。
+        migrator.registerMigration("v2_append_only_paged_catalog") { db in
+            try db.execute(sql: "DELETE FROM pagedCatalogStages")
+            for table in ["pagedCatalogItems", "pagedCatalogSongs", "pagedCatalogHierarchy"] {
+                try db.drop(table: table)
+            }
+            try db.create(table: "pagedCatalogItems") { table in
+                table.column("sourceID", .text).notNull()
+                table.column("itemID", .text).notNull()
+                table.column("orderKey", .integer).notNull()
+            }
+            try db.create(
+                index: "pagedCatalogItems_source_order",
+                on: "pagedCatalogItems",
+                columns: ["sourceID", "orderKey"]
+            )
+            try db.create(table: "pagedCatalogSongs") { table in
+                table.column("sourceID", .text).notNull()
+                table.column("songID", .text).notNull()
+                table.column("orderKey", .integer).notNull()
+                table.column("payload", .blob).notNull()
+                table.column("metadataInspected", .boolean).notNull()
+            }
+            try db.create(
+                index: "pagedCatalogSongs_source_order",
+                on: "pagedCatalogSongs",
+                columns: ["sourceID", "orderKey"]
+            )
+            try db.create(table: "pagedCatalogHierarchy") { table in
+                table.column("sourceID", .text).notNull()
+                table.column("stableKey", .text).notNull()
+                table.column("payload", .blob).notNull()
+            }
+            try db.create(
+                index: "pagedCatalogHierarchy_source",
+                on: "pagedCatalogHierarchy",
+                columns: ["sourceID"]
+            )
+        }
         try migrator.migrate(database)
+    }
+
+    /// 一个 id 或一段内容的 128 位指纹。只在本进程的内存里用（`Hasher` 每次启动换种子），
+    /// 两路独立哈希合起来，几十万条里撞上的概率可以不计。
+    private struct Fingerprint: Hashable {
+        let first: Int
+        let second: Int
+
+        init(_ value: String) {
+            var a = Hasher()
+            a.combine(0x5052_494D)
+            a.combine(value)
+            var b = Hasher()
+            b.combine(0x4D55_5345)
+            b.combine(value)
+            first = a.finalize()
+            second = b.finalize()
+        }
+
+        init(_ data: Data) {
+            // `Data` 自己的哈希只取开头一段，内容指纹要把整段都算进去。
+            var a = Hasher()
+            var b = Hasher()
+            a.combine(0x5052_494D)
+            b.combine(0x4D55_5345)
+            data.withUnsafeBytes { bytes in
+                a.combine(bytes: bytes)
+                b.combine(bytes: bytes)
+            }
+            first = a.finalize()
+            second = b.finalize()
+        }
+    }
+
+    /// 一个来源这一轮已经暂存的条目、歌曲与目录项。表上没有唯一索引，查重和「目录项没变就不再写」
+    /// 都靠它；按暂存记录里的会话、页数和条数校验，对不上（换了会话、上一次事务没落盘、进程重启）就从表里重建。
+    private struct StagedIndex {
+        var stageSessionID: String
+        var pageCount: Int
+        var itemCount: Int
+        var songCount: Int
+        var items: Set<Fingerprint> = []
+        var songs: Set<Fingerprint> = []
+        var hierarchy: [Fingerprint: Fingerprint] = [:]
+    }
+
+    private let stagedIndexLock = NSLock()
+    private var stagedIndexes: [String: StagedIndex] = [:]
+
+    private func cachedStagedIndex(sourceID: String) -> StagedIndex? {
+        stagedIndexLock.lock()
+        defer { stagedIndexLock.unlock() }
+        return stagedIndexes[sourceID]
+    }
+
+    private func storeStagedIndex(_ index: StagedIndex?, sourceID: String) {
+        stagedIndexLock.lock()
+        defer { stagedIndexLock.unlock() }
+        stagedIndexes[sourceID] = index
+    }
+
+    private func forgetAllStagedIndexes() {
+        stagedIndexLock.lock()
+        defer { stagedIndexLock.unlock() }
+        stagedIndexes.removeAll()
+    }
+
+    /// 在数据库队列上调用（`database.read`/`write` 的闭包里）。
+    private func stagedIndex(
+        sourceID: String,
+        snapshot: PagedSongCatalogStageSnapshot,
+        in db: Database
+    ) throws -> StagedIndex {
+        if let cached = cachedStagedIndex(sourceID: sourceID),
+           cached.stageSessionID == snapshot.stageSessionID,
+           cached.pageCount == snapshot.completedPageCount,
+           cached.itemCount == snapshot.stagedItemCount,
+           cached.songCount == snapshot.stagedSongCount {
+            return cached
+        }
+        var index = StagedIndex(
+            stageSessionID: snapshot.stageSessionID,
+            pageCount: snapshot.completedPageCount,
+            itemCount: snapshot.stagedItemCount,
+            songCount: snapshot.stagedSongCount
+        )
+        index.items.reserveCapacity(snapshot.stagedItemCount)
+        index.songs.reserveCapacity(snapshot.stagedSongCount)
+        let items = try String.fetchCursor(
+            db, sql: "SELECT itemID FROM pagedCatalogItems WHERE sourceID = ?", arguments: [sourceID]
+        )
+        while let itemID = try items.next() { index.items.insert(Fingerprint(itemID)) }
+        let songs = try String.fetchCursor(
+            db, sql: "SELECT songID FROM pagedCatalogSongs WHERE sourceID = ?", arguments: [sourceID]
+        )
+        while let songID = try songs.next() { index.songs.insert(Fingerprint(songID)) }
+        let hierarchy = try Row.fetchCursor(
+            db,
+            sql: "SELECT stableKey, payload FROM pagedCatalogHierarchy WHERE sourceID = ? ORDER BY rowid",
+            arguments: [sourceID]
+        )
+        while let row = try hierarchy.next() {
+            let stableKey: String = row["stableKey"]
+            let payload: Data = row["payload"]
+            index.hierarchy[Fingerprint(stableKey)] = Fingerprint(payload)
+        }
+        storeStagedIndex(index, sourceID: sourceID)
+        return index
     }
 
     public func reset(
@@ -302,7 +452,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                     || ownerGeneration > (current?.ownerGeneration ?? .min) else {
                 throw PagedSongCatalogStagingError.scopeChanged
             }
-            try Self.deleteStage(sourceID: sourceID, in: db)
+            try deleteStage(sourceID: sourceID, in: db)
             try db.execute(
                 sql: """
                     INSERT INTO pagedCatalogStages (
@@ -383,14 +533,10 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                     throw PagedSongCatalogStagingError.duplicateItemID(itemID)
                 }
             }
-            if let existingItemID = try Self.firstExistingID(
-                in: "pagedCatalogItems",
-                column: "itemID",
-                sourceID: sourceID,
-                values: itemIDs,
-                db: db
-            ) {
-                throw PagedSongCatalogStagingError.duplicateItemID(existingItemID)
+            var staged = try stagedIndex(sourceID: sourceID, snapshot: current, in: db)
+            let itemPrints = itemIDs.map(Fingerprint.init)
+            if let duplicate = itemPrints.firstIndex(where: staged.items.contains) {
+                throw PagedSongCatalogStagingError.duplicateItemID(itemIDs[duplicate])
             }
             let insertItem = try db.cachedStatement(sql: """
                 INSERT INTO pagedCatalogItems (sourceID, itemID, orderKey) VALUES (?, ?, ?)
@@ -399,14 +545,9 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 try insertItem.execute(arguments: [sourceID, itemID, current.stagedItemCount + index])
             }
 
-            if let existingSongID = try Self.firstExistingID(
-                in: "pagedCatalogSongs",
-                column: "songID",
-                sourceID: sourceID,
-                values: songIDs,
-                db: db
-            ) {
-                throw PagedSongCatalogStagingError.duplicateSongID(existingSongID)
+            let songPrints = songIDs.map(Fingerprint.init)
+            if let duplicate = songPrints.firstIndex(where: staged.songs.contains) {
+                throw PagedSongCatalogStagingError.duplicateSongID(songIDs[duplicate])
             }
             let insertSong = try db.cachedStatement(sql: """
                 INSERT INTO pagedCatalogSongs (sourceID, songID, orderKey, payload, metadataInspected)
@@ -422,13 +563,17 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 ])
             }
 
-            let upsertHierarchy = try db.cachedStatement(sql: """
+            // 目录项只追加：同一个 stableKey 读回时后写的为准（`loadHierarchyIndex` 按 rowid 读），
+            // 内容和这一轮已写的一样就不再写。
+            let insertHierarchy = try db.cachedStatement(sql: """
                 INSERT INTO pagedCatalogHierarchy (sourceID, stableKey, payload) VALUES (?, ?, ?)
-                ON CONFLICT(sourceID, stableKey) DO UPDATE SET payload = excluded.payload
-                WHERE pagedCatalogHierarchy.payload != excluded.payload
                 """)
             for encodedItem in encodedHierarchy {
-                try upsertHierarchy.execute(arguments: [sourceID, encodedItem.0, encodedItem.1])
+                let key = Fingerprint(encodedItem.0)
+                let payload = Fingerprint(encodedItem.1)
+                guard staged.hierarchy[key] != payload else { continue }
+                try insertHierarchy.execute(arguments: [sourceID, encodedItem.0, encodedItem.1])
+                staged.hierarchy[key] = payload
             }
 
             let firstPageItemIDs = current.completedPageCount == 0
@@ -459,6 +604,12 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
             guard let updated = try Self.snapshot(sourceID: sourceID, in: db) else {
                 throw PagedSongCatalogStagingError.missingStage
             }
+            staged.items.formUnion(itemPrints)
+            staged.songs.formUnion(songPrints)
+            staged.pageCount = updated.completedPageCount
+            staged.itemCount = updated.stagedItemCount
+            staged.songCount = updated.stagedSongCount
+            storeStagedIndex(staged, sourceID: sourceID)
             return updated
         }
     }
@@ -502,37 +653,36 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
 
     /// The subset of `itemIDs` an earlier page of this stage already holds.
     public func stagedItemIDs(sourceID: String, among itemIDs: [String]) throws -> Set<String> {
-        try stagedIDs(in: "pagedCatalogItems", column: "itemID", sourceID: sourceID, among: itemIDs)
+        try stagedIDs(in: "pagedCatalogItems", column: "itemID", sourceID: sourceID, among: itemIDs) { $0.items }
     }
 
     /// The subset of `songIDs` an earlier page of this stage already holds.
     public func stagedSongIDs(sourceID: String, among songIDs: [String]) throws -> Set<String> {
-        try stagedIDs(in: "pagedCatalogSongs", column: "songID", sourceID: sourceID, among: songIDs)
+        try stagedIDs(in: "pagedCatalogSongs", column: "songID", sourceID: sourceID, among: songIDs) { $0.songs }
     }
 
     private func stagedIDs(
         in table: String,
         column: String,
         sourceID: String,
-        among values: [String]
+        among values: [String],
+        from staged: (StagedIndex) -> Set<Fingerprint>
     ) throws -> Set<String> {
         try database.read { db in
-            var result = Set<String>()
-            for start in stride(from: 0, to: values.count, by: 400) {
-                let chunk = Array(values[start..<min(start + 400, values.count)])
-                let placeholders = Array(repeating: "?", count: chunk.count)
-                    .joined(separator: ",")
-                let found = try String.fetchAll(
-                    db,
-                    sql: """
-                        SELECT \(column) FROM \(table)
-                        WHERE sourceID = ? AND \(column) IN (\(placeholders))
-                        """,
-                    arguments: StatementArguments([sourceID] + chunk)
+            guard let current = try Self.snapshot(sourceID: sourceID, in: db) else {
+                // 暂存记录已经删掉、页行还没清完（清理被打断）：照表里剩下的行回答。
+                let wanted = Set(values)
+                var found = Set<String>()
+                let rows = try String.fetchCursor(
+                    db, sql: "SELECT \(column) FROM \(table) WHERE sourceID = ?", arguments: [sourceID]
                 )
-                result.formUnion(found)
+                while let value = try rows.next() {
+                    if wanted.contains(value) { found.insert(value) }
+                }
+                return found
             }
-            return result
+            let prints = staged(try stagedIndex(sourceID: sourceID, snapshot: current, in: db))
+            return Set(values.filter { prints.contains(Fingerprint($0)) })
         }
     }
 
@@ -627,6 +777,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 sql: """
                     SELECT stableKey, payload FROM pagedCatalogHierarchy
                     WHERE sourceID = ?
+                    ORDER BY rowid
                     """,
                 arguments: [sourceID]
             )
@@ -681,7 +832,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 let sourceID: String = row["sourceID"]
                 let stageSessionID: String = row["stageSessionID"]
                 guard keep[sourceID] != stageSessionID else { continue }
-                try Self.deleteStage(sourceID: sourceID, in: db)
+                try deleteStage(sourceID: sourceID, in: db)
                 discarded.append(sourceID)
             }
             // Page rows whose stage row is already gone.
@@ -701,7 +852,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
                 guard let current = try Self.snapshot(sourceID: sourceID, in: db),
                       current.stageSessionID == stageSessionID else { return }
             }
-            try Self.deleteStage(sourceID: sourceID, in: db)
+            try deleteStage(sourceID: sourceID, in: db)
         }
     }
 
@@ -766,6 +917,7 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
             return true
         }
         guard detached else { return false }
+        storeStagedIndex(nil, sourceID: sourceID)
         for table in ["pagedCatalogItems", "pagedCatalogSongs", "pagedCatalogHierarchy"] {
             while true {
                 try Task.checkCancellation()
@@ -821,9 +973,14 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
         )
     }
 
-    private static func deleteStage(sourceID: String, in db: Database) throws {
+    private func deleteStage(sourceID: String, in db: Database) throws {
         try db.execute(sql: "DELETE FROM pagedCatalogStages WHERE sourceID = ?", arguments: [sourceID])
-        let keepsOtherStages = try hasStages(in: db)
+        let keepsOtherStages = try Self.hasStages(in: db)
+        if keepsOtherStages {
+            storeStagedIndex(nil, sourceID: sourceID)
+        } else {
+            forgetAllStagedIndexes()
+        }
         for table in [
             "pagedCatalogItems",
             "pagedCatalogSongs",
@@ -845,33 +1002,6 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
         var seen = Set<String>()
         for value in values where !seen.insert(value).inserted {
             return value
-        }
-        return nil
-    }
-
-    private static func firstExistingID(
-        in table: String,
-        column: String,
-        sourceID: String,
-        values: [String],
-        db: Database
-    ) throws -> String? {
-        for start in stride(from: 0, to: values.count, by: 400) {
-            let chunk = Array(values[start..<min(start + 400, values.count)])
-            let placeholders = Array(repeating: "?", count: chunk.count)
-                .joined(separator: ",")
-            let arguments = StatementArguments([sourceID] + chunk)
-            if let value = try String.fetchOne(
-                db,
-                sql: """
-                    SELECT \(column) FROM \(table)
-                    WHERE sourceID = ? AND \(column) IN (\(placeholders))
-                    LIMIT 1
-                    """,
-                arguments: arguments
-            ) {
-                return value
-            }
         }
         return nil
     }

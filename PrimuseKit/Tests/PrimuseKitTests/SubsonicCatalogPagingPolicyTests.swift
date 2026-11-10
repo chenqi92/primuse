@@ -283,7 +283,8 @@ struct PagedSongCatalogStagingStoreTests {
         }
         #expect(try store.loadHierarchyIndex(sourceID: "source") == ["root": renamed])
         try observer.read { (db: Database) throws -> Void in
-            #expect(try String.fetchAll(db, sql: "SELECT kind FROM hierarchyWrites ORDER BY rowid") == ["insert", "update"])
+            // 目录项只追加：改名后的那份追加一行，读回时后写的为准；内容没变的页不再写。
+            #expect(try String.fetchAll(db, sql: "SELECT kind FROM hierarchyWrites ORDER BY rowid") == ["insert", "insert"])
         }
     }
 
@@ -1012,6 +1013,92 @@ struct PagedSongCatalogStagingStoreTests {
         let url = temporaryStoreURL()
         defer { removeStoreFiles(at: url) }
         try body(PagedSongCatalogStagingStore(path: url.path))
+    }
+
+    @Test("Duplicates and staged ids are still recognised after reopening the store")
+    func stagedIDsSurviveReopen() throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        let first = makeSong(index: 1)
+        let folder = SourceSyncIndexedItem(stableKey: "root", path: "/Music", displayName: "旧目录",
+            parentPath: nil, isDirectory: true, size: 0, modifiedDate: nil, revision: nil)
+        do {
+            let store = try PagedSongCatalogStagingStore(path: url.path)
+            try store.reset(sourceID: "source", stageSessionID: "reopen", ownerGeneration: 1,
+                replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "r1")
+            _ = try store.stagePage(sourceID: "source", stageSessionID: "reopen", scopeFingerprint: "account",
+                catalogRevision: "r1", offset: 0, nextOffset: 1, itemIDs: ["item-1"], songs: [first],
+                metadataInspectedSongIDs: [], hierarchyItems: [folder], addedSongCount: 1)
+        }
+        let reopened = try PagedSongCatalogStagingStore(path: url.path)
+        #expect(try reopened.stagedItemIDs(sourceID: "source", among: ["item-1", "item-2"]) == ["item-1"])
+        #expect(try reopened.stagedSongIDs(sourceID: "source", among: [first.id, "other"]) == [first.id])
+        #expect(throws: PagedSongCatalogStagingError.duplicateSongID(first.id)) {
+            try reopened.stagePage(sourceID: "source", stageSessionID: "reopen", scopeFingerprint: "account",
+                catalogRevision: "r1", offset: 1, nextOffset: nil, itemIDs: ["item-2"], songs: [first],
+                metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 0)
+        }
+        var renamed = folder
+        renamed.displayName = "新目录"
+        let second = makeSong(index: 2)
+        _ = try reopened.stagePage(sourceID: "source", stageSessionID: "reopen", scopeFingerprint: "account",
+            catalogRevision: "r1", offset: 1, nextOffset: nil, itemIDs: ["item-2"], songs: [second],
+            metadataInspectedSongIDs: [], hierarchyItems: [renamed], addedSongCount: 1)
+        #expect(try reopened.loadHierarchyIndex(sourceID: "source") == ["root": renamed])
+        #expect(try reopened.stagedItemIDs(sourceID: "source", among: ["item-1", "item-2", "item-3"])
+            == ["item-1", "item-2"])
+        #expect(try reopened.delta(sourceID: "source", existingByID: [:]).authoritativeSongIDs == [first.id, second.id])
+    }
+
+    @Test("Stages written by the keyed schema are dropped once and staging restarts append-only")
+    func keyedSchemaStagesRestart() throws {
+        let url = temporaryStoreURL()
+        defer { removeStoreFiles(at: url) }
+        do {
+            let legacy = try DatabaseQueue(path: url.path)
+            try legacy.write { db in
+                try db.execute(sql: """
+                    CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY);
+                    INSERT INTO grdb_migrations VALUES ('v1_paged_song_catalog_staging');
+                    CREATE TABLE pagedCatalogStages (
+                        sourceID TEXT PRIMARY KEY, stageSessionID TEXT NOT NULL, ownerGeneration INTEGER NOT NULL,
+                        scopeFingerprint TEXT NOT NULL, catalogRevision TEXT, nextOffset INTEGER,
+                        completedPageCount INTEGER NOT NULL, stagedSongCount INTEGER NOT NULL,
+                        stagedItemCount INTEGER NOT NULL, addedSongCount INTEGER NOT NULL, firstPageItemIDs BLOB NOT NULL);
+                    CREATE TABLE pagedCatalogItems (
+                        sourceID TEXT NOT NULL, itemID TEXT NOT NULL, orderKey INTEGER NOT NULL,
+                        PRIMARY KEY (sourceID, itemID));
+                    CREATE TABLE pagedCatalogSongs (
+                        sourceID TEXT NOT NULL, songID TEXT NOT NULL, orderKey INTEGER NOT NULL,
+                        payload BLOB NOT NULL, metadataInspected BOOLEAN NOT NULL, PRIMARY KEY (sourceID, songID));
+                    CREATE INDEX pagedCatalogSongs_source_order ON pagedCatalogSongs (sourceID, orderKey);
+                    CREATE TABLE pagedCatalogHierarchy (
+                        sourceID TEXT NOT NULL, stableKey TEXT NOT NULL, payload BLOB NOT NULL,
+                        PRIMARY KEY (sourceID, stableKey));
+                    INSERT INTO pagedCatalogStages VALUES ('source', 'old', 1, 'account', 'r0', 1, 1, 0, 1, 0, X'5B5D');
+                    INSERT INTO pagedCatalogItems VALUES ('source', 'item-1', 0);
+                    """)
+            }
+        }
+        let store = try PagedSongCatalogStagingStore(path: url.path)
+        #expect(try store.snapshot(sourceID: "source") == nil)
+        try store.reset(sourceID: "source", stageSessionID: "new", ownerGeneration: 1,
+            replacingStageSessionID: nil, scopeFingerprint: "account", catalogRevision: "r1")
+        let song = makeSong(index: 1)
+        let staged = try store.stagePage(sourceID: "source", stageSessionID: "new", scopeFingerprint: "account",
+            catalogRevision: "r1", offset: 0, nextOffset: nil, itemIDs: ["item-1"], songs: [song],
+            metadataInspectedSongIDs: [], hierarchyItems: [], addedSongCount: 1)
+        #expect(staged.stagedItemCount == 1)
+        let observer = try DatabaseQueue(path: url.path)
+        try observer.read { (db: Database) throws -> Void in
+            for table in ["pagedCatalogItems", "pagedCatalogSongs", "pagedCatalogHierarchy"] {
+                let unique = try Int.fetchOne(db, sql: """
+                    SELECT count(*) FROM pragma_index_list('\(table)') WHERE "unique" = 1
+                    """)
+                #expect(unique == 0)
+            }
+            #expect(try Int.fetchOne(db, sql: "SELECT count(*) FROM pagedCatalogItems") == 1)
+        }
     }
 
     private func temporaryStoreURL() -> URL {
