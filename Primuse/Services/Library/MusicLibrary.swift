@@ -8254,9 +8254,23 @@ final class MusicLibrary {
         let candidates = libraryReviewsBySubject.values.filter {
             $0.serverRatingTarget == target || ($0.subject == subject && $0.serverRatingTarget == nil)
         }
-        return candidates.reduce(nil as LibraryReview?) { result, next in
+        var resolved = candidates.reduce(nil as LibraryReview?) { result, next in
             result.map { LibraryReviewReconciliationPolicy.winner(local: $0, remote: next) } ?? next
         }
+        // 账号或线路变化只使服务端评分失效，个人评论仍属于这首歌。
+        // 保留评论的独立时钟，避免下一次读回评分时把它覆盖为空。
+        if let exact, let previousTarget = exact.serverRatingTarget, previousTarget != target {
+            let commentOnly = LibraryReview(
+                subject: subject, rating: nil, comment: exact.comment,
+                updatedAt: Date(timeIntervalSince1970: exact.commentVersion),
+                deletedAt: exact.comment.isEmpty ? Date(timeIntervalSince1970: exact.commentVersion) : nil,
+                ratingModifiedAt: 0, commentModifiedAt: exact.commentVersion
+            )
+            resolved = resolved.map {
+                LibraryReviewReconciliationPolicy.winner(local: $0, remote: commentOnly)
+            } ?? commentOnly
+        }
+        return resolved
     }
 
     func review(forServerRatingTarget target: ServerSongRatingTarget) -> LibraryReview? {

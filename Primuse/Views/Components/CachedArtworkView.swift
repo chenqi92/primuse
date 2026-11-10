@@ -857,8 +857,8 @@ struct CachedArtworkView: View {
             AnimatedArtworkPreferences.shared.motionArtworkServiceSource,
             customEndpoint: motionArtworkServiceEndpoint
         )
-        return source == .m8tec ? M8tecMotionArtwork.endpoint.absoluteString
-            : motionArtworkServiceEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard source == .custom else { return "" }
+        return motionArtworkServiceEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var motionArtworkDiskKey: String {
@@ -1175,15 +1175,7 @@ struct CachedArtworkView: View {
             switch cached {
             case .asset(let record):
                 let data = record.data
-                if endpoint == M8tecMotionArtwork.endpoint, M8tecMotionArtwork.isMP4(data),
-                   let url = try? await Self.animationDiskCache.assetFileURL(forKey: diskKey, generation: record.generation) {
-                    guard !Task.isCancelled, animationLoadIdentity == identity else { return }
-                    motionArtworkVideoURL = url
-                    animatedArtworkIdentity = diskKey
-                    animatedArtworkExpiresAt = record.expiresAt
-                    animatedArtworkGeneration = record.generation
-                    return
-                }
+
                 if let inspection = await Self.animatedInspection(
                     for: data,
                     cacheKey: diskKey

@@ -7359,3 +7359,8 @@
 "play_mode_long_press_hint" = "タップで切り替えます。長押しでシャッフルとリピートを個別に選択できます。";
 "queue_stop_after_this" = "この曲の後で停止";
 "queue_stop_after_cancel" = "この曲の後で停止しない";
+
+"lyrics_comments_title" = "歌詞のコメント";
+"lyrics_comments_all" = "すべてのコメントを表示";
+"lyrics_comments_empty" = "コメントはまだありません";
+"lyrics_comment_save_failed" = "コメントにアクセスできませんでした。もう一度お試しください。";

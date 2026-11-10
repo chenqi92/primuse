@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "اضغط للتبديل. اضغط مطولاً لاختيار التشغيل العشوائي والتكرار كلٍّ على حدة.";
 "queue_stop_after_this" = "الإيقاف بعد هذه الأغنية";
 "queue_stop_after_cancel" = "عدم الإيقاف بعد هذه الأغنية";
+
+"lyrics_comments_title" = "تعليقات الكلمات";
+"lyrics_comments_all" = "عرض كل التعليقات";
+"lyrics_comments_empty" = "لا توجد تعليقات بعد";
+"lyrics_comment_save_failed" = "تعذّر الوصول إلى تعليقاتك. يُرجى المحاولة مجددًا.";

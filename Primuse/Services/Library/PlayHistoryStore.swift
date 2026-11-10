@@ -559,7 +559,8 @@ final class PlayHistoryStore {
     }
 
     func topArtists(in range: Range, limit: Int = 20) -> [RankedItem] {
-        Self.rankedItems(from: musicEntries(in: range), category: .artists, limit: limit)
+        Self.rankedItems(from: musicEntries(in: range), category: .artists, limit: limit,
+                         artistNameConfiguration: ArtistNameConfiguration.load(from: .standard))
     }
 
     func topAlbums(in range: Range, limit: Int = 20) -> [RankedItem] {
@@ -578,11 +579,13 @@ final class PlayHistoryStore {
     ///     首页在主线程上取艺人榜只要名字，不必为此认一遍歌。
     nonisolated static func rankedItems(
         from entries: [Entry], category: HomeListeningCategory, limit: Int,
-        durations: [String: TimeInterval] = [:], songKeys: [String: String]? = nil
+        durations: [String: TimeInterval] = [:], songKeys: [String: String]? = nil,
+        artistNameConfiguration: ArtistNameConfiguration = .defaultValue
     ) -> [RankedItem] {
         HomeListeningRanking.ranks(
             events: entries.map { $0.event(songDuration: durations[$0.songID]) }, songs: [:], folders: nil,
-            period: .all, category: category, songKeys: songKeys ?? (category == .songs ? nil : [:])
+            period: .all, category: category, songKeys: songKeys ?? (category == .songs ? nil : [:]),
+            artistNameConfiguration: artistNameConfiguration
         ).prefix(limit).map { rank in
             RankedItem(
                 // 歌曲榜一项就是一首歌：用听得最多的那份。

@@ -312,7 +312,7 @@ struct MacContentView: View {
 
                     MacStateSlot(value: $nowPlayingPresented) { isPresented in
                         if isPresented {
-                            MacNowPlayingView(onClose: {
+                            MacNowPlayingView(showsSidebar: !sidebarCollapsed, onClose: {
                                 pmWithAnimation(.panel) {
                                     nowPlayingPresented = false
                                 }

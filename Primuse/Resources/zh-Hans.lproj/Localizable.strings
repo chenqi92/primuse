@@ -7451,3 +7451,8 @@
 "play_mode_long_press_hint" = "点一下切换；长按分别选择随机与循环。";
 "queue_stop_after_this" = "播完这首后停止";
 "queue_stop_after_cancel" = "取消播完后停止";
+
+"lyrics_comments_title" = "歌词评论";
+"lyrics_comments_all" = "查看全部评论";
+"lyrics_comments_empty" = "还没有歌词评论";
+"lyrics_comment_save_failed" = "暂时无法访问评论，请重试。";

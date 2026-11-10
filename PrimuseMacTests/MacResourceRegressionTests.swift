@@ -6,6 +6,42 @@ import PrimuseKit
 @testable import Primuse
 
 @MainActor
+final class ListeningArtistRankingRegressionTests: XCTestCase {
+    func testStatsCreditCollaboratorsWithoutDoublingListeningTotals() {
+        let now = Date()
+        let entry = PlayHistoryStore.Entry(
+            songID: "duet", songTitle: "Paper Bridge", artistName: "North / South",
+            albumTitle: "Dawn", playedAt: now.addingTimeInterval(-60), listenedSec: 180, sourceID: "nas"
+        )
+        let snapshot = ListeningStatsChartsView.makeStatsSnapshot(
+            entries: [entry], range: .all, displayYear: nil, now: now, calendar: .current
+        )
+        XCTAssertEqual(Set(snapshot.topArtists.map(\.title)), ["North", "South"])
+        XCTAssertEqual(snapshot.topArtists.map(\.playCount), [1, 1])
+        XCTAssertEqual(snapshot.summary.totalPlays, 1)
+        XCTAssertEqual(snapshot.summary.totalSec, 180)
+        XCTAssertEqual(snapshot.topSongs.count, 1)
+        XCTAssertEqual(snapshot.topAlbums.count, 1)
+    }
+
+    func testStatsApplyConfiguredSeparatorsAndProtectedNames() {
+        let now = Date()
+        let entry = PlayHistoryStore.Entry(
+            songID: "custom", songTitle: "Harbor", artistName: "North & South / East",
+            albumTitle: "Dawn", playedAt: now.addingTimeInterval(-60), listenedSec: 120, sourceID: "nas"
+        )
+        let configuration = ArtistNameConfiguration(
+            separators: ["/"], protectedNames: ["North & South"], displaySeparator: " / "
+        )
+        let snapshot = ListeningStatsChartsView.makeStatsSnapshot(
+            entries: [entry], range: .all, displayYear: nil, now: now, calendar: .current,
+            artistNameConfiguration: configuration
+        )
+        XCTAssertEqual(Set(snapshot.topArtists.map(\.title)), ["North & South", "East"])
+    }
+}
+
+@MainActor
 final class MacFamilyShareInvitationTests: XCTestCase {
     func testFamilyShareInvitationsAreSupportedByInstalledAppAndDelegate() {
         XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "CKSharingSupported") as? Bool, true)

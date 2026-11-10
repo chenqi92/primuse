@@ -168,11 +168,6 @@ struct ArtistHeroArtworkView: View {
                 artistName: artist.name, image: cgImage, exifOrientation: orientation,
                 allowNetwork: false
             )
-            let cachedName = await ArtistHeroBackgroundResolver.shared.resolveNameArtwork(
-                artistName: artist.name, image: cgImage, exifOrientation: orientation,
-                allowNetwork: false
-            )
-            previewRecord("cache_checked", flags: ["background": cachedBackground != nil, "nameArtwork": cachedName != nil])
             guard !Task.isCancelled, self.request == request else { return }
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
@@ -182,35 +177,27 @@ struct ArtistHeroArtworkView: View {
                 unprocessedArtistID = nil
                 onImageChange(image)
                 applyBackground(cachedBackground ?? result.sourceBackground ?? result.edgeColor)
-                onNameArtworkChange(cachedName.flatMap { UIImage(data: $0.data) })
+                onNameArtworkChange(nil)
             }
-            // The portrait does not wait for the optional public metadata.
+            // The portrait does not wait for the optional MusicKit metadata.
             // A matching, verified Apple color may refine the page background;
             // it can never change the photograph or revive a stale request.
-            guard allowsMetadataNetwork, cachedBackground == nil || cachedName == nil else {
+            guard allowsMetadataNetwork, cachedBackground == nil else {
                 previewRecord("network_not_needed_or_disallowed")
                 return
             }
             previewRecord("network_started")
             let metadataName = artist.name
             let metadataNetworkAllowed = allowsMetadataNetwork
-            async let backgroundResolution = ArtistHeroBackgroundResolver.shared.resolve(
+            let official = await ArtistHeroBackgroundResolver.shared.resolve(
                 artistName: metadataName, image: cgImage, exifOrientation: orientation,
                 allowNetwork: metadataNetworkAllowed
             )
-            async let nameResolution = ArtistHeroBackgroundResolver.shared.resolveNameArtwork(
-                artistName: metadataName, image: cgImage, exifOrientation: orientation,
-                allowNetwork: metadataNetworkAllowed
-            )
-            let (official, officialName) = await (backgroundResolution, nameResolution)
-            previewRecord("network_completed", flags: ["background": official != nil, "nameArtwork": officialName != nil])
+            previewRecord("network_completed", flags: ["background": official != nil])
             guard !Task.isCancelled, self.request == request,
                   prepared?.request == request, unprocessedArtistID != artist.id else { return }
             withAnimation(.easeInOut(duration: 0.25)) {
                 if let official { applyBackground(official) }
-                if let officialName, let graphic = UIImage(data: officialName.data) {
-                    onNameArtworkChange(graphic)
-                }
             }
         }
     }

@@ -9,6 +9,62 @@ import XCTest
 
 @MainActor
 final class PlayerBackdropImagingTests: XCTestCase {
+    func testRadioLongTitlesLayoutAtNarrowAndStandardWidths() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        let root = UIViewController()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+        }
+        let stations = [
+            RadioStation(name: "江畔城市音乐广播长名称", streamURL: "https://example.com/radio", subscriptionID: "test"),
+            RadioStation(name: "Quiet River Evening Radio", streamURL: "https://example.com/radio")
+        ]
+        for width in [CGFloat(320), 393] {
+            let content = VStack(spacing: 12) {
+                ForEach(Array(stations.enumerated()), id: \.element.id) { index, station in
+                    RadioStationCard(station: station, priority: index + 1, isCurrent: index == 0,
+                        isPlaying: false, metadataTitle: nil, onPlay: {}) {
+                        EmptyView()
+                    }
+                }
+            }
+            .padding(16)
+            .frame(width: width)
+            .background(Color.white)
+            .environment(ThemeService())
+            .environment(SourceManager(sourcesProvider: { [] }))
+            .environment(\.colorScheme, .light)
+            let host = UIHostingController(rootView: content)
+            root.addChild(host)
+            root.view.addSubview(host.view)
+            host.didMove(toParent: root)
+            let size = host.sizeThatFits(in: CGSize(width: width, height: 800))
+            host.view.frame = CGRect(origin: CGPoint(x: 0, y: 80), size: size)
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(200))
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 2
+            let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                host.view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "radio-long-titles-\(Int(width))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            XCTAssertGreaterThan(image.size.height, 250)
+            host.willMove(toParent: nil)
+            host.view.removeFromSuperview()
+            host.removeFromParent()
+        }
+    }
+
     func testLyricsSurfaceSurvivesRepeatedCoverSwitchesWithoutResettingScroll() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -116,6 +172,47 @@ final class PlayerBackdropImagingTests: XCTestCase {
         fixture.visible = false
         try await Task.sleep(for: .milliseconds(350))
         XCTAssertFalse(lyricsReceiveHit(), "The settled cover must not expose hidden lyric tap targets")
+    }
+
+    func testFullBleedExtensionHasNoHardEdgeWhileCoverMovesAway() throws {
+        let suite = "PlayerExtensionSeam.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: PlayerAppearancePreferences.fullBleedMiddleSofteningKey)
+        let song = Song(id: suite, title: "Paper Lantern", fileFormat: .mp3, filePath: "", sourceID: "test")
+        let cover = try XCTUnwrap(ImageRenderer(content: Color.red.frame(width: 200, height: 200)).uiImage?.cgImage)
+        for edge in [FullBleedArtworkExtension.Edge.bottom, .trailing] {
+            let combined = try XCTUnwrap(edge == .bottom
+                ? PlayerBackdropImaging.fullBleedExtension(from: cover, fraction: 0.3)
+                : PlayerBackdropImaging.fullBleedTrailingExtension(from: cover, fraction: 0.3))
+            PlayerBackdropMemoryCache.shared.insert(combined, forKey:
+                FullBleedArtworkExtensionImages.cacheKey(song: song, coverRevision: 0, edge: edge))
+            for opacity in [0.25, 0.5, 1.0] {
+                let size = edge == .bottom ? CGSize(width: 200, height: 400) : CGSize(width: 400, height: 200)
+                let content = ZStack {
+                    Color.green
+                    FullBleedArtworkExtension(song: song, coverRevision: 0,
+                        artworkRect: CGRect(x: 0, y: 0, width: 200, height: 200), pageSize: size,
+                        isLight: false, strength: 0.7, usesIncreasedContrast: false,
+                        allowsLoading: false, edge: edge)
+                        .opacity(opacity)
+                }
+                .frame(width: size.width, height: size.height)
+                .environment(SourceManager(sourcesProvider: { [] }))
+                .defaultAppStorage(defaults)
+                let rendered = try XCTUnwrap(ImageRenderer(content: content).uiImage?.cgImage)
+                let pixels = try rgbaPixels(of: rendered)
+                let extent = edge == .bottom ? rendered.height : rendered.width
+                let values = (1..<(extent - 1)).map { position in
+                    let x = edge == .bottom ? 100 : position
+                    let y = edge == .bottom ? position : 100
+                    return Int(pixels[(y * rendered.width + x) * 4])
+                }
+                let largestStep = zip(values, values.dropFirst()).map { abs($0 - $1) }.max() ?? 0
+                XCTAssertLessThan(largestStep, 12, "A fading background must not reveal a horizontal or vertical color seam")
+                XCTAssertGreaterThan(values.max() ?? 0, 40, "The extension should still preserve the cover color")
+            }
+        }
     }
 
     func testHomeCarouselReusesCardsAcrossLoopsAndResizing() async throws {

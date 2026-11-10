@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "Stuknij, aby przełączyć. Przytrzymaj, aby osobno wybrać odtwarzanie losowe i powtarzanie.";
 "queue_stop_after_this" = "Zatrzymaj po tym utworze";
 "queue_stop_after_cancel" = "Nie zatrzymuj po tym utworze";
+
+"lyrics_comments_title" = "Komentarze do tekstu";
+"lyrics_comments_all" = "Zobacz wszystkie komentarze";
+"lyrics_comments_empty" = "Brak komentarzy do tekstu";
+"lyrics_comment_save_failed" = "Nie można otworzyć komentarzy. Spróbuj ponownie.";

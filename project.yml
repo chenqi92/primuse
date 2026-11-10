@@ -380,6 +380,7 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
+      - path: PrimuseTests/ServerRatingSyncTests.swift
       - path: PrimuseTests/ReplayGainPlaybackTests.swift
       - path: PrimuseTests/AppleIntelligenceProviderTests.swift
       - path: PrimuseTests/SpokenChapterGeneratorTests.swift

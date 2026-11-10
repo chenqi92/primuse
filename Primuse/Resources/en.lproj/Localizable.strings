@@ -7119,3 +7119,8 @@
 "play_mode_long_press_hint" = "Tap to switch. Touch and hold to choose shuffle and repeat separately.";
 "queue_stop_after_this" = "Stop After This Song";
 "queue_stop_after_cancel" = "Don't Stop After This Song";
+
+"lyrics_comments_title" = "Lyric Comments";
+"lyrics_comments_all" = "View All Comments";
+"lyrics_comments_empty" = "No lyric comments yet";
+"lyrics_comment_save_failed" = "Couldn’t access your comments. Please try again.";

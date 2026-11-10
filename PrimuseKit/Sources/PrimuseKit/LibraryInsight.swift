@@ -157,6 +157,12 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
     public var hasContent: Bool { !summary.isEmpty || !tags.isEmpty }
     /// 用户写的、改过的或从音乐源读回来的:用 AI 重新生成前要先问一句。
     public var isWorthKeeping: Bool { hasContent && (isUserEdited || importedFrom != nil) }
+
+    public var permitsSourceWriteback: Bool {
+        if importedFrom?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "apple music" { return false }
+        guard let host = importedURL?.host?.lowercased() else { return true }
+        return host != "music.apple.com" && host != "itunes.apple.com"
+    }
 }
 
 /// 简介的编辑与合并规则。

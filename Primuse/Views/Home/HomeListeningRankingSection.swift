@@ -61,6 +61,7 @@ struct HomeListeningRankingSection: View {
         let period: HomeListeningPeriod
         let category: HomeListeningCategory
         let calendar: Calendar
+        let artistNameConfiguration: ArtistNameConfiguration
 
         @MainActor
         init(model: HomeDiscoveryModel, library: MusicLibrary, period: HomeListeningPeriod,
@@ -73,6 +74,7 @@ struct HomeListeningRankingSection: View {
             self.period = period
             self.category = category
             self.calendar = calendar
+            artistNameConfiguration = library.artistNameConfiguration
         }
     }
 
@@ -496,12 +498,9 @@ struct HomeListeningRankingSection: View {
         let period = period
         let category = category
         let task = Task.detached(priority: .utility) {
-            var songs: [String: Song] = [:]
-            songs.reserveCapacity(visibleSongs.count)
-            for song in visibleSongs {
-                songs[song.id] = songs[song.id] ?? song
-            }
-            return HomeListeningRanking.ranks(events: events, songs: songs, folders: folders, period: period, category: category, calendar: request.calendar)
+            HomeListeningRanking.ranks(events: events, librarySongs: visibleSongs, folders: folders,
+                                       period: period, category: category, calendar: request.calendar,
+                                       artistNameConfiguration: request.artistNameConfiguration)
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         guard !Task.isCancelled, currentRequest == request else { return }

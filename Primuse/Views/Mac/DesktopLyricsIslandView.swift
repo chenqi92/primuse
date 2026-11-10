@@ -49,7 +49,11 @@ struct DesktopLyricsIslandView: View {
             .background {
                 DesktopLyricsTimeObserver { updateIndex(time: $0) }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
+            .onCachedLyricsChanged(songID: player.isLiveRadio ? nil : player.currentSong?.id) { songID, lines in
+            pendingLyricsOverride = PendingLyricsOverride(songID: songID, lyrics: SpokenWordTranscriptOffsetStore.shared.presenting(lines, for: player.currentSong))
+            lyricsLoadRevision &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
                 guard let songID = note.object as? String,
                       songID == player.currentSong?.id else { return }
                 pendingLyricsOverride = (note.userInfo?["lyrics"] as? [LyricLine]).map {

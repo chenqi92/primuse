@@ -101,8 +101,8 @@ struct QueueView: View {
             let mode = playbackMode
             let allowsShuffle = allowsShuffle
             let behavior = player.repeatBehavior
-            // 「单曲播一遍」「逐首播放」不在四种轮换里,顺序播放时换成它们自己的图标和名字。
-            let showsEachTrackStop = behavior.eachTrackStop != nil && mode == .sequential
+            // 停止行为优先显示，随机排列的逐首播放也要能看出会暂停。
+            let showsEachTrackStop = behavior.eachTrackStop != nil
             let symbol = showsEachTrackStop ? behavior.symbolName : mode.symbolName
             let title = showsEachTrackStop ? behavior.titleKey : Self.titleKey(for: mode)
             Menu {

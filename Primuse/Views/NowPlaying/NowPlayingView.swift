@@ -1565,6 +1565,7 @@ struct NowPlayingView: View {
     /// 歌词面板、全屏舞台、海报和机翻用的那份：关掉「显示歌词自带的译文」时去掉文件带的
     /// 译文。`lyrics` 仍是原文档，缓存比对照旧拿它。
     @State private var presentedLyrics: [LyricLine] = []
+    @State private var commentAnchors: [String: LyricLineCommentAnchor] = [:]
     /// 原文档里有没有能隐藏的自带译文;没有时「更多 › 歌词翻译」里不给那个开关。
     @State private var lyricsHaveBundledTranslations = false
     /// `lyrics` 是哪一首的读取结果。播放页刚挂载、还没读过时是 nil。
@@ -4121,6 +4122,12 @@ struct NowPlayingView: View {
             NotificationCenter.default.publisher(for: .primuseLyricsDidChange),
             perform: lyricsDidChange
         )
+        .onCachedLyricsChanged(songID: player.isLiveRadio ? nil : player.currentSong?.id) { songID, lines in
+            guard player.currentSong?.id == songID,
+                  LyricsDocumentFingerprint(lines: lines) != LyricsDocumentFingerprint(lines: lyrics) else { return }
+            lyricsLoadRevision &+= 1
+            setLyrics(lines)
+        }
         // 这里弹出的面板都套 `playerPresentationColorScheme`:「播放页始终用深色」时弹出页整页一起深色。
         // 专辑、书、播客节目、电台这几张资料库页面和有声内容的目录面板套 `playerLibraryPagePresentation`,
         // 照 App 的外观画。
@@ -9276,6 +9283,8 @@ struct NowPlayingView: View {
             offersLyricsRecoveryActions: lyricsResolution.offersRecoveryActions,
             player: player,
             songID: player.currentSong?.id,
+            commentSongID: lyricsSongID,
+            commentAnchors: commentAnchors,
             isSceneActive: isVisualSceneActive && isVisible,
             isScrapingCurrentSong: isScrapingCurrentSong,
             canTranscribeAudio: canTranscribeCurrentSongAudio,
@@ -10725,8 +10734,8 @@ struct NowPlayingView: View {
             if abRepeatTakesOverModeKeys { return abRepeatFace }
             let behavior = player.repeatBehavior
             let mode = PlaybackOrderMode(shuffleEnabled: player.shuffleEnabled, repeatMode: player.repeatMode)
-            // 每首播完都停的两种在四种轮换之外,换成它们自己的图标,免得看着像顺序播放。
-            let symbol = behavior.eachTrackStop != nil && mode == .sequential
+            // 每首停止优先显示，随机排列时也不能看起来像普通连续随机播放。
+            let symbol = behavior.eachTrackStop != nil
                 ? behavior.symbolName
                 : mode.symbolName
             return NowPlayingControlFace(
@@ -11066,8 +11075,10 @@ struct NowPlayingView: View {
 
     /// 别处换掉了这首歌的歌词缓存: 和屏幕上的不一样才换。不走 `loadLyrics`, 免得又连一次源。
     private func showChangedLyrics(songID: String) async {
+        let revision = lyricsLoadRevision
         guard let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID),
               !cached.isEmpty,
+              lyricsLoadRevision == revision,
               player.currentSong?.id == songID,
               LyricsDocumentFingerprint(lines: cached) != LyricsDocumentFingerprint(lines: lyrics) else { return }
         lyricsLoadRevision &+= 1
@@ -11566,6 +11577,7 @@ struct NowPlayingView: View {
     }
 
     private func presentBundledTranslationVisibility() {
+        commentAnchors = LyricLineCommentAnchor.index(lyrics)
         let presentation = LyricBundledTranslationPolicy.presentation(
             of: lyrics,
             showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
@@ -15903,6 +15915,8 @@ struct LyricsScrollView: View {
     var offersLyricsRecoveryActions = false
     let player: AudioPlayerService
     let songID: String?
+    var commentSongID: String? = nil
+    var commentAnchors: [String: LyricLineCommentAnchor] = [:]
     let isSceneActive: Bool
     let isScrapingCurrentSong: Bool
     let canTranscribeAudio: Bool
@@ -15970,6 +15984,7 @@ struct LyricsScrollView: View {
     /// 高度还把歌词整体往下推, 跟着手指的那几帧整页重排, 看着就是一卡。
     @State private var userScrollStartOffsetY: CGFloat?
     @State private var currentLineIndex = -1
+    @State private var commentPresentation: LyricCommentPresentation?
     /// 正在显示的间奏提示点:第一句前的前奏,或跟在某一句后面的那一段。
     @State private var activeInterlude: ActiveInterludeMarker? = nil
     @State private var visualPlaybackTime: TimeInterval = 0
@@ -15981,6 +15996,7 @@ struct LyricsScrollView: View {
     @State private var lastLyricRowTapAt: Date = .distantPast
     /// 按住不放是在准备拖歌词，松手时不能当成点空白回封面。
     @State private var lastSurfaceLongPressAt: Date = .distantPast
+    @State private var surfacePressStartedAt: Date?
     /// 手动浏览时停在定位线上的那一句（网易云式的时间线标识）。
     @State private var browsedLineIndex: Int?
     /// 各行定位点在滚动内容里的纵坐标。只随排版变化，放在引用盒子里，
@@ -16130,24 +16146,6 @@ struct LyricsScrollView: View {
                 lineLevelLyricsView
             }
         }
-        .overlay(alignment: .top) {
-            HStack(alignment: .top, spacing: 8) {
-                if showsSimulatedWordTiming {
-                    LyricsInfoBadges(
-                        showsWordLevel: false,
-                        showsSimulatedWordTiming: true,
-                        source: nil,
-                        foreground: appearance.secondary,
-                        fill: appearance.primary.opacity(0.10)
-                    )
-                }
-                Spacer(minLength: 8)
-                translationStatusBadge
-            }
-            .padding(.top, 8)
-            .padding(.leading, 12)
-            .padding(.trailing, translationStatusTrailingInset)
-        }
         .task(id: playbackFollowTaskIdentity) {
             guard hasSynchronizedLyrics else {
                 currentLineIndex = -1
@@ -16168,6 +16166,12 @@ struct LyricsScrollView: View {
                       visualActivityPolicy.shouldPollLyrics else { break }
                 updateCurrentLine()
             }
+        }
+        .sheet(item: $commentPresentation) { presentation in
+            LyricLineCommentsSheet(presentation: presentation,
+                song: player.library?.storedSong(id: presentation.songID)
+                    ?? (player.currentSong?.id == presentation.songID ? player.currentSong : nil))
+                .playerPresentationColorScheme()
         }
         .background {
             // 只有这个零尺寸子视图跟随播放时间，整棵歌词树不再随 currentTime 失效。
@@ -16200,12 +16204,24 @@ struct LyricsScrollView: View {
             cascadeTracker.lastCascadeAt = .distantPast
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(
-            LongPressGesture(
-                minimumDuration: LyricsBackgroundTapPolicy.longPressDuration,
-                maximumDistance: 12
-            )
-            .onEnded { _ in lastSurfaceLongPressAt = Date() }
+        .onLongPressGesture(
+            // 系统行菜单先识别；按住期间直接计时，保留背景松手的防误触阈值。
+            minimumDuration: 0.7,
+            maximumDistance: 12,
+            perform: { lastSurfaceLongPressAt = Date() },
+            onPressingChanged: { pressing in
+                let now = Date()
+                if pressing {
+                    surfacePressStartedAt = now
+                    lastSurfaceLongPressAt = .distantPast
+                } else {
+                    if let started = surfacePressStartedAt,
+                       now.timeIntervalSince(started) >= LyricsBackgroundTapPolicy.longPressDuration {
+                        lastSurfaceLongPressAt = started
+                    }
+                    surfacePressStartedAt = nil
+                }
+            }
         )
         .simultaneousGesture(
             SpatialTapGesture()
@@ -16216,7 +16232,10 @@ struct LyricsScrollView: View {
                         // 一次长按只挡紧跟着的这一下松手，不留到之后正常的点按。
                         let longPressAt = lastSurfaceLongPressAt
                         lastSurfaceLongPressAt = .distantPast
-                        guard LyricsBackgroundTapPolicy.shouldHandle(
+                        let heldLongEnough = surfacePressStartedAt.map {
+                            eventTime.timeIntervalSince($0) >= LyricsBackgroundTapPolicy.longPressDuration
+                        } ?? false
+                        guard !heldLongEnough, LyricsBackgroundTapPolicy.shouldHandle(
                             showsLyricsSurface: !lyrics.isEmpty || spokenWordEmptyState == nil,
                             isPinching: isPinchingLyrics,
                             rowTapTimeDistance: lastLyricRowTapAt.timeIntervalSince(eventTime),
@@ -16227,6 +16246,26 @@ struct LyricsScrollView: View {
                     }
                 }
         )
+        .overlay(alignment: .top) {
+            HStack(alignment: .top, spacing: 8) {
+                if showsSimulatedWordTiming {
+                    LyricsInfoBadges(
+                        showsWordLevel: false,
+                        showsSimulatedWordTiming: true,
+                        source: nil,
+                        foreground: appearance.secondary,
+                        fill: appearance.primary.opacity(0.10)
+                    )
+                }
+                Spacer(minLength: 8)
+                LyricCommentsListButton(songID: songID, present: presentComment)
+                    .foregroundStyle(appearance.secondary)
+                translationStatusBadge
+            }
+            .padding(.top, 8)
+            .padding(.leading, 12)
+            .padding(.trailing, translationStatusTrailingInset)
+        }
     }
 
     private var translationStatusBadge: some View {
@@ -16234,6 +16273,11 @@ struct LyricsScrollView: View {
         LyricsTranslationStatusChip(activity: translationActivity) {
             lastLyricRowTapAt = Date()
         }
+    }
+
+    private func presentComment(_ presentation: LyricCommentPresentation) {
+        lastLyricRowTapAt = Date()
+        commentPresentation = presentation
     }
 
     private var emptyLyricsView: some View {
@@ -17159,51 +17203,18 @@ struct LyricsScrollView: View {
         // 4pt，一句歌词和它的译文看起来跟相邻的另一句一样远，读的时候要自己
         // 分辨哪一行属于哪一句。
         VStack(alignment: alignment, spacing: 3) {
-            singleLineContent(
-                line: line,
-                isActive: isActive,
-                index: index,
-                fontSize: fontSize,
-                weight: weight,
-                textAlignment: rowAlignment.textAlignment,
-                dimmedByAmbient: dimmedByAmbient,
-                timelineTime: timelineTime,
-                deactivationTime: wordLevelDeactivationTime(for: index)
-            )
-                .contentShape(Rectangle())
-                .if(canSeekToLyricLine(line)) { view in
-                    view
-                        .onTapGesture { seekToLyricLine(line) }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                }
-                // 长按这一句做歌词海报。点按仍然是跳转播放位置 —— 两者
-                // 不冲突, 长按只在手指停留足够久时才触发。
-                .onLongPressGesture(minimumDuration: 0.45) {
-                    onShareLyricLine(line.id)
-                }
-                .accessibilityAction(named: Text("lyric_poster_menu")) {
-                    onShareLyricLine(line.id)
-                }
-                .frame(width: availableWidth, alignment: frameAlignment)
-
-            // 歌词翻译 — 在原文下面以略小的字号显示。字号默认取原文的 0.65 +
-            // medium weight, 视觉上是 secondary; 设置里可以单独调(#320)。注音和译文
-            // 共用一个时间戳时两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
-            ForEach(companions.indices, id: \.self) { slot in
-                lyricsTypeface.text(companions[slot], size: companionFontSize, weight: .medium)
-                    .foregroundStyle(
-                        dimmedByAmbient
-                            ? appearance.secondary
-                            : isActive ? appearance.secondary
-                            : (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
-                                ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
-                                : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
-                    )
-                    .multilineTextAlignment(rowAlignment.textAlignment)
-                    // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
-                    // 会优先单行 + 截断显示省略号。
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: alignment, spacing: 3) {
+                singleLineContent(
+                    line: line,
+                    isActive: isActive,
+                    index: index,
+                    fontSize: fontSize,
+                    weight: weight,
+                    textAlignment: rowAlignment.textAlignment,
+                    dimmedByAmbient: dimmedByAmbient,
+                    timelineTime: timelineTime,
+                    deactivationTime: wordLevelDeactivationTime(for: index)
+                )
                     .contentShape(Rectangle())
                     .if(canSeekToLyricLine(line)) { view in
                         view
@@ -17211,8 +17222,43 @@ struct LyricsScrollView: View {
                             .accessibilityAddTraits(.isButton)
                             .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
                     }
+                    .accessibilityAction(named: Text("lyric_poster_menu")) {
+                        onShareLyricLine(line.id)
+                    }
                     .frame(width: availableWidth, alignment: frameAlignment)
+
+                // 歌词翻译 — 在原文下面以略小的字号显示。字号默认取原文的 0.65 +
+                // medium weight, 视觉上是 secondary; 设置里可以单独调(#320)。注音和译文
+                // 共用一个时间戳时两条都属于这一句, 按文件里的先后顺序依次排在原文下面。
+                ForEach(companions.indices, id: \.self) { slot in
+                    lyricsTypeface.text(companions[slot], size: companionFontSize, weight: .medium)
+                        .foregroundStyle(
+                            dimmedByAmbient
+                                ? appearance.secondary
+                                : isActive ? appearance.secondary
+                                : (index < currentLineIndex || (index == currentLineIndex && activeInterlude != nil))
+                                    ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
+                                    : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
+                        )
+                        .multilineTextAlignment(rowAlignment.textAlignment)
+                        // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
+                        // 会优先单行 + 截断显示省略号。
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentShape(Rectangle())
+                        .if(canSeekToLyricLine(line)) { view in
+                            view
+                                .onTapGesture { seekToLyricLine(line) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                        }
+                        .frame(width: availableWidth, alignment: frameAlignment)
+                }
             }
+            .modifier(LyricLineCommentModifier(
+                songID: commentSongID, anchor: commentAnchors[line.id],
+                alignment: alignment, foreground: appearance.secondary,
+                share: { onShareLyricLine(line.id) }, present: presentComment
+            ))
 
             if let bgs = line.background {
                 // 只有带和声的行才读播放进度:放在每行开头读,逐行歌词整列每 0.5s 重建一次。
@@ -17223,33 +17269,19 @@ struct LyricsScrollView: View {
                         at: playbackTime,
                         lookahead: Self.wordLevelLineLookahead
                     )
-                    singleLineContent(
-                        line: bg,
-                        isActive: isBackgroundActive,
-                        index: index,
-                        fontSize: fontSize * 0.7,
-                        weight: .medium,
-                        textAlignment: rowAlignment.textAlignment,
-                        dimmedByAmbient: dimmedByAmbient,
-                        timelineTime: timelineTime,
-                        deactivationTime: bg.endTime
-                    )
-                        .opacity(0.7)
-                        .contentShape(Rectangle())
-                        .if(canSeekToLyricLine(bg)) { view in
-                            view
-                                .onTapGesture { seekToLyricLine(bg) }
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                        }
-                        .frame(width: availableWidth, alignment: frameAlignment)
-
-                    let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
-                    ForEach(backgroundCompanions.indices, id: \.self) { slot in
-                        lyricsTypeface.text(backgroundCompanions[slot], size: companionFontSize * 0.7, weight: .medium)
-                            .foregroundStyle(appearance.secondary)
-                            .multilineTextAlignment(rowAlignment.textAlignment)
-                            .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: alignment, spacing: 3) {
+                        singleLineContent(
+                            line: bg,
+                            isActive: isBackgroundActive,
+                            index: index,
+                            fontSize: fontSize * 0.7,
+                            weight: .medium,
+                            textAlignment: rowAlignment.textAlignment,
+                            dimmedByAmbient: dimmedByAmbient,
+                            timelineTime: timelineTime,
+                            deactivationTime: bg.endTime
+                        )
+                            .opacity(0.7)
                             .contentShape(Rectangle())
                             .if(canSeekToLyricLine(bg)) { view in
                                 view
@@ -17258,8 +17290,29 @@ struct LyricsScrollView: View {
                                     .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
                             }
                             .frame(width: availableWidth, alignment: frameAlignment)
-                            .opacity(0.7)
+
+                        let backgroundCompanions = Self.companionTexts(for: bg, translatedTextByLineID: translatedTextByLineID)
+                        ForEach(backgroundCompanions.indices, id: \.self) { slot in
+                            lyricsTypeface.text(backgroundCompanions[slot], size: companionFontSize * 0.7, weight: .medium)
+                                .foregroundStyle(appearance.secondary)
+                                .multilineTextAlignment(rowAlignment.textAlignment)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .contentShape(Rectangle())
+                                .if(canSeekToLyricLine(bg)) { view in
+                                    view
+                                        .onTapGesture { seekToLyricLine(bg) }
+                                        .accessibilityAddTraits(.isButton)
+                                        .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                                }
+                                .frame(width: availableWidth, alignment: frameAlignment)
+                                .opacity(0.7)
+                        }
                     }
+                    .modifier(LyricLineCommentModifier(
+                        songID: commentSongID, anchor: commentAnchors[bg.id],
+                        alignment: alignment, foreground: appearance.secondary,
+                        present: presentComment
+                    ))
                 }
             }
         }

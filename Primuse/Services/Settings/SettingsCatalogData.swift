@@ -138,7 +138,6 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.animatedArtwork", titleKey: "player_animated_artwork", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.animatedArtworkUnmeteredOnly", titleKey: "player_animated_artwork_unmetered_only", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.motionArtworkService", titleKey: "motion_artwork_service_enabled", iosPage: .player, macPage: .appearance, keywords: ["animated artwork", "动态封面", "服务端点"]),
-        SettingDefinition(id: "appearance.motionArtworkSource", titleKey: "motion_artwork_service_source", iosPage: .player, macPage: .appearance, keywords: ["m8tec", "animated artwork", "动态封面来源"]),
         SettingDefinition(id: "appearance.motionArtworkEndpoint", titleKey: "motion_artwork_service_endpoint", iosPage: .player, macPage: .appearance, keywords: ["animated artwork URL", "动态封面地址"]),
         SettingDefinition(id: "appearance.playerControlTint", titleKey: "player_control_tint_title", iosPage: .playerStyle, macPage: nil, keywords: ["white", "monochrome", "color", "白色", "单色", "黑白", "控件颜色", "进度条颜色", "主题色"]),
         SettingDefinition(id: "appearance.playerControls", titleKey: "player_style_editor_title", iosPage: .player, macPage: nil, keywords: ["buttons", "customize", "layout", "toolbar", "hide", "preview", "style", "按钮", "自定义", "播放页", "布局", "隐藏", "位置", "随机", "循环", "歌词", "队列", "样式", "预览", "外观", "音乐来源", "来源", "最底下一行", "底部", "输出设备", "source", "status line", "output device"]),

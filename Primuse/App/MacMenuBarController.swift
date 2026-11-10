@@ -42,6 +42,8 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     /// 只保留带时间戳的行：纯文本歌词没有可跟的播放位置。
     private var lyrics: [LyricLine] = []
     private var lyricsSongID: String?
+    private var lyricsFileName: String?
+    private let lyricsCacheObserver = LyricsCacheObserver()
     private var lyricsTask: Task<Void, Never>?
     private var activeLyricIndex: Int?
     private var isTrackingLyricTime = false
@@ -84,6 +86,7 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         let library = AppServices.shared.musicLibrary
         withObservationTracking {
             _ = player.currentSong?.id
+            _ = player.currentSong?.lyricsFileName
             _ = player.currentSong?.title
             _ = player.currentSong?.artistName
             _ = player.currentSong?.sourceArtistNames
@@ -218,18 +221,28 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         lyricsTask = nil
         lyrics = []
         lyricsSongID = nil
+        lyricsFileName = nil
         activeLyricIndex = nil
     }
 
     private func reloadLyricsIfNeeded(for song: Song?) {
         let player = AppServices.shared.playerService
+        lyricsCacheObserver.select(songID: lyricsEnabled && !player.isLiveRadio ? song?.id : nil) { [weak self] _, lines in
+            guard let self else { return }
+            self.lyricsTask?.cancel()
+            self.lyricsTask = nil
+            self.lyrics = lines.filter { $0.isSynchronized }
+            self.updateLyricLine()
+            self.observeLyricTime()
+        }
         guard lyricsEnabled, let song, !player.isLiveRadio else {
             if lyricsSongID != nil || lyricsTask != nil { resetLyrics() }
             return
         }
-        guard lyricsSongID != song.id else { return }
+        guard lyricsSongID != song.id || lyricsFileName != song.lyricsFileName else { return }
         resetLyrics()
         lyricsSongID = song.id
+        lyricsFileName = song.lyricsFileName
         let services = AppServices.shared
         lyricsTask = Task { @MainActor [weak self] in
             let loaded = await LyricsLoader.loadForDisplay(

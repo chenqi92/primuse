@@ -7335,3 +7335,8 @@
 "play_mode_long_press_hint" = "點一下切換；長按分別選擇隨機與循環。";
 "queue_stop_after_this" = "播完這首後停止";
 "queue_stop_after_cancel" = "取消播完後停止";
+
+"lyrics_comments_title" = "歌詞評論";
+"lyrics_comments_all" = "查看全部評論";
+"lyrics_comments_empty" = "還沒有歌詞評論";
+"lyrics_comment_save_failed" = "暫時無法存取評論，請重試。";

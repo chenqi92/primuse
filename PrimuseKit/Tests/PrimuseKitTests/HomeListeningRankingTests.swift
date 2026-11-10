@@ -22,6 +22,98 @@ struct HomeListeningRankingTests {
         HomeListeningEvent(songID: song, playedAt: date(day, month: month), listenedSeconds: seconds)
     }
 
+    @Test func collaborationsContributeOnceToEachArtistAndKeepSoloHistoryTogether() {
+        let songs = ["duet": song("duet", artist: "North / South / NORTH"),
+                     "solo": song("solo", artist: "North")]
+        let events = [event("duet", day: 28, month: 8), event("duet", day: 1), event("solo", day: 2)]
+        let ranks = HomeListeningRanking.ranks(events: events, songs: songs, folders: nil,
+            period: .week, category: .artists, now: date(5), calendar: calendar)
+        #expect(ranks.map(\.title) == ["North", "South"])
+        #expect(ranks.map(\.playCount) == [2, 1])
+        #expect(ranks.map(\.listenedSeconds) == [360, 180])
+        #expect(ranks.first?.songIDs == ["duet", "solo"])
+        #expect(ranks.first?.trend == .steady)
+        let songRanks = HomeListeningRanking.ranks(events: events, songs: songs, folders: nil,
+            period: .week, category: .songs, now: date(5), calendar: calendar)
+        #expect(songRanks.reduce(0) { $0 + $1.playCount } == 2)
+    }
+
+    @Test func artistCreditsRespectNativeNamesProtectedBandsAndCustomSeparators() {
+        var native = song("native", artist: "North / South / East")
+        native.sourceArtistNames = ["North / South", "East"]
+        let songs = ["native": native, "band": song("band", artist: "AC/DC / Various Artists"),
+                     "custom": song("custom", artist: "West & East")]
+        var configuration = ArtistNameConfiguration.defaultValue
+        configuration.separators.append(" & ")
+        let ranks = HomeListeningRanking.ranks(
+            events: songs.keys.map { event($0, day: 1) }, songs: songs, folders: nil,
+            period: .all, category: .artists, now: date(5), calendar: calendar,
+            artistNameConfiguration: configuration
+        )
+        #expect(Set(ranks.map(\.title)) == ["North / South", "East", "AC/DC", "West"])
+        #expect(ranks.first?.title == "East")
+        #expect(ranks.first?.playCount == 2)
+    }
+
+    @Test func equivalentContributorNamesDoNotCountTheSamePlayTwice() {
+        let ranks = HomeListeningRanking.ranks(events: [event("duet", day: 1)],
+            librarySongs: [song("duet", artist: "North  Star / North Star")], folders: nil,
+            period: .all, category: .artists, now: date(5), calendar: calendar)
+        #expect(ranks.count == 1)
+        #expect(ranks.first?.playCount == 1)
+        #expect(ranks.first?.listenedSeconds == 180)
+    }
+
+    @Test func removedSongsStillSplitHistoricalArtistCredits() {
+        let history = HomeListeningEvent(songID: "removed", playedAt: date(1), listenedSeconds: 90,
+            songTitle: "Paper Bridge", artistName: "North; South", albumTitle: "Dawn")
+        let ranks = HomeListeningRanking.ranks(events: [history], librarySongs: [], folders: nil,
+            period: .all, category: .artists, now: date(5), calendar: calendar)
+        #expect(Set(ranks.map(\.title)) == ["North", "South"])
+        #expect(ranks.allSatisfy { $0.playCount == 1 && $0.listenedSeconds == 90 })
+    }
+
+    @Test func sparseLibraryInputPreservesRanksTrendsAndMissingIDRecovery() {
+        var replacement = song("replacement", artist: "North / South")
+        replacement.title = "Paper Bridge"
+        replacement.duration = 180
+        let library = (0..<1_000).map { song("unplayed-\($0)") } + [replacement, song("played")]
+        let history = [event("played", day: 1), event("played", day: 28, month: 8),
+            HomeListeningEvent(songID: "removed", playedAt: date(2), listenedSeconds: 120,
+                songTitle: replacement.title, artistName: replacement.artistName,
+                albumTitle: replacement.albumTitle, songDuration: replacement.duration)]
+        let dictionary = Dictionary(uniqueKeysWithValues: library.map { ($0.id, $0) })
+        for category in HomeListeningCategory.allCases {
+            let expected = HomeListeningRanking.ranks(events: history, songs: dictionary, folders: nil,
+                period: .week, category: category, now: date(5), calendar: calendar)
+            let actual = HomeListeningRanking.ranks(events: history, librarySongs: library, folders: nil,
+                period: .week, category: category, now: date(5), calendar: calendar)
+            #expect(actual == expected)
+            if category != .folders {
+                #expect(actual.contains { $0.songIDs.contains("replacement") })
+            }
+        }
+        #expect(HomeListeningRanking.ranks(events: [], librarySongs: library, folders: nil,
+            period: .all, category: .artists).isEmpty)
+    }
+
+    @Test func sparseInputKeepsFirstDuplicateAndRejectsAmbiguousRecovery() {
+        var first = song("same", artist: "North")
+        first.title = "Paper Bridge"
+        first.duration = 180
+        var duplicate = first; duplicate.artistName = "South"
+        let ranks = HomeListeningRanking.ranks(events: [event("same", day: 1)],
+            librarySongs: [first, duplicate], folders: nil, period: .all, category: .artists,
+            now: date(5), calendar: calendar)
+        #expect(ranks.map(\.title) == ["North"])
+        var differentDuration = first; differentDuration.id = "long"; differentDuration.duration = 240
+        let history = HomeListeningEvent(songID: "removed", playedAt: date(1), listenedSeconds: 90,
+            songTitle: first.title, artistName: first.artistName, albumTitle: first.albumTitle)
+        let ambiguous = HomeListeningRanking.ranks(events: [history], librarySongs: [first, differentDuration],
+            folders: nil, period: .all, category: .songs, now: date(5), calendar: calendar)
+        #expect(ambiguous.first?.songIDs == ["removed"])
+    }
+
     @Test func artistRankingSkipsCompilationCredits() {
         let songs = [
             "a": song("a", artist: "群星"), "b": song("b", artist: "Various Artists"),

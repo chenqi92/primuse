@@ -431,8 +431,9 @@ final class ServerRatingSyncTests: XCTestCase {
             let movedTarget = try XCTUnwrap(ServerSongRatingTarget.make(song: rig.song, source: moved))
             XCTAssertNotEqual(movedTarget, rig.target)
             rig.manager.values[movedTarget] = rig.manager.values[rig.target]
-            // 改绑之前，绑在旧线路上的评分在界面上查不到。
-            XCTAssertNil(rig.library.libraryReview(for: rig.subject))
+            // 改绑之前评分尚不可用，个人评论仍然可读。
+            XCTAssertNil(rig.library.libraryReview(for: rig.subject)?.rating)
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.comment, "keep")
 
             rig.service.sourceRouteDidChange(previous: rig.source, current: moved)
             XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.rating, 3)
@@ -465,6 +466,52 @@ final class ServerRatingSyncTests: XCTestCase {
             rig.manager.writeError = nil
             rig.service.resume()
             await rig.settle()
+            XCTAssertEqual(rig.manager.writes.count, writes)
+        }
+    }
+
+    func testPersonalCommentSurvivesChangedBindingAndServerRatingRefresh() async throws {
+        try await withRig { rig in
+            rig.edit(5, comment: "落在窗边的光，留给下次重听。")
+            await rig.settle()
+            let commentVersion = try XCTUnwrap(rig.library.libraryReview(for: rig.subject)).commentVersion
+            var changed = rig.source
+            changed.username = "another-user"
+            rig.sources.items[rig.sourceID] = changed
+            rig.service.sourceRouteDidChange(previous: rig.source, current: changed)
+
+            XCTAssertNil(rig.library.libraryReview(for: rig.subject)?.rating)
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.comment, "落在窗边的光，留给下次重听。")
+            rig.service.serverRatingsObserved(source: changed, ratings: [rig.target.itemID: 2])
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.rating, 2)
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.commentVersion, commentVersion)
+            _ = await rig.library.persistNowAndWait()
+
+            let restored = MusicLibrary(storageDirectory: rig.directory)
+            await restored.whenReady()
+            restored.serverRatingTargetProvider = { ServerSongRatingTarget.make(song: $0, source: changed) }
+            XCTAssertEqual(restored.libraryReview(for: rig.subject)?.comment, "落在窗边的光，留给下次重听。")
+            XCTAssertEqual(restored.libraryReview(for: rig.subject)?.rating, 2)
+            _ = await restored.persistNowAndWait()
+        }
+    }
+
+    func testCommentCanBeEditedAndExplicitlyClearedWhileOldRatingIsUnavailable() async throws {
+        try await withRig { rig in
+            rig.edit(4, comment: "原来的听后感")
+            await rig.settle()
+            var changed = rig.source
+            changed.username = "another-user"
+            rig.sources.items[rig.sourceID] = changed
+            rig.service.sourceRouteDidChange(previous: rig.source, current: changed)
+            let writes = rig.manager.writes.count
+
+            rig.edit(nil, comment: "重听后的听后感")
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.comment, "重听后的听后感")
+            rig.edit(nil, comment: "")
+            await rig.settle()
+            XCTAssertNil(rig.library.libraryReview(for: rig.subject))
+            XCTAssertTrue(try XCTUnwrap(rig.library.storedLibraryReview(for: rig.subject)).isDeleted)
             XCTAssertEqual(rig.manager.writes.count, writes)
         }
     }

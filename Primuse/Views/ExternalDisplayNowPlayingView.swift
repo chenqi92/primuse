@@ -27,6 +27,7 @@ struct ExternalDisplayNowPlayingView: View {
     @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     @State private var lyrics: [LyricLine] = []
+    @State private var lyricsLoadRevision: UInt = 0
     @State private var currentLyricIndex = -1
     @AppStorage(AppThemePreferences.ambientStrengthKey)
     private var ambientStrength = AppThemePreferences.defaultAmbientStrength
@@ -248,16 +249,17 @@ struct ExternalDisplayNowPlayingView: View {
     /// 不写,所以不需要参与 scrape / Tier2/3 fallback —— 主屏 NowPlayingView
     /// 已经处理,把 cache 填好后,这里能立刻读到。
     private func loadLyrics() async {
+        lyricsLoadRevision &+= 1
+        let revision = lyricsLoadRevision
         guard let song = player.currentSong else {
             lyrics = []
             currentLyricIndex = -1
             return
         }
-        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
-            lyrics = cached
-        } else {
-            lyrics = []
-        }
+        let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+        guard !Task.isCancelled, player.currentSong?.id == song.id,
+              lyricsLoadRevision == revision else { return }
+        lyrics = cached ?? []
         updateLyricIndex(for: player.currentTime)
     }
 }
@@ -292,6 +294,7 @@ struct ExternalDisplayImmersiveView: View {
     private var playerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
 
     @State private var lyrics: [LyricLine] = []
+    @State private var lyricsLoadRevision: UInt = 0
     @State private var isResolvingLyrics = true
 
     private var effect: Binding<FullscreenPlayerEffect> {
@@ -333,13 +336,16 @@ struct ExternalDisplayImmersiveView: View {
     }
 
     private func loadLyrics() async {
+        lyricsLoadRevision &+= 1
+        let revision = lyricsLoadRevision
         guard let songID = player.currentSong?.id else {
             lyrics = []
             isResolvingLyrics = false
             return
         }
         let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID)
-        guard player.currentSong?.id == songID else { return }
+        guard !Task.isCancelled, player.currentSong?.id == songID,
+              lyricsLoadRevision == revision else { return }
         lyrics = cached ?? []
         isResolvingLyrics = false
     }

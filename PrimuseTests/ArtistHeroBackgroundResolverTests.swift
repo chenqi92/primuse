@@ -1,9 +1,34 @@
 import Foundation
 import CoreGraphics
 import XCTest
+import PrimuseKit
 @testable import Primuse
 
 final class ArtistHeroBackgroundResolverTests: XCTestCase {
+    func testOfflineLookupDoesNotStartCatalogRequest() async throws {
+        let fixture = try ArtistMetadataAdmissionFixture()
+        defer { fixture.cleanUp() }
+        let value = await fixture.resolver.resolve(artistName: "Offline Artist", image: fixture.image, allowNetwork: false)
+        XCTAssertNil(value)
+        XCTAssertTrue(fixture.trace.started.isEmpty)
+    }
+
+    func testOfficialBackgroundRequiresMatchingPhotograph() async throws {
+        let fixture = try ArtistMetadataAdmissionFixture()
+        defer { fixture.cleanUp() }
+        let signature = try XCTUnwrap(ArtistHeroPhotoVerification.signature(image: fixture.image))
+        let color = ArtistHeroArtworkColor(red: 0.2, green: 0.3, blue: 0.4)
+        let matching = ArtistHeroBackgroundResolver { _ in .init(color: color, signature: signature) }
+        let accepted = await matching.resolve(artistName: "Paper Lantern", image: fixture.image, allowNetwork: true)
+        XCTAssertEqual(accepted, color)
+        let cached = await matching.resolve(artistName: "Paper Lantern", image: fixture.image, allowNetwork: false)
+        XCTAssertEqual(cached, color)
+        let different = try XCTUnwrap(ArtistHeroPhotoSignature(samples: signature.samples, aspectRatio: 2))
+        let mismatched = ArtistHeroBackgroundResolver { _ in .init(color: color, signature: different) }
+        let rejected = await mismatched.resolve(artistName: "Paper Lantern", image: fixture.image, allowNetwork: true)
+        XCTAssertNil(rejected)
+    }
+
     func testThirdArtistUsesReleasedSlotWithoutExceedingTwoLookups() async throws {
         let fixture = try ArtistMetadataAdmissionFixture()
         defer { fixture.cleanUp() }
@@ -37,7 +62,7 @@ final class ArtistHeroBackgroundResolverTests: XCTestCase {
         XCTAssertEqual(fixture.trace.maximumActive, 2)
     }
 
-    func testWaitingColorAndNameRequestsCoalesceForSameArtist() async throws {
+    func testWaitingColorRequestsCoalesceAndCacheMissForSameArtist() async throws {
         let fixture = try ArtistMetadataAdmissionFixture()
         defer { fixture.cleanUp() }
         let first = fixture.lookup("first")
@@ -47,38 +72,36 @@ final class ArtistHeroBackgroundResolverTests: XCTestCase {
         let resolver = fixture.resolver
         let image = fixture.image
         let name = fixture.name("shared")
-        let logo = Task { await resolver.resolveNameArtwork(artistName: name, image: image, allowNetwork: true) }
+        let repeated = Task { await resolver.resolve(artistName: name, image: image, allowNetwork: true) }
         try await Task.sleep(for: .milliseconds(100))
         fixture.trace.release(fixture.name("first"))
         try await fixture.waitForStarts(3)
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(fixture.trace.count(for: name), 1)
         fixture.trace.releaseAll()
-        _ = await (first.value, second.value, color.value, logo.value)
+        _ = await (first.value, second.value, color.value, repeated.value)
         // The empty response is a completed negative cache entry. A waiter
         // arriving after completion must not perform a second lookup either.
-        _ = await resolver.resolveNameArtwork(artistName: name, image: image, allowNetwork: true)
+        _ = await resolver.resolve(artistName: name, image: image, allowNetwork: true)
         XCTAssertEqual(fixture.trace.count(for: name), 1)
         XCTAssertEqual(fixture.trace.maximumActive, 2)
     }
 }
 
-/// Only the public search endpoint is intercepted. Held responses make slot
-/// release deterministic; no account, real artist, image download or timer is
-/// needed to observe the production resolver's admission/coalescing behavior.
+/// Hold injected MusicKit lookups to exercise admission and coalescing without network access.
 private final class ArtistMetadataAdmissionFixture: @unchecked Sendable {
     let prefix = "admission-\(UUID().uuidString)-"
     let trace = ArtistMetadataAdmissionTrace()
     let resolver: ArtistHeroBackgroundResolver
     let image: CGImage
-    private let directory: URL
 
     init() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [ArtistMetadataAdmissionProtocol.self]
-        resolver = ArtistHeroBackgroundResolver(cacheFileURL: directory.appendingPathComponent("index.json"),
-                                                 sessionConfiguration: configuration)
+        let trace = trace
+        resolver = ArtistHeroBackgroundResolver { name in
+            await withCheckedContinuation { continuation in
+                trace.start(name) { continuation.resume(returning: nil) }
+            }
+        }
         let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8,
             bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.7, alpha: 1))
@@ -86,7 +109,6 @@ private final class ArtistMetadataAdmissionFixture: @unchecked Sendable {
         context.setFillColor(CGColor(red: 0.8, green: 0.5, blue: 0.2, alpha: 1))
         context.fill(CGRect(x: 32, y: 0, width: 32, height: 64))
         image = try XCTUnwrap(context.makeImage())
-        ArtistMetadataAdmissionProtocol.registry.register(trace, prefix: prefix)
     }
 
     func name(_ suffix: String) -> String { prefix + suffix }
@@ -101,14 +123,12 @@ private final class ArtistMetadataAdmissionFixture: @unchecked Sendable {
         while trace.started.count < count, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertEqual(trace.started.count, count, "Expected search requests to reach the controlled endpoint")
+        XCTAssertEqual(trace.started.count, count, "Expected MusicKit lookups to reach the injected provider")
         if trace.started.count != count { throw URLError(.timedOut) }
     }
 
     func cleanUp() {
         trace.releaseAll()
-        ArtistMetadataAdmissionProtocol.registry.remove(prefix: prefix)
-        try? FileManager.default.removeItem(at: directory)
     }
 }
 
@@ -143,43 +163,5 @@ private final class ArtistMetadataAdmissionTrace: @unchecked Sendable {
     private func locked<T>(_ operation: () -> T) -> T {
         lock.lock(); defer { lock.unlock() }
         return operation()
-    }
-}
-
-private final class ArtistMetadataAdmissionRegistry: @unchecked Sendable {
-    private let lock = NSLock()
-    private var traces: [String: ArtistMetadataAdmissionTrace] = [:]
-    func register(_ trace: ArtistMetadataAdmissionTrace, prefix: String) {
-        lock.lock(); defer { lock.unlock() }; traces[prefix] = trace
-    }
-    func remove(prefix: String) {
-        lock.lock(); defer { lock.unlock() }; traces[prefix] = nil
-    }
-    func trace(for name: String) -> ArtistMetadataAdmissionTrace? {
-        lock.lock(); defer { lock.unlock() }
-        return traces.first { name.hasPrefix($0.key) }?.value
-    }
-}
-
-private final class ArtistMetadataAdmissionProtocol: URLProtocol, @unchecked Sendable {
-    static let registry = ArtistMetadataAdmissionRegistry()
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func stopLoading() {}
-    override func startLoading() {
-        guard let url = request.url, url.host == "itunes.apple.com", url.path == "/search",
-              let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
-                .first(where: { $0.name == "term" })?.value,
-              let trace = Self.registry.trace(for: name) else {
-            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL)); return
-        }
-        trace.start(name) { [self] in
-            let data = Data(#"{"results":[]}"#.utf8)
-            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200,
-                httpVersion: nil, headerFields: ["Content-Type": "application/json", "Content-Length": String(data.count)])!,
-                cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        }
     }
 }

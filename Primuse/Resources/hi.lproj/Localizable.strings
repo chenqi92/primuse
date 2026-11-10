@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "बदलने के लिए टैप करें। शफ़ल और रिपीट अलग-अलग चुनने के लिए दबाकर रखें।";
 "queue_stop_after_this" = "इस गाने के बाद रोकें";
 "queue_stop_after_cancel" = "इस गाने के बाद न रोकें";
+
+"lyrics_comments_title" = "गीत के बोल पर टिप्पणियाँ";
+"lyrics_comments_all" = "सभी टिप्पणियाँ देखें";
+"lyrics_comments_empty" = "अभी कोई टिप्पणी नहीं है";
+"lyrics_comment_save_failed" = "टिप्पणियाँ खोली नहीं जा सकीं। फिर कोशिश करें।";

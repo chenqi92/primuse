@@ -116,81 +116,14 @@ final class MotionArtworkEndpointClientTests: XCTestCase {
         return url
     }
 
-    func testPublicProviderResolvesHLSAndDownloadsOneBoundedMP4() async throws {
-        let input = MotionArtworkLookupInput(albumArtist: "A&B", albumTitle: "Public Test")
-        let lookup = try XCTUnwrap(M8tecMotionArtwork.requestURL(for: input))
-        let master = URL(string: "https://mvod.itunes.apple.com/public-success/master.m3u8")!
-        let media = URL(string: "https://mvod.itunes.apple.com/public-success/medium.m3u8")!
-        let video = URL(string: "https://mvod.itunes.apple.com/public-success/clip.mp4")!
-        MotionArtworkEndpointURLProtocol.configure(url: lookup, body: Data(#"{"url":"https://mvod.itunes.apple.com/public-success/master.m3u8","artist":"A&B","album":"Public Test"}"#.utf8))
-        MotionArtworkEndpointURLProtocol.configure(url: master, body: Data("#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=768x768,BANDWIDTH=2000000,CODECS=\"avc1.64001f\"\nmedium.m3u8".utf8))
-        MotionArtworkEndpointURLProtocol.configure(url: media, body: Data("#EXTM3U\n#EXT-X-MAP:URI=\"clip.mp4\",BYTERANGE=\"20@0\"\n#EXTINF:2,\n#EXT-X-BYTERANGE:50@20\nclip.mp4\n#EXTINF:2,\n#EXT-X-BYTERANGE:50@70\nclip.mp4\n#EXT-X-ENDLIST".utf8))
-        let bytes = Data([0, 0, 0, 20]) + Data("ftypisom".utf8)
-        MotionArtworkEndpointURLProtocol.configure(url: video, body: bytes)
+    func testRetiredApplePageServiceIsRejectedBeforeAnyRequest() async throws {
         let client = makeClient()
-        let result = try await client.resolve(endpoint: M8tecMotionArtwork.endpoint, input: input, requestKey: "public-success", allowExpensiveNetwork: false)
-        XCTAssertEqual(result, .video(bytes))
-        for url in [lookup, master, media, video] {
-            let requests = MotionArtworkEndpointURLProtocol.requests(url: url)
-            XCTAssertEqual(requests.count, 1)
-            let request = try XCTUnwrap(requests.first)
-            XCTAssertEqual(request.httpMethod, "GET")
-            XCTAssertNil(request.httpBody)
-            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
-            XCTAssertFalse(request.allowsExpensiveNetworkAccess)
-            XCTAssertFalse(request.allowsConstrainedNetworkAccess)
-        }
-    }
-
-    func testPublicProviderReturnsMissingAndRateLimitWithoutFetchingMedia() async throws {
-        let client = makeClient()
-        for status in [404, 429] {
-            let input = MotionArtworkLookupInput(albumArtist: "Test", albumTitle: "Status \(status)")
-            let url = try XCTUnwrap(M8tecMotionArtwork.requestURL(for: input))
-            MotionArtworkEndpointURLProtocol.configure(url: url, statusCode: status, headers: ["Retry-After": "120"])
-            let result = try await client.resolve(endpoint: M8tecMotionArtwork.endpoint, input: input, requestKey: "status-\(status)", allowExpensiveNetwork: false)
-            if status == 404 { XCTAssertEqual(result, .notFound) }
-            else { XCTAssertEqual(result, .temporarilyUnavailable(retryAfter: fixedNow.addingTimeInterval(120))) }
-        }
-    }
-
-    func testPublicProviderRejectsDifferentAlbumAndUntrustedMedia() async throws {
-        let client = makeClient()
-        for (index, response) in [
-            #"{"url":"https://mvod.itunes.apple.com/wrong.mp4","artist":"Wrong","album":"Wrong"}"#,
-            #"{"url":"http://127.0.0.1/private.mp4","artist":"Test","album":"Unsafe 1"}"#,
-        ].enumerated() {
-            let input = MotionArtworkLookupInput(albumArtist: "Test", albumTitle: "Unsafe \(index)")
-            let url = try XCTUnwrap(M8tecMotionArtwork.requestURL(for: input))
-            MotionArtworkEndpointURLProtocol.configure(url: url, body: Data(response.utf8))
-            let result = try await client.resolve(endpoint: M8tecMotionArtwork.endpoint, input: input, requestKey: "unsafe-\(index)", allowExpensiveNetwork: false)
-            XCTAssertEqual(result, .unsupported)
-        }
-        XCTAssertTrue(MotionArtworkEndpointURLProtocol.requests(host: "127.0.0.1").isEmpty)
-    }
-
-    func testPublicProviderRejectsMediaRedirectOutsideCDN() async throws {
-        let input = MotionArtworkLookupInput(albumArtist: "Test", albumTitle: "Redirect")
-        let url = try XCTUnwrap(M8tecMotionArtwork.requestURL(for: input))
-        let video = URL(string: "https://mvod.itunes.apple.com/public-redirect.mp4")!
-        MotionArtworkEndpointURLProtocol.configure(url: url, body: Data(#"{"url":"https://mvod.itunes.apple.com/public-redirect.mp4","artist":"Test","album":"Redirect"}"#.utf8))
-        MotionArtworkEndpointURLProtocol.configure(url: video, statusCode: 302, headers: ["Location": "https://external.invalid/private.mp4"])
-        let client = makeClient()
-        await assertClientError(.rejectedRedirect) {
-            try await client.resolve(endpoint: M8tecMotionArtwork.endpoint, input: input, requestKey: "public-redirect", allowExpensiveNetwork: false)
-        }
-        XCTAssertTrue(MotionArtworkEndpointURLProtocol.requests(host: "external.invalid").isEmpty)
-    }
-
-    func testPublicVideoDownloadHonorsByteLimit() async throws {
-        let input = MotionArtworkLookupInput(albumArtist: "Test", albumTitle: "Oversize")
-        let url = try XCTUnwrap(M8tecMotionArtwork.requestURL(for: input))
-        let video = URL(string: "https://mvod.itunes.apple.com/public-oversize.mp4")!
-        MotionArtworkEndpointURLProtocol.configure(url: url, body: Data(#"{"url":"https://mvod.itunes.apple.com/public-oversize.mp4","artist":"Test","album":"Oversize"}"#.utf8))
-        MotionArtworkEndpointURLProtocol.configure(url: video, body: Data(repeating: 1, count: 129))
-        let client = makeClient(animatedImageLimit: 128)
-        await assertClientError(.responseTooLarge(maximumBytes: 128)) {
-            try await client.resolve(endpoint: M8tecMotionArtwork.endpoint, input: input, requestKey: "public-oversize", allowExpensiveNetwork: false)
+        for value in ["https://artwork.m8tec.top/api/v1/artwork/search", "https://music.apple.com/cn/album/123"] {
+            let url = try XCTUnwrap(URL(string: value))
+            await assertClientError(.invalidEndpoint) {
+                try await client.resolve(endpoint: url, input: self.lookupInput(), requestKey: value, allowExpensiveNetwork: false)
+            }
+            XCTAssertTrue(MotionArtworkEndpointURLProtocol.requests(host: try XCTUnwrap(url.host)).isEmpty)
         }
     }
 

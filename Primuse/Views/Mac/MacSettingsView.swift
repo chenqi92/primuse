@@ -6533,16 +6533,10 @@ private struct MacSTWidgetChecklistRow: View {
 
 /// Gathers macOS-side data into the App Group snapshots the widget extension
 /// reads. Playback / recent albums are already published by AudioPlayerService;
-/// this adds listening-stats, year-in-review, music-sources and lyrics. All
+/// this adds listening-stats, year-in-review and music-sources. All
 /// secondary publishing is gated by the "Push to Widget" toggle.
 @MainActor
 enum MacWidgetDataPublisher {
-    private static var lyricsSharingEnabled: Bool {
-        WidgetSettings.syncEnabled()
-            && WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey)
-            && WidgetSettings.sharedDataScope().includesLyrics
-    }
-
     /// Full publish — call from a context that has every service (the main scene).
     static func publishAll(player: AudioPlayerService, sources: SourcesStore, sourceManager: SourceManager) {
         player.publishWidgetStateForMacWidgetSync()
@@ -6570,11 +6564,6 @@ enum MacWidgetDataPublisher {
         } else {
             SourcesSnapshot.clear()
         }
-        if lyricsSharingEnabled {
-            Task { await publishLyrics(player: player, sourceManager: sourceManager) }
-        } else {
-            LyricsSnapshot.clear()
-        }
         if !WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey) {
             RecentAlbumsStore.clear()
         }
@@ -6601,11 +6590,6 @@ enum MacWidgetDataPublisher {
         } else {
             ListeningStatsSnapshot.clear()
             WrappedSnapshot.clear()
-        }
-        if lyricsSharingEnabled {
-            Task { await publishLyrics(player: player, sourceManager: sourceManager) }
-        } else {
-            LyricsSnapshot.clear()
         }
         if !WidgetSettings.widgetEnabled(PrimuseConstants.widgetSourcesEnabledKey) {
             SourcesSnapshot.clear()
@@ -6658,47 +6642,6 @@ enum MacWidgetDataPublisher {
         ).save()
     }
 
-    static func publishLyrics(player: AudioPlayerService, sourceManager: SourceManager) async {
-        guard lyricsSharingEnabled,
-              let song = player.currentSong else {
-            LyricsSnapshot.clear()
-            return
-        }
-        let artist = AppServices.shared.musicLibrary.artistDisplayName(for: song)
-            ?? song.artistName
-            ?? ""
-        let lines = await LyricsLoader.load(for: song, sourceManager: sourceManager)
-        guard lyricsSharingEnabled else {
-            LyricsSnapshot.clear()
-            return
-        }
-        // A slower load for the previous track must never clear or overwrite a
-        // newer snapshot that has already won the race.
-        guard player.currentSong?.id == song.id else { return }
-        guard !lines.isEmpty else { LyricsSnapshot.clear(); return }
-        let widgetLines = lines.map { WidgetLyricLine(time: $0.timestamp, text: $0.text) }
-        let now = player.currentTime
-        let anchor = WidgetLyricsPresentationPolicy.anchorIndex(
-            for: now,
-            in: widgetLines
-        )
-        let playback = PlaybackState.load()
-        let matchingCoverImageName = playback?.currentSongID == song.id
-            ? playback?.coverImageName
-            : nil
-        LyricsSnapshot(
-            songID: song.id,
-            title: song.title,
-            artist: artist,
-            coverImageName: matchingCoverImageName,
-            lines: widgetLines,
-            anchorIndex: anchor,
-            playbackPosition: now,
-            isPlaying: player.isPlaying,
-            writingDirection: LyricWritingDirectionPolicy.resolve(in: lines)
-        ).save()
-        WidgetCenter.shared.reloadAllTimelines()
-    }
 }
 
 private struct MacWidgetGalleryPreview: View {
@@ -7539,6 +7482,19 @@ private struct MacSTThemeView: View {
     private var motionArtworkServiceSource = ""
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+    private var motionArtworkServiceBinding: Binding<Bool> {
+        Binding(
+            get: {
+                motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
+                    motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint
+                ) == .custom
+            },
+            set: {
+                motionArtworkServiceEnabled = $0
+                if $0 { motionArtworkServiceSource = MotionArtworkServiceSource.custom.rawValue }
+            }
+        )
+    }
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
         AppThemePreferences.swatchesWithoutMonochrome.map { swatch in
             (
@@ -7835,28 +7791,14 @@ private struct MacSTThemeView: View {
                     String(localized: "motion_artwork_service_enabled"),
                     hint: String(localized: "motion_artwork_service_description")
                 ) {
-                    MacSTToggle(isOn: $motionArtworkServiceEnabled)
+                    MacSTToggle(isOn: motionArtworkServiceBinding)
                 }
                 .settingsAnchor("appearance.motionArtworkService")
-                MacSTRow(String(localized: "motion_artwork_service_source")) {
-                    Picker("motion_artwork_service_source", selection: Binding(
-                        get: { MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) },
-                        set: { motionArtworkServiceSource = $0.rawValue }
-                    )) {
-                        Text(verbatim: "m8tec").tag(MotionArtworkServiceSource.m8tec)
-                        Text("motion_artwork_source_custom").tag(MotionArtworkServiceSource.custom)
-                    }
-                    .labelsHidden()
-                    .disabled(!motionArtworkServiceEnabled)
+                MacSTRow(String(localized: "motion_artwork_service_endpoint"), divider: false, block: true) {
+                    MacSTTextField(text: $motionArtworkServiceEndpoint, prompt: "https://artwork.example.com/v1/lookup", width: 520)
+                        .disabled(!motionArtworkServiceBinding.wrappedValue)
                 }
-                .settingsAnchor("appearance.motionArtworkSource")
-                if MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) == .custom {
-                    MacSTRow(String(localized: "motion_artwork_service_endpoint"), divider: false, block: true) {
-                        MacSTTextField(text: $motionArtworkServiceEndpoint, prompt: "https://artwork.example.com/v1/lookup", width: 520)
-                            .disabled(!motionArtworkServiceEnabled)
-                    }
-                    .settingsAnchor("appearance.motionArtworkEndpoint")
-                }
+                .settingsAnchor("appearance.motionArtworkEndpoint")
                 MacSTRow(
                     String(localized: "player_volume_bar")
                 ) {

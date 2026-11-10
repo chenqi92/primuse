@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import PrimuseKit
 import SwiftUI
 import XCTest
 @testable import Primuse
@@ -460,5 +461,235 @@ private struct MacHomeScrollProbeSection: View {
             .background(.blue.opacity(0.1))
             .onAppear { probe.active.insert(index) }
             .onDisappear { probe.active.remove(index) }
+    }
+}
+
+@MainActor
+final class MacWidgetArtworkRefreshTests: XCTestCase {
+    private func request(_ id: String, position: Double = 0, cover: String? = nil) -> MacWidgetPlaybackPublishRequest {
+        let song = PrimuseKit.Song(id: id, title: "纸船", fileFormat: .aac, filePath: "i.\(id)",
+                                   sourceID: AppleMusicLibraryService.systemSourceID, coverArtFileName: cover)
+        return MacWidgetPlaybackPublishRequest(currentSong: song, artistDisplayName: "河岸", isPlaying: false,
+            sampledAt: Date(), currentTime: position, duration: 180, queueSongIDs: [id], playbackKind: .track,
+            radioStationID: nil, repeatMode: .off, isLiked: false, spokenWord: nil, listeningSpace: .music)
+    }
+
+    func testLateArtworkRepublishesLatestPausedPositionWithoutAnotherTrackChange() async {
+        let started = expectation(description: "Artwork requested")
+        let published = expectation(description: "Artwork published")
+        let gate = MacWidgetArtworkTestGate(started: started)
+        let log = MacWidgetArtworkTestLog()
+        let publisher = MacWidgetPlaybackPublisher(publication: { request, context in
+            log.record(request, context)
+            if context.appleMusicArtwork != nil { published.fulfill() }
+            return .init(lastCoverKey: context.appleMusicArtwork == nil ? nil : "cover",
+                         lastTimelineSignature: nil, albumCoverContents: [:],
+                         needsAppleMusicArtwork: context.appleMusicArtwork == nil)
+        }, loadArtwork: { song in await gate.load(song.id) })
+        await publisher.enqueue(request("a"))
+        await fulfillment(of: [started], timeout: 3)
+        await publisher.enqueue(request("a", position: 42))
+        await publisher.waitForPendingPublication()
+        await gate.finish("a", data: Data([7]))
+        await fulfillment(of: [published], timeout: 3)
+        await publisher.waitForPendingPublication()
+        XCTAssertEqual(log.entries.last?.position, 42)
+        XCTAssertEqual(log.entries.last?.data, Data([7]))
+        XCTAssertEqual(log.entries.last?.isPlaying, false)
+        let count = await gate.requestCount
+        XCTAssertEqual(count, 1)
+    }
+
+    func testSlowPreviousTrackCannotReplaceNewTracksArtwork() async {
+        let started = expectation(description: "Both requests started")
+        started.expectedFulfillmentCount = 2
+        let currentPublished = expectation(description: "Current artwork published")
+        let stalePublished = expectation(description: "Previous artwork rejected")
+        stalePublished.isInverted = true
+        let gate = MacWidgetArtworkTestGate(started: started)
+        let log = MacWidgetArtworkTestLog()
+        let publisher = MacWidgetPlaybackPublisher(publication: { request, context in
+            log.record(request, context)
+            if context.appleMusicArtwork == Data([2]) { currentPublished.fulfill() }
+            if context.appleMusicArtwork == Data([1]) { stalePublished.fulfill() }
+            return .init(lastCoverKey: nil, lastTimelineSignature: nil, albumCoverContents: [:],
+                         needsAppleMusicArtwork: context.appleMusicArtwork == nil)
+        }, loadArtwork: { song in await gate.load(song.id) })
+        await publisher.enqueue(request("a"))
+        await publisher.waitForPendingPublication()
+        await gate.waitUntilStarted("a")
+        await publisher.enqueue(request("b"))
+        await fulfillment(of: [started], timeout: 3)
+        await gate.finish("b", data: Data([2]))
+        await fulfillment(of: [currentPublished], timeout: 3)
+        await gate.finish("a", data: Data([1]))
+        await fulfillment(of: [stalePublished], timeout: 0.1)
+        await publisher.waitForPendingPublication()
+        XCTAssertFalse(log.entries.contains { $0.data == Data([1]) })
+        XCTAssertEqual(log.entries.last?.songID, "b")
+    }
+
+    func testFailedLookupDoesNotRetryOnEveryProgressSample() async {
+        let started = expectation(description: "One lookup")
+        let gate = MacWidgetArtworkTestGate(started: started)
+        let publisher = MacWidgetPlaybackPublisher(publication: { _, _ in
+            .init(lastCoverKey: nil, lastTimelineSignature: nil, albumCoverContents: [:], needsAppleMusicArtwork: true)
+        }, loadArtwork: { song in await gate.load(song.id) })
+        await publisher.enqueue(request("a"))
+        await fulfillment(of: [started], timeout: 3)
+        await gate.finish("a", data: nil)
+        for position in 1...6 {
+            await publisher.enqueue(request("a", position: Double(position)))
+            await publisher.waitForPendingPublication()
+        }
+        let count = await gate.requestCount
+        XCTAssertEqual(count, 1)
+    }
+
+    func testAvailableLocalArtworkDoesNotStartNetworkLookup() async {
+        let unexpected = expectation(description: "No artwork lookup")
+        unexpected.isInverted = true
+        let publisher = MacWidgetPlaybackPublisher(publication: { _, _ in
+            .init(lastCoverKey: "local", lastTimelineSignature: "local", albumCoverContents: [:])
+        }, loadArtwork: { _ in unexpected.fulfill(); return nil })
+        await publisher.enqueue(request("local"))
+        await publisher.waitForPendingPublication()
+        await fulfillment(of: [unexpected], timeout: 0.1)
+    }
+}
+
+private actor MacWidgetArtworkTestGate {
+    let started: XCTestExpectation
+    var requestCount = 0
+    var pending: [String: CheckedContinuation<Data?, Never>] = [:]
+    var waiters: [String: CheckedContinuation<Void, Never>] = [:]
+    init(started: XCTestExpectation) { self.started = started }
+    func load(_ id: String) async -> Data? {
+        requestCount += 1
+        return await withCheckedContinuation { continuation in
+            pending[id] = continuation
+            started.fulfill()
+            waiters.removeValue(forKey: id)?.resume()
+        }
+    }
+    func waitUntilStarted(_ id: String) async {
+        if pending[id] != nil { return }
+        await withCheckedContinuation { waiters[id] = $0 }
+    }
+    func finish(_ id: String, data: Data?) { pending.removeValue(forKey: id)?.resume(returning: data) }
+}
+
+private final class MacWidgetArtworkTestLog: @unchecked Sendable {
+    struct Entry { let songID: String?; let position: Double; let isPlaying: Bool; let data: Data? }
+    private let lock = NSLock()
+    private var storage: [Entry] = []
+    var entries: [Entry] { lock.withLock { storage } }
+    func record(_ request: MacWidgetPlaybackPublishRequest, _ context: MacWidgetPlaybackPublisher.PublicationContext) {
+        lock.withLock { storage.append(.init(songID: request.currentSong?.id, position: request.currentTime,
+                                           isPlaying: request.isPlaying, data: context.appleMusicArtwork)) }
+    }
+}
+
+@MainActor
+final class MacPlayerFeedbackLayoutTests: XCTestCase {
+    func testCommentsListOffersExport() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LyricLineCommentStore(directory: directory)
+        let song = Song(id: "export-fixture", title: "晚风里的纸船", artistName: "河岸乐队",
+                        fileFormat: .mp3, filePath: "/fixture.mp3", sourceID: "fixture")
+        try store.save(songID: song.id, anchor: .init(text: "纸船载着星光", occurrence: 0, timestamp: 5),
+                       text: "想起从前的河岸。")
+        let host = NSHostingView(rootView: LyricLineCommentsSheet(
+            presentation: .init(songID: song.id), store: store, song: song
+        ).environment(\.locale, Locale(identifier: "zh-Hans")))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.orderOut(nil); window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(150))
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = "comments-export-sheet"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testLyricsAndSidebarAtRegularAndShortWindowSizes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaultsName = "MacPlayerFeedbackLayoutTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defaults.set(1.4, forKey: "lyricsFontScale")
+        defaults.set("{}", forKey: LyricsFontLanguage.preferencesKey)
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        let sources = SourcesStore(storageDirectoryURL: directory.appendingPathComponent("sources"))
+        let manager = SourceManager(sourcesProvider: { [] })
+        let scraper = MusicScraperService(sourceManager: manager, checkpointDirectory: directory.appendingPathComponent("scrape"))
+        let scraperSettings = ScraperSettingsStore(defaults: defaults)
+        let intelligence = MusicIntelligenceService(
+            settingsStore: AISettingsStore(defaults: defaults, syncsThroughICloud: false),
+            lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore(defaults: defaults, syncsThroughICloud: false),
+            recommendationReuseDefaults: defaults
+        )
+        let previousPlayback = PlaybackState.load()
+        let previousLyrics = LyricsSnapshot.load()
+        let player = AudioPlayerService(library: library, playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Layout preview must stay silent") })
+        let songID = "feedback-layout-\(UUID().uuidString)"
+        let song = Song(id: songID, title: "晚风里的纸船", albumTitle: "窗边的光", artistName: "河岸乐队",
+                        fileFormat: .mp3, filePath: "/fixture.mp3", sourceID: "fixture")
+        let lines = (0..<24).map { LyricLine(id: "line-\($0)", timestamp: Double($0 * 5),
+                                             text: "纸船载着星光，慢慢经过桥边 \($0 + 1)") }
+        let cached = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID)
+        XCTAssertTrue(cached)
+        addTeardownBlock {
+            _ = await MetadataAssetStore.shared.invalidateLyricsCache(forSongID: songID)
+        }
+        player.currentSong = song
+        player.currentTime = 50
+        defer {
+            player.currentSong = nil
+            if let previousPlayback { previousPlayback.save() } else { PlaybackState.clear() }
+            if let previousLyrics { previousLyrics.save() } else { LyricsSnapshot.clear() }
+            defaults.removePersistentDomain(forName: defaultsName)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        for (name, height, scheme, appearance) in [("regular-dark", 720.0, ColorScheme.dark, PMAppearanceMode.classic),
+            ("short-dark", 480.0, .dark, .classic), ("regular-light", 720.0, .light, .classic),
+            ("glass-dark", 720.0, .dark, .glass)] {
+            let content = HStack(spacing: 0) {
+                MacSidebarBackdrop().frame(width: 220)
+                MacNowPlayingView(showsSidebar: true, onClose: {}, isScrapingCurrentSong: false,
+                                  canTranscribeAudio: false, onScrapeCurrentSong: {}, onTranscribeAudio: {}, onToggleQueue: {})
+            }
+            .environment(player).environment(library).environment(manager).environment(sources)
+            .environment(scraper).environment(scraperSettings)
+            .environment(intelligence)
+            .environment(ThemeService()).environment(\.colorScheme, scheme).environment(\.pmAppearance, appearance)
+            .defaultAppStorage(defaults)
+            let host = NSHostingView(rootView: content)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1220, height: height),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.orderOut(nil); window.close() }
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(500))
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "feedback-layout-\(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            XCTAssertEqual(host.bounds.height, height, accuracy: 1)
+        }
     }
 }

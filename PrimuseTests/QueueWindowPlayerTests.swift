@@ -398,6 +398,62 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    func testChoosingShuffleLeavesEachTrackStopsEvenWhenShuffleWasAlreadyEnabled() async throws {
+        let request = songs(3)
+        let player = try await makePlayer(librarySongs: request)
+        player.setQueue(request, startAt: 0)
+        for stop in [RepeatBehavior.playOnce, .trackByTrack] {
+            for alreadyShuffled in [false, true] {
+                player.shuffleEnabled = alreadyShuffled
+                player.repeatBehavior = stop
+                XCTAssertTrue(player.holdsQueueAtCurrentTrackEnd)
+                player.shuffleEnabled = true
+                XCTAssertTrue(player.shuffleEnabled)
+                XCTAssertEqual(player.repeatBehavior, .off)
+                XCTAssertFalse(player.holdsQueueAtCurrentTrackEnd)
+                XCTAssertNotNil(player.nextSongInQueue())
+                XCTAssertFalse(player.stopForTrackEndIfNeeded())
+            }
+        }
+        player.repeatBehavior = .all
+        player.shuffleEnabled = false
+        XCTAssertEqual(player.repeatBehavior, .all)
+        XCTAssertFalse(player.shuffleEnabled)
+
+        for protectedUpdate in 0..<3 {
+            player.repeatBehavior = .trackByTrack
+            player.isRestoringPlaybackSession = protectedUpdate == 0
+            player.isApplyingListeningPlayMode = protectedUpdate == 1
+            player.isMirroringFromAppleMusic = protectedUpdate == 2
+            player.shuffleEnabled = true
+            XCTAssertEqual(player.repeatBehavior, .trackByTrack, "Restoring or mirroring must preserve explicit per-track stops")
+            player.isRestoringPlaybackSession = false
+            player.isApplyingListeningPlayMode = false
+            player.isMirroringFromAppleMusic = false
+        }
+    }
+
+    @MainActor
+    func testEachTrackStopsKeepDifferentResumeTargetsInSequentialAndShuffleOrder() async throws {
+        let request = songs(3)
+        let player = try await makePlayer(librarySongs: request)
+        for shuffled in [false, true] {
+            for behavior in [RepeatBehavior.playOnce, .trackByTrack] {
+                player.setQueue(request, startAt: 0)
+                player.currentSong = request[0]
+                player.shuffleEnabled = shuffled
+                player.repeatBehavior = behavior
+                let expectedID = behavior == .playOnce ? request[0].id : player.nextSongInQueue()?.id
+                XCTAssertTrue(player.stopForTrackEndIfNeeded())
+                XCTAssertFalse(player.isPlaying)
+                XCTAssertTrue(player.isAtTrackEnd)
+                XCTAssertEqual(player.currentSong?.id, expectedID)
+                XCTAssertEqual(player.repeatBehavior, behavior)
+            }
+        }
+    }
+
+    @MainActor
     func testShuffleRefillExtendsTheOrderWithoutReplayingTheHeardPart() async throws {
         let request = songs(2_000)
         let player = try await makePlayer(librarySongs: request)

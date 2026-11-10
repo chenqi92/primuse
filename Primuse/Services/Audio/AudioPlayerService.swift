@@ -303,26 +303,63 @@ struct MacWidgetPlaybackPublishRequest: Sendable {
 actor MacWidgetPlaybackPublisher {
     static let shared = MacWidgetPlaybackPublisher()
 
-    private struct PublicationContext: Sendable {
+    struct PublicationContext: Sendable {
         let lastCoverKey: String?
         let lastTimelineSignature: String?
         let albumCoverContents: [String: String]
+        var appleMusicArtwork: Data? = nil
     }
 
-    private struct PublicationResult: Sendable {
+    struct PublicationResult: Sendable {
         let lastCoverKey: String?
         let lastTimelineSignature: String?
         let albumCoverContents: [String: String]
+        var needsAppleMusicArtwork = false
     }
 
     private var pending: MacWidgetPlaybackPublishRequest?
+    private var latestRequest: MacWidgetPlaybackPublishRequest?
     private var workerTask: Task<Void, Never>?
+    private var artworkTask: Task<Void, Never>?
+    private var artworkIdentity: String?
+    private var artworkGeneration: UInt = 0
+    private var appleMusicArtwork: Data?
+    private var nextArtworkAttempt = Date.distantPast
     private var lastCoverKey: String?
     private var lastTimelineSignature: String?
     /// 同 iOS 的 `widgetAlbumCoverContents`。
     private var albumCoverContents: [String: String] = [:]
+    private let publication: @Sendable (MacWidgetPlaybackPublishRequest, PublicationContext) -> PublicationResult
+    private let loadArtwork: @Sendable (Song) async -> Data?
+
+    init(
+        publication: @escaping @Sendable (MacWidgetPlaybackPublishRequest, PublicationContext) -> PublicationResult = {
+            MacWidgetPlaybackPublisher.publish($0, context: $1)
+        },
+        loadArtwork: @escaping @Sendable (Song) async -> Data? = { song in
+            await MacWidgetPlaybackPublisher.appleMusicArtworkData(for: song)
+        }
+    ) {
+        self.publication = publication
+        self.loadArtwork = loadArtwork
+    }
+
+    @MainActor
+    private static func appleMusicArtworkData(for song: Song) async -> Data? {
+        await AppleMusicSongArtwork.image(for: song, pixelSize: 600, mirrorsIntoSongCache: false)?.tiffRepresentation
+    }
 
     func enqueue(_ request: MacWidgetPlaybackPublishRequest) {
+        let identity = request.currentSong.map { "\($0.sourceID)|\($0.id)|\($0.filePath)|\($0.coverArtFileName ?? "")" }
+        if artworkIdentity != identity {
+            artworkTask?.cancel()
+            artworkTask = nil
+            artworkGeneration &+= 1
+            artworkIdentity = identity
+            appleMusicArtwork = nil
+            nextArtworkAttempt = .distantPast
+        }
+        latestRequest = request
         pending = request
         guard workerTask == nil else { return }
         workerTask = Task { [weak self] in
@@ -336,19 +373,45 @@ actor MacWidgetPlaybackPublisher {
             let context = PublicationContext(
                 lastCoverKey: lastCoverKey,
                 lastTimelineSignature: lastTimelineSignature,
-                albumCoverContents: albumCoverContents
+                albumCoverContents: albumCoverContents,
+                appleMusicArtwork: appleMusicArtwork
             )
+            let publication = self.publication
             let result = await Task.detached(priority: .utility) {
-                Self.publish(request, context: context)
+                publication(request, context)
             }.value
             lastCoverKey = result.lastCoverKey
             lastTimelineSignature = result.lastTimelineSignature
             albumCoverContents = result.albumCoverContents
+            if result.needsAppleMusicArtwork, pending == nil,
+               artworkTask == nil, appleMusicArtwork == nil,
+               Date() >= nextArtworkAttempt, let song = request.currentSong {
+                let generation = artworkGeneration
+                let loadArtwork = self.loadArtwork
+                nextArtworkAttempt = Date().addingTimeInterval(30)
+                artworkTask = Task { [weak self] in
+                    let data = await loadArtwork(song)
+                    await self?.artworkLoaded(data, generation: generation)
+                }
+            }
         }
         workerTask = nil
     }
 
-    private nonisolated static func publish(
+    private func artworkLoaded(_ data: Data?, generation: UInt) {
+        guard generation == artworkGeneration else { return }
+        artworkTask = nil
+        guard let data, let request = latestRequest else { return }
+        appleMusicArtwork = data
+        lastCoverKey = nil
+        enqueue(request)
+    }
+
+    func waitForPendingPublication() async {
+        await workerTask?.value
+    }
+
+    nonisolated static func publish(
         _ request: MacWidgetPlaybackPublishRequest,
         context: PublicationContext
     ) -> PublicationResult {
@@ -370,6 +433,7 @@ actor MacWidgetPlaybackPublisher {
         var recentAlbumsChanged = false
         var nextCoverKey = context.lastCoverKey
         var albumCoverContents = context.albumCoverContents
+        var needsAppleMusicArtwork = false
 
         if !scope.includesCover {
             clearSharedCovers()
@@ -384,6 +448,7 @@ actor MacWidgetPlaybackPublisher {
             // 有声内容在小组件里画成书封（整张封面垫模糊底），和 iOS 同一个判断。
             let keepsWholeCover = request.spokenWord != nil && request.playbackKind != .liveRadio
             let coverContent = WidgetBookCoverRenderer.coverContent(for: song)
+                ?? (context.appleMusicArtwork == nil ? nil : "appleMusic:\(song.filePath)")
             let coverKey = WidgetBookCoverRenderer.coverKey(
                 songID: song.id,
                 keepsWholeCover: keepsWholeCover,
@@ -393,12 +458,14 @@ actor MacWidgetPlaybackPublisher {
                 || !sharedCoverExists(named: sharedCoverName)
 
             if needsRefresh {
-                if writeCover(song: song, fileName: sharedCoverName, keepsWholeCover: keepsWholeCover) {
+                if writeCover(song: song, fileName: sharedCoverName, keepsWholeCover: keepsWholeCover,
+                              fallbackData: context.appleMusicArtwork) {
                     coverName = sharedCoverName
                     nextCoverKey = coverKey
                 } else {
                     removeSharedCover(named: sharedCoverName)
                     nextCoverKey = nil
+                    needsAppleMusicArtwork = song.sourceID == AppleMusicLibraryService.systemSourceID
                 }
 
                 if recentAlbumsEnabled,
@@ -410,7 +477,8 @@ actor MacWidgetPlaybackPublisher {
                     if let albumCoverName = albumEntry.coverImageName,
                        !sharedCoverExists(named: albumCoverName)
                         || albumCoverContents[albumEntry.id] != coverContent,
-                       writeCover(song: song, fileName: albumCoverName, size: 200) {
+                       writeCover(song: song, fileName: albumCoverName, size: 200,
+                                  fallbackData: context.appleMusicArtwork) {
                         albumCoverContents[albumEntry.id] = coverContent
                     }
                     RecentAlbumsStore.record(albumEntry)
@@ -457,14 +525,15 @@ actor MacWidgetPlaybackPublisher {
         )
         state.save()
 
-        let signature = timelineSignature(for: state)
+        let signature = timelineSignature(for: state) + "|" + (nextCoverKey ?? "")
         if recentAlbumsChanged || signature != context.lastTimelineSignature {
             WidgetCenter.shared.reloadAllTimelines()
         }
         return PublicationResult(
             lastCoverKey: nextCoverKey,
             lastTimelineSignature: signature,
-            albumCoverContents: albumCoverContents
+            albumCoverContents: albumCoverContents,
+            needsAppleMusicArtwork: needsAppleMusicArtwork
         )
     }
 
@@ -472,14 +541,15 @@ actor MacWidgetPlaybackPublisher {
         song: Song,
         fileName: String,
         size: Int = 300,
-        keepsWholeCover: Bool = false
+        keepsWholeCover: Bool = false,
+        fallbackData: Data? = nil
     ) -> Bool {
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
         ) else { return false }
 
         let store = MetadataAssetStore.shared
-        let coverData = store.displayCoverData(songID: song.id, reference: song.coverArtFileName)
+        let coverData = store.displayCoverData(songID: song.id, reference: song.coverArtFileName) ?? fallbackData
         guard let coverData,
               let jpeg = squareJPEG(from: coverData, size: size, keepsWholeCover: keepsWholeCover) else {
             return false
@@ -588,6 +658,9 @@ final class AudioPlayerService {
     let equalizerService: EqualizerService
     let audioEffectsService: AudioEffectsService
     let sourceManager: SourceManager?
+    #if os(macOS)
+    @ObservationIgnored var widgetLyricsPublisher: MacWidgetLyricsPublisher?
+    #endif
     let library: MusicLibrary?
     @ObservationIgnored private weak var playbackMetadataBackfill: MetadataBackfillService?
     @ObservationIgnored var playbackMetadataSourceType: ((String) -> MusicSourceType?)?
@@ -887,6 +960,11 @@ final class AudioPlayerService {
     var currentIndex: Int = 0
     var shuffleEnabled = false {
         didSet {
+            // 主动选择顺序或随机播放时退出每首停止；恢复会话和跨来源切换保留原有组合。
+            if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic,
+               eachTrackStop != nil {
+                eachTrackStop = nil
+            }
             guard shuffleEnabled != oldValue else { return }
             if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic {
                 ListeningPlayModeStore.shared.update { $0.shuffleChanged() }

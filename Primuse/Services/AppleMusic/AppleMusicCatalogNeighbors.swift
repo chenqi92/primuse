@@ -39,6 +39,28 @@ enum AppleMusicCatalogNeighbors {
         return LibraryInsightImportedDraft(summary: summary, tags: genres, sourceLabel: "Apple Music", sourceURL: url)
     }
 
+    static func albumInsight(matchingTitle title: String, artist: String) async throws -> LibraryInsightImportedDraft? {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !artist.isEmpty, !TagCleanupPolicy.isPlaceholder(artist) else { return nil }
+        try Task.checkCancellation()
+        let status = MusicAuthorization.currentStatus == .notDetermined
+            ? await MusicAuthorization.request() : MusicAuthorization.currentStatus
+        guard status == .authorized else { throw ArtistInsightError.authorizationRequired }
+        var search = MusicCatalogSearchRequest(term: "\(title) \(artist)", types: [MusicKit.Album.self])
+        search.limit = 10
+        let albums = Array(try await search.response().albums)
+        guard let index = AppleMusicCatalogContinuationPolicy.uniqueAlbumMatchIndex(
+            title: title, artist: artist,
+            in: albums.map { .init(id: $0.id.rawValue, title: $0.title, artist: $0.artistName) }
+        ) else { return nil }
+        try Task.checkCancellation()
+        let request = MusicCatalogResourceRequest<MusicKit.Album>(matching: \.id, equalTo: albums[index].id)
+        guard let album = try await request.response().items.first else { return nil }
+        return artistInsightDraft(standard: album.editorialNotes?.standard, short: album.editorialNotes?.short,
+                                  genres: album.genreNames, url: album.url)
+    }
+
     /// 相似艺人(按目录给的顺序)与本人的热门曲,每位一组。本人那组排在第二,
     /// 轮流取时开头是一首别人的,接着才是本人的。`seed` 得是目录曲,资料库条目没有这些关系。
     static func artistTopSongs(around seed: MusicKit.Song) async -> [[MusicKit.Song]] {

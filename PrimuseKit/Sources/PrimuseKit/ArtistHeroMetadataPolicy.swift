@@ -1,191 +1,21 @@
 import Foundation
-import CoreFoundation
 
-/// Public catalog metadata is only a candidate until its photograph has been
-/// compared with the displayed image. An artist's name never verifies a color.
 public enum ArtistHeroMetadataPolicy {
-    public struct Candidate: Sendable, Equatable {
-        public let backgroundHex: String
-        public let imageURL: URL
-        public let assetID: String
-        public let nameArtwork: NameArtworkCandidate?
-    }
-
-    public struct NameArtworkCandidate: Sendable, Equatable {
-        public let imageURL: URL
-        public let width: Int
-        public let height: Int
-    }
-
-    public static let maximumDocumentBytes = 1_200_000
-
     public static func nameKey(_ name: String) -> String {
         ArtistIdentityPolicy.groupingKey(
             name.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false) ?? name
         )
     }
 
-    /// A strict name match is intentionally allowed to fail for catalog aliases.
-    /// Unrelated search results must not become a source of page colors.
-    public static func uniqueArtistID(in data: Data, named name: String) -> String? {
-        guard data.count <= maximumDocumentBytes,
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let results = root["results"] as? [[String: Any]] else { return nil }
-        let expected = nameKey(name)
-        guard !expected.isEmpty else { return nil }
-        var ids = Set<String>()
-        for item in results.prefix(12) {
-            guard item["wrapperType"] as? String == "artist",
-                  item["artistType"] as? String == "Artist",
-                  let candidateName = item["artistName"] as? String,
-                  nameKey(candidateName) == expected,
-                  let id = decimalID(item["artistId"]) else { continue }
-            ids.insert(id)
-        }
-        return ids.count == 1 ? ids.first : nil
-    }
-
-    /// Read only the matching artist header, never album/related-artist artwork.
-    public static func candidates(in html: Data, artistID: String) -> [Candidate] {
-        guard html.count <= maximumDocumentBytes, decimalID(artistID) == artistID,
-              let text = String(data: html, encoding: .utf8),
-              let expression = try? NSRegularExpression(
-                pattern: #"<script\b[^>]*\bid\s*=\s*["']serialized-server-data["'][^>]*>([\s\S]*?)</script\s*>"#,
-                options: [.caseInsensitive]
-              ),
-              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text),
-              let body = text[range].data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-              let packages = root["data"] as? [[String: Any]] else { return [] }
-        var result: [Candidate] = []
-        for package in packages.prefix(4) {
-            guard let data = package["data"] as? [String: Any],
-                  let sections = data["sections"] as? [[String: Any]] else { continue }
-            for section in sections.prefix(64) {
-                guard (section["id"] as? String)?.contains("ArtistDetailHeader") == true,
-                      let items = section["items"] as? [[String: Any]] else { continue }
-                for item in items.prefix(8) {
-                    guard decimalID(item["id"]) == artistID,
-                          let descriptor = item["contentDescriptor"] as? [String: Any],
-                          descriptor["kind"] as? String == "artist",
-                          let identifiers = descriptor["identifiers"] as? [String: Any],
-                          decimalID(identifiers["storeAdamID"]) == artistID else { continue }
-                    let logo = parseNameArtwork(item["artistLogo"])
-                    for key in ["colorBackdropArtwork", "artwork"] {
-                        guard let wrapper = item[key] as? [String: Any],
-                              let art = wrapper["dictionary"] as? [String: Any],
-                              let hex = art["bgColor"] as? String, validHex(hex),
-                              let template = art["url"] as? String, template.count <= 4_096,
-                              let width = dimension(art["width"]), let height = dimension(art["height"]) else { continue }
-                        let scale = min(1, 384 / Double(max(width, height)))
-                        let urlText = template
-                            .replacingOccurrences(of: "{w}", with: String(max(1, Int((Double(width) * scale).rounded()))))
-                            .replacingOccurrences(of: "{h}", with: String(max(1, Int((Double(height) * scale).rounded()))))
-                            .replacingOccurrences(of: "{c}", with: "bb")
-                            .replacingOccurrences(of: "{f}", with: "jpg")
-                        guard let url = URL(string: urlText), let asset = artworkAssetID(url),
-                              !result.contains(where: { $0.assetID == asset }) else { continue }
-                        result.append(Candidate(backgroundHex: hex.lowercased(), imageURL: url, assetID: asset, nameArtwork: logo))
-                        if result.count == 2 { return result }
-                    }
-                }
-            }
-        }
-        return result
-    }
-
-    /// Logo URLs are independent assets but belong only to the matching header.
-    /// They are not exposed by a verified result until that header's photo passes.
-    private static func parseNameArtwork(_ value: Any?) -> NameArtworkCandidate? {
-        guard let wrapper = value as? [String: Any],
-              let art = wrapper["dictionary"] as? [String: Any],
-              let template = art["url"] as? String, template.count <= 4_096,
-              let width = dimension(art["width"]), let height = dimension(art["height"]) else { return nil }
-        let scale = min(1, 1200 / Double(width), 400 / Double(height))
-        let requestedWidth = max(1, Int((Double(width) * scale).rounded()))
-        let requestedHeight = max(1, Int((Double(height) * scale).rounded()))
-        let text = template.replacingOccurrences(of: "{w}", with: String(requestedWidth))
-            .replacingOccurrences(of: "{h}", with: String(requestedHeight))
-            .replacingOccurrences(of: "{c}", with: "bb").replacingOccurrences(of: "{f}", with: "png")
-        guard let url = URL(string: text), isNameArtworkURL(url) else { return nil }
-        return NameArtworkCandidate(imageURL: url, width: requestedWidth, height: requestedHeight)
-    }
-
-    public static func isNameArtworkURL(_ url: URL) -> Bool {
-        guard url.scheme == "https", url.user == nil, url.password == nil,
-              url.port == nil, url.fragment == nil,
+    /// 仅加载 MusicKit 返回的静态图片，不访问 Apple 网页或跟随跨站跳转。
+    public static func isArtworkURL(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443, url.fragment == nil,
               let host = url.host?.lowercased(), host == "mzstatic.com" || host.hasSuffix(".mzstatic.com"),
-              url.path.hasPrefix("/image/"), url.path.lowercased().hasSuffix(".png"),
-              !url.absoluteString.contains("{") && !url.absoluteString.contains("}") else { return false }
+              url.path.hasPrefix("/image/"), !url.absoluteString.contains("{") && !url.absoluteString.contains("}") else { return false }
         return true
     }
-
-    public static func artworkAssetID(_ url: URL) -> String? {
-        guard url.scheme == "https", url.user == nil, url.password == nil,
-              url.port == nil, url.fragment == nil,
-              let host = url.host?.lowercased(), host == "mzstatic.com" || host.hasSuffix(".mzstatic.com"),
-              url.path.hasPrefix("/image/"), !url.absoluteString.contains("{") && !url.absoluteString.contains("}"),
-              let expression = try? NSRegularExpression(
-                pattern: #"(?:^|/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:/|$)"#,
-                options: [.caseInsensitive]
-              ),
-              let match = expression.firstMatch(in: url.path, range: NSRange(url.path.startIndex..., in: url.path)),
-              let range = Range(match.range(at: 1), in: url.path) else { return nil }
-        return String(url.path[range]).lowercased()
-    }
-
-    private static func decimalID(_ value: Any?) -> String? {
-        let text: String
-        if let string = value as? String { text = string }
-        else if let number = value as? NSNumber,
-                CFGetTypeID(number) != CFBooleanGetTypeID(),
-                number.doubleValue.isFinite, number.doubleValue.rounded() == number.doubleValue {
-            text = number.stringValue
-        } else { return nil }
-        guard !text.isEmpty, text.count <= 20, text.first != "0", text.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
-        return text
-    }
-
-    private static func dimension(_ value: Any?) -> Int? {
-        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-              number.doubleValue.rounded() == number.doubleValue,
-              (1...30_000).contains(number.doubleValue) else { return nil }
-        return number.intValue
-    }
-
-    private static func validHex(_ text: String) -> Bool {
-        text.utf8.count == 6 && text.utf8.allSatisfy { (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }
-    }
 }
-
-#if canImport(ImageIO)
-import ImageIO
-
-/// An already validated, bounded official PNG. No UIImage crosses an actor.
-public struct ArtistHeroNameArtwork: Sendable, Equatable {
-    public static let maximumBytes = 768_000
-    public let data: Data
-    public let width: Int
-    public let height: Int
-
-    public init?(pngData: Data) {
-        guard pngData.count <= Self.maximumBytes, pngData.count >= 24,
-              pngData.prefix(8).elementsEqual([137, 80, 78, 71, 13, 10, 26, 10]),
-              let source = CGImageSourceCreateWithData(pngData as CFData, nil),
-              CGImageSourceGetStatus(source) == .statusComplete,
-              CGImageSourceGetCount(source) == 1,
-              let type = CGImageSourceGetType(source), type as String == "public.png",
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
-              (1...1200).contains(width.intValue), (1...400).contains(height.intValue) else { return nil }
-        self.data = pngData
-        self.width = width.intValue
-        self.height = height.intValue
-    }
-}
-#endif
 
 #if canImport(CoreImage) && canImport(CoreGraphics)
 import CoreImage

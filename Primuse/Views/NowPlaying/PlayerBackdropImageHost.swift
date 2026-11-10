@@ -498,6 +498,7 @@ struct FullBleedArtworkExtension: View {
         .overlay {
             scrim(seam: fadeHeight / total, settle: min(1, fadeHeight * 1.6 / total), along: .vertical)
         }
+        .mask { overlapFade(fraction: fadeHeight / total, along: .vertical) }
         .frame(width: width, height: total)
         .position(x: pageSize.width / 2, y: artworkRect.maxY - fadeHeight + total / 2)
     }
@@ -521,8 +522,25 @@ struct FullBleedArtworkExtension: View {
         .overlay {
             scrim(seam: fadeWidth / total, settle: min(1, fadeWidth * 1.6 / total), along: .horizontal)
         }
+        .mask { overlapFade(fraction: fadeWidth / total, along: .horizontal) }
         .frame(width: total, height: height)
         .position(x: artworkRect.maxX - fadeWidth + total / 2, y: pageSize.height / 2)
+    }
+
+    /// 飞行封面缩走后，延伸底图的起点仍要渐入，不能露出原来由封面遮住的硬边。
+    private func overlapFade(fraction: CGFloat, along axis: Axis) -> some View {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.156), location: fraction * 0.25),
+                .init(color: .black.opacity(0.5), location: fraction * 0.5),
+                .init(color: .black.opacity(0.844), location: fraction * 0.75),
+                .init(color: .black, location: fraction),
+                .init(color: .black, location: 1),
+            ],
+            startPoint: axis == .vertical ? .top : .leading,
+            endPoint: axis == .vertical ? .bottom : .trailing
+        )
     }
 
     /// 渐隐那段从无到有，封面下沿处到背景图遮罩的中段，再往下一点到底部那一档：

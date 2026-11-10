@@ -7,6 +7,17 @@ struct AppleMusicCatalogContinuationPolicyTests {
     private typealias Policy = AppleMusicCatalogContinuationPolicy
     private typealias Candidate = AppleMusicCatalogContinuationPolicy.Candidate
 
+    @Test("Album editorial notes require one exact artist and edition")
+    func albumEditionMatching() {
+        let albums = [Candidate(id: "1", title: "Paper Skies", artist: "Paper Lantern"),
+                      Candidate(id: "2", title: "Paper Skies (Deluxe)", artist: "Paper Lantern"),
+                      Candidate(id: "3", title: "Paper Skies", artist: "Paper Lantern & Friends")]
+        #expect(Policy.uniqueAlbumMatchIndex(title: "Paper Skies", artist: "Paper Lantern", in: albums) == 0)
+        #expect(Policy.uniqueAlbumMatchIndex(title: "Paper Skies (Deluxe)", artist: "Paper Lantern", in: albums) == 1)
+        #expect(Policy.uniqueAlbumMatchIndex(title: "Paper Skies (Live)", artist: "Paper Lantern", in: albums) == nil)
+        #expect(Policy.uniqueAlbumMatchIndex(title: "Paper Skies", artist: "Paper Lantern", in: [albums[0], albums[0]]) == nil)
+    }
+
     @Test("Song keys ignore case, width, accents and version notes")
     func songKeysIgnoreDecoration() {
         #expect(Policy.songKey(title: "Café (Remastered 2011)", artist: "BEYONCÉ")

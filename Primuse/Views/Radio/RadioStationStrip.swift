@@ -139,7 +139,7 @@ struct RadioStationStripTile: View {
                     }
                 }
 
-            HStack(spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 if isPlaying {
                     Circle()
                         .fill(RadioSpacePalette.accent)
@@ -148,7 +148,8 @@ struct RadioStationStripTile: View {
                 Text(station.name)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(isCurrent ? RadioSpacePalette.accent : .primary)
-                    .lineLimit(1)
+                    .lineLimit(2, reservesSpace: true)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(width: width, alignment: .leading)
         }

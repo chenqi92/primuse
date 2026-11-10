@@ -175,6 +175,8 @@ final class CloudKitSyncService {
     private let scraperConfigStore: ScraperConfigStore
     private let scraperSettingsStore: ScraperSettingsStore
     private let libraryFavoritesStore: LibraryFavoritesStore
+    private let lyricLineCommentsStore: LyricLineCommentStore
+    private var pendingLyricCommentMerges: [String: LyricLineCommentSyncRecord] = [:]
 
     // MARK: - State
 
@@ -305,7 +307,8 @@ final class CloudKitSyncService {
         radioStationsStore: RadioStationsStore,
         scraperConfigStore: ScraperConfigStore = .shared,
         scraperSettingsStore: ScraperSettingsStore,
-        libraryFavoritesStore: LibraryFavoritesStore = .shared
+        libraryFavoritesStore: LibraryFavoritesStore = .shared,
+        lyricLineCommentsStore: LyricLineCommentStore = .shared
     ) {
         self.library = library
         self.sourcesStore = sourcesStore
@@ -313,6 +316,7 @@ final class CloudKitSyncService {
         self.scraperConfigStore = scraperConfigStore
         self.scraperSettingsStore = scraperSettingsStore
         self.libraryFavoritesStore = libraryFavoritesStore
+        self.lyricLineCommentsStore = lyricLineCommentsStore
         #if os(tvOS)
         let appSupport = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         #else
@@ -393,6 +397,7 @@ final class CloudKitSyncService {
         // 同步没在跑时本机改过的电台同理：每次 start 都补，与只做一次的首次上传无关。
         // 仍是先拉后推，拉到的远端改动按修改时间与补传的记录比较。
         flushDeferredRadioStationChanges()
+        enqueueLyricLineComments(pendingOnly: true)
         seedRecordTypesAddedAfterInitialUpload()
         flushDeferredRecordChanges()
 
@@ -787,6 +792,7 @@ final class CloudKitSyncService {
             smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
             libraryFavoritesChanged(ids: libraryFavoritesStore.allEntriesIncludingDeleted.map(\.id))
             libraryReviewsChanged(keys: library.libraryReviewStorageKeysForSync)
+            enqueueLyricLineComments(pendingOnly: false)
         case .sources:
             sourcesChanged(ids: sourceIDsForCatchUp())
             // 电台逐条同步，不全量重传；只补通道关着时本机改过的那些。
@@ -1162,6 +1168,10 @@ final class CloudKitSyncService {
             let keys = (note.userInfo?["keys"] as? [String]) ?? []
             Task { @MainActor in self?.libraryReviewsChanged(keys: keys) }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseLyricLineCommentsDidChange, object: lyricLineCommentsStore, queue: .main) { [weak self] note in
+            let keys = (note.userInfo?["keys"] as? [String]) ?? []
+            Task { @MainActor in self?.lyricLineCommentsChanged(keys: keys) }
+        })
         #if !os(tvOS)
         observerTokens.append(nc.addObserver(forName: .primuseSongTagEditsDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
@@ -1500,6 +1510,17 @@ final class CloudKitSyncService {
     func libraryReviewsChanged(keys: [String]) {
         guard CloudSyncChannel.isEnabled(.playlists), !keys.isEmpty else { return }
         enqueueOrDefer(recordType: RecordType.libraryReview, ids: keys.map(CloudRecordNameEncoding.recordName(for:)))
+    }
+
+    private func lyricLineCommentsChanged(keys: [String]) {
+        guard CloudSyncChannel.isEnabled(.playlists), !keys.isEmpty else { return }
+        enqueueOrDefer(recordType: RecordType.libraryReview, ids: keys)
+    }
+
+    private func enqueueLyricLineComments(pendingOnly: Bool) {
+        guard CloudSyncChannel.isEnabled(.playlists) else { return }
+        do { lyricLineCommentsChanged(keys: try lyricLineCommentsStore.syncRecords(pendingOnly: pendingOnly).map(\.id)) }
+        catch { plog("CloudKitSync: read lyric comments failed: \(error.localizedDescription)") }
     }
 
     #if !os(tvOS)
@@ -1912,6 +1933,7 @@ final class CloudKitSyncService {
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
         libraryFavoritesChanged(ids: libraryFavoritesStore.allEntriesIncludingDeleted.map(\.id))
         libraryReviewsChanged(keys: library.libraryReviewStorageKeysForSync)
+        enqueueLyricLineComments(pendingOnly: false)
         #if !os(tvOS)
         enqueueAllSongTagEdits()
         #endif
@@ -2195,6 +2217,7 @@ final class CloudKitSyncService {
     }
 
     private func clearSystemFieldsCache() {
+        pendingLyricCommentMerges.removeAll()
         // 服务器那边的状态不再可信(退出登录/换账号/zone 被删), 墓碑确认记录一并作废,
         // 下次启动全部补传。
         acknowledgedSourceTombstones = [:]
@@ -2621,7 +2644,8 @@ final class CloudKitSyncService {
             libraryFavoritesStore.removeRemote(id: id)
         case RecordType.libraryReview:
             // 评分清掉也是存一条墓碑，正常不会删记录；云端那条没了而本机还有，就传回去。
-            if library.libraryReviewStorageKey(forCloudRecordKey: id) != nil,
+            if (library.libraryReviewStorageKey(forCloudRecordKey: id) != nil
+                || (try? lyricLineCommentsStore.syncRecord(for: id)) != nil),
                let target = engine(for: recordID.zoneID) {
                 addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
             }
@@ -3186,6 +3210,11 @@ final class CloudKitSyncService {
     // MARK: - Library review mapping
 
     private func populateLibraryReviewRecord(_ record: CKRecord, cloudKey: String) -> Bool {
+        if cloudKey.hasPrefix(LyricLineCommentSyncRecord.prefix) {
+            // 云端版本尚未落盘时，不能用本地旧副本覆盖它。
+            guard pendingLyricCommentMerges[cloudKey] == nil else { return false }
+            return Self.populateLyricLineCommentRecord(record, cloudKey: cloudKey, store: lyricLineCommentsStore)
+        }
         guard let storageKey = library.libraryReviewStorageKey(forCloudRecordKey: cloudKey),
               let review = library.libraryReviewForSync(storageKey: storageKey) else { return false }
         do {
@@ -3199,6 +3228,10 @@ final class CloudKitSyncService {
     }
 
     private func applyLibraryReviewRecord(_ record: CKRecord) {
+        if let remote = Self.decodedLyricLineComment(record) {
+            mergeLyricLineComment(remote)
+            return
+        }
         guard let data = record["payload"] as? Data,
               let review = try? JSONDecoder().decode(LibraryReview.self, from: data),
               let cloudKey = parseLocalID(from: record.recordID, recordType: RecordType.libraryReview),
@@ -3207,6 +3240,55 @@ final class CloudKitSyncService {
         if library.applyRemoteLibraryReview(review), let target = engine(for: record.recordID.zoneID) {
             addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: target)
         }
+    }
+
+    // 复用已部署的个人评论 payload/updatedAt 字段；旧版本会忽略无法解码的新载荷。
+    // 逐句独立记录，避免两台设备分别修改不同句子时整首互相覆盖。
+    static func populateLyricLineCommentRecord(_ record: CKRecord, cloudKey: String, store: LyricLineCommentStore) -> Bool {
+        guard record.recordType == RecordType.libraryReview,
+              record.recordID.zoneID == Self.zoneID,
+              record.recordID.recordName == "\(RecordType.libraryReview)/\(cloudKey)" else { return false }
+        do {
+            guard let entry = try store.syncRecord(for: cloudKey) else { return false }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            record["payload"] = try encoder.encode(entry)
+            record["updatedAt"] = entry.comment.updatedAt
+            return true
+        } catch {
+            plog("CloudKitSync: encode lyric comment failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    static func decodedLyricLineComment(_ record: CKRecord) -> LyricLineCommentSyncRecord? {
+        guard record.recordType == RecordType.libraryReview, record.recordID.zoneID == Self.zoneID,
+              let data = record["payload"] as? Data,
+              let entry = try? JSONDecoder().decode(LyricLineCommentSyncRecord.self, from: data),
+              record.recordID.recordName == "\(RecordType.libraryReview)/\(entry.id)" else { return nil }
+        return entry
+    }
+
+    private func mergeLyricLineComment(_ remote: LyricLineCommentSyncRecord) {
+        let candidate = pendingLyricCommentMerges[remote.id].map { previous in
+            LyricLineComment.winner(previous.comment, remote.comment) == previous.comment ? previous : remote
+        } ?? remote
+        do {
+            let needsUpload = try lyricLineCommentsStore.applyRemote(candidate)
+            pendingLyricCommentMerges.removeValue(forKey: remote.id)
+            if needsUpload, let target = engine(for: Self.zoneID) {
+                let id = CKRecord.ID(recordName: "\(RecordType.libraryReview)/\(remote.id)", zoneID: Self.zoneID)
+                addCoalescedRecordZoneChanges([.saveRecord(id)], to: target)
+            }
+        } catch {
+            pendingLyricCommentMerges[remote.id] = candidate
+            plog("CloudKitSync: persist lyric comment failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func retryPendingLyricCommentMerges() -> Bool {
+        for record in Array(pendingLyricCommentMerges.values) { mergeLyricLineComment(record) }
+        return pendingLyricCommentMerges.isEmpty
     }
 
     #if !os(tvOS)
@@ -3454,6 +3536,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 // 进入 handleEvent 时判过一次, 但跳回主 actor 之前引擎可能已被摘掉。
                 guard self.engineIsCurrent(syncEngine) else { return }
                 // 游标落盘前先把已拉到的记录落盘: 游标一旦越过就不会再拉。
+                guard self.retryPendingLyricCommentMerges() else { return }
                 self.flushCoalescedRemoteWrites()
                 // private engine 跟 sharedEngine state 分开存, 否则下次启动
                 // 一个 engine 用错 state cursor 会重 fetch 全量。
@@ -3529,6 +3612,10 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
                 guard current else { return }
                 for saved in event.savedRecords {
+                    if let comment = Self.decodedLyricLineComment(saved) {
+                        do { try self.lyricLineCommentsStore.acknowledgeUpload(comment) }
+                        catch { plog("CloudKitSync: acknowledge lyric comment failed: \(error.localizedDescription)") }
+                    }
                     self.acknowledgeSavedSourceTombstone(saved)
                     self.acknowledgeSavedPlaylist(saved)
                 }

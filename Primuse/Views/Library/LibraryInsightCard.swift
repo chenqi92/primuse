@@ -439,7 +439,7 @@ struct LibraryInsightSynopsis: View {
             Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
         }
         .disabled(store.isGenerating(subject))
-        if subject.kind == .artist {
+        if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
             Button {
                 confirmsAppleMusic = true
             } label: {
@@ -486,7 +486,7 @@ struct LibraryInsightSynopsis: View {
                         .disabled(store.retryDate(for: subject) != nil)
                 }
                 chip("library_insight_lastfm_fetch", systemImage: "arrow.down.circle") { actions.fetchLastFm() }
-                if subject.kind == .artist {
+                if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
                     chip("library_insight_apple_music_fetch", systemImage: "applelogo") { actions.fetchAppleMusic() }
                 }
                 chip("library_insight_write_own", systemImage: "pencil") {
@@ -527,7 +527,7 @@ struct LibraryInsightSynopsis: View {
                 } label: {
                     Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
                 }
-                if subject.kind == .artist {
+                if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
                     Button {
                         actions.fetchAppleMusic()
                     } label: {
@@ -786,7 +786,7 @@ struct LibraryInsightEditorSheet: View {
                     Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
                 }
                 .disabled(isFilling || store.isGenerating(subject))
-                if subject.kind == .artist {
+                if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
                     Button(action: fillFromAppleMusic) {
                         Label("library_insight_apple_music_fetch", systemImage: "applelogo")
                     }

@@ -66,6 +66,17 @@ public enum AppleMusicCatalogContinuationPolicy {
         return matches.count == 1 ? matches[0] : nil
     }
 
+    /// 专辑简介保留版本说明，并且不以合作艺人的包含关系替代完整署名。
+    public static func uniqueAlbumMatchIndex(title: String, artist: String, in results: [Candidate]) -> Int? {
+        let wantedTitle = folded(title)
+        let wantedArtist = artistKey(artist)
+        guard !wantedTitle.isEmpty, !wantedArtist.isEmpty else { return nil }
+        let matches = results.indices.filter {
+            folded(results[$0].title) == wantedTitle && artistKey(results[$0].artist) == wantedArtist
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
     /// 拼一批续播:先放 Last.fm 那一路(已按相似度排好),再轮流取各位艺人的热门曲。
     /// 同一首(按 `songKey`)只出现一次,`isExcluded` 为真的(已在队列里、刚播过、
     /// 不喜欢的)不要,同一位歌手不超过 `perArtistLimit` 首。

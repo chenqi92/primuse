@@ -30,6 +30,7 @@ enum LibraryInsightWriteback {
         sourcesStore: SourcesStore
     ) async -> Report {
         var report = Report()
+        guard record?.permitsSourceWriteback != false else { return report }
         let writesFiles = LibraryInsightWritebackPolicy.writesFiles()
         let embedsComment = subject.kind == .album && LibraryInsightWritebackPolicy.embedsComment()
         guard writesFiles || embedsComment else { return report }

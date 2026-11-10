@@ -15,6 +15,13 @@ struct ListeningStatsChartsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @AppStorage("stats.selectedServerSourceID")
     private var selectedServerSourceID = ""
+    @AppStorage(ArtistNameConfiguration.storageKey) private var artistNameConfigurationData: Data?
+    private var artistNameConfiguration: ArtistNameConfiguration {
+        guard let data = artistNameConfigurationData,
+              let configuration = try? JSONDecoder().decode(ArtistNameConfiguration.self, from: data),
+              configuration.isSupported else { return .defaultValue }
+        return configuration.normalized()
+    }
     #if os(macOS)
     @State private var range: PlayHistoryStore.Range
     @State private var statsRefreshGeneration = 0
@@ -920,6 +927,7 @@ struct ListeningStatsChartsView: View {
         let day: Date
         let localeIdentifier: String
         let timeZoneIdentifier: String
+        let artistNameConfiguration: ArtistNameConfiguration
     }
 
     fileprivate struct StatsRefreshTrigger: Equatable {
@@ -942,7 +950,8 @@ struct ListeningStatsChartsView: View {
             displayYear: heatmapYear,
             day: statsCalendar.startOfDay(for: Date()),
             localeIdentifier: statsCalendar.locale?.identifier ?? Locale.current.identifier,
-            timeZoneIdentifier: statsCalendar.timeZone.identifier
+            timeZoneIdentifier: statsCalendar.timeZone.identifier,
+            artistNameConfiguration: artistNameConfiguration
         )
     }
 
@@ -981,7 +990,8 @@ struct ListeningStatsChartsView: View {
                 range: trigger.presentation.range,
                 displayYear: trigger.presentation.displayYear,
                 now: now,
-                calendar: calendar
+                calendar: calendar,
+                artistNameConfiguration: trigger.presentation.artistNameConfiguration
             )
         }.value
 
@@ -1004,7 +1014,8 @@ struct ListeningStatsChartsView: View {
             displayYear: heatmapYear,
             now: Date(),
             calendar: statsCalendar,
-            rankLimit: rankLimit
+            rankLimit: rankLimit,
+            artistNameConfiguration: artistNameConfiguration
         )
     }
 
@@ -1016,7 +1027,8 @@ struct ListeningStatsChartsView: View {
         displayYear: Int?,
         now: Date,
         calendar: Calendar,
-        rankLimit: Int = 6
+        rankLimit: Int = 6,
+        artistNameConfiguration: ArtistNameConfiguration = .defaultValue
     ) -> StatsSnapshot {
         let currentStart = range.statisticsStartDate(now: now, calendar: calendar)
         let previousInterval = statsPreviousRangeInterval(
@@ -1063,7 +1075,8 @@ struct ListeningStatsChartsView: View {
             previousPlayCount: range == .all ? nil : previousPlayCount,
             heavyRotationCount: playsBySong.values.lazy.filter { $0.count >= 5 }.count,
             topSongs: PlayHistoryStore.rankedItems(from: scopedEntries, category: .songs, limit: rankLimit, songKeys: songKeys),
-            topArtists: PlayHistoryStore.rankedItems(from: scopedEntries, category: .artists, limit: rankLimit, songKeys: songKeys),
+            topArtists: PlayHistoryStore.rankedItems(from: scopedEntries, category: .artists, limit: rankLimit,
+                                                   songKeys: songKeys, artistNameConfiguration: artistNameConfiguration),
             topAlbums: PlayHistoryStore.rankedItems(from: scopedEntries, category: .albums, limit: rankLimit, songKeys: songKeys),
             spokenWordSec: spokenWordSec
         )

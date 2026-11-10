@@ -112,6 +112,10 @@ struct MacMiniPlayerView: View {
         .onChange(of: player.isLiveRadio, initial: true) { _, isLive in
             if isLive, bottomMode != .none { bottomMode = .none }
         }
+        .onCachedLyricsChanged(songID: player.isLiveRadio ? nil : player.currentSong?.id) { songID, lines in
+            pendingLyricsOverride = PendingLyricsOverride(songID: songID, lyrics: SpokenWordTranscriptOffsetStore.shared.presenting(lines, for: player.currentSong))
+            lyricsLoadRevision &+= 1
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }

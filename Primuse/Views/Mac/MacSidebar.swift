@@ -75,7 +75,7 @@ struct MacSidebar: View {
             .pmAnimation(.list, value: sidebarLibrarySections)
         }
         .frame(maxHeight: .infinity)
-        .background(sidebarBackground.ignoresSafeArea())
+        .background(MacSidebarBackdrop().ignoresSafeArea())
         .sheet(item: $copyToServerPlaylist) { playlist in
             PlaylistCopyToServerSheet(playlistIDs: [playlist.id])
         }
@@ -642,10 +642,12 @@ struct MacSidebar: View {
         return palette[h]
     }
 
-    // MARK: - Background
+}
 
-    @ViewBuilder
-    private var sidebarBackground: some View {
+struct MacSidebarBackdrop: View {
+    @Environment(\.pmAppearance) private var mode
+
+    var body: some View {
         if mode == .glass {
             // 玻璃模式: NSVisualEffectView 提供模糊底, 上面盖一层暗色让对比够。
             ZStack {

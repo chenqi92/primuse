@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "Коснитесь для переключения. Удерживайте, чтобы отдельно выбрать перемешивание и повтор.";
 "queue_stop_after_this" = "Остановить после этой песни";
 "queue_stop_after_cancel" = "Не останавливать после этой песни";
+
+"lyrics_comments_title" = "Комментарии к тексту";
+"lyrics_comments_all" = "Все комментарии";
+"lyrics_comments_empty" = "Комментариев пока нет";
+"lyrics_comment_save_failed" = "Не удалось открыть комментарии. Попробуйте ещё раз.";

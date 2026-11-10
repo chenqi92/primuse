@@ -486,14 +486,83 @@ struct AlbumDetailView: View {
         }
     }
 
-    /// 头图改成「封面浮在整页底色上」: 封面居中, 标题、信息、按钮顺着往下, 页面其余
-    /// 部分继续用同一条渐变 —— 原来那种卡片贴在系统灰底上的接缝没有了。
-    ///
-    /// 手机横屏只剩三百多点高, 封面、间距、留白各降一档并改成封面在左的一行,
-    /// 头图压到 190pt 以内, 首屏才露得出歌。
-    ///
-    /// 简介照影片介绍页的位置放在播放键下面: 风格、几行摘录, 点「更多」就地展开全文。
+    @ViewBuilder
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
+        if heightClass.isCompact {
+            compactHero(insets: insets)
+        } else {
+            VStack(spacing: 0) {
+                Color.clear
+                    .aspectRatio(1 / 1.12, contentMode: .fit)
+                    .frame(maxHeight: 560)
+                    .overlay {
+                        GeometryReader { geometry in
+                            let side = max(geometry.size.width, geometry.size.height)
+                            heroArtwork(side: side, cornerRadius: 0, showsPlaceholder: true, isAnimationVisible: true)
+                                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                                .clipped()
+                                .mask {
+                                    LinearGradient(
+                                        stops: [
+                                            .init(color: .black, location: 0),
+                                            .init(color: .black, location: 0.58),
+                                            .init(color: .black.opacity(0.65), location: 0.78),
+                                            .init(color: .clear, location: 1),
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                }
+                                .overlay(alignment: .top) {
+                                    LinearGradient(colors: [.black.opacity(0.24), .clear], startPoint: .top, endPoint: .bottom)
+                                        .frame(height: insets.top + 60)
+                                }
+                        }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+
+                VStack(spacing: 18) {
+                    heroIdentityText(centered: true)
+                    albumHeroActions
+                    heroSynopsis(compact: false)
+                }
+                .padding(.leading, insets.leading + 20)
+                .padding(.trailing, insets.trailing + 20)
+                .padding(.top, -36)
+                .padding(.bottom, 20)
+            }
+        }
+    }
+
+    private var albumHeroActions: some View {
+        AlbumHeroActionRow(
+            playDisabled: albumSongs.filteredPlayable().isEmpty,
+            shuffleDisabled: albumSongs.filteredPlayable().count < 2,
+            play: { playAll() },
+            shuffle: shuffleAll,
+            favorite: isCatalogAlbum ? nil : albumFavorite
+        )
+        .frame(maxWidth: 320)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func heroSynopsis(compact: Bool) -> some View {
+        if !isCatalogAlbum {
+            LibraryInsightSynopsis(
+                subject: insightIdentity,
+                details: insightDetails,
+                songs: { songs },
+                compact: compact
+            )
+
+            LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
+        }
+    }
+
+    // 横屏保留小封面，给首屏曲目留下空间。
+    private func compactHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = heightClass.isCompact
         // 无障碍字号下横排放不下, 一律回到竖排居中。
         let stacksIdentity = !compact || dynamicTypeSize.isAccessibilitySize
@@ -516,24 +585,8 @@ struct AlbumDetailView: View {
                 }
             }
 
-            LibraryDetailPlayShuffleRow(
-                playDisabled: albumSongs.filteredPlayable().isEmpty,
-                shuffleDisabled: albumSongs.filteredPlayable().count < 2,
-                play: { playAll() },
-                shuffle: shuffleAll,
-                favorite: isCatalogAlbum ? nil : albumFavorite
-            )
-
-            if !isCatalogAlbum {
-                LibraryInsightSynopsis(
-                    subject: insightIdentity,
-                    details: insightDetails,
-                    songs: { songs },
-                    compact: compact
-                )
-
-                LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
-            }
+            albumHeroActions
+            heroSynopsis(compact: compact)
         }
         // 底色铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
         .padding(.leading, insets.leading + 20)
@@ -1221,6 +1274,55 @@ struct AlbumDetailView: View {
         duration.formattedShort
     }
 }
+
+#if os(iOS)
+private struct AlbumHeroActionRow: View {
+    let playDisabled: Bool
+    let shuffleDisabled: Bool
+    let play: () -> Void
+    let shuffle: () -> Void
+    let favorite: LibraryDetailFavoriteToggle?
+
+    var body: some View {
+        LibraryDetailAdaptiveActionRow(adaptsAtAnyWidth: true) {
+            buttons(playForm: .capsule)
+        } reduced: {
+            buttons(playForm: .capsule)
+        } minimal: {
+            buttons(playForm: .iconCapsule)
+        }
+    }
+
+    private func buttons(playForm: LibraryDetailActionButton.Form) -> some View {
+        HStack(spacing: 14) {
+            LibraryDetailActionButton(
+                title: "shuffle", systemImage: "shuffle", form: .circle,
+                disabled: shuffleDisabled, action: shuffle
+            )
+            .accessibilityIdentifier("albumDetail.shuffle")
+
+            LibraryDetailActionButton(
+                title: "play", systemImage: "play.fill", emphasized: true,
+                fillsWidth: true, form: playForm, disabled: playDisabled, action: play
+            )
+            .accessibilityIdentifier("albumDetail.play")
+
+            if let favorite {
+                LibraryDetailActionButton(
+                    title: favorite.isLiked ? "library_favorite_unlike" : "library_favorite_like",
+                    systemImage: favorite.isLiked ? "heart.fill" : "heart", form: .circle,
+                    disabled: false
+                ) {
+                    PMHaptics.likeToggled(isLiked: !favorite.isLiked)
+                    favorite.toggle()
+                }
+                .accessibilityAddTraits(favorite.isLiked ? .isSelected : [])
+                .accessibilityIdentifier("libraryDetail.favorite")
+            }
+        }
+    }
+}
+#endif
 
 extension MusicLibrary {
     /// 专辑署名优先，合辑的「群星」等只存在于专辑艺人索引中。

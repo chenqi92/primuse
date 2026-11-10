@@ -469,7 +469,7 @@ struct TVRankingBrowser: View {
     @State private var historyRevision = 0
 
     private var rankingIdentity: String {
-        "\(period.rawValue)#\(category.rawValue)#\(store.recommendationRevision)#\(historyRevision)"
+        "\(period.rawValue)#\(category.rawValue)#\(store.recommendationRevision)#\(historyRevision)#\(store.library.artistNameConfiguration.cacheSignature)"
     }
 
     var body: some View {
@@ -522,15 +522,13 @@ struct TVRankingBrowser: View {
             let selectedPeriod = period
             let selectedCategory = category
             let folders = selectedCategory == .folders ? await store.makeFolderIndex() : nil
-            let events = PlayHistoryStore.shared.musicEntries.map {
-                HomeListeningEvent(songID: $0.songID, playedAt: $0.playedAt, listenedSeconds: $0.listenedSec)
-            }
-            let songs = Dictionary(uniqueKeysWithValues: store.songIDs.compactMap { id in
-                store.library.song(id: id).map { (id, $0) }
-            })
+            let events = PlayHistoryStore.shared.musicEntries.map(\.listeningEvent)
+            let songs = store.library.musicSongs
+            let artistNameConfiguration = store.library.artistNameConfiguration
             let result = await Task.detached(priority: .userInitiated) {
-                HomeListeningRanking.ranks(events: events, songs: songs, folders: folders,
-                                          period: selectedPeriod, category: selectedCategory)
+                HomeListeningRanking.ranks(events: events, librarySongs: songs, folders: folders,
+                                          period: selectedPeriod, category: selectedCategory,
+                                          artistNameConfiguration: artistNameConfiguration)
             }.value
             guard !Task.isCancelled else { return }
             ranks = result

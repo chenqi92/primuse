@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "Değiştirmek için dokunun. Karıştırma ve tekrarı ayrı ayrı seçmek için basılı tutun.";
 "queue_stop_after_this" = "Bu şarkıdan sonra durdur";
 "queue_stop_after_cancel" = "Bu şarkıdan sonra durdurma";
+
+"lyrics_comments_title" = "Şarkı sözü yorumları";
+"lyrics_comments_all" = "Tüm yorumları gör";
+"lyrics_comments_empty" = "Henüz yorum yok";
+"lyrics_comment_save_failed" = "Yorumlarınıza erişilemedi. Lütfen tekrar deneyin.";

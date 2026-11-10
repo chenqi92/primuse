@@ -665,6 +665,19 @@ private struct PlayerAppearanceSettingsView: View {
     private var motionArtworkServiceSource = ""
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
+    private var motionArtworkServiceBinding: Binding<Bool> {
+        Binding(
+            get: {
+                motionArtworkServiceEnabled && MotionArtworkServiceSource.resolved(
+                    motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint
+                ) == .custom
+            },
+            set: {
+                motionArtworkServiceEnabled = $0
+                if $0 { motionArtworkServiceSource = MotionArtworkServiceSource.custom.rawValue }
+            }
+        )
+    }
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.showsReplayGainBadgeKey)
@@ -741,29 +754,18 @@ private struct PlayerAppearanceSettingsView: View {
             }
 
             Section {
-                Toggle(isOn: $motionArtworkServiceEnabled) {
+                Toggle(isOn: motionArtworkServiceBinding) {
                     SettingsInfoLabel("motion_artwork_service_enabled") {
                         Text("motion_artwork_service_description")
                     }
                 }
                 .settingsAnchor("appearance.motionArtworkService")
-                Picker("motion_artwork_service_source", selection: Binding(
-                    get: { MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) },
-                    set: { motionArtworkServiceSource = $0.rawValue }
-                )) {
-                    Text(verbatim: "m8tec").tag(MotionArtworkServiceSource.m8tec)
-                    Text("motion_artwork_source_custom").tag(MotionArtworkServiceSource.custom)
-                }
-                .settingsAnchor("appearance.motionArtworkSource")
-                .disabled(!motionArtworkServiceEnabled)
-                if MotionArtworkServiceSource.resolved(motionArtworkServiceSource, customEndpoint: motionArtworkServiceEndpoint) == .custom {
-                    TextField("motion_artwork_service_endpoint", text: $motionArtworkServiceEndpoint)
-                        .settingsAnchor("appearance.motionArtworkEndpoint")
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .disabled(!motionArtworkServiceEnabled)
-                }
+                TextField("motion_artwork_service_endpoint", text: $motionArtworkServiceEndpoint)
+                    .settingsAnchor("appearance.motionArtworkEndpoint")
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .disabled(!motionArtworkServiceBinding.wrappedValue)
             }
 
             Section {

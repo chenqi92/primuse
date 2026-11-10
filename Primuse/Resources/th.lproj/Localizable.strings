@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "แตะเพื่อสลับ แตะค้างไว้เพื่อเลือกการสุ่มและการเล่นซ้ำแยกกัน";
 "queue_stop_after_this" = "หยุดหลังเพลงนี้";
 "queue_stop_after_cancel" = "ไม่หยุดหลังเพลงนี้";
+
+"lyrics_comments_title" = "ความคิดเห็นเนื้อเพลง";
+"lyrics_comments_all" = "ดูความคิดเห็นทั้งหมด";
+"lyrics_comments_empty" = "ยังไม่มีความคิดเห็น";
+"lyrics_comment_save_failed" = "ไม่สามารถเข้าถึงความคิดเห็นได้ โปรดลองอีกครั้ง";

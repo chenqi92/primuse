@@ -15,6 +15,140 @@ import UniformTypeIdentifiers
 import WidgetKit
 #endif
 
+#if os(macOS)
+@MainActor
+final class MacWidgetLyricsPublisher {
+    struct State {
+        var song: Song?
+        var artist: String
+        var position: TimeInterval
+        var isPlaying: Bool
+    }
+
+    private struct Identity: Equatable {
+        let songID: String
+        let lyricsFileName: String?
+    }
+
+    private let state: () -> State?
+    private let load: (Song) async -> [LyricLine]
+    private let enabled: () -> Bool
+    private let publish: (LyricsSnapshot?) -> Void
+    private let notificationCenter: NotificationCenter
+    private var observers: [NSObjectProtocol] = []
+    private var task: Task<Void, Never>?
+    private var identity: Identity?
+    private var generation: UInt64 = 0
+    private var hasCleared = false
+    private var lastEnabled: Bool?
+
+    init(
+        state: @escaping () -> State?,
+        load: @escaping (Song) async -> [LyricLine],
+        enabled: @escaping () -> Bool = {
+            WidgetSettings.syncEnabled()
+                && WidgetSettings.widgetEnabled(PrimuseConstants.widgetLyricsEnabledKey)
+                && WidgetSettings.sharedDataScope().includesLyrics
+        },
+        publish: @escaping (LyricsSnapshot?) -> Void = { snapshot in
+            if let snapshot { snapshot.save() } else { LyricsSnapshot.clear() }
+            for kind in ["LyricsWidget", "NowPlayingWidget", "NowPlayingClassicWidget"] {
+                WidgetCenter.shared.reloadTimelines(ofKind: kind)
+            }
+        },
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.state = state
+        self.load = load
+        self.enabled = enabled
+        self.publish = publish
+        self.notificationCenter = notificationCenter
+        for name in [Notification.Name.primuseLyricsDidChange, .primuseLyricsDidCache] {
+            observers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let songID = note.object as? String ?? note.userInfo?["songID"] as? String
+                Task { @MainActor [weak self] in
+                    guard let self, let songID, self.state()?.song?.id == songID else { return }
+                    self.refresh(force: true)
+                }
+            })
+        }
+        observers.append(notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.enabled() != self.lastEnabled else { return }
+                self.refresh()
+            }
+        })
+    }
+
+    isolated deinit {
+        task?.cancel()
+        for observer in observers { notificationCenter.removeObserver(observer) }
+    }
+
+    func stop() {
+        task?.cancel()
+        task = nil
+        generation &+= 1
+        for observer in observers { notificationCenter.removeObserver(observer) }
+        observers.removeAll()
+    }
+
+    func refresh(force: Bool = false) {
+        let isEnabled = enabled()
+        lastEnabled = isEnabled
+        guard isEnabled, let song = state()?.song else {
+            generation &+= 1
+            task?.cancel()
+            task = nil
+            identity = nil
+            if !hasCleared { publish(nil); hasCleared = true }
+            return
+        }
+        let requested = Identity(songID: song.id, lyricsFileName: song.lyricsFileName)
+        guard force || requested != identity else { return }
+        if identity?.songID != requested.songID, !hasCleared {
+            publish(nil)
+            hasCleared = true
+        }
+        identity = requested
+        generation &+= 1
+        let token = generation
+        task?.cancel()
+        task = Task { [weak self, load] in
+            guard !Task.isCancelled else { return }
+            let lines = await load(song)
+            guard let self, !Task.isCancelled, self.generation == token else { return }
+            self.task = nil
+            guard self.enabled(), let latest = self.state(),
+                  latest.song?.id == requested.songID,
+                  latest.song?.lyricsFileName == requested.lyricsFileName else { return }
+            guard !lines.isEmpty else {
+                self.identity = nil
+                if !self.hasCleared { self.publish(nil); self.hasCleared = true }
+                return
+            }
+            let widgetLines = lines.map { WidgetLyricLine(time: $0.timestamp, text: $0.text) }
+            let playback = PlaybackState.load()
+            self.publish(LyricsSnapshot(
+                songID: song.id, title: song.title, artist: latest.artist,
+                coverImageName: playback?.currentSongID == song.id ? playback?.coverImageName : nil,
+                lines: widgetLines,
+                anchorIndex: WidgetLyricsPresentationPolicy.anchorIndex(for: latest.position, in: widgetLines),
+                playbackPosition: latest.position, isPlaying: latest.isPlaying,
+                writingDirection: LyricWritingDirectionPolicy.resolve(in: lines)
+            ))
+            self.hasCleared = false
+        }
+    }
+
+    func waitForPendingPublication() async {
+        while let task { await task.value }
+    }
+}
+#endif
+
 extension AudioPlayerService {
     // MARK: - Shared Playback State
 
@@ -442,6 +576,9 @@ extension AudioPlayerService {
      /// 把整个内部方法暴露成 public。
     func publishWidgetStateForMacWidgetSync() {
         updatePlaybackState()
+        #if os(macOS)
+        widgetLyricsPublisher?.refresh(force: true)
+        #endif
     }
 
     func updatePlaybackState(flushPlaybackSessionImmediately: Bool = false) {
@@ -450,6 +587,23 @@ extension AudioPlayerService {
             flushImmediately: flushPlaybackSessionImmediately
         )
         #if os(macOS)
+        if widgetLyricsPublisher == nil, let sourceManager {
+            widgetLyricsPublisher = MacWidgetLyricsPublisher(
+                state: { [weak self] in
+                    guard let self else { return nil }
+                    return .init(
+                        song: self.isLiveRadio ? nil : self.currentSong,
+                        artist: self.displayedArtistName(for: self.currentSong) ?? "",
+                        position: self.currentTime,
+                        isPlaying: self.isPlaybackActuallyActive
+                    )
+                },
+                load: { song in
+                    await LyricsLoader.loadForDisplay(for: song, sourceManager: sourceManager)
+                }
+            )
+        }
+        widgetLyricsPublisher?.refresh()
         let sampledCurrentTime = currentTime
         let sampledAt = Date()
         let request = MacWidgetPlaybackPublishRequest(

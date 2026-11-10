@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "Торкніться, щоб перемкнути. Утримуйте, щоб окремо вибрати перемішування й повтор.";
 "queue_stop_after_this" = "Зупинити після цієї пісні";
 "queue_stop_after_cancel" = "Не зупиняти після цієї пісні";
+
+"lyrics_comments_title" = "Коментарі до тексту";
+"lyrics_comments_all" = "Усі коментарі";
+"lyrics_comments_empty" = "Коментарів поки немає";
+"lyrics_comment_save_failed" = "Не вдалося відкрити коментарі. Спробуйте ще раз.";

@@ -1242,7 +1242,7 @@ private struct RadioStationGridItem<Actions: View>: View {
     }
 }
 
-private struct RadioStationCard<Actions: View>: View {
+struct RadioStationCard<Actions: View>: View {
     let station: RadioStation
     let priority: Int
     let isCurrent: Bool
@@ -1254,15 +1254,27 @@ private struct RadioStationCard<Actions: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             Button(action: onPlay) {
-                HStack(spacing: 14) {
-                    RadioStationArtworkView(station: station, size: 72, cornerRadius: 16)
+                HStack(spacing: 10) {
+                    RadioStationArtworkView(station: station, size: 56, cornerRadius: 12)
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(isPlaying ? Color.red : RadioSpacePalette.accent)
+                                .frame(width: 26, height: 26)
+                                .background(.thinMaterial, in: Circle())
+                                .contentTransition(.symbolEffect(.replace))
+                                .pmAnimation(.control, value: isPlaying)
+                                .padding(3)
+                        }
 
                     VStack(alignment: .leading, spacing: 5) {
+                        Text(station.name)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+
                         HStack(spacing: 6) {
-                            Text(station.name)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
                             if station.isServerMirror {
                                 Image(systemName: "server.rack")
                                     .font(.caption2)
@@ -1274,7 +1286,6 @@ private struct RadioStationCard<Actions: View>: View {
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel(Text("radio_subscription_station_badge"))
                             }
-                            Spacer(minLength: 4)
                             Text(verbatim: "#\(priority)")
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
@@ -1306,16 +1317,9 @@ private struct RadioStationCard<Actions: View>: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
 
-                    Spacer(minLength: 4)
-
-                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(isPlaying ? Color.red : RadioSpacePalette.accent)
-                        .frame(width: 40, height: 40)
-                        .background(.thinMaterial, in: Circle())
-                        .contentTransition(.symbolEffect(.replace))
-                        .pmAnimation(.control, value: isPlaying)
                 }
                 .contentShape(Rectangle())
             }
@@ -1397,7 +1401,8 @@ private struct RadioStationCoverTile<Actions: View>: View {
                     Text(station.name)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(isCurrent ? RadioSpacePalette.accent : .primary)
-                        .lineLimit(1)
+                        .lineLimit(2, reservesSpace: true)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: 4) {
                         if isCurrent {

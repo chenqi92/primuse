@@ -21,6 +21,7 @@ final class LibraryInsightStore {
     private(set) var appleMusicFailures: [String: String] = [:]
     private let lastFm: LastFmSimilarAPI
     private let appleMusicLookup: @Sendable (String) async throws -> LibraryInsightImportedDraft?
+    private let appleMusicAlbumLookup: @Sendable (String, String) async throws -> LibraryInsightImportedDraft?
     /// 最近一次写回音乐源的结果(写进了哪些、哪些没写成),只给界面看。
     private(set) var writebackNotes: [String: String] = [:]
 
@@ -28,10 +29,14 @@ final class LibraryInsightStore {
         lastFm: LastFmSimilarAPI = LastFmSimilarAPI(),
         appleMusicLookup: @escaping @Sendable (String) async throws -> LibraryInsightImportedDraft? = {
             try await AppleMusicCatalogNeighbors.artistInsight(matchingName: $0)
+        },
+        appleMusicAlbumLookup: @escaping @Sendable (String, String) async throws -> LibraryInsightImportedDraft? = {
+            try await AppleMusicCatalogNeighbors.albumInsight(matchingTitle: $0, artist: $1)
         }
     ) {
         self.lastFm = lastFm
         self.appleMusicLookup = appleMusicLookup
+        self.appleMusicAlbumLookup = appleMusicAlbumLookup
         // 上一版只在本机 Caches 里缓存过一份,现在改存曲库,旧文件清掉。
         let legacy = FileManager.default
             .primuseDirectoryURL(for: .cachesDirectory)
@@ -155,7 +160,9 @@ final class LibraryInsightStore {
     }
 
     func appleMusicDraft(for subject: LibraryInsightSubject) async -> LibraryInsightImportedDraft? {
-        guard subject.kind == .artist, Self.isIntroducible(subject), beginBatchGeneration(subject) else { return nil }
+        guard Self.isIntroducible(subject),
+              Self.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])),
+              beginBatchGeneration(subject) else { return nil }
         let id = recordID(for: subject)
         fetchingAppleMusicIDs.insert(id)
         defer {
@@ -163,7 +170,12 @@ final class LibraryInsightStore {
             endBatchGeneration(subject)
         }
         do {
-            let draft = try await appleMusicLookup(subject.artistName)
+            let draft: LibraryInsightImportedDraft?
+            if subject.kind == .album {
+                draft = try await appleMusicAlbumLookup(subject.albumTitle, subject.artistName)
+            } else {
+                draft = try await appleMusicLookup(subject.artistName)
+            }
             try Task.checkCancellation()
             if draft == nil { appleMusicFailures[id] = String(localized: "library_insight_apple_music_empty") }
             return draft

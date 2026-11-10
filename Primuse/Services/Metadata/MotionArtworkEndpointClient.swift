@@ -88,7 +88,6 @@ actor MotionArtworkEndpointClient {
     private enum RequestPurpose: Sendable {
         case lookup(configuredEndpoint: URL)
         case asset(configuredEndpoint: URL)
-        case publicArtwork
     }
 
     private let session: URLSession
@@ -302,9 +301,6 @@ actor MotionArtworkEndpointClient {
         input: MotionArtworkLookupInput,
         allowExpensiveNetwork: Bool
     ) async throws -> MotionArtworkEndpointResolveResult {
-        if endpoint == M8tecMotionArtwork.endpoint {
-            return try await resolveM8tec(input: input, allowExpensiveNetwork: allowExpensiveNetwork)
-        }
         let lookup = try await lookupUncoalesced(
             endpoint: endpoint,
             input: input,
@@ -335,83 +331,6 @@ actor MotionArtworkEndpointClient {
         case .temporarilyUnavailable(let retryAfter):
             return .temporarilyUnavailable(retryAfter: retryAfter)
         }
-    }
-
-    private func resolveM8tec(
-        input: MotionArtworkLookupInput,
-        allowExpensiveNetwork: Bool
-    ) async throws -> MotionArtworkEndpointResolveResult {
-        guard let url = M8tecMotionArtwork.requestURL(for: input) else { return .notFound }
-        let (data, response) = try await publicArtworkData(
-            from: url, maximumBytes: serviceResponseLimit,
-            purpose: .lookup(configuredEndpoint: M8tecMotionArtwork.endpoint),
-            allowExpensiveNetwork: allowExpensiveNetwork
-        )
-        switch response.statusCode {
-        case 404: return .notFound
-        case 429, 500...599:
-            return .temporarilyUnavailable(retryAfter: Self.retryAfterDate(from: response, now: now()))
-        case 200...299: break
-        default: throw MotionArtworkEndpointClientError.unexpectedHTTPStatus(response.statusCode)
-        }
-        let result = try decoder.decode(M8tecMotionArtwork.Response.self, from: data)
-        do {
-            guard var videoURL = try result.artworkURL(matching: input) else { return .notFound }
-            if videoURL.pathExtension.lowercased() != "mp4" {
-                let master = try await publicArtworkPlaylist(from: videoURL, allowExpensiveNetwork: allowExpensiveNetwork)
-                let renditionURL = try M8tecMotionArtwork.preferredPlaylist(in: master, relativeTo: videoURL)
-                let media: String
-                if renditionURL == videoURL {
-                    media = master
-                } else {
-                    media = try await publicArtworkPlaylist(from: renditionURL, allowExpensiveNetwork: allowExpensiveNetwork)
-                }
-                videoURL = try M8tecMotionArtwork.videoURL(in: media, relativeTo: renditionURL)
-            }
-            let (video, http) = try await publicArtworkData(
-                from: videoURL, maximumBytes: animatedImageLimit, purpose: .publicArtwork,
-                allowExpensiveNetwork: allowExpensiveNetwork
-            )
-            guard http.statusCode == 200 else {
-                throw MotionArtworkEndpointClientError.unexpectedHTTPStatus(http.statusCode)
-            }
-            guard M8tecMotionArtwork.isMP4(video) else { return .unsupported }
-            return .video(video)
-        } catch is M8tecMotionArtwork.ParseError {
-            return .unsupported
-        }
-    }
-
-    private func publicArtworkPlaylist(from url: URL, allowExpensiveNetwork: Bool) async throws -> String {
-        let (data, http) = try await publicArtworkData(
-            from: url, maximumBytes: serviceResponseLimit, purpose: .publicArtwork,
-            allowExpensiveNetwork: allowExpensiveNetwork
-        )
-        guard http.statusCode == 200 else {
-            throw MotionArtworkEndpointClientError.unexpectedHTTPStatus(http.statusCode)
-        }
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw MotionArtworkEndpointClientError.malformedServiceResponse
-        }
-        return text
-    }
-
-    private func publicArtworkData(
-        from url: URL,
-        maximumBytes: Int,
-        purpose: RequestPurpose,
-        allowExpensiveNetwork: Bool
-    ) async throws -> (Data, HTTPURLResponse) {
-        if case .publicArtwork = purpose, !M8tecMotionArtwork.isAllowedMediaURL(url) {
-            throw MotionArtworkEndpointClientError.invalidAssetURL
-        }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = Self.downloadTimeout
-        request.setValue("Mozilla/5.0 Primuse/1.0", forHTTPHeaderField: "User-Agent")
-        request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
-        Self.applyNetworkPolicy(allowExpensiveNetwork: allowExpensiveNetwork, to: &request)
-        let (data, response) = try await perform(request, maximumBytes: maximumBytes, purpose: purpose)
-        return (data, try Self.validatedHTTPResponse(response, purpose: purpose))
     }
 
     private func lookupUncoalesced(
@@ -557,7 +476,8 @@ actor MotionArtworkEndpointClient {
               url.user == nil,
               url.password == nil,
               url.fragment == nil,
-              NetworkEndpointIdentity(url: url) != nil else {
+              NetworkEndpointIdentity(url: url) != nil,
+              MotionArtworkServiceSource.permitsEndpoint(url) else {
             return false
         }
         return true
@@ -706,10 +626,6 @@ actor MotionArtworkEndpointClient {
                 response: response,
                 configuredEndpoint: endpoint
             )
-        case .publicArtwork:
-            guard let redirected = HTTPMediaRedirectRequestPolicy.redirectedRequest(from: original, response: response),
-                  let url = redirected.url, M8tecMotionArtwork.isAllowedMediaURL(url) else { return nil }
-            return removingSensitiveHeaders(from: redirected)
         }
     }
 
@@ -742,10 +658,6 @@ actor MotionArtworkEndpointClient {
                 finalURL,
                 configuredEndpoint: endpoint
             ) else {
-                throw MotionArtworkEndpointClientError.invalidHTTPResponse
-            }
-        case .publicArtwork:
-            guard M8tecMotionArtwork.isAllowedMediaURL(finalURL) else {
                 throw MotionArtworkEndpointClientError.invalidHTTPResponse
             }
         }

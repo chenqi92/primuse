@@ -7358,3 +7358,8 @@
 "play_mode_long_press_hint" = "Tippen zum Wechseln. Gedrückt halten, um Zufallswiedergabe und Wiederholen getrennt zu wählen.";
 "queue_stop_after_this" = "Nach diesem Titel stoppen";
 "queue_stop_after_cancel" = "Nicht nach diesem Titel stoppen";
+
+"lyrics_comments_title" = "Liedtextkommentare";
+"lyrics_comments_all" = "Alle Kommentare anzeigen";
+"lyrics_comments_empty" = "Noch keine Liedtextkommentare";
+"lyrics_comment_save_failed" = "Zugriff auf Kommentare fehlgeschlagen. Bitte erneut versuchen.";

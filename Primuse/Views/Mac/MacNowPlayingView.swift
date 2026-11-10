@@ -17,6 +17,7 @@ import PrimuseKit
 /// active line highlighted and pinned near the vertical center. In full
 /// screen the left column also gets the SYS-05 cover transport rail.
 struct MacNowPlayingView: View {
+    var showsSidebar = false
     var onClose: () -> Void
     var isScrapingCurrentSong: Bool
     var canTranscribeAudio: Bool
@@ -42,6 +43,9 @@ struct MacNowPlayingView: View {
     @State private var lyrics: [LyricLine] = []
     /// 读到的原文档，开关变化时从它重新得出 `lyrics`。
     @State private var loadedLyrics: [LyricLine] = []
+    @State private var commentSongID: String?
+    @State private var commentAnchors: [String: LyricLineCommentAnchor] = [:]
+    @State private var commentPresentation: LyricCommentPresentation?
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var currentIndex: Int = -1
     /// 正在走的那段前奏或间奏的提示点;不在间奏里(或关掉了提示点)是 nil。滚动停在它上面。
@@ -89,6 +93,7 @@ struct MacNowPlayingView: View {
     /// 「目录 / 书签 / 文稿」就顶进按钮那一排底下(#350)。窗口越矮、标题折行越多越明显。
     @State private var floatingControlsBottom: CGFloat = 0
     @State private var spokenWordPaneTop: CGFloat = 0
+    @State private var lyricsPaneTop: CGFloat = 0
     /// 按钮排自己多宽(拖窗口宽度时不变),用来算封面那一栏左边让多少。
     @State private var floatingControlsWidth: CGFloat = 0
     @State private var preferences = MacUIPreferences.shared
@@ -308,7 +313,11 @@ struct MacNowPlayingView: View {
                                 }
                             } else {
                                 lyricsPane
+                                    .padding(.top, max(0, floatingControlsBottom + 12 - lyricsPaneTop))
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .onGeometryChange(for: CGFloat.self) { proxy in
+                                        proxy.frame(in: .named(Self.surfaceSpace)).minY
+                                    } action: { lyricsPaneTop = $0 }
                             }
                         }
                         .padding(.leading, artworkLeadingPadding(surfaceWidth: width))
@@ -350,6 +359,11 @@ struct MacNowPlayingView: View {
                 }
             }
         }
+        .sheet(item: $commentPresentation) { presentation in
+            LyricLineCommentsSheet(presentation: presentation,
+                song: library.storedSong(id: presentation.songID) ?? (player.currentSong?.id == presentation.songID ? player.currentSong : nil))
+                .playerPresentationColorScheme()
+        }
         .task(id: lyricsLoadTaskIdentity) {
             let identity = lyricsLoadTaskIdentity
             if player.isLiveRadio {
@@ -380,6 +394,10 @@ struct MacNowPlayingView: View {
         .onChange(of: isSpokenWord) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: lyricRomanizationOverlay) { _, _ in refreshRomanizedLyrics() }
         .onChange(of: LyricsRomanizationSettingsStore.shared.displayMode) { _, _ in refreshRomanizedLyrics() }
+        .onCachedLyricsChanged(songID: player.isLiveRadio ? nil : player.currentSong?.id) { songID, lines in
+            pendingLyricsOverride = PendingLyricsOverride(songID: songID, lyrics: lines)
+            lyricsLoadRevision &+= 1
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseLyricsDidChange)) { note in
             guard let songID = note.object as? String,
                   songID == player.currentSong?.id else { return }
@@ -833,6 +851,17 @@ struct MacNowPlayingView: View {
                 allowsLoading: true
             )
         }
+        .overlay(alignment: .leading) {
+            if showsSidebar && !isWindowFullScreen {
+                MacSidebarBackdrop()
+                    .frame(width: 96)
+                    .mask {
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
         .ignoresSafeArea()
     }
@@ -1172,13 +1201,6 @@ struct MacNowPlayingView: View {
                                         isDuet: isDuet
                                     )
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .contentShape(Rectangle())
-                                        .if(canSeekToLyricLine(line)) { view in
-                                            view
-                                                .onTapGesture { seekToLyricLine(line) }
-                                                .accessibilityAddTraits(.isButton)
-                                                .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
-                                        }
                                         .padding(.top, lyricsRowSpacing)
                                 case .interlude(let window, let voice):
                                     macInterludeMarker(
@@ -1259,6 +1281,11 @@ struct MacNowPlayingView: View {
                 lyricsTranslationStatus
                     .padding(.top, 12)
             }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            LyricCommentsListButton(songID: player.currentSong?.id) { commentPresentation = $0 }
+                .foregroundStyle(playerSecondaryColor)
+                .padding(12)
         }
     }
 
@@ -1525,22 +1552,36 @@ struct MacNowPlayingView: View {
         let visualScale = lyricVisualScale(isActive: isActive)
 
         VStack(alignment: horizontal, spacing: 4) {
-            macSingleLyricLine(
-                line: line,
-                index: index,
-                isActive: isActive,
-                fontSize: scaledSize,
-                weight: weight,
-                tint: tint,
-                textAlignment: textAlignment
-            )
-            macLyricCompanions(
-                for: line,
-                fontSize: lyricsTranslationFontScale > 0
-                    ? fontSize * CGFloat(lyricsTranslationFontScale)
-                    : scaledSize,
-                textAlignment: textAlignment
-            )
+            VStack(alignment: horizontal, spacing: 4) {
+                macSingleLyricLine(
+                    line: line,
+                    index: index,
+                    isActive: isActive,
+                    fontSize: scaledSize,
+                    weight: weight,
+                    tint: tint,
+                    textAlignment: textAlignment
+                )
+                macLyricCompanions(
+                    for: line,
+                    fontSize: lyricsTranslationFontScale > 0
+                        ? fontSize * CGFloat(lyricsTranslationFontScale)
+                        : scaledSize,
+                    textAlignment: textAlignment
+                )
+            }
+            .contentShape(Rectangle())
+            .if(canSeekToLyricLine(line)) { view in
+                view
+                    .onTapGesture { seekToLyricLine(line) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+            }
+            .modifier(LyricLineCommentModifier(
+                songID: commentSongID, anchor: commentAnchors[line.id],
+                alignment: horizontal, foreground: playerSecondaryColor,
+                present: { commentPresentation = $0 }
+            ))
             if let backgrounds = line.background {
                 ForEach(backgrounds) { background in
                     macSingleLyricLine(
@@ -1553,6 +1594,18 @@ struct MacNowPlayingView: View {
                         textAlignment: textAlignment
                     )
                     .opacity(0.72)
+                    .contentShape(Rectangle())
+                    .if(canSeekToLyricLine(background)) { view in
+                        view
+                            .onTapGesture { seekToLyricLine(background) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
+                    }
+                    .modifier(LyricLineCommentModifier(
+                        songID: commentSongID, anchor: commentAnchors[background.id],
+                        alignment: horizontal, foreground: playerSecondaryColor,
+                        present: { commentPresentation = $0 }
+                    ))
                 }
             }
         }
@@ -2091,6 +2144,8 @@ struct MacNowPlayingView: View {
             lyricsTranslationRevision &+= 1
         }
         lyrics = newLyrics
+        commentSongID = player.currentSong?.id
+        commentAnchors = LyricLineCommentAnchor.index(loaded)
         let resolvedDirection = LyricWritingDirectionPolicy.resolve(in: newLyrics)
         if lyricsWritingDirection != resolvedDirection {
             lyricsWritingDirection = resolvedDirection

@@ -7264,3 +7264,8 @@
 "play_mode_long_press_hint" = "Toque para alternar. Toque e segure para escolher aleatório e repetição separadamente.";
 "queue_stop_after_this" = "Parar depois desta música";
 "queue_stop_after_cancel" = "Não parar depois desta música";
+
+"lyrics_comments_title" = "Comentários da letra";
+"lyrics_comments_all" = "Ver todos os comentários";
+"lyrics_comments_empty" = "Ainda não há comentários";
+"lyrics_comment_save_failed" = "Não foi possível acessar seus comentários. Tente novamente.";

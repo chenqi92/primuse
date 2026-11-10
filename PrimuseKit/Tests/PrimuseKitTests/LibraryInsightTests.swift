@@ -3,6 +3,20 @@ import Testing
 @testable import PrimuseKit
 
 struct LibraryInsightTests {
+    @Test func appleMusicEditorialNotesAreNeverWrittenBackToMusicSources() throws {
+        let subject = LibraryInsightSubject.album(title: "Paper Skies", artist: "Paper Lantern", year: nil, genres: [], tracks: [])
+        var record = try #require(LibraryInsightEditing.recordFromImport(summary: "Original fixture.", tags: [], subject: subject, id: "album", sourceLabel: "Apple Music", sourceURL: nil, previous: nil, now: Date()))
+        #expect(!record.permitsSourceWriteback)
+        record.isUserEdited = true
+        #expect(!record.permitsSourceWriteback)
+        record.importedFrom = "Other"
+        record.importedURL = URL(string: "https://music.apple.com/us/album/example/123")
+        #expect(!record.permitsSourceWriteback)
+        record.importedFrom = nil
+        record.importedURL = nil
+        #expect(record.permitsSourceWriteback)
+    }
+
     @Test func albumRequestIsClippedDedupedAndCapped() throws {
         let subject = LibraryInsightSubject.album(
             title: "  First   Love ",

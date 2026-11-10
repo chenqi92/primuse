@@ -49,6 +49,7 @@ final class LyricsCascadeScrollTests: XCTestCase {
             LyricsScrollView(
                 lyrics: lines, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
                 isResolvingLyrics: false, player: player, songID: "cascade-regression",
+                commentSongID: nil, commentAnchors: [:],
                 isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
                 isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
                 onBackgroundTap: {}, onShareLyricLine: { _ in },
@@ -137,6 +138,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         let content = LyricsScrollView(
             lyrics: lines, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
             isResolvingLyrics: false, player: player, songID: "interlude-focus",
+            commentSongID: nil, commentAnchors: [:],
             isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
             isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
             onBackgroundTap: {}, onShareLyricLine: { _ in },
@@ -496,6 +498,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
             lyrics: presentation.lines, showsSimulatedWordTiming: presentation.isSimulated,
             lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
             isResolvingLyrics: false, player: player, songID: "simulated-mid-song",
+            commentSongID: nil, commentAnchors: [:],
             isSceneActive: true, isScrapingCurrentSong: false, canTranscribeAudio: false,
             isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
             onBackgroundTap: {}, onShareLyricLine: { _ in },
