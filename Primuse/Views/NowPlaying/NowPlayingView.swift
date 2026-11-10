@@ -11551,6 +11551,18 @@ struct NowPlayingView: View {
     }
 
     private func setLyrics(_ value: [LyricLine]) {
+        // 同一首歌又拿到内容一样的歌词（本机先命中、服务端随后返回同一份）时不重排：
+        // lyricsRevision 一变，滚动位置和逐行跟随都会重置一遍，看起来就是歌词跳了一下。
+        // 行 id 每次解析都不同，按内容指纹和来源比较。
+        if !value.isEmpty,
+           lyricsSongID != nil,
+           lyricsSongID == player.currentSong?.id,
+           value.first?.documentSource == lyrics.first?.documentSource,
+           LyricsDocumentFingerprint(lines: value) == LyricsDocumentFingerprint(lines: lyrics) {
+            clearLyricsResolution()
+            consumePendingLyricsJump(from: lyrics)
+            return
+        }
         clearLyricsResolution()
         lyricsWritingDirection = LyricWritingDirectionPolicy.resolve(in: value)
         lyrics = value
