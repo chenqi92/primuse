@@ -742,6 +742,16 @@ public enum ListeningIntentEngine {
     /// (the same cadence as other whole-library derivations).
     public static let refreshInterval: TimeInterval = 300
 
+    /// 按曲库规模放慢的节奏。几十万首的曲库整库算一遍要好几秒到二十几秒，补读标签、扫描时
+    /// 曲库一直在变，每五分钟算一遍会让设备一直发热；换源、跨天、听了一阵仍按原规则立即重算。
+    public static func refreshInterval(songCount: Int) -> TimeInterval {
+        switch songCount {
+        case ..<50_000: refreshInterval
+        case ..<150_000: 15 * 60
+        default: 30 * 60
+        }
+    }
+
     /// Recompute when the library moved on and the last pass is old enough,
     /// or when there has never been one.
     public static func shouldRefresh(

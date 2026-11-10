@@ -335,6 +335,7 @@ extension ListeningProfile {
             guard components.count >= 2 else { return }
             let depth = min(ListeningProfile.folderMaximumDepth, components.count - 1)
             let albumKey = song.albumID ?? ListeningTextKey.folded(song.albumTitle)
+            let artistName = artistKey.isEmpty ? nil : artists[artistKey]?.name
             var path = ""
             for level in 0..<depth {
                 path = level == 0 ? String(components[0]) : path + "/" + components[level]
@@ -342,19 +343,31 @@ extension ListeningProfile {
                 if folderScopes[key] == nil {
                     folderScopes[key] = ListeningFolderScope(sourceID: sourceID, path: path)
                 }
-                var tally = folders[key] ?? FolderTally()
-                tally.songs += 1
-                tally.plays += plays
-                tally.familyMask |= mask
-                if !albumKey.isEmpty, tally.albums.count < ListeningProfile.folderMinimumAlbums,
-                   !tally.albums.contains(albumKey) {
-                    tally.albums.append(albumKey)
-                }
-                if !artistKey.isEmpty, tally.artists[artistKey] != nil || tally.artists.count < 12 {
-                    tally.artists[artistKey, default: 0] += 1
-                    if tally.artistNames[artistKey] == nil { tally.artistNames[artistKey] = artists[artistKey]?.name }
-                }
-                folders[key] = tally
+                // 直接在字典里那一份上改。取出副本改完再写回时，副本和字典共用里面的数组、字典，
+                // 每首歌每层目录都要整份复制一次。
+                Self.tally(&folders[key, default: FolderTally()], plays: plays, mask: mask,
+                           albumKey: albumKey, artistKey: artistKey, artistName: artistName)
+            }
+        }
+
+        private static func tally(
+            _ tally: inout FolderTally,
+            plays: Int,
+            mask: UInt16,
+            albumKey: String,
+            artistKey: String,
+            artistName: String?
+        ) {
+            tally.songs += 1
+            tally.plays += plays
+            tally.familyMask |= mask
+            if !albumKey.isEmpty, tally.albums.count < ListeningProfile.folderMinimumAlbums,
+               !tally.albums.contains(albumKey) {
+                tally.albums.append(albumKey)
+            }
+            if !artistKey.isEmpty, tally.artists[artistKey] != nil || tally.artists.count < 12 {
+                tally.artists[artistKey, default: 0] += 1
+                if tally.artistNames[artistKey] == nil { tally.artistNames[artistKey] = artistName }
             }
         }
 

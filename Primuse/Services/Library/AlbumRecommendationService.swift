@@ -120,7 +120,8 @@ final class AlbumRecommendationService {
             // The library moved on: rebuild, but not more often than the
             // other whole-library derivations while a scan keeps it moving.
             return index.candidates.isEmpty
-                || now.timeIntervalSince(indexBuiltAt ?? .distantPast) >= ListeningIntentEngine.refreshInterval
+                || now.timeIntervalSince(indexBuiltAt ?? .distantPast)
+                    >= ListeningIntentEngine.refreshInterval(songCount: library.musicSongs.count)
         } ?? true
         let picksAreStale = forcePicksOnNextRefresh
             || recommendations == nil

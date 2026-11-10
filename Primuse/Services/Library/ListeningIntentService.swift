@@ -138,19 +138,20 @@ final class ListeningIntentService {
         refreshSmartPlaylists(library: library)
         updateRankingIfNeeded(now: now)
         let generation = library.musicSongsRevision
+        let interval = ListeningIntentEngine.refreshInterval(songCount: library.musicSongs.count)
         // 停用集合与 `musicSongs` 在同一拍里换上,看到集合变了时数组已经是新的。
         let disabledSourceIDs = library.disabledSourceIDs
         let sourcesChanged = disabledSourceIDs != countedDisabledSourceIDs
         let historyCount = PlayHistoryStore.shared.entries.count
-        // 听了一阵之后按新的收听重排,但同样守五分钟的节流。
+        // 听了一阵之后按新的收听重排,但同样守节流。
         let listenedMore = Self.computesPersonalIntents
             && historyCount - countedHistoryCount >= Self.historyGrowthForRefresh
-            && availability.map { now.timeIntervalSince($0.computedAt) >= ListeningIntentEngine.refreshInterval } ?? true
+            && availability.map { now.timeIntervalSince($0.computedAt) >= interval } ?? true
         if let last = availability, !sourcesChanged, !forcesNextRefresh, !listenedMore,
-           !needsRefresh(last, generation: generation, now: now) {
+           !needsRefresh(last, generation: generation, now: now, interval: interval) {
             if last.libraryGeneration != generation {
-                // 曲库还在变但离上次不到五分钟:到点再补一次,免得扫描停下后一直停在旧数。
-                scheduleDeferredRefresh(after: ListeningIntentEngine.refreshInterval - now.timeIntervalSince(last.computedAt))
+                // 曲库还在变但离上次不到一个节拍:到点再补一次,免得扫描停下后一直停在旧数。
+                scheduleDeferredRefresh(after: interval - now.timeIntervalSince(last.computedAt))
             }
             return
         }
@@ -240,10 +241,12 @@ final class ListeningIntentService {
         )
     }
 
-    private func needsRefresh(_ last: ListeningIntentAvailability, generation: UInt64, now: Date) -> Bool {
+    private func needsRefresh(
+        _ last: ListeningIntentAvailability, generation: UInt64, now: Date, interval: TimeInterval
+    ) -> Bool {
         // 「新加的」「很久没听的」按天数算:跨了一天就重算,哪怕曲库没变。
         if !Calendar.current.isDate(last.computedAt, inSameDayAs: now) { return true }
-        return ListeningIntentEngine.shouldRefresh(last: last, libraryGeneration: generation, now: now)
+        return ListeningIntentEngine.shouldRefresh(last: last, libraryGeneration: generation, now: now, interval: interval)
     }
 
     private func scheduleDeferredRefresh(after delay: TimeInterval) {

@@ -185,6 +185,20 @@ struct ListeningIntentTests {
         #expect(ListeningIntentEngine.shouldRefresh(last: last, libraryGeneration: 4, now: now.addingTimeInterval(301)))
     }
 
+    @Test("Large libraries recompute lighting less often while they keep changing")
+    func refreshCadenceScalesWithLibrarySize() {
+        #expect(ListeningIntentEngine.refreshInterval(songCount: 0) == ListeningIntentEngine.refreshInterval)
+        #expect(ListeningIntentEngine.refreshInterval(songCount: 49_999) == ListeningIntentEngine.refreshInterval)
+        #expect(ListeningIntentEngine.refreshInterval(songCount: 50_000) == 15 * 60)
+        #expect(ListeningIntentEngine.refreshInterval(songCount: 456_718) == 30 * 60)
+        let last = ListeningIntentAvailability(songCounts: [:], libraryGeneration: 3, computedAt: now)
+        let interval = ListeningIntentEngine.refreshInterval(songCount: 456_718)
+        #expect(!ListeningIntentEngine.shouldRefresh(last: last, libraryGeneration: 4,
+                                                     now: now.addingTimeInterval(301), interval: interval))
+        #expect(ListeningIntentEngine.shouldRefresh(last: last, libraryGeneration: 4,
+                                                    now: now.addingTimeInterval(interval + 1), interval: interval))
+    }
+
     @Test("An intent's queue is a bounded, seed-stable sample of matching songs")
     func queue() {
         var songs: [ListeningTestSong] = []
