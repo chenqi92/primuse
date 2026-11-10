@@ -98,6 +98,7 @@ struct PlaybackTimePitchProcessorTests {
         fixture.processor.reset()
         try fixture.scheduleSilence()
         try fixture.engine.start()
+        // crash-pattern: allow audio-player-node-play 离线渲染夹具，引擎刚启动成功、节点在夹具初始化时已接好
         fixture.player.play()
         let silence = try fixture.render(seconds: 0.3)
         #expect(silence.allSatisfy { abs($0) < 0.00001 })
@@ -130,12 +131,16 @@ struct PlaybackTimePitchProcessorTests {
                 engine.attach(timeDomain)
             }
             engine.attach(processor.spectralNode)
+            // crash-pattern: allow avaudioengine-connect 离线渲染夹具，整条链路统一用本夹具的标准格式
             engine.connect(player, to: processor.inputNode, format: format)
             if let timeDomain = processor.timeDomainNode {
+                // crash-pattern: allow avaudioengine-connect 同上，沿用夹具的标准格式
                 engine.connect(timeDomain, to: processor.spectralNode, format: format)
             }
+            // crash-pattern: allow avaudioengine-connect 同上，沿用夹具的标准格式
             engine.connect(processor.spectralNode, to: engine.mainMixerNode, format: format)
             try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
+            // crash-pattern: allow avaudioengine-connect 离线渲染已按同一格式开启
             engine.connect(engine.mainMixerNode, to: engine.outputNode, format: format)
             let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(input.count)))
             buffer.frameLength = buffer.frameCapacity
@@ -145,6 +150,7 @@ struct PlaybackTimePitchProcessorTests {
             player.scheduleBuffer(buffer)
             try scheduleSilence()
             try engine.start()
+            // crash-pattern: allow audio-player-node-play 离线渲染夹具，引擎刚启动成功、节点已接好
             player.play()
         }
 
