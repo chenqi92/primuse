@@ -7349,7 +7349,6 @@
 "lyrics_sources_cached" = "キャッシュ済みの歌詞";
 "lyrics_sources_transcript" = "文字起こし";
 "lyrics_sources_use" = "このソースを使用";
-"library_review_comment_marquee" = "コメントを1行でスクロール";
 "repeat_behavior_off" = "リピートなし";
 "repeat_behavior_play_once" = "1曲再生して停止";
 "repeat_behavior_track_by_track" = "1曲ずつ再生";

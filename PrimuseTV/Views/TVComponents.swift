@@ -119,12 +119,9 @@ struct TVSwitchRow: View {
 }
 
 struct TVLibraryReviewControl: View {
-    /// 评论单行横向慢慢滚动(电视设置里的开关)。关着照原样最多两行、放不下截断。
-    static let scrollsCommentKey = "primuse.tv.review.scrollsComment"
 
     @Environment(TVStore.self) private var store
     @AppStorage(LibraryReviewPreferences.enabledKey) private var isEnabled = false
-    @AppStorage(TVLibraryReviewControl.scrollsCommentKey) private var scrollsComment = false
 
     let subject: LibraryReviewSubject
     @State private var showsCommentEditor = false
@@ -163,16 +160,12 @@ struct TVLibraryReviewControl: View {
     /// 放得下就不滚。
     @ViewBuilder
     private func commentText(_ comment: String) -> some View {
-        if scrollsComment {
-            MarqueeText(
-                text: comment.split(whereSeparator: \.isNewline).joined(separator: "  "),
-                font: nil,
-                speed: 40,
-                pause: .seconds(2)
-            )
-        } else {
-            Text(verbatim: comment).lineLimit(2)
-        }
+        MarqueeText(
+            text: comment.split(whereSeparator: \.isNewline).joined(separator: "  "),
+            font: nil,
+            speed: 40,
+            pause: .seconds(2)
+        )
     }
 
     /// 用自绘焦点态代替 `.bordered`:tvOS 的系统按钮样式会盖一层白色平台层,

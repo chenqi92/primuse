@@ -7348,7 +7348,6 @@
 "lyrics_sources_cached" = "캐시된 가사";
 "lyrics_sources_transcript" = "전사문";
 "lyrics_sources_use" = "이 소스 사용";
-"library_review_comment_marquee" = "댓글을 한 줄로 스크롤";
 "repeat_behavior_off" = "반복 안 함";
 "repeat_behavior_play_once" = "한 곡 재생 후 정지";
 "repeat_behavior_track_by_track" = "한 곡씩 재생";

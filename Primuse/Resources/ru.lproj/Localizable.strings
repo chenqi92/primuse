@@ -7254,7 +7254,6 @@
 "lyrics_sources_cached" = "Кэшированный текст";
 "lyrics_sources_transcript" = "Расшифровка";
 "lyrics_sources_use" = "Использовать этот источник";
-"library_review_comment_marquee" = "Прокручивать комментарии в одну строку";
 "repeat_behavior_off" = "Без повтора";
 "repeat_behavior_play_once" = "Одна песня и стоп";
 "repeat_behavior_track_by_track" = "По одной песне";

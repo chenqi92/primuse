@@ -112,7 +112,6 @@ struct TVSettingsView: View {
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
-    @AppStorage(TVLibraryReviewControl.scrollsCommentKey) private var scrollsReviewComment = false
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAppIconPicker = false
@@ -383,14 +382,6 @@ struct TVSettingsView: View {
                                 String(localized: "library_review_feature_title"),
                                 isOn: $ratingsAndCommentsEnabled
                             )
-                            if ratingsAndCommentsEnabled {
-                                settingDivider
-                                toggleRow(
-                                    "text.line.first.and.arrowtriangle.forward",
-                                    String(localized: "library_review_comment_marquee"),
-                                    isOn: $scrollsReviewComment
-                                )
-                            }
                             settingDivider
                             navRow("arrow.clockwise", String(localized: "metadata"), PMString("tv_metadata_reread")) {
                                 showsMetadata = true
