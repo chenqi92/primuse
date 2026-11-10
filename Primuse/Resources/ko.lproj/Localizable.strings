@@ -7117,10 +7117,17 @@
 "library_insight_lastfm_failed" = "Last.fm에서 가져오지 못했습니다. 나중에 다시 시도하세요.";
 "library_insight_lastfm_replace_title" = "소개를 바꾸겠습니까?";
 "library_insight_lastfm_replace_message" = "소개와 스타일 태그가 Last.fm의 내용으로 바뀝니다.";
+"library_insight_wikipedia_fetch" = "MusicBrainz에서 가져오기";
+"library_insight_wikipedia_fetching" = "MusicBrainz에서 가져오는 중…";
+"library_insight_wikipedia_empty" = "MusicBrainz에서 해당 소개를 찾을 수 없습니다.";
+"library_insight_wikipedia_failed" = "MusicBrainz에서 가져오지 못했습니다. 나중에 다시 시도하세요.";
+"library_insight_wikipedia_unreachable" = "현재 네트워크에서는 이 소개를 가져올 수 없습니다.";
+"library_insight_wikipedia_replace_message" = "소개와 스타일 태그가 MusicBrainz에 연결된 백과사전 내용으로 바뀌며 출처가 표시됩니다.";
 "library_insight_apple_music_fetch" = "Apple Music에서 가져오기";
 "library_insight_apple_music_fetching" = "Apple Music에서 가져오는 중…";
 "library_insight_apple_music_empty" = "Apple Music에서 소개를 찾을 수 없습니다.";
 "library_insight_apple_music_failed" = "Apple Music에서 가져오지 못했습니다. 나중에 다시 시도하세요.";
+"library_insight_apple_music_only" = "Apple Music의 앨범과 아티스트만 Apple Music에서 소개를 가져올 수 있습니다.";
 "library_insight_apple_music_replace_title" = "소개를 바꾸겠습니까?";
 "library_insight_apple_music_replace_message" = "소개와 스타일 태그가 Apple Music의 내용으로 바뀝니다.";
 "song_file_rename_busy" = "전송이나 곡 전환이 끝난 후 파일 이름을 변경하세요.";

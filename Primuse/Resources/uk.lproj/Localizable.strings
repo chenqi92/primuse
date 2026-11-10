@@ -7023,10 +7023,17 @@
 "library_insight_lastfm_failed" = "Не вдалося завантажити дані з Last.fm. Спробуйте пізніше.";
 "library_insight_lastfm_replace_title" = "Замінити опис?";
 "library_insight_lastfm_replace_message" = "Опис і теги стилю буде замінено вмістом із Last.fm.";
+"library_insight_wikipedia_fetch" = "Отримати з MusicBrainz";
+"library_insight_wikipedia_fetching" = "Отримання з MusicBrainz…";
+"library_insight_wikipedia_empty" = "Через MusicBrainz опис не знайдено.";
+"library_insight_wikipedia_failed" = "Не вдалося отримати з MusicBrainz. Спробуйте пізніше.";
+"library_insight_wikipedia_unreachable" = "У цій мережі цей опис недоступний.";
+"library_insight_wikipedia_replace_message" = "Опис і теги стилю буде замінено енциклопедичним текстом, пов’язаним із MusicBrainz, із зазначенням джерела.";
 "library_insight_apple_music_fetch" = "Завантажити з Apple Music";
 "library_insight_apple_music_fetching" = "Завантаження з Apple Music…";
 "library_insight_apple_music_empty" = "Опис у Apple Music не знайдено.";
 "library_insight_apple_music_failed" = "Не вдалося завантажити дані з Apple Music. Спробуйте пізніше.";
+"library_insight_apple_music_only" = "Опис з Apple Music доступний лише для альбомів і виконавців з Apple Music.";
 "library_insight_apple_music_replace_title" = "Замінити опис?";
 "library_insight_apple_music_replace_message" = "Опис і теги стилю буде замінено вмістом із Apple Music.";
 "song_file_rename_busy" = "Завершіть трансляцію або перехід між треками перед перейменуванням файлу.";

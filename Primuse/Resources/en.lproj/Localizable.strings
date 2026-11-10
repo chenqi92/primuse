@@ -6878,10 +6878,17 @@
 "library_insight_lastfm_failed" = "Could not fetch from Last.fm. Try again later.";
 "library_insight_lastfm_replace_title" = "Replace Introduction?";
 "library_insight_lastfm_replace_message" = "The introduction and style tags will be replaced with content from Last.fm.";
+"library_insight_wikipedia_fetch" = "Fetch from MusicBrainz";
+"library_insight_wikipedia_fetching" = "Fetching from MusicBrainz…";
+"library_insight_wikipedia_empty" = "No introduction found via MusicBrainz.";
+"library_insight_wikipedia_failed" = "Could not fetch from MusicBrainz. Try again later.";
+"library_insight_wikipedia_unreachable" = "This introduction can’t be reached on this network.";
+"library_insight_wikipedia_replace_message" = "The introduction and style tags will be replaced with the encyclopedia text linked from MusicBrainz, with the source credited.";
 "library_insight_apple_music_fetch" = "Fetch from Apple Music";
 "library_insight_apple_music_fetching" = "Fetching from Apple Music…";
 "library_insight_apple_music_empty" = "No introduction found on Apple Music.";
 "library_insight_apple_music_failed" = "Could not fetch from Apple Music. Try again later.";
+"library_insight_apple_music_only" = "Only albums and artists from Apple Music can fetch an introduction from Apple Music.";
 "library_insight_apple_music_replace_title" = "Replace Introduction?";
 "library_insight_apple_music_replace_message" = "The introduction and style tags will be replaced with content from Apple Music.";
 "song_file_rename_busy" = "Finish casting or the track transition before renaming this file.";

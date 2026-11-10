@@ -19,6 +19,7 @@ struct TVLibraryInsightBlock: View {
     @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var summaryOverflows = false
     @State private var confirmsLastFm = false
+    @State private var confirmsWikipedia = false
     @State private var confirmsAppleMusic = false
 
     private var store: LibraryInsightStore { .shared }
@@ -76,6 +77,15 @@ struct TVLibraryInsightBlock: View {
                     Text("library_insight_lastfm_replace_message")
                 }
                 .confirmationDialog(
+                    String(localized: "library_insight_lastfm_replace_title"),
+                    isPresented: $confirmsWikipedia, titleVisibility: .visible
+                ) {
+                    Button("library_insight_wikipedia_fetch", role: .destructive) { fetchWikipedia() }
+                    Button("cancel", role: .cancel) {}
+                } message: {
+                    Text("library_insight_wikipedia_replace_message")
+                }
+                .confirmationDialog(
                     String(localized: "library_insight_apple_music_replace_title"),
                     isPresented: $confirmsAppleMusic, titleVisibility: .visible
                 ) {
@@ -89,6 +99,10 @@ struct TVLibraryInsightBlock: View {
                         .disabled(store.isGenerating(subject))
                     Button("library_insight_lastfm_fetch", systemImage: "arrow.down.circle") {
                         if showsSynopsis { confirmsLastFm = true } else { fetchLastFm() }
+                    }
+                    .disabled(store.isGenerating(subject))
+                    Button("library_insight_wikipedia_fetch", systemImage: "book.closed") {
+                        if showsSynopsis { confirmsWikipedia = true } else { fetchWikipedia() }
                     }
                     .disabled(store.isGenerating(subject))
                     if subject.kind == .artist {
@@ -128,6 +142,10 @@ struct TVLibraryInsightBlock: View {
                     }
                     TVPillButton(title: String(localized: "library_insight_lastfm_fetch"), systemImage: "arrow.down.circle") {
                         fetchLastFm()
+                    }
+                    .disabled(store.isGenerating(subject))
+                    TVPillButton(title: String(localized: "library_insight_wikipedia_fetch"), systemImage: "book.closed") {
+                        fetchWikipedia()
                     }
                     .disabled(store.isGenerating(subject))
                 }
@@ -331,6 +349,10 @@ struct TVLibraryInsightBlock: View {
 
     private func fetchAppleMusic() {
         Task { await store.fetchAppleMusic(subject, library: tvStore.library) }
+    }
+
+    private func fetchWikipedia() {
+        Task { await store.fetchWikipedia(subject, library: tvStore.library) }
     }
 }
 
@@ -625,11 +647,25 @@ struct TVLibraryInsightEditor: View {
                     }
                 }
                 .disabled(store.isGenerating(subject))
+                TVPillButton(title: String(localized: "library_insight_wikipedia_fetch"), systemImage: "book.closed") {
+                    Task {
+                        fetchMessage = nil
+                        if let draft = await store.wikipediaDraft(for: subject) {
+                            importedDraft = draft
+                            summary = draft.summary
+                            tagText = LibraryInsightEditing.tagText(draft.tags)
+                        } else {
+                            fetchMessage = store.importFailure(for: subject)
+                            store.clearFailure(for: subject)
+                        }
+                    }
+                }
+                .disabled(store.isGenerating(subject))
                 if subject.kind == .artist {
                     TVPillButton(title: String(localized: "library_insight_apple_music_fetch"), systemImage: "applelogo") {
                         Task {
                             fetchMessage = nil
-                            if let draft = await store.appleMusicDraft(for: subject) {
+                            if let draft = await store.appleMusicDraft(for: subject, library: library) {
                                 importedDraft = draft
                                 summary = draft.summary
                                 tagText = LibraryInsightEditing.tagText(draft.tags)

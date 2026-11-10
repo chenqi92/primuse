@@ -7094,10 +7094,17 @@
 "library_insight_lastfm_failed" = "無法從 Last.fm 取得，請稍後再試。";
 "library_insight_lastfm_replace_title" = "取代簡介？";
 "library_insight_lastfm_replace_message" = "現有簡介和風格標籤將替換為 Last.fm 的內容。";
+"library_insight_wikipedia_fetch" = "從 MusicBrainz 取得";
+"library_insight_wikipedia_fetching" = "正在從 MusicBrainz 取得…";
+"library_insight_wikipedia_empty" = "MusicBrainz 暫無相關簡介。";
+"library_insight_wikipedia_failed" = "從 MusicBrainz 取得失敗，請稍後再試。";
+"library_insight_wikipedia_unreachable" = "目前的網路無法取得這份簡介。";
+"library_insight_wikipedia_replace_message" = "現有簡介和風格標籤將替換為 MusicBrainz 關聯的百科內容，並註明來源。";
 "library_insight_apple_music_fetch" = "從 Apple Music 取得";
 "library_insight_apple_music_fetching" = "正在從 Apple Music 取得…";
 "library_insight_apple_music_empty" = "Apple Music 暫無相關簡介。";
 "library_insight_apple_music_failed" = "無法從 Apple Music 取得，請稍後再試。";
+"library_insight_apple_music_only" = "只有 Apple Music 裡的專輯和歌手可以從 Apple Music 取得簡介。";
 "library_insight_apple_music_replace_title" = "取代簡介？";
 "library_insight_apple_music_replace_message" = "現有簡介和風格標籤將替換為 Apple Music 的內容。";
 "song_file_rename_busy" = "請在投放或歌曲轉場結束後重新命名此檔案。";

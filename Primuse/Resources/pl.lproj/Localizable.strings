@@ -7023,10 +7023,17 @@
 "library_insight_lastfm_failed" = "Nie udało się pobrać z Last.fm. Spróbuj ponownie później.";
 "library_insight_lastfm_replace_title" = "Zastąpić opis?";
 "library_insight_lastfm_replace_message" = "Opis i tagi stylu zostaną zastąpione treścią z Last.fm.";
+"library_insight_wikipedia_fetch" = "Pobierz z MusicBrainz";
+"library_insight_wikipedia_fetching" = "Pobieranie z MusicBrainz…";
+"library_insight_wikipedia_empty" = "Nie znaleziono opisu przez MusicBrainz.";
+"library_insight_wikipedia_failed" = "Nie udało się pobrać z MusicBrainz. Spróbuj ponownie później.";
+"library_insight_wikipedia_unreachable" = "W tej sieci ten opis jest niedostępny.";
+"library_insight_wikipedia_replace_message" = "Opis i tagi stylu zostaną zastąpione tekstem encyklopedycznym powiązanym z MusicBrainz, z podaniem źródła.";
 "library_insight_apple_music_fetch" = "Pobierz z Apple Music";
 "library_insight_apple_music_fetching" = "Pobieranie z Apple Music…";
 "library_insight_apple_music_empty" = "Nie znaleziono opisu w Apple Music.";
 "library_insight_apple_music_failed" = "Nie udało się pobrać z Apple Music. Spróbuj ponownie później.";
+"library_insight_apple_music_only" = "Opis z Apple Music można pobrać tylko dla albumów i wykonawców z Apple Music.";
 "library_insight_apple_music_replace_title" = "Zastąpić opis?";
 "library_insight_apple_music_replace_message" = "Opis i tagi stylu zostaną zastąpione treścią z Apple Music.";
 "song_file_rename_busy" = "Zakończ przesyłanie lub przejście między utworami przed zmianą nazwy pliku.";

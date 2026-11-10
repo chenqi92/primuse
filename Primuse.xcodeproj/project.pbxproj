@@ -203,6 +203,7 @@
 		1605D2F9A4BA223992D18D5F /* ListeningSpaceStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F838D6F0318995192A0A2F0 /* ListeningSpaceStyle.swift */; };
 		1611FB4C869114C2F4A89055 /* FTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 897589F6CC0B07E015D9F27C /* FTPBrowserView.swift */; };
 		1624163A651DE180304002E5 /* LastFmLibraryInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 291658F946F9B680DE8457B3 /* LastFmLibraryInsight.swift */; };
+		B29FEDB2CE45C72E5E82BB18 /* WikipediaInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F40EE83AAED17A17246BF69 /* WikipediaInsight.swift */; };
 		16467426E78BA019E868D55F /* TVAppleMusicPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 443971CF753A492BC97AB2AD /* TVAppleMusicPlayer.swift */; };
 		165DCCED02C00B5F54C6CC1C /* ListeningHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D739C51C2927EA6E4F23A9 /* ListeningHistoryView.swift */; };
 		16838983E4D9B322BCDFB2D7 /* SourceAddressInputPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14EF60E0BB79FBBE31FE5AA /* SourceAddressInputPolicy.swift */; };
@@ -2848,6 +2849,7 @@
 		28A37616CE1A90B75D777D47 /* AppleMusicAlbumCompletionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicAlbumCompletionPolicy.swift; sourceTree = "<group>"; };
 		28EE6B136CE82FFC872F9E86 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		291658F946F9B680DE8457B3 /* LastFmLibraryInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastFmLibraryInsight.swift; sourceTree = "<group>"; };
+		7F40EE83AAED17A17246BF69 /* WikipediaInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikipediaInsight.swift; sourceTree = "<group>"; };
 		291FDF1C384E333B90E3337E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		29281CC03025CD5519BC481C /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneRelayServer.swift; sourceTree = "<group>"; };
@@ -4819,6 +4821,7 @@
 				B98E3B3E433D066686B99DE6 /* KaraokeWordTiming.swift */,
 				C886146364848C1D5139C0CD /* KeyedRunRegistry.swift */,
 				291658F946F9B680DE8457B3 /* LastFmLibraryInsight.swift */,
+				7F40EE83AAED17A17246BF69 /* WikipediaInsight.swift */,
 				B2E10701E146DC4195C7CAC4 /* LegacyAudioCacheMigrationPolicy.swift */,
 				A65DEADDA6A0296E8A521E82 /* LibraryDerivedRefreshPolicy.swift */,
 				8B11045F68E8DA6DE3DCBB4A /* LibraryDetailTintPolicy.swift */,
@@ -7447,6 +7450,7 @@
 				E36B48332A45BC06F4722959 /* LANSettingsTransfer.swift in Sources */,
 				72DE4A2D47DAEB67BBDB4492 /* LANSync.swift in Sources */,
 				1624163A651DE180304002E5 /* LastFmLibraryInsight.swift in Sources */,
+				B29FEDB2CE45C72E5E82BB18 /* WikipediaInsight.swift in Sources */,
 				3A447F9292183A2E25B9F7D5 /* LegacyAudioCacheMigrationPolicy.swift in Sources */,
 				0117BCF5A8E19A2E8916DBF2 /* LibraryBrowseIndex.swift in Sources */,
 				85F22D4B2D3C1F66ADBD108D /* LibraryDerivedRefreshPolicy.swift in Sources */,

@@ -36,9 +36,14 @@ struct LibraryInsightActions {
         }
     }
 
+    /// 维基百科的文字要带着来源,不写回音乐源。
+    func fetchWikipedia() {
+        Task { await store.fetchWikipedia(subject, library: library) }
+    }
+
     func fetchAppleMusic() {
         Task {
-            if await store.fetchAppleMusic(subject, library: library) { writeBack() }
+            await store.fetchAppleMusic(subject, library: library)
         }
     }
 
@@ -108,6 +113,7 @@ struct LibraryInsightSynopsis: View {
     @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var confirmsRegenerate = false
     @State private var confirmsLastFm = false
+    @State private var confirmsWikipedia = false
     @State private var confirmsAppleMusic = false
     @State private var isExpanded = false
     @State private var collapsedTextHeight: CGFloat = 0
@@ -202,6 +208,16 @@ struct LibraryInsightSynopsis: View {
                         Button("cancel", role: .cancel) {}
                     } message: {
                         Text("library_insight_lastfm_replace_message")
+                    }
+                    .confirmationDialog(
+                        Text("library_insight_lastfm_replace_title"),
+                        isPresented: $confirmsWikipedia,
+                        titleVisibility: .visible
+                    ) {
+                        Button("library_insight_wikipedia_fetch", role: .destructive) { actions.fetchWikipedia() }
+                        Button("cancel", role: .cancel) {}
+                    } message: {
+                        Text("library_insight_wikipedia_replace_message")
                     }
                     .builtInAIConsentSheet($builtInConsent)
                     .confirmationDialog(
@@ -439,6 +455,12 @@ struct LibraryInsightSynopsis: View {
             Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
         }
         .disabled(store.isGenerating(subject))
+        Button {
+            confirmsWikipedia = true
+        } label: {
+            Label("library_insight_wikipedia_fetch", systemImage: "book.closed")
+        }
+        .disabled(store.isGenerating(subject))
         if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
             Button {
                 confirmsAppleMusic = true
@@ -486,6 +508,7 @@ struct LibraryInsightSynopsis: View {
                         .disabled(store.retryDate(for: subject) != nil)
                 }
                 chip("library_insight_lastfm_fetch", systemImage: "arrow.down.circle") { actions.fetchLastFm() }
+                chip("library_insight_wikipedia_fetch", systemImage: "book.closed") { actions.fetchWikipedia() }
                 if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
                     chip("library_insight_apple_music_fetch", systemImage: "applelogo") { actions.fetchAppleMusic() }
                 }
@@ -526,6 +549,11 @@ struct LibraryInsightSynopsis: View {
                     actions.fetchLastFm()
                 } label: {
                     Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
+                }
+                Button {
+                    actions.fetchWikipedia()
+                } label: {
+                    Label("library_insight_wikipedia_fetch", systemImage: "book.closed")
                 }
                 if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
                     Button {
@@ -786,6 +814,10 @@ struct LibraryInsightEditorSheet: View {
                     Label("library_insight_lastfm_fetch", systemImage: "arrow.down.circle")
                 }
                 .disabled(isFilling || store.isGenerating(subject))
+                Button(action: fillFromWikipedia) {
+                    Label("library_insight_wikipedia_fetch", systemImage: "book.closed")
+                }
+                .disabled(isFilling || store.isGenerating(subject))
                 if LibraryInsightStore.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])) {
                     Button(action: fillFromAppleMusic) {
                         Label("library_insight_apple_music_fetch", systemImage: "applelogo")
@@ -877,6 +909,23 @@ struct LibraryInsightEditorSheet: View {
         }
     }
 
+    private func fillFromWikipedia() {
+        aiMessage = nil
+        isFilling = true
+        Task {
+            defer { isFilling = false }
+            guard let draft = await store.wikipediaDraft(for: subject) else {
+                aiMessage = store.importFailure(for: subject)
+                store.clearFailure(for: subject)
+                return
+            }
+            importedDraft = draft
+            aiDraft = nil
+            summary = draft.summary
+            tagText = LibraryInsightEditing.tagText(draft.tags)
+        }
+    }
+
     private func fillFromLastFm() {
         aiMessage = nil
         isFilling = true
@@ -899,7 +948,7 @@ struct LibraryInsightEditorSheet: View {
         isFilling = true
         Task {
             defer { isFilling = false }
-            guard let draft = await store.appleMusicDraft(for: subject) else {
+            guard let draft = await store.appleMusicDraft(for: subject, library: library) else {
                 aiMessage = store.importFailure(for: subject)
                 store.clearFailure(for: subject)
                 return

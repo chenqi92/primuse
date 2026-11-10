@@ -7023,10 +7023,17 @@
 "library_insight_lastfm_failed" = "ดึงข้อมูลจาก Last.fm ไม่สำเร็จ โปรดลองอีกครั้งภายหลัง";
 "library_insight_lastfm_replace_title" = "แทนที่คำแนะนำหรือไม่";
 "library_insight_lastfm_replace_message" = "คำแนะนำและแท็กสไตล์จะถูกแทนที่ด้วยเนื้อหาจาก Last.fm";
+"library_insight_wikipedia_fetch" = "ดึงจาก MusicBrainz";
+"library_insight_wikipedia_fetching" = "กำลังดึงจาก MusicBrainz…";
+"library_insight_wikipedia_empty" = "ไม่พบคำแนะนำผ่าน MusicBrainz";
+"library_insight_wikipedia_failed" = "ดึงจาก MusicBrainz ไม่สำเร็จ โปรดลองอีกครั้งภายหลัง";
+"library_insight_wikipedia_unreachable" = "เครือข่ายนี้ไม่สามารถดึงคำแนะนำนี้ได้";
+"library_insight_wikipedia_replace_message" = "คำแนะนำและแท็กสไตล์จะถูกแทนที่ด้วยเนื้อหาสารานุกรมที่เชื่อมโยงจาก MusicBrainz พร้อมระบุแหล่งที่มา";
 "library_insight_apple_music_fetch" = "ดึงข้อมูลจาก Apple Music";
 "library_insight_apple_music_fetching" = "กำลังดึงข้อมูลจาก Apple Music…";
 "library_insight_apple_music_empty" = "ไม่พบคำแนะนำบน Apple Music";
 "library_insight_apple_music_failed" = "ดึงข้อมูลจาก Apple Music ไม่สำเร็จ โปรดลองอีกครั้งภายหลัง";
+"library_insight_apple_music_only" = "เฉพาะอัลบั้มและศิลปินจาก Apple Music เท่านั้นที่ดึงคำแนะนำจาก Apple Music ได้";
 "library_insight_apple_music_replace_title" = "แทนที่คำแนะนำหรือไม่";
 "library_insight_apple_music_replace_message" = "คำแนะนำและแท็กสไตล์จะถูกแทนที่ด้วยเนื้อหาจาก Apple Music";
 "song_file_rename_busy" = "รอให้การแคสต์หรือการเปลี่ยนเพลงสิ้นสุดก่อนเปลี่ยนชื่อไฟล์";

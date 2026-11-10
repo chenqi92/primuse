@@ -7117,10 +7117,17 @@
 "library_insight_lastfm_failed" = "Impossible de récupérer le contenu de Last.fm. Réessayez plus tard.";
 "library_insight_lastfm_replace_title" = "Remplacer la présentation ?";
 "library_insight_lastfm_replace_message" = "La présentation et les tags de style seront remplacés par le contenu de Last.fm.";
+"library_insight_wikipedia_fetch" = "Récupérer depuis MusicBrainz";
+"library_insight_wikipedia_fetching" = "Récupération depuis MusicBrainz…";
+"library_insight_wikipedia_empty" = "Aucune présentation trouvée via MusicBrainz.";
+"library_insight_wikipedia_failed" = "Impossible de récupérer depuis MusicBrainz. Réessayez plus tard.";
+"library_insight_wikipedia_unreachable" = "Cette présentation est inaccessible sur ce réseau.";
+"library_insight_wikipedia_replace_message" = "La présentation et les tags de style seront remplacés par le texte encyclopédique lié depuis MusicBrainz, avec mention de la source.";
 "library_insight_apple_music_fetch" = "Récupérer depuis Apple Music";
 "library_insight_apple_music_fetching" = "Récupération depuis Apple Music…";
 "library_insight_apple_music_empty" = "Aucune présentation trouvée sur Apple Music.";
 "library_insight_apple_music_failed" = "Impossible de récupérer le contenu de Apple Music. Réessayez plus tard.";
+"library_insight_apple_music_only" = "Seuls les albums et artistes d’Apple Music peuvent récupérer une présentation depuis Apple Music.";
 "library_insight_apple_music_replace_title" = "Remplacer la présentation ?";
 "library_insight_apple_music_replace_message" = "La présentation et les tags de style seront remplacés par le contenu de Apple Music.";
 "song_file_rename_busy" = "Terminez la diffusion ou la transition entre les titres avant de renommer ce fichier.";

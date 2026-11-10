@@ -41,7 +41,7 @@ final class AppleMusicLibraryInsightTests: XCTestCase {
             { _ in throw AppleMusicCatalogNeighbors.ArtistInsightError.authorizationRequired }
         ]
         for lookup in lookups {
-            let store = LibraryInsightStore(appleMusicLookup: lookup)
+            let store = LibraryInsightStore(isAppleMusicContent: { _, _ in true }, appleMusicLookup: lookup)
             store.saveEdit(subject, summary: "My introduction", tags: ["Jazz"], aiDraft: nil, library: library)
             let before = store.record(for: subject, in: library)
             let saved = await store.fetchAppleMusic(subject, library: library)
@@ -60,7 +60,7 @@ final class AppleMusicLibraryInsightTests: XCTestCase {
         let library = MusicLibrary(storageDirectory: directory)
         let draft = LibraryInsightImportedDraft(summary: "An original artist introduction.", tags: ["Pop"],
                                                sourceLabel: "Apple Music", sourceURL: sourceURL)
-        let store = LibraryInsightStore(appleMusicLookup: { _ in draft })
+        let store = LibraryInsightStore(isAppleMusicContent: { _, _ in true }, appleMusicLookup: { _ in draft })
         let saved = await store.fetchAppleMusic(subject, library: library)
         XCTAssertTrue(saved)
         let record = try XCTUnwrap(store.record(for: subject, in: library))
@@ -88,7 +88,7 @@ final class AppleMusicLibraryInsightTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let library = MusicLibrary(storageDirectory: directory)
         let subject = subject
-        let store = LibraryInsightStore(appleMusicLookup: { _ in
+        let store = LibraryInsightStore(isAppleMusicContent: { _, _ in true }, appleMusicLookup: { _ in
             await MainActor.run {
                 LibraryInsightStore.shared.saveEdit(subject, summary: "New manual edit", tags: [], aiDraft: nil, library: library)
             }
@@ -101,16 +101,17 @@ final class AppleMusicLibraryInsightTests: XCTestCase {
     }
 
     func testCancellationReleasesBusyStateAndPreventsConcurrentImports() async throws {
-        let store = LibraryInsightStore(appleMusicLookup: { _ in
+        let store = LibraryInsightStore(isAppleMusicContent: { _, _ in true }, appleMusicLookup: { _ in
             try await Task.sleep(for: .seconds(30))
             return LibraryInsightImportedDraft(summary: "Cancelled result", tags: [], sourceLabel: "Apple Music")
         })
         let subject = subject
-        let task = Task { await store.appleMusicDraft(for: subject) }
+        let library = MusicLibrary(storageDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let task = Task { await store.appleMusicDraft(for: subject, library: library) }
         for _ in 0..<100 where !store.isFetchingImport(subject) { await Task.yield() }
         XCTAssertTrue(store.isFetchingImport(subject))
         XCTAssertFalse(store.beginBatchGeneration(subject))
-        let duplicate = await store.appleMusicDraft(for: subject)
+        let duplicate = await store.appleMusicDraft(for: subject, library: library)
         XCTAssertNil(duplicate)
         task.cancel()
         let cancelled = await task.value
@@ -121,12 +122,14 @@ final class AppleMusicLibraryInsightTests: XCTestCase {
     }
 
     func testAlbumAndPlaceholderArtistDoNotStartLookup() async {
-        let store = LibraryInsightStore(appleMusicLookup: { _ in
+        let store = LibraryInsightStore(isAppleMusicContent: { _, _ in true }, appleMusicLookup: { _ in
             XCTFail("Unsupported subjects must not start a catalog request")
             return nil
         })
-        let album = await store.appleMusicDraft(for: .album(title: "Album", artist: "Artist", year: nil, genres: [], tracks: []))
-        let unknown = await store.appleMusicDraft(for: .artist(name: " ", genres: [], albums: [], tracks: []))
+        let library = MusicLibrary(storageDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let album = await store.appleMusicDraft(
+            for: .album(title: "Album", artist: "Artist", year: nil, genres: [], tracks: []), library: library)
+        let unknown = await store.appleMusicDraft(for: .artist(name: " ", genres: [], albums: [], tracks: []), library: library)
         XCTAssertNil(album)
         XCTAssertNil(unknown)
     }

@@ -7023,10 +7023,17 @@
 "library_insight_lastfm_failed" = "تعذر الجلب من Last.fm. حاول لاحقًا.";
 "library_insight_lastfm_replace_title" = "استبدال النبذة؟";
 "library_insight_lastfm_replace_message" = "سيتم استبدال النبذة ووسوم الأسلوب بمحتوى من Last.fm.";
+"library_insight_wikipedia_fetch" = "جلب من MusicBrainz";
+"library_insight_wikipedia_fetching" = "جارٍ الجلب من MusicBrainz…";
+"library_insight_wikipedia_empty" = "لا توجد نبذة عبر MusicBrainz.";
+"library_insight_wikipedia_failed" = "تعذّر الجلب من MusicBrainz. حاول لاحقًا.";
+"library_insight_wikipedia_unreachable" = "يتعذّر جلب هذه النبذة على هذه الشبكة.";
+"library_insight_wikipedia_replace_message" = "سيتم استبدال النبذة ووسوم النمط بالنص الموسوعي المرتبط عبر MusicBrainz مع ذكر المصدر.";
 "library_insight_apple_music_fetch" = "جلب من Apple Music";
 "library_insight_apple_music_fetching" = "جارٍ الجلب من Apple Music…";
 "library_insight_apple_music_empty" = "لم يتم العثور على نبذة في Apple Music.";
 "library_insight_apple_music_failed" = "تعذر الجلب من Apple Music. حاول لاحقًا.";
+"library_insight_apple_music_only" = "يمكن جلب النبذة من Apple Music لألبومات وفناني Apple Music فقط.";
 "library_insight_apple_music_replace_title" = "استبدال النبذة؟";
 "library_insight_apple_music_replace_message" = "سيتم استبدال النبذة ووسوم الأسلوب بمحتوى من Apple Music.";
 "song_file_rename_busy" = "انتظر انتهاء البث أو الانتقال بين المقاطع قبل إعادة تسمية هذا الملف.";

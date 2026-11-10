@@ -7118,10 +7118,17 @@
 "library_insight_lastfm_failed" = "Last.fmから取得できませんでした。後でもう一度お試しください。";
 "library_insight_lastfm_replace_title" = "紹介文を置き換えますか？";
 "library_insight_lastfm_replace_message" = "紹介文とスタイルタグがLast.fmの内容に置き換わります。";
+"library_insight_wikipedia_fetch" = "MusicBrainz から取得";
+"library_insight_wikipedia_fetching" = "MusicBrainz から取得中…";
+"library_insight_wikipedia_empty" = "MusicBrainz に該当する紹介文が見つかりません。";
+"library_insight_wikipedia_failed" = "MusicBrainz から取得できませんでした。後でもう一度お試しください。";
+"library_insight_wikipedia_unreachable" = "このネットワークでは紹介文を取得できません。";
+"library_insight_wikipedia_replace_message" = "紹介文とスタイルタグを MusicBrainz に関連付けられた百科事典の内容に置き換え、出典を表示します。";
 "library_insight_apple_music_fetch" = "Apple Musicから取得";
 "library_insight_apple_music_fetching" = "Apple Musicから取得中…";
 "library_insight_apple_music_empty" = "Apple Musicに紹介文が見つかりません。";
 "library_insight_apple_music_failed" = "Apple Musicから取得できませんでした。後でもう一度お試しください。";
+"library_insight_apple_music_only" = "Apple Music から紹介文を取得できるのは、Apple Music のアルバムとアーティストだけです。";
 "library_insight_apple_music_replace_title" = "紹介文を置き換えますか？";
 "library_insight_apple_music_replace_message" = "紹介文とスタイルタグがApple Musicの内容に置き換わります。";
 "song_file_rename_busy" = "キャストまたは曲の切り替えが終わってから名前を変更してください。";

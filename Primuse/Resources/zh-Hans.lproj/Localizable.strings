@@ -7210,10 +7210,17 @@
 "library_insight_lastfm_failed" = "从 Last.fm 获取失败，请稍后重试。";
 "library_insight_lastfm_replace_title" = "替换简介？";
 "library_insight_lastfm_replace_message" = "现有简介和风格标签将替换为 Last.fm 的内容。";
+"library_insight_wikipedia_fetch" = "从 MusicBrainz 获取";
+"library_insight_wikipedia_fetching" = "正在从 MusicBrainz 获取…";
+"library_insight_wikipedia_empty" = "MusicBrainz 暂无相关简介。";
+"library_insight_wikipedia_failed" = "从 MusicBrainz 获取失败，请稍后重试。";
+"library_insight_wikipedia_unreachable" = "当前网络无法获取这份简介。";
+"library_insight_wikipedia_replace_message" = "现有简介和风格标签将替换为 MusicBrainz 关联的百科内容，并注明来源。";
 "library_insight_apple_music_fetch" = "从 Apple Music 获取";
 "library_insight_apple_music_fetching" = "正在从 Apple Music 获取…";
 "library_insight_apple_music_empty" = "Apple Music 暂无相关简介。";
 "library_insight_apple_music_failed" = "从 Apple Music 获取失败，请稍后重试。";
+"library_insight_apple_music_only" = "只有 Apple Music 里的专辑和歌手可以从 Apple Music 获取简介。";
 "library_insight_apple_music_replace_title" = "替换简介？";
 "library_insight_apple_music_replace_message" = "现有简介和风格标签将替换为 Apple Music 的内容。";
 "song_file_rename_busy" = "请在投放或歌曲过渡结束后重命名此文件。";

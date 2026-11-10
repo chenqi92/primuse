@@ -7117,10 +7117,17 @@
 "library_insight_lastfm_failed" = "Abruf von Last.fm fehlgeschlagen. Versuche es später erneut.";
 "library_insight_lastfm_replace_title" = "Beschreibung ersetzen?";
 "library_insight_lastfm_replace_message" = "Beschreibung und Stil-Tags werden durch Inhalte von Last.fm ersetzt.";
+"library_insight_wikipedia_fetch" = "Aus MusicBrainz abrufen";
+"library_insight_wikipedia_fetching" = "Wird aus MusicBrainz abgerufen …";
+"library_insight_wikipedia_empty" = "Keine Einführung über MusicBrainz gefunden.";
+"library_insight_wikipedia_failed" = "Abruf aus MusicBrainz fehlgeschlagen. Versuche es später erneut.";
+"library_insight_wikipedia_unreachable" = "Diese Einführung ist in diesem Netzwerk nicht erreichbar.";
+"library_insight_wikipedia_replace_message" = "Einführung und Stil-Tags werden durch den über MusicBrainz verknüpften Lexikontext ersetzt, mit Quellenangabe.";
 "library_insight_apple_music_fetch" = "Von Apple Music abrufen";
 "library_insight_apple_music_fetching" = "Wird von Apple Music abgerufen…";
 "library_insight_apple_music_empty" = "Keine Beschreibung auf Apple Music gefunden.";
 "library_insight_apple_music_failed" = "Abruf von Apple Music fehlgeschlagen. Versuche es später erneut.";
+"library_insight_apple_music_only" = "Nur Alben und Künstler aus Apple Music können eine Einführung von Apple Music abrufen.";
 "library_insight_apple_music_replace_title" = "Beschreibung ersetzen?";
 "library_insight_apple_music_replace_message" = "Beschreibung und Stil-Tags werden durch Inhalte von Apple Music ersetzt.";
 "song_file_rename_busy" = "Beende die Übertragung oder den Titelübergang, bevor du diese Datei umbenennst.";

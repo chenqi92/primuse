@@ -18577,3 +18577,22 @@ final class LibraryStartupSongPages {
         }
     }
 }
+
+extension MusicLibrary {
+    /// 这位歌手在曲库里有没有 Apple Music 的歌。Apple 目录里的照片、简介只给这样的歌手用。
+    func artistHasAppleMusicSongs(_ artistID: String) -> Bool {
+        songs(forArtist: artistID).contains { $0.sourceID == AppleMusicLibraryIdentity.sourceID }
+    }
+
+    /// 简介说的这张专辑 / 这位歌手在曲库里有没有 Apple Music 的歌。
+    func hasAppleMusicSongs(for subject: LibraryInsightSubject) -> Bool {
+        if subject.kind == .album {
+            return visibleAlbums.contains { album in
+                album.title == subject.albumTitle
+                    && (album.artistName ?? "") == subject.artistName
+                    && songs(forAlbum: album.id).contains { $0.sourceID == AppleMusicLibraryIdentity.sourceID }
+            }
+        }
+        return visibleArtists.contains { $0.name == subject.artistName && artistHasAppleMusicSongs($0.id) }
+    }
+}

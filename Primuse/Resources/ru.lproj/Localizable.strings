@@ -7023,10 +7023,17 @@
 "library_insight_lastfm_failed" = "Не удалось загрузить данные из Last.fm. Повторите попытку позже.";
 "library_insight_lastfm_replace_title" = "Заменить описание?";
 "library_insight_lastfm_replace_message" = "Описание и теги стиля будут заменены содержимым из Last.fm.";
+"library_insight_wikipedia_fetch" = "Получить из MusicBrainz";
+"library_insight_wikipedia_fetching" = "Получение из MusicBrainz…";
+"library_insight_wikipedia_empty" = "Через MusicBrainz описание не найдено.";
+"library_insight_wikipedia_failed" = "Не удалось получить из MusicBrainz. Повторите попытку позже.";
+"library_insight_wikipedia_unreachable" = "В этой сети это описание недоступно.";
+"library_insight_wikipedia_replace_message" = "Описание и теги стиля будут заменены энциклопедическим текстом, связанным с MusicBrainz, с указанием источника.";
 "library_insight_apple_music_fetch" = "Загрузить из Apple Music";
 "library_insight_apple_music_fetching" = "Загрузка из Apple Music…";
 "library_insight_apple_music_empty" = "Описание в Apple Music не найдено.";
 "library_insight_apple_music_failed" = "Не удалось загрузить данные из Apple Music. Повторите попытку позже.";
+"library_insight_apple_music_only" = "Описание из Apple Music доступно только для альбомов и исполнителей из Apple Music.";
 "library_insight_apple_music_replace_title" = "Заменить описание?";
 "library_insight_apple_music_replace_message" = "Описание и теги стиля будут заменены содержимым из Apple Music.";
 "song_file_rename_busy" = "Завершите трансляцию или переход между треками перед переименованием файла.";

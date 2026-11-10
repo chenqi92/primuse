@@ -161,6 +161,8 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
     public var permitsSourceWriteback: Bool {
         if importedFrom?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "apple music" { return false }
         guard let host = importedURL?.host?.lowercased() else { return true }
+        // 维基百科正文要一直带着来源,文件标签和音乐源里带不上,所以也不写回。
+        if host == "wikipedia.org" || host.hasSuffix(".wikipedia.org") { return false }
         return host != "music.apple.com" && host != "itunes.apple.com"
     }
 }

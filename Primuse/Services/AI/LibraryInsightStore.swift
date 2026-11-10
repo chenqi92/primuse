@@ -18,25 +18,37 @@ final class LibraryInsightStore {
     private(set) var fetchingLastFmIDs: Set<String> = []
     private(set) var lastFmFailures: [String: String] = [:]
     private(set) var fetchingAppleMusicIDs: Set<String> = []
+    private(set) var fetchingWikipediaIDs: Set<String> = []
+    private(set) var wikipediaFailures: [String: String] = [:]
     private(set) var appleMusicFailures: [String: String] = [:]
     private let lastFm: LastFmSimilarAPI
     private let appleMusicLookup: @Sendable (String) async throws -> LibraryInsightImportedDraft?
     private let appleMusicAlbumLookup: @Sendable (String, String) async throws -> LibraryInsightImportedDraft?
+    private let wikipediaLookup: @Sendable (LibraryInsightSubject, String) async throws -> LibraryInsightImportedDraft?
+    private let isAppleMusicContent: @MainActor (LibraryInsightSubject, MusicLibrary) -> Bool
     /// 最近一次写回音乐源的结果(写进了哪些、哪些没写成),只给界面看。
     private(set) var writebackNotes: [String: String] = [:]
 
     init(
         lastFm: LastFmSimilarAPI = LastFmSimilarAPI(),
+        isAppleMusicContent: @escaping @MainActor (LibraryInsightSubject, MusicLibrary) -> Bool = {
+            $1.hasAppleMusicSongs(for: $0)
+        },
         appleMusicLookup: @escaping @Sendable (String) async throws -> LibraryInsightImportedDraft? = {
             try await AppleMusicCatalogNeighbors.artistInsight(matchingName: $0)
         },
         appleMusicAlbumLookup: @escaping @Sendable (String, String) async throws -> LibraryInsightImportedDraft? = {
             try await AppleMusicCatalogNeighbors.albumInsight(matchingTitle: $0, artist: $1)
+        },
+        wikipediaLookup: @escaping @Sendable (LibraryInsightSubject, String) async throws -> LibraryInsightImportedDraft? = {
+            try await WikipediaInsightClient.shared.draft(for: $0, languageCode: $1)
         }
     ) {
         self.lastFm = lastFm
         self.appleMusicLookup = appleMusicLookup
         self.appleMusicAlbumLookup = appleMusicAlbumLookup
+        self.wikipediaLookup = wikipediaLookup
+        self.isAppleMusicContent = isAppleMusicContent
         // 上一版只在本机 Caches 里缓存过一份,现在改存曲库,旧文件清掉。
         let legacy = FileManager.default
             .primuseDirectoryURL(for: .cachesDirectory)
@@ -74,15 +86,20 @@ final class LibraryInsightStore {
 
     func isFetchingImport(_ subject: LibraryInsightSubject) -> Bool {
         isFetchingLastFm(subject) || fetchingAppleMusicIDs.contains(recordID(for: subject))
+            || fetchingWikipediaIDs.contains(recordID(for: subject))
     }
 
     func importFailure(for subject: LibraryInsightSubject) -> String? {
-        appleMusicFailures[recordID(for: subject)] ?? lastFmFailure(for: subject)
+        appleMusicFailures[recordID(for: subject)] ?? wikipediaFailures[recordID(for: subject)]
+            ?? lastFmFailure(for: subject)
     }
 
     func progressMessage(for subject: LibraryInsightSubject) -> String {
         if fetchingAppleMusicIDs.contains(recordID(for: subject)) {
             return String(localized: "library_insight_apple_music_fetching")
+        }
+        if fetchingWikipediaIDs.contains(recordID(for: subject)) {
+            return String(localized: "library_insight_wikipedia_fetching")
         }
         return isFetchingLastFm(subject)
             ? String(localized: "library_insight_lastfm_fetching")
@@ -129,6 +146,7 @@ final class LibraryInsightStore {
         retryDates[id] = nil
         lastFmFailures[id] = nil
         appleMusicFailures[id] = nil
+        wikipediaFailures[id] = nil
         return true
     }
 
@@ -142,13 +160,14 @@ final class LibraryInsightStore {
         retryDates[id] = nil
         lastFmFailures[id] = nil
         appleMusicFailures[id] = nil
+        wikipediaFailures[id] = nil
     }
 
     @discardableResult
     func fetchAppleMusic(_ subject: LibraryInsightSubject, library: MusicLibrary) async -> Bool {
         let id = recordID(for: subject)
         let previous = library.storedLibraryInsightRecord(id: id)
-        guard let draft = await appleMusicDraft(for: subject),
+        guard let draft = await appleMusicDraft(for: subject, library: library),
               library.storedLibraryInsightRecord(id: id) == previous,
               let record = LibraryInsightEditing.recordFromImport(
                 summary: draft.summary, tags: draft.tags, subject: subject, id: id,
@@ -159,7 +178,12 @@ final class LibraryInsightStore {
         return true
     }
 
-    func appleMusicDraft(for subject: LibraryInsightSubject) async -> LibraryInsightImportedDraft? {
+    /// 只给曲库里有 Apple Music 歌曲的专辑、歌手取；别的来源点了就说明原因。
+    func appleMusicDraft(for subject: LibraryInsightSubject, library: MusicLibrary) async -> LibraryInsightImportedDraft? {
+        guard isAppleMusicContent(subject, library) else {
+            appleMusicFailures[recordID(for: subject)] = String(localized: "library_insight_apple_music_only")
+            return nil
+        }
         guard Self.isIntroducible(subject),
               Self.isIntroducible(.artist(name: subject.artistName, genres: [], albums: [], tracks: [])),
               beginBatchGeneration(subject) else { return nil }
@@ -185,6 +209,46 @@ final class LibraryInsightStore {
             appleMusicFailures[id] = String(localized: "apple_music_notice_denied")
         } catch {
             if !Task.isCancelled { appleMusicFailures[id] = String(localized: "library_insight_apple_music_failed") }
+        }
+        return nil
+    }
+
+    /// 从维基百科取一份存下。来源记成维基百科和条目链接,界面上一直带着;不写回音乐源。
+    @discardableResult
+    func fetchWikipedia(_ subject: LibraryInsightSubject, library: MusicLibrary) async -> Bool {
+        let id = recordID(for: subject)
+        let previous = library.storedLibraryInsightRecord(id: id)
+        guard let draft = await wikipediaDraft(for: subject),
+              library.storedLibraryInsightRecord(id: id) == previous,
+              let record = LibraryInsightEditing.recordFromImport(
+                summary: draft.summary, tags: draft.tags, subject: subject, id: id,
+                sourceLabel: draft.sourceLabel, sourceURL: draft.sourceURL,
+                previous: previous, now: Date()
+              ) else { return false }
+        library.saveLibraryInsightRecord(record)
+        return true
+    }
+
+    func wikipediaDraft(for subject: LibraryInsightSubject) async -> LibraryInsightImportedDraft? {
+        guard Self.isIntroducible(subject), beginBatchGeneration(subject) else { return nil }
+        let id = recordID(for: subject)
+        fetchingWikipediaIDs.insert(id)
+        defer {
+            fetchingWikipediaIDs.remove(id)
+            endBatchGeneration(subject)
+        }
+        do {
+            let draft = try await wikipediaLookup(subject, Self.languageCode)
+            try Task.checkCancellation()
+            if draft == nil { wikipediaFailures[id] = String(localized: "library_insight_wikipedia_empty") }
+            return draft
+        } catch is CancellationError {
+            return nil
+        } catch WikipediaInsightClient.LookupError.unreachable {
+            // 有些地区的网络到不了维基百科,和「稍后重试」不是一回事,单独说明。
+            if !Task.isCancelled { wikipediaFailures[id] = String(localized: "library_insight_wikipedia_unreachable") }
+        } catch {
+            if !Task.isCancelled { wikipediaFailures[id] = String(localized: "library_insight_wikipedia_failed") }
         }
         return nil
     }
@@ -320,7 +384,7 @@ final class LibraryInsightStore {
 
     /// 卡片底部的出处:自己写/改过的标「已编辑」,AI 原样给的标服务名和「可能有误」。
     nonisolated static func footer(for record: LibraryInsightRecord) -> String {
-        if record.isUserEdited, let source = record.importedFrom, ["Last.fm", "Apple Music"].contains(source) {
+        if record.isUserEdited, let source = record.importedFrom, ["Last.fm", "Apple Music", WikipediaInsightPolicy.sourceLabel].contains(source) {
             return String(localized: "library_insight_footer_edited") + " · "
                 + String(format: String(localized: "library_insight_footer_imported_format"), source)
         }
@@ -355,5 +419,105 @@ final class LibraryInsightStore {
                 return String(localized: "ai_song_discovery_failed_generic")
             }
         }
+    }
+}
+
+/// 维基百科简介的三段请求:MusicBrainz 对上条目并取它的 Wikidata 链接,Wikidata 给出各语言的
+/// 条目名,维基百科给摘要。请求地址、匹配和解析都在 `WikipediaInsightPolicy`。
+actor WikipediaInsightClient {
+    static let shared = WikipediaInsightClient()
+
+    enum LookupError: Error {
+        case badResponse
+        /// 连不上维基百科或 Wikidata(超时、连接被断开、域名解析不了)。
+        case unreachable
+    }
+
+    private let session: URLSession
+    private var lastMusicBrainzRequest: ContinuousClock.Instant?
+
+    init() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 12
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpAdditionalHeaders = ["User-Agent": WikipediaInsightPolicy.userAgent]
+        session = URLSession(configuration: configuration)
+    }
+
+    func draft(for subject: LibraryInsightSubject, languageCode: String) async throws -> LibraryInsightImportedDraft? {
+        typealias Policy = WikipediaInsightPolicy
+        let entity: String
+        let matchedID: String?
+        if subject.kind == .album {
+            entity = "release-group"
+            guard !subject.albumTitle.isEmpty, !subject.artistName.isEmpty,
+                  let url = Policy.releaseGroupSearchURL(title: subject.albumTitle, artist: subject.artistName)
+            else { return nil }
+            let candidates = Policy.releaseGroupCandidates(fromSearch: try await musicBrainz(url))
+            matchedID = Policy.uniqueReleaseGroupID(
+                title: subject.albumTitle, artist: subject.artistName, in: candidates)
+        } else {
+            entity = "artist"
+            guard !subject.artistName.isEmpty,
+                  let url = Policy.artistSearchURL(name: subject.artistName) else { return nil }
+            let candidates = Policy.artistCandidates(fromSearch: try await musicBrainz(url))
+            matchedID = Policy.uniqueArtistID(name: subject.artistName, in: candidates)
+        }
+        guard let matchedID, let relationsURL = Policy.relationsURL(entity: entity, id: matchedID),
+              let wikidataID = Policy.wikidataID(fromRelations: try await musicBrainz(relationsURL)),
+              let sitelinksURL = Policy.sitelinksURL(wikidataID: wikidataID),
+              let article = Policy.article(
+                fromSitelinks: try await get(sitelinksURL),
+                wikidataID: wikidataID, languageCode: languageCode),
+              let summaryURL = Policy.summaryURL(for: article) else { return nil }
+        var request = URLRequest(url: summaryURL)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let variant = article.variant { request.setValue(variant, forHTTPHeaderField: "Accept-Language") }
+        guard let summary = Policy.summary(fromResponse: try await data(for: request, missingIsEmpty: true)) else {
+            return nil
+        }
+        return LibraryInsightImportedDraft(
+            summary: summary.text, tags: [], sourceLabel: Policy.sourceLabel, sourceURL: summary.pageURL)
+    }
+
+    private static let unreachableCodes: Set<URLError.Code> = [
+        .timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+        .networkConnectionLost, .secureConnectionFailed,
+    ]
+
+    private static func isWikimediaHost(_ url: URL?) -> Bool {
+        guard let host = url?.host?.lowercased() else { return false }
+        return host.hasSuffix(".wikipedia.org") || host.hasSuffix(".wikidata.org")
+    }
+
+    /// MusicBrainz 的请求排着队走,前后隔开规定的间隔。
+    private func musicBrainz(_ url: URL) async throws -> Data {
+        if let last = lastMusicBrainzRequest {
+            let wait = last + .seconds(WikipediaInsightPolicy.musicBrainzSpacing) - ContinuousClock.now
+            if wait > .zero { try await Task.sleep(for: wait) }
+        }
+        lastMusicBrainzRequest = .now
+        return try await get(url)
+    }
+
+    private func get(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return try await data(for: request, missingIsEmpty: false)
+    }
+
+    private func data(for request: URLRequest, missingIsEmpty: Bool) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where Self.isWikimediaHost(request.url) && Self.unreachableCodes.contains(error.code) {
+            throw LookupError.unreachable
+        }
+        guard let http = response as? HTTPURLResponse else { throw LookupError.badResponse }
+        if missingIsEmpty, http.statusCode == 404 { return Data() }
+        guard (200...299).contains(http.statusCode) else { throw LookupError.badResponse }
+        return data
     }
 }

@@ -7023,10 +7023,17 @@
 "library_insight_lastfm_failed" = "Last.fm’den alınamadı. Daha sonra tekrar deneyin.";
 "library_insight_lastfm_replace_title" = "Açıklama değiştirilsin mi?";
 "library_insight_lastfm_replace_message" = "Açıklama ve tarz etiketleri Last.fm içeriğiyle değiştirilecek.";
+"library_insight_wikipedia_fetch" = "MusicBrainz’den al";
+"library_insight_wikipedia_fetching" = "MusicBrainz’den alınıyor…";
+"library_insight_wikipedia_empty" = "MusicBrainz üzerinden tanıtım bulunamadı.";
+"library_insight_wikipedia_failed" = "MusicBrainz’den alınamadı. Daha sonra yeniden deneyin.";
+"library_insight_wikipedia_unreachable" = "Bu ağda bu tanıtıma ulaşılamıyor.";
+"library_insight_wikipedia_replace_message" = "Tanıtım ve tarz etiketleri, kaynak belirtilerek MusicBrainz’e bağlı ansiklopedi metniyle değiştirilecek.";
 "library_insight_apple_music_fetch" = "Apple Music’den getir";
 "library_insight_apple_music_fetching" = "Apple Music’den getiriliyor…";
 "library_insight_apple_music_empty" = "Apple Music’de açıklama bulunamadı.";
 "library_insight_apple_music_failed" = "Apple Music’den alınamadı. Daha sonra tekrar deneyin.";
+"library_insight_apple_music_only" = "Yalnızca Apple Music’teki albümler ve sanatçılar için Apple Music’ten tanıtım alınabilir.";
 "library_insight_apple_music_replace_title" = "Açıklama değiştirilsin mi?";
 "library_insight_apple_music_replace_message" = "Açıklama ve tarz etiketleri Apple Music içeriğiyle değiştirilecek.";
 "song_file_rename_busy" = "Bu dosyayı yeniden adlandırmadan önce yayının veya parça geçişinin bitmesini bekleyin.";

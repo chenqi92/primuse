@@ -7023,10 +7023,17 @@
 "library_insight_lastfm_failed" = "Last.fm से प्राप्त नहीं किया जा सका। बाद में फिर कोशिश करें।";
 "library_insight_lastfm_replace_title" = "परिचय बदलें?";
 "library_insight_lastfm_replace_message" = "परिचय और शैली टैग Last.fm की सामग्री से बदल दिए जाएँगे।";
+"library_insight_wikipedia_fetch" = "MusicBrainz से प्राप्त करें";
+"library_insight_wikipedia_fetching" = "MusicBrainz से प्राप्त किया जा रहा है…";
+"library_insight_wikipedia_empty" = "MusicBrainz के माध्यम से कोई परिचय नहीं मिला।";
+"library_insight_wikipedia_failed" = "MusicBrainz से प्राप्त नहीं हो सका। बाद में फिर प्रयास करें।";
+"library_insight_wikipedia_unreachable" = "इस नेटवर्क पर यह परिचय प्राप्त नहीं किया जा सकता।";
+"library_insight_wikipedia_replace_message" = "परिचय और शैली टैग को स्रोत के उल्लेख के साथ MusicBrainz से जुड़ी विश्वकोश सामग्री से बदल दिया जाएगा।";
 "library_insight_apple_music_fetch" = "Apple Music से प्राप्त करें";
 "library_insight_apple_music_fetching" = "Apple Music से प्राप्त किया जा रहा है…";
 "library_insight_apple_music_empty" = "Apple Music पर कोई परिचय नहीं मिला।";
 "library_insight_apple_music_failed" = "Apple Music से प्राप्त नहीं किया जा सका। बाद में फिर कोशिश करें।";
+"library_insight_apple_music_only" = "केवल Apple Music के एल्बम और कलाकारों के लिए Apple Music से परिचय लिया जा सकता है।";
 "library_insight_apple_music_replace_title" = "परिचय बदलें?";
 "library_insight_apple_music_replace_message" = "परिचय और शैली टैग Apple Music की सामग्री से बदल दिए जाएँगे।";
 "song_file_rename_busy" = "इस फ़ाइल का नाम बदलने से पहले कास्टिंग या ट्रैक का बदलाव पूरा होने दें।";
