@@ -1502,6 +1502,7 @@ struct TVAlbumDetailView: View {
     @State private var showsRestoreConfirmation = false
     /// 长按曲目选了「从本机移除」,等确认。
     @State private var pendingRemoval: TVLibraryRemovalRequest?
+    @State private var pendingPlaylistAdd: TVAddToPlaylistRequest?
     /// 「恢复文件标签」进行中 / 刚做完:显示在按钮下面,离开这一页才清掉。
     @State private var restoreProgress: TVRestoreFileTagsProgress?
     /// 这张专辑里有在电视上补全 / 匹配改过标签的歌(只补空缺的不打「用户编辑」标记)。
@@ -1682,6 +1683,7 @@ struct TVAlbumDetailView: View {
         .animation(.easeInOut(duration: 0.2), value: showsRestoreConfirmation)
         .focusScope(detailFocus)
         .modifier(TVLibraryRemovalConfirmation(request: $pendingRemoval))
+        .modifier(TVAddToPlaylistDialog(request: $pendingPlaylistAdd))
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs) { finishPlayback(songID: store.currentSongID) })
         .onExitCommand {
             if showsRestoreConfirmation {
@@ -2129,6 +2131,9 @@ struct TVAlbumDetailView: View {
         }
         .contextMenu {
             TVSongLikeMenuItem(store: store, songID: song.id)
+            Button("add_to_playlist", systemImage: "text.badge.plus") {
+                pendingPlaylistAdd = TVAddToPlaylistRequest(title: song.title, songIDs: [song.id])
+            }
             Button("song_remove_from_device", systemImage: "minus.circle", role: .destructive) {
                 pendingRemoval = TVLibraryRemovalRequest(title: song.title, songIDs: [song.id])
             }
@@ -2200,6 +2205,7 @@ struct TVSongOrdinal: View {
 struct TVSongRow: View {
     @Environment(TVStore.self) private var store
     @State private var pendingRemoval: TVLibraryRemovalRequest?
+    @State private var pendingPlaylistAdd: TVAddToPlaylistRequest?
     let song: TVSong
     var ordinal: Int? = nil
     var largestOrdinal: Int = 1
@@ -2275,11 +2281,15 @@ struct TVSongRow: View {
         }
         .contextMenu {
             TVSongLikeMenuItem(store: store, songID: song.id)
+            Button("add_to_playlist", systemImage: "text.badge.plus") {
+                pendingPlaylistAdd = TVAddToPlaylistRequest(title: song.title, songIDs: [song.id])
+            }
             Button("song_remove_from_device", systemImage: "minus.circle", role: .destructive) {
                 pendingRemoval = TVLibraryRemovalRequest(title: song.title, songIDs: [song.id])
             }
         }
         .modifier(TVLibraryRemovalConfirmation(request: $pendingRemoval))
+        .modifier(TVAddToPlaylistDialog(request: $pendingPlaylistAdd))
     }
 }
 

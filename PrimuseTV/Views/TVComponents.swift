@@ -118,6 +118,42 @@ struct TVSwitchRow: View {
     }
 }
 
+/// 长按菜单里「添加到歌单」要加的东西:一首歌,或一整张专辑。
+struct TVAddToPlaylistRequest: Equatable {
+    let title: String
+    let songIDs: [String]
+}
+
+/// 「添加到歌单」的选择框:列出自己建的歌单,点哪张加进哪张;也可以直接用这首歌 / 这张专辑的名字新建一张。
+/// 电视上没有别的地方能往自定义歌单里放歌。
+struct TVAddToPlaylistDialog: ViewModifier {
+    @Environment(TVStore.self) private var store
+    @Binding var request: TVAddToPlaylistRequest?
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            Text("add_to_playlist"),
+            isPresented: Binding(get: { request != nil }, set: { if !$0 { request = nil } }),
+            titleVisibility: .visible,
+            presenting: request
+        ) { pending in
+            ForEach(store.playlistsAcceptingSongs) { playlist in
+                Button {
+                    store.addSongs(pending.songIDs, toPlaylist: playlist.id)
+                } label: {
+                    Text(verbatim: playlist.name)
+                }
+            }
+            Button("new_playlist") {
+                store.createPlaylist(named: pending.title, adding: pending.songIDs)
+            }
+            Button("cancel", role: .cancel) {}
+        } message: { pending in
+            Text(verbatim: pending.title)
+        }
+    }
+}
+
 struct TVLibraryReviewControl: View {
 
     @Environment(TVStore.self) private var store
@@ -156,9 +192,8 @@ struct TVLibraryReviewControl: View {
         }
     }
 
-    /// 滚动时换行并成一行,长评论在原来那块地方从头滚到尾,不往下多占行、不挤歌词;
-    /// 放得下就不滚。
-    @ViewBuilder
+    /// 评论并成一行,放不下就在原来那块地方从头滚到尾,不往下多占行、不挤歌词;放得下就不滚。
+    /// 长评论两行放不下,截断了电视上没处看全,所以不设开关。
     private func commentText(_ comment: String) -> some View {
         MarqueeText(
             text: comment.split(whereSeparator: \.isNewline).joined(separator: "  "),
@@ -399,6 +434,7 @@ struct TVLibraryRemovalConfirmation: ViewModifier {
 struct TVAlbumCard: View {
     @State private var pendingMedleyIDs: [String]?
     @State private var pendingRemoval: TVLibraryRemovalRequest?
+    @State private var pendingPlaylistAdd: TVAddToPlaylistRequest?
     /// 按下打开专辑页时那一下「掀开 CD 盒」(见 `TVJewelCaseMotion`)。
     @State private var casePhase = CasePhase.closed
     @State private var openingTask: Task<Void, Never>?
@@ -498,6 +534,12 @@ struct TVAlbumCard: View {
                 pendingMedleyIDs = store.songIDs(forAlbum: album.id)
             }
             .disabled(!store.canPlayMedley(songIDs: store.songIDs(forAlbum: album.id)))
+            Button("add_to_playlist", systemImage: "text.badge.plus") {
+                pendingPlaylistAdd = TVAddToPlaylistRequest(
+                    title: titleOverride ?? album.title,
+                    songIDs: store.songIDs(forAlbum: album.id)
+                )
+            }
             Button("song_remove_from_device", systemImage: "minus.circle", role: .destructive) {
                 pendingRemoval = TVLibraryRemovalRequest(
                     title: titleOverride ?? album.title,
@@ -505,6 +547,7 @@ struct TVAlbumCard: View {
                 )
             }
         }
+        .modifier(TVAddToPlaylistDialog(request: $pendingPlaylistAdd))
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
         .modifier(TVLibraryRemovalConfirmation(request: $pendingRemoval))
         .accessibilityLabel(Text(titleOverride ?? album.title))

@@ -2160,7 +2160,10 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
         }
         .buttonStyle(TVBareButtonStyle())
         .contextMenu { menu }
+        .modifier(TVAddToPlaylistDialog(request: $pendingPlaylistAdd))
     }
+
+    @State private var pendingPlaylistAdd: TVAddToPlaylistRequest?
 
     /// 「前往」与货架、「更多」同一套名字和图标;其余(匹配信息、卡拉OK、串烧)在「更多」里。
     @ViewBuilder
@@ -2181,6 +2184,13 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
                     systemImage: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown"
                 ) {
                     store.toggleDisliked(songID)
+                }
+            }
+            // 有声内容与电台不进音乐歌单。
+            if !store.currentItemIsSpokenWord, !store.isLiveRadio {
+                Button("add_to_playlist", systemImage: "text.badge.plus") {
+                    pendingPlaylistAdd = TVAddToPlaylistRequest(
+                        title: store.nowPlaying.title, songIDs: [songID])
                 }
             }
         } else if let target = store.appleMusicNowPlayingLikeTarget {

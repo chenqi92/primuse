@@ -7155,6 +7155,25 @@ final class TVStore {
         return true
     }
 
+    /// 电视上能往里加歌的歌单:自己建的那些(和能改名的是同一批)。镜像歌单、文件夹歌单归各自的来源管。
+    var playlistsAcceptingSongs: [TVPlaylist] {
+        normalPlaylists.filter(canRename)
+    }
+
+    /// 把歌加进一张自己建的歌单;已经在里面的不重复加。经 iCloud 同步到其他设备。
+    func addSongs(_ songIDs: [String], toPlaylist playlistID: String) {
+        guard !songIDs.isEmpty else { return }
+        library.add(songIDs: songIDs, toPlaylist: playlistID)
+    }
+
+    /// 新建一张歌单并把歌放进去。
+    func createPlaylist(named rawName: String, adding songIDs: [String]) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !songIDs.isEmpty else { return }
+        let playlist = library.createPlaylist(name: name)
+        library.add(songIDs: songIDs, toPlaylist: playlist.id)
+    }
+
     /// 自己建的歌单才能改名;镜像歌单、文件夹歌单、「我喜欢」不行(`MusicLibrary.allowsRename`)。
     func canRename(_ playlist: TVPlaylist) -> Bool {
         guard playlist.kind == .normal, let stored = library.playlist(id: playlist.id) else { return false }
