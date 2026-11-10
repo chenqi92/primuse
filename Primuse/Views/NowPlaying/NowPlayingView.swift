@@ -2024,8 +2024,13 @@ struct NowPlayingView: View {
     #if os(iOS)
     @ViewBuilder
     private func albumDetailPresentation(_ album: Album) -> some View {
+        // 这个栈是弹出页自己的,不在主界面的导航栈里:专辑页里的歌手、歌手页里的专辑
+        // 都是按值跳转,这里不登记目的地的话点了没有反应。
         let detail = NavigationStack {
             AlbumDetailView(album: album)
+                .navigationDestination(for: Artist.self) { ArtistDetailView(artist: $0) }
+                .navigationDestination(for: Album.self) { AlbumDetailView(album: $0) }
+                .navigationDestination(for: Playlist.self) { PlaylistDetailView(playlist: $0) }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
