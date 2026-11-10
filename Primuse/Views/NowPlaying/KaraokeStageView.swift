@@ -330,6 +330,7 @@ struct KaraokeLyricsStage: View {
             case .current, .upcoming:
                 KaraokeLineView(
                     line: line,
+                    isDuet: isDuet,
                     fontSize: fontSize,
                     weight: .bold,
                     activeStyle: AnyShapeStyle(voiceColor),

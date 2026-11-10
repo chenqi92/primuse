@@ -509,7 +509,7 @@ struct TVKaraokeLyrics: View {
                     .tvFont(.eyebrow)
                     .foregroundStyle(sung)
             }
-            KaraokeLineView(line: line, fontSize: 58, weight: .bold,
+            KaraokeLineView(line: line, isDuet: snapshot.hasDuetParts, fontSize: 58, weight: .bold,
                             activeStyle: AnyShapeStyle(sung), inactiveColor: .white.opacity(0.42),
                             textAlignment: snapshot.hasDuetParts ? (window.voice == .secondary ? .trailing : .leading) : .center,
                             timeAt: { _ in time }, fixedTime: time,

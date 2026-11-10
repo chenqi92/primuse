@@ -17388,6 +17388,7 @@ struct LyricsScrollView: View {
                 : (isActive ? 1.0 : inactiveOpacity)
             KaraokeLineView(
                 line: line,
+                isDuet: isDuetLyrics,
                 fontSize: fontSize,
                 weight: weight,
                 activeStyle: isActive

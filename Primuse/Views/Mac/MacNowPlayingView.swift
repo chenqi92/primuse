@@ -1660,6 +1660,7 @@ struct MacNowPlayingView: View {
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
             KaraokeLineView(
                 line: line,
+                isDuet: KaraokeDuetGatePolicy.hasDuetParts(lyrics),
                 fontSize: fontSize,
                 weight: weight,
                 activeStyle: lyricsColors.style(defaultColor: playerPrimaryColor, isActive: isActive, layoutDirection: lyricLayoutDirection),

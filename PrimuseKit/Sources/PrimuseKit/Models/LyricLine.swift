@@ -132,6 +132,14 @@ public enum LyricSyllableEmphasisPolicy {
     public static let sustainedStretch: Double = 0.06
     public static let sustainedLiftRatio: Double = 0.04
 
+    /// 对唱歌词（整首有两个声部，按声部分左右、分色）不做长音强调，全部给 0。
+    /// 按演唱者区分显示，再加上按字唱多久超阈值改变浮起、拉伸，会同时落进
+    /// US12592007 的两个要件；独唱歌词没有前一项，照常强调。
+    public static func sustainedEmphasis(in syllables: [LyricSyllable], isDuet: Bool) -> [Double] {
+        guard !isDuet else { return Array(repeating: 0, count: syllables.count) }
+        return sustainedEmphasis(in: syllables)
+    }
+
     /// Only a held word gets extra whole-word stretch. Start-only timestamps can
     /// include silence, so they must not be treated as evidence of a held note.
     public static func sustainedEmphasis(in syllables: [LyricSyllable]) -> [Double] {

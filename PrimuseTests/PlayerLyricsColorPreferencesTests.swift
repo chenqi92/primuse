@@ -195,7 +195,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         func render(duration: TimeInterval, progress: Double, animated: Bool = true) throws -> CGImage {
             let line = LyricLine(timestamp: 0, text: "MMMM", syllables: [.init(text: "MMMM", start: 0, end: duration)])
             let time = duration * progress
-            let view = KaraokeLineView(line: line, fontSize: 64, weight: .bold,
+            let view = KaraokeLineView(line: line, isDuet: false, fontSize: 64, weight: .bold,
                 activeColor: .white, inactiveColor: .white, timeAt: { _ in time }, fixedTime: time,
                 isAnimationEnabled: animated)
                 .padding(20).frame(width: 360, height: 150, alignment: .leading)
@@ -397,6 +397,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
                             if wordTimed {
                                 KaraokeLineView(
                                     line: line,
+                                    isDuet: false,
                                     fontSize: 26,
                                     weight: .semibold,
                                     activeColor: .white,
@@ -453,6 +454,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         )
         let content = KaraokeLineView(
             line: line,
+            isDuet: false,
             fontSize: 54,
             weight: .bold,
             activeStyle: AnyShapeStyle(
@@ -552,7 +554,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
                     source: nil, foreground: .white.opacity(0.8), fill: .white.opacity(0.1)
                 )
                 KaraokeLineView(
-                    line: line, fontSize: 42, weight: .bold,
+                    line: line, isDuet: false, fontSize: 42, weight: .bold,
                     activeColor: .red, inactiveColor: .gray,
                     timeAt: { _ in time }, fixedTime: time,
                     animatesSyllableBounce: false, isolatesAnimatedProgressFromLayout: true
@@ -605,6 +607,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         )
         let beforeStart = KaraokeLineView(
             line: line,
+            isDuet: false,
             fontSize: 54,
             weight: .bold,
             activeColor: .white,
@@ -617,6 +620,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         .frame(width: 240, height: 90, alignment: .leading)
         let afterStart = KaraokeLineView(
             line: line,
+            isDuet: false,
             fontSize: 54,
             weight: .bold,
             activeColor: .white,
@@ -653,6 +657,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         let font = Font.system(size: 54, weight: .bold)
         let content = KaraokeLineView(
             line: line,
+            isDuet: false,
             fontSize: 54,
             weight: .bold,
             activeColor: .white,
@@ -702,6 +707,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         )
         let active = KaraokeLineView(
             line: line,
+            isDuet: false,
             fontSize: 42,
             weight: .bold,
             activeColor: .white,
@@ -715,6 +721,7 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         .frame(width: 330, height: 150, alignment: .top)
         let inactive = KaraokeLineView(
             line: line,
+            isDuet: false,
             fontSize: 42,
             weight: .bold,
             activeColor: .clear,

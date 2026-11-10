@@ -437,6 +437,7 @@ struct DesktopLyricsView: View {
         if line.isWordLevel {
             KaraokeLineView(
                 line: line,
+                isDuet: KaraokeDuetGatePolicy.hasDuetParts(lyrics),
                 fontSize: size,
                 weight: weight,
                 activeColor: color,

@@ -17,6 +17,18 @@ struct LyricSyllableEmphasisPolicyTests {
         #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: equallySlow) == [0, 0, 0])
     }
 
+    @Test("Duet lyrics never get held-word emphasis, solo lyrics keep it")
+    func duetLyricsSkipHeldWordEmphasis() {
+        let words = [
+            LyricSyllable(text: "Paper ", start: 0, end: 0.4),
+            LyricSyllable(text: "lanterns ", start: 0.4, end: 0.9),
+            LyricSyllable(text: "glow", start: 0.9, end: 3.1),
+        ]
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: words, isDuet: true) == [0, 0, 0])
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: words, isDuet: false) == [0, 0, 1])
+        #expect(LyricSyllableEmphasisPolicy.sustainedEmphasis(in: [], isDuet: true) == [])
+    }
+
     @Test("Inferred silent gaps and malformed timing never imply a held note")
     func inferredTimingDoesNotStretch() {
         let words = [

@@ -823,6 +823,7 @@ struct MacMiniPlayerView: View {
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
             KaraokeLineView(
                 line: line,
+                isDuet: KaraokeDuetGatePolicy.hasDuetParts(lyrics),
                 fontSize: fontSize,
                 weight: weight,
                 activeStyle: lyricsColors.style(defaultColor: .primary, isActive: isActive, opacity: isActive ? 1 : 0.72, layoutDirection: lyricLayoutDirection),

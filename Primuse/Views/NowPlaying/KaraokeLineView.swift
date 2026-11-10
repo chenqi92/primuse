@@ -87,8 +87,11 @@ struct KaraokeLineView: View {
     private let sustainedEmphasis: [Double]
     private let cjkLanguage: LyricsFontLanguage
 
+    /// `isDuet`: 整首歌词有两个声部（`KaraokeDuetGatePolicy.hasDuetParts`）。对唱时不做长音强调，
+    /// 见 `LyricSyllableEmphasisPolicy.sustainedEmphasis(in:isDuet:)`；不给默认值，调用处必须自己判断。
     init(
         line: LyricLine,
+        isDuet: Bool,
         fontSize: CGFloat,
         weight: Font.Weight,
         activeStyle: AnyShapeStyle,
@@ -128,7 +131,7 @@ struct KaraokeLineView: View {
         let syllables = line.syllables.map(LyricSyllableLayoutPolicy.layoutSyllables)
         self.layoutSyllables = syllables
         let originalSyllables = line.syllables ?? []
-        let emphasis = LyricSyllableEmphasisPolicy.sustainedEmphasis(in: originalSyllables)
+        let emphasis = LyricSyllableEmphasisPolicy.sustainedEmphasis(in: originalSyllables, isDuet: isDuet)
         self.sustainedEmphasis = zip(originalSyllables, emphasis).flatMap { syllable, amount in
             Array(repeating: amount, count: LyricSyllableLayoutPolicy.layoutSyllables([syllable]).count)
         }
@@ -137,6 +140,7 @@ struct KaraokeLineView: View {
 
     init(
         line: LyricLine,
+        isDuet: Bool,
         fontSize: CGFloat,
         weight: Font.Weight,
         activeColor: Color,
@@ -155,6 +159,7 @@ struct KaraokeLineView: View {
     ) {
         self.init(
             line: line,
+            isDuet: isDuet,
             fontSize: fontSize,
             weight: weight,
             activeStyle: AnyShapeStyle(activeColor),
