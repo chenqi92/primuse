@@ -9,6 +9,115 @@ import XCTest
 
 @MainActor
 final class PlayerBackdropImagingTests: XCTestCase {
+    func testLyricsSurfaceSurvivesRepeatedCoverSwitchesWithoutResettingScroll() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let suite = "PlayerCoverLyrics.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        let player = AudioPlayerService(playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                                       activateAudioSession: { _ in XCTFail("No audio should start") })
+        player.currentTime = 130
+        let lyrics = (0..<80).map {
+            LyricLine(id: "switch-\($0)", timestamp: Double($0 * 5),
+                      text: "A paper lantern follows the quiet river \($0)", isSynchronized: true)
+        }
+        let fixture = PlayerCoverLyricsFixture()
+        let probe = PlayerLyricsLifecycleProbe.State()
+        let host = UIHostingController(rootView: PlayerCoverLyricsProbeView(
+            fixture: fixture, probe: probe, player: player, lyrics: lyrics, defaults: defaults))
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(probe.mountCount, 0, "Opening the cover must not lay out hidden lyrics")
+        var scrollIdentity: ObjectIdentifier?
+        var settledOffset: CGFloat?
+        for _ in 0..<3 {
+            fixture.visible = true
+            try await Task.sleep(for: .milliseconds(500))
+            let scroll = try XCTUnwrap(playerLyricsScrollView(in: host.view))
+            XCTAssertEqual(probe.mountCount, 1)
+            XCTAssertEqual(probe.unmountCount, 0)
+            if let scrollIdentity { XCTAssertEqual(ObjectIdentifier(scroll), scrollIdentity) }
+            else { scrollIdentity = ObjectIdentifier(scroll) }
+            XCTAssertGreaterThan(scroll.contentOffset.y, 500)
+            if let settledOffset { XCTAssertEqual(scroll.contentOffset.y, settledOffset, accuracy: 2) }
+            else { settledOffset = scroll.contentOffset.y }
+            fixture.visible = false
+            try await Task.sleep(for: .milliseconds(350))
+            XCTAssertEqual(probe.unmountCount, 0, "Cover transitions must retain lyric layout and scroll state")
+            XCTAssertGreaterThan(scroll.bounds.width, 0)
+            XCTAssertGreaterThan(scroll.bounds.height, 0)
+        }
+    }
+
+    func testRapidCoverSwitchesDisableHiddenLyricsHitTestingWithoutRemounting() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive && $0.session.role == .windowApplication })
+        let previousWindow = scene.keyWindow
+        let suite = "PlayerCoverLyricsHitTesting.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(false, forKey: PlayerAppearancePreferences.showsLyricsInterludeKey)
+        defaults.set(true, forKey: PlayerAppearancePreferences.tapLyricsToSeekKey)
+        let player = AudioPlayerService(playbackSettings: PlaybackSettingsStore(defaults: defaults),
+                                       activateAudioSession: { _ in XCTFail("No audio should start") })
+        player.currentTime = 130
+        let lyrics = (0..<80).map {
+            LyricLine(id: "rapid-switch-\($0)", timestamp: Double($0 * 5),
+                      text: "Paper lanterns cross the moonlit bridge \($0)", isSynchronized: true)
+        }
+        let fixture = PlayerCoverLyricsFixture()
+        let probe = PlayerLyricsLifecycleProbe.State()
+        let host = UIHostingController(rootView: PlayerCoverLyricsProbeView(
+            fixture: fixture, probe: probe, player: player, lyrics: lyrics, defaults: defaults))
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKeyAndVisible()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        fixture.visible = true
+        try await Task.sleep(for: .milliseconds(500))
+        let scroll = try XCTUnwrap(playerLyricsScrollView(in: host.view))
+        let settledOffset = scroll.contentOffset.y
+        XCTAssertGreaterThan(settledOffset, 500)
+
+        func lyricsReceiveHit() -> Bool {
+            let point = scroll.convert(CGPoint(x: scroll.bounds.midX, y: scroll.bounds.midY), to: window)
+            let target = window.hitTest(point, with: nil)
+            return target === scroll || target?.isDescendant(of: scroll) == true
+        }
+
+        XCTAssertTrue(lyricsReceiveHit(), "Visible lyrics must remain interactive")
+        for _ in 0..<8 {
+            fixture.visible = false
+            try await Task.sleep(for: .milliseconds(40))
+            XCTAssertFalse(lyricsReceiveHit(), "Fading lyrics must stop intercepting cover taps immediately")
+            fixture.visible = true
+            try await Task.sleep(for: .milliseconds(80))
+            XCTAssertTrue(lyricsReceiveHit(), "Reversing the transition must restore lyric interaction")
+            XCTAssertEqual(probe.mountCount, 1)
+            XCTAssertEqual(probe.unmountCount, 0)
+            XCTAssertTrue(playerLyricsScrollView(in: host.view) === scroll)
+        }
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertEqual(scroll.contentOffset.y, settledOffset, accuracy: 2)
+        fixture.visible = false
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertFalse(lyricsReceiveHit(), "The settled cover must not expose hidden lyric tap targets")
+    }
+
     func testHomeCarouselReusesCardsAcrossLoopsAndResizing() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -745,6 +854,42 @@ private final class PlayerRotationProbeController: UIHostingController<PlayerRot
         coordinator.animateAlongsideTransition(in: view, animation: nil) { [weak self] _ in
             self?.completedTransitions += 1
         }
+    }
+}
+
+@Observable
+private final class PlayerCoverLyricsFixture {
+    var visible = false
+}
+
+private struct PlayerCoverLyricsProbeView: View {
+    let fixture: PlayerCoverLyricsFixture
+    let probe: PlayerLyricsLifecycleProbe.State
+    let player: AudioPlayerService
+    let lyrics: [LyricLine]
+    let defaults: UserDefaults
+
+    var body: some View {
+        VStack {
+            Color.cyan.frame(height: 80)
+            if fixture.visible {
+                PlayerLyricsViewportSlot(collapsesChromeOnScroll: true)
+            } else {
+                Color.cyan
+            }
+            Color.cyan.frame(height: 120)
+        }
+        .modifier(PlayerLyricsViewportOverlay(isActive: true, isVisible: fixture.visible) { _ in
+            LyricsScrollView(lyrics: lyrics, lyricsWritingDirection: .leftToRight, lyricsRevision: 0,
+                isResolvingLyrics: false, player: player, songID: "switch-lyrics",
+                isSceneActive: fixture.visible, isScrapingCurrentSong: false, canTranscribeAudio: false,
+                isScrapeActionUnavailable: true, onAutomaticScrape: {}, onTranscribeAudio: {},
+                onBackgroundTap: {}, onShareLyricLine: { _ in }, translatedTextByLineID: [:],
+                translationActivity: .idle)
+                .defaultAppStorage(defaults)
+                .background(PlayerLyricsLifecycleProbe(state: probe))
+        })
+        .animation(.easeInOut(duration: 0.25), value: fixture.visible)
     }
 }
 

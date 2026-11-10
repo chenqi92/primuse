@@ -3881,9 +3881,7 @@ struct NowPlayingView: View {
                             playerArtworkOverlays(anchors: anchors)
                         }
                     }
-                    .modifier(PlayerLyricsViewportOverlay(isActive: usesPersistentPhoneLyrics) { collapsesChrome in
-                        lyricsScrollView(collapsesChromeOnScroll: collapsesChrome)
-                    })
+                    .modifier(persistentPhoneLyricsOverlay)
                     .onChange(of: canSplit, initial: true) { _, split in
                         isPlayerSplit = split
                     }
@@ -5519,7 +5517,7 @@ struct NowPlayingView: View {
                     compactLandscapeLyricsPane(metrics: lyricsMetrics)
                         .padding(.top, lyricsPaneTopClearance)
                         .pmLayoutSwitchFade()
-                        .transition(lyricsPanelTransition)
+                        .transition(usesPersistentPhoneLyrics ? .identity : lyricsPanelTransition)
                 } else {
                     compactLandscapeDetailColumn(
                         metrics: metrics,
@@ -6921,7 +6919,7 @@ struct NowPlayingView: View {
                                 .padding(.leading, insets.lyricsLeading)
                                 .padding(.trailing, insets.lyricsTrailing)
                                 .pmLayoutSwitchFade()
-                                .transition(lyricsPanelTransition)
+                                .transition(usesPersistentPhoneLyrics ? .identity : lyricsPanelTransition)
                                 // 转去横屏等别的版面时收起状态不带过去，回来是完整的播放页。
                                 .onDisappear { isLyricsChromeCollapsed = false }
                         }
@@ -9240,8 +9238,14 @@ struct NowPlayingView: View {
     // MARK: - Full Lyrics
 
     private var usesPersistentPhoneLyrics: Bool {
-        isPhoneCanvas && !usesExpandedLandscapeCanvas && showLyrics
+        isPhoneCanvas && !usesExpandedLandscapeCanvas
             && !isLyricsImmersive && !usesSpokenWordTransport && !player.isLiveRadio
+    }
+
+    private var persistentPhoneLyricsOverlay: some ViewModifier {
+        PlayerLyricsViewportOverlay(isActive: usesPersistentPhoneLyrics, isVisible: showLyrics) { collapsesChrome in
+            lyricsScrollView(collapsesChromeOnScroll: collapsesChrome, isVisible: showLyrics)
+        }
     }
 
     private var lyricsFullView: some View {
@@ -9260,7 +9264,8 @@ struct NowPlayingView: View {
 
     private func lyricsScrollView(
         collapsesChromeOnScroll: Bool,
-        showsReaderButton: Bool = true
+        showsReaderButton: Bool = true,
+        isVisible: Bool = true
     ) -> some View {
         LyricsScrollView(
             lyrics: romanizedPresentedLyrics,
@@ -9271,7 +9276,7 @@ struct NowPlayingView: View {
             offersLyricsRecoveryActions: lyricsResolution.offersRecoveryActions,
             player: player,
             songID: player.currentSong?.id,
-            isSceneActive: isVisualSceneActive,
+            isSceneActive: isVisualSceneActive && isVisible,
             isScrapingCurrentSong: isScrapingCurrentSong,
             canTranscribeAudio: canTranscribeCurrentSongAudio,
             isScrapeActionUnavailable: isScrapeActionUnavailable,
@@ -18651,21 +18656,56 @@ struct PlayerLyricsViewportSlot: View {
 /// 布局分支只提供位置，歌词列表留在共同父层，转屏不会重建滚动视图和所有歌词行。
 struct PlayerLyricsViewportOverlay<Lyrics: View>: ViewModifier {
     var isActive: Bool
+    var isVisible = true
     @ViewBuilder var lyrics: (Bool) -> Lyrics
 
     func body(content: Content) -> some View {
         content.overlayPreferenceValue(PlayerLyricsViewportKey.self) { viewport in
             if isActive {
                 GeometryReader { geometry in
-                    let rect = viewport.map { geometry[$0.bounds] } ?? .zero
-                    lyrics(viewport?.collapsesChromeOnScroll ?? false)
-                        .frame(width: max(0, rect.width), height: max(0, rect.height))
-                        .clipped()
-                        .position(x: rect.midX, y: rect.midY)
-                        .opacity(viewport == nil ? 0 : 1)
-                        .allowsHitTesting(viewport?.allowsInteraction == true)
-                        .accessibilityHidden(viewport == nil || viewport?.allowsInteraction == false)
+                    PlayerLyricsRetainedSurface(
+                        viewport: viewport.map {
+                            .init(rect: geometry[$0.bounds], collapsesChrome: $0.collapsesChromeOnScroll,
+                                  allowsInteraction: $0.allowsInteraction)
+                        },
+                        isVisible: isVisible,
+                        lyrics: lyrics
+                    )
                 }
+            }
+        }
+    }
+}
+
+private struct PlayerLyricsRetainedSurface<Lyrics: View>: View {
+    struct Viewport: Equatable {
+        var rect: CGRect
+        var collapsesChrome: Bool
+        var allowsInteraction: Bool
+    }
+
+    var viewport: Viewport?
+    var isVisible: Bool
+    @ViewBuilder var lyrics: (Bool) -> Lyrics
+    @State private var retainedViewport: Viewport?
+
+    var body: some View {
+        let resolved = viewport ?? retainedViewport
+        ZStack {
+            if let resolved {
+                lyrics(resolved.collapsesChrome)
+                    .frame(width: max(0, resolved.rect.width), height: max(0, resolved.rect.height))
+                    .clipped()
+                    .position(x: resolved.rect.midX, y: resolved.rect.midY)
+                    .opacity(isVisible ? 1 : 0)
+                    .allowsHitTesting(isVisible && resolved.allowsInteraction)
+                    .accessibilityHidden(!isVisible || !resolved.allowsInteraction)
+            }
+        }
+        .onChange(of: viewport, initial: true) { _, viewport in
+            // 封面页没有歌词槽位，保留最后的尺寸和原生滚动视图，淡出时不压成零尺寸。
+            if let viewport, viewport.rect.width > 0, viewport.rect.height > 0 {
+                retainedViewport = viewport
             }
         }
     }
