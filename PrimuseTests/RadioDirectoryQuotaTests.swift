@@ -8,21 +8,21 @@ import PrimuseKit
 #endif
 
 final class RadioDirectoryQuotaTests: XCTestCase {
-    func testSearchAndPopularShareAnHourCooldown() async throws {
+    func testLogoLookupsShareAnHourCooldown() async throws {
         let fixture = RadioQuotaFixture()
         defer { fixture.close() }
         let client = RadioDirectoryClient(session: fixture.session, mirrors: RadioDirectoryMirrors(hosts: [fixture.host]))
-        _ = try? await client.search(name: "fixture")
-        _ = try? await client.topStations(countryCode: nil)
-        XCTAssertEqual(fixture.requests.count, 1, "A second directory entry must respect the mirror's Retry-After")
+        _ = await client.lookup(streamURL: "https://stream.invalid/live")
+        _ = await client.lookup(streamURL: "https://stream.invalid/other")
+        XCTAssertEqual(fixture.requests.count, 1, "A second logo lookup must respect the mirror's Retry-After")
     }
-    func testMirrorDiscoverySharesSearchCooldown() async throws {
+    func testMirrorDiscoverySharesLookupCooldown() async throws {
         let fixture = RadioQuotaFixture()
         defer { fixture.close() }
         let registry = RequestQuotaRegistry()
         let client = RadioDirectoryClient(session: fixture.session,
             mirrors: RadioDirectoryMirrors(hosts: [fixture.host]), quotaRegistry: registry)
-        _ = try? await client.search(name: "fixture")
+        _ = await client.lookup(streamURL: "https://stream.invalid/live")
         let discovery = RadioDirectoryMirrors(session: fixture.session, quotaRegistry: registry,
             serverListURL: URL(string: "https://\(fixture.host)/json/servers")!)
         _ = await discovery.orderedHosts()
@@ -30,7 +30,7 @@ final class RadioDirectoryQuotaTests: XCTestCase {
     }
     func testCancellationDuringDiscoveryDoesNotWaitForItsHTTPTimeout() async throws {
         let started = expectation(description: "Discovery reached HTTP")
-        let finished = expectation(description: "Cancelled search returned")
+        let finished = expectation(description: "Cancelled lookup returned")
         let fixture = RadioQuotaFixture { _ in started.fulfill(); return .init(hold: true) }
         defer { fixture.close() }
         let registry = RequestQuotaRegistry()
@@ -39,8 +39,8 @@ final class RadioDirectoryQuotaTests: XCTestCase {
         let client = RadioDirectoryClient(session: fixture.session, mirrors: mirrors, quotaRegistry: registry)
         let request = Task {
             defer { finished.fulfill() }
-            do { _ = try await client.search(name: "fixture"); XCTFail("Cancelled search succeeded") }
-            catch { XCTAssertTrue(OperationCancellationPolicy.isCancellation(error)) }
+            let result = await client.lookup(streamURL: "https://stream.invalid/live")
+            XCTAssertNil(result)
         }
         await fulfillment(of: [started], timeout: 2)
         request.cancel()
@@ -62,29 +62,26 @@ final class RadioDirectoryQuotaTests: XCTestCase {
                     .init(session: fixture.session, mirrors: RadioDirectoryMirrors(hosts: [fixture.host]),
                           quotaRegistry: registry)
                 }
-                do { _ = try await client().search(name: "fixture"); XCTFail("Expected quota failure") }
-                catch let failure as HTTPResponseFailure {
-                    XCTAssertEqual(failure.statusCode, status)
-                    XCTAssertEqual(failure.retryAfter, 3600)
-                    XCTAssertEqual(failure.body, Data("busy".utf8))
-                }
+                let initial = await client().lookup(streamURL: "https://stream.invalid/live")
+                XCTAssertNil(initial)
                 clock.advance(to: 600)
-                do { _ = try await client().topStations(countryCode: "JP"); XCTFail("Expected shared cooldown") }
-                catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.retryAfter, 3000) }
+                let other = await client().lookup(streamURL: "https://stream.invalid/other")
+                XCTAssertNil(other)
                 let logo = await client().lookup(streamURL: "https://stream.invalid/live")
                 XCTAssertNil(logo)
                 XCTAssertEqual(fixture.requests.count, 1)
                 clock.advance(to: 3600)
-                _ = try? await client().search(name: "after expiry")
+                _ = await client().lookup(streamURL: "https://stream.invalid/after-expiry")
                 XCTAssertEqual(fixture.requests.count, 2)
             }
         }
     }
 
     func testIndependentMirrorCanSucceedWhileTheFirstKeepsItsCooldown() async throws {
+        let payload = Data(#"[{"stationuuid":"station-1","name":"Fixture FM","url":"https://stream.invalid/live","favicon":"https://image.invalid/logo.png"}]"#.utf8)
         let fixture = RadioQuotaFixture { request in
             request.url?.host?.hasPrefix("second.") == true
-                ? .init(status: 200, headers: [:], body: Data("[]".utf8)) : .init()
+                ? .init(status: 200, headers: [:], body: payload) : .init()
         }
         defer { fixture.close() }
         let registry = RequestQuotaRegistry()
@@ -92,8 +89,8 @@ final class RadioDirectoryQuotaTests: XCTestCase {
         for _ in 0..<2 {
             let client = RadioDirectoryClient(session: fixture.session,
                 mirrors: RadioDirectoryMirrors(hosts: hosts), quotaRegistry: registry)
-            let result = try await client.search(name: "fixture")
-            XCTAssertTrue(result.isEmpty)
+            let result = await client.lookup(streamURL: "https://stream.invalid/live")
+            XCTAssertEqual(result?.faviconURL, "https://image.invalid/logo.png")
         }
         XCTAssertEqual(fixture.requests.compactMap { $0.url?.host }, [hosts[0], hosts[1], hosts[1]])
     }
@@ -105,8 +102,8 @@ final class RadioDirectoryQuotaTests: XCTestCase {
             let hosts = (1...4).map { "mirror\($0)." + fixture.host }
             let client = RadioDirectoryClient(session: fixture.session,
                 mirrors: RadioDirectoryMirrors(hosts: hosts), quotaRegistry: RequestQuotaRegistry())
-            do { _ = try await client.search(name: "fixture"); XCTFail("All mirrors failed") }
-            catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.statusCode, status) }
+            let result = await client.lookup(streamURL: "https://stream.invalid/live")
+            XCTAssertNil(result)
             XCTAssertEqual(fixture.requests.compactMap { $0.url?.host }, Array(hosts.prefix(3)))
         }
     }
@@ -119,8 +116,8 @@ final class RadioDirectoryQuotaTests: XCTestCase {
                 mirrors: RadioDirectoryMirrors(hosts: [fixture.host, "other." + fixture.host]),
                 quotaRegistry: RequestQuotaRegistry())
             for _ in 0..<2 {
-                do { _ = try await client.search(name: "fixture"); XCTFail("Expected HTTP failure") }
-                catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.statusCode, status) }
+                let result = await client.lookup(streamURL: "https://stream.invalid/live")
+                XCTAssertNil(result)
             }
             XCTAssertEqual(fixture.requests.count, 2, "Ordinary 4xx must not create a quota or retry")
             XCTAssertTrue(fixture.requests.allSatisfy { $0.url?.host == fixture.host })
@@ -129,8 +126,8 @@ final class RadioDirectoryQuotaTests: XCTestCase {
         defer { fixture.close() }
         let client = RadioDirectoryClient(session: fixture.session,
             mirrors: RadioDirectoryMirrors(hosts: [fixture.host, "other." + fixture.host]))
-        do { _ = try await client.search(name: "fixture"); XCTFail("Expected cancellation") }
-        catch let error as URLError { XCTAssertEqual(error.code, .cancelled) }
+        let result = await client.lookup(streamURL: "https://stream.invalid/live")
+        XCTAssertNil(result)
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
@@ -140,31 +137,30 @@ final class RadioDirectoryQuotaTests: XCTestCase {
         defer { fixture.close() }
         let client = RadioDirectoryClient(session: fixture.session,
             mirrors: RadioDirectoryMirrors(hosts: [fixture.host]))
-        let results = try await client.search(name: "  Fixture  ")
-        XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(results.first?.id, "station-1")
-        XCTAssertEqual(results.first?.streamURL, "https://stream.invalid/live")
-        XCTAssertNil(results.first?.codec)
-        XCTAssertEqual(results.first?.bitrate, 128)
         let logo = await client.lookup(streamURL: "https://stream.invalid/live")
+        XCTAssertEqual(logo?.id, "station-1")
+        XCTAssertEqual(logo?.streamURL, "https://stream.invalid/live")
+        XCTAssertNil(logo?.codec)
+        XCTAssertEqual(logo?.bitrate, 128)
         XCTAssertEqual(logo?.faviconURL, "https://image.invalid/logo.png")
         XCTAssertEqual(fixture.requests.last?.httpMethod, "POST")
         XCTAssertEqual(fixture.requests.last?.url?.path, "/json/stations/byurl")
         XCTAssertEqual(fixture.requests.last?.value(forHTTPHeaderField: "User-Agent"), "Primuse/1.0")
         let query = try XCTUnwrap(URLComponents(url: try XCTUnwrap(fixture.requests.first?.url), resolvingAgainstBaseURL: false))
-        XCTAssertEqual(query.queryItems?.first { $0.name == "name" }?.value, "Fixture")
+        XCTAssertNil(query.queryItems, "Lookup must not send a station search query")
+        XCTAssertEqual(fixture.requests.count, 1)
     }
 
-    func testMalformedSuccessDoesNotFailOverAndEmptyQueryDoesNotSend() async throws {
+    func testMalformedSuccessDoesNotFailOverAndInvalidStreamDoesNotSend() async throws {
         let fixture = RadioQuotaFixture { _ in .init(status: 200, headers: [:], body: Data("invalid".utf8)) }
         defer { fixture.close() }
         let client = RadioDirectoryClient(session: fixture.session,
             mirrors: RadioDirectoryMirrors(hosts: [fixture.host, "other." + fixture.host]))
-        do { _ = try await client.search(name: " "); XCTFail("Expected empty query") }
-        catch RadioDirectoryClient.Failure.emptyQuery { }
+        let invalid = await client.lookup(streamURL: " ")
+        XCTAssertNil(invalid)
         XCTAssertTrue(fixture.requests.isEmpty)
-        do { _ = try await client.search(name: "fixture"); XCTFail("Invalid JSON cannot become an empty directory") }
-        catch is DecodingError { }
+        let malformed = await client.lookup(streamURL: "https://stream.invalid/live")
+        XCTAssertNil(malformed)
         XCTAssertEqual(fixture.requests.count, 1)
     }
 

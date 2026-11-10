@@ -78,11 +78,6 @@ enum TVRadioLogoLoader {
         ) != nil
     }
 
-    /// 添加电台页搜索结果里的 favicon。与电台台标共用闸门、失败记录和磁盘缓存。
-    static func directoryLogo(address: String) async -> Data? {
-        await fetchRemoteLogo(cacheSongID: "radio-directory", address: address)
-    }
-
     /// 在后台线程按显示尺寸解出缩略图,不常驻整张原图(台标常有上千像素,
     /// 资料库网格一屏几十张)。不会放大比 `maxPixelSize` 小的图。
     static func thumbnail(from data: Data, maxPixelSize: Int) -> UIImage? {
@@ -444,7 +439,7 @@ struct TVRadioAddCard: View {
         TVRadioTileCard(
             icon: "plus",
             title: PMString("ext.tv.radio.add"),
-            subtitle: PMString("ext.tv.radio.addSubtitle"),
+            subtitle: PMString("ext.tv.radio.modeManual"),
             width: width,
             focusBinding: focusBinding,
             focusID: TVRadioFocusID.add,
@@ -563,33 +558,16 @@ struct TVRadioDeleteConfirmationHost: ViewModifier {
 
 // MARK: - 添加电台
 
-/// 电视端添加电台。遥控器打字很费劲,所以主入口是按名称搜在线目录、一键添加;
-/// 手动输入流地址作为第二个页签留着。添加的台写进与 iPhone / Mac 同一份电台存储。
 struct TVRadioAddView: View {
-    private enum Mode { case search, manual }
-    private enum SearchState: Equatable {
-        case idle
-        case searching
-        case finished
-        case failed
-    }
-    private enum Field: Hashable { case query, name, url }
+    private enum Field: Hashable { case name, url }
 
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    @State private var mode: Mode = .search
-    @State private var query = ""
-    @State private var results: [RadioDirectoryClient.Result] = []
-    @State private var searchState: SearchState = .idle
-    @State private var searchTask: Task<Void, Never>?
     @State private var manualName = ""
     @State private var manualURL = ""
     @State private var manualError: String?
     @State private var notice: String?
-    @State private var popular: [RadioDirectoryClient.Result] = []
-    /// 热门电台所属地区的显示名;按全球取回时为 nil。
-    @State private var popularRegionName: String?
     @FocusState private var focusedField: Field?
 
     var body: some View {
@@ -600,35 +578,21 @@ struct TVRadioAddView: View {
                 .padding(.horizontal, 90)
                 .padding(.vertical, 50)
         }
-        // 主入口是搜索,打开就把焦点放进查询框,不停在右上角的模式胶囊上。
-        .onAppear { focusedField = mode == .search ? .query : .name }
+        .onAppear { focusedField = .name }
         .onExitCommand { dismiss() }
-        .onDisappear { searchTask?.cancel() }
-        .task { await loadPopularStations() }
     }
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 24) {
-                Text(PMString("ext.tv.radio.add"))
-                    .tvFont(.pageTitle)
-                    .foregroundStyle(TVColor.text)
-                Spacer(minLength: 0)
-                modeButton(.search, title: PMString("ext.tv.radio.modeSearch"), icon: "magnifyingglass")
-                modeButton(.manual, title: PMString("ext.tv.radio.modeManual"), icon: "link")
-            }
-            .focusSection()
+            Text(PMString("ext.tv.radio.add"))
+                .tvFont(.pageTitle)
+                .foregroundStyle(TVColor.text)
             Rectangle().fill(TVColor.divider)
                 .frame(height: 1)
                 .padding(.top, 24).padding(.bottom, 26)
 
-            Group {
-                switch mode {
-                case .search: searchContent
-                case .manual: manualContent
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
+            manualContent
+                .frame(maxHeight: .infinity, alignment: .top)
 
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 Image(systemName: "icloud")
@@ -644,224 +608,6 @@ struct TVRadioAddView: View {
         .padding(.horizontal, 60).padding(.vertical, 46)
         .frame(maxWidth: 1320, maxHeight: .infinity, alignment: .topLeading)
         .tvPanel(radius: 26)
-    }
-
-    private func modeButton(_ target: Mode, title: String, icon: String) -> some View {
-        TVPillButton(
-            title: title,
-            systemImage: icon,
-            style: mode == target ? .solid : .glass,
-            isSelected: mode == target
-        ) {
-            let changed = mode != target
-            mode = target
-            notice = nil
-            guard changed else { return }
-            // 下面整块内容换掉了,焦点跟过去放进它的第一个输入框。等新内容出现再设。
-            Task { @MainActor in
-                await Task.yield()
-                focusedField = target == .search ? .query : .name
-            }
-        }
-    }
-
-    // MARK: 搜索目录
-
-    private var searchContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            fieldLabel(PMString("ext.tv.radio.searchLabel"), icon: "magnifyingglass", active: focusedField == .query)
-            HStack(spacing: 18) {
-                TVTextFieldBox {
-                    TextField("", text: $query)
-                        .focused($focusedField, equals: .query)
-                        .submitLabel(.search)
-                        .onSubmit(search)
-                        .accessibilityLabel(Text(PMString("ext.tv.radio.searchLabel")))
-                }
-                TVPillButton(
-                    title: PMString("ext.tv.radio.searchButton"),
-                    systemImage: "magnifyingglass",
-                    style: .solid,
-                    action: search
-                )
-                .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            .focusSection()
-
-            searchResults
-                .padding(.top, 22)
-        }
-        // 把查询删空就回到热门电台。在途的搜索一并取消,免得它晚些回来又把状态写成「已完成」。
-        .onChange(of: query) { _, newValue in
-            guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            searchTask?.cancel()
-            searchTask = nil
-            results = []
-            searchState = .idle
-        }
-    }
-
-    @ViewBuilder
-    private var searchResults: some View {
-        switch searchState {
-        case .idle where !popular.isEmpty:
-            VStack(alignment: .leading, spacing: 8) {
-                Label(
-                    popularRegionName.map { PMString("ext.tv.radio.popularIn", $0) }
-                        ?? PMString("ext.tv.radio.popular"),
-                    systemImage: "flame"
-                )
-                .tvFont(.caption, weight: .semibold)
-                .foregroundStyle(TVColor.textMuted)
-                .padding(.horizontal, 8)
-                resultList(popular)
-            }
-        case .idle:
-            statusLine(PMString("ext.tv.radio.directoryNote"), icon: "globe")
-        case .searching:
-            HStack(spacing: 16) {
-                ProgressView()
-                Text(PMString("ext.tv.radio.searching"))
-                    .tvFont(.caption)
-                    .foregroundStyle(TVColor.textMuted)
-            }
-            .padding(.top, 10)
-        case .failed:
-            statusLine(PMString("ext.tv.radio.searchFailed"), icon: "exclamationmark.triangle", tint: TVColor.warn)
-        case .finished where results.isEmpty:
-            statusLine(PMString("ext.tv.radio.noResults"), icon: "radio")
-        case .finished:
-            resultList(results)
-        }
-    }
-
-    private func resultList(_ items: [RadioDirectoryClient.Result]) -> some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                ForEach(items) { result in
-                    resultRow(result)
-                }
-            }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 8)
-        }
-        .focusSection()
-    }
-
-    /// 还没输入时先摆出本地区(取不到就全球)投票最多的台,遥控器打字太费劲。
-    /// 取不到就静默留在目录说明行。取到的结果在本次运行内留着(`TVRadioPopularCache`),
-    /// 再打开这个面板不重新请求目录;失败不留,下次打开再试。
-    private func loadPopularStations() async {
-        guard popular.isEmpty else { return }
-        let region = Locale.current.region?.identifier
-        let code = region.flatMap { $0.count == 2 && $0.allSatisfy(\.isLetter) ? $0.uppercased() : nil }
-        if let cached = TVRadioPopularCache.entry, cached.regionCode == code {
-            popularRegionName = cached.regionName
-            popular = cached.stations
-            return
-        }
-        // 本地区请求出错(不是「本地区没有台」)时这次先用全球榜,但不留缓存,下次再试本地区。
-        var regionalFailed = false
-        if let code {
-            do {
-                let regional = try await RadioDirectoryClient.topStations(countryCode: code)
-                guard !Task.isCancelled else { return }
-                if !regional.isEmpty {
-                    let name = Locale.current.localizedString(forRegionCode: code) ?? code
-                    TVRadioPopularCache.entry = .init(regionCode: code, regionName: name, stations: regional)
-                    popularRegionName = name
-                    popular = regional
-                    return
-                }
-            } catch {
-                regionalFailed = true
-            }
-        }
-        guard !Task.isCancelled,
-              let global = try? await RadioDirectoryClient.topStations(countryCode: nil),
-              !Task.isCancelled else { return }
-        if !regionalFailed, !global.isEmpty {
-            TVRadioPopularCache.entry = .init(regionCode: code, regionName: nil, stations: global)
-        }
-        popularRegionName = nil
-        popular = global
-    }
-
-    private func resultRow(_ result: RadioDirectoryClient.Result) -> some View {
-        let isAdded = store.hasRadioStation(streamURL: result.streamURL)
-        return TVFocusButton(radius: 16, scale: 1.01, lift: 0, action: { add(result) }) { focused in
-            HStack(spacing: 22) {
-                TVRadioDirectoryLogo(urlString: result.faviconURL)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(verbatim: result.name)
-                        .tvFont(.rowTitle)
-                        .foregroundStyle(TVColor.text)
-                        .lineLimit(1)
-                    let detail = detailText(for: result)
-                    Text(verbatim: detail.isEmpty ? " " : detail)
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textFaint)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 12)
-                Label(
-                    isAdded ? PMString("ext.tv.radio.added") : PMString("ext.tv.radio.addButton"),
-                    systemImage: isAdded ? "checkmark.circle.fill" : "plus.circle"
-                )
-                .tvFont(.caption, weight: .semibold)
-                .foregroundStyle(isAdded ? TVColor.brand : (focused ? TVColor.text : TVColor.textMuted))
-            }
-            .padding(.horizontal, 22).padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .accessibilityLabel(Text(verbatim: result.name))
-        .accessibilityValue(Text(isAdded ? PMString("ext.tv.radio.added") : detailText(for: result)))
-    }
-
-    private func detailText(for result: RadioDirectoryClient.Result) -> String {
-        var parts: [String] = []
-        if let country = result.country { parts.append(country) }
-        if let codec = result.codec { parts.append(codec.uppercased()) }
-        if let bitrate = result.bitrate { parts.append("\(bitrate) kbps") }
-        return parts.joined(separator: " · ")
-    }
-
-    private func search() {
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        searchTask?.cancel()
-        searchState = .searching
-        notice = nil
-        searchTask = Task { @MainActor in
-            do {
-                let found = try await RadioDirectoryClient.search(name: text)
-                guard !Task.isCancelled else { return }
-                results = found
-                searchState = .finished
-            } catch {
-                guard !Task.isCancelled else { return }
-                results = []
-                searchState = .failed
-            }
-        }
-    }
-
-    private func add(_ result: RadioDirectoryClient.Result) {
-        guard !store.hasRadioStation(streamURL: result.streamURL) else {
-            notice = PMString("ext.tv.radio.duplicate")
-            return
-        }
-        if let station = store.addRadioStation(
-            name: result.name,
-            streamURL: result.streamURL,
-            homepageURL: result.homepageURL,
-            logoURL: result.faviconURL,
-            logoSource: .directoryFavicon
-        ) {
-            notice = PMString("ext.tv.radio.addedNotice", station.name)
-        }
     }
 
     // MARK: 手动输入
@@ -941,82 +687,6 @@ struct TVRadioAddView: View {
                 .foregroundStyle(active ? TVColor.text : TVColor.textFaint)
         }
         .padding(.bottom, 10)
-    }
-
-    private func statusLine(_ text: String, icon: String, tint: Color = TVColor.textMuted) -> some View {
-        Label(text, systemImage: icon)
-            .tvFont(.caption)
-            .foregroundStyle(tint)
-            .padding(.top, 10)
-    }
-}
-
-/// 添加电台面板的热门电台,本次运行内只取一次。面板每次打开都是新视图,
-/// 不留一份的话每开一次都要再请求一两次目录。按地区码对应,系统地区改了就重新取。
-@MainActor
-private enum TVRadioPopularCache {
-    struct Entry {
-        let regionCode: String?
-        /// 地区的显示名;按全球取回时为 nil。
-        let regionName: String?
-        let stations: [RadioDirectoryClient.Result]
-    }
-
-    static var entry: Entry?
-}
-
-/// 搜索结果里的台标缩略图。目录给的 favicon 常常失效,取不到就显示电台图标。
-/// 走台标加载器(闸门、失败记录、磁盘缓存),解出的缩略图在本次运行内留一份,
-/// 来回切换热门和搜索结果时不再重新解码。
-private struct TVRadioDirectoryLogo: View {
-    let urlString: String?
-    private let side: CGFloat = 72
-    @State private var image: UIImage?
-
-    @MainActor private static let thumbnails: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 300
-        return cache
-    }()
-
-    private var address: String? { RadioLogoURLPolicy.normalized(urlString) }
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(TVColor.surface)
-            Image(systemName: "radio.fill")
-                .font(.system(size: side * 0.4, weight: .semibold))
-                .foregroundStyle(TVColor.textGhost)
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            }
-        }
-        .frame(width: side, height: side)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .task(id: address) {
-            guard let address else {
-                image = nil
-                return
-            }
-            let key = address as NSString
-            if let cached = Self.thumbnails.object(forKey: key) {
-                image = cached
-                return
-            }
-            image = nil
-            guard let data = await TVRadioLogoLoader.directoryLogo(address: address),
-                  !Task.isCancelled else { return }
-            let pixelSize = Int(side * 2)
-            let decoded = await Task.detached(priority: .utility) {
-                TVRadioLogoLoader.thumbnail(from: data, maxPixelSize: pixelSize)
-            }.value
-            guard !Task.isCancelled, let decoded else { return }
-            Self.thumbnails.setObject(decoded, forKey: key)
-            image = decoded
-        }
     }
 }
 

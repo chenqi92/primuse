@@ -17,7 +17,7 @@ struct MacRadioBatchAddView: View {
     @Environment(\.dismiss) private var dismiss
 
     private enum Entry: String, CaseIterable, Identifiable {
-        case paste, file, url, directory
+        case paste, file, url
 
         var id: String { rawValue }
 
@@ -26,7 +26,6 @@ struct MacRadioBatchAddView: View {
             case .paste: return "radio_batch_entry_paste"
             case .file: return "radio_batch_entry_file"
             case .url: return "radio_batch_entry_url"
-            case .directory: return "radio_batch_entry_directory"
             }
         }
 
@@ -35,7 +34,6 @@ struct MacRadioBatchAddView: View {
             case .paste: return "doc.on.clipboard"
             case .file: return "doc.text"
             case .url: return "link"
-            case .directory: return "globe"
             }
         }
     }
@@ -54,9 +52,6 @@ struct MacRadioBatchAddView: View {
     @State private var selection: Set<RadioImportCandidate.ID> = []
     @State private var errorMessage: String?
     @State private var isAdding = false
-    @State private var directoryQuery = ""
-    @State private var isSearchingDirectory = false
-    @State private var directorySearched = false
     /// 这一批导进哪个文件夹。批量导入正是电台数量失控的起点，所以归类要在
     /// 这一步就能定，而不是导完再一个个挑出来。
     @State private var destination: ImportDestination = .ungrouped
@@ -67,7 +62,7 @@ struct MacRadioBatchAddView: View {
     @State private var playlistFetchTask: Task<Void, Never>?
     @State private var insecurePlaylistHost: String?
     /// 当前结果表是从哪个清单地址取回的。只有「清单链接」这条路有它 ——
-    /// 粘贴、文件和在线目录没有可以回头再取的地址，也就没法订阅。
+    /// 粘贴和文件没有可以回头再取的地址，也就没法订阅。
     @State private var fetchedPlaylistURL: String?
     @State private var subscribesToList = false
     @State private var showingManagedSubscription = false
@@ -132,7 +127,6 @@ struct MacRadioBatchAddView: View {
                     case .paste: pasteInput
                     case .file: fileInput
                     case .url: urlInput
-                    case .directory: directoryInput
                     }
 
                     if !candidates.isEmpty {
@@ -285,7 +279,6 @@ struct MacRadioBatchAddView: View {
                     entry = item
                     candidates = []
                     selection = []
-                    directorySearched = false
                     fetchedPlaylistURL = nil
                     subscribesToList = false
                 } label: {
@@ -510,62 +503,6 @@ struct MacRadioBatchAddView: View {
                     isSubscribing ? PMColor.brand.opacity(0.45) : PMColor.cardBorder,
                     lineWidth: 0.5
                 )
-        }
-    }
-
-    private var directoryInput: some View {
-        VStack(alignment: .leading, spacing: PMSpace.s10) {
-            Text("radio_batch_directory_hint")
-                .font(PMFont.caption)
-                .foregroundStyle(PMColor.textMuted)
-
-            HStack(spacing: PMSpace.s) {
-                TextField(
-                    String(localized: "radio_batch_directory_placeholder"),
-                    text: $directoryQuery
-                )
-                .textFieldStyle(.plain)
-                .font(PMFont.bodyS)
-                .foregroundStyle(PMColor.text)
-                .padding(.horizontal, PMSpace.s10)
-                .frame(height: 28)
-                .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.s))
-                .overlay {
-                    RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                        .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
-                }
-                .onSubmit { Task { await searchDirectory() } }
-
-                Button {
-                    Task { await searchDirectory() }
-                } label: {
-                    Group {
-                        if isSearchingDirectory {
-                            ProgressView().controlSize(.small)
-                                .pmAppearFade(.control)
-                        } else {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(PMColor.text)
-                                .pmAppearFade(.control)
-                        }
-                    }
-                    .frame(width: 30, height: 28)
-                    .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isSearchingDirectory || directoryQuery.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            if directorySearched, candidates.isEmpty, !isSearchingDirectory {
-                Text("radio_batch_directory_empty")
-                    .font(PMFont.caption)
-                    .foregroundStyle(PMColor.textFaint)
-            }
         }
     }
 
@@ -867,21 +804,6 @@ struct MacRadioBatchAddView: View {
         }
     }
 
-    private func searchDirectory() async {
-        let query = directoryQuery.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty, !isSearchingDirectory else { return }
-        isSearchingDirectory = true
-        defer { isSearchingDirectory = false }
-        do {
-            let results = try await RadioDirectoryClient.search(name: query)
-            directorySearched = true
-            applyCandidates(RadioDirectoryClient.candidates(from: results, existing: store.stations))
-        } catch {
-            directorySearched = true
-            errorMessage = RadioDirectoryClient.Failure.message(for: error)
-        }
-    }
-
     private func routeOtherMedia(_ text: String, sourceURL: URL? = nil) -> Bool {
         switch MediaImportText.destination(for: text) {
         case .playlist:
@@ -1008,7 +930,7 @@ struct MacRadioBatchAddView: View {
         }
 
         dismiss()
-        // 清单/目录没给台标的，交给后台自己去找一张。
+        // 清单没给台标的，交给后台自己去找一张。
         RadioLogoDiscoveryService.shared.discoverIfNeeded(for: added)
         // 探测每个流要几秒，放到关窗之后跑，不让用户干等。
         Task {

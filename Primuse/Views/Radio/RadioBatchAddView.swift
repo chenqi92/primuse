@@ -7,7 +7,7 @@ import UIKit
 import AppKit
 #endif
 
-/// 批量添加电台 —— 把「粘贴一串 URL」「导入 m3u/pls」「在线目录搜索」三条路
+/// 批量添加电台 —— 把「粘贴一串 URL」「导入 m3u/pls」「清单链接」三条路
 /// 收进一个页面。三者产出同一种 `RadioImportCandidate` 列表，用户在同一张表上
 /// 勾选后一次性入库。
 ///
@@ -33,7 +33,7 @@ struct RadioBatchAddView: View {
     }
 
     private enum Entry: String, CaseIterable, Identifiable {
-        case paste, file, url, directory
+        case paste, file, url
 
         var id: String { rawValue }
 
@@ -42,7 +42,6 @@ struct RadioBatchAddView: View {
             case .paste: return "radio_batch_entry_paste"
             case .file: return "radio_batch_entry_file"
             case .url: return "radio_batch_entry_url"
-            case .directory: return "radio_batch_entry_directory"
             }
         }
 
@@ -51,7 +50,6 @@ struct RadioBatchAddView: View {
             case .paste: return "doc.on.clipboard"
             case .file: return "doc.text"
             case .url: return "link"
-            case .directory: return "globe"
             }
         }
     }
@@ -71,9 +69,6 @@ struct RadioBatchAddView: View {
     @State private var showFileImporter = false
     @State private var errorMessage: String?
     @State private var isAdding = false
-    @State private var directoryQuery = ""
-    @State private var isSearchingDirectory = false
-    @State private var directorySearched = false
     /// 这一批导进哪个文件夹。批量导入正是电台数量失控的起点，所以归类要在
     /// 这一步就能定，而不是导完再一个个挑出来。
     @State private var destination: ImportDestination = .ungrouped
@@ -84,7 +79,7 @@ struct RadioBatchAddView: View {
     @State private var playlistFetchTask: Task<Void, Never>?
     @State private var insecurePlaylistHost: String?
     /// 当前结果表是从哪个清单地址取回的。只有「清单链接」这条路有它 ——
-    /// 粘贴、文件和在线目录没有可以回头再取的地址，也就没法订阅。
+    /// 粘贴和文件没有可以回头再取的地址，也就没法订阅。
     @State private var fetchedPlaylistURL: String?
     @State private var subscribesToList = false
     @State private var showingManagedSubscription = false
@@ -155,7 +150,6 @@ struct RadioBatchAddView: View {
                         case .paste: pasteInput
                         case .file: fileInput
                         case .url: urlInput
-                        case .directory: directoryInput
                         }
 
                         if !candidates.isEmpty {
@@ -239,7 +233,6 @@ struct RadioBatchAddView: View {
                     // 换入口就清空上一批结果，避免用户以为新结果里还混着旧的。
                     candidates = []
                     selection = []
-                    directorySearched = false
                     fetchedPlaylistURL = nil
                     subscribesToList = false
                 } label: {
@@ -505,65 +498,6 @@ struct RadioBatchAddView: View {
                             lineWidth: 0.8
                         )
                 }
-        }
-    }
-
-    // MARK: - 在线目录
-
-    private var directoryInput: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("radio_batch_directory_hint")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 10) {
-                TextField(String(localized: "radio_batch_directory_placeholder"), text: $directoryQuery)
-                    .textFieldStyle(.roundedBorder)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .submitLabel(.search)
-                    #endif
-                    .onSubmit { Task { await searchDirectory() } }
-
-                Button {
-                    Task { await searchDirectory() }
-                } label: {
-                    if isSearchingDirectory {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "magnifyingglass")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(
-                    isSearchingDirectory
-                        || directoryQuery.trimmingCharacters(in: .whitespaces).isEmpty
-                )
-            }
-
-            if directorySearched, candidates.isEmpty, !isSearchingDirectory {
-                Text("radio_batch_directory_empty")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func searchDirectory() async {
-        let query = directoryQuery.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty, !isSearchingDirectory else { return }
-        isSearchingDirectory = true
-        defer { isSearchingDirectory = false }
-
-        do {
-            let results = try await RadioDirectoryClient.search(name: query)
-            directorySearched = true
-            applyCandidates(
-                RadioDirectoryClient.candidates(from: results, existing: store.stations)
-            )
-        } catch {
-            directorySearched = true
-            errorMessage = RadioDirectoryClient.Failure.message(for: error)
         }
     }
 
@@ -981,7 +915,7 @@ struct RadioBatchAddView: View {
         // 试连放在关页之后跑：探测每个流要几秒，用户没必要为此等在这一屏。
         // 探测本身只用来把明确失败的流标出来，不改动用户已确认的添加结果。
         Task { await probe(added) }
-        // 清单/目录没给台标的，交给后台自己去找一张。
+        // 清单没给台标的，交给后台自己去找一张。
         RadioLogoDiscoveryService.shared.discoverIfNeeded(for: added)
     }
 

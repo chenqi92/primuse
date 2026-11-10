@@ -1,11 +1,7 @@
 import Foundation
 import PrimuseKit
 
-/// radio-browser.info 的最小只读客户端。社区维护的公开电台目录，免费、不需要
-/// API key，只用来搜索电台名并拿回流地址 —— 不上报任何本地数据。
-///
-/// 只读；发出去的只有用户主动输入的搜索词，以及取热门电台时的两位地区码
-/// （`Locale.current.region`）。不会把曲库、设备信息或已有电台传出去。
+/// 按用户已有的流地址回查 radio-browser.info，只用于补全台标和主页。
 struct RadioDirectoryClient: Sendable {
     private static let shared = RadioDirectoryClient()
     private let session: URLSession
@@ -21,14 +17,6 @@ struct RadioDirectoryClient: Sendable {
         self.session = session
         self.mirrors = mirrors
         self.quotaRegistry = quotaRegistry
-    }
-
-    static func search(name: String, limit: Int = 30) async throws -> [Result] {
-        try await shared.search(name: name, limit: limit)
-    }
-
-    static func topStations(countryCode: String?, limit: Int = 30) async throws -> [Result] {
-        try await shared.topStations(countryCode: countryCode, limit: limit)
     }
 
     static func lookup(streamURL: String) async -> Result? {
@@ -47,30 +35,14 @@ struct RadioDirectoryClient: Sendable {
         let codec: String?
         let bitrate: Int?
         let country: String?
-        /// 目录记录的台标地址。搜索结果列表直接拿它显示缩略图，
-        /// 用户勾选之前就能看清是不是自己要的台。
+        /// 目录记录的台标地址。
         let faviconURL: String?
         /// 电台主页。没有 favicon 时留给主页图标抓取当输入。
         let homepageURL: String?
     }
 
-    enum Failure: LocalizedError {
+    private enum Failure: Error {
         case badResponse
-        case emptyQuery
-
-        var errorDescription: String? {
-            switch self {
-            case .badResponse: return String(localized: "radio_batch_directory_failed")
-            case .emptyQuery: return String(localized: "radio_batch_directory_placeholder")
-            }
-        }
-
-        /// 搜索失败时界面上的说法。镜像都限流、5xx 或别的 HTTP 错误，对用户来说都是连不上目录，
-        /// 状态码帮不上忙；断网、超时这类照系统的说法。
-        static func message(for error: Error) -> String {
-            if error is HTTPResponseFailure { return Failure.badResponse.localizedDescription }
-            return error.localizedDescription
-        }
     }
 
     private struct Payload: Decodable {
@@ -85,34 +57,6 @@ struct RadioDirectoryClient: Sendable {
         let homepage: String?
     }
 
-    func search(name: String, limit: Int = 30) async throws -> [Result] {
-        let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { throw Failure.emptyQuery }
-
-        return try await searchStations(queryItems: [
-            URLQueryItem(name: "name", value: query),
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "hidebroken", value: "true"),
-            URLQueryItem(name: "order", value: "votes"),
-            URLQueryItem(name: "reverse", value: "true"),
-        ])
-    }
-
-    /// 投票最多的台。`countryCode` 是 ISO 3166-1 两位地区码,传 nil 取全球。
-    /// 电视端添加电台时还没输入就先摆出来,遥控器打字太费劲。
-    func topStations(countryCode: String?, limit: Int = 30) async throws -> [Result] {
-        var items = [
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "hidebroken", value: "true"),
-            URLQueryItem(name: "order", value: "votes"),
-            URLQueryItem(name: "reverse", value: "true"),
-        ]
-        if let countryCode, !countryCode.isEmpty {
-            items.append(URLQueryItem(name: "countrycode", value: countryCode))
-        }
-        return try await searchStations(queryItems: items)
-    }
-
     /// 目录里不少台的编码写的是 "UNKNOWN",显示出来只是噪音,当作没有。
     private static func cleanedCodec(_ raw: String?) -> String? {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty,
@@ -120,12 +64,11 @@ struct RadioDirectoryClient: Sendable {
         return raw
     }
 
-    /// 三个入口共用的请求：从当前镜像开始，连不上、超时、TLS 失败、5xx 或 429 就换下一台再试，
+    /// 从当前镜像开始，连不上、超时、TLS 失败、5xx 或 429 就换下一台再试，
     /// 最多试 `maximumMirrorAttempts` 台；其余 4xx 与设备自己没网不换（换谁都一样），
     /// 解码失败由调用方处理，也不换。全部失败时抛最后一次的错误。
     private func perform(
         path: String,
-        queryItems: [URLQueryItem] = [],
         method: String = "GET",
         body: Data? = nil,
         timeout: TimeInterval
@@ -138,7 +81,6 @@ struct RadioDirectoryClient: Sendable {
             components.scheme = "https"
             components.host = host
             components.path = path
-            if !queryItems.isEmpty { components.queryItems = queryItems }
             guard let url = components.url else { throw Failure.badResponse }
 
             var request = URLRequest(url: url)
@@ -188,30 +130,6 @@ struct RadioDirectoryClient: Sendable {
         }
     }
 
-    private func searchStations(queryItems: [URLQueryItem]) async throws -> [Result] {
-        let data = try await perform(
-            path: "/json/stations/search",
-            queryItems: queryItems,
-            timeout: 15
-        )
-        let payloads = try JSONDecoder().decode([Payload].self, from: data)
-        return payloads.compactMap { payload in
-            // url_resolved 已经跟过重定向，比 url 更可能直接可播。
-            let stream = payload.url_resolved?.isEmpty == false ? payload.url_resolved! : payload.url
-            guard RadioStationValidation.normalizedURLString(stream) != nil else { return nil }
-            return Result(
-                id: payload.stationuuid,
-                name: RadioStationValidation.normalizedName(payload.name),
-                streamURL: stream,
-                codec: Self.cleanedCodec(payload.codec),
-                bitrate: payload.bitrate.flatMap { $0 > 0 ? $0 : nil },
-                country: payload.country?.isEmpty == false ? payload.country : nil,
-                faviconURL: RadioLogoURLPolicy.normalized(payload.favicon),
-                homepageURL: RadioLogoURLPolicy.normalized(payload.homepage)
-            )
-        }
-    }
-
     /// 拿流地址回查目录，取它记录的台标。
     ///
     /// 这是台标自动发现的最后一条线索：用户手动粘贴进来的电台，只要目录里
@@ -250,39 +168,6 @@ struct RadioDirectoryClient: Sendable {
             )
         }
         return mapped.first { $0.faviconURL != nil } ?? mapped.first
-    }
-
-    /// 把目录结果转成批量添加页的候选，复用同一套判重逻辑。
-    ///
-    /// 走结构化条目而不是把结果拼回文本再解析一遍 —— 拼文本会把 favicon
-    /// 和主页地址丢掉，而那正是用户在搜索结果里看到的那张图。
-    static func candidates(
-        from results: [Result],
-        existing: [RadioStation]
-    ) -> [RadioImportCandidate] {
-        RadioImportParser.candidates(
-            from: results.map { result in
-                RadioImportParser.Entry(
-                    name: result.displayName,
-                    urlString: result.streamURL,
-                    logoURLString: result.faviconURL,
-                    homepageURLString: result.homepageURL,
-                    logoSource: .directoryFavicon
-                )
-            },
-            existing: existing
-        )
-    }
-}
-
-private extension RadioDirectoryClient.Result {
-    /// 名字后缀带上国家和码率，同名台在结果里才分得清。
-    var displayName: String {
-        var suffix: [String] = []
-        if let country, !country.isEmpty { suffix.append(country) }
-        if let bitrate { suffix.append("\(bitrate)k") }
-        guard !suffix.isEmpty else { return name }
-        return "\(name) (\(suffix.joined(separator: " · ")))"
     }
 }
 
@@ -409,7 +294,7 @@ actor RadioDirectoryMirrors {
     }
 
     /// 名单是从网上取来的：只收 radio-browser 自己域名下的主机名，
-    /// 搜索词和地区码不会被一条异常记录带去别的服务器。
+    /// 回查的流地址不会被一条异常记录带去别的服务器。
     private static func mirrorHost(_ raw: String) -> String? {
         let host = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard host.hasSuffix(".radio-browser.info"),
