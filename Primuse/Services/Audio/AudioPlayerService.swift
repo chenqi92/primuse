@@ -1640,6 +1640,7 @@ final class AudioPlayerService {
     private var appActivationInterruptionRecoveryTask: Task<Void, Never>?
     private static let appActivationInterruptionRecoveryAttemptLimit = 4
     private var bluetoothHFPResumeWatchdogTask: Task<Void, Never>?
+    private var authorizedResumeVerificationTask: Task<Void, Never>?
     var lastPublishedPlaybackWasActive = false
     @ObservationIgnored var nowPlayingTransportRepublishGeneration: UInt64 = 0
     var needsPlaybackRecovery = false
@@ -3052,6 +3053,7 @@ final class AudioPlayerService {
         }
         plog("🔊 Resuming authorized interruption source=\(source)")
         resumeCurrentPlayback(registeringUserIntent: false)
+        scheduleAuthorizedResumeVerification()
     }
 
     @discardableResult
@@ -3129,6 +3131,7 @@ final class AudioPlayerService {
             } else {
                 resumeCurrentPlayback(registeringUserIntent: false)
             }
+            scheduleAuthorizedResumeVerification()
             return true
         }
     }
@@ -3162,6 +3165,54 @@ final class AudioPlayerService {
         bluetoothHFPResumeWatchdogTask?.cancel()
         bluetoothHFPResumeWatchdogTask = nil
     }
+
+    /// 来电这类系统中断结束后的续播补救。
+    ///
+    /// 蓝牙车机挂断电话后要一两秒才从通话档切回音乐档，系统的「可以续播」往往先到：
+    /// 这时启动引擎会被拒，或者刚启动线路就换了，结果是停在原地并报「无法播放此曲目」，
+    /// 之后再没有人重试，只有切歌重建管线才恢复。这里在续播后隔一会儿核对一次，
+    /// 没放起来、用户也没改主意，就从原位置重建管线再试，次数有上限。
+    private func scheduleAuthorizedResumeVerification(attempt: Int = 0) {
+        authorizedResumeVerificationTask?.cancel()
+        authorizedResumeVerificationTask = nil
+        guard attempt < Self.authorizedResumeVerificationAttemptLimit,
+              let songID = currentSong?.id,
+              !isAppleMusicMode, !isLiveRadio, !isCastingMode, !isSystemMediaPlaybackActive else { return }
+        authorizedResumeVerificationTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(1500))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.authorizedResumeVerificationTask = nil
+            guard self.currentSong?.id == songID,
+                  self.interruptionResumePolicy.playbackIsIntended,
+                  !self.interruptionResumePolicy.isAwaitingInterruptionEnd,
+                  self.bluetoothHFPSuspendedSongID == nil,
+                  !self.isAppleMusicMode, !self.isLiveRadio, !self.isCastingMode,
+                  !self.isSystemMediaPlaybackActive,
+                  !self.isPlaybackActuallyActive else { return }
+            // 还在加载、缓冲，或者线路还停在通话档：这一轮不动，下一轮再看。
+            if self.isLoading
+                || self.isRemotePlaybackBuffering
+                || AudioSessionManager.shared.outputRouteIsBluetoothHFP {
+                self.scheduleAuthorizedResumeVerification(attempt: attempt + 1)
+                return
+            }
+            let position = self.needsPlaybackRecovery ? self.pendingRecoveryTime : self.currentTime
+            plog("🔁 Authorized resume did not start; rebuilding at \(position) attempt=\(attempt + 1)")
+            if self.lastPlaybackError == String(localized: "playback_error_decode") {
+                self.errorDismissTask?.cancel()
+                self.errorDismissTask = nil
+                self.lastPlaybackError = nil
+            }
+            self.seek(to: position, startPlaying: true, isRecovery: true)
+            self.scheduleAuthorizedResumeVerification(attempt: attempt + 1)
+        }
+    }
+
+    private static let authorizedResumeVerificationAttemptLimit = 6
 
     private func cancelPendingConfigurationRecovery() {
         configurationRecoveryTask?.cancel()
