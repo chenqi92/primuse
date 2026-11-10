@@ -463,16 +463,18 @@ struct TagEditorView: View {
         // 流派候选取库里已用过的，按使用频次排。
         var counts: [String: Int] = [:]
         var displayByKey: [String: String] = [:]
+        // 一首歌可以有好几个流派(分号隔开),候选按单个流派算。
         for entry in library.visibleSongs {
-            guard let value = entry.genre?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !value.isEmpty else { continue }
-            let key = value.lowercased()
-            counts[key, default: 0] += 1
-            if displayByKey[key] == nil { displayByKey[key] = value }
+            guard let value = entry.genre, !value.isEmpty else { continue }
+            for name in GenreTagValues.names(in: value) {
+                let key = name.lowercased()
+                counts[key, default: 0] += 1
+                if displayByKey[key] == nil { displayByKey[key] = name }
+            }
         }
         cachedGenreChips = counts
-            .sorted { $0.value > $1.value }
-            .prefix(6)
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            .prefix(12)
             .compactMap { displayByKey[$0.key] }
     }
 
@@ -664,10 +666,58 @@ struct TagEditorView: View {
             fieldLabel("tag_editor_genre")
             editableField(text: $genre, placeholder: "tag_editor_genre")
 
-            chipRow(genreCandidates) { candidate in
-                genre = candidate == genre ? "" : candidate
-            }
+            genreChipRow
         }
+    }
+
+    /// 流派可以多选:点一个加进去,再点一次拿掉;已选的高亮。几个流派在字段里用分号隔开,
+    /// 这首歌会同时出现在每个流派下。
+    @ViewBuilder
+    private var genreChipRow: some View {
+        let selected = GenreTagValues.names(in: genre)
+        let selectedKeys = Set(selected.map { $0.lowercased() })
+        // 字段里已有、但不在常用候选里的也列出来,方便点掉。
+        let candidates = genreCandidates + selected.filter { name in
+            !genreCandidates.contains { $0.lowercased() == name.lowercased() }
+        }
+        if !candidates.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(candidates, id: \.self) { candidate in
+                        let isSelected = selectedKeys.contains(candidate.lowercased())
+                        Button {
+                            toggleGenre(candidate)
+                        } label: {
+                            Text(candidate)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 6)
+                                .background(
+                                    isSelected ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.14),
+                                    in: Capsule()
+                                )
+                                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+            .pmStopsAtVerticalBar()
+            .scrollClipDisabled()
+        }
+    }
+
+    private func toggleGenre(_ candidate: String) {
+        var names = GenreTagValues.names(in: genre)
+        if let index = names.firstIndex(where: { $0.lowercased() == candidate.lowercased() }) {
+            names.remove(at: index)
+        } else {
+            names.append(candidate)
+        }
+        genre = GenreTagValues.joined(names) ?? ""
     }
 
     /// 流派候选取库里已用过的，按使用频次排。让用户复用既有写法，
@@ -984,6 +1034,7 @@ struct TagEditorView: View {
                     macReadOnlyField(String(localized: "tag_editor_field_format"), value: song.detailedFormatName)
                     macReadOnlyField(String(localized: "tag_editor_field_audio_spec"), value: macAudioSpec)
                     macField(String(localized: "tag_editor_genre"), text: $genre, original: song.genre ?? "")
+                    genreChipRow
                     macField(String(localized: "tag_editor_year"), text: $yearText, original: song.year.map(String.init) ?? "")
 
                     HStack(spacing: 10) {
