@@ -784,6 +784,7 @@ actor SynologyScanner {
             song.cueSheetPath = descriptor.cuePath
             song.cueStartTime = start
             song.cueEndTime = end
+            song.applyReplayGain(from: descriptor.track)
             song.sacdTrackNumber = descriptor.format == .sacdISO ? descriptor.track.number : nil
             song.isoAudioTrack = descriptor.track.isoAudioTrack
             if let selector = song.isoAudioTrack {

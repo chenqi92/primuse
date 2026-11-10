@@ -47,6 +47,12 @@ public struct CueTrack: Equatable, Sendable {
     public var startTime: TimeInterval?
     public var endTime: TimeInterval?
     public var isoAudioTrack: ISOAudioTrack?
+    /// CUE 里用 REM 记的回放增益(foobar2000 等扫完增益后写进去的)。整轨文件的标签只有一份,
+    /// 说不了每一轨各是多少,分轨的增益只有这里有。专辑那两项是整张的值,每一轨都带一份。
+    public var replayGainTrackGain: Double?
+    public var replayGainTrackPeak: Double?
+    public var replayGainAlbumGain: Double?
+    public var replayGainAlbumPeak: Double?
     public var identityKey: String { isoAudioTrack?.key ?? String(number) }
 
     public init(
@@ -148,6 +154,8 @@ public enum CueSheetParser {
         var sheet = CueSheet()
         var currentFileIndex: Int?
         var currentTrackIndex: Int?
+        var albumGain: Double?
+        var albumPeak: Double?
 
         for rawLine in text.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -208,6 +216,18 @@ public enum CueSheetParser {
                     sheet.genre = value
                 } else if key == "DATE" || key == "YEAR" {
                     sheet.year = Int(value.prefix(4))
+                } else if key.hasPrefix("REPLAYGAIN_"), let number = replayGainNumber(value) {
+                    // TRACK 之后的是这一轨的,之前的是整张的。
+                    let track = currentFileIndex.flatMap { file in currentTrackIndex.map { (file, $0) } }
+                    switch key {
+                    case "REPLAYGAIN_ALBUM_GAIN": albumGain = number
+                    case "REPLAYGAIN_ALBUM_PEAK": albumPeak = number
+                    case "REPLAYGAIN_TRACK_GAIN":
+                        if let (file, index) = track { sheet.files[file].tracks[index].replayGainTrackGain = number }
+                    case "REPLAYGAIN_TRACK_PEAK":
+                        if let (file, index) = track { sheet.files[file].tracks[index].replayGainTrackPeak = number }
+                    default: break
+                    }
                 }
 
             default:
@@ -230,10 +250,28 @@ public enum CueSheetParser {
             }
         }
 
+        if albumGain != nil || albumPeak != nil {
+            for fileIndex in sheet.files.indices {
+                for trackIndex in sheet.files[fileIndex].tracks.indices {
+                    sheet.files[fileIndex].tracks[trackIndex].replayGainAlbumGain = albumGain
+                    sheet.files[fileIndex].tracks[trackIndex].replayGainAlbumPeak = albumPeak
+                }
+            }
+        }
+
         let hasPlayableTrack = sheet.files.contains { file in
             file.tracks.contains { $0.type == "AUDIO" && $0.startTime != nil }
         }
         return hasPlayableTrack ? sheet : nil
+    }
+
+    /// `-7.21 dB`、`+1.5`、`0.988812` 这类写法;增益限在常见范围内,写坏了的不要。
+    static func replayGainNumber(_ value: String) -> Double? {
+        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.lowercased().hasSuffix("db") { text = String(text.dropLast(2)) }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        guard let number = Double(text), number.isFinite, (-60...60).contains(number) else { return nil }
+        return number
     }
 
     public static func parseTime(_ value: String) -> TimeInterval? {
@@ -300,5 +338,15 @@ public enum CueSheetParser {
             CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
         )
         return String(data: data, encoding: String.Encoding(rawValue: gb18030))
+    }
+}
+
+public extension Song {
+    /// 把 CUE 里记的回放增益放到这一轨上。CUE 没写的项不动。
+    mutating func applyReplayGain(from track: CueTrack) {
+        if let value = track.replayGainTrackGain { replayGainTrackGain = value }
+        if let value = track.replayGainTrackPeak, value > 0 { replayGainTrackPeak = value }
+        if let value = track.replayGainAlbumGain { replayGainAlbumGain = value }
+        if let value = track.replayGainAlbumPeak, value > 0 { replayGainAlbumPeak = value }
     }
 }

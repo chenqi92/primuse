@@ -3154,7 +3154,7 @@ final class TVSourceScanner {
             } else {
                 nil
             }
-            return Song(
+            var song = Song(
                 id: TVScanPipelinePolicy.cueSongID(
                     sourceID: source.id,
                     path: entry.path,
@@ -3193,6 +3193,8 @@ final class TVSourceScanner {
                 isoAudioTrack: descriptor.track.isoAudioTrack,
                 revision: Self.revision(for: entry, source: source)
             )
+            song.applyReplayGain(from: descriptor.track)
+            return song
         }
     }
 

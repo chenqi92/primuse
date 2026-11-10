@@ -1577,7 +1577,7 @@ actor ConnectorScanner {
             let songID = hash(
                 "\(sourceID):\(itemIdentity)#cue:\(descriptor.cuePath)#track:\(descriptor.track.identityKey)"
             )
-            return Song(
+            var song = Song(
                 id: songID,
                 title: descriptor.track.title ?? fallbackTitle,
                 albumID: albumID,
@@ -1607,6 +1607,8 @@ actor ConnectorScanner {
                 isoAudioTrack: descriptor.track.isoAudioTrack,
                 revision: item.revision
             )
+            song.applyReplayGain(from: descriptor.track)
+            return song
         }
     }
 

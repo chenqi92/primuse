@@ -144,3 +144,47 @@ import Testing
     #expect(empty.artist == nil)
     #expect(empty.albumArtist == nil)
 }
+
+@Test func cueSheetReadsReplayGainRemarksPerTrackAndForTheAlbum() throws {
+    let cue = #"""
+    REM REPLAYGAIN_ALBUM_GAIN -7.21 dB
+    REM REPLAYGAIN_ALBUM_PEAK 0.988812
+    FILE "album.wav" WAVE
+      TRACK 01 AUDIO
+        TITLE "One"
+        REM REPLAYGAIN_TRACK_GAIN -6.50 dB
+        REM REPLAYGAIN_TRACK_PEAK 0.950000
+        INDEX 01 00:00:00
+      TRACK 02 AUDIO
+        TITLE "Two"
+        REM REPLAYGAIN_TRACK_GAIN +1,25 dB
+        REM REPLAYGAIN_TRACK_PEAK garbage
+        INDEX 01 03:00:00
+    """#
+    let sheet = try #require(CueSheetParser.parse(text: cue))
+    let first = sheet.files[0].tracks[0]
+    let second = sheet.files[0].tracks[1]
+    #expect(first.replayGainTrackGain == -6.5)
+    #expect(first.replayGainTrackPeak == 0.95)
+    #expect(second.replayGainTrackGain == 1.25)
+    #expect(second.replayGainTrackPeak == nil)
+    #expect(first.replayGainAlbumGain == -7.21 && second.replayGainAlbumGain == -7.21)
+    #expect(second.replayGainAlbumPeak == 0.988812)
+
+    var song = Song(id: "s", title: "Two", fileFormat: .wav, filePath: "/album.wav", sourceID: "src")
+    song.replayGainTrackPeak = 0.5
+    song.applyReplayGain(from: second)
+    #expect(song.replayGainTrackGain == 1.25)
+    #expect(song.replayGainTrackPeak == 0.5)
+    #expect(song.replayGainAlbumGain == -7.21)
+}
+
+@Test func cueSheetWithoutReplayGainRemarksLeavesGainEmpty() throws {
+    let cue = #"""
+    FILE "album.wav" WAVE
+      TRACK 01 AUDIO
+        INDEX 01 00:00:00
+    """#
+    let track = try #require(CueSheetParser.parse(text: cue)).files[0].tracks[0]
+    #expect(track.replayGainTrackGain == nil && track.replayGainAlbumGain == nil)
+}

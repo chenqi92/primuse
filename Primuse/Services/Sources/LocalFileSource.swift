@@ -1092,7 +1092,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 sourceID: sourceID,
                 path: "\(item.path)#cue:\(descriptor.cuePath)#track:\(descriptor.track.identityKey)"
             )
-            let song = Song(
+            var song = Song(
                 id: trackID,
                 title: descriptor.track.title ?? String(
                     format: String(localized: "cue_track_title_format"),
@@ -1146,6 +1146,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 effectiveBitDepth: metadata.effectiveBitDepth,
                 contentMetadata: metadata.contentMetadata
             )
+            // 整轨文件的增益标签是整张的;CUE 里逐轨记的才是这一轨的。
+            song.applyReplayGain(from: descriptor.track)
             return ConnectorScannedSong(
                 song: song,
                 displayName: song.title,

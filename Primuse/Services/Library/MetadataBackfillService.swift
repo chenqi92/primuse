@@ -6292,10 +6292,19 @@ final class MetadataBackfillService {
             artistArtworkFileName: bare.artistArtworkFileName,
             lyricsFileName: lyricsRef,
             mvPath: mvRef,
-            replayGainTrackGain: metadata.replayGainTrackGain ?? bare.replayGainTrackGain,
-            replayGainTrackPeak: metadata.replayGainTrackPeak ?? bare.replayGainTrackPeak,
-            replayGainAlbumGain: metadata.replayGainAlbumGain ?? bare.replayGainAlbumGain,
-            replayGainAlbumPeak: metadata.replayGainAlbumPeak ?? bare.replayGainAlbumPeak,
+            // CUE 分轨:整轨文件的标签说的是整张,扫描时从 CUE 里读到的逐轨数值优先。
+            replayGainTrackGain: bare.isCueTrack
+                ? (bare.replayGainTrackGain ?? metadata.replayGainTrackGain)
+                : (metadata.replayGainTrackGain ?? bare.replayGainTrackGain),
+            replayGainTrackPeak: bare.isCueTrack
+                ? (bare.replayGainTrackPeak ?? metadata.replayGainTrackPeak)
+                : (metadata.replayGainTrackPeak ?? bare.replayGainTrackPeak),
+            replayGainAlbumGain: bare.isCueTrack
+                ? (bare.replayGainAlbumGain ?? metadata.replayGainAlbumGain)
+                : (metadata.replayGainAlbumGain ?? bare.replayGainAlbumGain),
+            replayGainAlbumPeak: bare.isCueTrack
+                ? (bare.replayGainAlbumPeak ?? metadata.replayGainAlbumPeak)
+                : (metadata.replayGainAlbumPeak ?? bare.replayGainAlbumPeak),
             cueSheetPath: bare.cueSheetPath,
             cueStartTime: bare.cueStartTime,
             cueEndTime: bare.cueEndTime,
