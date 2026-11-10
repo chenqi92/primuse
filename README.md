@@ -19,11 +19,11 @@ Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文�
 
 ## 交流反馈
 
-欢迎微信扫码加入 **Palveni** 群聊，交流使用体验、反馈问题与建议。点击图片可查看原图。
+欢迎微信扫码加入 **Palveni** 群聊，交流使用体验、反馈问题与建议。点击图片可查看最新群二维码。
 
 <p align="center">
-  <a href="Docs/community/wechat-group.jpg">
-    <img src="https://g2.al/palveni" width="320" alt="Palveni 微信群聊二维码"/>
+  <a href="https://g2.al/palveni">
+    <img src="https://g2.al/palveni?v=b67ed6254039a1b4e1236eadd5180154203f24425dcc82147a5d8c66fb59275f" width="320" alt="Palveni 微信群聊二维码"/>
   </a>
 </p>
 

@@ -1,0 +1,64 @@
+name: 同步微信群二维码
+
+on:
+  schedule:
+    - cron: '17 1,13 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - .github/scripts/update_community_qr.py
+      - .github/scripts/test_update_community_qr.py
+      - .github/workflows/community-qr.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: community-qr
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'chenqi92/primuse' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          sparse-checkout: .github/scripts
+
+      - name: 验证二维码更新与失败保护
+        run: python3 -m unittest discover -s .github/scripts -p 'test_update_community_qr.py'
+
+      - name: 检查最新群二维码
+        run: |
+          for attempt in 1 2 3; do
+            if python3 .github/scripts/update_community_qr.py; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 5
+            fi
+          done
+          exit 1
+
+      - name: 提交变化的图片版本
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "二维码未变化，跳过提交"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- README.md
+          git diff --cached --name-only
+          git diff --cached --check
+          git diff --cached
+          git commit -m "更新 README 微信群二维码"
+          git pull --rebase origin main
+          git push origin HEAD:main
