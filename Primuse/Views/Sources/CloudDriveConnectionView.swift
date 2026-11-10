@@ -23,6 +23,7 @@ struct CloudDriveConnectionView: View {
     @State private var pan115AttemptID = UUID()
     @State private var pan115AuthTask: Task<Void, Never>?
     @State private var pendingPan115Authorization: Pan115Authorization?
+    @State private var pan115ChosenMethod: Pan115LoginMethod?
 
     private struct Pan115Authorization {
         let tokens: CloudTokenManager.Tokens
@@ -260,79 +261,155 @@ struct CloudDriveConnectionView: View {
         .padding(.horizontal, 30)
     }
 
-    private var pan115SetupView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Text(String(format: String(localized: "cloud_auth_connect_format"), source.type.displayName))
-                    .font(.title3.weight(.semibold))
+    private enum Pan115LoginMethod: Hashable {
+        case refreshToken
+        case qrCode
+    }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("pan115_token_login").font(.headline)
-                    RevealableSecureField(title: "Refresh Token", text: $pan115RefreshToken)
-                        .textFieldStyle(.roundedBorder)
-                    Button("connect") { startPan115Authorization(usingRefreshToken: true) }
-                        .buttonStyle(.borderedProminent)
-                        .prominentLabelOnAccent()
-                        .disabled(pan115RefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    /// 没选过时：带着已保存的 App ID 进来默认扫码，否则默认填 Refresh Token。
+    private var pan115Method: Binding<Pan115LoginMethod> {
+        Binding(
+            get: { pan115ChosenMethod ?? (pan115ClientID.isEmpty ? .refreshToken : .qrCode) },
+            set: { pan115ChosenMethod = $0 }
+        )
+    }
+
+    /// 和其它网盘的连接页同一个样子：居中的图标、标题和说明，下面一次只给一种方式的输入框和主按钮。
+    private var pan115SetupView: some View {
+        let method = pan115Method.wrappedValue
+        let usesToken = method == .refreshToken
+        let input = (usesToken ? pan115RefreshToken : pan115ClientID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let actionTitle: LocalizedStringKey = usesToken ? "connect" : "pan115_qr_login"
+        return ScrollView {
+            VStack(spacing: 22) {
+                Image(systemName: cloudIcon)
+                    .font(.system(size: 46))
+                    .foregroundStyle(.blue.gradient)
+                    .padding(.top, 36)
+
+                VStack(spacing: 8) {
+                    Text(String(format: String(localized: "cloud_auth_connect_format"), source.type.displayName))
+                        .font(.title3).fontWeight(.semibold)
+                    Text("pan115_auth_subtitle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
 
-                Divider()
+                Picker(selection: pan115Method) {
+                    Text("pan115_token_login").tag(Pan115LoginMethod.refreshToken)
+                    Text("pan115_qr_login").tag(Pan115LoginMethod.qrCode)
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 430)
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("pan115_qr_login").font(.headline)
-                    TextField("pan115_app_id", text: $pan115ClientID)
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.asciiCapable)
-                        #endif
-                    Button("pan115_qr_login") { startPan115Authorization() }
-                        .buttonStyle(.bordered)
-                        .disabled(pan115ClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Group {
+                    if usesToken {
+                        RevealableSecureField(title: "Refresh Token", text: $pan115RefreshToken)
+                    } else {
+                        TextField("pan115_app_id", text: $pan115ClientID)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.asciiCapable)
+                            #endif
+                    }
+                }
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 430)
+
+                Button {
+                    startPan115Authorization(usingRefreshToken: usesToken)
+                } label: {
+                    Label(actionTitle, systemImage: usesToken ? "link.badge.plus" : "qrcode.viewfinder")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: 240)
+                }
+                .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .disabled(input.isEmpty)
+
+                if !errorMessage.isEmpty {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 430)
                 }
             }
             .disabled(isAuthorizing)
-            .frame(maxWidth: 430)
-            .padding(30)
+            .padding(.horizontal, 30)
+            .padding(.bottom, 30)
             .frame(maxWidth: .infinity)
         }
     }
 
     private var pan115AuthorizingView: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 22) {
                 if let session = pan115AuthSession {
-                    Text("pan115_qr_instruction").font(.headline)
+                    VStack(spacing: 8) {
+                        Text("pan115_qr_instruction")
+                            .font(.title3).fontWeight(.semibold)
+                        if pan115Scanned {
+                            Text("pan115_qr_scanned")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 36)
+
                     switch session.qrCode {
                     case .content(let payload):
                         MediaRelayQRCodeView(value: payload)
                     case .imageURL(let url):
-                        AsyncImage(url: url) { image in
-                            image.resizable().interpolation(.none).scaledToFit()
-                        } placeholder: {
-                            ProgressView()
+                        // 和本地生成的二维码同一个白底圆角卡片。
+                        ZStack {
+                            Color.white
+                            AsyncImage(url: url) { image in
+                                image.resizable().interpolation(.none).scaledToFit()
+                            } placeholder: {
+                                ProgressView()
+                            }
+                            .padding(12)
                         }
-                        .frame(width: 240, height: 240)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: 240)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
-                    if pan115Scanned {
-                        Text("pan115_qr_scanned").foregroundStyle(.secondary)
-                    }
-                    Button("back") {
+
+                    Button {
                         pan115AuthTask?.cancel()
                         pan115AuthTask = nil
                         pan115AttemptID = UUID()
                         pan115AuthSession = nil
                         isAuthorizing = false
                         pmWithAnimation(.pageSwitch) { step = .needsSetup }
+                    } label: {
+                        Text("back")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: 240)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                 } else {
                     ProgressView()
-                    Text("cloud_oauth_checking").foregroundStyle(.secondary)
+                        .scaleEffect(1.3)
+                        .padding(.top, 60)
+                    Text("cloud_oauth_checking")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(30)
+            .padding(.horizontal, 30)
+            .padding(.bottom, 30)
             .frame(maxWidth: .infinity)
         }
     }
