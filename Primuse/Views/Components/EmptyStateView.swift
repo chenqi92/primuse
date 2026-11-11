@@ -69,7 +69,10 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 18) {
+            // 空态几乎都是「加载完发现没东西」才出现的：图标先轻轻弹出来，字随后淡入，
+            // 比整块一起淡进来更像「到这儿了」。只动透明度、缩放和几个点的上浮，不影响调用方的布局。
             illustration
+                .pmPopIn(from: 0.72)
             VStack(spacing: 6) {
                 Text(titleKey)
                     .font(.title3).fontWeight(.semibold)
@@ -82,6 +85,7 @@ struct EmptyStateView: View {
                         .padding(.horizontal, 24)
                 }
             }
+            .pmEntrance(delay: Self.textDelay, rise: 6)
             if let actionLabel, let action {
                 Button(action: action) {
                     Text(actionLabel)
@@ -92,15 +96,17 @@ struct EmptyStateView: View {
                 .prominentLabelOnAccent()
                 .clipShape(Capsule())
                 .padding(.top, 4)
+                .pmEntrance(delay: Self.actionDelay, rise: 6)
             }
         }
         .frame(maxWidth: .infinity)
         // 手机横屏纵向只剩三百多点，空态再占 32 的上下留白就会把 CTA 顶出可视区。
         .padding(.vertical, heightClass.value(32, compact: 16))
-        // 空态几乎都是「加载完发现没东西」才出现的，组件内部淡一下，全 App 的空态
-        // 就都不再是硬切。只动透明度，不影响调用方的布局。
-        .pmAppearFade(.contentAppear)
     }
+
+    /// 字比图标晚一点、按钮再晚一点出来：先看到图，再读到字。
+    private static let textDelay: TimeInterval = 0.08
+    private static let actionDelay: TimeInterval = 0.14
 
     private var illustration: some View {
         EmptyStateGlyph(systemImage: systemImage)

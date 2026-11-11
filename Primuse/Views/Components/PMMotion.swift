@@ -158,6 +158,31 @@ extension View {
         modifier(PMFadeTransitionModifier(motion: motion))
     }
 
+    /// 出现时淡入并从下面升上来 `rise` 点，可以晚 `delay` 秒开始（错峰入场用）。
+    ///
+    /// `isActive` 只在视图第一次建出来时读：为 false 时一开始就是到位的样子，之后再变也不补播，
+    /// 刷新、换筛选重建子树时不会把入场再放一遍。减少动态效果时只淡入不位移；外层整页正在
+    /// `pmPageEnter` 入场时直接到位，不再叠一层淡入。
+    func pmEntrance(delay: TimeInterval = 0, rise: CGFloat = 8, isActive: Bool = true) -> some View {
+        modifier(PMEntranceModifier(delay: delay, rise: rise, isActive: isActive))
+    }
+
+    /// 出现时从小一圈弹到原大小（空态图标这类「到了」的那一下）。减少动态效果时只淡入。
+    /// 外层整页正在入场时只弹不淡，免得透明度一层套一层。
+    func pmPopIn(delay: TimeInterval = 0, from scale: CGFloat = 0.6) -> some View {
+        modifier(PMPopInModifier(delay: delay, initialScale: scale))
+    }
+
+    /// 随机、循环这类播放方式键换档时图标自己动一下：随机开关变了弹一下（bounce），
+    /// 循环方式变了转一下（rotate）。两样同时变（从单曲循环换到随机）时只弹不转。
+    /// 只认值的变化，第一次出现不动；减少动态效果时不动。
+    func pmPlaybackModeSymbolEffect<Repeat: Equatable>(
+        shuffleEnabled: Bool,
+        repeatMode: Repeat
+    ) -> some View {
+        modifier(PMPlaybackModeSymbolEffect(shuffleEnabled: shuffleEnabled, repeatMode: repeatMode))
+    }
+
     /// 指针悬停时轻微抬起。iOS 上原样返回，共用的视图不必为它写 `#if`。
     ///
     /// 悬停状态记在修饰符自己身上：卡片的 body 里可能有整库级的计算，
@@ -328,6 +353,95 @@ private struct PMPageEnterModifier: ViewModifier {
                 // 入场的时长之后, 再出现的内容各自淡入。
                 try? await Task.sleep(for: .milliseconds(260))
                 entering = false
+            }
+    }
+}
+
+private struct PMEntranceModifier: ViewModifier {
+    let delay: TimeInterval
+    let rise: CGFloat
+
+    @Environment(\.pmPageEntering) private var pageEntering
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var revealed: Bool
+
+    init(delay: TimeInterval, rise: CGFloat, isActive: Bool) {
+        self.delay = delay
+        self.rise = rise
+        _revealed = State(initialValue: !isActive)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(revealed ? 1 : 0)
+            .offset(y: revealed || reduceMotion ? 0 : rise)
+            .onAppear {
+                guard !revealed else { return }
+                if pageEntering {
+                    revealed = true
+                    return
+                }
+                // 位移档在减少动态效果时被判成 nil，这里退回纯淡入，不能退成硬切。
+                let animation = PMMotion.entrance.resolved(reduceMotion: reduceMotion)
+                    ?? PMMotion.contentAppear.animation
+                withAnimation(animation.delay(delay)) { revealed = true }
+            }
+    }
+}
+
+private struct PMPopInModifier: ViewModifier {
+    let delay: TimeInterval
+    let initialScale: CGFloat
+
+    @Environment(\.pmPageEntering) private var pageEntering
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var popped = false
+    @State private var visible = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(visible ? 1 : 0)
+            .scaleEffect(popped || reduceMotion ? 1 : initialScale)
+            .onAppear {
+                guard !popped || !visible else { return }
+                if pageEntering {
+                    visible = true
+                } else {
+                    withAnimation(PMMotion.contentAppear.animation.delay(delay)) { visible = true }
+                }
+                if let pop = PMMotion.pop.resolved(reduceMotion: reduceMotion) {
+                    withAnimation(pop.delay(delay)) { popped = true }
+                } else {
+                    popped = true
+                }
+            }
+    }
+}
+
+private struct PMPlaybackModeSymbolEffect<Repeat: Equatable>: ViewModifier {
+    let shuffleEnabled: Bool
+    let repeatMode: Repeat
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var bounceToken = 0
+    @State private var rotateToken = 0
+
+    private struct Mode: Equatable {
+        let shuffleEnabled: Bool
+        let repeatMode: Repeat
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .symbolEffect(.bounce, options: .nonRepeating, value: bounceToken)
+            .symbolEffect(.rotate, options: .nonRepeating, value: rotateToken)
+            .onChange(of: Mode(shuffleEnabled: shuffleEnabled, repeatMode: repeatMode)) { old, new in
+                guard !reduceMotion else { return }
+                if old.shuffleEnabled != new.shuffleEnabled {
+                    bounceToken &+= 1
+                } else if old.repeatMode != new.repeatMode {
+                    rotateToken &+= 1
+                }
             }
     }
 }

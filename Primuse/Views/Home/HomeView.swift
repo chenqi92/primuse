@@ -335,6 +335,44 @@ private struct HomeTwoColumnSectionsLayout: Layout {
     }
 }
 
+/// 冷启动第一次从骨架(或空白)换成内容时,各区块自上而下错峰入场:每块淡入、上浮几个点,
+/// 一块比一块晚几十毫秒。整个进程只放这一次:之后刷新、换筛选、从设置里打开首页编辑器
+/// 重建出来的区块都直接到位。
+@MainActor
+private enum HomeColdStartEntrance {
+    private static var startedAt: TimeInterval?
+
+    /// 这一段时间里建出来的区块都按入场来;延迟构造(`HomeDeferredSection`)晚一两帧才出来的
+    /// 区块也赶得上。
+    private static let window: TimeInterval = 1
+
+    /// 相邻两块错开多久、最多错开到第几块(再往下的已经在屏幕外,不必再等)。
+    static let stagger: TimeInterval = 0.045
+    static let maximumStaggerSteps = 7
+    /// 上浮的距离。
+    static let rise: CGFloat = 10
+
+    /// 内容第一次要画出来时调用:开始入场并返回 true;已经放过、过了那一小段时间就返回 false。
+    static func beginIfNeeded() -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard let startedAt else {
+            startedAt = now
+            return true
+        }
+        return now - startedAt < window
+    }
+
+    /// 正在入场的那一小段里为 true。只读,不开始入场。
+    static var isRevealing: Bool {
+        guard let startedAt else { return false }
+        return ProcessInfo.processInfo.systemUptime - startedAt < window
+    }
+
+    static func delay(forStep step: Int) -> TimeInterval {
+        Double(min(max(step, 0), maximumStaggerSteps)) * stagger
+    }
+}
+
 /// 冷启动骨架里的一块:照这一块真实的排布画个大概 —— 有没有标题,横排、网格、列表还是一张卡片,
 /// 卡片多大。数字取自各区块的实际尺寸,差几点不要紧:内容换上来时是原地淡入。
 private struct HomeLoadingSkeletonBlock {
@@ -2226,6 +2264,7 @@ struct HomeView: View {
                     heroEditorRow
                 } else if model.snapshot.hasContent, showHero {
                     libraryHeroSection
+                        .pmEntrance(rise: HomeColdStartEntrance.rise, isActive: HomeColdStartEntrance.isRevealing)
                 }
 
                 homeSections(snapshot)
@@ -2240,14 +2279,24 @@ struct HomeView: View {
     private func homeSections(_ books: SpokenWordLibrarySnapshot) -> some View {
         let twoColumns = usesTwoColumnHome
         let sectionLayout = homeLayout
+        let sectionOrder = homeSectionOrder
+        let revealsEntrance = !editorMode && HomeColdStartEntrance.isRevealing
         let layout = twoColumns
             ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
             : AnyLayout(HomeSingleColumnSectionsLayout(spacing: editorMode ? 12 : 24))
         return layout {
-            ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
+            ForEach(editorMode ? editableHomeSections : sectionOrder) { section in
                 homeSectionRow(section, books: books)
                     // 每块的封面大小各调各的:接着听、书、播客、电台、文件夹几块从环境里读边长。
                     .environment(\.homeCoverCardWidth, coverCardWidth(for: section, in: sectionLayout))
+                    // 冷启动第一次出来时自上而下错峰入场(顶上的主视觉算第 0 块);编辑版面时不放。
+                    .pmEntrance(
+                        delay: HomeColdStartEntrance.delay(
+                            forStep: (sectionOrder.firstIndex(of: section) ?? 0) + 1
+                        ),
+                        rise: HomeColdStartEntrance.rise,
+                        isActive: revealsEntrance
+                    )
             }
         }
         .environment(\.horizontalSizeClass, twoColumns ? .compact : sizeClass)
@@ -3021,7 +3070,13 @@ struct HomeView: View {
                 initialLoadingView
             }
         } else if hasContent {
-            contentView.onAppear { hasShownHomeContent = true }
+            // 冷启动第一次换上内容时由各区块自己错峰入场,整块不再跟着淡一遍(两层透明度会相乘);
+            // 骨架照旧淡出。之后再换上内容(比如从空态)还是整块淡入。
+            contentView
+                .transition(HomeColdStartEntrance.beginIfNeeded()
+                    ? AnyTransition.asymmetric(insertion: .identity, removal: .opacity)
+                    : AnyTransition.opacity)
+                .onAppear { hasShownHomeContent = true }
         } else {
             emptyView
         }
