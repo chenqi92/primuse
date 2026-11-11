@@ -371,6 +371,12 @@ enum PlayerLyricsColorMode: String, CaseIterable, Identifiable {
 
     static let defaultValue = PlayerLyricsColorMode.defaultColor
 
+    /// 存着的那一档;没存过或认不出来时是默认。
+    static func stored(in defaults: UserDefaults = .standard) -> PlayerLyricsColorMode {
+        defaults.string(forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+            .flatMap(PlayerLyricsColorMode.init(rawValue:)) ?? .defaultValue
+    }
+
     var id: String { rawValue }
 
     var localizedTitle: LocalizedStringKey {
@@ -411,31 +417,27 @@ struct PlayerLyricsArtworkTint: Equatable, Sendable {
         self.init(red: Double(r), green: Double(g), blue: Double(b))
     }
 
-    /// 歌词要用的颜色：色相跟封面，明度按文字所在的底调到读得清。
-    /// `onDarkBackdrop` 为真时（默认歌词是浅色字）提亮并收一点饱和度，否则压暗。
-    /// 封面接近黑白灰时返回空，歌词用默认颜色。
-    func lyricColor(onDarkBackdrop: Bool) -> Color? {
-        let maxC = max(red, green, blue), minC = min(red, green, blue)
-        let delta = maxC - minC
-        let saturation = maxC <= 0 ? 0 : delta / maxC
-        guard saturation >= Self.minimumSaturation else { return nil }
-        var hue: Double
-        if maxC == red {
-            hue = ((green - blue) / delta).truncatingRemainder(dividingBy: 6)
-        } else if maxC == green {
-            hue = (blue - red) / delta + 2
-        } else {
-            hue = (red - green) / delta + 4
-        }
-        hue /= 6
-        if hue < 0 { hue += 1 }
-        if onDarkBackdrop {
-            return Color(hue: hue, saturation: min(max(saturation, 0.3), 0.55), brightness: 1)
-        }
-        return Color(hue: hue, saturation: max(saturation, 0.6), brightness: min(maxC, 0.42))
+    /// 电视的封面调色板记的是十六进制色值。
+    init?(hex: String?) {
+        guard let hex else { return nil }
+        let digits = AppThemePreferences.normalizedHex(hex, fallback: "")
+        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+        self.init(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
     }
 
-    private static let minimumSaturation = 0.08
+    /// 歌词要用的颜色：色相跟封面，明暗按文字所在的底调到读得清（规则见 `LyricsArtworkTintPolicy`）。
+    /// `onDarkBackdrop` 为真时（默认歌词是浅色字）提亮，否则压暗。封面接近黑白灰时返回空，歌词用默认颜色。
+    func lyricColor(onDarkBackdrop: Bool) -> Color? {
+        let artwork = LyricsArtworkTintPolicy.RGB(red: red, green: green, blue: blue)
+        guard let lyric = LyricsArtworkTintPolicy.lyricColor(for: artwork, onDarkBackdrop: onDarkBackdrop) else {
+            return nil
+        }
+        return Color(.sRGB, red: lyric.red, green: lyric.green, blue: lyric.blue)
+    }
 }
 
 private struct PlayerLyricsArtworkTintKey: EnvironmentKey {
@@ -527,6 +529,35 @@ struct PlayerLyricsColors: DynamicProperty {
         )
     }
     #endif
+}
+
+/// 一行歌词按「当前歌词颜色」上色：`isActive` 时用设置里选的颜色，否则照旧是 `defaultColor`。
+/// 颜色设置只在这一层读，设置变了只重画这一行，不牵动外面整页。
+struct CurrentLyricColorModifier: ViewModifier {
+    let defaultColor: Color
+    let isActive: Bool
+    private var colors = PlayerLyricsColors()
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    init(defaultColor: Color, isActive: Bool) {
+        self.defaultColor = defaultColor
+        self.isActive = isActive
+    }
+
+    func body(content: Content) -> some View {
+        content.foregroundStyle(colors.style(
+            defaultColor: defaultColor,
+            isActive: isActive,
+            layoutDirection: layoutDirection
+        ))
+    }
+}
+
+extension View {
+    /// 当前歌词那一行跟「当前歌词颜色」走，别的行照旧用 `defaultColor`。
+    func currentLyricColor(_ defaultColor: Color, isActive: Bool = true) -> some View {
+        modifier(CurrentLyricColorModifier(defaultColor: defaultColor, isActive: isActive))
+    }
 }
 
 /// 歌词页换句时的滚动方式。

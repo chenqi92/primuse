@@ -385,6 +385,8 @@ struct LyricsAppearanceSections: View {
     private var showsLyricsInterludeAlways = PlayerAppearancePreferences.showsLyricsInterludeAlwaysByDefault
     @AppStorage(PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsKey)
     private var spokenWordTranscriptHighlightsWords = PlayerAppearancePreferences.spokenWordTranscriptHighlightsWordsByDefault
+    @Environment(\.playerLyricsArtworkTint) private var lyricsArtworkTint
+    @Environment(\.colorScheme) private var colorScheme
 
     private var lyricsAlignment: Binding<PlayerLyricsAlignment> {
         Binding(
@@ -427,8 +429,11 @@ struct LyricsAppearanceSections: View {
 
     private var lyricsColorPreviewStyle: AnyShapeStyle {
         switch selectedLyricsColorMode {
-        case .defaultColor, .artwork:
+        case .defaultColor:
             AnyShapeStyle(Color.primary)
+        case .artwork:
+            // 预览用正在播放的封面色,按设置页的深浅底调;没在放、封面没有彩色时和默认一样。
+            AnyShapeStyle(lyricsArtworkTint?.lyricColor(onDarkBackdrop: colorScheme == .dark) ?? Color.primary)
         case .custom:
             AnyShapeStyle(color(from: customLyricsColorHex, fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex))
         case .gradient:

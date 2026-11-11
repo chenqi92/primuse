@@ -191,7 +191,10 @@ struct ExternalDisplayNowPlayingView: View {
                 let distance = abs(realIndex - index)
                 VStack(alignment: .leading, spacing: 6) {
                     lyricsTypeface.text(line.text, size: current ? 42 : 28, weight: current ? .bold : .semibold)
-                        .foregroundStyle(current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)))
+                        .currentLyricColor(
+                            current ? Color.white : Color.white.opacity(max(0.18, 0.58 - Double(distance) * 0.14)),
+                            isActive: current
+                        )
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .minimumScaleFactor(0.74)

@@ -402,7 +402,7 @@ extension View {
             .environment(services.musicIntelligence)
             // 桌面歌词、歌词岛、迷你播放器这些独立窗口的歌词字体也要自己注入。
             .modifier(LyricsTypefaceProvider())
-            .modifier(PlayerLyricsArtworkTintProvider())
+            .modifier(PlayerLyricsArtworkTintProvider(theme: services.themeService))
     }
 }
 #endif

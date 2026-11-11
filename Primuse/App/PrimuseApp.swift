@@ -1328,21 +1328,34 @@ private struct NetworkPathChangeObserver: View {
 private struct PlaybackArtworkThemeObserver: View {
     let player: AudioPlayerService
     let theme: ThemeService
+    @AppStorage(PlayerAppearancePreferences.lyricsColorModeKey)
+    private var lyricsColorModeRawValue = PlayerLyricsColorMode.defaultValue.rawValue
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
             .task(id: player.currentSong?.id) {
-                let song = player.currentSong
-                theme.updateFromCoverArt(
-                    fileName: song?.coverArtFileName,
-                    songID: song?.id,
-                    appleMusicID: song?.sourceID == AppleMusicLibraryService.systemSourceID
-                        ? song?.filePath
-                        : nil
-                )
+                updateTheme()
             }
+            // 歌词刚换成「封面取色」:主题色不跟封面时这首还没取过色,现取一次。
+            .onChange(of: lyricsColorModeRawValue) { _, rawValue in
+                guard PlayerLyricsColorMode(rawValue: rawValue) == .artwork,
+                      theme.lyricsArtworkTint == nil,
+                      player.currentSong != nil else { return }
+                updateTheme()
+            }
+    }
+
+    private func updateTheme() {
+        let song = player.currentSong
+        theme.updateFromCoverArt(
+            fileName: song?.coverArtFileName,
+            songID: song?.id,
+            appleMusicID: song?.sourceID == AppleMusicLibraryService.systemSourceID
+                ? song?.filePath
+                : nil
+        )
     }
 }
 
@@ -1689,7 +1702,7 @@ struct PrimuseApp: App {
             .environment(audioCacheSync)
             #endif
             .modifier(LyricsTypefaceProvider())
-            .modifier(PlayerLyricsArtworkTintProvider())
+            .modifier(PlayerLyricsArtworkTintProvider(theme: themeService))
         return injected.modifier(AppThemeTintModifier(theme: themeService))
     }
 

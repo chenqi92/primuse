@@ -1444,3 +1444,132 @@ final class PlayerTypographyAndTrackTests: XCTestCase {
         return try XCTUnwrap(renderer.uiImage)
     }
 }
+
+/// 歌词颜色选「封面取色」：当前歌词跟着封面色走，别的行和别的档不受影响。
+@MainActor
+final class LyricsArtworkTintTests: XCTestCase {
+    private let redCover = PlayerLyricsArtworkTint(red: 0.85, green: 0.12, blue: 0.1)
+
+    func testArtworkModeColorsTheCurrentLineWithTheCoverTint() throws {
+        let ink = try renderedInk(mode: .artwork) { $0.environment(\.playerLyricsArtworkTint, self.redCover) }
+        XCTAssertGreaterThan(ink.red, 0.9)
+        XCTAssertGreaterThan(ink.red - ink.green, 0.3, "当前歌词应是封面的红色,实际 \(ink)")
+        XCTAssertGreaterThan(ink.red - ink.blue, 0.3, "当前歌词应是封面的红色,实际 \(ink)")
+    }
+
+    func testArtworkModeFallsBackToDefaultColorWithoutCoverTint() throws {
+        let ink = try renderedInk(mode: .artwork) { $0 }
+        assertWhite(ink)
+    }
+
+    func testOtherLinesAndOtherModesIgnoreTheCoverTint() throws {
+        let inactive = try renderedInk(mode: .artwork, isActive: false) {
+            $0.environment(\.playerLyricsArtworkTint, self.redCover)
+        }
+        assertWhite(inactive)
+        let defaultMode = try renderedInk(mode: .defaultColor) {
+            $0.environment(\.playerLyricsArtworkTint, self.redCover)
+        }
+        assertWhite(defaultMode)
+    }
+
+    /// App 根视图上主题服务在提供者里面才注入(`.environment(themeService)` 先挂)。
+    /// 提供者要直接拿到主题服务,不能从环境里读,否则读成空、歌词一直是默认颜色。
+    func testProviderReachesThemeServiceInjectedInsideIt() throws {
+        let theme = ThemeService()
+        theme.debugSetLyricsArtworkTint(redCover)
+        let ink = try renderedInk(mode: .artwork) {
+            $0.environment(theme).modifier(PlayerLyricsArtworkTintProvider(theme: theme))
+        }
+        XCTAssertGreaterThan(ink.red - ink.green, 0.3, "提供者没把封面色交给歌词,实际 \(ink)")
+    }
+
+    func testCoverTintStaysReadableOnLightAndDarkBackdrops() throws {
+        let onDark = try XCTUnwrap(redCover.lyricColor(onDarkBackdrop: true))
+        let onLight = try XCTUnwrap(redCover.lyricColor(onDarkBackdrop: false))
+        let dark = try XCTUnwrap(PlayerLyricsArtworkTint(onDark))
+        let light = try XCTUnwrap(PlayerLyricsArtworkTint(onLight))
+        let black = ThemeAccentContrastPolicy.RGB.black
+        let white = ThemeAccentContrastPolicy.RGB.white
+        XCTAssertGreaterThan(ThemeAccentContrastPolicy.contrastRatio(rgb(dark), black), 7)
+        XCTAssertGreaterThan(ThemeAccentContrastPolicy.contrastRatio(rgb(light), white), 4.5)
+        // 灰色封面没有可跟的颜色。
+        XCTAssertNil(PlayerLyricsArtworkTint(red: 0.5, green: 0.5, blue: 0.5).lyricColor(onDarkBackdrop: true))
+        // 电视的调色板记的是十六进制色值。
+        XCTAssertEqual(PlayerLyricsArtworkTint(hex: "#FF0000"), PlayerLyricsArtworkTint(red: 1, green: 0, blue: 0))
+        XCTAssertNil(PlayerLyricsArtworkTint(hex: nil))
+        XCTAssertNil(PlayerLyricsArtworkTint(hex: "not-a-color"))
+    }
+
+    func testStoredModeReadsTheSyncedPreference() throws {
+        let suite = "LyricsArtworkTintTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(PlayerLyricsColorMode.stored(in: defaults), .defaultColor)
+        defaults.set("artwork", forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+        XCTAssertEqual(PlayerLyricsColorMode.stored(in: defaults), .artwork)
+        defaults.set("unknown", forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+        XCTAssertEqual(PlayerLyricsColorMode.stored(in: defaults), .defaultColor)
+    }
+
+    private struct Ink: CustomStringConvertible {
+        let red: Double
+        let green: Double
+        let blue: Double
+        var description: String { String(format: "(%.2f, %.2f, %.2f)", red, green, blue) }
+    }
+
+    private func rgb(_ tint: PlayerLyricsArtworkTint) -> ThemeAccentContrastPolicy.RGB {
+        ThemeAccentContrastPolicy.RGB(red: tint.red, green: tint.green, blue: tint.blue)
+    }
+
+    private func assertWhite(_ ink: Ink, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertGreaterThan(min(ink.red, ink.green, ink.blue), 0.9, "应是默认的白色,实际 \(ink)", file: file, line: line)
+    }
+
+    /// 黑底上画一行默认白色的当前歌词,取字心(最亮那些像素)的平均色。
+    private func renderedInk<Wrapped: View>(
+        mode: PlayerLyricsColorMode,
+        isActive: Bool = true,
+        wrap: (AnyView) -> Wrapped
+    ) throws -> Ink {
+        let suite = "LyricsArtworkTintTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(mode.rawValue, forKey: PlayerAppearancePreferences.lyricsColorModeKey)
+        let line = AnyView(
+            Text(verbatim: "\u{25A0}\u{25A0}\u{25A0}")
+                .font(.system(size: 80, weight: .heavy))
+                .currentLyricColor(.white, isActive: isActive)
+        )
+        let view = wrap(line)
+            .padding(12)
+            .background(.black)
+            .defaultAppStorage(defaults)
+            .environment(\.colorScheme, .dark)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+        let bytesPerRow = image.width * 4
+        var bytes = [UInt8](repeating: 0, count: bytesPerRow * image.height)
+        let sRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(
+            data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow, space: sRGB,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        var samples: [(Double, Double, Double)] = []
+        for offset in stride(from: 0, to: bytes.count, by: 4) {
+            let r = Double(bytes[offset]) / 255, g = Double(bytes[offset + 1]) / 255, b = Double(bytes[offset + 2]) / 255
+            if max(r, g, b) > 0.85 { samples.append((r, g, b)) }
+        }
+        XCTAssertGreaterThan(samples.count, 200, "没画出歌词")
+        let count = Double(max(samples.count, 1))
+        return Ink(
+            red: samples.reduce(0) { $0 + $1.0 } / count,
+            green: samples.reduce(0) { $0 + $1.1 } / count,
+            blue: samples.reduce(0) { $0 + $1.2 } / count
+        )
+    }
+}

@@ -15728,6 +15728,7 @@ private struct NowPlayingLyricPreview: View {
     let songID: String?
     let lyricsRevision: UInt
     let isSceneActive: Bool
+    /// 歌词的颜色;正在唱的那一句按「当前歌词颜色」的设置换。
     let tint: Color
     /// 前奏提示、间奏标签与心跳点的颜色。
     let statusTint: Color
@@ -15893,7 +15894,7 @@ private struct NowPlayingLyricPreview: View {
                     case .line(let index, let role):
                         if lyrics.indices.contains(index) {
                             lyricText(lyrics[index].text)
-                                .foregroundStyle(tint)
+                                .currentLyricColor(tint, isActive: role == .current)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .opacity(opacity(for: role))
@@ -15932,7 +15933,7 @@ private struct NowPlayingLyricPreview: View {
         case .line(let index):
             if lyrics.indices.contains(index) {
                 lyricText(lyrics[index].text)
-                    .foregroundStyle(tint)
+                    .currentLyricColor(tint)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
