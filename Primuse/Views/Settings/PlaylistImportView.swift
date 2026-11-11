@@ -3353,6 +3353,7 @@ struct LyricsFormatConverterView: View {
             switch subtitle {
             case .webVTT: return .webVTT
             case .subRip: return .subRip
+            case .substationAlpha: return .substationAlpha
             }
         }
         guard let conversion else { return .invalid }
@@ -3521,6 +3522,7 @@ private enum MacLyricsDetectedFormat {
     case ttml
     case webVTT
     case subRip
+    case substationAlpha
     case plain
     case invalid
 
@@ -3532,6 +3534,7 @@ private enum MacLyricsDetectedFormat {
         case .ttml: "TTML"
         case .webVTT: "VTT"
         case .subRip: "SRT"
+        case .substationAlpha: "ASS"
         case .plain: "TXT"
         case .invalid: String(localized: "lyrics_converter_format_invalid")
         }
@@ -3546,6 +3549,7 @@ private enum MacLyricsDetectedFormat {
         case .ttml: PMColor.brand
         case .webVTT: PMColor.flac
         case .subRip: PMColor.warn
+        case .substationAlpha: PMColor.warn
         case .plain: PMColor.textMuted
         case .invalid: PMColor.bad
         }
@@ -3574,7 +3578,7 @@ private struct LyricsConverterDocument: FileDocument {
     static var readableContentTypes: [UTType] {
         // Subtitle documents are readable input only; the converter still
         // writes LRC, TTML or plain text.
-        [.primuseLRC, .primuseTTML, .primuseWebVTT, .primuseSubRip, .xml, .plainText]
+        [.primuseLRC, .primuseTTML, .primuseWebVTT, .primuseSubRip, .primuseSubStationAlpha, .xml, .plainText]
     }
 
     static var writableContentTypes: [UTType] {
@@ -3606,6 +3610,8 @@ private extension UTType {
     static let primuseWebVTT = UTType(filenameExtension: "vtt", conformingTo: .plainText)
         ?? .plainText
     static let primuseSubRip = UTType(filenameExtension: "srt", conformingTo: .plainText)
+        ?? .plainText
+    static let primuseSubStationAlpha = UTType(filenameExtension: "ass", conformingTo: .plainText)
         ?? .plainText
 }
 

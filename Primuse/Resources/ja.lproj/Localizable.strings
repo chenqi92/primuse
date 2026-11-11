@@ -6331,7 +6331,7 @@
 "lyrics_sources_summary_plain %lld" = "プレーンテキスト · %lld 行";
 "lyrics_sources_with_translation" = "訳文トラックあり";
 "lyrics_sources_empty_title" = "曲と同じ場所に歌詞ファイルがありません";
-"lyrics_sources_empty_message" = "曲と同じ名前の .lrc、.ttml、.elrc、.lys、.yrc、.qrc、.vtt、.srt ファイルを曲のフォルダに置くと、ここに表示されます。";
+"lyrics_sources_empty_message" = "曲と同じ名前の .lrc、.ttml、.elrc、.lys、.yrc、.qrc、.vtt、.srt、.ass、.ssa、.lyl ファイルを曲のフォルダに置くと、ここに表示されます。";
 "lyrics_sources_not_file_title" = "この曲の歌詞はファイルではありません";
 "lyrics_sources_not_file_message" = "歌詞はメディアサーバ、Apple Music、またはポッドキャストから提供されているため、切り替えや書き換えができる歌詞ファイルはありません。";
 "lyrics_sources_unavailable_title" = "音楽ソースを読み込めません";

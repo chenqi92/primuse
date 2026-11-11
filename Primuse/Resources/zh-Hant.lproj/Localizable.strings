@@ -6307,7 +6307,7 @@
 "lyrics_sources_summary_plain %lld" = "純文字 · %lld 行";
 "lyrics_sources_with_translation" = "含譯文軌";
 "lyrics_sources_empty_title" = "歌曲旁沒有歌詞檔案";
-"lyrics_sources_empty_message" = "將與歌曲同名的 .lrc、.ttml、.elrc、.lys、.yrc、.qrc、.vtt 或 .srt 檔案放進歌曲所在的資料夾，就會列在這裡。";
+"lyrics_sources_empty_message" = "將與歌曲同名的 .lrc、.ttml、.elrc、.lys、.yrc、.qrc、.vtt、.srt、.ass、.ssa 或 .lyl 檔案放進歌曲所在的資料夾，就會列在這裡。";
 "lyrics_sources_not_file_title" = "這首歌的歌詞不是檔案";
 "lyrics_sources_not_file_message" = "歌詞來自媒體伺服器、Apple Music 或 Podcast，沒有可以切換或改寫的歌詞檔案。";
 "lyrics_sources_unavailable_title" = "無法讀取音樂來源";

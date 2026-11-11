@@ -63,7 +63,7 @@ public struct AudioFileRenamePlan: Sendable {
         let oldStem = (oldName as NSString).deletingPathExtension
         let directory = (audioPath as NSString).deletingLastPathComponent
         let sameNameSidecarExtensions: Set<String> = [
-            "lrc", "elrc", "ttml", "lys", "yrc", "qrc", "vtt", "srt", "txt",
+            "lrc", "elrc", "ttml", "lys", "yrc", "qrc", "vtt", "srt", "ass", "ssa", "lyl", "txt",
             "jpg", "jpeg", "png", "webp", "heic", "mp4", "mov", "m4v"
         ]
         let audioExtensions: Set<String> = ["mp3", "flac", "m4a", "aac", "alac", "wav", "aiff", "aif", "ogg", "opus", "ape", "wv", "dsf", "dff", "wma"]

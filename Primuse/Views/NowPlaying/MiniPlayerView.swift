@@ -512,7 +512,9 @@ private struct MiniPlayerSpokenWordSubtitle: View {
             .font(.caption2.monospacedDigit())
             .lineLimit(1)
             .foregroundStyle(.secondary)
-            .contentTransition(.opacity)
+            // 章号、剩余分钟变了逐位翻过去,不是整行闪一下。
+            .contentTransition(.numericText())
+            .pmAnimation(.control, value: parts)
     }
 }
 
@@ -541,15 +543,35 @@ private struct MiniPlayerLiveRadioSubtitle: View {
 }
 
 /// 停靠条字底下的进度线。单独一个视图:播放时钟每半秒走一次,只重画这一条。
+///
+/// 时钟一跳接一段同长的线性动画,两跳首尾相接,线就是连续往前走的,不再半秒一顿;
+/// 换歌、seek、暂停时直接跳到位(判定见 Kit 的 `PlaybackProgressAnimationPolicy`)。
 private struct MiniPlayerProgressLine: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 上一次画到的读数。只用来判断这一次是不是正常推进,不参与绘制,不用 @State 免得多画一遍。
+    @State private var previous = Reading()
 
-    private var fraction: CGFloat {
-        guard player.duration > 0 else { return 0 }
-        return CGFloat(min(max(player.currentTime / player.duration, 0), 1))
+    private final class Reading {
+        var time: TimeInterval = 0
+        var itemID: String?
+    }
+
+    private struct ReadingKey: Equatable {
+        let time: TimeInterval
+        let itemID: String?
     }
 
     var body: some View {
+        let time = player.currentTime
+        let itemID = player.currentSong?.id
+        let fraction = CGFloat(PlaybackProgressAnimationPolicy.fraction(time: time, duration: player.duration))
+        let animates = !reduceMotion && PlaybackProgressAnimationPolicy.animatesAdvance(
+            from: previous.time,
+            to: time,
+            isSameItem: previous.itemID == itemID,
+            isPlaying: player.isPlaying
+        )
         Capsule()
             .fill(Color.primary.opacity(0.12))
             .frame(height: 3)
@@ -558,10 +580,19 @@ private struct MiniPlayerProgressLine: View {
                     Capsule()
                         .fill(Color.accentColor)
                         .frame(width: proxy.size.width * fraction)
+                        // 这是跟时钟间隔配套的特例曲线(同播放页进度条),不属于 PMMotion 的任何一档。
+                        .animation(
+                            animates ? .linear(duration: PlaybackProgressAnimationPolicy.clockTickInterval) : nil,
+                            value: fraction
+                        )
                 }
             }
             .frame(maxWidth: 220)
             .accessibilityHidden(true)
+            .onChange(of: ReadingKey(time: time, itemID: itemID), initial: true) { _, reading in
+                previous.time = reading.time
+                previous.itemID = reading.itemID
+            }
     }
 }
 

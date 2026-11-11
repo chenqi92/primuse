@@ -261,6 +261,15 @@ public struct LyricsEditorDocument: Hashable, Sendable {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
 
+        // A `[tt]` row times the line above it from across a blank line, so it
+        // cannot be read row by row; the shared reader folds it into ELRC words.
+        if LRCWordTimingCompanion.containsCompanionRows(normalized) {
+            self = LyricsEditorDocument(
+                lyricLines: LyricsContentParser.parse(normalized, options: options)
+            )
+            return
+        }
+
         var metadata: [String] = []
         var parsed: [EditableLyricLine] = []
         var timedBlock: [LyricLine] = []
@@ -390,7 +399,8 @@ public struct LyricsEditorDocument: Hashable, Sendable {
     /// 编辑器；这里仍作防御性检查，避免其它调用方绕过 UI 丢数据。
     public func replacingOriginalSource(with text: String) -> LyricsEditorDocument {
         guard permitsSourceTextEditing else { return self }
-        if LyricsContentParser.isTTML(text) || LyricsContentParser.isSubtitleDocument(text) {
+        if LyricsContentParser.isTTML(text) || LyricsContentParser.isSubtitleDocument(text)
+            || LRCWordTimingCompanion.containsCompanionRows(text) {
             // 逐行解析器只认 LRC/ELRC 的行头。TTML 和字幕文档要先经共享模型
             // 转成模型行，否则整份文档会变成一堆未打轴的标记文本。
             let parsed = LyricsContentParser.parse(text, options: .literal)

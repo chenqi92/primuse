@@ -220,7 +220,8 @@ enum LyricsLoader {
             let normalized = normalizedEditableText(sourceText)
             if LyricsContentParser.isTTML(normalized)
                 || LyricsContentParser.isSubtitleDocument(normalized)
-                || WordTimedLyricsParser.detect(normalized) != nil {
+                || WordTimedLyricsParser.detect(normalized) != nil
+                || LRCWordTimingCompanion.containsCompanionRows(normalized) {
                 // The editor is intentionally LRC/ELRC-oriented. Converting
                 // TTML and subtitle documents to the shared model keeps their
                 // markup out of lyric rows; LyricsWriteback serializes it back

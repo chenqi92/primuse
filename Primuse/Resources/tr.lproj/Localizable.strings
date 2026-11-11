@@ -6236,7 +6236,7 @@
 "lyrics_sources_summary_plain %lld" = "Düz metin · %lld satır";
 "lyrics_sources_with_translation" = "Çeviri izi içerir";
 "lyrics_sources_empty_title" = "Bu şarkının yanında şarkı sözü dosyası yok";
-"lyrics_sources_empty_message" = "Şarkıyla aynı ada sahip bir .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt veya .srt dosyasını şarkının klasörüne koyduğunuzda burada listelenir.";
+"lyrics_sources_empty_message" = "Şarkıyla aynı ada sahip bir .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt, .srt, .ass, .ssa veya .lyl dosyasını şarkının klasörüne koyduğunuzda burada listelenir.";
 "lyrics_sources_not_file_title" = "Bu şarkının sözleri bir dosya değil";
 "lyrics_sources_not_file_message" = "Şarkı sözleri bir medya sunucusundan, Apple Music'ten veya bir podcast'ten geliyor; değiştirilecek ya da düzenlenecek bir şarkı sözü dosyası yok.";
 "lyrics_sources_unavailable_title" = "Kaynağa ulaşılamıyor";

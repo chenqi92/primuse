@@ -414,10 +414,7 @@ struct SongRowView: View {
                                 .tint(.white)
                                 .pmFadeTransition()
                         } else {
-                            Image(systemName: "waveform")
-                                .font(.caption)
-                                .symbolEffect(.variableColor.iterative)
-                                .foregroundStyle(.white)
+                            SongRowPlayingWaveform(tint: .white)
                                 .pmFadeTransition()
                         }
                     }
@@ -433,9 +430,8 @@ struct SongRowView: View {
                         if player.showsLoadingIndicator {
                             ProgressView().controlSize(.small)
                         } else {
-                            Image(systemName: "waveform")
-                                .font(.caption)
-                                .foregroundStyle(Color.accentColor)
+                            // 没有封面的样式和有封面时一样律动(之前这里是一张不动的图)。
+                            SongRowPlayingWaveform(tint: Color.accentColor)
                         }
                     } else if let trackNumber, showsRowNumbers {
                         SongRowTrackNumber(number: trackNumber, largestNumber: largestTrackNumber)
@@ -1616,9 +1612,25 @@ private extension View {
     }
 }
 
+/// 正在播那一行的波形。单独一个视图:播放、暂停只重画这一个图标;只有正在播的那一行会建它,
+/// 别的行不观察播放状态。播放时律动,暂停时停在完整的静止波形。
+private struct SongRowPlayingWaveform: View {
+    @Environment(AudioPlayerService.self) private var player
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: "waveform")
+            .font(.caption)
+            .foregroundStyle(tint)
+            .symbolEffect(.variableColor.iterative, isActive: player.isPlaying)
+    }
+}
+
 struct OfflineAudioStatusBadge: View {
     let snapshot: OfflineAudioCacheSnapshot
     var reservesSpace = false
+    /// 下载完成(进度环换成对勾)那一下让对勾弹一下。滚进来就已经下好的行不弹。
+    @State private var completionPulse = 0
 
     @ViewBuilder
     var body: some View {
@@ -1643,12 +1655,14 @@ struct OfflineAudioStatusBadge: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.callout)
                         .foregroundStyle(.green)
+                        .symbolEffect(.bounce, options: .nonRepeating, value: completionPulse)
                         .accessibilityLabel("offline_available")
                         .pmFadeTransition()
                 case .cached:
                     Image(systemName: "checkmark.circle")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        .symbolEffect(.bounce, options: .nonRepeating, value: completionPulse)
                         .accessibilityLabel("offline_cached")
                         .pmFadeTransition()
                 case .failed:
@@ -1664,6 +1678,11 @@ struct OfflineAudioStatusBadge: View {
             .frame(width: reservesSpace ? 20 : nil)
             // 只认状态，不认进度：下载中的进度每来一次回调都动一下就成了新的抖动源。
             .pmAnimation(.control, value: snapshot.state)
+            .onChange(of: snapshot.state) { old, new in
+                guard old == .downloading, new == .pinned || new == .cached else { return }
+                // 对勾是这一次更新里刚换上的，下一次更新再改值它才看得到变化、才弹得起来。
+                completionPulse &+= 1
+            }
         }
     }
 }

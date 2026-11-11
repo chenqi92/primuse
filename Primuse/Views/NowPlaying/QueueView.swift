@@ -150,6 +150,9 @@ struct QueueView: View {
                     .foregroundStyle(mode == .sequential && !behavior.isActive ? Color.secondary : Color.accentColor)
                     // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
                     .contentTransition(.symbolEffect(.replace))
+                    // 换档时和播放页的播放方式键一样动一下:随机弹、循环转。
+                    .symbolEffect(.bounce, options: .nonRepeating, value: player.shuffleEnabled)
+                    .symbolEffect(.rotate, options: .nonRepeating, value: behavior)
                 if titled {
                     Label {
                         Text(title)

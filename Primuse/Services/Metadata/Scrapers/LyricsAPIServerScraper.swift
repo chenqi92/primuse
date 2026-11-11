@@ -250,10 +250,11 @@ extension LyricsAPIServerScraper {
     }
 
     /// LRC 数带时间戳且有文字的行，纯文本数非空行；TTML 与逐字格式（yrc / qrc / lys）
-    /// 的时间不写成 `[mm:ss]`，交给共享解析器数有文字的行。
+    /// 的时间不写成 `[mm:ss]`，带 `[tt]` 伴随行的 LRC 多出的那些行也不是歌词，都交给共享解析器数有文字的行。
     private static func lyricLineCount(lrc: String?, plain: String?) -> Int {
         if let lrc, !lrc.isEmpty {
-            if LyricsContentParser.isTTML(lrc) || WordTimedLyricsParser.detect(lrc) != nil {
+            if LyricsContentParser.isTTML(lrc) || WordTimedLyricsParser.detect(lrc) != nil
+                || LRCWordTimingCompanion.containsCompanionRows(lrc) {
                 return LyricsContentParser.parseText(lrc).filter {
                     !$0.text.trimmingCharacters(in: .whitespaces).isEmpty
                 }.count

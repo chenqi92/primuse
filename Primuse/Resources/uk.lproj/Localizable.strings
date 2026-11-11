@@ -6236,7 +6236,7 @@
 "lyrics_sources_summary_plain %lld" = "Звичайний текст · рядків: %lld";
 "lyrics_sources_with_translation" = "З доріжкою перекладу";
 "lyrics_sources_empty_title" = "Поруч із піснею немає файлів із текстом";
-"lyrics_sources_empty_message" = "Покладіть файл .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt або .srt із такою самою назвою, як у пісні, у її папку, і він з’явиться тут.";
+"lyrics_sources_empty_message" = "Покладіть файл .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt, .srt, .ass, .ssa або .lyl із такою самою назвою, як у пісні, у її папку, і він з’явиться тут.";
 "lyrics_sources_not_file_title" = "Текст цієї пісні — не файл";
 "lyrics_sources_not_file_message" = "Текст надходить із медіасервера, Apple Music або подкасту, тому немає файлу з текстом, який можна перемкнути чи змінити.";
 "lyrics_sources_unavailable_title" = "Джерело недоступне";

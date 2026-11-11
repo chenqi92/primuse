@@ -10578,6 +10578,7 @@ struct NowPlayingView: View {
             }
         } label: {
             controlLabel(face, style: style)
+                .pmPlaybackModeSymbolEffect(shuffleEnabled: player.shuffleEnabled, repeatMode: 0)
         } primaryAction: {
             performControl(.shuffle, style: style)
         }
@@ -10595,6 +10596,7 @@ struct NowPlayingView: View {
             abRepeatMenuSection
         } label: {
             controlLabel(face, style: style)
+                .pmPlaybackModeSymbolEffect(shuffleEnabled: false, repeatMode: player.repeatBehavior)
         } primaryAction: {
             performControl(.repeatMode, style: style)
         }
@@ -10617,6 +10619,10 @@ struct NowPlayingView: View {
             abRepeatMenuSection
         } label: {
             controlLabel(face, style: style)
+                .pmPlaybackModeSymbolEffect(
+                    shuffleEnabled: player.shuffleEnabled,
+                    repeatMode: player.repeatBehavior
+                )
         } primaryAction: {
             performControl(.playMode, style: style)
         }

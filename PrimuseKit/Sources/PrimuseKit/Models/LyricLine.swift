@@ -1332,6 +1332,14 @@ public enum LyricsFormat: String, Codable, Sendable, CaseIterable {
             if subtitleLines.contains(where: \.containsWordLevelContent) { return .wordLevel }
             if !subtitleLines.isEmpty { return .lineLevel }
         }
+        if LRCWordTimingCompanion.containsCompanionRows(content) {
+            // `<offset,index>` markers would otherwise pass for relative word
+            // marks even when they fit no line.
+            let lines = LyricsContentParser.parse(content)
+            if lines.contains(where: \.containsWordLevelContent) { return .wordLevel }
+            if lines.contains(where: \.isSynchronized) { return .lineLevel }
+            return .plain
+        }
         if content.range(of: #"<\d+:\d+(?:[.:]\d+)?>"#, options: .regularExpression) != nil {
             return .wordLevel
         }
@@ -1587,6 +1595,7 @@ public enum LyricsContentParser {
         var lines: [LyricLine] = []
         var metadataLines: [String] = []
         var isLeadingMetadataRegion = true
+        var companionRows: [(row: LRCWordTimingCompanion.Row, position: Int)] = []
 
         for raw in content.components(separatedBy: .newlines) {
             if isLeadingMetadataRegion, raw.firstMatch(of: metadataPattern) != nil {
@@ -1596,6 +1605,14 @@ public enum LyricsContentParser {
             if isLeadingMetadataRegion, raw.trimmingCharacters(in: .whitespaces).isEmpty,
                !metadataLines.isEmpty {
                 metadataLines.append(raw)
+                continue
+            }
+
+            // A `[tt]` row times the line next to it; it is never a lyric or
+            // a translation row of its own.
+            if let companion = LRCWordTimingCompanion.row(raw) {
+                isLeadingMetadataRegion = false
+                companionRows.append((companion, lines.count))
                 continue
             }
 
@@ -1647,6 +1664,11 @@ public enum LyricsContentParser {
         }
 
         lines = lines.map { LyricTextEntityPolicy.decoded($0) }
+        if !companionRows.isEmpty {
+            // Character indices count the decoded text, and the rows must be
+            // gone before same-time rows are paired as translations.
+            lines = LRCWordTimingCompanion.applying(companionRows, to: lines)
+        }
         if options.detectBilingualLRC {
             lines = LyricBilingualPairingPolicy.pair(lines)
         }
@@ -1866,6 +1888,9 @@ public enum LyricsContentParser {
         for (offset, raw) in normalized.components(separatedBy: .newlines).enumerated() {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, raw.firstMatch(of: metadataPattern) == nil else { continue }
+            // A companion row has no lyric of its own; markers that do not fit
+            // leave its line untimed rather than broken.
+            if LRCWordTimingCompanion.row(raw) != nil { continue }
 
             let looksTimed = trimmed.hasPrefix("[")
                 && trimmed.dropFirst().first?.isNumber == true
@@ -2032,6 +2057,10 @@ public enum LyricsContentParser {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
             if isLeadingMetadataRegion, raw.firstMatch(of: metadataPattern) != nil {
+                continue
+            }
+            if LRCWordTimingCompanion.row(raw) != nil {
+                isLeadingMetadataRegion = false
                 continue
             }
 

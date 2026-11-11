@@ -619,6 +619,7 @@
 		41D8C58E6ECF8A3C05977DEC /* TVSourceErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC760A27FC544A0A10359129 /* TVSourceErrorText.swift */; };
 		41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
 		42295F86DFFBCF1704ED002A /* SongRowSwipePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B258D9243E8F9A579865947D /* SongRowSwipePolicy.swift */; };
+		9AAA532C79AD041BB9E1B6D1 /* PlaybackProgressAnimationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D05B9F65245F47983E0C460 /* PlaybackProgressAnimationPolicy.swift */; };
 		40E2F34FC53C65406D325941 /* ArtworkSwapPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1BA5463E79E95F3AF86A642 /* ArtworkSwapPolicy.swift */; };
 		F4DA99DF8B55050EBAD67B24 /* ToastSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = E76F6128DD27CAEEF973BF8C /* ToastSchedule.swift */; };
 		423E3BC26C84850AC13B5919 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -1079,6 +1080,8 @@
 		731960A337291B311A1CB746 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */; };
 		731F196C5E41C34D8A22835D /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */; };
 		735F07C4006F3BCF37D55A84 /* WordTimedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91AEEF06A98409B623ED637 /* WordTimedLyricsParser.swift */; };
+		BFEFA059A5CF112C3BA07BD3 /* LRCWordTimingCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B2ECB87BCC2E6FCD1D275B /* LRCWordTimingCompanion.swift */; };
+		CF35DCCD5DE786073B9FAEA9 /* ASSKaraokeLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3733371AE6F7614F0709188 /* ASSKaraokeLyricsParser.swift */; };
 		736B88C0482339485F824541 /* ScraperResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9694CD231B4175BED85BEA /* ScraperResult.swift */; };
 		73781129E01F216F9F430BC7 /* KaraokeDemucsFrontEnd.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7FB59AA7EB57BAB50F0F3A9 /* KaraokeDemucsFrontEnd.swift */; };
 		7397DAA0ABA89720BE61B023 /* LibraryInsightBatchFill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F212FFF6B076BD1C2D834E /* LibraryInsightBatchFill.swift */; };
@@ -3792,6 +3795,7 @@
 		B2226198F80B0E17BBF3555D /* PreparedPlaybackStartPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedPlaybackStartPolicy.swift; sourceTree = "<group>"; };
 		B25006B53CDB1F8F21E5AA94 /* WebDAVDirectoryQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVDirectoryQuotaTests.swift; sourceTree = "<group>"; };
 		B258D9243E8F9A579865947D /* SongRowSwipePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongRowSwipePolicy.swift; sourceTree = "<group>"; };
+		0D05B9F65245F47983E0C460 /* PlaybackProgressAnimationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackProgressAnimationPolicy.swift; sourceTree = "<group>"; };
 		E1BA5463E79E95F3AF86A642 /* ArtworkSwapPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkSwapPolicy.swift; sourceTree = "<group>"; };
 		E76F6128DD27CAEEF973BF8C /* ToastSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastSchedule.swift; sourceTree = "<group>"; };
 		B2C40237003577948906B518 /* ServerCatalogRefreshFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerCatalogRefreshFeedback.swift; sourceTree = "<group>"; };
@@ -3946,6 +3950,8 @@
 		C8D94F9FC1470B10DD0338A9 /* AudioPlayerService+AutoContinuation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+AutoContinuation.swift"; sourceTree = "<group>"; };
 		C8DA11D239500EFCBED9557C /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		C91AEEF06A98409B623ED637 /* WordTimedLyricsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordTimedLyricsParser.swift; sourceTree = "<group>"; };
+		A3733371AE6F7614F0709188 /* ASSKaraokeLyricsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ASSKaraokeLyricsParser.swift; sourceTree = "<group>"; };
+		B5B2ECB87BCC2E6FCD1D275B /* LRCWordTimingCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LRCWordTimingCompanion.swift; sourceTree = "<group>"; };
 		C93DE271CA63A6287693A0C7 /* AppleIntelligenceProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleIntelligenceProviderTests.swift; sourceTree = "<group>"; };
 		C97AD40A4E79629039B84599 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/Localizable.strings; sourceTree = "<group>"; };
 		C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadScheduler.swift; sourceTree = "<group>"; };
@@ -5050,6 +5056,7 @@
 				9A6E80970440262553A71FAF /* SongRadioMix.swift */,
 				0F99AA6FC13E79A7AE9255BE /* SongRowColumnsPolicy.swift */,
 				B258D9243E8F9A579865947D /* SongRowSwipePolicy.swift */,
+				0D05B9F65245F47983E0C460 /* PlaybackProgressAnimationPolicy.swift */,
 				E1BA5463E79E95F3AF86A642 /* ArtworkSwapPolicy.swift */,
 				E76F6128DD27CAEEF973BF8C /* ToastSchedule.swift */,
 				3207E612EB152C51814B2DF3 /* SourceAddressFormPolicy.swift */,
@@ -5773,6 +5780,7 @@
 		AFC591E3A4BEE6456BA66E38 /* Metadata */ = {
 			isa = PBXGroup;
 			children = (
+				A3733371AE6F7614F0709188 /* ASSKaraokeLyricsParser.swift */,
 				5272512AA576C2E2708B0B03 /* AudioPayloadLayout.swift */,
 				B89BB98A6C3A6867E408C907 /* AudioStreamHeaderParser.swift */,
 				0039D9169F515627C5A4C159 /* CueSheetParser.swift */,
@@ -5793,6 +5801,7 @@
 				0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */,
 				5EAD109C14E9AC3B214FCB5B /* ISOBaseMediaLyricsParser.swift */,
 				655222FC48A7F8D3C6ED8E94 /* LossyDecodedLyricsRepair.swift */,
+				B5B2ECB87BCC2E6FCD1D275B /* LRCWordTimingCompanion.swift */,
 				B88ECC92A8A436C82FD41972 /* M4AMetadataAtomRepair.swift */,
 				6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */,
 				6B3B233454438ABE7810B89F /* MetadataTitleResolutionPolicy.swift */,
@@ -7386,6 +7395,7 @@
 				EC687A4F2368042B6F39DB9C /* ArtworkAnimationDiskCache.swift in Sources */,
 				B4D3CDE92E1DB45400781F6D /* ArtworkImageNormalizationPolicy.swift in Sources */,
 				757736029FD3D6C7FAFCD354 /* ArtworkStoreLimitPolicy.swift in Sources */,
+				CF35DCCD5DE786073B9FAEA9 /* ASSKaraokeLyricsParser.swift in Sources */,
 				55E1C3D3FF354D9034F405F2 /* AsyncSlotGate.swift in Sources */,
 				1B9B1554521D744F3E328FBB /* AtomicBackupFileWriter.swift in Sources */,
 				8555E09C98B0CBABEC2E578A /* AudioCacheEvictionPlanPolicy.swift in Sources */,
@@ -7533,6 +7543,7 @@
 				1624163A651DE180304002E5 /* LastFmLibraryInsight.swift in Sources */,
 				E9C0117118EAB7120E8D1465 /* LockScreenMotionArtworkPolicy.swift in Sources */,
 				4B032738CFBC427AA82478EC /* MotionCoverPolicy.swift in Sources */,
+				BFEFA059A5CF112C3BA07BD3 /* LRCWordTimingCompanion.swift in Sources */,
 				B29FEDB2CE45C72E5E82BB18 /* WikipediaInsight.swift in Sources */,
 				3A447F9292183A2E25B9F7D5 /* LegacyAudioCacheMigrationPolicy.swift in Sources */,
 				0117BCF5A8E19A2E8916DBF2 /* LibraryBrowseIndex.swift in Sources */,
@@ -7781,6 +7792,7 @@
 				2EA80583377D4B489C9D2556 /* SongRadioMix.swift in Sources */,
 				DBE6CC8937ACBC0CCF6D6A23 /* SongRowColumnsPolicy.swift in Sources */,
 				42295F86DFFBCF1704ED002A /* SongRowSwipePolicy.swift in Sources */,
+				9AAA532C79AD041BB9E1B6D1 /* PlaybackProgressAnimationPolicy.swift in Sources */,
 				40E2F34FC53C65406D325941 /* ArtworkSwapPolicy.swift in Sources */,
 				F4DA99DF8B55050EBAD67B24 /* ToastSchedule.swift in Sources */,
 				2C311B1B56FD151D4AAB5405 /* SongTagEditSync.swift in Sources */,

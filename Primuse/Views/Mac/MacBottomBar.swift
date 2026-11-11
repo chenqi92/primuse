@@ -213,6 +213,7 @@ struct MacBottomBar: View {
                                  isToggle: true, help: "shuffle") {
                         player.shuffleEnabled.toggle()
                     }
+                    .pmPlaybackModeSymbolEffect(shuffleEnabled: player.shuffleEnabled, repeatMode: 0)
                     // 右键选抽歌偏好(#332),左键照旧开关随机。
                     .contextMenu {
                         Picker(selection: Binding(
@@ -292,6 +293,7 @@ struct MacBottomBar: View {
                                  isToggle: true, help: "repeat") {
                         cycleRepeat()
                     }
+                    .pmPlaybackModeSymbolEffect(shuffleEnabled: false, repeatMode: player.repeatMode)
                     .pmFadeTransition()
                 }
             }

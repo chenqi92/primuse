@@ -6330,7 +6330,7 @@
 "lyrics_sources_summary_plain %lld" = "Texte brut · %lld lignes";
 "lyrics_sources_with_translation" = "Avec piste de traduction";
 "lyrics_sources_empty_title" = "Aucun fichier de paroles à côté de ce morceau";
-"lyrics_sources_empty_message" = "Placez un fichier .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt ou .srt portant le même nom que le morceau dans son dossier, et il apparaîtra ici.";
+"lyrics_sources_empty_message" = "Placez un fichier .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt, .srt, .ass, .ssa ou .lyl portant le même nom que le morceau dans son dossier, et il apparaîtra ici.";
 "lyrics_sources_not_file_title" = "Ces paroles ne sont pas un fichier";
 "lyrics_sources_not_file_message" = "Les paroles proviennent d’un serveur multimédia, d’Apple Music ou d’un podcast ; il n’y a donc aucun fichier de paroles à changer ou à modifier.";
 "lyrics_sources_unavailable_title" = "Source musicale inaccessible";

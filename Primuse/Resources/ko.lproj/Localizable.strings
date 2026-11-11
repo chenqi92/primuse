@@ -6330,7 +6330,7 @@
 "lyrics_sources_summary_plain %lld" = "일반 텍스트 · %lld줄";
 "lyrics_sources_with_translation" = "번역 트랙 포함";
 "lyrics_sources_empty_title" = "곡 옆에 가사 파일이 없음";
-"lyrics_sources_empty_message" = "곡과 이름이 같은 .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt 또는 .srt 파일을 곡이 있는 폴더에 넣으면 여기에 표시됩니다.";
+"lyrics_sources_empty_message" = "곡과 이름이 같은 .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt, .srt, .ass, .ssa 또는 .lyl 파일을 곡이 있는 폴더에 넣으면 여기에 표시됩니다.";
 "lyrics_sources_not_file_title" = "이 곡의 가사는 파일이 아님";
 "lyrics_sources_not_file_message" = "가사를 미디어 서버, Apple Music 또는 팟캐스트에서 가져오므로 바꾸거나 다시 쓸 수 있는 가사 파일이 없습니다.";
 "lyrics_sources_unavailable_title" = "음악 소스를 읽을 수 없음";

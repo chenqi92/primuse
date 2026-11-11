@@ -10,6 +10,9 @@ public enum SubtitleLyricsFormat: String, Sendable {
     case webVTT
     /// SubRip: numbered cues with `,` fractions and no inline word markers.
     case subRip
+    /// SubStation Alpha / Advanced SubStation Alpha: `Dialogue:` events with
+    /// `{\k}` karaoke tags (`ASSKaraokeLyricsParser`).
+    case substationAlpha
 }
 
 /// Parses subtitle documents into lyric lines. Detection is content based so a
@@ -68,6 +71,7 @@ public enum SubtitleLyricsParser {
         let document = normalizedDocument(content)
         let lines = document.split(separator: "\n", omittingEmptySubsequences: false)
         if let first = lines.first, isWebVTTHeader(first) { return .webVTT }
+        if ASSKaraokeLyricsParser.isDocument(document) { return .substationAlpha }
 
         var inspected = 0
         for line in lines where !line.allSatisfy(\.isWhitespace) {
@@ -83,7 +87,10 @@ public enum SubtitleLyricsParser {
         options: LyricsParsingOptions = .automatic
     ) -> [LyricLine] {
         let document = normalizedDocument(content)
-        guard detect(document) != nil else { return [] }
+        guard let format = detect(document) else { return [] }
+        if format == .substationAlpha {
+            return ASSKaraokeLyricsParser.parse(document, options: options)
+        }
 
         var cues: [Cue] = []
         for (index, block) in blocks(in: document).enumerated() {

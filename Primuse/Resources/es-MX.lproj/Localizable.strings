@@ -6236,7 +6236,7 @@
 "lyrics_sources_summary_plain %lld" = "Texto sin formato · %lld líneas";
 "lyrics_sources_with_translation" = "Con pista de traducción";
 "lyrics_sources_empty_title" = "No hay archivos de letras junto a esta canción";
-"lyrics_sources_empty_message" = "Coloca un archivo .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt o .srt con el mismo nombre que la canción en su carpeta y aparecerá aquí.";
+"lyrics_sources_empty_message" = "Coloca un archivo .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt, .srt, .ass, .ssa o .lyl con el mismo nombre que la canción en su carpeta y aparecerá aquí.";
 "lyrics_sources_not_file_title" = "Esta letra no es un archivo";
 "lyrics_sources_not_file_message" = "La letra viene de un servidor de medios, Apple Music o un podcast, así que no hay un archivo de letras que cambiar o editar.";
 "lyrics_sources_unavailable_title" = "No se puede acceder al origen";

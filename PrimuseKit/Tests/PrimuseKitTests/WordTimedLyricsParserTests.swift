@@ -133,8 +133,163 @@ struct WordTimedLyricsParserTests {
         #expect(PrimuseConstants.readableLyricsExtensions.contains("yrc"))
         #expect(PrimuseConstants.readableLyricsExtensions.contains("qrc"))
         #expect(PrimuseConstants.readableLyricsExtensions.contains("elrc"))
+        #expect(PrimuseConstants.readableLyricsExtensions.contains("lyl"))
         #expect(!PrimuseConstants.supportedLyricsExtensions.contains("lys"))
+        #expect(!PrimuseConstants.supportedLyricsExtensions.contains("lyl"))
         // `.lrc` keeps priority so an edited document wins over a source file.
         #expect(PrimuseConstants.readableLyricsExtensions.first == "lrc")
+    }
+
+    // MARK: - Relative word documents
+
+    private let krcDocument = """
+    \u{FEFF}[id:$00000000]
+    [ar:Someone]
+    [ti:Demo]
+    [hash:0123abcd]
+    [qq:]
+    [total:12000]
+    [1000,1500]<0,500,0>Light <500,400,0>on <900,600,0>water
+    [3000,1000]<0,300,0>(Ooh <300,700,0>yeah)
+    [5000,900]<0,300,0>Hold<300,100,0> <400,500,0>on
+    """
+
+    @Test("Relative word documents are told apart from the other formats")
+    func detectsRelativeWordDocuments() {
+        #expect(WordTimedLyricsParser.detect(krcDocument) == .krc)
+        #expect(LyricsFormat.detect(krcDocument) == .wordLevel)
+        #expect(WordTimedLyricsParser.detect(yrcDocument) == .yrc)
+        #expect(WordTimedLyricsParser.detect(qrcDocument) == .qrc)
+        #expect(WordTimedLyricsParser.detect(lysDocument) == .lys)
+        #expect(WordTimedLyricsParser.detect(
+            "[00:01.00]<00:01.00>Light <00:01.50>on"
+        ) == nil)
+        // A lone relative row inside an LRC document stays with the LRC reader.
+        #expect(WordTimedLyricsParser.detect("""
+        [00:00.000]Intro
+        [00:01.000]First
+        [5000,1000]<0,500,0>Hello <500,500,0>world
+        """) == nil)
+    }
+
+    @Test("Relative word offsets count from the line start")
+    func parsesRelativeWordDocument() throws {
+        let lines = LyricsContentParser.parseText(krcDocument)
+
+        #expect(lines.map(\.text) == ["Light on water", "Hold on"])
+        #expect(lines[0].timestamp == 1)
+        #expect(lines[0].syllables?.map(\.text) == ["Light ", "on ", "water"])
+        #expect(lines[0].syllables?.map(\.start) == [1, 1.5, 1.9])
+        #expect(lines[0].syllables?.map(\.end) == [1.5, 1.9, 2.5])
+        #expect(lines[0].syllables?.allSatisfy { $0.endTiming == .explicit } == true)
+        #expect(lines[0].endTimestamp == 2.5)
+        // The byte-order mark does not hide the first header.
+        #expect(lines[0].metadataLines?.first == "[id:$00000000]")
+        #expect(lines[0].metadataLines?.contains("[ti:Demo]") == true)
+
+        let background = try #require(lines[0].background?.first)
+        #expect(background.text == "Ooh yeah")
+        #expect(background.syllables?.map(\.start) == [3, 3.3])
+
+        // A whitespace-only word joins the word before it.
+        #expect(lines[1].syllables?.map(\.text) == ["Hold ", "on"])
+        #expect(lines[1].syllables?.map(\.start) == [5, 5.4])
+    }
+
+    @Test("Rows written out of time order are read in time order")
+    func ordersRelativeRowsByTime() {
+        let lines = LyricsContentParser.parseText("""
+        [ti:Demo]
+        [400,600]<0,600,0>Title
+        [200,100]<0,100,0>Credit
+        [1000,500]<0,500,0>First
+        """)
+        #expect(lines.map(\.text) == ["Credit", "Title", "First"])
+        #expect(lines.first?.metadataLines == ["[ti:Demo]"])
+    }
+
+    @Test("A relative line window far past its last word is not trusted")
+    func ignoresDamagedRelativeLineWindow() throws {
+        let line = try #require(LyricsContentParser.parseText(
+            "[10000,1000]<0,500,0>Light\n[20000,250000]<0,400,0>End <400,400,0>line"
+        ).last)
+        #expect(line.endTimestamp == 20.8)
+    }
+
+    @Test("Relative words keep an offset header, empty words and stray markup out")
+    func cleansRelativeWords() throws {
+        let lines = LyricsContentParser.parseText("""
+        [offset:+500]
+        [1000,1000]<0,0,0><0,300,0>Light<b> <300,300,0>on</b><600,0,0>
+        [3000,500]<0,500,0>I <3 you
+        """)
+        #expect(lines.first?.text == "Light on")
+        #expect(lines.first?.syllables?.map(\.text) == ["Light ", "on"])
+        #expect(lines.first?.syllables?.first?.start == 0.5)
+        #expect(lines.first?.metadataLines == nil)
+        #expect(lines.last?.text == "I <3 you")
+    }
+
+    private func languageTag(_ json: String) -> String {
+        "[language:\(Data(json.utf8).base64EncodedString())]"
+    }
+
+    private let krcBody = """
+    [1000,1000]<0,500,0>Light <500,500,0>on
+    [3000,1000]<0,500,0>Second <500,500,0>row
+    [5000,1000]<0,1000,0>Third
+    """
+
+    @Test("The language block adds a translation and a romanization per row")
+    func readsLanguageBlock() throws {
+        let tag = languageTag(
+            #"{"content":[{"language":0,"type":1,"lyricContent":[["第一行"],["//"],["  "]]},"#
+                + #"{"language":0,"type":0,"lyricContent":[["rai ","to "],["se ","kon "],["sa  ","do "]]}],"version":1}"#
+        )
+        let lines = LyricsContentParser.parseText("[ti:Demo]\n\(tag)\n\(krcBody)")
+
+        #expect(lines.count == 3)
+        #expect(lines[0].manualTranslation?.text == "第一行")
+        #expect(lines[0].manualTranslation?.source == .embeddedField)
+        // `//` and blank rows mean no translation.
+        #expect(lines[1].manualTranslation == nil)
+        #expect(lines[2].manualTranslation == nil)
+        #expect(lines.map(\.romanization) == ["rai to", "se kon", "sa do"])
+        // The block is read once and does not travel on as a header.
+        #expect(lines[0].metadataLines == ["[ti:Demo]"])
+    }
+
+    @Test("A translation-only block skips rows that carry no words")
+    func linesUpLanguageRowsWithoutEmptyLyricRows() throws {
+        let tag = languageTag(#"{"content":[{"type":1,"lyricContent":[["一"],["二"],["三"]]}],"version":1}"#)
+        let lines = LyricsContentParser.parseText("""
+        \(tag)
+        [1000,1000]<0,500,0>Light
+        [2000,500]
+        [3000,1000]<0,500,0>Second <500,500,0>row
+        [5000,1000]<0,1000,0>Third
+        """)
+        #expect(lines.map(\.text) == ["Light", "Second row", "Third"])
+        #expect(lines.map { $0.manualTranslation?.text } == ["一", "二", "三"])
+        #expect(lines.allSatisfy { $0.romanization == nil })
+    }
+
+    @Test("A language block that cannot be used leaves the lyrics as they are", arguments: [
+        #"{"content":[{"type":1,"lyricContent":[["一"],["二"]]}],"version":1}"#,
+        #"{"content":"#,
+        #"not json"#,
+    ])
+    func dropsUnusableLanguageBlock(_ json: String) throws {
+        let lines = LyricsContentParser.parseText("\(languageTag(json))\n\(krcBody)")
+        #expect(lines.map(\.text) == ["Light on", "Second row", "Third"])
+        #expect(lines.allSatisfy { $0.manualTranslation == nil && $0.romanization == nil })
+        #expect(lines.allSatisfy { $0.isWordLevel })
+    }
+
+    @Test("A language tag that is not base64 is ignored")
+    func ignoresMalformedLanguageTag() {
+        let lines = LyricsContentParser.parseText("[language:@@@ not base64 @@@]\n\(krcBody)")
+        #expect(lines.count == 3)
+        #expect(lines.allSatisfy { $0.manualTranslation == nil })
     }
 }

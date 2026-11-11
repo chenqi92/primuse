@@ -1661,7 +1661,7 @@ public enum PrimuseConstants {
     /// saving a document would otherwise put LRC text inside a `.qrc` or a
     /// `.vtt` the user brought along.
     public static let readableLyricsExtensions = supportedLyricsExtensions
-        + ["elrc", "lys", "yrc", "qrc", "vtt", "srt"]
+        + ["elrc", "lys", "yrc", "qrc", "vtt", "srt", "ass", "ssa", "lyl"]
     /// MP4/M4V/MOV play as they are; the rest are rewritten into MP4 the
     /// first time they play (`MusicVideoCompatibilityPolicy`). `.webm` is
     /// here rather than among the audio formats: it is YouTube's video

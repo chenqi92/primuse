@@ -235,11 +235,12 @@ enum LyricsWriteback {
                     sourceSnapshot: sourceSnapshot
                 )
             }
-            // 字幕文档、毫秒逐字文档（.lys/.yrc/.qrc）和 TTML 一样不能直接进编辑器：
-            // 源码是 cue 或逐字标记，必须先经共享模型转成 LRC/ELRC 文本。
+            // 字幕文档、毫秒逐字文档（.lys/.yrc/.qrc）、带 `[tt]` 伴随行的 LRC 和 TTML
+            // 一样不能直接进编辑器：源码是 cue 或逐字标记，必须先经共享模型转成 LRC/ELRC 文本。
             if LyricsContentParser.isTTML(normalizedSource)
                 || LyricsContentParser.isSubtitleDocument(normalizedSource)
-                || WordTimedLyricsParser.detect(normalizedSource) != nil {
+                || WordTimedLyricsParser.detect(normalizedSource) != nil
+                || LRCWordTimingCompanion.containsCompanionRows(normalizedSource) {
                 let sourceLines = LyricsContentParser.parse(normalizedSource)
                 guard !sourceLines.isEmpty else {
                     if let cached {

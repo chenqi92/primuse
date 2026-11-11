@@ -427,6 +427,8 @@ private struct SongBatchActionsModifier: ViewModifier {
             .font(.subheadline.weight(.semibold))
             .monospacedDigit()
             .lineLimit(1)
+            .contentTransition(.numericText(value: Double(selection.count)))
+            .pmAnimation(.control, value: selection.count)
 
             Button("batch_select_all") {
                 selection.selectAll(orderedIDs())
@@ -919,6 +921,9 @@ struct SongSelectionToolbarTitle: View {
         .monospacedDigit()
         .lineLimit(1)
         .minimumScaleFactor(0.7)
+        // 勾一首、取消一首时数字逐位翻过去。导航栏条目里只用系统修饰符(曲线取 PMMotion 那一档的值)。
+        .contentTransition(.numericText(value: Double(selection.count)))
+        .animation(PMMotion.control.animation, value: selection.count)
     }
 }
 

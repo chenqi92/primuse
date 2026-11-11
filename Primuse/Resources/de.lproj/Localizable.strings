@@ -6330,7 +6330,7 @@
 "lyrics_sources_summary_plain %lld" = "Reiner Text · %lld Zeilen";
 "lyrics_sources_with_translation" = "Mit Übersetzungsspur";
 "lyrics_sources_empty_title" = "Keine Songtextdateien neben diesem Song";
-"lyrics_sources_empty_message" = "Lege eine Datei im Format .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt oder .srt mit demselben Namen wie der Song in seinen Ordner, dann erscheint sie hier.";
+"lyrics_sources_empty_message" = "Lege eine Datei im Format .lrc, .ttml, .elrc, .lys, .yrc, .qrc, .vtt, .srt, .ass, .ssa oder .lyl mit demselben Namen wie der Song in seinen Ordner, dann erscheint sie hier.";
 "lyrics_sources_not_file_title" = "Dieser Songtext ist keine Datei";
 "lyrics_sources_not_file_message" = "Der Songtext stammt von einem Medienserver, aus Apple Music oder einem Podcast, daher gibt es keine Songtextdatei zum Wechseln oder Bearbeiten.";
 "lyrics_sources_unavailable_title" = "Musikquelle nicht erreichbar";

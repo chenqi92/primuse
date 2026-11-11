@@ -1,7 +1,7 @@
 import Foundation
 
 /// Word-timed lyric documents that carry their timing in milliseconds rather
-/// than in LRC timestamps. All three describe the same thing Primuse already
+/// than in LRC timestamps. All of them describe the same thing Primuse already
 /// models — words with explicit start and end, a duet voice and backing
 /// vocals — so they are normalized into `LyricLine` instead of gaining their
 /// own playback path.
@@ -15,6 +15,12 @@ public enum WordTimedLyricsFormat: String, Sendable {
     /// QQ Music word lyrics: `[lineStart,lineDuration]word(start,duration)…`,
     /// usually delivered inside a `<Lyric_1 LyricContent="…"/>` wrapper.
     case qrc
+    /// Relative word lyrics: `[lineStart,lineDuration]<offset,duration,0>word…`.
+    /// Like YRC each marker precedes the word it times, but the offset counts
+    /// from the line start instead of from the start of the song. A
+    /// `[language:]` header may carry a base64 JSON block with a translation
+    /// and a word-by-word romanization of every line.
+    case krc
 }
 
 /// Parses the millisecond word-timed lyric formats. Detection is content based
@@ -42,10 +48,12 @@ public enum WordTimedLyricsParser {
     }
 
     public static func detect(_ content: String) -> WordTimedLyricsFormat? {
-        let body = unwrappingQRCDocument(content) ?? content
+        let body = documentBody(content)
         var lysLines = 0
         var yrcLines = 0
         var qrcLines = 0
+        var krcLines = 0
+        var lrcLines = 0
 
         for raw in body.components(separatedBy: .newlines).prefix(80) {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -53,19 +61,27 @@ public enum WordTimedLyricsParser {
             if lysProperty(in: line) != nil, !wordMarkers(in: line, fieldCount: 2).isEmpty {
                 lysLines += 1
             } else if lineHeader(in: line) != nil {
-                if !wordMarkers(in: line, fieldCount: 3).isEmpty {
+                if nextAngleMarker(in: line[...], from: line.startIndex) != nil {
+                    krcLines += 1
+                } else if !wordMarkers(in: line, fieldCount: 3).isEmpty {
                     yrcLines += 1
                 } else if !wordMarkers(in: line, fieldCount: 2).isEmpty {
                     qrcLines += 1
                 }
+            } else if isLRCTimedLine(line) {
+                lrcLines += 1
             }
         }
 
-        let best = max(lysLines, yrcLines, qrcLines)
+        let best = max(lysLines, yrcLines, qrcLines, krcLines)
         guard best > 0 else { return nil }
         if best == lysLines { return .lys }
         if best == yrcLines { return .yrc }
-        return .qrc
+        if best == qrcLines { return .qrc }
+        // Relative angle markers also turn up as single rows inside an LRC
+        // document, which the LRC reader already times row by row. Only a
+        // document made of them is read as a whole.
+        return krcLines > lrcLines ? .krc : nil
     }
 
     public static func parse(_ content: String) -> [LyricLine] {
@@ -73,13 +89,22 @@ public enum WordTimedLyricsParser {
         return parse(content, as: format)
     }
 
+    /// Where a parsed row ended up, so a block that annotates rows by their
+    /// order in the file can find it again after backing groups were folded.
+    private enum Placement {
+        case line(Int)
+        case background(host: Int, index: Int)
+    }
+
     public static func parse(
         _ content: String,
         as format: WordTimedLyricsFormat
     ) -> [LyricLine] {
-        let body = unwrappingQRCDocument(content) ?? content
+        let body = documentBody(content)
         var metadataLines: [String] = []
         var lines: [LyricLine] = []
+        var placements: [(row: Int, placement: Placement)] = []
+        var rowCount = 0
 
         for raw in body.components(separatedBy: .newlines) {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
@@ -88,6 +113,8 @@ public enum WordTimedLyricsParser {
                 if trimmed.hasPrefix("[") { metadataLines.append(trimmed) }
                 continue
             }
+            let row = rowCount
+            if lineHeader(in: trimmed) != nil { rowCount += 1 }
             guard var parsed = parseLine(trimmed, as: format) else { continue }
             resolveBackgroundMarkers(in: &parsed)
             guard let line = makeLine(parsed) else { continue }
@@ -96,13 +123,32 @@ public enum WordTimedLyricsParser {
             // TTML `x-bg` groups are modeled.
             if parsed.isBackground,
                let hostIndex = lines.indices.last {
+                let childIndex = lines[hostIndex].background?.count ?? 0
                 lines[hostIndex].background = (lines[hostIndex].background ?? []) + [line]
+                placements.append((row, .background(host: hostIndex, index: childIndex)))
                 continue
             }
             lines.append(line)
+            placements.append((row, .line(lines.count - 1)))
         }
 
         guard !lines.isEmpty else { return [] }
+        if format == .krc {
+            // The block is only read here, so it does not travel on as a
+            // header that would be written back stale after an edit.
+            let block = KRCLanguageBlock(metadataLines: metadataLines)
+            metadataLines = KRCLanguageBlock.removingTag(from: metadataLines)
+            block?.annotate(&lines, placements: placements, rowCount: rowCount)
+        }
+        // Credit rows are sometimes written after the first sung line with an
+        // earlier time. Playback looks lines up by time, so they are ordered
+        // the way the LRC reader orders them: by time, ties in file order.
+        lines = lines.enumerated().sorted { lhs, rhs in
+            if lhs.element.timestamp == rhs.element.timestamp {
+                return lhs.offset < rhs.offset
+            }
+            return lhs.element.timestamp < rhs.element.timestamp
+        }.map(\.element)
         if let offset = LyricDocumentOffsetPolicy.offsetSeconds(in: metadataLines) {
             lines = LyricDocumentOffsetPolicy.applying(offset: offset, to: lines)
             metadataLines = LyricDocumentOffsetPolicy.removingOffsetTag(from: metadataLines)
@@ -126,6 +172,8 @@ public enum WordTimedLyricsParser {
             return parseQRCLine(line)
         case .yrc:
             return parseYRCLine(line)
+        case .krc:
+            return parseKRCLine(line)
         }
     }
 
@@ -168,6 +216,77 @@ public enum WordTimedLyricsParser {
             isDuet: false,
             isBackground: false
         )
+    }
+
+    /// Past this much silence after the last word, a line window is taken for
+    /// a damaged header. Real files have been seen whose last line claims the
+    /// length of the whole song, which would keep that line lit to the end.
+    private static let maximumKRCTrailingSilence = 1_000
+
+    private static func parseKRCLine(_ line: String) -> ParsedLine? {
+        guard let header = lineHeader(in: line) else { return nil }
+        let content = line[header.contentStart...]
+        var words: [ParsedWord] = []
+        var cursor = content.startIndex
+        var pending: (start: Int, duration: Int, textStart: String.Index)?
+
+        func close(at textEnd: String.Index) {
+            guard let marker = pending else { return }
+            let text = strippingInlineTags(String(content[marker.textStart..<textEnd]))
+            // A whitespace-only word is the gap between two words: it joins
+            // the word before it so the line text stays intact without a
+            // timed blank of its own.
+            if !text.isEmpty, text.allSatisfy(\.isWhitespace) {
+                if let last = words.indices.last { words[last].text += text }
+                return
+            }
+            words.append(ParsedWord(text: text, start: marker.start, duration: marker.duration))
+        }
+
+        while let marker = nextAngleMarker(in: content, from: cursor) {
+            close(at: marker.start)
+            let (start, startOverflow) = header.start.addingReportingOverflow(marker.fields[0])
+            guard !startOverflow, marker.fields[0] >= 0 else { return nil }
+            pending = (start, marker.fields[1], marker.end)
+            cursor = marker.end
+        }
+        close(at: content.endIndex)
+        guard !words.isEmpty else { return nil }
+
+        let lastEnd = words.map { $0.start + max(0, $0.duration) }.max() ?? header.start
+        let headerEnd = header.start + header.duration
+        return ParsedLine(
+            words: words,
+            start: header.start,
+            duration: headerEnd > lastEnd + maximumKRCTrailingSilence ? nil : header.duration,
+            isDuet: false,
+            isBackground: false
+        )
+    }
+
+    /// Markup this reader does not know (`<b>`, a stray `<1234>`) is removed
+    /// from a word rather than shown as lyrics. Only short ASCII tag shapes
+    /// qualify, so text such as `<3` survives.
+    private static func strippingInlineTags(_ text: String) -> String {
+        guard text.contains("<") else { return text }
+        var result = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            if text[index] == "<",
+               let close = text[text.index(after: index)...].prefix(33).firstIndex(of: ">"),
+               text[text.index(after: index)..<close].allSatisfy(isInlineTagCharacter) {
+                index = text.index(after: close)
+                continue
+            }
+            result.append(text[index])
+            index = text.index(after: index)
+        }
+        return result
+    }
+
+    private static func isInlineTagCharacter(_ character: Character) -> Bool {
+        guard character.isASCII else { return false }
+        return character.isLetter || character.isNumber || ",:._/-".contains(character)
     }
 
     /// LYS and QRC place the marker after the word it times.
@@ -309,7 +428,8 @@ public enum WordTimedLyricsParser {
                 let fields = text[text.index(after: open)..<close]
                     .split(separator: ",", omittingEmptySubsequences: false)
                     .map { Int($0.trimmingCharacters(in: .whitespaces)) }
-                if fields.count == fieldCount, fields.allSatisfy({ $0 != nil }) {
+                if fields.count == fieldCount,
+                   fields.allSatisfy({ $0.map(isPlausibleMilliseconds) ?? false }) {
                     return Marker(
                         fields: fields.compactMap { $0 },
                         start: open,
@@ -360,12 +480,65 @@ public enum WordTimedLyricsParser {
         guard fields.count == 2,
               let start = Int(fields[0].trimmingCharacters(in: .whitespaces)),
               let duration = Int(fields[1].trimmingCharacters(in: .whitespaces)),
-              start >= 0, duration >= 0 else { return nil }
+              start >= 0, duration >= 0,
+              isPlausibleMilliseconds(start), isPlausibleMilliseconds(duration) else { return nil }
         return LineHeader(
             start: start,
             duration: duration,
             contentStart: line.index(after: close)
         )
+    }
+
+    /// Times are summed in milliseconds, so a value no song can reach is
+    /// refused before that sum could overflow.
+    private static func isPlausibleMilliseconds(_ value: Int) -> Bool {
+        (-1_000_000_000...1_000_000_000).contains(value)
+    }
+
+    /// Finds the next `<a,b,c>` marker of a relative word line. As with the
+    /// parenthesized markers, only exactly three integer fields count, so an
+    /// angle bracket in the lyrics is left alone.
+    private static func nextAngleMarker(
+        in text: Substring,
+        from index: String.Index
+    ) -> Marker? {
+        var cursor = index
+        while cursor < text.endIndex,
+              let open = text[cursor...].firstIndex(of: "<") {
+            let afterOpen = text.index(after: open)
+            if let close = text[afterOpen...].prefix(40).firstIndex(of: ">") {
+                let fields = text[afterOpen..<close]
+                    .split(separator: ",", omittingEmptySubsequences: false)
+                    .map { Int($0.trimmingCharacters(in: .whitespaces)) }
+                if fields.count == 3,
+                   fields.allSatisfy({ $0.map { $0 >= 0 && isPlausibleMilliseconds($0) } ?? false }) {
+                    return Marker(
+                        fields: fields.compactMap { $0 },
+                        start: open,
+                        end: text.index(after: close)
+                    )
+                }
+            }
+            cursor = afterOpen
+        }
+        return nil
+    }
+
+    /// An ordinary `[mm:ss…]` row. Counted only to keep a mostly-LRC document
+    /// with a stray relative row on the LRC reader.
+    private static func isLRCTimedLine(_ line: String) -> Bool {
+        guard line.hasPrefix("[") else { return false }
+        let digits = line.dropFirst().prefix { $0.isASCII && $0.isNumber }
+        guard !digits.isEmpty else { return false }
+        return line.dropFirst(1 + digits.count).first == ":"
+    }
+
+    /// The text the line readers walk: the QRC envelope opened and a leading
+    /// byte-order mark removed, which would otherwise hide the first header.
+    private static func documentBody(_ content: String) -> String {
+        let body = unwrappingQRCDocument(content) ?? content
+        guard body.unicodeScalars.first == "\u{FEFF}" else { return body }
+        return String(body.unicodeScalars.dropFirst())
     }
 
     private static func wordMarkers(in line: String, fieldCount: Int) -> [Marker] {
@@ -386,6 +559,152 @@ public enum WordTimedLyricsParser {
               let separator = line.firstIndex(of: ":") else { return false }
         let key = line[line.index(after: line.startIndex)..<separator]
         return !key.isEmpty && key.allSatisfy { $0.isLetter }
+    }
+
+    // MARK: - Translation and romanization block
+
+    /// The `[language:]` header of a relative word document: base64 of
+    /// `{"content":[{"type":…,"lyricContent":[[…],…]}],"version":1}`. Type 1
+    /// is a translation with one row per lyric row, usually a single string;
+    /// type 0 is a romanization with one reading per word. Rows follow the
+    /// lyric rows in file order. A block that does not decode, or whose rows
+    /// cannot be lined up with the lyrics, is dropped without touching them.
+    private struct KRCLanguageBlock {
+        private static let tagName = "language"
+        /// Written where a row has no translation.
+        private static let emptyTranslationMarker = "//"
+
+        private let translations: [[String]]?
+        private let romanizations: [[String]]?
+
+        init?(metadataLines: [String]) {
+            guard let value = metadataLines.lazy.compactMap(Self.tagValue).first,
+                  let data = Self.base64Data(value),
+                  let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let content = root["content"] as? [Any] else { return nil }
+            var translations: [[String]]?
+            var romanizations: [[String]]?
+            for case let entry as [String: Any] in content {
+                guard let type = (entry["type"] as? Int) ?? (entry["type"] as? NSNumber)?.intValue,
+                      let rows = entry["lyricContent"] as? [Any] else { continue }
+                let strings = rows.map(Self.strings)
+                if type == 1, translations == nil { translations = strings }
+                if type == 0, romanizations == nil { romanizations = strings }
+            }
+            guard translations != nil || romanizations != nil else { return nil }
+            self.translations = translations
+            self.romanizations = romanizations
+        }
+
+        static func removingTag(from metadataLines: [String]) -> [String] {
+            metadataLines.filter { tagValue($0) == nil }
+        }
+
+        func annotate(
+            _ lines: inout [LyricLine],
+            placements: [(row: Int, placement: Placement)],
+            rowCount: Int
+        ) {
+            for (order, entry) in placements.enumerated() {
+                let translation = translations.flatMap {
+                    Self.row(in: $0, row: entry.row, order: order, rowCount: rowCount, lineCount: placements.count)
+                }
+                .flatMap(Self.translationText)
+                let romanization = romanizations.flatMap {
+                    Self.row(in: $0, row: entry.row, order: order, rowCount: rowCount, lineCount: placements.count)
+                }
+                .flatMap(Self.romanizationText)
+                guard translation != nil || romanization != nil else { continue }
+                Self.update(&lines, at: entry.placement) { line in
+                    if let translation {
+                        line.manualTranslation = LyricManualTranslation(
+                            text: translation,
+                            source: .embeddedField
+                        )
+                    }
+                    if let romanization { line.romanization = romanization }
+                }
+            }
+        }
+
+        /// Rows normally match every lyric row in the file, empty ones
+        /// included; some writers skip the rows that carry no words. Any
+        /// other count cannot be lined up and the block is not used.
+        private static func row(
+            in rows: [[String]],
+            row: Int,
+            order: Int,
+            rowCount: Int,
+            lineCount: Int
+        ) -> [String]? {
+            if rows.count == rowCount, rows.indices.contains(row) { return rows[row] }
+            if rows.count == lineCount, rows.indices.contains(order) { return rows[order] }
+            return nil
+        }
+
+        private static func translationText(_ row: [String]) -> String? {
+            let text = row.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, text != emptyTranslationMarker else { return nil }
+            return text
+        }
+
+        /// Readings come one per word, each usually ending in a space; they
+        /// are joined into one line with single spaces.
+        private static func romanizationText(_ row: [String]) -> String? {
+            let text = row.joined()
+                .split(whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+            return text.isEmpty ? nil : text
+        }
+
+        private static func update(
+            _ lines: inout [LyricLine],
+            at placement: Placement,
+            _ change: (inout LyricLine) -> Void
+        ) {
+            switch placement {
+            case .line(let index):
+                guard lines.indices.contains(index) else { return }
+                change(&lines[index])
+            case .background(let host, let index):
+                guard lines.indices.contains(host),
+                      var background = lines[host].background,
+                      background.indices.contains(index) else { return }
+                change(&background[index])
+                lines[host].background = background
+            }
+        }
+
+        private static func tagValue(_ line: String) -> String? {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("["), trimmed.hasSuffix("]"),
+                  let separator = trimmed.firstIndex(of: ":"),
+                  trimmed[trimmed.index(after: trimmed.startIndex)..<separator]
+                    .lowercased() == tagName else { return nil }
+            return String(trimmed[trimmed.index(after: separator)..<trimmed.index(before: trimmed.endIndex)])
+        }
+
+        private static func base64Data(_ value: String) -> Data? {
+            var text = value.filter { !$0.isWhitespace }
+            guard !text.isEmpty else { return nil }
+            if text.count % 4 != 0 {
+                text += String(repeating: "=", count: 4 - text.count % 4)
+            }
+            return Data(base64Encoded: text)
+        }
+
+        /// A row is an array of strings; a nested array is read as the
+        /// pieces of one string.
+        private static func strings(_ row: Any) -> [String] {
+            guard let items = row as? [Any] else {
+                return (row as? String).map { [$0] } ?? []
+            }
+            return items.map { item in
+                if let text = item as? String { return text }
+                if let pieces = item as? [Any] { return pieces.compactMap { $0 as? String }.joined() }
+                return ""
+            }
+        }
     }
 
     /// QQ Music ships `.qrc` content inside a small XML envelope.

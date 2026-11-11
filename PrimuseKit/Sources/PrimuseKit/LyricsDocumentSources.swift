@@ -37,7 +37,7 @@ public struct LyricsSourceCollection: Codable, Equatable, Sendable {
 /// The file formats a song's lyric documents come in, as the lyric sources
 /// page names them.
 public enum LyricsDocumentFormat: String, Sendable, CaseIterable {
-    case lrc, ttml, elrc, lys, yrc, qrc, vtt, srt
+    case lrc, ttml, elrc, lys, yrc, qrc, vtt, srt, ass, ssa, lyl
 
     /// What the file holds, independent of its extension: a `.yrc` and a
     /// `.qrc` are both millisecond word-timed text, an `.lrc` and an `.elrc`
@@ -63,10 +63,11 @@ public enum LyricsDocumentFormat: String, Sendable, CaseIterable {
 
     public var family: Family {
         switch self {
-        case .lrc, .elrc: return .lrc
+        // A Lyricify Lines file is LRC with millisecond line windows.
+        case .lrc, .elrc, .lyl: return .lrc
         case .ttml: return .ttml
         case .lys, .yrc, .qrc: return .wordTimed
-        case .vtt, .srt: return .subtitle
+        case .vtt, .srt, .ass, .ssa: return .subtitle
         }
     }
 }
