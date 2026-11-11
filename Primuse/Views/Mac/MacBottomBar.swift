@@ -129,6 +129,7 @@ struct MacBottomBar: View {
                     Image(systemName: liked ? "heart.fill" : "heart")
                         .font(.system(size: 13))
                         .foregroundStyle(liked ? PMColor.brand : PMColor.textMuted)
+                        .pmLikeBurst(isLiked: liked, identity: song.id, tint: PMColor.brand)
                         .opacity(libraryActions.isBusy ? 0 : 1)
                         .overlay {
                             if libraryActions.isBusy { ProgressView().controlSize(.mini) }

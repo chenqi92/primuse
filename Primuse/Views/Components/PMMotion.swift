@@ -35,6 +35,18 @@ enum PMMotion: Sendable {
     case trackChange
     /// 取色背景、氛围层这类慢速铺垫。
     case ambient
+    /// 带一点回弹的小幅回应：松手回弹、点亮红心、空态图标弹出、迷你条接住入队的歌。
+    case pop
+    /// 底部提示条浮入、下沉，连续触发时原地换内容（PMToast）。
+    case toast
+    /// 播放页大封面按方向换歌：用户按的下一首 / 上一首（会回弹）。
+    case trackSwap
+    /// 同上，自然播完换到下一首：同一方向，不回弹、慢一点。
+    case trackSwapGentle
+    /// 首页区块冷启动时自上而下错峰入场（淡入 + 上浮几个点）。
+    case entrance
+    /// 红心点亮时向外散开的那圈光点：从心形飞出、减速、淡掉。
+    case burst
 
     var animation: Animation {
         switch self {
@@ -48,13 +60,40 @@ enum PMMotion: Sendable {
         case .selection: return .spring(response: 0.3, dampingFraction: 0.86)
         case .trackChange: return .easeInOut(duration: 0.28)
         case .ambient: return .easeInOut(duration: 0.5)
+        case .pop: return .spring(response: 0.34, dampingFraction: 0.56)
+        case .toast: return .spring(response: 0.42, dampingFraction: 0.8)
+        case .trackSwap: return .spring(response: 0.46, dampingFraction: 0.72)
+        case .trackSwapGentle: return .spring(response: 0.7, dampingFraction: 0.92)
+        case .entrance: return .spring(response: 0.5, dampingFraction: 0.86)
+        case .burst: return .easeOut(duration: 0.62)
+        }
+    }
+
+    /// 这一档跑完大约要多久。错峰入场、提示条退场后清理状态时按它等，不另写秒数。
+    var settleDuration: TimeInterval {
+        switch self {
+        case .hover, .press: return 0.12
+        case .control, .pageSwitch: return 0.18
+        case .contentAppear: return 0.2
+        case .list: return 0.22
+        case .panel: return 0.25
+        case .selection: return 0.3
+        case .trackChange: return 0.28
+        case .ambient: return 0.5
+        case .pop: return 0.4
+        case .toast: return 0.45
+        case .trackSwap: return 0.55
+        case .trackSwapGentle: return 0.75
+        case .entrance: return 0.55
+        case .burst: return 0.62
         }
     }
 
     /// 这一档会不会让界面上的东西挪位置。只改透明度的档位不算。
     var involvesMovement: Bool {
         switch self {
-        case .press, .list, .panel, .selection:
+        case .press, .list, .panel, .selection,
+             .pop, .toast, .trackSwap, .trackSwapGentle, .entrance, .burst:
             return true
         case .hover, .control, .pageSwitch, .contentAppear, .trackChange, .ambient:
             return false

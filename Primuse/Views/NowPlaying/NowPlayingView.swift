@@ -6444,6 +6444,7 @@ struct NowPlayingView: View {
                     ) {
                         toggleLikedCurrent()
                     }
+                    .pmLikeBurst(isLiked: isCurrentLiked, identity: player.currentSong?.id, tint: likedHeartTint)
                     .disabled(player.currentSong == nil)
                 }
             } else if let action = chrome.trailing {
@@ -6769,6 +6770,7 @@ struct NowPlayingView: View {
                                 tint: isCurrentLiked ? likedHeartTint : appearance.secondary,
                                 isSelected: isCurrentLiked
                             )
+                            .pmLikeBurst(isLiked: isCurrentLiked, identity: player.currentSong?.id, tint: likedHeartTint)
                         }
                         .frame(width: 44, height: 44)
                         .buttonStyle(.plain)
@@ -8199,6 +8201,7 @@ struct NowPlayingView: View {
                         ) {
                             toggleLikedCurrent()
                         }
+                        .pmLikeBurst(isLiked: isCurrentLiked, identity: player.currentSong?.id, tint: likedHeartTint)
                         .disabled(player.currentSong == nil)
                     }
 
@@ -9603,6 +9606,7 @@ struct NowPlayingView: View {
                     tint: isCurrentLiked ? likedHeartTint : (idleTint ?? appearance.secondary),
                     isSelected: isCurrentLiked
                 )
+                .pmLikeBurst(isLiked: isCurrentLiked, identity: player.currentSong?.id, tint: likedHeartTint)
             }
             .frame(width: 40, height: 44)
             .buttonStyle(.plain)
@@ -9762,6 +9766,7 @@ struct NowPlayingView: View {
                     tint: isCurrentLiked ? likedHeartTint : tint,
                     height: height
                 )
+                .pmLikeBurst(isLiked: isCurrentLiked, identity: player.currentSong?.id, tint: likedHeartTint)
             }
             .buttonStyle(.plain)
             .disabled(player.currentSong == nil)
@@ -9808,6 +9813,7 @@ struct NowPlayingView: View {
                                 .font(iconFont)
                                 .foregroundStyle(isCurrentLiked ? likedHeartTint : palette.primary)
                                 .contentTransition(.symbolEffect(.replace))
+                                .pmLikeBurst(isLiked: isCurrentLiked, identity: player.currentSong?.id, tint: likedHeartTint)
                         } caption: {
                             Text("player_controls_action_like")
                         }
@@ -10505,8 +10511,15 @@ struct NowPlayingView: View {
                 performControl(action, style: style)
             }
         } label: {
-            controlLabel(face, style: style)
-                .opacity(notice == nil ? 1 : 0.4)
+            if action == .like {
+                // 点亮时心形弹一下、散开一圈光点;换到一首喜欢过的歌不放。
+                controlLabel(face, style: style)
+                    .opacity(notice == nil ? 1 : 0.4)
+                    .pmLikeBurst(isLiked: face.isActive, identity: player.currentSong?.id, tint: likedHeartTint)
+            } else {
+                controlLabel(face, style: style)
+                    .opacity(notice == nil ? 1 : 0.4)
+            }
         }
         switch style {
         case .bar, .wideBar, .edge:

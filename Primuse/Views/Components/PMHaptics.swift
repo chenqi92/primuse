@@ -41,4 +41,13 @@ enum PMHaptics {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         #endif
     }
+
+    /// 点一行歌开始播放时手上那一下。列表里点得最勤,用软的、轻的一下,
+    /// 和传输键那一下分得开;多选时点行只是勾选,不震。
+    @MainActor
+    static func songRowTapped() {
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.7)
+        #endif
+    }
 }

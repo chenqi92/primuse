@@ -621,6 +621,13 @@ struct SongRowView: View {
             onInsertNext: { insertNextInQueue() },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
+        // 按下有回应:缩一点、垫一层浅底,松手回弹;点下去开播时手上轻轻一下。只在这一行内部,
+        // 不碰外层列表,也不换承载长按菜单的宿主(菜单修饰符挂在 body 的 Group 上)。
+        .songRowPressFeedback(
+            showsPlate: listAppearance == .list,
+            trailingExclusion: unreachableTapTrailingInset,
+            onTap: { rowTapFeedback() }
+        )
         .contentShape(Rectangle())
         .modifier(SongListRowPreviewShape(appearance: listAppearance))
         .task(id: song.id) {
@@ -661,6 +668,12 @@ struct SongRowView: View {
                     .padding(.trailing, unreachableTapTrailingInset)
             }
         }
+    }
+
+    /// 点这一行开播时的触感。多选时点行只是勾选；播不了、源连不上时点行是弹说明、重连，都不震。
+    private func rowTapFeedback() {
+        guard selection?.isActive != true, song.isPlayable, !isUnreachableNow else { return }
+        PMHaptics.songRowTapped()
     }
 
     /// Width of the trailing ⋯ button, which has to stay tappable.

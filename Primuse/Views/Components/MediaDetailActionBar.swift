@@ -810,6 +810,8 @@ struct LibraryDetailPlayShuffleRow: View {
                 favorite.toggle()
             }
         )
+        // 收藏专辑、艺人、歌单时和播放页的红心同一种回应。
+        .pmLikeBurst(isLiked: favorite.isLiked, tint: .red)
         .accessibilityAddTraits(favorite.isLiked ? .isSelected : [])
         .accessibilityIdentifier("libraryDetail.favorite")
     }
