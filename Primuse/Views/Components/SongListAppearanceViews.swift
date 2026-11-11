@@ -374,7 +374,6 @@ struct SongFocusRowContent<Accessory: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var rowHeight = SongFocusRowMetrics.baseHeight
     @ScaledMetric(relativeTo: .body) private var scaledCover = SongFocusRowMetrics.baseCover
 
@@ -458,10 +457,11 @@ struct SongFocusRowContent<Accessory: View>: View {
     private var labels: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
+                // 卡片有两行字的高度：长歌名折成两行，不在窄屏上只剩前几个字。
                 Text(verbatim: title)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    .lineLimit(2)
                 SongContentRatingBadge(song: song)
             }
             if isUnavailable {

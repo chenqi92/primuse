@@ -51,10 +51,10 @@ public struct SongTileScrollMotion: Equatable, Sendable {
     public static let enteringScale: CGFloat = 0.84
     /// 离开时最小缩放。
     public static let leavingScale: CGFloat = 0.92
-    /// 进入时最大前倾（度，正值 = 上沿朝向观看者）。
-    public static let enteringTilt: Double = 14
+    /// 进入时最大前倾（度，正值 = 上沿朝向观看者）。再大最下面那排就成了梯形，像画面变形而不是在转。
+    public static let enteringTilt: Double = 10
     /// 离开时最大后仰（度）。
-    public static let leavingTilt: Double = 10
+    public static let leavingTilt: Double = 8
     /// 进入时最低透明度。
     public static let enteringOpacity: Double = 0.6
     /// 离开时最多压暗多少（亮度减量）。
@@ -163,8 +163,8 @@ public struct SongFocusScrollMotion: Equatable, Sendable {
     public static let minimumScale: CGFloat = 0.9
     /// 最远处的透明度。
     public static let minimumOpacity: Double = 0.62
-    /// 最远处封面绕 Y 轴的转角（度）。
-    public static let maximumCoverTurn: Double = 22
+    /// 最远处封面绕 Y 轴的转角（度）。再大边缘几行的封面就歪成平行四边形。
+    public static let maximumCoverTurn: Double = 16
     /// 收拢后相邻两张卡至少还隔着的距离（点）。
     public static let minimumGap: CGFloat = 3
     /// 中心多大一段保持原样，按行距算。
