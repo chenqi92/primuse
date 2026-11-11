@@ -6142,11 +6142,12 @@ final class MusicLibrary {
         }
 
         // 流派拆分符号是普通的设置项，设置页、设备间传输设置都会改它；
-        // 这里只在值真的变了时才重建。
+        // 这里只在值真的变了时才重建。通知在写偏好的那条线程上同步送达，不能挂主队列：
+        // 后台线程写偏好时会等主线程，主线程恰好在等这条线程（启动时首次初始化日志）就卡死。
         NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
             guard GenreSplitPreference.refresh() else { return }
             Task { @MainActor [weak self] in

@@ -191,6 +191,28 @@ def media_artwork_isolated_closure(lines):
             yield index + 1
 
 
+@rule("defaults-observer-main-queue",
+      "UserDefaults.didChangeNotification 在写偏好的那条线程上同步送达;观察者挂主队列时,后台线程写偏好"
+      "要等主线程,主线程正好在等这条线程(dispatch_once、锁)就卡死。改 queue: nil,回调里再"
+      " Task { @MainActor in ... }",
+      "启动停在白屏:后台首次初始化日志时清偏好,流派拆分的主队列观察者等主线程")
+def defaults_observer_main_queue(lines):
+    text = [strip_comment(line) for line in lines]
+    for index, code in enumerate(text):
+        if "UserDefaults.didChangeNotification" not in code:
+            continue
+        # addObserver 的几个参数常常分行写,看到下一个右括号为止。
+        window = code
+        for following in text[index + 1:index + 4]:
+            if re.search(r"\bforName:", following):
+                break
+            window += " " + following
+            if ")" in following:
+                break
+        if re.search(r"\bqueue:\s*(\.main|OperationQueue\.main)\b", window):
+            yield index + 1
+
+
 # ---------------------------------------------------------------------------
 
 def allowed(rule_id, lines, number):
@@ -318,6 +340,18 @@ SELF_TEST = [
                                        "  let safeImage = image\n"
                                        "  return MPMediaItemArtwork(boundsSize: image.size) { _ in safeImage }\n}", False),
     ("media-artwork-isolated-closure", "let cache = NSCache<NSString, MPMediaItemArtwork>()", False),
+    ("defaults-observer-main-queue",
+     "center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { _ in }", True),
+    ("defaults-observer-main-queue", "NotificationCenter.default.addObserver(\n"
+     "    forName: UserDefaults.didChangeNotification,\n    object: UserDefaults.standard,\n"
+     "    queue: .main\n) { _ in }", True),
+    ("defaults-observer-main-queue",
+     "center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: nil) { _ in }", False),
+    ("defaults-observer-main-queue", "return [UserDefaults.didChangeNotification,\n"
+     " ProcessInfo.thermalStateDidChangeNotification].map { name in\n"
+     "    center.addObserver(forName: name, object: nil, queue: nil) { _ in }", False),
+    ("defaults-observer-main-queue", "addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: nil) { _ in }\n"
+     "addObserver(forName: other, object: nil, queue: .main) { _ in }", False),
     ("filehandle-legacy", "// crash-pattern: allow filehandle-legacy 只在测试里造异常\n"
                           "handle.closeFile()", False),
     ("filehandle-legacy", "handle.closeFile() // crash-pattern: allow filehandle-legacy", True),

@@ -72,8 +72,9 @@ final class MacWidgetLyricsPublisher {
                 }
             })
         }
+        // 偏好变更在写入线程上同步送达，挂主队列会让后台写偏好等主线程。
         observers.append(notificationCenter.addObserver(
-            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+            forName: UserDefaults.didChangeNotification, object: nil, queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.enabled() != self.lastEnabled else { return }

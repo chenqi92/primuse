@@ -88,8 +88,9 @@ final class PlaybackWordLyricsDiscovery {
         self.load = load
         self.didInstall = didInstall
         enabled = defaults.bool(forKey: WordLyricsDiscoveryPreferences.enabledKey)
+        // 偏好变更在写入线程上同步送达，挂主队列会让后台写偏好等主线程。
         defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+            forName: UserDefaults.didChangeNotification, object: nil, queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
