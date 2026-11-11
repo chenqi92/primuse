@@ -4147,6 +4147,8 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "导航";
 "navigation_tabs_title" = "底部标签栏";
+"navigation_tabs_join_search" = "搜索与其他标签连在一起";
+"navigation_tabs_join_search_footer" = "关闭时搜索单独放在右边；打开后和首页、资料库排在同一条里。";
 "minimal_mode_title" = "极简模式";
 "minimal_mode_description" = "隐藏底部导航栏：在顶部切换首页、音乐、电台与有声，播放条停靠在底部。";
 "minimal_show_home" = "显示「首页」";

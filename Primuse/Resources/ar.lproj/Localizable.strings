@@ -2402,6 +2402,8 @@
 "music_video_badge" = "فيديو موسيقي";
 "navigation_mode_title" = "الملاحة";
 "navigation_tabs_title" = "شريط علامات التبويب السفلي";
+"navigation_tabs_join_search" = "إبقاء البحث مع بقية علامات التبويب";
+"navigation_tabs_join_search_footer" = "عند الإيقاف يظهر البحث منفردًا على اليمين. عند التشغيل يصبح في الشريط نفسه مع الرئيسية والمكتبة.";
 "network" = "الشبكة";
 "new" = "جديد";
 "new_ai_smart_playlist" = "قائمة التشغيل الذكية الجديدة بالذكاء الاصطناعي";

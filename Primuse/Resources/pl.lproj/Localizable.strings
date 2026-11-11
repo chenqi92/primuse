@@ -2402,6 +2402,8 @@
 "music_video_badge" = "Teledysk";
 "navigation_mode_title" = "Nawigacja";
 "navigation_tabs_title" = "Dolny pasek kart";
+"navigation_tabs_join_search" = "Wyszukiwanie razem z innymi kartami";
+"navigation_tabs_join_search_footer" = "Gdy wyłączone, wyszukiwanie jest osobno po prawej. Po włączeniu znajduje się na tym samym pasku co Start i Biblioteka.";
 "network" = "Sieć";
 "new" = "Nowość";
 "new_ai_smart_playlist" = "Nowa inteligentna lista odtwarzania AI";

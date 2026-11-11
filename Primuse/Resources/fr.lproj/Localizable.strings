@@ -4045,6 +4045,8 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
 "navigation_tabs_title" = "Barre d’onglets inférieure";
+"navigation_tabs_join_search" = "Regrouper Recherche avec les autres onglets";
+"navigation_tabs_join_search_footer" = "Désactivé, Recherche est isolée à droite. Activé, elle rejoint la même barre qu’Accueil et Bibliothèque.";
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure : passez d’Accueil à Musique, Radio et Audio en haut, le lecteur reste ancré en bas.";
 "minimal_show_home" = "Afficher « Accueil »";

@@ -3817,6 +3817,8 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
 "navigation_tabs_title" = "Bottom Tab Bar";
+"navigation_tabs_join_search" = "Keep Search with Other Tabs";
+"navigation_tabs_join_search_footer" = "When off, Search sits on its own at the right. Turn on to place it in the same bar as Home and Library.";
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
 "minimal_show_home" = "Show Home";

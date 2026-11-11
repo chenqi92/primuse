@@ -973,6 +973,15 @@ struct AppTabVisibilityEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var configuration: AppTabConfiguration
     let apply: (AppTabConfiguration) -> Void
+    @State private var joinsSearchTab = UserDefaults.standard.bool(
+        forKey: AppTabConfiguration.joinsSearchTabStorageKey
+    )
+
+    /// 只有系统会把搜索单独放成一颗键的版本才有这个选择。
+    private var offersSearchTabJoining: Bool {
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
@@ -987,6 +996,15 @@ struct AppTabVisibilityEditor: View {
                     .disabled(configuration.isVisible(tab) && configuration.visibleTabs.count == 1)
                     .accessibilityIdentifier("navigation.tab.\(tab.rawValue)")
                 }
+                if offersSearchTabJoining {
+                    Section {
+                        Toggle("navigation_tabs_join_search", isOn: $joinsSearchTab)
+                            .disabled(!configuration.isVisible(.search))
+                            .accessibilityIdentifier("navigation.joinSearchTab")
+                    } footer: {
+                        Text("navigation_tabs_join_search_footer")
+                    }
+                }
             }
             .navigationTitle("navigation_tabs_title")
             .navigationBarTitleDisplayMode(.inline)
@@ -998,6 +1016,10 @@ struct AppTabVisibilityEditor: View {
                     Button("done") {
                         dismiss()
                         apply(configuration)
+                        UserDefaults.standard.set(
+                            joinsSearchTab,
+                            forKey: AppTabConfiguration.joinsSearchTabStorageKey
+                        )
                     }
                     .accessibilityIdentifier("navigation.applyTabs")
                 }

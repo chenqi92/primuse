@@ -2402,6 +2402,8 @@
 "music_video_badge" = "Vídeo musical";
 "navigation_mode_title" = "Navegação";
 "navigation_tabs_title" = "Barra inferior de abas";
+"navigation_tabs_join_search" = "Manter Buscar junto às outras abas";
+"navigation_tabs_join_search_footer" = "Desativado, Buscar fica separado à direita. Ativado, fica na mesma barra de Início e Biblioteca.";
 "network" = "Rede";
 "new" = "Novo";
 "new_ai_smart_playlist" = "Nova lista de reprodução inteligente de IA";

@@ -1913,6 +1913,8 @@
 "tag_editor_lyrics_format_hint" = "Поддерживает простой текст, LRC [mm:ss.xxx] и ELRC <mm:ss.xxx>word. Существующие временные метки сохраняются.";
 "navigation_mode_title" = "Навигация";
 "navigation_tabs_title" = "Нижняя панель вкладок";
+"navigation_tabs_join_search" = "Поиск в одном ряду с другими вкладками";
+"navigation_tabs_join_search_footer" = "Если выключено, поиск стоит отдельно справа. Если включено, он находится в той же панели, что и «Главная» и «Медиатека».";
 "ai_recommendation_intent_catalogRewind_detail" = "Отдает приоритет старым выпускам в вашей медиатеке.";
 "Capabilities" = "Возможности";
 "source_diag_config_title" = "Конфигурация";

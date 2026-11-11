@@ -1913,6 +1913,8 @@
 "tag_editor_lyrics_format_hint" = "Підтримує звичайний текст, LRC [mm:ss.xxx] і ELRC <mm:ss.xxx>word. Наявні часові мітки зберігаються.";
 "navigation_mode_title" = "Навігація";
 "navigation_tabs_title" = "Нижня панель вкладок";
+"navigation_tabs_join_search" = "Пошук в одному ряду з іншими вкладками";
+"navigation_tabs_join_search_footer" = "Якщо вимкнено, пошук стоїть окремо праворуч. Якщо ввімкнено, він у тій самій панелі, що й «Головна» та «Медіатека».";
 "ai_recommendation_intent_catalogRewind_detail" = "Надає пріоритет старішим випускам у вашій бібліотеці";
 "Capabilities" = "Можливості";
 "source_diag_config_title" = "Конфігурація";

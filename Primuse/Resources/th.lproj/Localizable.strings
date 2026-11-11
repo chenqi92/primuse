@@ -2402,6 +2402,8 @@
 "music_video_badge" = "มิวสิกวิดีโอ";
 "navigation_mode_title" = "การนำทาง";
 "navigation_tabs_title" = "แถบแท็บด้านล่าง";
+"navigation_tabs_join_search" = "วางค้นหาไว้รวมกับแท็บอื่น";
+"navigation_tabs_join_search_footer" = "เมื่อปิด ค้นหาจะแยกอยู่ทางขวา เมื่อเปิดจะอยู่ในแถบเดียวกับหน้าหลักและคลัง";
 "network" = "เครือข่าย";
 "new" = "ใหม่";
 "new_ai_smart_playlist" = "เพลย์ลิสต์อัจฉริยะ AI ใหม่";

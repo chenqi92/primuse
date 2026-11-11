@@ -4045,6 +4045,8 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "탐색";
 "navigation_tabs_title" = "하단 탭 막대";
+"navigation_tabs_join_search" = "검색을 다른 탭과 함께 두기";
+"navigation_tabs_join_search_footer" = "끄면 검색이 오른쪽에 따로 표시됩니다. 켜면 홈, 보관함과 같은 막대에 나란히 놓입니다.";
 "minimal_mode_title" = "미니멀 모드";
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 상단에서 홈, 음악, 라디오, 오디오를 전환합니다. 재생 막대는 하단에 고정됩니다.";
 "minimal_show_home" = "‘홈’ 표시";

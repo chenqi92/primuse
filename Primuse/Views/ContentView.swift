@@ -52,6 +52,8 @@ enum AppNavigationTab: Int, CaseIterable, Identifiable {
 
 struct AppTabConfiguration: Equatable {
     static let storageKey = "primuse.navigation.hiddenTabs.v1"
+    /// 搜索是否和其余标签排在同一条里。默认关:系统把搜索单独放成右边的一颗圆键。
+    static let joinsSearchTabStorageKey = "primuse.navigation.joinsSearchTab"
     private(set) var hiddenMask: Int
 
     init(hiddenMask: Int = 0) {
@@ -1330,6 +1332,7 @@ struct ContentView: View {
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
     @AppStorage(AppTabConfiguration.storageKey) private var hiddenTabsMask = 0
+    @AppStorage(AppTabConfiguration.joinsSearchTabStorageKey) private var joinsSearchTab = false
     @State private var supplementaryTab: AppNavigationTab?
     @State private var pendingSupplementaryTab: AppNavigationTab?
     @AppStorage(PlayerAppearancePreferences.pinsMiniPlayerKey)
@@ -1504,7 +1507,9 @@ struct ContentView: View {
         visibleLibrarySections.map(SidebarItem.libraryChild(for:))
     }
 
-    private var searchTabRole: TabRole {
+    private var searchTabRole: TabRole? {
+        // 用户选了「搜索与其他标签连在一起」:当成普通标签,不再单独成键。
+        if joinsSearchTab { return nil }
         #if compiler(>=6.4)
         // iOS 27 no longer separates a search tab unless it activates search.
         // Keep the independent button without changing search activation.

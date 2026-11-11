@@ -36,7 +36,7 @@ enum OfflineSettingsCatalog {
         MusicScraperService.sidecarCoverWriteEnabledKey, MusicScraperService.sidecarLyricsWriteEnabledKey,
         MusicScraperService.sidecarWriteTimeoutKey, UserNotificationService.notifyLongTasksKey,
         "primuse.lyrics.translation.settings.v1", "primuse.scrobble.settings.v1",
-        "primuse.navigation.mode.v1", "primuse.navigation.hiddenTabs.v1", "primuse.minimal.showsHome.v1",
+        "primuse.navigation.mode.v1", "primuse.navigation.hiddenTabs.v1", "primuse.navigation.joinsSearchTab", "primuse.minimal.showsHome.v1",
         "primuse.carplay.savedLayouts.v1", "primuse.smartNudge.enabled.v1", "primuse.smartNudge.disabledKinds.v1",
         "primuse.cloudScanWifiOnly", "primuse.appearance", "primuse.appIconChoice", "pm.mac.appIcon",
         "primuse.playback.autoplayOnLaunch", "primuse.clipExport.appliesFades",

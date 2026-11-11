@@ -1913,6 +1913,8 @@
 "tag_editor_lyrics_format_hint" = "Düz metin, LRC [mm:ss.xxx] ve ELRC <mm:ss.xxx>word'ü destekler. Mevcut zaman damgaları korunur.";
 "navigation_mode_title" = "Navigasyon";
 "navigation_tabs_title" = "Alt Sekme Çubuğu";
+"navigation_tabs_join_search" = "Arama’yı diğer sekmelerle birlikte tut";
+"navigation_tabs_join_search_footer" = "Kapalıyken Arama sağda ayrı durur. Açıldığında Ana Sayfa ve Arşiv ile aynı çubukta yer alır.";
 "ai_recommendation_intent_catalogRewind_detail" = "Arşivinizdeki eski yayınlara öncelik verir";
 "Capabilities" = "Yetenekler";
 "source_diag_config_title" = "Yapılandırma";

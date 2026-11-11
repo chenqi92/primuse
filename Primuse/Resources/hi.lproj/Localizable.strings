@@ -2402,6 +2402,8 @@
 "music_video_badge" = "संगीत वीडियो";
 "navigation_mode_title" = "नेविगेशन";
 "navigation_tabs_title" = "नीचे का टैब बार";
+"navigation_tabs_join_search" = "खोज को बाकी टैब के साथ रखें";
+"navigation_tabs_join_search_footer" = "बंद होने पर खोज दाईं ओर अलग दिखती है। चालू करने पर यह होम और लाइब्रेरी वाली पट्टी में आ जाती है।";
 "network" = "नेटवर्क";
 "new" = "नया";
 "new_ai_smart_playlist" = "नई एआई स्मार्ट प्लेलिस्ट";
