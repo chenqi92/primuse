@@ -7137,9 +7137,9 @@
 "song_file_rename_busy" = "キャストまたは曲の切り替えが終わってから名前を変更してください。";
 
 "song_list_layout" = "リストの表示";
-"song_list_layout_list" = "標準リスト";
-"song_list_layout_timeline" = "タイムライン";
-"song_list_layout_artwork" = "カバーカード";
+"song_list_layout_list" = "リスト";
+"song_list_layout_tiles" = "タイル";
+"song_list_layout_focus" = "フォーカス";
 
 "lyrics_weight" = "歌詞の文字の太さ";
 "lyrics_weight_default" = "デフォルト";

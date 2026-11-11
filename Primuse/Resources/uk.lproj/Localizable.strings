@@ -7042,9 +7042,9 @@
 "song_file_rename_busy" = "Завершіть трансляцію або перехід між треками перед перейменуванням файлу.";
 
 "song_list_layout" = "Вигляд списку";
-"song_list_layout_list" = "Звичайний список";
-"song_list_layout_timeline" = "Стрічка";
-"song_list_layout_artwork" = "Картки обкладинок";
+"song_list_layout_list" = "Список";
+"song_list_layout_tiles" = "Плитки";
+"song_list_layout_focus" = "Фокус";
 
 "lyrics_weight" = "Товщина шрифту тексту пісні";
 "lyrics_weight_default" = "Типова";

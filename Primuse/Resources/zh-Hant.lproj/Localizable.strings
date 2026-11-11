@@ -7113,9 +7113,9 @@
 "song_file_rename_busy" = "請在投放或歌曲轉場結束後重新命名此檔案。";
 
 "song_list_layout" = "列表樣式";
-"song_list_layout_list" = "預設列表";
-"song_list_layout_timeline" = "時間軸";
-"song_list_layout_artwork" = "封面卡片";
+"song_list_layout_list" = "列表";
+"song_list_layout_tiles" = "方塊";
+"song_list_layout_focus" = "聚焦";
 
 "lyrics_weight" = "歌詞字重";
 "lyrics_weight_default" = "預設";

@@ -7042,9 +7042,9 @@
 "song_file_rename_busy" = "รอให้การแคสต์หรือการเปลี่ยนเพลงสิ้นสุดก่อนเปลี่ยนชื่อไฟล์";
 
 "song_list_layout" = "รูปแบบรายการ";
-"song_list_layout_list" = "รายการเริ่มต้น";
-"song_list_layout_timeline" = "ไทม์ไลน์";
-"song_list_layout_artwork" = "การ์ดปก";
+"song_list_layout_list" = "รายการ";
+"song_list_layout_tiles" = "ไทล์";
+"song_list_layout_focus" = "โฟกัส";
 
 "lyrics_weight" = "ความหนาของแบบอักษรเนื้อเพลง";
 "lyrics_weight_default" = "ค่าเริ่มต้น";

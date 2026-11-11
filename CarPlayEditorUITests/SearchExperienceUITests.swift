@@ -397,16 +397,17 @@ final class SongLocationUITests: XCTestCase {
         attach(app, "song-location-large-library")
     }
 
-    func testTimelineListLocatesDistantSongAndOpensLongPressActions() {
-        assertDecorativeAppearance("timeline")
+    func testTileGridLocatesDistantSongAndOpensLongPressActions() {
+        assertDecorativeAppearance("tiles")
     }
 
-    func testCoverCardsLocateDistantSongAndOpenLongPressActions() {
-        assertDecorativeAppearance("artwork")
+    func testFocusCardsLocateDistantSongAndOpenLongPressActions() {
+        assertDecorativeAppearance("focus")
     }
 
     func testLocationEmphasisRepeatsWithoutMovingVisibleSongsInEveryStyle() {
-        for (appearance, colorScheme) in [("list", "dark"), ("timeline", "dark"), ("artwork", "dark"), ("artwork", "light")] {
+        for (appearance, colorScheme) in [("list", "dark"), ("tiles", "dark"), ("tiles", "light"),
+                                          ("focus", "dark"), ("focus", "light")] {
             let app = launch("songs", appearance: appearance, colorScheme: colorScheme)
             defer { app.terminate() }
             let locate = app.buttons["songList.locateCurrent"].firstMatch
@@ -422,27 +423,13 @@ final class SongLocationUITests: XCTestCase {
             XCTAssertEqual(row.frame.midY, originalFrame.midY, accuracy: 1,
                 "Repeating location should emphasize the visible song without scrolling it")
             XCTAssertEqual(row.frame.height, originalFrame.height, accuracy: 1)
-            if appearance == "artwork" {
-                let scroll = app.scrollViews.firstMatch
-                let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-                let distance = originalFrame.midY - 185
-                start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)),
-                    withVelocity: .slow, thenHoldForDuration: 0.4)
-                let clippedY = row.frame.midY
-                XCTAssertLessThan(clippedY, originalFrame.midY - 50)
-                attach(app, "location-emphasis-clipped-\(colorScheme)")
-                locate.tap()
-                attach(app, "location-emphasis-restored-\(colorScheme)")
-                XCTAssertGreaterThan(row.frame.midY, clippedY + 50,
-                    "A visible label with a clipped cover still needs to be scrolled fully into view")
-            }
             app.terminate()
         }
     }
 
-    func testGlassCardsScrollInLightAndDarkAppearance() {
-        for colorScheme in ["light", "dark"] {
-            let app = launch("songs", appearance: "artwork", colorScheme: colorScheme)
+    func testTilesAndFocusScrollInLightAndDarkAppearance() {
+        for (appearance, colorScheme) in [("tiles", "light"), ("tiles", "dark"), ("focus", "light"), ("focus", "dark")] {
+            let app = launch("songs", appearance: appearance, colorScheme: colorScheme)
             defer { app.terminate() }
             let locate = app.buttons["songList.locateCurrent"].firstMatch
             XCTAssertTrue(locate.waitForExistence(timeout: 30))
@@ -452,45 +439,76 @@ final class SongLocationUITests: XCTestCase {
             let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
             wait(for: [visible], timeout: 15)
             let initialHeight = row.frame.height
-            attach(app, "glass-\(colorScheme)-center")
+            attach(app, "\(appearance)-\(colorScheme)-center")
             let scroll = app.scrollViews.firstMatch
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.68))
             let end = start.withOffset(CGVector(dx: 0, dy: -160))
             start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.4)
             XCTAssertTrue(row.isHittable)
             XCTAssertEqual(row.frame.height, initialHeight, accuracy: 1, "Scroll effects must not change the scroll target height")
-            attach(app, "glass-\(colorScheme)-upper")
-            let ordinal = Int(row.label.components(separatedBy: " — ").first ?? "")
-            XCTAssertNotNil(ordinal)
-            row.coordinate(withNormalizedOffset: CGVector(dx: (ordinal ?? 1).isMultiple(of: 2) ? 0.87 : 0.13, dy: 0.5))
-                .withOffset(CGVector(dx: 0, dy: -35)).press(forDuration: 1)
+            attach(app, "\(appearance)-\(colorScheme)-upper")
+            row.press(forDuration: 1)
             let select = app.buttons["选择"].firstMatch
             XCTAssertTrue(select.waitForExistence(timeout: 5))
             select.tap()
-            XCTAssertEqual(row.value as? String, "已选择", "The moving cover must still open its own song menu")
+            XCTAssertEqual(row.value as? String, "已选择", "A moving card must still open its own song menu")
             app.buttons["取消"].firstMatch.tap()
             app.terminate()
         }
     }
 
-    func testAppearancePickerIsHiddenWithoutChangingTheSavedPresentation() {
-        for appearance in ["list", "artwork"] {
-            let app = launch("songs", appearance: appearance)
-            defer { app.terminate() }
-            let locate = app.buttons["songList.locateCurrent"].firstMatch
-            XCTAssertTrue(locate.waitForExistence(timeout: 30))
-            locate.tap()
-            let row = app.buttons["songRow.location-3990"].firstMatch
-            XCTAssertTrue(row.waitForExistence(timeout: 15))
-            let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
-            wait(for: [visible], timeout: 15)
-            XCTAssertEqual(app.buttons["song.actions.location-3990"].exists, appearance == "list")
-            app.buttons["songList.more"].firstMatch.tap()
-            XCTAssertTrue(app.buttons["选择"].firstMatch.waitForExistence(timeout: 5))
-            XCTAssertFalse(app.buttons["列表样式"].exists)
-            XCTAssertFalse(app.buttons["songList.appearance"].exists)
+    func testAppearancePickerSwitchesLayoutFromTheMoreMenu() {
+        // 不带启动参数：参数域里的值会盖住菜单写进去的选择。
+        let app = launch("songs", appearance: nil)
+        defer {
+            chooseAppearance("列表", in: app)
             app.terminate()
         }
+        let locate = app.buttons["songList.locateCurrent"].firstMatch
+        XCTAssertTrue(locate.waitForExistence(timeout: 30))
+        chooseAppearance("列表", in: app)
+        locate.tap()
+        let row = app.buttons["songRow.location-3990"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["song.actions.location-3990"].waitForExistence(timeout: 5))
+
+        chooseAppearance("方块", in: app)
+        locate.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
+        wait(for: [visible], timeout: 15)
+        XCTAssertFalse(app.buttons["song.actions.location-3990"].exists, "Tiles keep single-song actions in the long-press menu")
+        let neighbour = app.buttons["songRow.location-3991"].firstMatch
+        XCTAssertTrue(neighbour.waitForExistence(timeout: 5))
+        XCTAssertEqual(neighbour.frame.midY, row.frame.midY, accuracy: 1, "Two tiles share a row on a portrait phone")
+        XCTAssertLessThan(row.frame.width, app.frame.width * 0.6)
+        XCTAssertEqual(row.frame.width, row.frame.height, accuracy: 1)
+        attach(app, "appearance-picker-tiles")
+        row.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["加入播放队列"].firstMatch.waitForExistence(timeout: 5),
+                      "Without swipe actions the menu offers adding to the queue")
+        app.buttons["选择"].firstMatch.tap()
+        XCTAssertEqual(row.value as? String, "已选择")
+        app.buttons["取消"].firstMatch.tap()
+
+        chooseAppearance("聚焦", in: app)
+        locate.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["song.actions.location-3990"].waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(row.frame.width, app.frame.width * 0.75)
+        attach(app, "appearance-picker-focus")
+    }
+
+    private func chooseAppearance(_ title: String, in app: XCUIApplication) {
+        let more = app.buttons["songList.more"].firstMatch
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let picker = app.buttons["列表样式"].firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), "The appearance picker lives in the more menu")
+        picker.tap()
+        let option = app.buttons[title].firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.tap()
     }
 
     private func assertDecorativeAppearance(_ appearance: String) {
@@ -503,13 +521,10 @@ final class SongLocationUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: row)
         wait(for: [visible], timeout: 15)
-        XCTAssertFalse(app.buttons["song.actions.location-3990"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["songList.alphabetIndex"].exists)
+        XCTAssertEqual(app.buttons["song.actions.location-3990"].exists, appearance == "focus")
         XCTAssertLessThan(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "songRow.")).count, 100,
                           "A 4,000-song list must not materialize every row")
         attach(app, "song-list-\(appearance)")
-        let ordinal = Int(row.label.components(separatedBy: " — ").first ?? "")
-        XCTAssertNotNil(ordinal)
         row.press(forDuration: 1)
         let select = app.buttons["选择"].firstMatch
         XCTAssertTrue(select.waitForExistence(timeout: 5))
@@ -517,23 +532,14 @@ final class SongLocationUITests: XCTestCase {
         let cancel = app.buttons["取消"].firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 5))
         XCTAssertTrue(row.waitForExistence(timeout: 5))
-        if appearance == "artwork" {
-            let selectedValue = row.value as? String
-            let cover = row.coordinate(withNormalizedOffset: CGVector(dx: (ordinal ?? 1).isMultiple(of: 2) ? 0.87 : 0.13, dy: 0.5))
-                .withOffset(CGVector(dx: 0, dy: -48))
-            cover.tap()
-            XCTAssertNotEqual(row.value as? String, selectedValue, "The protruding cover must select its own song")
-            cover.tap()
-            XCTAssertEqual(row.value as? String, selectedValue)
-        }
+        let selectedValue = row.value as? String
+        row.tap()
+        XCTAssertNotEqual(row.value as? String, selectedValue, "Tapping a card in selection mode toggles its own song")
+        row.tap()
+        XCTAssertEqual(row.value as? String, selectedValue)
         cancel.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 5))
-        if appearance == "artwork" {
-            row.coordinate(withNormalizedOffset: CGVector(dx: (ordinal ?? 1).isMultiple(of: 2) ? 0.87 : 0.13, dy: 0.5))
-                .withOffset(CGVector(dx: 0, dy: -48)).press(forDuration: 1)
-        } else {
-            row.press(forDuration: 1)
-        }
+        row.press(forDuration: 1)
         XCTAssertTrue(app.buttons["选择"].firstMatch.waitForExistence(timeout: 5))
     }
 

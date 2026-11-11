@@ -6897,9 +6897,9 @@
 "song_file_rename_busy" = "Finish casting or the track transition before renaming this file.";
 
 "song_list_layout" = "List appearance";
-"song_list_layout_list" = "Default list";
-"song_list_layout_timeline" = "Timeline";
-"song_list_layout_artwork" = "Cover cards";
+"song_list_layout_list" = "List";
+"song_list_layout_tiles" = "Tiles";
+"song_list_layout_focus" = "Focus";
 
 "lyrics_weight" = "Lyrics weight";
 "lyrics_weight_default" = "Default";

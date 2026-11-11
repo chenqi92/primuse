@@ -7042,9 +7042,9 @@
 "song_file_rename_busy" = "Bu dosyayı yeniden adlandırmadan önce yayının veya parça geçişinin bitmesini bekleyin.";
 
 "song_list_layout" = "Liste görünümü";
-"song_list_layout_list" = "Varsayılan liste";
-"song_list_layout_timeline" = "Zaman çizelgesi";
-"song_list_layout_artwork" = "Kapak kartları";
+"song_list_layout_list" = "Liste";
+"song_list_layout_tiles" = "Kutucuklar";
+"song_list_layout_focus" = "Odak";
 
 "lyrics_weight" = "Şarkı sözü yazı kalınlığı";
 "lyrics_weight_default" = "Varsayılan";

@@ -114,23 +114,10 @@ extension EnvironmentValues {
     @Entry var songLocationEmphasis: Double = 0
 }
 
-enum SongLocationVisibility {
-    static func height(size: CGSize, appearance: SongListAppearance, ordinal: Int, accessibilitySize: Bool) -> CGFloat {
-        guard appearance == .artwork else { return size.height }
-        let geometry = SongTimelineGeometry(size: size, appearance: appearance, ordinal: ordinal,
-            accessibilitySize: accessibilitySize, rightToLeft: false)
-        guard !geometry.metrics.usesFullWidth else { return size.height }
-        let angle = geometry.angle * .pi / 180
-        return max(size.height, geometry.cover.height * (abs(cos(angle)) + abs(sin(angle))))
-    }
-}
-
 private struct SongLocationRowModifier: ViewModifier {
     let songID: String
     var appearance: SongListAppearance = .list
-    var ordinal = 1
     @Environment(\.songListLocation) private var location
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @State private var emphasis = 0.0
@@ -138,7 +125,6 @@ private struct SongLocationRowModifier: ViewModifier {
     func body(content: Content) -> some View {
         let viewport = location?.viewportBounds
         let highlightID = location?.highlightedSongID == songID ? location?.request?.id : nil
-        let accessibilitySize = dynamicTypeSize.isAccessibilitySize
         content
         .environment(\.songLocationEmphasis, emphasis)
         .background {
@@ -155,18 +141,13 @@ private struct SongLocationRowModifier: ViewModifier {
             }
         }
         .background {
-            // 可见性探针覆盖完整封面，但不扩大会参与懒加载定位的行高。
-            GeometryReader { proxy in
-                Color.clear
-                    .frame(height: SongLocationVisibility.height(size: proxy.size, appearance: appearance,
-                        ordinal: ordinal, accessibilitySize: accessibilitySize))
-                    .onScrollVisibilityChange(threshold: appearance == .artwork ? 0.98 : 0.9) { visible in
-                        if viewport == nil { location?.visibilityChanged(songID, visible: visible) }
-                    }
-                    .frame(maxHeight: .infinity)
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            // 方块与聚焦外观的缩放、收拢只改绘制，探针量的是不变的布局框。
+            Color.clear
+                .onScrollVisibilityChange(threshold: 0.9) { visible in
+                    if viewport == nil { location?.visibilityChanged(songID, visible: visible) }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .onGeometryChange(for: Bool.self) { proxy in
             guard let viewport else { return false }
@@ -232,12 +213,12 @@ private struct SongLocationReader: ViewModifier {
 extension View {
     @ViewBuilder
     func songLocationRow(_ songID: String, assignsScrollID: Bool = true,
-                         appearance: SongListAppearance = .list, ordinal: Int = 1) -> some View {
+                         appearance: SongListAppearance = .list) -> some View {
         if assignsScrollID {
-            modifier(SongLocationRowModifier(songID: songID, appearance: appearance, ordinal: ordinal))
+            modifier(SongLocationRowModifier(songID: songID, appearance: appearance))
                 .id(SongLocationScrollID(songID: songID))
         } else {
-            modifier(SongLocationRowModifier(songID: songID, appearance: appearance, ordinal: ordinal))
+            modifier(SongLocationRowModifier(songID: songID, appearance: appearance))
         }
     }
 
@@ -4151,25 +4132,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                         .padding(.top, 8)
                         .padding(.bottom, 12)
                 }
-                LazyVStack(spacing: 0) {
-                    ForEach(0..<cache.positionCount, id: \.self) { position in
-                        IOSSongListPositionSlot(
-                            position: position,
-                            isLast: position == cache.positionCount - 1,
-                            trailingPadding: showsSectionIndex ? 40 + sectionIndexTrailingInset : 16,
-                            cache: cache,
-                            locatedSongID: locatedSongID,
-                            selection: selection,
-                            onPlay: onPlay
-                        )
-                    }
-                }
-                // Keeping a strict one-item-to-one-scroll-target mapping lets
-                // the lazy stack resolve a distant ID directly. If a ForEach
-                // element expands into both a row and a divider, SwiftUI may
-                // walk thousands of intermediate children.
-                .scrollTargetLayout()
-                .padding(.vertical, appearance == .artwork ? 40 : 0)
+                positionStack
             }
             .scrollPosition($scrollPosition)
             // iPhone Duo 竖栏：行和字母索引都停在竖栏左侧，「开始听」的横滑一排铺到屏幕右缘。
@@ -4223,10 +4186,68 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
             indexScrollRequest = nil
         }
         .pmAnimation(.control, value: showsSectionIndex)
+        #if DEBUG
+        .task { await scrollToDebugPositionIfRequested() }
+        #endif
     }
 
+    /// 方块外观换成网格，列表与聚焦仍是懒加载栈。三种都是一个位置一个子视图、
+    /// 一个滚动目标，字母索引与定位按位置跳过去；网格的列数随宽度变，视图树不换。
+    @ViewBuilder
+    private var positionStack: some View {
+        if appearance == .tiles {
+            SongTileGrid(
+                trailingInset: showsSectionIndex
+                    ? 40 + sectionIndexTrailingInset
+                    : SongTileGridPolicy.horizontalInset
+            ) {
+                positionSlots
+            }
+            .padding(.vertical, 12)
+        } else {
+            LazyVStack(spacing: 0) {
+                positionSlots
+            }
+            // Keeping a strict one-item-to-one-scroll-target mapping lets
+            // the lazy stack resolve a distant ID directly. If a ForEach
+            // element expands into both a row and a divider, SwiftUI may
+            // walk thousands of intermediate children.
+            .scrollTargetLayout()
+            .padding(.vertical, appearance == .focus ? 8 : 0)
+        }
+    }
+
+    private var positionSlots: some View {
+        ForEach(0..<cache.positionCount, id: \.self) { position in
+            IOSSongListPositionSlot(
+                position: position,
+                isLast: position == cache.positionCount - 1,
+                trailingPadding: showsSectionIndex ? 40 + sectionIndexTrailingInset : 16,
+                cache: cache,
+                locatedSongID: locatedSongID,
+                selection: selection,
+                onPlay: onPlay
+            )
+        }
+    }
+
+    #if DEBUG
+    /// 截图钩子：`PRIMUSE_DEBUG_SONG_LIST_POSITION=<位置>` 打开歌曲页后滚到这一首（从 0 数），
+    /// `PRIMUSE_DEBUG_SONG_LIST_ANCHOR=<0…1>` 让它停在可视区的这个高度，用来截滚动途中某一帧。
+    private func scrollToDebugPositionIfRequested() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard let raw = environment["PRIMUSE_DEBUG_SONG_LIST_POSITION"], let position = Int(raw),
+              (0..<cache.positionCount).contains(position) else { return }
+        let anchor = environment["PRIMUSE_DEBUG_SONG_LIST_ANCHOR"].flatMap(Double.init) ?? 0
+        try? await Task.sleep(for: .seconds(1.5))
+        guard !Task.isCancelled else { return }
+        scrollPosition.scrollTo(id: position, anchor: UnitPoint(x: 0.5, y: anchor))
+    }
+    #endif
+
+    /// 字母索引在三种外观里都有；多选时收起。
     private var showsSectionIndex: Bool {
-        appearance == .list && !selection.isActive
+        !selection.isActive
             && cache.positionCount >= 24
             && sectionIndexEntries.count > 1
     }
@@ -4263,9 +4284,9 @@ private struct IOSSongListPositionSlot: View {
                 selection: selection,
                 onPlay: onPlay
             )
-            .padding(.leading, appearance == .artwork ? 0 : 16)
-            .padding(.trailing, appearance == .artwork ? 0 : trailingPadding)
-            .padding(.vertical, appearance == .list ? 4 : 0)
+            .padding(.leading, appearance == .tiles ? 0 : 16)
+            .padding(.trailing, appearance == .tiles ? 0 : trailingPadding)
+            .padding(.vertical, verticalPadding)
 
             if appearance == .list {
                 Divider()
@@ -4273,6 +4294,15 @@ private struct IOSSongListPositionSlot: View {
                     .opacity(isLast ? 0 : 1)
                     .accessibilityHidden(true)
             }
+        }
+    }
+
+    /// 方块的间距由网格给；聚焦的卡片上下各留一段，收拢时才有地方挤。
+    private var verticalPadding: CGFloat {
+        switch appearance {
+        case .list: 4
+        case .tiles: 0
+        case .focus: SongFocusRowMetrics.verticalInset
         }
     }
 }
@@ -4480,33 +4510,47 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(projection.rows) { row in
-                    VStack(spacing: 0) {
-                        IOSSongListProjectedRow(
-                            songID: row.id,
-                            ordinal: row.offset + 1,
-                            totalCount: projection.rows.count,
-                            cache: cache,
-                            selection: selection,
-                            onPlay: onPlay
-                        )
-                        .padding(.horizontal, appearance == .artwork ? 0 : 16)
-                        .padding(.vertical, appearance == .list ? 4 : 0)
-
-                        if appearance == .list, row.offset < projection.rows.count - 1 {
-                            Divider()
-                                .padding(.leading, rowStyle.separatorLeadingInset)
-                        }
+            if appearance == .tiles {
+                SongTileGrid {
+                    ForEach(projection.rows) { row in
+                        projectedRow(row)
+                            .id(row.id)
                     }
-                    .id(row.id)
                 }
+                .padding(.vertical, 12)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(projection.rows) { row in
+                        VStack(spacing: 0) {
+                            projectedRow(row)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, appearance == .list ? 4 : SongFocusRowMetrics.verticalInset)
+
+                            if appearance == .list, row.offset < projection.rows.count - 1 {
+                                Divider()
+                                    .padding(.leading, rowStyle.separatorLeadingInset)
+                            }
+                        }
+                        .id(row.id)
+                    }
+                }
+                .padding(.vertical, appearance == .focus ? 8 : 0)
             }
-            .padding(.vertical, appearance == .artwork ? 40 : 0)
         }
         .pmExtendsUnderVerticalBar()
         .background(songListBackground)
         .songRowColumnsContainer()
+    }
+
+    private func projectedRow(_ row: SongListRowIdentity) -> some View {
+        IOSSongListProjectedRow(
+            songID: row.id,
+            ordinal: row.offset + 1,
+            totalCount: projection.rows.count,
+            cache: cache,
+            selection: selection,
+            onPlay: onPlay
+        )
     }
 
     private var songListBackground: Color {
@@ -5321,6 +5365,10 @@ private struct LibraryFolderNodeView: View {
     @State private var consumedInitialLocationID: UUID?
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var followsListSort = false
+    #if os(iOS)
+    @AppStorage(SongListAppearance.storageKey)
+    private var storedSongListAppearance = SongListAppearance.list.rawValue
+    #endif
     @State private var maintenance = LibraryFolderMaintenanceModel()
 
     private var maintenanceActions: LibraryFolderMaintenanceActions? {
@@ -5427,17 +5475,14 @@ private struct LibraryFolderNodeView: View {
 
                     if !visibleSongIDs.isEmpty {
                         sectionHeader("tab_songs")
-                        ForEach(Array(visibleSongIDs.enumerated()), id: \.element) { index, songID in
-                            LibraryFolderSongRow(
-                                songID: songID,
-                                ordinal: index + 1,
-                                totalCount: visibleSongIDs.count,
-                                orderedIDs: { visibleSongIDs },
-                                listCache: listCache,
-                                selection: selection,
-                                onPlay: playSong
-                            )
-                            .id(SongLocationScrollID(songID: songID))
+                        if songListAppearance == .tiles {
+                            // 外层还带着子目录与标题，方块单独排成一个网格；每首歌仍带自己的定位身份。
+                            SongTileGrid(leadingInset: 8, trailingInset: 8) {
+                                folderSongRows
+                            }
+                            .padding(.top, 4)
+                        } else {
+                            folderSongRows
                         }
                     }
 
@@ -5467,6 +5512,30 @@ private struct LibraryFolderNodeView: View {
                 description: Text("no_songs_desc")
             )
         }
+    }
+
+    private var folderSongRows: some View {
+        ForEach(Array(visibleSongIDs.enumerated()), id: \.element) { index, songID in
+            LibraryFolderSongRow(
+                songID: songID,
+                ordinal: index + 1,
+                totalCount: visibleSongIDs.count,
+                orderedIDs: { visibleSongIDs },
+                listCache: listCache,
+                selection: selection,
+                onPlay: playSong
+            )
+            .id(SongLocationScrollID(songID: songID))
+        }
+    }
+
+    /// 这一页自己挂着外观偏好，读环境拿不到，直接读存储；Mac 没有这个选项。
+    private var songListAppearance: SongListAppearance {
+        #if os(iOS)
+        SongListAppearance.resolved(storedSongListAppearance)
+        #else
+        .list
+        #endif
     }
 
     private var navigationTitle: String {
@@ -5710,10 +5779,8 @@ private struct LibraryFolderSongRow: View {
         ) {
             #if os(iOS)
             IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
-                .padding(.horizontal, appearance == .artwork ? 0 : 8)
-                .padding(.vertical, appearance == .list ? 5 : 0)
-                .padding(.top, appearance == .artwork && ordinal == 1 ? 40 : 0)
-                .padding(.bottom, appearance == .artwork && ordinal == totalCount ? 40 : 0)
+                .padding(.horizontal, appearance == .tiles ? 0 : 8)
+                .padding(.vertical, verticalPadding)
             #else
             IOSSongListRow(model: model, ordinal: ordinal, totalCount: totalCount, selection: selection, onPlay: onPlay)
                 .songSelectable(
@@ -5730,6 +5797,14 @@ private struct LibraryFolderSongRow: View {
                 Divider()
                     .padding(.leading, 72)
             }
+        }
+    }
+
+    private var verticalPadding: CGFloat {
+        switch appearance {
+        case .list: 5
+        case .tiles: 0
+        case .focus: SongFocusRowMetrics.verticalInset
         }
     }
 }
@@ -6125,6 +6200,10 @@ private struct SongListNormalToolbarMenu: View {
         Section {
             SongSortSubmenu(sortOrder: sortOrder, followsListSort: folderFollowsListSort)
 
+            #if os(iOS)
+            SongListAppearancePicker()
+            #endif
+
             // 筛选只有「全部 / 已下载」两种, 两行单选不如一个开关直观。
             Toggle(isOn: downloadedBinding) {
                 Label("filter_downloaded", systemImage: "arrow.down.circle")
@@ -6317,6 +6396,10 @@ private struct LibraryFolderNormalToolbarMenu: View {
 
         SongSortSubmenu(sortOrder: $sortOrder, followsListSort: $followsListSort)
 
+        #if os(iOS)
+        SongListAppearancePicker()
+        #endif
+
         if let maintenance {
             Section {
                 LibraryFolderMaintenanceMenuItems(actions: maintenance)
@@ -6350,23 +6433,34 @@ private struct IOSSongListRow: View {
         let isSelected = membership?.isSelected == true
         Group {
             if let membership {
-                if appearance != .list {
-                    SongTimelineRowContent(
-                        song: song,
-                        title: library.displayTitle(for: song),
-                        artist: library.artistDisplayName(for: song),
-                        appearance: appearance,
-                        ordinal: ordinal,
-                        isPlaying: player.currentSong?.id == song.id,
-                        isSelected: membership.isSelected
-                    )
-                } else {
+                switch appearance {
+                case .list:
                     IOSSelectionSongRow(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
                         ordinal: ordinal,
                         totalCount: totalCount,
                         membership: membership
+                    )
+                case .tiles:
+                    SongTileContent(
+                        song: song,
+                        title: library.displayTitle(for: song),
+                        artist: library.artistDisplayName(for: song),
+                        ordinal: ordinal,
+                        isPlaying: player.currentSong?.id == song.id,
+                        isSelected: membership.isSelected
+                    )
+                case .focus:
+                    SongFocusRowContent(
+                        song: song,
+                        title: library.displayTitle(for: song),
+                        subtitle: SongFocusRowMetrics.subtitle(
+                            artist: library.artistDisplayName(for: song),
+                            album: song.albumTitle
+                        ),
+                        isPlaying: player.currentSong?.id == song.id,
+                        isSelected: membership.isSelected
                     )
                 }
             } else {
@@ -6375,7 +6469,8 @@ private struct IOSSongListRow: View {
                     isPlaying: player.currentSong?.id == song.id,
                     trackNumber: ordinal,
                     largestTrackNumber: totalCount,
-                    showsActions: appearance == .list,
+                    // 方块上没有地方放「⋯」，单曲操作走长按菜单。
+                    showsActions: appearance != .tiles,
                     selection: selection,
                     listAppearance: appearance,
                     context: SongRowView.context(
@@ -6386,8 +6481,8 @@ private struct IOSSongListRow: View {
                 )
             }
         }
-        .songLocationRow(song.id, assignsScrollID: false, appearance: appearance, ordinal: ordinal)
-        .modifier(SongListRowHitRegion(appearance: appearance, ordinal: ordinal))
+        .songLocationRow(song.id, assignsScrollID: false, appearance: appearance)
+        .contentShape(Rectangle())
         .onTapGesture {
             if selection.isActive {
                 selection.toggle(song.id)

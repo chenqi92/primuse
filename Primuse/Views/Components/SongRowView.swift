@@ -4,439 +4,6 @@ import PrimuseKit
 import UIKit
 #endif
 
-enum SongListAppearance: String, CaseIterable {
-    case list, timeline, artwork
-
-    static let storageKey = "songListAppearance"
-
-    static func resolved(_ value: String) -> Self {
-        Self(rawValue: value) ?? .list
-    }
-
-    var titleKey: LocalizedStringKey {
-        switch self {
-        case .list: "song_list_layout_list"
-        case .timeline: "song_list_layout_timeline"
-        case .artwork: "song_list_layout_artwork"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .list: "list.bullet"
-        case .timeline: "point.3.connected.trianglepath.dotted"
-        case .artwork: "photo.on.rectangle.angled"
-        }
-    }
-}
-
-extension EnvironmentValues {
-    @Entry var songListAppearance: SongListAppearance = .list
-}
-
-struct SongListAppearancePreference: ViewModifier {
-    @AppStorage(SongListAppearance.storageKey) private var storedAppearance = SongListAppearance.list.rawValue
-
-    func body(content: Content) -> some View {
-        content.environment(\.songListAppearance, SongListAppearance.resolved(storedAppearance))
-            .scrollIndicators(SongListAppearance.resolved(storedAppearance) == .list ? .automatic : .hidden)
-    }
-}
-
-struct SongListAppearancePicker: View {
-    @AppStorage(SongListAppearance.storageKey) private var storedAppearance = SongListAppearance.list.rawValue
-
-    var body: some View {
-        Picker(selection: Binding(
-            get: { SongListAppearance.resolved(storedAppearance) },
-            set: { storedAppearance = $0.rawValue }
-        )) {
-            ForEach(SongListAppearance.allCases, id: \.self) { appearance in
-                Label(appearance.titleKey, systemImage: appearance.symbol)
-                    .tag(appearance)
-            }
-        } label: {
-            Label("song_list_layout", systemImage: "rectangle.3.group")
-        }
-        .pickerStyle(.menu)
-        .accessibilityIdentifier("songList.appearance")
-    }
-}
-
-struct SongTimelineMetrics {
-    let width: CGFloat
-    let usesFullWidth: Bool
-    let cardWidth: CGFloat
-    let axisX: CGFloat
-
-    init(width: CGFloat, accessibilitySize: Bool, appearance: SongListAppearance = .timeline) {
-        self.width = min(max(width, 0), appearance == .artwork ? 480 : 760)
-        usesFullWidth = accessibilitySize || width < 300
-        axisX = usesFullWidth ? 12 : self.width / 2
-        cardWidth = max(0, usesFullWidth ? self.width - 36 : self.width / 2 - 8)
-    }
-
-    func isLeading(ordinal: Int) -> Bool {
-        !usesFullWidth && ordinal % 2 != 0
-    }
-}
-
-struct SongTimelineGeometry {
-    let metrics: SongTimelineMetrics
-    let card: CGRect
-    let cover: CGRect
-    let angle: Double
-    let axisX: CGFloat
-    let cardEdge: CGFloat
-
-    init(size: CGSize, appearance: SongListAppearance, ordinal: Int, accessibilitySize: Bool, rightToLeft: Bool) {
-        metrics = SongTimelineMetrics(width: size.width, accessibilitySize: accessibilitySize, appearance: appearance)
-        let leading = metrics.isLeading(ordinal: ordinal)
-        let inset = (size.width - metrics.width) / 2
-        let isArtwork = appearance == .artwork && !metrics.usesFullWidth
-        let cardWidth = isArtwork ? metrics.cardWidth * 0.58 : metrics.cardWidth
-        let cardHeight = size.height * (isArtwork ? 64.0 / 72 : 62.0 / 66)
-        let x = leading ? metrics.cardWidth - cardWidth : metrics.width - metrics.cardWidth
-        let physicalX = rightToLeft ? metrics.width - x - cardWidth : x
-        card = CGRect(x: inset + physicalX, y: (size.height - cardHeight) / 2, width: cardWidth, height: cardHeight)
-        let coverSize = metrics.width * 0.285
-        let coverX = leading ? -16.0 : metrics.width - coverSize + 16
-        cover = CGRect(x: inset + (rightToLeft ? metrics.width - coverX - coverSize : coverX),
-                       y: (size.height - coverSize) / 2, width: coverSize, height: coverSize)
-        let alternate = ((ordinal - 1) / 2).isMultiple(of: 2)
-        angle = (leading ? (alternate ? 9.0 : -9) : (alternate ? -12.0 : 8)) * (rightToLeft ? -1 : 1)
-        axisX = inset + (rightToLeft ? metrics.width - metrics.axisX : metrics.axisX)
-        cardEdge = leading != rightToLeft ? card.maxX : card.minX
-    }
-}
-
-/// 封面伸入相邻槽位时，空白半行不能截走它的点击和长按。
-struct SongTimelineHitShape: Shape {
-    let appearance: SongListAppearance
-    let ordinal: Int
-    let accessibilitySize: Bool
-    let rightToLeft: Bool
-
-    func path(in rect: CGRect) -> Path {
-        guard appearance != .list else { return Path(rect) }
-        let geometry = SongTimelineGeometry(size: rect.size, appearance: appearance, ordinal: ordinal,
-                                            accessibilitySize: accessibilitySize, rightToLeft: rightToLeft)
-        var path = Path(roundedRect: geometry.card, cornerRadius: 28)
-        if appearance == .artwork && !geometry.metrics.usesFullWidth {
-            let cover = geometry.cover
-            let transform = CGAffineTransform(translationX: cover.midX, y: cover.midY)
-                .rotated(by: geometry.angle * .pi / 180)
-                .translatedBy(x: -cover.midX, y: -cover.midY)
-            path.addPath(Path(roundedRect: cover, cornerRadius: 13).applying(transform))
-        }
-        path.addEllipse(in: CGRect(x: geometry.axisX - 12, y: rect.midY - 22, width: 24, height: 44))
-        return path
-    }
-}
-
-struct SongListRowHitRegion: ViewModifier {
-    let appearance: SongListAppearance
-    let ordinal: Int
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.layoutDirection) private var layoutDirection
-
-    func body(content: Content) -> some View {
-        content.contentShape(SongTimelineHitShape(appearance: appearance, ordinal: ordinal,
-            accessibilitySize: dynamicTypeSize.isAccessibilitySize, rightToLeft: layoutDirection == .rightToLeft))
-    }
-}
-
-struct SongListScrollMotion: Equatable, Sendable {
-    let scale: CGFloat
-    let tilt: Double
-    let turn: Double
-    let reflection: CGFloat
-
-    init(position: CGFloat, artwork: Bool, leading: Bool, reduceMotion: Bool) {
-        let position = position.isFinite ? min(max(position, -1), 1) : 0
-        let progress = reduceMotion ? 0 : position
-        let distance = abs(progress)
-        scale = 1 - distance * (artwork ? 0.12 : 0.035)
-        tilt = artwork ? Double(progress) * -18 : 0
-        turn = artwork ? Double(progress) * (leading ? 4 : -4) : 0
-        reflection = progress
-    }
-}
-
-private func songListScrollPosition(_ proxy: GeometryProxy) -> CGFloat {
-    guard let viewport = proxy.bounds(of: .scrollView(axis: .vertical)), viewport.height > 0 else { return 0 }
-    return (proxy.size.height / 2 - viewport.midY) / (viewport.height / 2)
-}
-
-private struct SongListScrollEffect: ViewModifier {
-    var artwork = false
-    var leading = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        let artwork = artwork
-        let leading = leading
-        let reduceMotion = reduceMotion
-        if artwork {
-            content.visualEffect { effect, proxy in
-                let motion = SongListScrollMotion(position: songListScrollPosition(proxy),
-                    artwork: true, leading: leading, reduceMotion: reduceMotion)
-                return effect
-                    .scaleEffect(motion.scale)
-                    .rotationEffect(.degrees(motion.turn))
-                    .rotation3DEffect(.degrees(motion.tilt), axis: (x: 1, y: 0, z: 0), perspective: 0.18)
-            }
-        } else {
-            // 玻璃不能跟随封面做 3D 合成，否则背景采样会变成灰底。
-            content.visualEffect { effect, proxy in
-                let motion = SongListScrollMotion(position: songListScrollPosition(proxy),
-                    artwork: false, leading: leading, reduceMotion: reduceMotion)
-                return effect.scaleEffect(motion.scale)
-            }
-        }
-    }
-}
-
-private struct SongListGlassPanel: View {
-    let radius: CGFloat
-    let isPlaying: Bool
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.songLocationEmphasis) private var locationEmphasis
-
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
-    private var isDark: Bool { colorScheme == .dark }
-    private var tint: Color {
-        isDark ? Color(red: 0.09, green: 0.14, blue: 0.20).opacity(0.32)
-            : Color(red: 0.82, green: 0.90, blue: 0.97).opacity(0.13)
-    }
-
-    var body: some View {
-        let reducesMotion = reduceMotion || reduceTransparency
-        material
-            .overlay {
-                shape.fill(LinearGradient(
-                    colors: isDark
-                        ? [.white.opacity(0.13), .clear, Color(red: 0.18, green: 0.29, blue: 0.42).opacity(0.12)]
-                        : [.white.opacity(0.35), .white.opacity(0.04), Color(red: 0.56, green: 0.69, blue: 0.82).opacity(0.05)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing))
-            }
-            .overlay {
-                if !reduceTransparency {
-                    LinearGradient(stops: [
-                        .init(color: .clear, location: 0.1),
-                        .init(color: .white.opacity(isDark ? 0.16 : 0.40), location: 0.46),
-                        .init(color: .clear, location: 0.72)
-                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .visualEffect { effect, proxy in
-                        let motion = SongListScrollMotion(position: songListScrollPosition(proxy),
-                            artwork: false, leading: false, reduceMotion: reducesMotion)
-                        return effect.offset(x: motion.reflection * proxy.size.width * 0.7)
-                    }
-                    .clipShape(shape)
-                }
-            }
-            .overlay {
-                shape.strokeBorder(LinearGradient(
-                    colors: isDark
-                        ? [.white.opacity(isPlaying ? 0.72 : 0.48), .white.opacity(0.08), Color(red: 0.60, green: 0.74, blue: 0.88).opacity(0.32)]
-                        : [.white.opacity(0.95), Color(red: 0.45, green: 0.55, blue: 0.66).opacity(0.12), .white.opacity(0.72)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
-            }
-            .overlay {
-                shape.inset(by: 1.5).strokeBorder(.white.opacity(isDark ? 0.045 : 0.18), lineWidth: 0.5)
-            }
-            .shadow(color: isDark ? .black.opacity(0.35) : Color(red: 0.21, green: 0.31, blue: 0.43).opacity(0.09),
-                    radius: isDark ? 8 : 10, x: 0, y: isDark ? 3 : 4)
-            .shadow(color: isPlaying ? Color.primary.opacity(isDark ? 0.14 : 0.06) : .clear, radius: 10)
-            .overlay {
-                shape.strokeBorder(Color.accentColor, lineWidth: 1.8)
-                    .shadow(color: Color.accentColor.opacity(isDark ? 0.48 : 0.22), radius: 6)
-                    .opacity(locationEmphasis)
-            }
-            .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private var material: some View {
-        if reduceTransparency {
-            shape.fill(isDark ? Color(red: 0.10, green: 0.13, blue: 0.17) : Color(red: 0.94, green: 0.96, blue: 0.98))
-        } else if #available(iOS 26.0, macOS 26.0, tvOS 26.0, watchOS 26.0, *) {
-            if isDark {
-                shape.fill(.clear).glassEffect(.regular.tint(tint), in: shape)
-            } else {
-                shape.fill(.white.opacity(0.52)).glassEffect(.clear, in: shape)
-            }
-        } else {
-            shape.fill(.ultraThinMaterial).overlay { shape.fill(tint) }
-        }
-    }
-}
-
-/// 每首歌独占一个懒加载槽位；封面溢出只改变绘制与命中范围，不改变滚动定位尺寸。
-struct SongTimelineRowContent: View {
-    let song: Song
-    let title: String
-    let artist: String?
-    let appearance: SongListAppearance
-    let ordinal: Int
-    var isPlaying = false
-    var isLoading = false
-    var isUnavailable = false
-    var isReadingDetails = false
-    var isSelected: Bool? = nil
-
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.layoutDirection) private var layoutDirection
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.songLocationEmphasis) private var locationEmphasis
-    @ScaledMetric(relativeTo: .subheadline) private var compactHeight: CGFloat = 66
-    @ScaledMetric(relativeTo: .subheadline) private var artworkHeight: CGFloat = 72
-    @ScaledMetric(relativeTo: .subheadline) private var titleSize: CGFloat = 14
-    @ScaledMetric(relativeTo: .caption) private var artistSize: CGFloat = 12
-
-    private var rowHeight: CGFloat {
-        if dynamicTypeSize.isAccessibilitySize { return compactHeight * 1.4 }
-        return appearance == .artwork ? artworkHeight : compactHeight
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            let geometry = SongTimelineGeometry(size: proxy.size, appearance: appearance, ordinal: ordinal,
-                accessibilitySize: dynamicTypeSize.isAccessibilitySize, rightToLeft: layoutDirection == .rightToLeft)
-            ZStack {
-                axis(geometry)
-                Group {
-                    if appearance == .artwork && !geometry.metrics.usesFullWidth {
-                        artwork(size: geometry.cover.width, radius: 13)
-                            .rotationEffect(.degrees(geometry.angle))
-                            .modifier(SongListScrollEffect(artwork: true, leading: geometry.cover.midX < geometry.axisX))
-                            .position(x: geometry.cover.midX, y: geometry.cover.midY)
-                        labels
-                            .padding(.horizontal, 11)
-                            .frame(width: geometry.card.width, height: geometry.card.height, alignment: .leading)
-                            .background { SongListGlassPanel(radius: 27, isPlaying: isPlaying) }
-                            .modifier(SongListScrollEffect())
-                            .position(x: geometry.card.midX, y: geometry.card.midY)
-                    } else {
-                        compactCard(geometry)
-                            .modifier(SongListScrollEffect())
-                            .position(x: geometry.card.midX, y: geometry.card.midY)
-                    }
-                }
-                .opacity(isUnavailable ? 0.45 : (isReadingDetails ? 0.65 : 1))
-            }
-        }
-        .frame(height: rowHeight)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: [title, artist].compactMap { $0 }.joined(separator: " — ")))
-    }
-
-    private func axis(_ geometry: SongTimelineGeometry) -> some View {
-        ZStack {
-            Path { path in
-                if appearance != .artwork || geometry.metrics.usesFullWidth {
-                    path.move(to: CGPoint(x: geometry.axisX, y: 0))
-                    path.addLine(to: CGPoint(x: geometry.axisX, y: rowHeight))
-                }
-                path.move(to: CGPoint(x: geometry.axisX, y: rowHeight / 2))
-                path.addLine(to: CGPoint(x: geometry.cardEdge, y: rowHeight / 2))
-            }
-            .stroke(Color.primary.opacity(colorScheme == .dark ? 0.30 : 0.16), lineWidth: 0.5)
-            Path { path in
-                path.move(to: CGPoint(x: geometry.axisX, y: rowHeight / 2))
-                path.addLine(to: CGPoint(x: geometry.cardEdge, y: rowHeight / 2))
-            }
-            .stroke(Color.accentColor, lineWidth: 1.5)
-            .opacity(locationEmphasis)
-            if let isSelected {
-                SongSelectionCheckmark(isSelected: isSelected)
-                    .position(x: geometry.axisX, y: rowHeight / 2)
-            } else {
-                Circle()
-                    .fill(isPlaying ? Color.primary : Color.primary.opacity(appearance == .artwork ? 0.30 : 0.65))
-                    .frame(width: isPlaying ? 7 : 5, height: isPlaying ? 7 : 5)
-                    .shadow(color: isPlaying ? Color.primary.opacity(0.5) : .clear, radius: 5)
-                    .position(x: geometry.axisX, y: rowHeight / 2)
-            }
-            Circle()
-                .strokeBorder(Color.accentColor, lineWidth: 1.5)
-                .frame(width: 19, height: 19)
-                .shadow(color: Color.accentColor.opacity(0.4), radius: 5)
-                .opacity(locationEmphasis)
-                .position(x: geometry.axisX, y: rowHeight / 2)
-        }
-        .accessibilityHidden(true)
-        .allowsHitTesting(false)
-    }
-
-    private func compactCard(_ geometry: SongTimelineGeometry) -> some View {
-        let leading = geometry.metrics.isLeading(ordinal: ordinal)
-        let coverSize = min(geometry.card.height - 8, 56)
-        return HStack(spacing: 8) {
-            if leading { artwork(size: coverSize, radius: 11) }
-            labels.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(leading ? .trailing : .leading, 5)
-            if !leading { artwork(size: coverSize, radius: 11) }
-        }
-        .padding(4)
-        .frame(width: geometry.card.width, height: geometry.card.height)
-        .background { SongListGlassPanel(radius: 27, isPlaying: isPlaying) }
-    }
-
-    private var labels: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: title)
-                .font(.system(size: titleSize, weight: .medium))
-                .foregroundStyle(.primary)
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
-            if isUnavailable {
-                Label("song_row_source_unreachable", systemImage: "wifi.slash")
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            } else if let artist, !artist.isEmpty {
-                Text(verbatim: artist)
-                    .font(.system(size: artistSize))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-            }
-        }
-    }
-
-    private func artwork(size: CGFloat, radius: CGFloat) -> some View {
-        CachedArtworkView(
-            coverRef: song.coverArtFileName, songID: song.id, size: size, cornerRadius: radius,
-            sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(.white.opacity(0.28), lineWidth: 0.5)
-            if appearance == .artwork {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: 2.5)
-                    .shadow(color: Color.accentColor.opacity(0.5), radius: 7)
-                    .opacity(locationEmphasis)
-            }
-            if isPlaying {
-                ZStack {
-                    Circle().fill(.black.opacity(0.55))
-                    if isLoading {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: max(12, size * 0.2), weight: .semibold))
-                            .foregroundStyle(.white)
-                            .offset(x: 1)
-                    }
-                }
-                .frame(width: size * 0.43, height: size * 0.43)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-}
-
 struct SongRowActionRequest: Identifiable {
     enum Action {
         case scrape, editTags, editLyrics, addToPlaylist, similar, info, share, rereadTags, unavailable
@@ -1007,20 +574,40 @@ struct SongRowView: View {
     private var rowContent: some View {
         let unreachable = isUnreachableNow
         return Group {
-            if listAppearance == .list {
+            switch listAppearance {
+            case .list:
                 standardRowContent
-            } else {
-                SongTimelineRowContent(
+            case .tiles:
+                SongTileContent(
                     song: song,
                     title: library.displayTitle(for: song),
                     artist: library.artistDisplayName(for: song),
-                    appearance: listAppearance,
                     ordinal: trackNumber ?? 1,
                     isPlaying: isPlaying,
                     isLoading: isPlaying && player.showsLoadingIndicator,
                     isUnavailable: unreachable,
                     isReadingDetails: isReadingDetails
                 )
+            case .focus:
+                SongFocusRowContent(
+                    song: song,
+                    title: library.displayTitle(for: song),
+                    subtitle: SongFocusRowMetrics.subtitle(
+                        artist: library.artistDisplayName(for: song),
+                        album: showAlbum ? song.albumTitle : nil
+                    ),
+                    isPlaying: isPlaying,
+                    isLoading: isPlaying && player.showsLoadingIndicator,
+                    isUnavailable: unreachable,
+                    isReadingDetails: isReadingDetails
+                ) {
+                    SongRowOfflineStatusBadge(song: song, reservesSpace: false)
+                    #if !os(macOS)
+                    if showsActions {
+                        songActionMenu(offline: offlineSnapshot)
+                    }
+                    #endif
+                }
             }
         }
         // 只挂在这一行自己身上：封面黑罩、波形与标题变色是同一次换歌带来的，
@@ -1030,10 +617,12 @@ struct SongRowView: View {
             songID: song.id,
             isEnabled: allowsQueueActions,
             clipsContent: listAppearance == .list,
+            allowsSwipe: listAppearance != .tiles,
             onInsertNext: { insertNextInQueue() },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
-        .modifier(SongListRowHitRegion(appearance: listAppearance, ordinal: trackNumber ?? 1))
+        .contentShape(Rectangle())
+        .modifier(SongListRowPreviewShape(appearance: listAppearance))
         .task(id: song.id) {
             guard supportsOfflineAudioCache else { return }
             await sourceManager.ensureOfflineAudioSnapshot(for: song)
@@ -1060,14 +649,14 @@ struct SongRowView: View {
         .overlay {
             if !song.isPlayable {
                 Color.clear
-                    .modifier(SongListRowHitRegion(appearance: listAppearance, ordinal: trackNumber ?? 1))
+                    .contentShape(Rectangle())
                     .onTapGesture { showBareAlert = true }
             } else if unreachable, selection?.isActive != true {
                 // Starting this song would stop the music only to fail. The
                 // tap asks the source again instead; the trailing menu stays
                 // outside the intercepted area.
                 Color.clear
-                    .modifier(SongListRowHitRegion(appearance: listAppearance, ordinal: trackNumber ?? 1))
+                    .contentShape(Rectangle())
                     .onTapGesture { retryUnreachableSource() }
                     .padding(.trailing, unreachableTapTrailingInset)
             }
@@ -1212,6 +801,15 @@ struct SongRowView: View {
                 presentedShareSong = song
             } label: {
                 Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+            }
+        }
+
+        // 方块外观没有横滑，横滑里的「加入队列」放进菜单。
+        if listAppearance == .tiles, canQueueSong {
+            Button {
+                player.appendToQueue([song])
+            } label: {
+                Label(String(localized: "add_to_queue"), systemImage: "text.append")
             }
         }
 
@@ -1970,17 +1568,29 @@ private extension View {
         songID: String,
         isEnabled: Bool,
         clipsContent: Bool = true,
+        allowsSwipe: Bool = true,
         onInsertNext: @escaping () -> Void,
         onAppendToQueue: @escaping () -> Void
     ) -> some View {
         #if os(iOS)
-        modifier(SongRowSwipeModifier(
-            songID: songID,
-            isEnabled: isEnabled,
-            clipsContent: clipsContent,
-            onInsertNext: onInsertNext,
-            onAppendToQueue: onAppendToQueue
-        ))
+        if allowsSwipe {
+            modifier(SongRowSwipeModifier(
+                songID: songID,
+                isEnabled: isEnabled,
+                clipsContent: clipsContent,
+                onInsertNext: onInsertNext,
+                onAppendToQueue: onAppendToQueue
+            ))
+        } else {
+            // 网格里横滑会和相邻的块、和网格本身的滚动抢手势；入队留给长按菜单，
+            // 辅助功能的两个入队动作照旧提供。
+            accessibilityAction(named: Text("insert_next")) {
+                if isEnabled { onInsertNext() }
+            }
+            .accessibilityAction(named: Text("add_to_queue")) {
+                if isEnabled { onAppendToQueue() }
+            }
+        }
         #else
         self
         #endif

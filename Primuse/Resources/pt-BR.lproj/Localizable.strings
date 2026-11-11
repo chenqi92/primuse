@@ -7042,9 +7042,9 @@
 "song_file_rename_busy" = "Aguarde o fim da transmissão ou da transição de faixa antes de renomear este arquivo.";
 
 "song_list_layout" = "Estilo da lista";
-"song_list_layout_list" = "Lista padrão";
-"song_list_layout_timeline" = "Linha do tempo";
-"song_list_layout_artwork" = "Cartões de capas";
+"song_list_layout_list" = "Lista";
+"song_list_layout_tiles" = "Blocos";
+"song_list_layout_focus" = "Foco";
 
 "lyrics_weight" = "Peso da fonte das letras";
 "lyrics_weight_default" = "Padrão";

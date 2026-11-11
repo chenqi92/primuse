@@ -7136,9 +7136,9 @@
 "song_file_rename_busy" = "Terminez la diffusion ou la transition entre les titres avant de renommer ce fichier.";
 
 "song_list_layout" = "Présentation de la liste";
-"song_list_layout_list" = "Liste par défaut";
-"song_list_layout_timeline" = "Chronologie";
-"song_list_layout_artwork" = "Cartes de pochettes";
+"song_list_layout_list" = "Liste";
+"song_list_layout_tiles" = "Mosaïque";
+"song_list_layout_focus" = "Focus";
 
 "lyrics_weight" = "Graisse des paroles";
 "lyrics_weight_default" = "Par défaut";

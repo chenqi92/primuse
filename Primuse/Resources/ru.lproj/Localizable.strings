@@ -7042,9 +7042,9 @@
 "song_file_rename_busy" = "Завершите трансляцию или переход между треками перед переименованием файла.";
 
 "song_list_layout" = "Вид списка";
-"song_list_layout_list" = "Обычный список";
-"song_list_layout_timeline" = "Лента";
-"song_list_layout_artwork" = "Карточки обложек";
+"song_list_layout_list" = "Список";
+"song_list_layout_tiles" = "Плитки";
+"song_list_layout_focus" = "Фокус";
 
 "lyrics_weight" = "Толщина шрифта текста песни";
 "lyrics_weight_default" = "По умолчанию";
