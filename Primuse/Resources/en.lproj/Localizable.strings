@@ -5536,6 +5536,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "Podcasts";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "Ambient Sounds";
+"mark_as_ambient" = "Mark as Ambient Sound";
+"ambient_sounds_count" = "sounds";
+"ambient_timer_unlimited" = "No Limit";
+"ambient_back_to_music" = "Back to Music";
+"ambient_empty_hint" = "White noise, rain, ocean waves, nature sounds and other sleep sounds appear here. Mark a folder or a song as Ambient Sound to move it here.";
+"ambient_loose_group" = "Other Sounds";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Latest episodes from the podcasts you follow.";
 "home_cover_size_title" = "Cover Size";

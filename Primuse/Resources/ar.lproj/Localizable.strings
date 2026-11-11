@@ -5678,6 +5678,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "البودكاست";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "أصوات محيطة";
+"mark_as_ambient" = "تعليم كصوت محيط";
+"ambient_sounds_count" = "صوت";
+"ambient_timer_unlimited" = "بلا حد";
+"ambient_back_to_music" = "العودة إلى الموسيقى";
+"ambient_empty_hint" = "تظهر هنا الضوضاء البيضاء والمطر وأمواج البحر وأصوات الطبيعة وغيرها من أصوات النوم. علِّم مجلدًا أو أغنية كصوت محيط لنقلها إلى هنا.";
+"ambient_loose_group" = "أصوات أخرى";
 "home_section_podcasts" = "البودكاست";
 "home_section_podcasts_hint" = "أحدث حلقات البودكاست التي تتابعها.";
 "home_cover_size_title" = "حجم الأغلفة";

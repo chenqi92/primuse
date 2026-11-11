@@ -192,7 +192,8 @@ final class CarPlayEditorCatalog {
             stations: AppServices.shared.radioStationsStore.stations.map {
                 CarPlayHomeItem(id: $0.id, title: $0.name, subtitle: $0.playbackSubtitle, symbol: "radio", target: .radio($0.id))
             }, artistNames: library.artistNameConfiguration, history: musicEntries.map(\.listeningEvent), artists: library.visibleArtists,
-            spokenWordSongIDs: library.spokenWordSongIDs,
+            // 有声与环境音都不进「最近添加」。
+            spokenWordSongIDs: library.nonMusicSongIDs,
             // 与手机首页同一套输入,同一天里两边推荐的是同一批歌。
             recommendation: wanted.contains(.forYou) ? MusicDiscoveryEngine.RecommendationSnapshot(
                 songs: library.musicSongs, recentSongs: library.recentlyPlayedSongs(limit: 12), historyEntries: musicEntries,

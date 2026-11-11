@@ -1607,6 +1607,8 @@ struct HomeView: View {
     /// 筛选胶囊的顺序与显隐,在首页编辑的「顶部切换」里调。
     @AppStorage(HomeFilterBarConfiguration.storageKey) private var homeFilterBarRawValue = ""
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsLibrarySections = false
+    /// 资料库里收起了「环境音」,首页那颗胶囊跟着不出现(`AmbientSoundLibrarySection`)。
+    @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey) private var hiddenLibrarySectionsRawValue = ""
     @AppStorage(HomeSubtabPresentation.pullDownKey) private var subtabPullDown = false
     @AppStorage(HomeSubtabPresentation.doubleTapKey) private var subtabDoubleTap = false
     @State private var expandedSubtabSpaces: Set<String> = []
@@ -1626,10 +1628,27 @@ struct HomeView: View {
         #endif
         return HomeFilterBarConfiguration.decode(homeFilterBarRawValue).visibleSpaces(
             sectionShown: isFilterSectionShown,
-            isAvailable: { $0 != .spokenWord || LibraryStartupNavigationHint.showsSpokenWord(
-                isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
-                enabledSourceIDs: startupSourceIDs
-            ) }
+            isAvailable: { space in
+                switch space {
+                case .spokenWord:
+                    LibraryStartupNavigationHint.showsSpokenWord(
+                        isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
+                        enabledSourceIDs: startupSourceIDs
+                    )
+                // 环境音:真有内容、资料库里没收起才有这颗;调过「顶部切换」也一样跟着资料库走。
+                case .ambient: isAmbientChipAvailable
+                default: true
+                }
+            }
+        )
+    }
+
+    private var isAmbientChipAvailable: Bool {
+        AmbientSoundLibrarySection.isReachable(
+            separatesAmbient: SpokenWordStore.shared.separatesAmbient,
+            hasContent: library.hasAmbientContent,
+            sectionHidden: LibraryDisplayConfiguration.decodeHiddenSections(hiddenLibrarySectionsRawValue)
+                .contains(.ambient)
         )
     }
 
@@ -1640,6 +1659,7 @@ struct HomeView: View {
         case .radio: showRadioOnHome
         case .spokenWord: showAudiobooks
         case .podcast: showPodcasts
+        case .ambient: true
         }
     }
 
@@ -1957,6 +1977,11 @@ struct HomeView: View {
                     HomeRadioStationsPage()
                 } else if space == .podcast {
                     PodcastLibraryView()
+                        #if os(iOS)
+                        .minimalNavigationDetail()
+                        #endif
+                } else if space == .ambient {
+                    AmbientSoundsView()
                         #if os(iOS)
                         .minimalNavigationDetail()
                         #endif
@@ -3022,7 +3047,8 @@ struct HomeView: View {
 
     #if os(iOS)
     private var canPresentSubtabs: Bool {
-        !editorMode && showsLibrarySections && appNavigationMode == .standard && activeHomeFilter != .podcast
+        !editorMode && showsLibrarySections && appNavigationMode == .standard
+            && activeHomeFilter != .podcast && activeHomeFilter != .ambient
     }
 
     private func setSubtabsExpanded(_ expanded: Bool) {
@@ -3061,6 +3087,9 @@ struct HomeView: View {
                 .padding(.horizontal, 16)
         } else if activeHomeFilter == .podcast {
             PodcastHomeFace(navigation: podcastNavigation) { pushedSpacePage = .podcast }
+        } else if activeHomeFilter == .ambient {
+            AmbientSoundBoard()
+                .padding(.horizontal, 16)
         } else if !model.isPrepared || (!library.isReady && !hasContent) {
             VStack(spacing: 16) {
                 if !startupSourceIDs.isEmpty {
@@ -5339,8 +5368,8 @@ struct HomeView: View {
 
         // Build queue from recently played songs, supplemented by library.
         // Those are songs only; a chapter found by search plays on its own
-        // rather than running on into music.
-        let isSpokenWord = library.spokenWordSongIDs.contains(song.id)
+        // rather than running on into music. 环境音同样单独放(循环着)。
+        let isSpokenWord = library.nonMusicSongIDs.contains(song.id)
         var queueSongs = isSpokenWord ? [song] : library.recentlyPlayedSongs(limit: 50)
         plog("🏠 recentlyPlayed queue: \(queueSongs.count) songs, first3=\(queueSongs.prefix(3).map(\.title))")
 

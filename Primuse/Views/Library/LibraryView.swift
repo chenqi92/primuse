@@ -7,6 +7,8 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
     case releaseDate
     /// 订阅的播客。默认收起,在资料库设置里打开。
     case podcasts
+    /// 环境音(白噪音、雨声…)。默认收起,第一次有了环境音时亮出来一次;没有内容时不出现。
+    case ambient
 
     var id: String { rawValue }
 
@@ -25,6 +27,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .radio: return "radio_title"
         case .releaseDate: return "library_release_date_title"
         case .podcasts: return "listening_space_podcast"
+        case .ambient: return "listening_space_ambient"
         }
     }
 
@@ -43,6 +46,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .radio: return ListeningSpace.radio.systemImage
         case .releaseDate: return "calendar"
         case .podcasts: return ListeningSpace.podcast.systemImage
+        case .ambient: return ListeningSpace.ambient.systemImage
         }
     }
 
@@ -63,6 +67,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .radio: return ListeningSpace.radio.glyphTileTint
         case .releaseDate: return .indigo
         case .podcasts: return ListeningSpace.podcast.glyphTileTint
+        case .ambient: return ListeningSpace.ambient.glyphTileTint
         }
     }
 
@@ -81,6 +86,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .radio: return String(localized: "radio_title")
         case .releaseDate: return String(localized: "library_release_date_title")
         case .podcasts: return String(localized: "listening_space_podcast")
+        case .ambient: return String(localized: "listening_space_ambient")
         }
     }
 }
@@ -102,17 +108,19 @@ enum LibraryDisplayConfiguration {
         .radio,
         .spokenWord,
         .podcasts,
+        .ambient,
         .recommendations,
         .statistics,
     ]
 
     /// 没设过显隐时收起来的分类。推荐与排行、统计在首页都有自己的区块;Mac 首页没有
-    /// 统计入口,侧栏那一行就留着。播客要订阅了才有内容,用的人打开。
+    /// 统计入口,侧栏那一行就留着。播客要订阅了才有内容,用的人打开。环境音第一次识别到
+    /// 内容时亮出来一次(`revealAmbientIfNeeded`)。
     static var defaultHiddenSections: Set<LibrarySection> {
         #if os(macOS)
-        [.recommendations, .podcasts]
+        [.recommendations, .podcasts, .ambient]
         #else
-        [.recommendations, .statistics, .podcasts]
+        [.recommendations, .statistics, .podcasts, .ambient]
         #endif
     }
 
@@ -155,6 +163,11 @@ enum LibraryDisplayConfiguration {
             LibrarySection.podcasts.rawValue,
             migrationKey: podcastsDefaultHiddenMigrationKey
         )
+        // 环境音分类上线时已经存过显隐的人:先补进隐藏集合,等第一次有环境音时再亮出来。
+        LibrarySectionLayoutPolicy.hideNewSectionIfNeeded(
+            LibrarySection.ambient.rawValue,
+            migrationKey: AmbientSoundLibrarySection.defaultHiddenMigrationKey
+        )
     }
 
     static let podcastsRevealedForLocalFilesKey = "primuse.library.podcastsRevealedForLocalFiles.v1"
@@ -166,6 +179,15 @@ enum LibraryDisplayConfiguration {
             LibrarySection.podcasts.rawValue,
             defaultHidden: defaultSectionOrder.filter(defaultHiddenSections.contains).map(\.rawValue),
             migrationKey: podcastsRevealedForLocalFilesKey
+        )
+    }
+
+    /// 资料库里第一次识别到环境音:「环境音」分类亮出来一次。之后收起照用户的来。
+    static func revealAmbientIfNeeded() {
+        LibrarySectionLayoutPolicy.revealSectionIfNeeded(
+            LibrarySection.ambient.rawValue,
+            defaultHidden: defaultSectionOrder.filter(defaultHiddenSections.contains).map(\.rawValue),
+            migrationKey: AmbientSoundLibrarySection.revealedKey
         )
     }
 }
@@ -707,6 +729,8 @@ struct LibraryView: View {
             isReady: library.isReady, hasSpokenWord: library.hasSpokenWordContent,
             enabledSourceIDs: Set(startupSourcesStore.sources.filter(\.isEnabled).map(\.id))
         ) }
+        // 「环境音」同样只在真有环境音时出现。
+        .filter { $0 != .ambient || library.hasAmbientContent }
     }
     private var artworkPreviewRevision: String {
         // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
@@ -1453,6 +1477,19 @@ struct LibraryView: View {
             overlappingPreview(Array(PodcastStore.shared.shows.prefix(3))) { show in
                 PodcastArtwork(show: show, size: 36, cornerRadius: 7)
             }
+        case .ambient:
+            overlappingPreview(Array(library.ambientSongs.prefix(3))) { song in
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 36,
+                    cornerRadius: 7,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat,
+                    placeholderIcon: ListeningSpace.ambient.systemImage
+                )
+            }
         }
     }
 
@@ -1871,6 +1908,8 @@ struct LibraryView: View {
             return countText(radioStationsStore.stations.count, unitKey: "radio_stations_count")
         case .podcasts:
             return countText(PodcastStore.shared.shows.count, unitKey: "podcast_shows_count")
+        case .ambient:
+            return countText(library.ambientSongs.count, unitKey: "ambient_sounds_count")
         }
     }
 
@@ -1918,6 +1957,8 @@ struct LibraryView: View {
             RadioStationsView()
         case .podcasts:
             PodcastLibraryView()
+        case .ambient:
+            AmbientSoundsView()
         }
     }
 

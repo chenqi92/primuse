@@ -15,7 +15,7 @@ struct HomeFilterBarConfigurationTests {
         let radioOff: (ListeningSpace) -> Bool = { $0 != .radio && $0 != .podcast }
         #expect(
             configuration.visibleSpaces(sectionShown: radioOff, isAvailable: everythingAvailable)
-                == [.music, .spokenWord]
+                == [.music, .spokenWord, .ambient]
         )
     }
 
@@ -29,7 +29,7 @@ struct HomeFilterBarConfigurationTests {
         let sectionsOff: (ListeningSpace) -> Bool = { $0 == .music }
         #expect(
             configuration.visibleSpaces(sectionShown: sectionsOff, isAvailable: everythingAvailable)
-                == [.music, .radio, .spokenWord, .podcast]
+                == [.music, .radio, .spokenWord, .podcast, .ambient]
         )
     }
 
@@ -38,19 +38,19 @@ struct HomeFilterBarConfigurationTests {
         var configuration = HomeFilterBarConfiguration.followingSections.customized(sectionShown: sectionsOn)
         configuration.move(fromOffsets: IndexSet(integer: 2), toOffset: 0)
         configuration.setShown(false, for: .radio)
-        #expect(configuration.order == [.spokenWord, .music, .radio, .podcast])
+        #expect(configuration.order == [.spokenWord, .music, .radio, .podcast, .ambient])
         let decoded = HomeFilterBarConfiguration.decode(configuration.encoded())
         #expect(decoded == configuration)
         #expect(
             decoded.visibleSpaces(sectionShown: sectionsOn, isAvailable: everythingAvailable)
-                == [.spokenWord, .music, .podcast]
+                == [.spokenWord, .music, .podcast, .ambient]
         )
     }
 
     @Test("拖动排序与 Array.move 一致")
     func moveMatchesArrayMove() {
-        for source in 0..<4 {
-            for destination in 0...4 {
+        for source in 0..<5 {
+            for destination in 0...5 {
                 var configuration = HomeFilterBarConfiguration.followingSections.customized(sectionShown: sectionsOn)
                 configuration.move(fromOffsets: IndexSet(integer: source), toOffset: destination)
                 var expected = HomeFilterBarConfiguration.defaultOrder
@@ -65,7 +65,8 @@ struct HomeFilterBarConfigurationTests {
     func toleratesUnknownAndMissingNames() {
         let raw = #"{"order":["podcast","karaoke","music"],"hidden":["karaoke","music"]}"#
         let configuration = HomeFilterBarConfiguration.decode(raw)
-        #expect(configuration.order == [.podcast, .music, .radio, .spokenWord])
+        // 环境音插在默认顺序里它前一个邻居(播客)的后面。
+        #expect(configuration.order == [.podcast, .ambient, .music, .radio, .spokenWord])
         #expect(configuration.hidden == [.music])
     }
 
@@ -75,10 +76,10 @@ struct HomeFilterBarConfigurationTests {
         let noSpokenWord: (ListeningSpace) -> Bool = { $0 != .spokenWord }
         #expect(
             configuration.visibleSpaces(sectionShown: sectionsOn, isAvailable: noSpokenWord)
-                == [.music, .radio, .podcast]
+                == [.music, .radio, .podcast, .ambient]
         )
         var onlyMusic = configuration
-        for space in [ListeningSpace.radio, .spokenWord, .podcast] { onlyMusic.setShown(false, for: space) }
+        for space in [ListeningSpace.radio, .spokenWord, .podcast, .ambient] { onlyMusic.setShown(false, for: space) }
         #expect(onlyMusic.visibleSpaces(sectionShown: sectionsOn, isAvailable: everythingAvailable).isEmpty)
     }
 
@@ -90,7 +91,7 @@ struct HomeFilterBarConfigurationTests {
         let configuration = HomeFilterBarConfiguration.decode(raw)
         #expect(!configuration.followsSections)
         #expect(configuration.labelStyle == .automatic)
-        #expect(configuration.order == [.podcast, .music, .radio, .spokenWord])
+        #expect(configuration.order == [.podcast, .ambient, .music, .radio, .spokenWord])
         #expect(configuration.hidden == [.radio])
         #expect(!configuration.encoded().contains("labelStyle"))
         #expect(HomeFilterBarConfiguration.decode(configuration.encoded()) == configuration)
@@ -121,7 +122,7 @@ struct HomeFilterBarConfigurationTests {
         let radioOff: (ListeningSpace) -> Bool = { $0 != .radio }
         #expect(
             decoded.visibleSpaces(sectionShown: radioOff, isAvailable: everythingAvailable)
-                == [.music, .spokenWord, .podcast]
+                == [.music, .spokenWord, .podcast, .ambient]
         )
         // 老版本的存档结构两个字段都是必有的:解不出来就回到跟着区块走,不会把全部胶囊当成调过。
         struct LegacyStored: Decodable {
@@ -156,7 +157,7 @@ struct HomeFilterBarConfigurationTests {
         let raw = #"{"order":["radio","music"],"hidden":["music"],"labelStyle":"marquee"}"#
         let configuration = HomeFilterBarConfiguration.decode(raw)
         #expect(configuration.labelStyle == .automatic)
-        #expect(configuration.order == [.radio, .spokenWord, .podcast, .music])
+        #expect(configuration.order == [.radio, .spokenWord, .podcast, .ambient, .music])
         #expect(configuration.hidden == [.music])
         let following = HomeFilterBarConfiguration.decode(#"{"labelStyle":"marquee"}"#)
         #expect(following == .followingSections)
@@ -186,7 +187,7 @@ struct HomeFilterBarConfigurationTests {
         let decoded = HomeFilterBarConfiguration.decode(configuration.encoded())
         #expect(decoded.followsSections)
         #expect(decoded.monochrome)
-        #expect(decoded.visibleSpaces(sectionShown: { $0 != .radio }, isAvailable: { _ in true }) == [.music, .spokenWord, .podcast])
+        #expect(decoded.visibleSpaces(sectionShown: { $0 != .radio }, isAvailable: { _ in true }) == [.music, .spokenWord, .podcast, .ambient])
         let customized = decoded.customized { $0 != .radio }
         #expect(customized.monochrome)
         #expect(customized.hidden == [.radio])
@@ -208,6 +209,7 @@ struct HomeFilterBarConfigurationTests {
         case .radio: 24
         case .spokenWord: 18
         case .podcast: 25
+        case .ambient: 20
         }
         let title: Double = space == .spokenWord ? 45 : 30
         var width: Double = 28
@@ -219,11 +221,14 @@ struct HomeFilterBarConfigurationTests {
         return isSelected ? width + 15 : width
     }
 
+    /// 这一组退让的数字是按四颗胶囊量的(没有环境音时的那一排)。
+    private static let fourChips: [ListeningSpace] = [.music, .radio, .spokenWord, .podcast]
+
     private func fit(
         _ available: Double?,
         selection: ListeningSpace?,
         style: HomeFilterBarLabelStyle = .automatic,
-        spaces: [ListeningSpace] = HomeFilterBarConfiguration.defaultOrder,
+        spaces: [ListeningSpace] = HomeFilterBarConfigurationTests.fourChips,
         width: (ListeningSpace, HomeFilterBarChipContent, Bool) -> Double? = HomeFilterBarConfigurationTests.chineseChipWidth
     ) -> [HomeFilterBarChipContent] {
         let contents = HomeFilterBarFitPolicy.contents(
@@ -258,9 +263,9 @@ struct HomeFilterBarConfigurationTests {
     @Test("选中那颗在任何宽度下都是图标加文字")
     func selectedChipAlwaysKeepsIconAndTitle() {
         for available in stride(from: 60.0, through: 900, by: 7) {
-            for selection in HomeFilterBarConfiguration.defaultOrder {
+            for selection in Self.fourChips {
                 let contents = fit(available, selection: selection)
-                let index = HomeFilterBarConfiguration.defaultOrder.firstIndex(of: selection)!
+                let index = Self.fourChips.firstIndex(of: selection)!
                 #expect(contents[index] == .iconAndTitle)
             }
         }
@@ -268,7 +273,7 @@ struct HomeFilterBarConfigurationTests {
 
     @Test("挑出来的排法放得下就一定不超宽,而且是能放下的里面最完整的")
     func automaticPicksTheRichestFittingStep() {
-        let spaces = HomeFilterBarConfiguration.defaultOrder
+        let spaces = Self.fourChips
         for available in stride(from: 150.0, through: 500, by: 3) {
             for selection in [nil] + spaces.map(Optional.some) {
                 let contents = fit(available, selection: selection)
@@ -349,7 +354,7 @@ struct HomeFaceSwipePolicyTests {
         let decoded = HomeFilterBarConfiguration.decode(configuration.encoded())
         #expect(decoded.followsSections)
         #expect(decoded.appearance == .tuner)
-        #expect(decoded.visibleSpaces(sectionShown: { $0 != .radio }, isAvailable: { _ in true }) == [.music, .spokenWord, .podcast])
+        #expect(decoded.visibleSpaces(sectionShown: { $0 != .radio }, isAvailable: { _ in true }) == [.music, .spokenWord, .podcast, .ambient])
         let unknown = HomeFilterBarConfiguration.decode(#"{"order":["podcast","music","radio","spokenWord"],"hidden":["radio"],"appearance":"future","swipeEnabled":false}"#)
         #expect(unknown.appearance == .classic)
         #expect(unknown.order.first == .podcast)

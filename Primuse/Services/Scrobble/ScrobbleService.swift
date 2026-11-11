@@ -617,9 +617,12 @@ final class ScrobbleService {
         if let song = songLookup(entry.songID) {
             return ListeningHistorySpacePolicy.space(
                 songID: song.id, sourceID: song.sourceID, spokenWordSongIDs: []
-            ) == .music && !spokenWordStore.isSpokenWord(song)
+            ) == .music && spokenWordStore.isMusic(song)
         }
-        if let kind = spokenWordStore.overrides[entry.songID] { return kind == .music }
+        if let kind = spokenWordStore.overrides[entry.songID] {
+            // 环境音不上报;关了「单独归类环境音」时它就是普通音乐。
+            return kind == .music || (kind == .ambient && !spokenWordStore.separatesAmbient)
+        }
         guard let content = entry.content else { return nil }
         return spokenWordStore.classificationSnapshot.kind(
             songID: entry.songID, sourceID: content.sourceID, filePath: content.filePath,

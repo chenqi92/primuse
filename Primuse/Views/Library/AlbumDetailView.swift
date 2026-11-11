@@ -291,7 +291,7 @@ struct AlbumDetailView: View {
         )
     }
 
-    /// 专辑里曲库那几首共同的分类(音乐 / 有声书 / 播客),分属几类时为 nil。
+    /// 专辑里曲库那几首共同的分类(音乐 / 有声书 / 播客 / 环境音),分属几类时为 nil。
     private var songsListeningKind: ListeningContentKind? {
         ListeningKindMoveButtons.sharedKind(of: songs.lazy.map(\.id), in: library)
     }
@@ -1008,7 +1008,10 @@ struct AlbumDetailView: View {
             }, at: 1)
         }
         if !songs.isEmpty {
-            for kind in ListeningKindMoveButtons.targets(from: songsListeningKind) {
+            for kind in ListeningKindMoveButtons.targets(
+                from: songsListeningKind,
+                separatesAmbient: SpokenWordStore.shared.separatesAmbient
+            ) {
                 let label = ListeningKindMoveButtons.label(for: kind)
                 second.append(.init(icon: label.systemImage, title: label.title) { moveSongs(to: kind) })
             }

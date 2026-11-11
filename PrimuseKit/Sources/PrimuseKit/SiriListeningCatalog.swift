@@ -101,7 +101,8 @@ public enum SiriSleepTimerRequest: String, CaseIterable, Sendable {
         case .minutes90: return .set(.minutes(90))
         case .off: return .cancel
         case .endOfTrack, .endOfChapter:
-            guard let space, space != .radio else { return .unavailable }
+            // 直播没有尽头;环境音循环着放,「播完这一首」没有意义。
+            guard let space, space != .radio, space != .ambient else { return .unavailable }
             // Without chapter marks the item itself is the chapter; music has
             // no chapters, so "this chapter" means this song.
             if self == .endOfChapter,

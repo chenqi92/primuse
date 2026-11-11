@@ -256,6 +256,7 @@ struct StandardLibrarySectionTabs: View {
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var enabled = false
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey) private var orderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey) private var hiddenRawValue = ""
+    @Environment(MusicLibrary.self) private var library
 
     var body: some View {
         let sections = StandardLibrarySectionTabsPolicy.sections(
@@ -263,6 +264,8 @@ struct StandardLibrarySectionTabs: View {
             visibleSections: LibraryDisplayConfiguration.visibleSections(
                 orderRawValue: orderRawValue, hiddenRawValue: hiddenRawValue
             )
+            // 「环境音」只在真有环境音时出现,和资料库首页一样。
+            .filter { $0 != .ambient || library.hasAmbientContent }
         )
         if !sections.isEmpty {
             MinimalSectionTabs(

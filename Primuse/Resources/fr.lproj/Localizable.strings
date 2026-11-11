@@ -5772,6 +5772,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "Podcasts";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "Sons d’ambiance";
+"mark_as_ambient" = "Marquer comme son d’ambiance";
+"ambient_sounds_count" = "sons";
+"ambient_timer_unlimited" = "Sans limite";
+"ambient_back_to_music" = "Revenir à la musique";
+"ambient_empty_hint" = "Le bruit blanc, la pluie, les vagues, les sons de la nature et autres sons pour dormir apparaissent ici. Marquez un dossier ou un morceau comme son d’ambiance pour le placer ici.";
+"ambient_loose_group" = "Autres sons";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Les derniers épisodes des podcasts que vous suivez.";
 "home_cover_size_title" = "Taille des pochettes";

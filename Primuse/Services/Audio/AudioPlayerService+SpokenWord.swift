@@ -51,11 +51,15 @@ extension AudioPlayerService {
         }
         guard let song else {
             currentItemIsSpokenWord = false
+            if currentItemIsAmbient { currentItemIsAmbient = false }
             pendingSpokenWordSeekOverride = nil
             updateSpokenWordRemoteCommands()
             return
         }
-        currentItemIsSpokenWord = SpokenWordStore.shared.isSpokenWord(song)
+        let kind = SpokenWordStore.shared.kind(for: song)
+        currentItemIsSpokenWord = kind.isSpokenWordListening
+        let isAmbient = kind == .ambient && !isRadioPlaybackSong(song) && !PodcastPlaybackSong.isEpisode(song)
+        if currentItemIsAmbient != isAmbient { currentItemIsAmbient = isAmbient }
         if let override = pendingSpokenWordSeekOverride, override.songID != song.id {
             pendingSpokenWordSeekOverride = nil
         }
@@ -127,7 +131,10 @@ extension AudioPlayerService {
     /// shelf — while the library already showed it among the books.
     func refreshCurrentItemContentKind() {
         guard let song = currentSong else { return }
-        let isSpokenWord = SpokenWordStore.shared.isSpokenWord(song)
+        let kind = SpokenWordStore.shared.kind(for: song)
+        let isAmbient = kind == .ambient && !isRadioPlaybackSong(song) && !PodcastPlaybackSong.isEpisode(song)
+        if currentItemIsAmbient != isAmbient { currentItemIsAmbient = isAmbient }
+        let isSpokenWord = kind.isSpokenWordListening
         currentSpokenWordIntroOutro = isSpokenWord ? spokenWordIntroOutro(for: song) : nil
         guard isSpokenWord != currentItemIsSpokenWord else { return }
         currentItemIsSpokenWord = isSpokenWord

@@ -1740,10 +1740,10 @@ struct SongListView: View {
         case .library:
             library.musicSongs
         case .source(let sourceID):
-            library.spokenWordSongIDs.isEmpty
+            library.nonMusicSongIDs.isEmpty
                 ? library.visibleSongs(forSourceID: sourceID)
                 : library.visibleSongs(forSourceID: sourceID).filter {
-                    !library.spokenWordSongIDs.contains($0.id)
+                    !library.nonMusicSongIDs.contains($0.id)
                 }
         }
     }

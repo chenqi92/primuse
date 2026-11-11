@@ -105,13 +105,14 @@ extension AudioPlayerService {
 /// Which songs can have a playback range: the ones the app decodes itself.
 /// Apple Music plays through the system player and a standalone music video
 /// through AVPlayer; spoken word keeps its own resume positions instead.
+/// 环境音整段循环着放,截一段出来没有意义,同样不给。
 enum SongPlaybackRangeAvailability {
     @MainActor
     static func supports(_ song: Song) -> Bool {
         song.sourceID != AppleMusicLibraryService.systemSourceID
             && !song.isStandaloneMusicVideo
             && !PodcastPlaybackSong.isEpisode(song)
-            && !SpokenWordStore.shared.isSpokenWord(song)
+            && SpokenWordStore.shared.isMusic(song)
     }
 }
 
@@ -218,9 +219,10 @@ extension AudioPlayerService {
 
     /// 本机解码的歌才能来回跳:Apple Music、投放、电台、串烧不行,卡拉OK 舞台有自己的逐句循环。
     /// 跳回靠 seek,seek 此刻不动的时候(整首下载起播还没完、边下边放的歌还没缓存完整)也不行。
+    /// 环境音整段循环,不给 A-B。
     var canUseABRepeat: Bool {
         guard let song = currentSong, !isLiveRadio, !isAppleMusicMode, !isCastingMode,
-              !isMedleyActive, !isKaraokeSessionActive,
+              !isMedleyActive, !isKaraokeSessionActive, !currentItemIsAmbient,
               activeStreamingDownloadPreparation == nil else { return false }
         if activeDecoderKind == .streaming, completedFullDownloadURL(for: song) == nil { return false }
         let range = abRepeatPlayableRange

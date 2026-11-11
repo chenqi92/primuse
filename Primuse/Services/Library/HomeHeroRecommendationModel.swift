@@ -91,7 +91,7 @@ final class HomeHeroRecommendationModel {
            saved.day == day, saved.count == count,
            saved.usesAI == usesAI, saved.routingSignature == routingSignature {
             let restoredSongs = saved.songIDs.compactMap { library.unobservedVisibleSong(id: $0) }
-                .filter { $0.isPlayable && !SpokenWordStore.shared.isSpokenWord($0) && !disliked.contains($0.id) }
+                .filter { $0.isPlayable && SpokenWordStore.shared.isMusic($0) && !disliked.contains($0.id) }
             let restoredAlbums = saved.albumIDs.compactMap { library.visibleAlbum(id: $0) }
             if restoredSongs.count == saved.songIDs.count,
                restoredAlbums.count == saved.albumIDs.count, !restoredSongs.isEmpty,

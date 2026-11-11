@@ -5678,6 +5678,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "पॉडकास्ट";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "परिवेश ध्वनियाँ";
+"mark_as_ambient" = "परिवेश ध्वनि के रूप में चिह्नित करें";
+"ambient_sounds_count" = "ध्वनियाँ";
+"ambient_timer_unlimited" = "कोई सीमा नहीं";
+"ambient_back_to_music" = "संगीत पर वापस जाएँ";
+"ambient_empty_hint" = "व्हाइट नॉइज़, बारिश, समुद्र की लहरें, प्रकृति की आवाज़ें और दूसरी नींद वाली ध्वनियाँ यहाँ दिखती हैं। किसी फ़ोल्डर या गाने को परिवेश ध्वनि के रूप में चिह्नित करें, तो वह यहाँ आ जाएगा।";
+"ambient_loose_group" = "अन्य ध्वनियाँ";
 "home_section_podcasts" = "पॉडकास्ट";
 "home_section_podcasts_hint" = "आपके फ़ॉलो किए पॉडकास्ट के नवीनतम एपिसोड।";
 "home_cover_size_title" = "कवर का आकार";

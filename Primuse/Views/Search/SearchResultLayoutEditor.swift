@@ -9,7 +9,7 @@ extension SearchResultSection {
         case .path: .path
         case .lyrics: .lyrics
         case .fuzzy: .fuzzy
-        case .albums, .artists, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord: nil
+        case .albums, .artists, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient: nil
         }
     }
 
@@ -76,6 +76,8 @@ struct SearchResultLayoutEditor: View {
     let showsAppleMusicRow: Bool
     var showsRadioRow = true
     var showsSpokenWordRow = true
+    /// 没有环境音(或关了单独归类)时不列这一行。
+    var showsAmbientRow = false
 
     @AppStorage(SearchResultSectionLayout.orderKey) private var orderRawValue = ""
     @AppStorage(SearchResultSectionLayout.hiddenKey) private var hiddenRawValue = ""
@@ -101,6 +103,7 @@ struct SearchResultLayoutEditor: View {
             case .appleMusic: showsAppleMusicRow
             case .radio: showsRadioRow
             case .spokenWord: showsSpokenWordRow
+            case .ambient: showsAmbientRow
             default: true
             }
         }

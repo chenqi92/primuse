@@ -36,6 +36,8 @@ struct MacSidebar: View {
             orderRawValue: librarySectionOrderRawValue,
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
+        // 环境音只在真有环境音时占一行。
+        .filter { $0 != .ambient || library.hasAmbientContent }
     }
 
     /// 「资料库」分组里的行: 照设置 › 外观里排好的顺序与显隐, 设置页那张列表就是这一组的样子。
@@ -168,6 +170,13 @@ struct MacSidebar: View {
                 icon: section.icon,
                 title: ListeningSpace.podcast.titleKey,
                 trailing: countLabel(PodcastStore.shared.shows.count)
+            )
+        case .ambient:
+            item(
+                route: .section(.ambient),
+                icon: section.icon,
+                title: ListeningSpace.ambient.titleKey,
+                trailing: countLabel(library.ambientSongs.count)
             )
         case .albums:
             item(

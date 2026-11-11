@@ -1863,6 +1863,7 @@ final class AppServices {
         listeningWidgets.start()
         listeningWidgetPublisher = listeningWidgets
         observeLocalPodcastFiles()
+        observeAmbientSounds()
         observeSiriRadioCatalog()
         observeSpotlightSynchronization()
         musicIntelligence.start()
@@ -1942,6 +1943,17 @@ final class AppServices {
             Task { @MainActor [weak self] in self?.observeLocalPodcastFiles() }
         }
         if hasLocalPodcasts { LibraryDisplayConfiguration.revealPodcastsForLocalFilesIfNeeded() }
+    }
+
+    /// 第一次识别到环境音:收着的「环境音」分类亮出来一次(首页那颗胶囊跟着出现)。亮过一次就不再盯着。
+    private func observeAmbientSounds() {
+        guard !UserDefaults.standard.bool(forKey: AmbientSoundLibrarySection.revealedKey) else { return }
+        let hasAmbient = withObservationTracking {
+            musicLibrary.hasAmbientContent
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.observeAmbientSounds() }
+        }
+        if hasAmbient { LibraryDisplayConfiguration.revealAmbientIfNeeded() }
     }
 
     func completeDeferredStartup() async {
@@ -3232,11 +3244,16 @@ final class AppServices {
                 mediaName: title,
                 artistName: artist
             )
-            // 歌曲先挑;只有书里的章节叫这个名字时,才去书里从那一章接着听。
+            // 歌曲先挑;只有书里的章节叫这个名字时,才去书里从那一章接着听。点名要一段环境音
+            // (「用 Primuse 放雨声」)时最后在环境音里找,找到了照样循环着放。
             guard let match = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
                 musicSongs: library.musicSongs,
                 spokenWordSongs: library.spokenWordSongs
+            ) ?? SiriMediaSearchResolver.resolvePreferringMusic(
+                query: query,
+                musicSongs: library.ambientSongs,
+                spokenWordSongs: []
             ), let song = match.queue.first else {
                 guard !songs.isEmpty else {
                     // 冷启动时被 Siri 唤起、资料库还没装完,报"库里没有"是假话。

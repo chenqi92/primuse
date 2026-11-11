@@ -81,6 +81,7 @@ extension ListeningSpace {
         case .radio: "listening_space_radio"
         case .spokenWord: "listening_space_spoken_word"
         case .podcast: "listening_space_podcast"
+        case .ambient: "listening_space_ambient"
         }
     }
 
@@ -90,6 +91,7 @@ extension ListeningSpace {
         case .radio: String(localized: "listening_space_radio")
         case .spokenWord: String(localized: "listening_space_spoken_word")
         case .podcast: String(localized: "listening_space_podcast")
+        case .ambient: String(localized: "listening_space_ambient")
         }
     }
 }
@@ -224,6 +226,7 @@ extension LibrarySection {
         case .radio: self = .radio
         case .spokenWord: self = .spokenWord
         case .podcast: self = .podcasts
+        case .ambient: self = .ambient
         }
     }
 }

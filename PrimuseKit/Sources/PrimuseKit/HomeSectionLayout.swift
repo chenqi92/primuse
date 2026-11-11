@@ -612,7 +612,7 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
     public static let storageKey = "primuse.home.filterBar.v1"
     public static let showsLibrarySectionsKey = "primuse.home.showsLibrarySections.v1"
 
-    public static let defaultOrder: [ListeningSpace] = [.music, .radio, .spokenWord, .podcast]
+    public static let defaultOrder: [ListeningSpace] = [.music, .radio, .spokenWord, .podcast, .ambient]
 
     /// 没调过:默认顺序,显隐跟着区块开关。
     public static let followingSections = HomeFilterBarConfiguration(

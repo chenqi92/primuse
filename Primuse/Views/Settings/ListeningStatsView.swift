@@ -497,7 +497,7 @@ extension ListeningStatsView {
                     switch classification.space(for: entry) {
                     case .music: music.append(entry)
                     case .spokenWord: spokenWord.append(entry)
-                    case .podcast, .radio: break
+                    case .podcast, .radio, .ambient: break
                     }
                 }
                 let resolvedArchive = ArchivedHistory(clearedAt: clearedAt,

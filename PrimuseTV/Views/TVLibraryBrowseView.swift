@@ -12,6 +12,8 @@ struct TVBrowseDestination: Identifiable {
     let id: String
     let title: String
     let songIDs: [String]
+    /// 环境音那一份:每段单独循环着放,不给随机与串烧。
+    var isAmbient = false
 }
 
 struct TVSongCollectionView: View {
@@ -37,10 +39,12 @@ struct TVSongCollectionView: View {
                     TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid) {
                         play(shuffled: false)
                     }
-                    TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle") {
-                        play(shuffled: true)
+                    if !destination.isAmbient {
+                        TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle") {
+                            play(shuffled: true)
+                        }
+                        TVMedleyButton(songIDs: destination.songIDs, onStarted: finishPlayback)
                     }
-                    TVMedleyButton(songIDs: destination.songIDs, onStarted: finishPlayback)
                     Spacer(minLength: 0)
                 }
                 .frame(width: 410, alignment: .leading)

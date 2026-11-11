@@ -1138,9 +1138,9 @@ extension LyricsLoader {
     /// 在线歌词源按「标题+艺人」找歌词，有声内容的标题是「第 12 集」「Chapter 3」
     /// 这类章节名，搜到的只会是同名歌曲的歌词，和正在讲的内容毫无关系。所以有声
     /// 内容只认源里自带的（同目录 .lrc/.vtt/.srt、内嵌、服务端），自动在线查找
-    /// 一律不走；用户在刮削页手动搜仍然可以。
+    /// 一律不走；用户在刮削页手动搜仍然可以。环境音(雨声、白噪音)没有歌词可找,同样不走。
     static func songAcceptsAutomaticOnlineLyrics(_ song: Song) -> Bool {
-        !SpokenWordStore.shared.isSpokenWord(song)
+        SpokenWordStore.shared.isMusic(song)
     }
 
     /// Tier4：本地/网盘等普通源确实没有歌词时，按启用顺序向在线歌词源取一次并写入缓存。

@@ -4388,6 +4388,7 @@ final class MusicLibrary {
                 PlayHistoryStore.shared.spokenWordSongIDs = spokenWordSongIDs
             }
             if oldValue != spokenWordSongIDs {
+                nonMusicSongIDsCache = nil
                 spokenWordClassificationRevision &+= 1
                 shuffleLinkGraphCache = nil
             }
@@ -4397,6 +4398,41 @@ final class MusicLibrary {
     /// 顺序一首没动,`visibleSongCollectionRevision` 不会变;按修订号缓存「音乐」
     /// 列表的读者(电视的查找表、随机队列)靠这一个失效。
     private(set) var spokenWordClassificationRevision = 0
+
+    /// 环境音(白噪音、雨声这类),在 `visibleSongs` 里的先后。不进 `musicSongs`,
+    /// 也不上书架;环境音页、搜索、目录和歌单里到得了。
+    private(set) var ambientSongs: [Song] = [] {
+        didSet {
+            ambientContentRevision &+= 1
+            if hasAmbientContent == ambientSongs.isEmpty { hasAmbientContent = !ambientSongs.isEmpty }
+        }
+    }
+    private(set) var ambientContentRevision: UInt64 = 0
+    /// 有没有环境音。入口要不要出现只问这一句,不订阅整份数组。
+    private(set) var hasAmbientContent = false
+    @ObservationIgnored private(set) var ambientSongIDs: Set<String> = [] {
+        didSet {
+            if PlayHistoryStore.shared.ambientSongIDs != ambientSongIDs {
+                PlayHistoryStore.shared.ambientSongIDs = ambientSongIDs
+            }
+            if oldValue != ambientSongIDs {
+                nonMusicSongIDsCache = nil
+                spokenWordClassificationRevision &+= 1
+                shuffleLinkGraphCache = nil
+            }
+        }
+    }
+    @ObservationIgnored private var nonMusicSongIDsCache: Set<String>?
+
+    /// 不算音乐的曲目:有声书、本机播客文件与环境音。只想把它们挡在音乐列表、推荐、统计外面的地方读它;
+    /// 要的是「按有声的方式播」时读 `spokenWordSongIDs`。没有环境音时就是 `spokenWordSongIDs` 本身。
+    var nonMusicSongIDs: Set<String> {
+        guard !ambientSongIDs.isEmpty else { return spokenWordSongIDs }
+        if let cached = nonMusicSongIDsCache { return cached }
+        let union = spokenWordSongIDs.union(ambientSongIDs)
+        nonMusicSongIDsCache = union
+        return union
+    }
 
     /// The listener's own podcast files — downloaded episodes in a music
     /// source, marked or tagged as podcasts. Played the spoken-word way, kept
@@ -4687,6 +4723,9 @@ final class MusicLibrary {
         let spokenWordSongIDs: Set<String>
         /// The listener's own podcast files (`ListeningContentKind.podcast`).
         let podcastSongs: [Song]
+        /// 环境音,和 `musicSongs` 在同一趟里分出来。
+        let ambientSongs: [Song]
+        let ambientSongIDs: Set<String>
         /// Local podcast item id → show id, grouped like books.
         let podcastBookIDs: [String: String]
         /// Spoken-word item id → book id, as the bookshelf groups them.
@@ -5512,6 +5551,11 @@ final class MusicLibrary {
             spokenWordContentRevision &+= 1
         }
         spokenWordSongIDs = prepared.spokenWordSongIDs
+        ambientSongIDs = prepared.ambientSongIDs
+        // 扫描时每批都发布一次,没变就不写,环境音页不必跟着重画。
+        if ambientSongs != prepared.ambientSongs {
+            ambientSongs = prepared.ambientSongs
+        }
         // 有书或节目这次分组里没了:多半是换了 id(读出第一集的专辑,按目录成书改按专辑成书),
         // 按章节找出接手的书,把按书 id 记的设置带过去。
         let previousBookIDs = spokenWordBookIDs
@@ -5629,12 +5673,24 @@ final class MusicLibrary {
         // in the listener's library stay out of the music lists as well.
         let spokenWordSongIDs = lookups.spokenWordSongIDs
         let collectionOnlySongIDs = lookups.collectionOnlySongIDs
-        let splitsMusic = !spokenWordSongIDs.isEmpty || !collectionOnlySongIDs.isEmpty
-        let musicSongs = splitsMusic
-            ? nextVisibleSongs.filter {
-                !spokenWordSongIDs.contains($0.id) && !collectionOnlySongIDs.contains($0.id)
+        let ambientSongIDs = lookups.ambientSongIDs
+        let splitsMusic = !spokenWordSongIDs.isEmpty || !collectionOnlySongIDs.isEmpty || !ambientSongIDs.isEmpty
+        // 环境音和音乐在同一趟里分出来,不为它再走一遍整库。
+        var ambientSongs: [Song] = []
+        let musicSongs: [Song]
+        if splitsMusic {
+            var music: [Song] = []
+            for song in nextVisibleSongs {
+                if ambientSongIDs.contains(song.id) {
+                    ambientSongs.append(song)
+                } else if !spokenWordSongIDs.contains(song.id), !collectionOnlySongIDs.contains(song.id) {
+                    music.append(song)
+                }
             }
-            : nextVisibleSongs
+            musicSongs = music
+        } else {
+            musicSongs = nextVisibleSongs
+        }
         // 本机下载的播客单集也是有声的听法(不进音乐),但不上书架,单独放在播客那边。
         let podcastSongIDs = lookups.podcastSongIDs
         let spokenWordSongs = spokenWordSongIDs.isEmpty
@@ -5713,6 +5769,8 @@ final class MusicLibrary {
             spokenWordSongs: spokenWordSongs,
             spokenWordSongIDs: spokenWordSongIDs,
             podcastSongs: podcastSongs,
+            ambientSongs: ambientSongs,
+            ambientSongIDs: ambientSongIDs,
             podcastBookIDs: podcastBookIDs,
             spokenWordBookIDs: spokenWordPlacement.bookIDs,
             spokenWordBookIDSet: Set(spokenWordPlacement.bookIDs.values),
@@ -5769,6 +5827,7 @@ final class MusicLibrary {
         preferredArtworkSongIDByArtistID: [String: String],
         spokenWordSongIDs: Set<String>,
         podcastSongIDs: Set<String>,
+        ambientSongIDs: Set<String>,
         collectionOnlySongIDs: Set<String>,
         musicArtistIDs: Set<String>,
         releaseMetadataIndex: AlbumReleaseMetadataIndex
@@ -5791,6 +5850,7 @@ final class MusicLibrary {
         // filter over the library would walk every row a second time.
         var spokenWordSongIDs: Set<String> = []
         var podcastSongIDs: Set<String> = []
+        var ambientSongIDs: Set<String> = []
         var collectionOnlySongIDs: Set<String> = []
         let collectionOnlyCandidates = spokenWordClassification.collectionOnlySongIDs
         var musicArtistIDs: Set<String> = []
@@ -5818,9 +5878,10 @@ final class MusicLibrary {
                         genreVerdicts: &spokenWordGenreVerdicts
                     )
                 }
-                let isSpokenWord = kind.isSpokenWordListening
-                if isSpokenWord { spokenWordSongIDs.insert(song.id) }
+                if kind.isSpokenWordListening { spokenWordSongIDs.insert(song.id) }
                 if kind == .podcast { podcastSongIDs.insert(song.id) }
+                if kind == .ambient { ambientSongIDs.insert(song.id) }
+                let isSeparateFromMusic = kind.isSeparateFromMusic
                 let artistFields = ArtistResolutionFields(song)
                 let artistIDs: [String]
                 if let memoized = artistIDsByFields[artistFields] {
@@ -5832,7 +5893,7 @@ final class MusicLibrary {
                     )
                     artistIDsByFields[artistFields] = artistIDs
                 }
-                if !isSpokenWord, !isCollectionOnly, musicArtistFields.insert(artistFields).inserted {
+                if !isSeparateFromMusic, !isCollectionOnly, musicArtistFields.insert(artistFields).inserted {
                     musicArtistIDs.formUnion(artistIDs)
                 }
                 for artistID in artistIDs {
@@ -5859,6 +5920,7 @@ final class MusicLibrary {
             preferredArtworkPositionByArtistID.mapValues { songs[$0].id },
             spokenWordSongIDs,
             podcastSongIDs,
+            ambientSongIDs,
             collectionOnlySongIDs,
             musicArtistIDs,
             releaseMetadataIndex
@@ -9791,12 +9853,13 @@ final class MusicLibrary {
 
     /// Recently played music. Spoken word is left out — a book is resumed
     /// from its own shelf, and one evening of chapters would otherwise fill
-    /// the row.
+    /// the row. 环境音同样不算:一晚上的雨声不该占满这一排。
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
         _ = visibleSongsReference
         _ = musicSongsReference
         var result: [Song] = []
-        for songID in recentPlaybackSongIDs where !spokenWordSongIDs.contains(songID) {
+        let nonMusic = nonMusicSongIDs
+        for songID in recentPlaybackSongIDs where !nonMusic.contains(songID) {
             guard result.count < limit else { break }
             if let song = lookupVisibleSong(songID) { result.append(song) }
         }
@@ -11068,9 +11131,10 @@ final class MusicLibrary {
     }
 
     private func unobservedShuffleLinkNeighbor(of songID: String, direction: ShuffleLinkDirection) -> Song? {
-        guard !spokenWordSongIDs.contains(songID),
+        let nonMusic = nonMusicSongIDs
+        guard !nonMusic.contains(songID),
               let albumID = lookupVisibleSong(songID)?.albumID else { return nil }
-        let album = unobservedSongs(forAlbum: albumID).filter { !spokenWordSongIDs.contains($0.id) }
+        let album = unobservedSongs(forAlbum: albumID).filter { !nonMusic.contains($0.id) }
         guard let position = album.firstIndex(where: { $0.id == songID }) else { return nil }
         let neighbor = direction == .next ? position + 1 : position - 1
         return album.indices.contains(neighbor) ? album[neighbor] : nil

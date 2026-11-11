@@ -5678,6 +5678,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "Подкасты";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "Звуки окружения";
+"mark_as_ambient" = "Отметить как звук окружения";
+"ambient_sounds_count" = "звуков";
+"ambient_timer_unlimited" = "Без ограничения";
+"ambient_back_to_music" = "Вернуться к музыке";
+"ambient_empty_hint" = "Здесь появятся белый шум, дождь, шум моря, звуки природы и другие звуки для сна. Отметьте папку или трек как звук окружения, чтобы перенести его сюда.";
+"ambient_loose_group" = "Другие звуки";
 "home_section_podcasts" = "Подкасты";
 "home_section_podcasts_hint" = "Свежие выпуски подкастов, на которые вы подписаны.";
 "home_cover_size_title" = "Размер обложек";

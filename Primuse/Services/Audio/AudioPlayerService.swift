@@ -1457,6 +1457,9 @@ final class AudioPlayerService {
     var currentChapterIndex: Int?
     /// True while the current item is spoken word, including podcasts.
     var currentItemIsSpokenWord = false
+    /// 正在放的是环境音:播放页换成环境音的版式,全屏很快进休憩层。换条目、改分类时跟着更新,
+    /// 播放页每次重画只读这一个值,不逐次去分类。
+    var currentItemIsAmbient = false
     @ObservationIgnored var lastSpokenWordPositionSave: TimeInterval = 0
     @ObservationIgnored var chapterLoadTask: Task<Void, Never>?
     @ObservationIgnored var chapterLoadedSongID: String?

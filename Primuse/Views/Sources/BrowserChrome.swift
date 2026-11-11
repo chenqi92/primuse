@@ -331,6 +331,7 @@ extension ListeningContentKind {
         case .music: .music
         case .spokenWord: .spokenWord
         case .podcast: .podcast
+        case .ambient: .ambient
         }
     }
 }
@@ -402,7 +403,10 @@ struct DirectoryFolderTagMenu: View {
     var body: some View {
         Menu {
             Section {
-                ForEach(ListeningContentKind.allCases, id: \.rawValue) { kind in
+                // 关了「单独归类环境音」时不给这一项;已经标成环境音的目录照样列出,好改回去。
+                ForEach(ListeningContentKind.allCases.filter {
+                    $0 != .ambient || SpokenWordStore.shared.separatesAmbient || tag.kind == .ambient
+                }, id: \.rawValue) { kind in
                     option(kind.directorySpace, kind: kind)
                 }
             } header: {

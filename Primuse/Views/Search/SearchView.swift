@@ -640,6 +640,8 @@ struct SearchView: View {
     @State private var expandedSpaceGroups: Set<ListeningSpaceSearchScope> = []
     @State private var radioHits: [RadioSearchHit] = []
     @State private var bookHits: [BookSearchHit] = []
+    /// 环境音的命中:不在歌曲结果里,单独一组。环境音不多,每轮搜索在内存里直接对一遍。
+    @State private var ambientHits: [PrimuseKit.Song] = []
     /// 明文 HTTP 的电台起播前要先问一句, 和电台页一样。
     @State private var pendingInsecureStation: RadioStation?
     #if os(macOS)
@@ -736,6 +738,7 @@ struct SearchView: View {
             case .appleMusic: appleMusicSearchEnabled
             case .radio: showsSpace(.radio)
             case .spokenWord: showsSpace(.spokenWord)
+            case .ambient: showsSpace(.ambient)
             default: layout.shows(section)
             }
         }
@@ -750,7 +753,8 @@ struct SearchView: View {
                 disabledSourceIDs: library.disabledSourceIDs
             ),
             showsRadioRow: radioSearchAvailable,
-            showsSpokenWordRow: spokenWordSearchAvailable
+            showsSpokenWordRow: spokenWordSearchAvailable,
+            showsAmbientRow: library.hasAmbientContent
         )
     }
 
@@ -767,6 +771,7 @@ struct SearchView: View {
             case .appleMusic: appleMusicSearchEnabled
             case .radio: !radioHits.isEmpty
             case .spokenWord: !bookHits.isEmpty
+            case .ambient: !ambientHits.isEmpty
             }
         })
         #if os(iOS)
@@ -813,6 +818,8 @@ struct SearchView: View {
         case .spokenWord: scope == nil && spokenWordSearchAvailable && resultLayout.shows(.spokenWord)
         // 订阅的播客在播客页里搜(发现页),全局搜索暂不混进来。
         case .podcast: false
+        // 环境音收起了资料库分类也照样搜得到:那时搜索、目录和歌单是到达它们的地方。
+        case .ambient: scope == nil && library.hasAmbientContent && resultLayout.shows(.ambient)
         }
     }
 
@@ -903,6 +910,7 @@ struct SearchView: View {
         (showsSpace(.music) && musicHasResults)
             || (showsSpace(.radio) && !radioHits.isEmpty)
             || (showsSpace(.spokenWord) && !bookHits.isEmpty)
+            || (showsSpace(.ambient) && !ambientHits.isEmpty)
     }
 
     /// 「全部」页里电台、有声各露几条。
@@ -920,8 +928,10 @@ struct SearchView: View {
             if !radioHits.isEmpty { radioHits = [] }
             workCoordinator.cancelBookSearch()
             if !bookHits.isEmpty { bookHits = [] }
+            if !ambientHits.isEmpty { ambientHits = [] }
             return
         }
+        refreshAmbientHits(query: query)
 
         let stations = showsSpace(.radio) ? radioStore.stations : []
         let playingID = player.isLiveRadio ? player.currentRadioStation?.id : nil
@@ -1025,6 +1035,33 @@ struct SearchView: View {
             coordinator.groupedBooks = result.0
             bookHits = result.1
         }
+    }
+
+    private func refreshAmbientHits(query: String) {
+        let sounds = showsSpace(.ambient) ? library.ambientSongs : []
+        guard !sounds.isEmpty else {
+            if !ambientHits.isEmpty { ambientHits = [] }
+            return
+        }
+        let byID = Dictionary(sounds.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let hits = ListeningSpaceSearchPolicy.matchAmbientSounds(
+            query: query,
+            in: sounds.map(ListeningSpaceSearchPolicy.AmbientCandidate.init(song:))
+        ).compactMap { byID[$0] }
+        if hits.map(\.id) != ambientHits.map(\.id) { ambientHits = hits }
+    }
+
+    /// 点一条环境音:和它同一组的几段一起进队列,循环着放。
+    private func playAmbientSound(_ song: PrimuseKit.Song) {
+        addRecentSearch(searchText)
+        if player.currentSong?.id == song.id {
+            player.togglePlayPause()
+            return
+        }
+        let group = AmbientSoundGrouping.groups(for: library.ambientSongs)
+            .first { $0.songIDs.contains(song.id) }
+        let queue = group?.songIDs.compactMap { id in library.ambientSongs.first { $0.id == id } } ?? [song]
+        AmbientSoundPlayback.play(song, among: queue, player: player, timerMinutes: nil)
     }
 
     private func playStation(_ station: RadioStation) {
@@ -1296,6 +1333,11 @@ struct SearchView: View {
         }
         .onChange(of: library.spokenWordSongCount) { _, _ in
             // 有歌被改标成有声 / 音乐: 两边的结果都要重算。
+            guard !searchText.isEmpty else { return }
+            performSearch(query: searchText)
+        }
+        .onChange(of: library.ambientContentRevision) { _, _ in
+            // 有歌被归到环境音 / 归回音乐: 歌曲与环境音两组都要重算。
             guard !searchText.isEmpty else { return }
             performSearch(query: searchText)
         }
@@ -1946,6 +1988,8 @@ struct SearchView: View {
             return radioHits.count
         case .spokenWord:
             return bookHits.count
+        case .ambient:
+            return ambientHits.count
         }
     }
 
@@ -2093,6 +2137,8 @@ struct SearchView: View {
             macRadioBlock(showsAll: expandedSpaceGroups.contains(.radio))
         case .spokenWord:
             macBookBlock(showsAll: expandedSpaceGroups.contains(.spokenWord))
+        case .ambient:
+            macAmbientBlock(showsAll: expandedSpaceGroups.contains(.ambient))
         }
     }
 
@@ -2652,7 +2698,7 @@ struct SearchView: View {
             macSongBucket(kind: .fuzzy, title: "search_section_fuzzy", showsAllResults: showsAllResults)
         case .intelligent:
             macSemanticSection(limit: showsAllResults ? 40 : 6)
-        case .albums, .artists, .appleMusic, .playlists, .folders, .radio, .spokenWord:
+        case .albums, .artists, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient:
             EmptyView()
         }
     }
@@ -2785,6 +2831,32 @@ struct SearchView: View {
                         playBook(hit)
                     } label: {
                         bookResultRow(hit, compact: true)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .pmRowBackground(cornerRadius: 6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macAmbientBlock(showsAll: Bool) -> some View {
+        let columns = SearchResultPageLayout.columnCount(for: Double(macResultsWidth))
+        let hits = showsAll ? ambientHits : Array(ambientHits.prefix(spacePreviewLimit(columns: columns)))
+        if !hits.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                macSpaceBlockHeader(
+                    "listening_space_ambient",
+                    systemImage: ListeningSpace.ambient.systemImage,
+                    seeAll: !showsAll && ambientHits.count > hits.count ? .ambient : nil
+                )
+                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4, lazily: showsAll) { _, song in
+                    Button {
+                        playAmbientSound(song)
+                    } label: {
+                        AmbientSoundSearchRow(song: song, isCurrent: player.currentSong?.id == song.id, compact: true)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)
                             .pmRowBackground(cornerRadius: 6)
@@ -3643,6 +3715,8 @@ struct SearchView: View {
             radioResultsSection
         case .spokenWord:
             bookResultsSection
+        case .ambient:
+            ambientResultsSection
         case .metadata:
             songSection(kind: .metadata, titleKey: "tab_songs")
         case .path:
@@ -3706,6 +3780,38 @@ struct SearchView: View {
                     spaceSectionHeader(
                         title: "tab_spoken_word",
                         seeAll: isPreview && bookHits.count > hits.count ? .spokenWord : nil
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ambientResultsSection: some View {
+        let isPreview = focusedResultSection != .ambient && !expandedSpaceGroups.contains(.ambient)
+        let hits = isPreview ? Array(ambientHits.prefix(spacePreviewLimit())) : ambientHits
+        if !hits.isEmpty {
+            Section {
+                ForEach(hits) { song in
+                    Button {
+                        playAmbientSound(song)
+                    } label: {
+                        AmbientSoundSearchRow(song: song, isCurrent: player.currentSong?.id == song.id)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .contextMenu {
+                        ListeningKindMoveButtons(current: .ambient) { kind in
+                            SpokenWordStore.shared.move([song], to: kind)
+                            library.refreshContentClassification()
+                        }
+                    }
+                }
+            } header: {
+                if focusedResultSection != .ambient {
+                    spaceSectionHeader(
+                        title: "listening_space_ambient",
+                        seeAll: isPreview && ambientHits.count > hits.count ? .ambient : nil
                     )
                 }
             }

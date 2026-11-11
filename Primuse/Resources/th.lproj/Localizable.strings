@@ -5678,6 +5678,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "พอดแคสต์";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "เสียงบรรยากาศ";
+"mark_as_ambient" = "ทำเครื่องหมายเป็นเสียงบรรยากาศ";
+"ambient_sounds_count" = "เสียง";
+"ambient_timer_unlimited" = "ไม่จำกัดเวลา";
+"ambient_back_to_music" = "กลับไปที่เพลง";
+"ambient_empty_hint" = "เสียงไวท์นอยส์ เสียงฝน เสียงคลื่น เสียงธรรมชาติ และเสียงช่วยนอนอื่นๆ จะแสดงที่นี่ ทำเครื่องหมายโฟลเดอร์หรือเพลงเป็นเสียงบรรยากาศเพื่อย้ายมาไว้ที่นี่";
+"ambient_loose_group" = "เสียงอื่นๆ";
 "home_section_podcasts" = "พอดแคสต์";
 "home_section_podcasts_hint" = "ตอนล่าสุดจากพอดแคสต์ที่คุณติดตาม";
 "home_cover_size_title" = "ขนาดปก";

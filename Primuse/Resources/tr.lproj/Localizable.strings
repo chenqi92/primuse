@@ -5678,6 +5678,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "Podcast'ler";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "Ortam sesleri";
+"mark_as_ambient" = "Ortam sesi olarak işaretle";
+"ambient_sounds_count" = "ses";
+"ambient_timer_unlimited" = "Sınırsız";
+"ambient_back_to_music" = "Müziğe dön";
+"ambient_empty_hint" = "Beyaz gürültü, yağmur, dalga sesleri, doğa sesleri ve diğer uyku sesleri burada görünür. Bir klasörü veya şarkıyı ortam sesi olarak işaretleyerek buraya taşıyabilirsiniz.";
+"ambient_loose_group" = "Diğer sesler";
 "home_section_podcasts" = "Podcast'ler";
 "home_section_podcasts_hint" = "Takip ettiğiniz podcast'lerin en yeni bölümleri.";
 "home_cover_size_title" = "Kapak boyutu";

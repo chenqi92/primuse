@@ -495,6 +495,8 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertFalse(visible.contains(.recommendations))
         XCTAssertFalse(visible.contains(.statistics))
         XCTAssertFalse(visible.contains(.podcasts))
+        // 环境音默认收着,第一次识别到内容时才亮出来。
+        XCTAssertFalse(visible.contains(.ambient))
         XCTAssertTrue(visible.contains(.releaseDate))
         XCTAssertEqual(visible.first, .favorites)
     }
@@ -506,7 +508,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertEqual(
             LibraryDisplayConfiguration.decodeSectionOrder(rawValue),
             [.favorites, .albums, .songs, .artists, .genres, .folders, .releaseDate, .playlists, .radio,
-             .spokenWord, .podcasts, .recommendations, .statistics]
+             .spokenWord, .podcasts, .ambient, .recommendations, .statistics]
         )
     }
 

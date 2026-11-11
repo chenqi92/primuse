@@ -49,7 +49,7 @@ final class PlayHistoryStore {
     }
 
     /// 随历史记录保存，来源停用、文件移除和跨设备同步后仍能识别内容。
-    struct Content: Codable, Hashable, Sendable {
+    struct Content: Hashable, Sendable {
         var kind: ListeningSpace
         var filePath: String?
         var genre: String?
@@ -61,6 +61,8 @@ final class PlayHistoryStore {
         var library: VisibleSongLookup? = nil
         var inputs: SpokenWordClassificationInputs = .empty
         var legacySpokenWordIDs: Set<String> = []
+        /// 曲库此刻认成环境音的歌;记录里没有内容、曲库里也找不到时按它认。
+        var legacyAmbientIDs: Set<String> = []
         var recoveredContent: [String: Content] = [:]
 
         func space(for entry: Entry) -> ListeningSpace {
@@ -79,8 +81,9 @@ final class PlayHistoryStore {
                                                   serverLibraryID: content?.serverLibraryID) {
                 return space(kind)
             }
-            if let content { return content.kind }
-            return legacySpokenWordIDs.contains(entry.songID) ? .spokenWord : .music
+            if let content { return content.kind == .ambient && !inputs.separatesAmbient ? .music : content.kind }
+            if legacySpokenWordIDs.contains(entry.songID) { return .spokenWord }
+            return legacyAmbientIDs.contains(entry.songID) ? .ambient : .music
         }
 
         func enriching(_ entry: Entry) -> Entry {
@@ -130,12 +133,9 @@ final class PlayHistoryStore {
             return result
         }
 
+        /// 记录里直接读到的修正与标签没经过「单独归类环境音」那道开关:关着时环境音按音乐算。
         private func space(_ kind: ListeningContentKind) -> ListeningSpace {
-            switch kind {
-            case .music: .music
-            case .spokenWord: .spokenWord
-            case .podcast: .podcast
-            }
+            ListeningHistorySpacePolicy.space(of: kind == .ambient && !inputs.separatesAmbient ? .music : kind)
         }
     }
 
@@ -180,10 +180,13 @@ final class PlayHistoryStore {
     /// recommendation seed, and are totalled on their own instead.
     /// Classified at read time, so a correction applies to past plays too.
     var spokenWordSongIDs: Set<String> = []
+    /// 曲库此刻认成环境音的歌,同样由 `MusicLibrary` 交来;环境音也不进音乐的排行与统计。
+    var ambientSongIDs: Set<String> = []
     private(set) var classificationRevision = 0
     @ObservationIgnored private weak var library: MusicLibrary?
     @ObservationIgnored private var classificationInputs: SpokenWordClassificationInputs?
     @ObservationIgnored private var classificationLegacyIDs: Set<String> = []
+    @ObservationIgnored private var classificationLegacyAmbientIDs: Set<String> = []
     @ObservationIgnored private var classificationLibraryGeneration: UInt64?
     @ObservationIgnored private var classificationLibraryID: ObjectIdentifier?
     @ObservationIgnored private var classificationObserver: NSObjectProtocol?
@@ -195,7 +198,8 @@ final class PlayHistoryStore {
     var classification: Classification {
         Classification(
             library: library?.historySongLookup(), inputs: spokenWordStore.classificationSnapshot,
-            legacySpokenWordIDs: spokenWordSongIDs.union(spokenWordStore.positions.keys).union(spokenWordStore.finishedAt.keys)
+            legacySpokenWordIDs: spokenWordSongIDs.union(spokenWordStore.positions.keys).union(spokenWordStore.finishedAt.keys),
+            legacyAmbientIDs: ambientSongIDs
         )
     }
 
@@ -215,9 +219,11 @@ final class PlayHistoryStore {
         let generation = self.library?.songMutationGenerationForMaintenance
         let libraryID = self.library.map(ObjectIdentifier.init)
         guard context.inputs != classificationInputs || context.legacySpokenWordIDs != classificationLegacyIDs
+                || context.legacyAmbientIDs != classificationLegacyAmbientIDs
                 || generation != classificationLibraryGeneration || libraryID != classificationLibraryID else { return }
         classificationInputs = context.inputs
         classificationLegacyIDs = context.legacySpokenWordIDs
+        classificationLegacyAmbientIDs = context.legacyAmbientIDs
         classificationLibraryGeneration = generation
         classificationLibraryID = libraryID
         classificationRevision &+= 1
@@ -389,7 +395,7 @@ final class PlayHistoryStore {
         )
         let kind = spokenWordStore.kind(for: song)
         let identity = ListeningHistorySpacePolicy.space(songID: song.id, sourceID: song.sourceID, spokenWordSongIDs: [])
-        entry.content = Content(kind: identity != .music ? identity : (kind == .music ? .music : kind == .podcast ? .podcast : .spokenWord),
+        entry.content = Content(kind: identity != .music ? identity : ListeningHistorySpacePolicy.space(of: kind),
                                 filePath: song.filePath, genre: song.genre, serverLibraryID: song.serverLibraryID, sourceID: song.sourceID)
         entries.insert(entry, at: 0)
         if entries.count > Self.maxRetainedEntries {
@@ -727,4 +733,33 @@ final class PlayHistoryStore {
 
 extension Notification.Name {
     static let primuseListeningStatsDidChange = Notification.Name("primuse.listeningStatsDidChange")
+}
+
+/// 记录里的内容类别会经 iCloud 同步到别的设备,也写进本机文件。没有环境音的版本解不出 "ambient",
+/// 一条解不出整批记录都会丢,所以环境音照它们认得的音乐写,另加一个它们会忽略的 `ambient` 标记。
+extension PlayHistoryStore.Content: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case kind, filePath, genre, serverLibraryID, sourceID, ambient
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let stored = try container.decode(ListeningSpace.self, forKey: .kind)
+        let isAmbient = try container.decodeIfPresent(Bool.self, forKey: .ambient) ?? false
+        kind = isAmbient && stored == .music ? .ambient : stored
+        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+        genre = try container.decodeIfPresent(String.self, forKey: .genre)
+        serverLibraryID = try container.decodeIfPresent(String.self, forKey: .serverLibraryID)
+        sourceID = try container.decodeIfPresent(String.self, forKey: .sourceID)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind == .ambient ? ListeningSpace.music : kind, forKey: .kind)
+        try container.encodeIfPresent(filePath, forKey: .filePath)
+        try container.encodeIfPresent(genre, forKey: .genre)
+        try container.encodeIfPresent(serverLibraryID, forKey: .serverLibraryID)
+        try container.encodeIfPresent(sourceID, forKey: .sourceID)
+        if kind == .ambient { try container.encode(true, forKey: .ambient) }
+    }
 }

@@ -1196,6 +1196,9 @@ final class TVStore {
 
     // 播放模式(随机 / 循环)——供正在播放页传输键展示与切换。
     enum RepeatMode { case off, all, one }
+    /// 放环境音之前的循环与随机,放回音乐时还回去(`followAmbientPlayMode`)。
+    @ObservationIgnored private var repeatModeBeforeAmbient: RepeatMode?
+    @ObservationIgnored private var shuffleBeforeAmbient: Bool?
     var shuffleEnabled = false
     var repeatMode: RepeatMode = .off {
         didSet { syncTrackNavigationCommands() }
@@ -1653,9 +1656,9 @@ final class TVStore {
     func isVisibleSong(_ id: String) -> Bool { library.visibleSong(id: id) != nil }
 
     func songs(forArtistID id: String) -> [TVSong] {
-        let spokenWordIDs = library.spokenWordSongIDs
+        let nonMusicIDs = library.nonMusicSongIDs
         return library.songs(forArtist: id).compactMap {
-            spokenWordIDs.contains($0.id) ? nil : song($0.id)
+            nonMusicIDs.contains($0.id) ? nil : song($0.id)
         }
     }
 
@@ -1859,10 +1862,10 @@ final class TVStore {
     }
 
     var recentlyPlayed: [TVSong] {
-        // 多取一些再滤掉有声内容,听书的记录不挤占「最近播放」的音乐。
-        let spokenWordIDs = library.spokenWordSongIDs
-        let songs = library.recentlyPlayedSongs(limit: spokenWordIDs.isEmpty ? 12 : 40)
-            .filter { !spokenWordIDs.contains($0.id) }
+        // 多取一些再滤掉有声内容与环境音,听书、放雨声的记录不挤占「最近播放」的音乐。
+        let nonMusicIDs = library.nonMusicSongIDs
+        let songs = library.recentlyPlayedSongs(limit: nonMusicIDs.isEmpty ? 12 : 40)
+            .filter { !nonMusicIDs.contains($0.id) }
         return songs.prefix(12).map(songMapper.map)
     }
     var recentlyAddedAlbums: [TVAlbum] {
@@ -1929,8 +1932,8 @@ final class TVStore {
         guard !Task.isCancelled, generation == recommendationWorkerGeneration else {
             return []
         }
-        let spokenWordIDs = library.spokenWordSongIDs
-        return spokenWordIDs.isEmpty ? result : result.filter { !spokenWordIDs.contains($0.id) }
+        let nonMusicIDs = library.nonMusicSongIDs
+        return nonMusicIDs.isEmpty ? result : result.filter { !nonMusicIDs.contains($0.id) }
     }
 
     func isLiked(_ id: String) -> Bool { library.isLiked(songID: id) }
@@ -2141,7 +2144,7 @@ final class TVStore {
 
     /// 「不喜欢」(#193):和手机共用曲库里那份记录,经 iCloud 同步。有声内容不给这一项。
     func canDislike(_ id: String) -> Bool {
-        !library.spokenWordSongIDs.contains(id) && library.song(id: id) != nil
+        !library.nonMusicSongIDs.contains(id) && library.song(id: id) != nil
     }
     func isDisliked(_ id: String) -> Bool { library.isDisliked(songID: id) }
     /// 「随机时连播」(#335):和手机共用曲库里那两份记录,经 iCloud 同步。专辑里相邻那首的歌名;
@@ -7096,9 +7099,36 @@ final class TVStore {
     func play(_ song: TVSong) {
         pendingDeepLink = nil
         guard !hasPendingSnapshotRecovery else { return }
+        // 环境音(搜索、文件夹里点到的白噪音、雨声)单独放,循环着(见 `followAmbientPlayMode`)。
+        if library.ambientSongIDs.contains(song.id) {
+            parkPlayModeForAmbient()
+            playResolvedQueue(songIDs: [song.id], shuffled: false, startingAt: song.id)
+            return
+        }
         endMedley()
         setQueueAround(song)
         startPlaying(song)
+    }
+
+    private func parkPlayModeForAmbient() {
+        guard repeatModeBeforeAmbient == nil else { return }
+        repeatModeBeforeAmbient = repeatMode
+        shuffleBeforeAmbient = shuffleEnabled
+    }
+
+    /// 电视上没有手机那本「随机与循环跟着听法走」的账:放环境音时把循环记下来、换成单曲循环,
+    /// 放回音乐时还回去。
+    private func followAmbientPlayMode(for song: TVSong) {
+        if library.ambientSongIDs.contains(song.id) {
+            parkPlayModeForAmbient()
+            if repeatMode != .one { repeatMode = .one }
+            if shuffleEnabled { shuffleEnabled = false }
+        } else if let parked = repeatModeBeforeAmbient {
+            repeatModeBeforeAmbient = nil
+            if repeatMode == .one { repeatMode = parked }
+            if let shuffle = shuffleBeforeAmbient, shuffle != shuffleEnabled { shuffleEnabled = shuffle }
+            shuffleBeforeAmbient = nil
+        }
     }
 
     /// 明确列表内的单曲点击(艺人 / 专辑 / 文件夹 / 歌单 / 接收列表):
@@ -7330,7 +7360,9 @@ final class TVStore {
             isEnabled: UserDefaults.standard.object(forKey: Self.autoContinueSimilarKey) as? Bool ?? true,
             repeatMode: repeatMode == .off ? .off : (repeatMode == .all ? .all : .one),
             shuffleEnabled: shuffleEnabled,
-            space: library.spokenWordSongIDs.contains(currentID) ? .spokenWord : .music,
+            space: library.spokenWordSongIDs.contains(currentID)
+                ? .spokenWord
+                : (library.ambientSongIDs.contains(currentID) ? .ambient : .music),
             isMedley: isMedleyActive,
             isLiveRadio: isLiveRadio,
             hasUpcomingSongs: hasNextQueueSong,
@@ -8000,6 +8032,7 @@ final class TVStore {
             startMedleySelection(slice, at: resumeTime, autoPlay: autoPlay)
             return
         }
+        if !isRecovery { followAmbientPlayMode(for: song) }
         refillQueueFromContinuationIfNeeded()
         scheduleAutoContinuationIfNeeded()
         // 换条之前先记下上一条有声内容听到哪了,时钟马上就要归零。
@@ -9130,7 +9163,7 @@ extension TVStore {
     private func canIncludeInMedley(_ raw: Song, sourceVerdicts: inout [String: Bool]) -> Bool {
         guard !raw.isCueTrack, raw.mvPath == nil, !raw.isStandaloneMusicVideo,
               library.visibleSong(id: raw.id) != nil,
-              !library.spokenWordSongIDs.contains(raw.id) else { return false }
+              !library.nonMusicSongIDs.contains(raw.id) else { return false }
         if let verdict = sourceVerdicts[raw.sourceID] { return verdict }
         let verdict = sourcesStore.source(id: raw.sourceID).map { source in
             source.isEnabled && !source.isDeleted
@@ -9935,7 +9968,7 @@ extension TVStore {
         song.sourceID != AppleMusicLibraryIdentity.sourceID
             && !song.isStandaloneMusicVideo
             && !PodcastPlaybackSong.isEpisode(song)
-            && !library.spokenWordSongIDs.contains(song.id)
+            && !library.nonMusicSongIDs.contains(song.id)
     }
 
     fileprivate func observePlaybackRangeChanges() {

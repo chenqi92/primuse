@@ -163,6 +163,8 @@ struct TVLibraryView: View {
     private var selectedRecommendationIntentID =
         AIRecommendationIntentSelectionPolicy.defaultSelectionID
     @FocusState private var focusedFilter: Filter?
+    /// 筛选条末尾那颗「环境音」(有环境音时才有)。
+    @FocusState private var focusesAmbientChip: Bool
     /// 网格里的专辑 / 艺人卡片,值见 `albumFocusID` / `artistFocusID`。
     @FocusState private var focusedGridItem: String?
     @AppStorage(LibraryAlbumBrowseOrder.tvStorageKey)
@@ -830,6 +832,21 @@ struct TVLibraryView: View {
                             .accessibilityIdentifier("tv.library.category." + item.rawValue)
                             .accessibilityAddTraits(item == filter ? [.isButton, .isSelected] : .isButton)
                         }
+                        // 环境音不在专辑、歌曲这些墙上:有内容时在筛选条末尾多一项,点开是一份列表,
+                        // 点一段就循环着放(`TVStore.followAmbientPlayMode`)。
+                        if store.library.hasAmbientContent {
+                            Button { openAmbientSounds() } label: {
+                                TVFilterChipLabel(
+                                    title: String(localized: "listening_space_ambient"),
+                                    systemImage: ListeningSpace.ambient.systemImage,
+                                    isFocused: focusesAmbientChip
+                                )
+                            }
+                            .buttonStyle(TVBareButtonStyle())
+                            .focused($focusesAmbientChip)
+                            .focusEffectDisabled()
+                            .accessibilityIdentifier("tv.library.category.ambient")
+                        }
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -843,6 +860,15 @@ struct TVLibraryView: View {
             .frame(height: 80)
         }
         .focusSection()
+    }
+
+    private func openAmbientSounds() {
+        selectedCollection = TVBrowseDestination(
+            id: "ambient",
+            title: String(localized: "listening_space_ambient"),
+            songIDs: store.library.ambientSongs.map(\.id),
+            isAmbient: true
+        )
     }
 
     @ViewBuilder

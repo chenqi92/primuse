@@ -2390,14 +2390,15 @@ extension View {
     }
 }
 
-/// 「标记为音乐 / 有声书 / 播客」:列出当前分类以外的几项。`current` 为 nil 表示选中的歌
-/// 分属不同分类,三项都给。歌曲菜单、Mac 右键菜单、批量操作和专辑菜单共用。
+/// 「标记为音乐 / 有声书 / 播客 / 环境音」:列出当前分类以外的几项。`current` 为 nil 表示选中的歌
+/// 分属不同分类,几项都给。歌曲菜单、Mac 右键菜单、批量操作和专辑菜单共用。
+/// 关了「单独归类环境音」时不给「归到环境音」。
 struct ListeningKindMoveButtons: View {
     let current: ListeningContentKind?
     let move: (ListeningContentKind) -> Void
 
     var body: some View {
-        ForEach(Self.targets(from: current), id: \.self) { kind in
+        ForEach(Self.targets(from: current, separatesAmbient: SpokenWordStore.shared.separatesAmbient), id: \.self) { kind in
             let label = Self.label(for: kind)
             Button {
                 move(kind)
@@ -2408,8 +2409,8 @@ struct ListeningKindMoveButtons: View {
     }
 
     /// 当前分类以外的几项, 顺序固定。
-    static func targets(from current: ListeningContentKind?) -> [ListeningContentKind] {
-        ListeningContentKind.allCases.filter { $0 != current }
+    static func targets(from current: ListeningContentKind?, separatesAmbient: Bool = true) -> [ListeningContentKind] {
+        ListeningContentKind.allCases.filter { $0 != current && ($0 != .ambient || separatesAmbient) }
     }
 
     @MainActor
@@ -2422,6 +2423,8 @@ struct ListeningKindMoveButtons: View {
             (String(localized: "mark_as_spoken_word"), "books.vertical")
         case .podcast:
             (String(localized: "mark_as_podcast"), ListeningSpace.podcast.systemImage)
+        case .ambient:
+            (String(localized: "mark_as_ambient"), ListeningSpace.ambient.systemImage)
         }
     }
 
@@ -2430,8 +2433,11 @@ struct ListeningKindMoveButtons: View {
     static func sharedKind(of songIDs: some Sequence<String>, in library: MusicLibrary) -> ListeningContentKind? {
         let spokenWordIDs = library.spokenWordSongIDs
         let podcastIDs = Set(library.localPodcastSongs.map(\.id))
+        let ambientIDs = library.ambientSongIDs
         let kinds = Set(songIDs.lazy.map { id -> ListeningContentKind in
-            podcastIDs.contains(id) ? .podcast : spokenWordIDs.contains(id) ? .spokenWord : .music
+            if podcastIDs.contains(id) { return .podcast }
+            if spokenWordIDs.contains(id) { return .spokenWord }
+            return ambientIDs.contains(id) ? .ambient : .music
         })
         return kinds.count == 1 ? kinds.first : nil
     }
@@ -2457,8 +2463,8 @@ struct SongFeedbackMenuButtons: View {
                 Label(String(localized: "a11y_like"), systemImage: "heart")
             }
         }
-        // 有声书的章节本来就不会被随机或推荐挑中,「不喜欢」对它没有意义。
-        if !library.spokenWordSongIDs.contains(songID) {
+        // 有声书的章节、环境音本来就不会被随机或推荐挑中,「不喜欢」对它们没有意义。
+        if !library.nonMusicSongIDs.contains(songID) {
             Button {
                 library.toggleDisliked(songID: songID)
             } label: {

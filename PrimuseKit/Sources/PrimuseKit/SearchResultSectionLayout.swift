@@ -19,6 +19,8 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
     case appleMusic
     case radio
     case spokenWord
+    /// 环境音(白噪音、雨声…):不在歌曲结果里,单独一组。
+    case ambient
 
     public var id: String { rawValue }
 
@@ -36,6 +38,7 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         case .appleMusic: "search_section_apple_music"
         case .radio: "radio_title"
         case .spokenWord: "tab_spoken_word"
+        case .ambient: "listening_space_ambient"
         }
     }
 
@@ -53,6 +56,7 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         case .appleMusic: "applelogo"
         case .radio: "radio.fill"
         case .spokenWord: "books.vertical"
+        case .ambient: "leaf"
         }
     }
 
@@ -64,7 +68,7 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         switch self {
         case .albums, .artists, .appleMusic: .shelf
         case .lyrics: .cards
-        case .metadata, .path, .fuzzy, .intelligent, .playlists, .folders, .radio, .spokenWord: .list
+        case .metadata, .path, .fuzzy, .intelligent, .playlists, .folders, .radio, .spokenWord, .ambient: .list
         }
     }
 }
@@ -257,6 +261,7 @@ public enum SearchResultSectionLayout {
         .folders,
         .radio,
         .spokenWord,
+        .ambient,
     ]
 
     /// 读回用户存的顺序。

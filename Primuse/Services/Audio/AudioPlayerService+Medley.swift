@@ -14,13 +14,13 @@ import PrimuseKit
 /// the entry back to the whole song.
 extension AudioPlayerService {
     /// Songs that cannot be sliced: Apple Music (MusicKit plays them, not our
-    /// decoder), real CUE tracks (already a window into an image) and spoken
-    /// word.
+    /// decoder), real CUE tracks (already a window into an image), spoken
+    /// word and ambient sounds.
     func canIncludeInMedley(_ song: Song) -> Bool {
         song.sourceID != AppleMusicLibraryService.systemSourceID
             && !song.isCueTrack
             && song.mvPath == nil
-            && !SpokenWordStore.shared.isSpokenWord(song)
+            && SpokenWordStore.shared.isMusic(song)
     }
 
     /// What "medley from the queue" plays: the current song and the rest of

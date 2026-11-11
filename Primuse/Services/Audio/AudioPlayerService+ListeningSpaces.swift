@@ -112,6 +112,7 @@ extension AudioPlayerService {
         switch SpokenWordStore.shared.kind(for: song) {
         case .podcast: return .podcast
         case .spokenWord: return .spokenWord
+        case .ambient: return .ambient
         case .music: return .music
         }
     }

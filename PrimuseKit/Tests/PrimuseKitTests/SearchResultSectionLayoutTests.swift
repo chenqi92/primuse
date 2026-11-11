@@ -44,6 +44,7 @@ struct SearchResultSectionLayoutTests {
     func orderRoundTrips() {
         let custom: [SearchResultSection] = [
             .metadata, .lyrics, .albums, .artists, .path, .fuzzy, .appleMusic, .intelligent, .playlists, .folders, .radio, .spokenWord,
+            .ambient,
         ]
         let encoded = SearchResultSectionLayout.encodeOrder(custom)
         #expect(SearchResultSectionLayout.decodeOrder(encoded) == custom)
@@ -79,7 +80,7 @@ struct SearchResultSectionLayoutTests {
     @Test("Existing search preferences gain enabled collection and listening-space searches")
     func legacyPreferencesGainNewCategories() {
         let legacy = #"["albums","artists","metadata","path","lyrics","fuzzy","intelligent","appleMusic"]"#
-        #expect(SearchResultSectionLayout.decodeOrder(legacy).suffix(4) == [.playlists, .folders, .radio, .spokenWord])
+        #expect(SearchResultSectionLayout.decodeOrder(legacy).suffix(5) == [.playlists, .folders, .radio, .spokenWord, .ambient])
         #expect(SearchResultSectionLayout.decodeHidden(#"["lyrics"]"#) == [.lyrics])
         let hidden: Set<SearchResultSection> = [.playlists, .folders, .radio, .spokenWord]
         #expect(SearchResultSectionLayout.decodeHidden(SearchResultSectionLayout.encodeHidden(hidden)) == hidden)
@@ -131,7 +132,7 @@ struct SearchResultSectionLayoutTests {
             fromOffsets: IndexSet(integer: 4),
             toOffset: 0
         )
-        #expect(moved == [.lyrics, .albums, .artists, .metadata, .path, .fuzzy, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord])
+        #expect(moved == [.lyrics, .albums, .artists, .metadata, .path, .fuzzy, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient])
 
         // 把 albums 拖到 metadata 之后(目标下标按移走前算)。
         let down = SearchResultSectionLayout.reordering(
@@ -140,13 +141,13 @@ struct SearchResultSectionLayoutTests {
             fromOffsets: IndexSet(integer: 0),
             toOffset: 3
         )
-        #expect(down == [.artists, .metadata, .albums, .path, .lyrics, .fuzzy, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord])
+        #expect(down == [.artists, .metadata, .albums, .path, .lyrics, .fuzzy, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient])
     }
 
     @Test("Rows the editor does not list keep their place while the others move")
     func reorderSkipsUndisplayedRows() {
         let order = SearchResultSectionLayout.defaultOrder
-        let displayed = order.filter { $0 != .intelligent && $0 != .appleMusic && ![.playlists, .folders, .radio, .spokenWord].contains($0) }
+        let displayed = order.filter { $0 != .intelligent && $0 != .appleMusic && ![.playlists, .folders, .radio, .spokenWord, .ambient].contains($0) }
         // 列出来的最后一行 fuzzy 拖到最前面。
         let moved = SearchResultSectionLayout.reordering(
             order,
@@ -154,7 +155,7 @@ struct SearchResultSectionLayoutTests {
             fromOffsets: IndexSet(integer: displayed.count - 1),
             toOffset: 0
         )
-        #expect(moved == [.fuzzy, .albums, .artists, .metadata, .path, .lyrics, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord])
+        #expect(moved == [.fuzzy, .albums, .artists, .metadata, .path, .lyrics, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord, .ambient])
     }
 
     @Test("Out-of-range moves leave the order untouched")
@@ -212,7 +213,7 @@ struct SearchResultPageLayoutTests {
             [.fuzzy, .intelligent],
             [.appleMusic],
             [.playlists, .folders, .radio],
-            [.spokenWord],
+            [.spokenWord, .ambient],
         ])
     }
 

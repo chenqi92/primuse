@@ -148,6 +148,8 @@ final class SpokenWordStore {
         var archivedAt: [String: Date]?
         /// Songs whose `overrides` entry (written as spoken word) is a podcast.
         var podcastSongIDs: [String]?
+        /// `overrides` 里写成音乐、其实是环境音的那几条(`SpokenWordOverrideStorage`)。
+        var ambientSongIDs: [String]?
         var ledger: SpokenWordSyncLedger?
         var remoteListeningAt: [String: Date]?
     }
@@ -198,6 +200,9 @@ final class SpokenWordStore {
     /// depends only on classification, folder tags, bookmarks, speeds or
     /// archiving keys on this instead.
     @ObservationIgnored private(set) var nonProgressRevision = 0
+    /// 设置里的「单独归类环境音」(`AmbientSoundPreferences`)。本机设置,不跟着修正记录同步;
+    /// 关掉时手动归属与目录标签照旧记着,只是分类时一律按音乐算。
+    private(set) var separatesAmbient = AmbientSoundPreferences.isEnabled(in: .standard)
 
     private let storeURL: URL
     private var saveTask: Task<Void, Never>?
@@ -258,6 +263,23 @@ final class SpokenWordStore {
 
     func isPodcast(_ song: Song) -> Bool { kind(for: song) == .podcast }
 
+    /// 环境音:不进音乐的整库集合,播放方式照音乐。
+    func isAmbient(_ song: Song) -> Bool { kind(for: song) == .ambient }
+
+    /// 算作音乐:不是有声书、播客,也不是环境音。随机、推荐、统计、上报这些只认它。
+    func isMusic(_ song: Song) -> Bool { kind(for: song) == .music }
+
+    /// 打开或关掉「单独归类环境音」。关掉不删任何记录,曲库随后整库重新分一次。
+    func setSeparatesAmbient(_ enabled: Bool) {
+        AmbientSoundPreferences.setEnabled(enabled, in: .standard)
+        guard separatesAmbient != enabled else { return }
+        separatesAmbient = enabled
+        revision &+= 1
+        nonProgressRevision &+= 1
+        NotificationCenter.default.post(name: .primuseSpokenWordDidChange, object: nil)
+        scheduleFolderTagReclassification()
+    }
+
     /// The kind the song falls back to once its own correction is removed:
     /// folder tags count, so "mark as music" inside a tagged folder must store
     /// an explicit correction rather than clear one.
@@ -287,7 +309,8 @@ final class SpokenWordStore {
             folderRules: folderRules,
             collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs,
             catalogPathSourceIDs: reportedCatalogPathSourceIDs ?? [],
-            itemFoldersRevision: SpokenWordBookSourcePaths.itemFoldersRevision
+            itemFoldersRevision: SpokenWordBookSourcePaths.itemFoldersRevision,
+            separatesAmbient: separatesAmbient
         )
     }
 
@@ -520,10 +543,12 @@ final class SpokenWordStore {
         let key = SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)
         guard overrides[key] != kind else { return }
         let wasPodcast = overrides[key] == .podcast
+        let wasAmbient = overrides[key] == .ambient
         let now = Date()
         overrides[key] = kind
         ledger.overrideChangedAt[key] = now
         if wasPodcast || kind == .podcast { ledger.podcastMarkChangedAt[key] = now }
+        if wasAmbient || kind == .ambient { ledger.ambientMarkChangedAt[key] = now }
         didChange(cloud: .prompt)
         scheduleFolderTagReclassification()
     }
@@ -561,6 +586,15 @@ final class SpokenWordStore {
             sourceID: sourceID,
             path: SpokenWordFolderTag.libraryPath(libraryID: libraryID)
         )
+    }
+
+    /// 这一库归到环境音(白噪音、雨声的库)。
+    func isAmbientLibrary(sourceID: String, libraryID: String) -> Bool {
+        folderKind(sourceID: sourceID, path: SpokenWordFolderTag.libraryPath(libraryID: libraryID)) == .ambient
+    }
+
+    func setAmbientLibrary(sourceID: String, libraryID: String) {
+        setFolderTag(.ambient, sourceID: sourceID, path: SpokenWordFolderTag.libraryPath(libraryID: libraryID))
     }
 
     /// 服务端自己标成有声书的库第一次见到就归到有声;用户动过的(含改回音乐的)不碰。
@@ -608,7 +642,11 @@ final class SpokenWordStore {
                   !entry.directories.contains(where: {
                       SourceDirectorySelectionPolicy.covers($0, tag.path, for: entry.type)
                   }) else { continue }
-            if overrides.removeValue(forKey: key) == .podcast { ledger.podcastMarkChangedAt[key] = now }
+            switch overrides.removeValue(forKey: key) {
+            case .podcast: ledger.podcastMarkChangedAt[key] = now
+            case .ambient: ledger.ambientMarkChangedAt[key] = now
+            default: break
+            }
             ledger.overrideChangedAt[key] = now
             removed = true
         }
@@ -672,11 +710,13 @@ final class SpokenWordStore {
         let now = Date()
         for songID in songIDs where overrides[songID] != kind {
             let wasPodcast = overrides[songID] == .podcast
+            let wasAmbient = overrides[songID] == .ambient
             overrides[songID] = kind
             // Stamped so a later correction on another device wins, and a
             // return to inference is not undone by an older override.
             ledger.overrideChangedAt[songID] = now
             if wasPodcast || kind == .podcast { ledger.podcastMarkChangedAt[songID] = now }
+            if wasAmbient || kind == .ambient { ledger.ambientMarkChangedAt[songID] = now }
             changed = true
         }
         // Positions and finished marks stay when an item becomes music: only
@@ -1057,7 +1097,11 @@ final class SpokenWordStore {
     private func load() {
         guard let data = try? Data(contentsOf: storeURL),
               let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return }
-        overrides = Self.overrides(from: payload.overrides, podcastSongIDs: Set(payload.podcastSongIDs ?? []))
+        overrides = SpokenWordOverrideStorage.overrides(
+            from: payload.overrides,
+            podcastSongIDs: Set(payload.podcastSongIDs ?? []),
+            ambientSongIDs: Set(payload.ambientSongIDs ?? [])
+        )
         positions = payload.positions
         bookmarks = payload.bookmarks ?? [:]
         finishedAt = payload.finishedAt ?? [:]
@@ -1103,6 +1147,7 @@ final class SpokenWordStore {
             bookRates: bookRates,
             archivedAt: archivedAt,
             podcastSongIDs: podcastOverrideIDs.sorted(),
+            ambientSongIDs: SpokenWordOverrideStorage.ambientIDs(overrides).sorted(),
             ledger: ledger,
             remoteListeningAt: remoteListeningAt.filter { lastChange(forSongID: $0.key) == $0.value }
         )
@@ -1123,6 +1168,7 @@ final class SpokenWordStore {
             bookRates: bookRates,
             archivedAt: archivedAt,
             podcastSongIDs: podcastOverrideIDs,
+            ambientSongIDs: SpokenWordOverrideStorage.ambientIDs(overrides),
             ledger: ledger
         )
     }
@@ -1130,24 +1176,14 @@ final class SpokenWordStore {
     /// Kind corrections as they are written to disk and to iCloud. A podcast
     /// goes down as spoken word — all a version without podcasts knows, so it
     /// keeps the item off its music lists instead of dropping the correction —
-    /// with the podcast part kept apart (`podcastOverrideIDs`).
+    /// with the podcast part kept apart (`podcastOverrideIDs`). 环境音照同样的做法写成音乐,
+    /// 另带一份环境音清单(`SpokenWordOverrideStorage`)。
     private var storedOverrideValues: [String: String] {
-        overrides.mapValues { $0 == .podcast ? ListeningContentKind.spokenWord.rawValue : $0.rawValue }
+        SpokenWordOverrideStorage.storedValues(overrides)
     }
 
     private var podcastOverrideIDs: Set<String> {
-        Set(overrides.lazy.filter { $0.value == .podcast }.map(\.key))
-    }
-
-    private static func overrides(
-        from stored: [String: String],
-        podcastSongIDs: Set<String>
-    ) -> [String: ListeningContentKind] {
-        var result = stored.compactMapValues(ListeningContentKind.init(rawValue:))
-        for songID in podcastSongIDs where result[songID] == .spokenWord {
-            result[songID] = .podcast
-        }
-        return result
+        SpokenWordOverrideStorage.podcastIDs(overrides)
     }
 
     /// Batches pushes: a position alone waits up to a minute and a half (it
@@ -1223,7 +1259,11 @@ final class SpokenWordStore {
         let nextPositions = records.positions.mapValues {
             StoredPosition(position: $0.position, duration: $0.duration, updatedAt: $0.updatedAt)
         }
-        let nextOverrides = Self.overrides(from: records.overrides, podcastSongIDs: records.podcastSongIDs)
+        let nextOverrides = SpokenWordOverrideStorage.overrides(
+            from: records.overrides,
+            podcastSongIDs: records.podcastSongIDs,
+            ambientSongIDs: records.ambientSongIDs
+        )
         let contentChanged = nextPositions != positions
             || records.finishedAt != finishedAt
             || records.bookmarks != bookmarks

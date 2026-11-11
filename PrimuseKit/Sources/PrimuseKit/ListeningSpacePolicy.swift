@@ -8,11 +8,16 @@ import Foundation
 /// - podcasts play subscribed episodes and resume each episode where it was
 ///   left. On the player they behave like spoken word (in order, skip
 ///   buttons, their own speed); only the library and home treat them apart.
+/// - ambient sounds (white noise, rain, the sea) loop one sound seamlessly
+///   until a timer or the listener stops it. They keep out of music's lists
+///   like a book does, but otherwise play the way music does: no remembered
+///   position, no skip buttons, no speed of their own.
 public enum ListeningSpace: String, CaseIterable, Codable, Hashable, Sendable {
     case music
     case radio
     case spokenWord
     case podcast
+    case ambient
 
     /// The space whose queue rules apply: an episode is heard the way a book
     /// chapter is.
@@ -41,14 +46,30 @@ public enum ListeningSpaceVisibilityPolicy {
 /// 曲库里的有声书、本地播客文件要靠曲库的分类，由调用方以 `spokenWordSongIDs` 给出。
 /// 听歌统计、排行和推荐种子只认 `.music`(#326)。
 public enum ListeningHistorySpacePolicy {
-    public static func space(songID: String, sourceID: String, spokenWordSongIDs: Set<String>) -> ListeningSpace {
+    public static func space(
+        songID: String,
+        sourceID: String,
+        spokenWordSongIDs: Set<String>,
+        ambientSongIDs: Set<String> = []
+    ) -> ListeningSpace {
         if songID.hasPrefix(RadioStation.playbackSongIDPrefix) || sourceID == RadioStation.playbackSourceID {
             return .radio
         }
         if PodcastIdentity.isEpisodeID(songID) || sourceID == PodcastPlaybackSong.sourceID {
             return .podcast
         }
-        return spokenWordSongIDs.contains(songID) ? .spokenWord : .music
+        if spokenWordSongIDs.contains(songID) { return .spokenWord }
+        return ambientSongIDs.contains(songID) ? .ambient : .music
+    }
+
+    /// 曲库分类结果对应的那一类。
+    public static func space(of kind: ListeningContentKind) -> ListeningSpace {
+        switch kind {
+        case .music: .music
+        case .spokenWord: .spokenWord
+        case .podcast: .podcast
+        case .ambient: .ambient
+        }
     }
 }
 
@@ -79,6 +100,8 @@ extension ListeningSpace {
         case .radio: ListeningSpaceTint(light: 0xD9480F, dark: 0xFF8A4C)
         case .spokenWord: ListeningSpaceTint(light: 0x0F8A6A, dark: 0x3FD1A6)
         case .podcast: ListeningSpaceTint(light: 0x7A3FC9, dark: 0xB98CFF)
+        // 偏青绿,和有声书的翠绿、电台的橙、播客的紫都分得开。
+        case .ambient: ListeningSpaceTint(light: 0x0E7C86, dark: 0x4FD8D0)
         }
     }
 
@@ -89,6 +112,7 @@ extension ListeningSpace {
         case .radio: "dot.radiowaves.left.and.right"
         case .spokenWord: "books.vertical.fill"
         case .podcast: "antenna.radiowaves.left.and.right"
+        case .ambient: "leaf"
         }
     }
 }
@@ -288,6 +312,9 @@ public enum SleepTimerOptionPolicy {
             if hasChapters { options.append(.endOfChapter) }
             options.append(.endOfTrack)
             return options
+        case .ambient:
+            // 一段声音循环着放,「播完这一首」没有意义;入睡要的时长也比一张专辑长。
+            return [.minutes(15), .minutes(30), .minutes(45), .minutes(60), .minutes(90)]
         }
     }
 }
@@ -372,6 +399,9 @@ public struct ListeningPlayMode: Codable, Equatable, Sendable {
 /// Only a queue replacement moves the ledger: the item changing inside one
 /// queue (music queued after the book's last chapter) leaves it alone, since
 /// reshuffling a queue mid-way would replay what was already heard.
+///
+/// 环境音和书一样占住队列:音乐的随机与循环挂起,环境音按自己的方式(不随机、单曲循环)放,
+/// 回到音乐时还回去。书和环境音之间互换时音乐一直挂着。
 public struct ListeningPlayModeLedger: Codable, Equatable, Sendable {
     /// The space whose queue is installed. Radio never owns the queue.
     public private(set) var activeSpace: ListeningSpace = .music
@@ -381,6 +411,11 @@ public struct ListeningPlayModeLedger: Codable, Equatable, Sendable {
     public private(set) var repeatChangedDuringBook = false
 
     public init() {}
+
+    /// The switches a queue of `space` starts with when music is parked.
+    private static func ownMode(of space: ListeningSpace) -> ListeningPlayMode {
+        space == .ambient ? AmbientSoundPlaybackPolicy.playMode : .inOrder
+    }
 
     /// A queue starting on an item of `owner` replaced the current one.
     /// - Parameter current: the switches as they are right now.
@@ -397,18 +432,22 @@ public struct ListeningPlayModeLedger: Codable, Equatable, Sendable {
         case (_, .podcast), (.podcast, _):
             // `playbackFamily` folds podcasts into spoken word above.
             return nil
-        case (.music, .spokenWord):
-            activeSpace = .spokenWord
+        case (.music, .spokenWord), (.music, .ambient):
+            activeSpace = owner
             parkedMusicMode = current
             shuffleChangedDuringBook = false
             repeatChangedDuringBook = false
-            return current == .inOrder ? nil : .inOrder
-        case (.spokenWord, .spokenWord):
-            // Another book starts in order too; music stays parked.
+            let mode = Self.ownMode(of: owner)
+            return current == mode ? nil : mode
+        case (.spokenWord, .spokenWord), (.ambient, .ambient), (.spokenWord, .ambient), (.ambient, .spokenWord):
+            // Another book starts in order too, another sound loops again;
+            // music stays parked.
+            activeSpace = owner
             shuffleChangedDuringBook = false
             repeatChangedDuringBook = false
-            return current == .inOrder ? nil : .inOrder
-        case (.spokenWord, .music):
+            let mode = Self.ownMode(of: owner)
+            return current == mode ? nil : mode
+        case (.spokenWord, .music), (.ambient, .music):
             let parked = parkedMusicMode ?? current
             let restored = ListeningPlayMode(
                 shuffleEnabled: shuffleChangedDuringBook ? current.shuffleEnabled : parked.shuffleEnabled,
@@ -425,12 +464,12 @@ public struct ListeningPlayModeLedger: Codable, Equatable, Sendable {
 
     /// The listener (or an entry point acting for them) flipped shuffle.
     public mutating func shuffleChanged() {
-        if activeSpace == .spokenWord { shuffleChangedDuringBook = true }
+        if activeSpace != .music { shuffleChangedDuringBook = true }
     }
 
     /// The listener (or an entry point acting for them) changed repeat.
     public mutating func repeatChanged() {
-        if activeSpace == .spokenWord { repeatChangedDuringBook = true }
+        if activeSpace != .music { repeatChangedDuringBook = true }
     }
 }
 

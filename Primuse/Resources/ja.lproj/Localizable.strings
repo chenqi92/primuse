@@ -5773,6 +5773,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "ポッドキャスト";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "環境音";
+"mark_as_ambient" = "環境音としてマーク";
+"ambient_sounds_count" = "サウンド";
+"ambient_timer_unlimited" = "時間制限なし";
+"ambient_back_to_music" = "音楽に戻る";
+"ambient_empty_hint" = "ホワイトノイズ、雨音、波の音、自然音などの睡眠用サウンドがここに表示されます。フォルダや曲を環境音としてマークするとここに移ります。";
+"ambient_loose_group" = "その他のサウンド";
 "home_section_podcasts" = "ポッドキャスト";
 "home_section_podcasts_hint" = "フォロー中のポッドキャストの最新エピソード。";
 "home_cover_size_title" = "カバーのサイズ";

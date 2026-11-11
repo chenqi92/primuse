@@ -888,7 +888,7 @@ extension CarPlaySceneDelegate {
 
 extension CarPlaySceneDelegate {
     fileprivate enum BrowseContext: Sendable {
-        case songs, albums, artists, playlists, radio, spokenWord, likedAlbums, likedArtists
+        case songs, albums, artists, playlists, radio, spokenWord, likedAlbums, likedArtists, ambient
     }
 
     typealias CollectionArtwork = CarPlayContentArtwork
@@ -977,6 +977,15 @@ extension CarPlaySceneDelegate {
                 self?.pushBrowse(.spokenWord, title: String(localized: "listening_space_spoken_word"))
             },
         ]
+        // 有环境音才给入口:它们不在上面的歌曲、专辑里。
+        let ambient: [CollectionEntry] = AppServices.shared.musicLibrary.hasAmbientContent ? [
+            CollectionEntry(
+                title: String(localized: "listening_space_ambient"),
+                symbol: ListeningSpace.ambient.systemImage
+            ) { [weak self] in
+                self?.pushBrowse(.ambient, title: String(localized: "listening_space_ambient"))
+            },
+        ] : []
         // 订了播客、或资料库里有自己下载的节目才给入口:继续收听、最新单集、本地节目、各档节目。
         let hasPodcasts = !PodcastStore.shared.shows.isEmpty
             || !AppServices.shared.musicLibrary.localPodcastSongs.isEmpty
@@ -1010,7 +1019,7 @@ extension CarPlaySceneDelegate {
                 self?.pushSearchTemplate()
             }
         ]
-        return collectionSections(entries + liked + spokenWord + podcasts + trailing, style: .list)
+        return collectionSections(entries + liked + spokenWord + podcasts + ambient + trailing, style: .list)
     }
 
     private func pushBrowse(_ context: BrowseContext, title: String) {
@@ -1030,7 +1039,24 @@ extension CarPlaySceneDelegate {
         case .spokenWord: spokenWordSections()
         case .likedAlbums: likedAlbumsSections()
         case .likedArtists: likedArtistsSections()
+        case .ambient: ambientSoundSections()
         }
+    }
+
+    /// 资料库里的「环境音」:不进歌曲、专辑列表,有内容时在这里单独列一份。点一段循环着放
+    /// (单曲循环由播放器的听法账本设好),队列只放这一段。
+    private func ambientSoundSections() -> [CPListSection] {
+        let sounds = AppServices.shared.musicLibrary.ambientSongs
+        guard !sounds.isEmpty else { return [] }
+        let items = sounds.prefix(max(0, CPListTemplate.maximumItemCount)).enumerated().map { index, song in
+            songItem(
+                song,
+                ordinal: index + 1,
+                queueProvider: { ([song], 0) },
+                loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index)
+            )
+        }
+        return [CPListSection(items: items)]
     }
 
     private func homeSections() -> [CPListSection] {
@@ -1668,9 +1694,9 @@ extension CarPlaySceneDelegate {
         // An artist who also records 相声 or reads books: the music lists
         // hold the music, and the books have their own list.
         let library = AppServices.shared.musicLibrary
-        let spokenWordIDs = library.spokenWordSongIDs
+        let nonMusicIDs = library.nonMusicSongIDs
         let songs = library.songs(forArtist: artistID)
-            .filter { !spokenWordIDs.contains($0.id) }
+            .filter { !nonMusicIDs.contains($0.id) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
             songItem(song, ordinal: idx + 1, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))

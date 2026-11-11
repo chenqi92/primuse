@@ -5678,6 +5678,14 @@
 
 // MARK: - Podcasts
 "listening_space_podcast" = "Подкасти";
+/* Ambient sounds: white noise, rain and other sounds kept apart from music */
+"listening_space_ambient" = "Звуки довкілля";
+"mark_as_ambient" = "Позначити як звук довкілля";
+"ambient_sounds_count" = "звуків";
+"ambient_timer_unlimited" = "Без обмеження";
+"ambient_back_to_music" = "Повернутися до музики";
+"ambient_empty_hint" = "Тут з’являться білий шум, дощ, шум моря, звуки природи та інші звуки для сну. Позначте теку або трек як звук довкілля, щоб перенести його сюди.";
+"ambient_loose_group" = "Інші звуки";
 "home_section_podcasts" = "Подкасти";
 "home_section_podcasts_hint" = "Свіжі випуски подкастів, на які ви підписані.";
 "home_cover_size_title" = "Розмір обкладинок";

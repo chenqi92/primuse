@@ -1033,6 +1033,11 @@ struct AddSourceView: View {
                 Text("library_kind_music").tag(ServerLibraryChoice.music)
             }
             Text("library_kind_spoken_word").tag(ServerLibraryChoice.spokenWord)
+            // 整库都是白噪音、雨声这类声音:归到环境音(关了「单独归类环境音」时不给,已经选了的照样列出)。
+            if sourceType.declaredListeningContentKind == nil,
+               SpokenWordStore.shared.separatesAmbient || serverLibraryChoices[libraryID] == .ambient {
+                Text("listening_space_ambient").tag(ServerLibraryChoice.ambient)
+            }
             Text("library_kind_excluded").tag(ServerLibraryChoice.excluded)
         }
         .labelsHidden()
@@ -1068,6 +1073,8 @@ struct AddSourceView: View {
             for library in libraries {
                 if excluded.contains(library.id) {
                     choices[library.id] = .excluded
+                } else if store.isAmbientLibrary(sourceID: editingSource.id, libraryID: library.id) {
+                    choices[library.id] = .ambient
                 } else if Self.libraryIsSpokenWord(library, sourceID: editingSource.id, store: store) {
                     choices[library.id] = .spokenWord
                 } else {
@@ -1108,10 +1115,13 @@ struct AddSourceView: View {
             case .spokenWord:
                 store.setSpokenWordLibrary(true, sourceID: sourceID, libraryID: library.id)
             case .music:
-                // 只在它现在算有声时才写一条显式的「音乐」,免得给每个音乐库都留一条记录。
-                if Self.libraryIsSpokenWord(library, sourceID: sourceID, store: store) {
+                // 只在它现在算有声或环境音时才写一条显式的「音乐」,免得给每个音乐库都留一条记录。
+                if Self.libraryIsSpokenWord(library, sourceID: sourceID, store: store)
+                    || store.isAmbientLibrary(sourceID: sourceID, libraryID: library.id) {
                     store.setSpokenWordLibrary(false, sourceID: sourceID, libraryID: library.id)
                 }
+            case .ambient:
+                store.setAmbientLibrary(sourceID: sourceID, libraryID: library.id)
             case .excluded:
                 break
             }
@@ -2638,6 +2648,7 @@ final class AddSourceDraftRestoration {
 enum ServerLibraryChoice: Hashable {
     case music
     case spokenWord
+    case ambient
     case excluded
 }
 

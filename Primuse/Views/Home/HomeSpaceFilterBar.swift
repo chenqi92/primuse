@@ -224,6 +224,7 @@ struct HomeSpaceFilterBar: View {
         case .radio: "dot.radiowaves.left.and.right"
         case .spokenWord: "book"
         case .podcast: "mic"
+        case .ambient: "leaf"
         }
     }
 
@@ -371,6 +372,7 @@ struct HomeSpaceFilterBar: View {
         case .music, .radio: .white
         case .spokenWord: Color(red: 1, green: 0.95, blue: 0.84)
         case .podcast: Color(red: 0.97, green: 0.89, blue: 0.93)
+        case .ambient: Color(red: 0.86, green: 0.96, blue: 0.95)
         }
     }
 

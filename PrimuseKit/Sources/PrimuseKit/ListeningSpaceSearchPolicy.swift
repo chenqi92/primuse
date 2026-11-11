@@ -1,12 +1,13 @@
 import Foundation
 
 /// The segments at the top of the search results: everything, or one of the
-/// three listening spaces.
+/// listening spaces.
 public enum ListeningSpaceSearchScope: String, CaseIterable, Hashable, Sendable {
     case all
     case music
     case radio
     case spokenWord
+    case ambient
 
     public var space: ListeningSpace? {
         switch self {
@@ -14,6 +15,7 @@ public enum ListeningSpaceSearchScope: String, CaseIterable, Hashable, Sendable 
         case .music: .music
         case .radio: .radio
         case .spokenWord: .spokenWord
+        case .ambient: .ambient
         }
     }
 }
@@ -35,6 +37,7 @@ public enum ListeningSpaceSearchPolicy {
         var scopes: [ListeningSpaceSearchScope] = [.all, .music]
         if visibleSpaces.contains(.radio) { scopes.append(.radio) }
         if visibleSpaces.contains(.spokenWord) { scopes.append(.spokenWord) }
+        if visibleSpaces.contains(.ambient) { scopes.append(.ambient) }
         return scopes
     }
 
@@ -158,6 +161,56 @@ public enum ListeningSpaceSearchPolicy {
                     + candidate.tagNames).joined(separator: " ")
             )
             if words.allSatisfy(haystack.contains) { return (6, .words) }
+        }
+        return nil
+    }
+
+    // MARK: - Ambient sounds
+
+    /// 一条环境音在搜索里能对上的字段。环境音不多,每轮搜索直接在内存里对一遍。
+    public struct AmbientCandidate: Hashable, Sendable {
+        public var id: String
+        public var title: String
+        public var album: String?
+        public var artist: String?
+        public var genre: String?
+        /// 所在目录的名字。
+        public var folder: String?
+
+        public init(id: String, title: String, album: String? = nil, artist: String? = nil,
+                    genre: String? = nil, folder: String? = nil) {
+            self.id = id
+            self.title = title
+            self.album = album
+            self.artist = artist
+            self.genre = genre
+            self.folder = folder
+        }
+    }
+
+    /// 命中的环境音 ID,好的在前;同样好的保持给定的先后。先看声音名,再看专辑或目录,再看艺人与流派。
+    public static func matchAmbientSounds(query: String, in candidates: [AmbientCandidate]) -> [String] {
+        let normalizedQuery = normalized(query)
+        guard !normalizedQuery.isEmpty else { return [] }
+        let words = tokens(normalizedQuery)
+        var ranked: [(rank: Int, offset: Int, id: String)] = []
+        for (offset, candidate) in candidates.enumerated() {
+            guard let rank = ambientRank(candidate, query: normalizedQuery, words: words) else { continue }
+            ranked.append((rank, offset, candidate.id))
+        }
+        ranked.sort { lhs, rhs in lhs.rank != rhs.rank ? lhs.rank < rhs.rank : lhs.offset < rhs.offset }
+        return ranked.map(\.id)
+    }
+
+    private static func ambientRank(_ candidate: AmbientCandidate, query: String, words: [String]) -> Int? {
+        if let rank = fieldRank(candidate.title, query: query) { return rank }
+        if fieldRank(candidate.album, query: query) != nil || fieldRank(candidate.folder, query: query) != nil { return 3 }
+        if fieldRank(candidate.artist, query: query) != nil { return 4 }
+        if fieldRank(candidate.genre, query: query) != nil { return 5 }
+        if words.count > 1 {
+            let haystack = normalized([candidate.title, candidate.album ?? "", candidate.folder ?? "",
+                                       candidate.artist ?? "", candidate.genre ?? ""].joined(separator: " "))
+            if words.allSatisfy(haystack.contains) { return 6 }
         }
         return nil
     }

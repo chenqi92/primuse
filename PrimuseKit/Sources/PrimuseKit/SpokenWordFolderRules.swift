@@ -395,19 +395,24 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
     /// `SpokenWordBookSourcePaths.itemFoldersRevision`: the folders of item-id
     /// cloud drives the books are grouped by. Not read either, for the same reason.
     public var itemFoldersRevision: Int
+    /// 设置里的「单独归类环境音」。关掉时不做任何环境音识别:手动归属、目录标签、流派说是环境音的
+    /// 一律按普通音乐算(手动归属与标签照旧记着,重新打开后恢复)。
+    public var separatesAmbient: Bool
 
     public init(
         overrides: [String: ListeningContentKind] = [:],
         folderRules: SpokenWordFolderRules = .empty,
         collectionOnlySongIDs: Set<String> = [],
         catalogPathSourceIDs: Set<String> = [],
-        itemFoldersRevision: Int = 0
+        itemFoldersRevision: Int = 0,
+        separatesAmbient: Bool = true
     ) {
         self.overrides = overrides
         self.folderRules = folderRules
         self.collectionOnlySongIDs = collectionOnlySongIDs
         self.catalogPathSourceIDs = catalogPathSourceIDs
         self.itemFoldersRevision = itemFoldersRevision
+        self.separatesAmbient = separatesAmbient
     }
 
     public static let empty = SpokenWordClassificationInputs()
@@ -420,7 +425,7 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         genre: String?,
         serverLibraryID: String? = nil
     ) -> ListeningContentKind {
-        if let override = overrides[songID] { return override }
+        if let override = overrides[songID] { return applyingAmbientSwitch(override) }
         return inferredKind(sourceID: sourceID, filePath: filePath, genre: genre, serverLibraryID: serverLibraryID)
     }
 
@@ -433,10 +438,10 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         genre: String?,
         serverLibraryID: String? = nil
     ) -> ListeningContentKind {
-        if let kind = folderRules.kind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
+        if let kind = folderKind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
             return kind
         }
-        return SpokenWordContentPolicy.classify(filePath: filePath, genre: genre)
+        return applyingAmbientSwitch(SpokenWordContentPolicy.classify(filePath: filePath, genre: genre))
     }
 
     /// 整库遍历用: 结果与上面一致, 流派判定按原始字符串记在 `genreVerdicts` 里。
@@ -448,15 +453,28 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         serverLibraryID: String? = nil,
         genreVerdicts: inout [String: ListeningContentKind]
     ) -> ListeningContentKind {
-        if let override = overrides[songID] { return override }
-        if let kind = folderRules.kind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
+        if let override = overrides[songID] { return applyingAmbientSwitch(override) }
+        if let kind = folderKind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
             return kind
         }
         if SpokenWordContentPolicy.pathHasAudiobookExtension(filePath) { return .spokenWord }
         guard let genre else { return .music }
         if let verdict = genreVerdicts[genre] { return verdict }
-        let verdict = SpokenWordContentPolicy.genreKind(genre) ?? .music
+        let verdict = applyingAmbientSwitch(SpokenWordContentPolicy.genreKind(genre) ?? .music)
         genreVerdicts[genre] = verdict
         return verdict
+    }
+
+    /// 目录 / 整源 / 服务器库的标签。关着「单独归类环境音」时,环境音标签像标成「音乐」的目录一样:
+    /// 挡住上级的标签,交回文件自己推断。
+    private func folderKind(sourceID: String, filePath: String, serverLibraryID: String?) -> ListeningContentKind? {
+        guard let kind = folderRules.kind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) else {
+            return nil
+        }
+        return kind == .ambient && !separatesAmbient ? nil : kind
+    }
+
+    private func applyingAmbientSwitch(_ kind: ListeningContentKind) -> ListeningContentKind {
+        kind == .ambient && !separatesAmbient ? .music : kind
     }
 }

@@ -60,6 +60,9 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
     /// spoken word, which versions without podcasts understand) is a podcast;
     /// a tombstone = it is not. Only read where `overrides` says spoken word.
     public var podcastMarks: [String: SpokenWordSyncRegister<Bool>]
+    /// 同一种做法记环境音:`true` = `overrides` 里那条(按没有环境音的版本认得的「音乐」写)其实是环境音;
+    /// 墓碑 = 不是。只在 `overrides` 说音乐的地方读。老版本读到的是音乐,不会把它当成有声书。
+    public var ambientMarks: [String: SpokenWordSyncRegister<Bool>]
 
     public init(
         positions: [String: SpokenWordSyncRegister<SpokenWordSyncPosition>] = [:],
@@ -68,7 +71,8 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         rates: [String: SpokenWordSyncRegister<Float>] = [:],
         bookmarks: [String: SpokenWordSyncRegister<SpokenWordBookmark>] = [:],
         archived: [String: SpokenWordSyncRegister<Bool>] = [:],
-        podcastMarks: [String: SpokenWordSyncRegister<Bool>] = [:]
+        podcastMarks: [String: SpokenWordSyncRegister<Bool>] = [:],
+        ambientMarks: [String: SpokenWordSyncRegister<Bool>] = [:]
     ) {
         self.positions = positions
         self.finished = finished
@@ -77,6 +81,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         self.bookmarks = bookmarks
         self.archived = archived
         self.podcastMarks = podcastMarks
+        self.ambientMarks = ambientMarks
     }
 
     public static let empty = SpokenWordSyncState()
@@ -84,6 +89,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
     public var isEmpty: Bool {
         positions.isEmpty && finished.isEmpty && overrides.isEmpty
             && rates.isEmpty && bookmarks.isEmpty && archived.isEmpty && podcastMarks.isEmpty
+            && ambientMarks.isEmpty
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -99,6 +105,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         case replayPositions = "rp"
         case archived = "a"
         case podcastMarks = "pk"
+        case ambientMarks = "am"
     }
 
     public init(from decoder: Decoder) throws {
@@ -115,6 +122,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         bookmarks = try container.decodeIfPresent([String: SpokenWordSyncRegister<SpokenWordBookmark>].self, forKey: .bookmarks) ?? [:]
         archived = try container.decodeIfPresent([String: SpokenWordSyncRegister<Bool>].self, forKey: .archived) ?? [:]
         podcastMarks = try container.decodeIfPresent([String: SpokenWordSyncRegister<Bool>].self, forKey: .podcastMarks) ?? [:]
+        ambientMarks = try container.decodeIfPresent([String: SpokenWordSyncRegister<Bool>].self, forKey: .ambientMarks) ?? [:]
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -129,6 +137,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         if !bookmarks.isEmpty { try container.encode(bookmarks, forKey: .bookmarks) }
         if !archived.isEmpty { try container.encode(archived, forKey: .archived) }
         if !podcastMarks.isEmpty { try container.encode(podcastMarks, forKey: .podcastMarks) }
+        if !ambientMarks.isEmpty { try container.encode(ambientMarks, forKey: .ambientMarks) }
     }
 }
 
@@ -151,6 +160,8 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
     public var unarchivedAt: [String: Date]
     /// Marked as a podcast or no longer one, by song id.
     public var podcastMarkChangedAt: [String: Date]
+    /// 归到环境音或不再是环境音的时间,按歌曲 ID(含目录标签的键)。
+    public var ambientMarkChangedAt: [String: Date]
 
     public init(
         positionClearedAt: [String: Date] = [:],
@@ -160,7 +171,8 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
         bookmarkEditedAt: [String: Date] = [:],
         bookmarkDeletedAt: [String: Date] = [:],
         unarchivedAt: [String: Date] = [:],
-        podcastMarkChangedAt: [String: Date] = [:]
+        podcastMarkChangedAt: [String: Date] = [:],
+        ambientMarkChangedAt: [String: Date] = [:]
     ) {
         self.positionClearedAt = positionClearedAt
         self.unfinishedAt = unfinishedAt
@@ -170,6 +182,7 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
         self.bookmarkDeletedAt = bookmarkDeletedAt
         self.unarchivedAt = unarchivedAt
         self.podcastMarkChangedAt = podcastMarkChangedAt
+        self.ambientMarkChangedAt = ambientMarkChangedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,6 +195,7 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
         bookmarkDeletedAt = try container.decodeIfPresent([String: Date].self, forKey: .bookmarkDeletedAt) ?? [:]
         unarchivedAt = try container.decodeIfPresent([String: Date].self, forKey: .unarchivedAt) ?? [:]
         podcastMarkChangedAt = try container.decodeIfPresent([String: Date].self, forKey: .podcastMarkChangedAt) ?? [:]
+        ambientMarkChangedAt = try container.decodeIfPresent([String: Date].self, forKey: .ambientMarkChangedAt) ?? [:]
     }
 }
 
@@ -209,6 +223,8 @@ public struct SpokenWordLocalRecords: Equatable, Sendable {
     public var archivedAt: [String: Date]
     /// Songs whose kind correction (spoken word in `overrides`) is a podcast.
     public var podcastSongIDs: Set<String>
+    /// 修正记录(`overrides` 里写成音乐的)其实是环境音的歌曲与目录标签。
+    public var ambientSongIDs: Set<String>
     public var ledger: SpokenWordSyncLedger
 
     public init(
@@ -219,6 +235,7 @@ public struct SpokenWordLocalRecords: Equatable, Sendable {
         bookRates: [String: Float] = [:],
         archivedAt: [String: Date] = [:],
         podcastSongIDs: Set<String> = [],
+        ambientSongIDs: Set<String> = [],
         ledger: SpokenWordSyncLedger = SpokenWordSyncLedger()
     ) {
         self.positions = positions
@@ -228,6 +245,7 @@ public struct SpokenWordLocalRecords: Equatable, Sendable {
         self.bookRates = bookRates
         self.archivedAt = archivedAt
         self.podcastSongIDs = podcastSongIDs
+        self.ambientSongIDs = ambientSongIDs
         self.ledger = ledger
     }
 }
@@ -267,7 +285,8 @@ public enum SpokenWordSyncPolicy {
             rates: mergeRegisters(lhs.rates, rhs.rates),
             bookmarks: mergeRegisters(lhs.bookmarks, rhs.bookmarks),
             archived: mergeRegisters(lhs.archived, rhs.archived),
-            podcastMarks: mergeRegisters(lhs.podcastMarks, rhs.podcastMarks)
+            podcastMarks: mergeRegisters(lhs.podcastMarks, rhs.podcastMarks),
+            ambientMarks: mergeRegisters(lhs.ambientMarks, rhs.ambientMarks)
         ))
     }
 
@@ -394,7 +413,8 @@ public enum SpokenWordSyncPolicy {
             rates: dropExpiredTombstones(state.rates, cutoff: cutoff),
             bookmarks: dropExpiredTombstones(state.bookmarks, cutoff: cutoff),
             archived: dropExpiredTombstones(state.archived, cutoff: cutoff),
-            podcastMarks: dropExpiredTombstones(state.podcastMarks, cutoff: cutoff)
+            podcastMarks: dropExpiredTombstones(state.podcastMarks, cutoff: cutoff),
+            ambientMarks: dropExpiredTombstones(state.ambientMarks, cutoff: cutoff)
         )
     }
 
@@ -414,7 +434,8 @@ public enum SpokenWordSyncPolicy {
             rates: capped(dropExpiredTombstones(state.rates, cutoff: cutoff), limit: maximumRates),
             bookmarks: capped(dropExpiredTombstones(state.bookmarks, cutoff: cutoff), limit: maximumBookmarks),
             archived: capped(dropExpiredTombstones(state.archived, cutoff: cutoff), limit: maximumArchived),
-            podcastMarks: capped(dropExpiredTombstones(state.podcastMarks, cutoff: cutoff), limit: maximumOverrides)
+            podcastMarks: capped(dropExpiredTombstones(state.podcastMarks, cutoff: cutoff), limit: maximumOverrides),
+            ambientMarks: capped(dropExpiredTombstones(state.ambientMarks, cutoff: cutoff), limit: maximumOverrides)
         )
     }
 
@@ -451,7 +472,7 @@ public enum SpokenWordSyncPolicy {
     ) -> SpokenWordSyncState {
         guard let size = encodedSize(state), size > byteBudget else { return state }
 
-        enum Section { case positions, finished, overrides, rates, bookmarks, archived, podcastMarks }
+        enum Section { case positions, finished, overrides, rates, bookmarks, archived, podcastMarks, ambientMarks }
         struct Candidate {
             let section: Section
             let key: String
@@ -469,6 +490,7 @@ public enum SpokenWordSyncPolicy {
                 + candidates(state.bookmarks, .bookmarks)
                 + candidates(state.archived, .archived)
                 + candidates(state.podcastMarks, .podcastMarks)
+                + candidates(state.ambientMarks, .ambientMarks)
         ).sorted { lhs, rhs in
             if lhs.isTombstone != rhs.isTombstone { return lhs.isTombstone }
             if lhs.stamp != rhs.stamp { return lhs.stamp < rhs.stamp }
@@ -499,6 +521,7 @@ public enum SpokenWordSyncPolicy {
                 case .bookmarks: result.bookmarks.removeValue(forKey: candidate.key)
                 case .archived: result.archived.removeValue(forKey: candidate.key)
                 case .podcastMarks: result.podcastMarks.removeValue(forKey: candidate.key)
+                case .ambientMarks: result.ambientMarks.removeValue(forKey: candidate.key)
                 }
             }
             index += chunk
@@ -575,6 +598,13 @@ public enum SpokenWordSyncPolicy {
             let stamp = ledger.podcastMarkChangedAt[songID] ?? .distantPast
             state.podcastMarks[songID] = SpokenWordSyncRegister(value: true, stamp: stamp)
         }
+        for (songID, date) in ledger.ambientMarkChangedAt where !records.ambientSongIDs.contains(songID) {
+            state.ambientMarks[songID] = SpokenWordSyncRegister(value: nil, stamp: date)
+        }
+        for songID in records.ambientSongIDs {
+            let stamp = ledger.ambientMarkChangedAt[songID] ?? .distantPast
+            state.ambientMarks[songID] = SpokenWordSyncRegister(value: true, stamp: stamp)
+        }
         for (bookID, date) in records.archivedAt {
             let register = SpokenWordSyncRegister(value: true, stamp: date)
             state.archived[bookID] = state.archived[bookID].map { winner($0, register) } ?? register
@@ -640,6 +670,12 @@ public enum SpokenWordSyncPolicy {
                 records.ledger.podcastMarkChangedAt[songID] = register.stamp
             }
         }
+        for (songID, register) in state.ambientMarks {
+            if register.value == true { records.ambientSongIDs.insert(songID) }
+            if register.stamp != .distantPast {
+                records.ledger.ambientMarkChangedAt[songID] = register.stamp
+            }
+        }
         for (key, register) in state.bookmarks {
             if let bookmark = register.value {
                 records.bookmarks[bookmark.songID, default: []].append(bookmark)
@@ -656,5 +692,48 @@ public enum SpokenWordSyncPolicy {
             }
         }
         return records
+    }
+}
+
+// MARK: - Kind corrections on disk and in iCloud
+
+/// 修正记录写盘、上 iCloud 时的样子:每一条都写成没有播客、没有环境音的老版本也认得的值。
+/// 播客写成有声书(老版本仍把它挡在音乐外),环境音写成音乐(老版本当普通音乐放,不会当成有声书),
+/// 两者各另带一份 ID 清单(`podcastSongIDs` / `ambientSongIDs`),读回来时按清单还原。
+public enum SpokenWordOverrideStorage {
+    public static func storedValues(_ overrides: [String: ListeningContentKind]) -> [String: String] {
+        overrides.mapValues(storedValue)
+    }
+
+    public static func storedValue(_ kind: ListeningContentKind) -> String {
+        switch kind {
+        case .podcast: ListeningContentKind.spokenWord.rawValue
+        case .ambient: ListeningContentKind.music.rawValue
+        case .music, .spokenWord: kind.rawValue
+        }
+    }
+
+    public static func podcastIDs(_ overrides: [String: ListeningContentKind]) -> Set<String> {
+        Set(overrides.lazy.filter { $0.value == .podcast }.map(\.key))
+    }
+
+    public static func ambientIDs(_ overrides: [String: ListeningContentKind]) -> Set<String> {
+        Set(overrides.lazy.filter { $0.value == .ambient }.map(\.key))
+    }
+
+    /// 读回来:认不出的值丢掉(回到推断);清单只在写成有声书 / 音乐的那几条上生效。
+    public static func overrides(
+        from stored: [String: String],
+        podcastSongIDs: Set<String>,
+        ambientSongIDs: Set<String> = []
+    ) -> [String: ListeningContentKind] {
+        var result = stored.compactMapValues(ListeningContentKind.init(rawValue:))
+        for songID in podcastSongIDs where result[songID] == .spokenWord {
+            result[songID] = .podcast
+        }
+        for songID in ambientSongIDs where result[songID] == .music {
+            result[songID] = .ambient
+        }
+        return result
     }
 }

@@ -735,9 +735,9 @@ struct MacHomeView: View {
         let songs = library.musicSongs
         let albums = library.visibleAlbums
         let artists = library.visibleArtists
-        let spokenWordSongIDs = library.spokenWordSongIDs
+        let nonMusicSongIDs = library.nonMusicSongIDs
         let recentlyPlayed = library.recentlyPlayedSongs(limit: 100)
-            .filter { !spokenWordSongIDs.contains($0.id) }
+            .filter { !nonMusicSongIDs.contains($0.id) }
         let recommendationSnapshot = MusicDiscoveryEngine.recommendationSnapshot(in: library)
         diagnostics.mark("refresh_capture", "refresh=\(refresh) elapsed_ms=\(MacHomePerformanceDiagnostics.ms(ProcessInfo.processInfo.systemUptime - startedAt)) songs=\(songs.count) albums=\(albums.count) artists=\(artists.count)")
         diagnostics.refreshStage = "derive"
@@ -1970,9 +1970,9 @@ struct MacHomeView: View {
     // MARK: - Actions
 
     private func playSong(_ song: Song) {
-        let spokenWordSongIDs = library.spokenWordSongIDs
+        let nonMusicSongIDs = library.nonMusicSongIDs
         var queue = library.recentlyPlayedSongs(limit: 50)
-            .filter { !spokenWordSongIDs.contains($0.id) }
+            .filter { !nonMusicSongIDs.contains($0.id) }
         if !queue.contains(where: { $0.id == song.id }) { queue.insert(song, at: 0) }
         if queue.count < 20 {
             // The rest of the library goes in as IDs and is resolved off the

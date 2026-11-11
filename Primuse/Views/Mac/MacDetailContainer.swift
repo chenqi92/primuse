@@ -157,6 +157,8 @@ struct MacDetailContainer: View {
                 MacRadioStationsView()
             case .podcasts:
                 PodcastLibraryView()
+            case .ambient:
+                AmbientSoundsView()
             }
         case .liked:
             PlaylistDetailView(

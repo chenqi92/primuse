@@ -4,13 +4,21 @@ import Foundation
 /// spoken word is played as one long thing you come back to. A podcast is
 /// spoken word too — it plays the same way — but lives with the podcasts
 /// rather than on the book shelf.
+///
+/// 环境音(白噪音、雨声、海浪、自然声、助眠声)不是「一首歌」:不进音乐的各个列表、统计与推荐,
+/// 但播放方式更像音乐 —— 不记收听位置、没有快进快退键、不用有声的单独倍速,放的时候默认无缝单曲循环。
 public enum ListeningContentKind: String, Codable, Sendable, CaseIterable {
     case music
     case spokenWord
     case podcast
+    case ambient
 
     /// Played the spoken-word way: per-item position, skip buttons, own speed.
-    public var isSpokenWordListening: Bool { self != .music }
+    /// 只有有声书与播客;环境音照音乐的方式播。
+    public var isSpokenWordListening: Bool { self == .spokenWord || self == .podcast }
+
+    /// 不进音乐的整库集合(歌曲、专辑、艺人、流派列表,随机、推荐、统计)。
+    public var isSeparateFromMusic: Bool { self != .music }
 }
 
 /// Decides whether an item is spoken word (audiobook, 相声/评书, radio drama,
@@ -77,13 +85,13 @@ public enum SpokenWordContentPolicy {
     }
 
     /// Whether the genre names spoken-word listening of any kind, podcasts
-    /// included.
+    /// included. 点名环境音的流派不算。
     public static func genreNamesSpokenWord(_ genre: String?) -> Bool {
-        genreKind(genre) != nil
+        genreKind(genre)?.isSpokenWordListening == true
     }
 
-    /// The kind a genre names: `.podcast`, `.spokenWord`, or nil when it names
-    /// neither (music, or nothing to go on).
+    /// The kind a genre names: `.podcast`, `.spokenWord`, `.ambient`, or nil
+    /// when it names none of them (music, or nothing to go on).
     public static func genreKind(_ genre: String?) -> ListeningContentKind? {
         guard let genre else { return nil }
         let normalized = genre.lowercased()
@@ -93,8 +101,51 @@ public enum SpokenWordContentPolicy {
         guard !normalized.isEmpty, normalized.count <= 64 else { return nil }
         if podcastGenreMarkers.contains(where: { normalized.contains($0) }) { return .podcast }
         if spokenWordGenreMarkers.contains(where: { normalized.contains($0) }) { return .spokenWord }
+        if ambientGenreMarkers.contains(where: { namesAmbientSound(normalized, marker: $0) }) { return .ambient }
         return nil
     }
+
+    /// 流派里出现了环境音的强词,而且后面紧跟的不是「乐 / 音乐」:「环境音乐」「環境音楽」
+    /// 是 Brian Eno 那一路的氛围音乐,「助眠音乐」是音乐,都留在音乐里。
+    static func namesAmbientSound(_ normalized: String, marker: String) -> Bool {
+        var searchRange = normalized.startIndex..<normalized.endIndex
+        while let found = normalized.range(of: marker, range: searchRange) {
+            let rest = normalized[found.upperBound...]
+            if !ambientMusicSuffixes.contains(where: { rest.hasPrefix($0) }) { return true }
+            searchRange = normalized.index(after: found.lowerBound)..<normalized.endIndex
+        }
+        return false
+    }
+
+    /// 紧跟在环境音强词后面就说明是音乐的字:乐、樂、楽,音乐、音樂、音楽。
+    private static let ambientMusicSuffixes: [String] = [
+        "\u{4E50}", "\u{6A02}", "\u{697D}", "\u{97F3}\u{4E50}", "\u{97F3}\u{6A02}", "\u{97F3}\u{697D}", "music",
+    ]
+
+    /// 只认点名「这是一段声音而不是音乐」的强词(按去掉空格、连字符、下划线后的小写比)。
+    /// ambient、new age、meditation、relax、chill、lo-fi、冥想、放松、轻音乐这些是正经的音乐流派,
+    /// 一个都不收:Brian Eno 的专辑必须留在音乐里。识别不到的由用户按目录或单曲归好。
+    private static let ambientGenreMarkers: Set<String> = [
+        // English
+        "whitenoise", "pinknoise", "brownnoise", "browniannoise", "greennoise", "noisemachine",
+        "naturesounds", "soundsofnature", "rainsounds", "oceansounds", "sleepsounds",
+        "soundscape", "fieldrecording", "binaural", "asmr",
+        // German, French, Spanish, Portuguese, Italian, Russian
+        "weißesrauschen", "weissesrauschen", "naturgeräusche", "naturgerausche", "regengeräusche",
+        "bruitblanc", "sonsdelanature", "ruidoblanco", "sonidosdelanaturaleza", "ruídobranco", "ruidobranco",
+        "sonsdanatureza", "rumorebianco", "suonidellanatura", "белыйшум", "звукиприроды",
+        // 白噪音、白噪声、白噪聲、粉红噪音、粉紅噪音、粉噪音、棕噪音、褐噪音、自然声、自然聲、自然音、
+        // 雨声、雨聲、海浪声、海浪聲、助眠、环境音、環境音、环境声、環境聲
+        "\u{767D}\u{566A}\u{97F3}", "\u{767D}\u{566A}\u{58F0}", "\u{767D}\u{566A}\u{8072}",
+        "\u{7C89}\u{7EA2}\u{566A}\u{97F3}", "\u{7C89}\u{7D05}\u{566A}\u{97F3}", "\u{7C89}\u{566A}\u{97F3}",
+        "\u{68D5}\u{566A}\u{97F3}", "\u{8910}\u{566A}\u{97F3}",
+        "\u{81EA}\u{7136}\u{58F0}", "\u{81EA}\u{7136}\u{8072}", "\u{81EA}\u{7136}\u{97F3}",
+        "\u{96E8}\u{58F0}", "\u{96E8}\u{8072}", "\u{6D77}\u{6D6A}\u{58F0}", "\u{6D77}\u{6D6A}\u{8072}",
+        "\u{52A9}\u{7720}",
+        "\u{73AF}\u{5883}\u{97F3}", "\u{74B0}\u{5883}\u{97F3}", "\u{73AF}\u{5883}\u{58F0}", "\u{74B0}\u{5883}\u{8072}",
+        // Japanese and Korean(雨音)
+        "ホワイトノイズ", "\u{96E8}\u{97F3}", "백색소음", "자연의소리", "자연소리", "빗소리",
+    ]
 
     /// Genre spellings that name a podcast. Checked before the spoken-word
     /// ones, so a downloaded episode goes to the podcasts, not the book shelf.
