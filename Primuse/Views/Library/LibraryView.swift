@@ -906,6 +906,9 @@ struct LibraryView: View {
             .onAppear {
                 persistedPageID = "section:\(section.rawValue)"
                 onActiveSectionChange(section)
+                #if os(iOS) && DEBUG
+                LibrarySectionSwitchTrace.mark("page appear")
+                #endif
             }
     }
 
@@ -936,12 +939,17 @@ struct LibraryView: View {
             }
         ) {
             destination(for: section)
+                // 极简导航换分类是把这一页原地换掉：新页一出来就是完整的样子，不从透明淡进来。
+                .pmPageSwap(isActive: appNavigationMode == .minimal)
         }
     }
 
     /// 横滑翻到相邻分类：和点顶上的分类一样换掉导航栈里这一页，只是不要导航栈自己的推入动画
     /// （旧页已经滑出去、新页自己从另一侧进来）；顶上的分类行照常把下划线和滚动位置挪过去。
     private func pageToSection(_ next: LibrarySection) {
+        #if DEBUG
+        LibrarySectionSwitchTrace.begin(next.rawValue)
+        #endif
         didRestorePersistedPage = true
         persistedPageID = "section:\(next.rawValue)"
         var path = NavigationPath()

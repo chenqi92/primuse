@@ -23,6 +23,31 @@ final class LibrarySectionPagingMotion {
     var generation = 0
 }
 
+#if DEBUG
+/// 取证：极简导航换分类要多久才有内容。点分类（或滑过去）那一刻起表，新页出现、歌曲页的转圈、
+/// 目录索引（复用上一页的还是重新分的）、列表出来各记一笔：`🧪 section <分类> <事件> +<毫秒>ms`。
+@MainActor
+enum LibrarySectionSwitchTrace {
+    private static var start: ContinuousClock.Instant?
+    private static var label = ""
+
+    static func begin(_ section: String) {
+        start = .now
+        label = section
+        mark("selected")
+    }
+
+    static func mark(_ event: String) {
+        guard let start else { return }
+        let elapsed = ContinuousClock.now - start
+        // 换完很久以后才出现的（回到这一页、改了排序）不算这一次。
+        guard elapsed < .seconds(5) else { return }
+        let ms = Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
+        plog("🧪 section \(label) \(event) +\(Int(ms.rounded()))ms")
+    }
+}
+#endif
+
 /// 分类页的横滑翻页：内容跟手走，松手够远或够快就翻到相邻的分类，到两端有阻尼。
 ///
 /// 只接「这一页没有别人要」的横滑：歌曲行自己的左右滑（入队、下一首）、列表行的系统滑动操作、

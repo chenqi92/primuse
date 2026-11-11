@@ -144,6 +144,15 @@ extension View {
         modifier(PMPageEnterModifier())
     }
 
+    /// 同级的页原地换成另一页（极简导航顶上换分类、左右滑到相邻分类）：新页一出来就是完整的样子。
+    ///
+    /// 换分类时旧页在同一帧就拿掉了，新页这一层自己不淡、不移；入场这一小段里，页里各块的
+    /// `pmAppearFade` 也直接到位（同 `pmPageEnter`），不然它们一起从透明淡进来，前几帧整页是空的。
+    /// 之后才到的内容（后台排好的整张表）照常淡入。`isActive` 只在页面建出来时读一次。
+    func pmPageSwap(isActive: Bool = true) -> some View {
+        modifier(PMPageSwapModifier(isActive: isActive))
+    }
+
     /// 从某一边推入推出的过渡。开启「减少动态效果」时退化成纯淡入淡出。
     ///
     /// 挂在 `if` / `switch` 分支里的那个视图上，不是挂在外面的容器上。
@@ -351,6 +360,26 @@ private struct PMPageEnterModifier: ViewModifier {
             }
             .task {
                 // 入场的时长之后, 再出现的内容各自淡入。
+                try? await Task.sleep(for: .milliseconds(260))
+                entering = false
+            }
+    }
+}
+
+private struct PMPageSwapModifier: ViewModifier {
+    @State private var entering: Bool
+
+    init(isActive: Bool) {
+        _entering = State(initialValue: isActive)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            // 只往「正在入场」那边拨：外面整页自己在入场时不去改它。
+            .transformEnvironment(\.pmPageEntering) { if entering { $0 = true } }
+            .task {
+                guard entering else { return }
+                // 和 `pmPageEnter` 同一段入场时长，之后再出现的内容各自淡入。
                 try? await Task.sleep(for: .milliseconds(260))
                 entering = false
             }

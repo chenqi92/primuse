@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 /// Persists user-friendly directory names for cloud-drive paths whose internal
 /// identifiers are opaque IDs (for example OneDrive / Google Drive folder IDs).
@@ -57,6 +58,11 @@ enum CloudDirectoryNameStore {
     }
 
     private static func notifyChange(for sourceID: String) {
+        // 歌曲页留给下一页复用的目录索引里带着这些目录名，名字变了那份就不能再用。
+        let dropped = LibraryFolderIndexReuseCache.shared.removeAll()
+        if let dropped {
+            Task.detached(priority: .utility) { withExtendedLifetime(dropped) {} }
+        }
         NotificationCenter.default.post(name: didChangeNotification, object: sourceID)
     }
 }

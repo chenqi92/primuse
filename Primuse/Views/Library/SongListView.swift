@@ -1512,13 +1512,15 @@ struct SongListView: View {
                 pruneSelection()
                 resolvePendingFolderLocation()
             }
-            .onChange(of: songListVersion.replacementToken) { _, _ in
+            .onChange(of: songListVersion.replacementToken) { previousToken, token in
                 let folderStructureChanged = folderReplacementChangesStructure()
                 let shouldRetryPendingSort = sortRequestActive
                 applyLibrarySongReplacements()
                 if folderStructureChanged {
                     folderSourceRevision &+= 1
                     scheduleFolderIndexRecompute(delay: .milliseconds(80))
+                } else {
+                    carryReusableFolderIndex(from: previousToken, to: token)
                 }
                 let technicalOrderNeedsRefresh: Bool = switch sortOrder.criterion {
                 case .dateAdded, .sourceDate, .duration, .serverPlayCount, .year,
@@ -1640,7 +1642,9 @@ struct SongListView: View {
                         scheduleSortedRecompute(pruneRowModels: false)
                     }
                 }
-                scheduleFolderIndexRecompute()
+                if !publishReusableFolderIndex() {
+                    scheduleFolderIndexRecompute()
+                }
                 if requiresDownloadedSongSnapshot {
                     scheduleDownloadedFilterRefresh()
                 }
@@ -1840,6 +1844,13 @@ struct SongListView: View {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .pmAppearFade(.contentAppear)
+                #if os(iOS)
+                // 极简模式下页头先摆上：换到这一页时上面不是空的，排好序、分好目录再把下面换成列表。
+                .minimalPageHeader { loadingMinimalHeader }
+                #if DEBUG
+                .onAppear { LibrarySectionSwitchTrace.mark("songs loading") }
+                #endif
+                #endif
         } else {
             // 成对分支各自淡入，不做交叉淡入：转圈与整张表要是在过渡期同时留在布局里，
             // 会先把彼此顶开再弹回。切换点也不包动画事务。
@@ -1852,9 +1863,38 @@ struct SongListView: View {
             #else
             iosSongList
                 .pmAppearFade(.contentAppear)
+                #if DEBUG
+                .onAppear { LibrarySectionSwitchTrace.mark("songs content") }
+                #endif
             #endif
         }
     }
+
+    #if os(iOS)
+    /// 还在排序、分目录时的页头：就是列表出来后的那个页头，只是播放键先不能点，数量先按整库的歌数写
+    /// （筛了「已下载」时先空着），换成列表时这一行不动。
+    private var loadingMinimalHeader: some View {
+        SongListMinimalHeader(
+            selection: selection,
+            progress: sortProgress,
+            countText: songFilter == .all
+                ? "\(songs.count.formatted()) \(String(localized: "songs_count"))"
+                : " ",
+            canPlay: false,
+            canShuffle: false,
+            browseMode: $browseMode,
+            folderBlocker: folderBrowseBlocker,
+            resolveFolderBlocker: resolveFolderBrowseBlocker,
+            sortOrder: $sortOrder,
+            filter: $songFilter,
+            manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
+            folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
+            orderedIDs: { [] },
+            onPlay: {},
+            onShuffle: {}
+        )
+    }
+    #endif
 
     #if os(iOS)
     private var iosSongList: some View {
@@ -3560,6 +3600,8 @@ struct SongListView: View {
             for: songsSnapshot,
             configured: configuredDescriptors
         )
+        // 照这一份输入建好的整库索引留给下一个歌曲页直接用(见 `publishReusableFolderIndex`)。
+        let reuseKey = folderIndexReuseKey
 
         folderIndexTask?.cancel()
         folderIndexTask = Task { @MainActor in
@@ -3650,10 +3692,63 @@ struct SongListView: View {
                   library.playlistCollectionRevision == playlistRevision
             else { return }
             folderCache.publish(prepared)
+            #if os(iOS) && DEBUG
+            LibrarySectionSwitchTrace.mark("folder index built")
+            #endif
+            if let reuseKey {
+                Self.releaseOffMain(LibraryFolderIndexReuseCache.shared.store(prepared, for: reuseKey))
+            }
             if selection.isActive, !selection.isEmpty {
                 selection.prune(to: Set(listCache.orderedSongIDs))
             }
         }
+    }
+
+    /// 整库的目录索引是照哪一份输入建的(按源看的歌曲页不复用,返回 nil)。只在动作里读,
+    /// 不进 body,整库的这几个版本号变了不会让列表重画。
+    private var folderIndexReuseKey: LibraryFolderIndexReuseKey? {
+        guard case .library = scope else { return nil }
+        return LibraryFolderIndexReuseKey(
+            songsRevision: library.musicSongsRevision,
+            collectionRevision: songListVersion.collectionRevision,
+            replacementToken: songListVersion.replacementToken,
+            virtualCollectionRevision: library.playlistCollectionRevision,
+            hierarchyRevision: scanService.folderHierarchyRevision,
+            sources: configuredFolderSourceDescriptors
+        )
+    }
+
+    /// 目录版式下,上一个歌曲页建好的整库目录索引还对得上就在出现的这一帧摆出来。
+    ///
+    /// 极简导航换分类会把歌曲页整个换掉,页里自己的索引跟着没了;不复用的话每次切回来都先转圈、
+    /// 等后台把整库重新分一遍目录(大曲库要好几秒),这段时间页上是空的。对不上(歌换过、源改过)
+    /// 时照旧在后台重建,不在主线程上建。
+    private func publishReusableFolderIndex() -> Bool {
+        guard browseMode == .folder, !folderCache.hasIndex,
+              let key = folderIndexReuseKey,
+              let index = LibraryFolderIndexReuseCache.shared.index(for: key) else { return false }
+        folderCache.publish(index)
+        #if os(iOS) && DEBUG
+        LibrarySectionSwitchTrace.mark("folder index reused")
+        #endif
+        return true
+    }
+
+    /// 这次替换没动目录结构(只改了标签):手里这份索引还是对的,留给下一页的那份也跟着记到新令牌下。
+    private func carryReusableFolderIndex(from previousToken: UUID, to token: UUID) {
+        guard browseMode == .folder, let index = folderCache.index,
+              let key = folderIndexReuseKey, key.replacementToken == token else { return }
+        LibraryFolderIndexReuseCache.shared.rekey(
+            index,
+            from: key.replacingToken(previousToken),
+            to: key
+        )
+    }
+
+    /// 换下来的整库索引挪到后台释放,不在主线程上拆。
+    private static func releaseOffMain(_ index: LibraryFolderIndex?) {
+        guard let index else { return }
+        Task.detached(priority: .utility) { withExtendedLifetime(index) {} }
     }
 
     /// Build sorting, IDs, membership, and aggregates away from the main actor.

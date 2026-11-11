@@ -2473,6 +2473,9 @@ struct ContentView: View {
             sidebarSelection = SidebarItem.libraryChild(for: section)
             // 已经停在这一页时不再发深链：深链会把这一页的导航栈重排一遍。
             if minimalLibrarySection != section || libraryDeepLink != nil {
+                #if DEBUG
+                LibrarySectionSwitchTrace.begin(section.rawValue)
+                #endif
                 minimalLibrarySection = section
                 libraryDeepLink = .section(section)
             }
