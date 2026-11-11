@@ -5780,6 +5780,12 @@
 "ambient_back_to_music" = "Zurück zur Musik";
 "ambient_empty_hint" = "Weißes Rauschen, Regen, Meeresrauschen, Naturgeräusche und andere Schlafklänge erscheinen hier. Markiere einen Ordner oder Titel als Umgebungsklang, um ihn hierher zu verschieben.";
 "ambient_loose_group" = "Weitere Klänge";
+"ambient_fullscreen" = "Vollbild";
+"ambient_timer_button" = "Timer";
+"ambient_timer_remaining_format" = "Noch %@";
+"ambient_loop" = "Titel wiederholen";
+"ambient_looping_hint" = "Läuft nahtlos in Schleife.";
+"ambient_play_once_hint" = "Stoppt, wenn dieser Klang endet.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Die neuesten Folgen der Podcasts, denen du folgst.";
 "home_cover_size_title" = "Covergröße";

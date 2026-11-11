@@ -5686,6 +5686,12 @@
 "ambient_back_to_music" = "Повернутися до музики";
 "ambient_empty_hint" = "Тут з’являться білий шум, дощ, шум моря, звуки природи та інші звуки для сну. Позначте теку або трек як звук довкілля, щоб перенести його сюди.";
 "ambient_loose_group" = "Інші звуки";
+"ambient_fullscreen" = "Повний екран";
+"ambient_timer_button" = "Таймер";
+"ambient_timer_remaining_format" = "Залишилося %@";
+"ambient_loop" = "Повтор треку";
+"ambient_looping_hint" = "Повторюється без пауз.";
+"ambient_play_once_hint" = "Зупиниться, коли цей звук закінчиться.";
 "home_section_podcasts" = "Подкасти";
 "home_section_podcasts_hint" = "Свіжі випуски подкастів, на які ви підписані.";
 "home_cover_size_title" = "Розмір обкладинок";

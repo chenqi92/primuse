@@ -5781,6 +5781,12 @@
 "ambient_back_to_music" = "音楽に戻る";
 "ambient_empty_hint" = "ホワイトノイズ、雨音、波の音、自然音などの睡眠用サウンドがここに表示されます。フォルダや曲を環境音としてマークするとここに移ります。";
 "ambient_loose_group" = "その他のサウンド";
+"ambient_fullscreen" = "フルスクリーン";
+"ambient_timer_button" = "タイマー";
+"ambient_timer_remaining_format" = "残り %@";
+"ambient_loop" = "1曲リピート";
+"ambient_looping_hint" = "継ぎ目なくループ再生中。";
+"ambient_play_once_hint" = "このサウンドが終わったら停止します。";
 "home_section_podcasts" = "ポッドキャスト";
 "home_section_podcasts_hint" = "フォロー中のポッドキャストの最新エピソード。";
 "home_cover_size_title" = "カバーのサイズ";

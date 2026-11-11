@@ -311,6 +311,13 @@ struct MacNowPlayingView: View {
                                     SpokenTranscriptGenerationSheet(song: song, dismissesOnStart: true)
                                         .environment(AppServices.shared.musicIntelligence)
                                 }
+                            } else if player.currentItemIsAmbient {
+                                // 环境音没有歌词可等:右栏换成光环、循环与定时,不在这里一直转圈。
+                                AmbientNowPlayingSidePane(
+                                    primary: playerPrimaryColor,
+                                    secondary: playerSecondaryColor,
+                                    accent: theme.accentColor
+                                )
                             } else {
                                 lyricsPane
                                     .padding(.top, max(0, floatingControlsBottom + 12 - lyricsPaneTop))

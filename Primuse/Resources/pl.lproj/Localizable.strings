@@ -5686,6 +5686,12 @@
 "ambient_back_to_music" = "Wróć do muzyki";
 "ambient_empty_hint" = "Tutaj pojawią się biały szum, deszcz, fale, odgłosy natury i inne dźwięki do snu. Oznacz folder lub utwór jako dźwięk otoczenia, aby go tu przenieść.";
 "ambient_loose_group" = "Inne dźwięki";
+"ambient_fullscreen" = "Pełny ekran";
+"ambient_timer_button" = "Minutnik";
+"ambient_timer_remaining_format" = "Zostało %@";
+"ambient_loop" = "Powtarzaj utwór";
+"ambient_looping_hint" = "Odtwarzane w pętli bez przerw.";
+"ambient_play_once_hint" = "Zatrzyma się po zakończeniu tego dźwięku.";
 "home_section_podcasts" = "Podcasty";
 "home_section_podcasts_hint" = "Najnowsze odcinki obserwowanych podcastów.";
 "home_cover_size_title" = "Rozmiar okładek";

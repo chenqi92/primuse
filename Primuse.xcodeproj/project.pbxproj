@@ -287,6 +287,7 @@
 		1C28C5904066A135C415BDCE /* PalveniDiagnosticsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257E9CF86D994DA59DEEBDC /* PalveniDiagnosticsClient.swift */; };
 		1C2D309EC377843D8562F09F /* LyricsAPIServersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F72568716D3795F0E02942 /* LyricsAPIServersView.swift */; };
 		1C46E6DFCE3EB4A753078E3A /* SleepTimerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D95C407321BB61F2AE5D951 /* SleepTimerSheet.swift */; };
+		7DE67DE484D0AA1F4547C5C1 /* AmbientNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57C1F78CAACA08A8D0A5C298 /* AmbientNowPlayingView.swift */; };
 		1C4D5DF424C3ACDBE1E18938 /* LibraryPublishTimingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15E6E1D9C28B5C25D1E7C0DE /* LibraryPublishTimingPolicy.swift */; };
 		1C52B61C899FBD92A865DC66 /* ServerCertificateTrustPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9BAF2E6891229C3AED60360 /* ServerCertificateTrustPolicy.swift */; };
 		1C901837C560784D2C0CE15B /* SourceCatalogSnapshotPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09E1FFC29629DC9E3BB3883 /* SourceCatalogSnapshotPolicy.swift */; };
@@ -1190,6 +1191,7 @@
 		7C79048A9955A27D0B866308 /* HomeForYouSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17E404D4638787229DC81095 /* HomeForYouSection.swift */; };
 		7CC510CFB7AE45C4AF720D0E /* ID3SynchronizedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F35F3F45A8184ACB596613 /* ID3SynchronizedLyricsParser.swift */; };
 		7D0C759614CAB0E41E588E71 /* SleepTimerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D95C407321BB61F2AE5D951 /* SleepTimerSheet.swift */; };
+		05E42A24B33DA308914FEB50 /* AmbientNowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57C1F78CAACA08A8D0A5C298 /* AmbientNowPlayingView.swift */; };
 		7D8736FFAAE20B2823E60C34 /* PodcastLibraryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA2748845933B33CC78DD5D /* PodcastLibraryPolicy.swift */; };
 		7DAA6248DD6B317C33A9E6D2 /* RadioLiveStreamSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97FB13B152F50AF650611FA5 /* RadioLiveStreamSource.swift */; };
 		7E114106AB7BBA1ED62A86F3 /* ArtistHeroBackgroundResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F7FFEA8F9D02F2B1F4D429E /* ArtistHeroBackgroundResolverTests.swift */; };
@@ -3029,6 +3031,7 @@
 		3D6AA5670DB514ED0BF3B952 /* TVSourceScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceScanner.swift; sourceTree = "<group>"; };
 		3D79AFA55D7CD3FD669E5EC6 /* TVConnectorLister.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVConnectorLister.swift; sourceTree = "<group>"; };
 		3D95C407321BB61F2AE5D951 /* SleepTimerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheet.swift; sourceTree = "<group>"; };
+		57C1F78CAACA08A8D0A5C298 /* AmbientNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientNowPlayingView.swift; sourceTree = "<group>"; };
 		3DBCB5A42A29C5A2F88B3F0C /* RadioLogoDiscoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioLogoDiscoveryPolicy.swift; sourceTree = "<group>"; };
 		3DD4AAD569B4788DAAAE3911 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = en; path = en.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		3DE674A9BB7B7A4FE7603E1C /* PlaylistOperationAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistOperationAvailability.swift; sourceTree = "<group>"; };
@@ -5320,6 +5323,7 @@
 				5D2741FA5052447F5E1B27A4 /* QueueView.swift */,
 				11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */,
 				3D95C407321BB61F2AE5D951 /* SleepTimerSheet.swift */,
+				57C1F78CAACA08A8D0A5C298 /* AmbientNowPlayingView.swift */,
 				0D36821ECE5B2C7F182ACD85 /* SpokenChapterGenerationSheet.swift */,
 				1E4C3266509DEBD737D2392F /* SpokenTranscriptGenerationSheet.swift */,
 				28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */,
@@ -8508,6 +8512,7 @@
 				2397DE1952ABED43B577663D /* SiriSettingsView.swift in Sources */,
 				84BFE398306533A2FDC82BC4 /* SiriSpokenNamesGuideView.swift in Sources */,
 				1C46E6DFCE3EB4A753078E3A /* SleepTimerSheet.swift in Sources */,
+				7DE67DE484D0AA1F4547C5C1 /* AmbientNowPlayingView.swift in Sources */,
 				51788D2CE6B14D8AEC96F19F /* SmartNudgeCenter.swift in Sources */,
 				1195F4C685A15098540F4A80 /* SmartNudgeOverlay.swift in Sources */,
 				AF0477B123E1E458EE651D73 /* SmartPlaylistDetailView.swift in Sources */,
@@ -9369,6 +9374,7 @@
 				086F04A798AC70AC16E0B9D4 /* SiriSettingsView.swift in Sources */,
 				7033B713D39A8C0E1605A1A9 /* SiriSpokenNamesGuideView.swift in Sources */,
 				7D0C759614CAB0E41E588E71 /* SleepTimerSheet.swift in Sources */,
+				05E42A24B33DA308914FEB50 /* AmbientNowPlayingView.swift in Sources */,
 				AC8C2032CECB70E36A882108 /* SmartNudgeCenter.swift in Sources */,
 				6F5899A91CEA7698A1F8C916 /* SmartNudgeOverlay.swift in Sources */,
 				360233DAA3A9722CEB8F659D /* SmartPlaylistDetailView.swift in Sources */,

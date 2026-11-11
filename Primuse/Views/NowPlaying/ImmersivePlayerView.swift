@@ -169,6 +169,8 @@ struct ImmersivePlayerView: View {
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
+        // 环境音没有歌词,「原生」那一档铺不出东西:换成安静的星夜极光。
+        if player.currentItemIsAmbient, displayedEffect.isNative { return .auroraVeil }
         let raw = ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
             selectedRawValue: displayedEffect.rawValue,
             hasSynchronizedLyrics: hasSynchronizedLyrics,
@@ -1615,9 +1617,11 @@ struct ImmersivePlayerView: View {
               !presentsOnExternalDisplay,
               !voiceOverEnabled,
               !showsEffectPicker else { return }
+        // 环境音进全屏就是为了一块安静的屏:几秒没人碰就落到带时钟的休憩层,不必等五分钟。
+        let restDelay = AmbientSoundPlaybackPolicy.fullscreenRestDelay(isAmbient: player.currentItemIsAmbient)
         ambientTask = Task { @MainActor in
             do {
-                try await Task.sleep(for: .seconds(5 * 60))
+                try await Task.sleep(for: .seconds(restDelay))
             } catch {
                 return
             }

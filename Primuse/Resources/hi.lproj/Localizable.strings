@@ -5686,6 +5686,12 @@
 "ambient_back_to_music" = "संगीत पर वापस जाएँ";
 "ambient_empty_hint" = "व्हाइट नॉइज़, बारिश, समुद्र की लहरें, प्रकृति की आवाज़ें और दूसरी नींद वाली ध्वनियाँ यहाँ दिखती हैं। किसी फ़ोल्डर या गाने को परिवेश ध्वनि के रूप में चिह्नित करें, तो वह यहाँ आ जाएगा।";
 "ambient_loose_group" = "अन्य ध्वनियाँ";
+"ambient_fullscreen" = "पूर्ण स्क्रीन";
+"ambient_timer_button" = "टाइमर";
+"ambient_timer_remaining_format" = "%@ बाकी";
+"ambient_loop" = "एक गाना दोहराएँ";
+"ambient_looping_hint" = "बिना रुकावट लूप में चल रहा है।";
+"ambient_play_once_hint" = "यह ध्वनि खत्म होने पर रुक जाएगा।";
 "home_section_podcasts" = "पॉडकास्ट";
 "home_section_podcasts_hint" = "आपके फ़ॉलो किए पॉडकास्ट के नवीनतम एपिसोड।";
 "home_cover_size_title" = "कवर का आकार";

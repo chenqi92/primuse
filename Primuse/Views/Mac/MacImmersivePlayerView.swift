@@ -156,6 +156,8 @@ struct MacImmersivePlayerView: View {
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
+        // 环境音没有歌词,「原生」那一档铺不出东西:换成安静的星夜极光。
+        if player.currentItemIsAmbient, displayedEffect.isNative { return .auroraVeil }
         let raw = ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
             selectedRawValue: displayedEffect.rawValue,
             hasSynchronizedLyrics: hasSynchronizedLyrics,
@@ -1504,7 +1506,9 @@ struct MacImmersivePlayerView: View {
         idleTask?.cancel()
         guard isRenderingActive,
               !voiceOverEnabled,
-              let delay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
+              let musicDelay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
+        // 环境音进全屏就是要一块安静的屏:几秒没动就压暗、叠上时钟,不必等十五分钟。
+        let delay = player.currentItemIsAmbient ? AmbientSoundPlaybackPolicy.fullscreenRestDelayForAmbient : musicDelay
         idleTask = Task { @MainActor in
             do {
                 try await Task.sleep(for: .seconds(delay))

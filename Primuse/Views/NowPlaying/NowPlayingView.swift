@@ -2136,7 +2136,8 @@ struct NowPlayingView: View {
     }
 
     private func presentImmersiveLyrics() {
-        if fullscreenPlayerEffect == .native {
+        // 环境音没有歌词可铺:直接进全屏效果,那边很快就落到带时钟的休憩层。
+        if fullscreenPlayerEffect == .native, !player.currentItemIsAmbient {
             withAnimation(.easeInOut(duration: 0.3)) {
                 showLyrics = true
                 isLyricsChromeCollapsed = false
@@ -3425,6 +3426,23 @@ struct NowPlayingView: View {
                 }
                 .transition(PMLayoutSwitchTransition())
             }
+        } else if player.currentItemIsAmbient {
+            // 环境音:没有歌词区、没有上一首下一首的主位,横竖屏同一副版式(见 `AmbientNowPlayingLayout`)。
+            NowPlayingDeferredContent {
+                AmbientNowPlayingLayout(
+                    size: geo.size,
+                    topInset: topSafeArea,
+                    primary: appearance.primary,
+                    secondary: appearance.secondary,
+                    tertiary: appearance.tertiary,
+                    accent: themedControlAccent,
+                    showsVolume: showsPlayerVolumeBar,
+                    volume: { playerVolumeRow },
+                    onShowSleepTimer: { showSleepTimer = true },
+                    onEnterFullscreen: { presentImmersiveLyrics() }
+                )
+            }
+            .transition(PMLayoutSwitchTransition())
         } else if let arrangement {
             NowPlayingDeferredContent {
                 arrangedPlayerLayout(
@@ -4517,6 +4535,12 @@ struct NowPlayingView: View {
                 fullScreenMusicVideoPlayer = videoPlayer
             } else {
                 dismissMusicVideoFullScreenIfNeeded()
+            }
+            // 换到环境音时收起歌词:环境音的版式里没有歌词区,留着的歌词态会盖在它上面。
+            // 放在这个已有的回调里,不在整条修饰链上再加一环(那条链已到类型检查的上限)。
+            if player.currentItemIsAmbient, showLyrics || isLyricsImmersive {
+                showLyrics = false
+                isLyricsImmersive = false
             }
         }
         .onChange(of: player.isMusicVideoModeEnabled) { _, enabled in

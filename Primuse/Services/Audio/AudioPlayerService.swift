@@ -7863,8 +7863,14 @@ final class AudioPlayerService {
         let joinsShuffleLink = nextJoinsCurrentAsShuffleLink(next)
         let repeatsCurrentSong = repeatMode == .one
         let usesCrossfade = shouldUseCrossfade(settings)
+        // 环境音单曲循环一律首尾直接接上,不看「无缝播放」「淡入淡出」开没开:雨声中间断一下就醒了。
+        let loopsAmbientSeamlessly = AmbientSoundPlaybackPolicy.forcesSeamlessLoop(
+            space: currentItemIsAmbient ? .ambient : nil,
+            repeatMode: repeatMode
+        )
         // 单曲循环不交叉混合自身；开启淡入淡出时也直接接上下一遍。
-        guard settings.gaplessEnabled || joinsShuffleLink || (repeatsCurrentSong && usesCrossfade),
+        guard settings.gaplessEnabled || joinsShuffleLink || (repeatsCurrentSong && usesCrossfade)
+                || loopsAmbientSeamlessly,
               !usesCrossfade || joinsShuffleLink || repeatsCurrentSong else { return .restart }
 
         // Spoken word forces the effects graph (`outputMode(for:)`); a book

@@ -5544,6 +5544,12 @@
 "ambient_back_to_music" = "Back to Music";
 "ambient_empty_hint" = "White noise, rain, ocean waves, nature sounds and other sleep sounds appear here. Mark a folder or a song as Ambient Sound to move it here.";
 "ambient_loose_group" = "Other Sounds";
+"ambient_fullscreen" = "Full Screen";
+"ambient_timer_button" = "Timer";
+"ambient_timer_remaining_format" = "%@ left";
+"ambient_loop" = "Repeat One";
+"ambient_looping_hint" = "Looping seamlessly.";
+"ambient_play_once_hint" = "Stops when this sound ends.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Latest episodes from the podcasts you follow.";
 "home_cover_size_title" = "Cover Size";

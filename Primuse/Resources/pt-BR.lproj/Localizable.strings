@@ -5686,6 +5686,12 @@
 "ambient_back_to_music" = "Voltar à música";
 "ambient_empty_hint" = "Ruído branco, chuva, ondas do mar, sons da natureza e outros sons para dormir aparecem aqui. Marque uma pasta ou música como som ambiente para movê-la para cá.";
 "ambient_loose_group" = "Outros sons";
+"ambient_fullscreen" = "Tela cheia";
+"ambient_timer_button" = "Timer";
+"ambient_timer_remaining_format" = "Faltam %@";
+"ambient_loop" = "Repetir uma";
+"ambient_looping_hint" = "Repetindo sem pausas.";
+"ambient_play_once_hint" = "Para quando este som terminar.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Os episódios mais recentes dos podcasts que você segue.";
 "home_cover_size_title" = "Tamanho das capas";

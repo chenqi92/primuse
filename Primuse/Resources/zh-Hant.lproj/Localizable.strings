@@ -5757,6 +5757,12 @@
 "ambient_back_to_music" = "回到音樂";
 "ambient_empty_hint" = "白噪音、雨聲、海浪、自然聲這類助眠聲音會出現在這裡。把資料夾或歌曲標記為環境音，就會歸到這裡。";
 "ambient_loose_group" = "其他聲音";
+"ambient_fullscreen" = "全螢幕";
+"ambient_timer_button" = "定時";
+"ambient_timer_remaining_format" = "還剩 %@";
+"ambient_loop" = "單曲循環";
+"ambient_looping_hint" = "正在單曲循環，首尾無縫接上。";
+"ambient_play_once_hint" = "播完這一段就停。";
 "home_section_podcasts" = "播客";
 "home_section_podcasts_hint" = "已訂閱播客最近推出的單集。";
 "home_cover_size_title" = "封面大小";

@@ -5780,6 +5780,12 @@
 "ambient_back_to_music" = "음악으로 돌아가기";
 "ambient_empty_hint" = "백색소음, 빗소리, 파도 소리, 자연의 소리 같은 수면용 사운드가 여기에 표시됩니다. 폴더나 노래를 환경음으로 표시하면 여기로 옮겨집니다.";
 "ambient_loose_group" = "기타 사운드";
+"ambient_fullscreen" = "전체 화면";
+"ambient_timer_button" = "타이머";
+"ambient_timer_remaining_format" = "%@ 남음";
+"ambient_loop" = "한 곡 반복";
+"ambient_looping_hint" = "끊김 없이 반복 재생 중.";
+"ambient_play_once_hint" = "이 사운드가 끝나면 멈춥니다.";
 "home_section_podcasts" = "팟캐스트";
 "home_section_podcasts_hint" = "팔로우 중인 팟캐스트의 최신 에피소드입니다.";
 "home_cover_size_title" = "커버 크기";

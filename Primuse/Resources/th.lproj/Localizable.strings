@@ -5686,6 +5686,12 @@
 "ambient_back_to_music" = "กลับไปที่เพลง";
 "ambient_empty_hint" = "เสียงไวท์นอยส์ เสียงฝน เสียงคลื่น เสียงธรรมชาติ และเสียงช่วยนอนอื่นๆ จะแสดงที่นี่ ทำเครื่องหมายโฟลเดอร์หรือเพลงเป็นเสียงบรรยากาศเพื่อย้ายมาไว้ที่นี่";
 "ambient_loose_group" = "เสียงอื่นๆ";
+"ambient_fullscreen" = "เต็มหน้าจอ";
+"ambient_timer_button" = "ตั้งเวลา";
+"ambient_timer_remaining_format" = "เหลือ %@";
+"ambient_loop" = "เล่นซ้ำเพลงเดียว";
+"ambient_looping_hint" = "กำลังวนซ้ำต่อเนื่องไม่สะดุด";
+"ambient_play_once_hint" = "หยุดเมื่อเสียงนี้จบ";
 "home_section_podcasts" = "พอดแคสต์";
 "home_section_podcasts_hint" = "ตอนล่าสุดจากพอดแคสต์ที่คุณติดตาม";
 "home_cover_size_title" = "ขนาดปก";

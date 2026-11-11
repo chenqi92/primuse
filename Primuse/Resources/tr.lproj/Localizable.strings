@@ -5686,6 +5686,12 @@
 "ambient_back_to_music" = "Müziğe dön";
 "ambient_empty_hint" = "Beyaz gürültü, yağmur, dalga sesleri, doğa sesleri ve diğer uyku sesleri burada görünür. Bir klasörü veya şarkıyı ortam sesi olarak işaretleyerek buraya taşıyabilirsiniz.";
 "ambient_loose_group" = "Diğer sesler";
+"ambient_fullscreen" = "Tam ekran";
+"ambient_timer_button" = "Zamanlayıcı";
+"ambient_timer_remaining_format" = "%@ kaldı";
+"ambient_loop" = "Tek şarkıyı tekrarla";
+"ambient_looping_hint" = "Kesintisiz döngüde çalıyor.";
+"ambient_play_once_hint" = "Bu ses bitince durur.";
 "home_section_podcasts" = "Podcast'ler";
 "home_section_podcasts_hint" = "Takip ettiğiniz podcast'lerin en yeni bölümleri.";
 "home_cover_size_title" = "Kapak boyutu";

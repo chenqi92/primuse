@@ -5780,6 +5780,12 @@
 "ambient_back_to_music" = "Revenir à la musique";
 "ambient_empty_hint" = "Le bruit blanc, la pluie, les vagues, les sons de la nature et autres sons pour dormir apparaissent ici. Marquez un dossier ou un morceau comme son d’ambiance pour le placer ici.";
 "ambient_loose_group" = "Autres sons";
+"ambient_fullscreen" = "Plein écran";
+"ambient_timer_button" = "Minuteur";
+"ambient_timer_remaining_format" = "Encore %@";
+"ambient_loop" = "Répéter le morceau";
+"ambient_looping_hint" = "Lecture en boucle sans coupure.";
+"ambient_play_once_hint" = "S’arrête à la fin de ce son.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Les derniers épisodes des podcasts que vous suivez.";
 "home_cover_size_title" = "Taille des pochettes";

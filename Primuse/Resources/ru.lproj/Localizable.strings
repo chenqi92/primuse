@@ -5686,6 +5686,12 @@
 "ambient_back_to_music" = "Вернуться к музыке";
 "ambient_empty_hint" = "Здесь появятся белый шум, дождь, шум моря, звуки природы и другие звуки для сна. Отметьте папку или трек как звук окружения, чтобы перенести его сюда.";
 "ambient_loose_group" = "Другие звуки";
+"ambient_fullscreen" = "Полный экран";
+"ambient_timer_button" = "Таймер";
+"ambient_timer_remaining_format" = "Осталось %@";
+"ambient_loop" = "Повтор трека";
+"ambient_looping_hint" = "Повторяется без пауз.";
+"ambient_play_once_hint" = "Остановится, когда этот звук закончится.";
 "home_section_podcasts" = "Подкасты";
 "home_section_podcasts_hint" = "Свежие выпуски подкастов, на которые вы подписаны.";
 "home_cover_size_title" = "Размер обложек";

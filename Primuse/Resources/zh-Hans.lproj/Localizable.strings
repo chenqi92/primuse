@@ -5873,6 +5873,12 @@
 "ambient_back_to_music" = "回到音乐";
 "ambient_empty_hint" = "白噪音、雨声、海浪、自然声这类助眠声音会出现在这里。把目录或歌曲标记为环境音，就会归到这里。";
 "ambient_loose_group" = "其他声音";
+"ambient_fullscreen" = "全屏";
+"ambient_timer_button" = "定时";
+"ambient_timer_remaining_format" = "还剩 %@";
+"ambient_loop" = "单曲循环";
+"ambient_looping_hint" = "正在单曲循环，首尾无缝接上。";
+"ambient_play_once_hint" = "放完这一段就停。";
 "home_section_podcasts" = "播客";
 "home_section_podcasts_hint" = "订阅的播客最近出的单集。";
 "home_cover_size_title" = "封面大小";
