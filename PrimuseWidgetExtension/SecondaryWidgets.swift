@@ -62,6 +62,11 @@ struct LyricsProvider: TimelineProvider {
             LyricsSnapshot.load(),
             playback: PlaybackState.load()
         )
+        WidgetRenderReceipt.record(
+            kind: "Lyrics.\(context.family)",
+            songID: loaded?.songID,
+            coverImageName: loaded?.coverImageName
+        )
         guard let snap = loaded, !snap.lines.isEmpty else {
             completion(Timeline(entries: [LyricsEntry(date: now, snapshot: loaded)], policy: reloadPolicy()))
             return

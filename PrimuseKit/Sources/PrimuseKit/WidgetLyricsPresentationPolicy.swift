@@ -64,6 +64,10 @@ public enum WidgetLyricsPresentationPolicy {
               currentSongID == snapshot.songID else {
             return nil
         }
+        // 封面以播放状态那一份为准：歌词快照在歌词读完那一刻抄的封面名，那时封面可能还没写好
+        // （Mac 上播放状态在后台写，晚一步；Apple Music 等后到的封面更晚），之后不会再抄一次，
+        // 歌词小组件就一直没有封面或停在上一首的封面。
+        snapshot.coverImageName = playback.coverImageName
         guard let playbackUpdatedAt = playback.updatedAt,
               playbackUpdatedAt > snapshot.updatedAt,
               playback.currentTime.isFinite else {

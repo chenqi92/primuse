@@ -15,6 +15,21 @@ import UniformTypeIdentifiers
 import WidgetKit
 #endif
 
+/// 小组件封面的诊断：诊断模式下把有效期抄给小组件，并把小组件最近几次读到的封面写进日志，
+/// 用户反馈「小组件封面没更新」时能分清是 App 没写、没通知重载，还是小组件没读到。
+enum WidgetRenderDiagnostics {
+    nonisolated static func logReceipts() {
+        let diagnosing = FileLogger.isDiagnosticModeActive
+        WidgetRenderReceipt.mirrorDiagnostics(
+            until: diagnosing ? FileLogger.shared.diagnosticLoggingExpiresAt : nil
+        )
+        guard diagnosing else { return }
+        for receipt in WidgetRenderReceipt.load() {
+            pdiag("[WidgetCover] widget read \(receipt.logDescription)")
+        }
+    }
+}
+
 #if os(macOS)
 @MainActor
 final class MacWidgetLyricsPublisher {
@@ -620,7 +635,8 @@ extension AudioPlayerService {
             repeatMode: repeatMode,
             isLiked: currentSong.map { song in library.map { NowPlayingLibraryActions.isLiked(song, library: $0) } ?? false },
             spokenWord: widgetSpokenWordInfo(),
-            listeningSpace: currentSong.map { listeningSpace(of: $0) }
+            listeningSpace: currentSong.map { listeningSpace(of: $0) },
+            sequence: MacWidgetPlaybackPublisher.nextSequence()
         )
         Task {
             await MacWidgetPlaybackPublisher.shared.enqueue(request)
@@ -695,7 +711,9 @@ extension AudioPlayerService {
                 ) {
                     coverName = writtenCoverName
                     lastWidgetCoverKey = coverKey
+                    pdiag("[WidgetCover] write song=\(song.id) content=\(coverContent ?? "-") ok=true")
                 } else {
+                    pdiag("[WidgetCover] write song=\(song.id) content=\(coverContent ?? "-") ok=false")
                     // Current song has no usable cover. Any existing
                     // widget_cover.png belongs to the *previous* song, so
                     // reusing it would show the wrong album art for this whole
@@ -764,7 +782,9 @@ extension AudioPlayerService {
         if recentAlbumsChanged || artworkStyleChanged || timelineSignature != lastWidgetTimelineSignature {
             lastWidgetTimelineSignature = timelineSignature
             WidgetCenter.shared.reloadAllTimelines()
+            pdiag("[WidgetCover] reload song=\(state.currentSongID ?? "-") cover=\(coverName ?? "-") playing=\(state.isPlaying)")
         }
+        WidgetRenderDiagnostics.logReceipts()
         #endif
     }
 
@@ -778,23 +798,52 @@ extension AudioPlayerService {
     #if os(iOS)
     /// Apple Music 资料库歌的封面引用是 MusicKit 专用的 `musicKit://`, 本地封面库里没有,
     /// 小组件写不出封面。装了小组件时取一次官方封面, 取到时还是这首就重新发布。
-    private func requestAppleMusicWidgetArtwork(for song: Song, pixelSize: Int) {
-        guard song.sourceID == AppleMusicLibraryIdentity.sourceID,
-              widgetAppleMusicArtworkRequestSongID != song.id else { return }
-        widgetAppleMusicArtworkRequestSongID = song.id
+    /// 取不到时按 `WidgetCoverPublishPolicy` 隔几秒到两分钟再取, 最多几次; 以前只取一次,
+    /// 第一次没取到这首歌就一直没有封面。
+    private func requestAppleMusicWidgetArtwork(for song: Song, pixelSize: Int, retrying: Bool = false) {
+        guard song.sourceID == AppleMusicLibraryIdentity.sourceID else { return }
+        if widgetAppleMusicArtworkRequestSongID != song.id {
+            widgetAppleMusicArtworkRequestSongID = song.id
+            widgetAppleMusicArtworkFailures = 0
+        } else if !retrying {
+            return
+        }
         let songID = song.id
         Task.detached(priority: .utility) { [weak self] in
+            // 没装小组件时不取, 也不重试。
             guard let configurations = try? await WidgetCenter.shared.currentConfigurations(),
-                  !configurations.isEmpty,
-                  let image = await AppleMusicSongArtwork.image(
-                      for: song, pixelSize: pixelSize, mirrorsIntoSongCache: false
-                  ),
-                  let data = image.jpegData(compressionQuality: 0.9) else { return }
+                  !configurations.isEmpty else { return }
+            let data = await AppleMusicSongArtwork.image(
+                for: song, pixelSize: pixelSize, mirrorsIntoSongCache: false
+            )?.jpegData(compressionQuality: 0.9)
             await MainActor.run { [weak self] in
                 guard let self, self.currentSong?.id == songID else { return }
+                guard let data else {
+                    self.scheduleAppleMusicWidgetArtworkRetry(for: song, pixelSize: pixelSize)
+                    return
+                }
                 self.widgetAppleMusicArtwork = (songID, data)
                 self.updatePlaybackState()
             }
+        }
+    }
+
+    private func scheduleAppleMusicWidgetArtworkRetry(for song: Song, pixelSize: Int) {
+        widgetAppleMusicArtworkFailures += 1
+        guard let delay = WidgetCoverPublishPolicy.retryDelay(
+            afterFailures: widgetAppleMusicArtworkFailures
+        ) else {
+            pdiag("[WidgetCover] apple music artwork gave up song=\(song.id)")
+            return
+        }
+        pdiag("[WidgetCover] apple music artwork failed song=\(song.id) retryIn=\(Int(delay))s")
+        let songID = song.id
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, self.currentSong?.id == songID,
+                  self.widgetAppleMusicArtworkRequestSongID == songID,
+                  self.widgetAppleMusicArtwork?.songID != songID else { return }
+            self.requestAppleMusicWidgetArtwork(for: song, pixelSize: pixelSize, retrying: true)
         }
     }
     #endif

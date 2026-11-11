@@ -58,6 +58,12 @@ struct NowPlayingProvider: TimelineProvider {
             lyrics: lyrics
         )
         let sample = Self.playbackSample(for: state, lyrics: lyrics, capturedAt: now)
+        // 诊断模式下记一笔这次读到的封面，App 发布时写进诊断日志。
+        WidgetRenderReceipt.record(
+            kind: "NowPlaying.\(context.family)",
+            songID: state?.currentSongID,
+            coverImageName: state?.coverImageName
+        )
         let lyricsBatch = lyrics.map { LyricsProvider.timelineBatch(for: $0, from: now) }
         let entries = lyricsBatch?.entries.map { lyricEntry in
             NowPlayingEntry(
@@ -1009,6 +1015,11 @@ struct CoverPlayerProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
         let now = Date()
         let entry = Self.currentEntry(at: now)
+        WidgetRenderReceipt.record(
+            kind: "CoverPlayer.\(context.family)",
+            songID: entry.state?.currentSongID,
+            coverImageName: entry.state?.coverImageName
+        )
         var policy = TimelineReloadPolicy.never
         if let state = entry.state, state.isPlaying, state.duration > 0 {
             let position = entry.playbackElapsed + max(0, now.timeIntervalSince(entry.playbackReferenceDate))

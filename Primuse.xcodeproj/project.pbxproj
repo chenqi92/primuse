@@ -779,6 +779,7 @@
 		527614CEBEF38CA291634191 /* TVServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3EAEEF509D406B281AA97EB5 /* TVServices.framework */; };
 		52EEA98995ADDACA4E5E40F7 /* TVAlbumJewelCase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1BED0366677CF8DDB3438BD /* TVAlbumJewelCase.swift */; };
 		52F6112EC95529C15333BC49 /* WidgetLyricsPresentationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD59618E580963F54D697FA /* WidgetLyricsPresentationPolicy.swift */; };
+		5568B58997D51496C130D918 /* WidgetCoverPublishPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5D2CCAF5250C156785626C /* WidgetCoverPublishPolicy.swift */; };
 		52FCE4E23FAE79F49DEECF4C /* OnDeviceSpeechTranscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC64C528F4C793C7F7AC8BB4 /* OnDeviceSpeechTranscription.swift */; };
 		531B31765D79893FE57E0FBF /* KaraokeVocalReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBBD19A2B420E188F62B053C /* KaraokeVocalReducer.swift */; };
 		532671F63F79D2DB1A6E964A /* ListenBrainzProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2307E7F4A6A9B42D29CB7F9D /* ListenBrainzProvider.swift */; };
@@ -3936,6 +3937,7 @@
 		CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayHistoryStore.swift; sourceTree = "<group>"; };
 		CDA6ABB215328194E1CEA840 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		CDD59618E580963F54D697FA /* WidgetLyricsPresentationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetLyricsPresentationPolicy.swift; sourceTree = "<group>"; };
+		4E5D2CCAF5250C156785626C /* WidgetCoverPublishPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetCoverPublishPolicy.swift; sourceTree = "<group>"; };
 		CDECF488946A4107E730C51A /* CarPlayArtworkCacheKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayArtworkCacheKey.swift; sourceTree = "<group>"; };
 		CDF2C1C93E3F66742DB829CA /* PlayHistoryArchiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayHistoryArchiver.swift; sourceTree = "<group>"; };
 		CE54E5F4531DDDB62B59D76B /* SpokenWordVideoPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordVideoPolicy.swift; sourceTree = "<group>"; };
@@ -5070,6 +5072,7 @@
 				6EA9625C1D609A01B5DF5A92 /* WebDAVDirectoryRequestPolicy.swift */,
 				6D48B034474ED2653A98E2B6 /* WideCanvasColumnsPolicy.swift */,
 				CDD59618E580963F54D697FA /* WidgetLyricsPresentationPolicy.swift */,
+				4E5D2CCAF5250C156785626C /* WidgetCoverPublishPolicy.swift */,
 				1DF5DFE4FC98219722EF002A /* WordLyricsDiscoveryPolicy.swift */,
 			);
 			path = PrimuseKit;
@@ -7825,6 +7828,7 @@
 				7598B4B31148C60CDF37FD1D /* WiFiTransferThroughput.swift in Sources */,
 				CEFFC870379DD825C2A40624 /* WideCanvasColumnsPolicy.swift in Sources */,
 				52F6112EC95529C15333BC49 /* WidgetLyricsPresentationPolicy.swift in Sources */,
+				5568B58997D51496C130D918 /* WidgetCoverPublishPolicy.swift in Sources */,
 				785F0F6AA934D5F04071DE06 /* WidgetSnapshots.swift in Sources */,
 				040FD08F28DE88CFA4D98760 /* WordLyricsDiscoveryPolicy.swift in Sources */,
 				735F07C4006F3BCF37D55A84 /* WordTimedLyricsParser.swift in Sources */,

@@ -291,6 +291,8 @@ struct MacWidgetPlaybackPublishRequest: Sendable {
     let isLiked: Bool?
     let spokenWord: SpokenWordPlaybackInfo?
     let listeningSpace: ListeningSpace?
+    /// 在主线程上发出时的先后编号（见 `MacWidgetPlaybackPublisher.nextSequence()`）。
+    var sequence: UInt64 = 0
 }
 
 /// Serial, latest-wins widget publisher for macOS.
@@ -325,6 +327,10 @@ actor MacWidgetPlaybackPublisher {
     private var artworkGeneration: UInt = 0
     private var appleMusicArtwork: Data?
     private var nextArtworkAttempt = Date.distantPast
+    /// 这首歌取官方封面已经失败了几次；换歌清零。
+    private var artworkFailures = 0
+    /// 取不到时定好的下一次重取。以前要等下一次播放状态变化才会再试。
+    private var artworkRetryTask: Task<Void, Never>?
     private var lastCoverKey: String?
     private var lastTimelineSignature: String?
     /// 同 iOS 的 `widgetAlbumCoverContents`。
@@ -349,15 +355,32 @@ actor MacWidgetPlaybackPublisher {
         await AppleMusicSongArtwork.image(for: song, pixelSize: 600, mirrorsIntoSongCache: false)?.tiffRepresentation
     }
 
+    @MainActor private static var sequenceCounter: UInt64 = 0
+
+    /// 发布请求在主线程上编号。几个请求各自 `Task { await enqueue }` 进来，先后不保证，
+    /// 晚到的旧请求（上一首歌）不能把新的盖掉。
+    @MainActor
+    static func nextSequence() -> UInt64 {
+        sequenceCounter &+= 1
+        return sequenceCounter
+    }
+
     func enqueue(_ request: MacWidgetPlaybackPublishRequest) {
+        guard WidgetCoverPublishPolicy.accepts(sequence: request.sequence, after: latestRequest?.sequence) else {
+            pdiag("[WidgetCover] drop stale request seq=\(request.sequence) latest=\(latestRequest?.sequence ?? 0)")
+            return
+        }
         let identity = request.currentSong.map { "\($0.sourceID)|\($0.id)|\($0.filePath)|\($0.coverArtFileName ?? "")" }
         if artworkIdentity != identity {
             artworkTask?.cancel()
             artworkTask = nil
+            artworkRetryTask?.cancel()
+            artworkRetryTask = nil
             artworkGeneration &+= 1
             artworkIdentity = identity
             appleMusicArtwork = nil
             nextArtworkAttempt = .distantPast
+            artworkFailures = 0
         }
         latestRequest = request
         pending = request
@@ -385,11 +408,14 @@ actor MacWidgetPlaybackPublisher {
             albumCoverContents = result.albumCoverContents
             if result.needsAppleMusicArtwork, pending == nil,
                artworkTask == nil, appleMusicArtwork == nil,
+               WidgetCoverPublishPolicy.retryDelay(afterFailures: artworkFailures) != nil,
                Date().timeIntervalSinceReferenceDate >= nextArtworkAttempt.timeIntervalSinceReferenceDate,
                let song = request.currentSong {
                 let generation = artworkGeneration
                 let loadArtwork = self.loadArtwork
+                // 取的过程中别再起第二个；失败后的间隔由 `artworkLoaded` 按次数定。
                 nextArtworkAttempt = Date().addingTimeInterval(30)
+                pdiag("[WidgetCover] apple music artwork attempt=\(artworkFailures + 1) song=\(song.id)")
                 artworkTask = Task { [weak self] in
                     let data = await loadArtwork(song)
                     await self?.artworkLoaded(data, generation: generation)
@@ -402,10 +428,40 @@ actor MacWidgetPlaybackPublisher {
     private func artworkLoaded(_ data: Data?, generation: UInt) {
         guard generation == artworkGeneration else { return }
         artworkTask = nil
-        guard let data, let request = latestRequest else { return }
+        guard let data else {
+            // 以前取不到就只能等下一次播放状态变化；整首歌没有别的变化时小组件一直没有封面。
+            artworkFailures += 1
+            guard let delay = WidgetCoverPublishPolicy.retryDelay(afterFailures: artworkFailures) else {
+                pdiag("[WidgetCover] apple music artwork gave up failures=\(artworkFailures)")
+                return
+            }
+            pdiag("[WidgetCover] apple music artwork failed failures=\(artworkFailures) retryIn=\(Int(delay))s")
+            nextArtworkAttempt = Date().addingTimeInterval(delay)
+            artworkRetryTask?.cancel()
+            artworkRetryTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await self?.retryArtwork(generation: generation)
+            }
+            return
+        }
+        guard let request = latestRequest else { return }
+        pdiag("[WidgetCover] apple music artwork loaded bytes=\(data.count)")
         appleMusicArtwork = data
         lastCoverKey = nil
         enqueue(request)
+    }
+
+    private func retryArtwork(generation: UInt) {
+        artworkRetryTask = nil
+        guard generation == artworkGeneration, appleMusicArtwork == nil,
+              let request = latestRequest else { return }
+        // 重发一次同一份快照：封面还没写成，发布时会再要一次官方封面。
+        pending = request
+        guard workerTask == nil else { return }
+        workerTask = Task { [weak self] in
+            await self?.drain()
+        }
     }
 
     func waitForPendingPublication() async {
@@ -468,6 +524,7 @@ actor MacWidgetPlaybackPublisher {
                     nextCoverKey = nil
                     needsAppleMusicArtwork = song.sourceID == AppleMusicLibraryService.systemSourceID
                 }
+                pdiag("[WidgetCover] write song=\(song.id) content=\(coverContent ?? "-") ok=\(nextCoverKey != nil) appleMusic=\(context.appleMusicArtwork != nil)")
 
                 if recentAlbumsEnabled,
                    let albumEntry = makeRecentAlbumEntry(
@@ -529,7 +586,9 @@ actor MacWidgetPlaybackPublisher {
         let signature = timelineSignature(for: state) + "|" + (nextCoverKey ?? "")
         if recentAlbumsChanged || signature != context.lastTimelineSignature {
             WidgetCenter.shared.reloadAllTimelines()
+            pdiag("[WidgetCover] reload seq=\(request.sequence) song=\(request.currentSong?.id ?? "-") cover=\(coverName ?? "-") playing=\(request.isPlaying)")
         }
+        WidgetRenderDiagnostics.logReceipts()
         return PublicationResult(
             lastCoverKey: nextCoverKey,
             lastTimelineSignature: signature,
@@ -8928,8 +8987,10 @@ final class AudioPlayerService {
     #if os(iOS)
     /// 小组件给当前这首 Apple Music 资料库歌取到的官方封面, 只留一首。
     @ObservationIgnored var widgetAppleMusicArtwork: (songID: String, data: Data)?
-    /// 已经为它取过官方封面的那首, 取不到也不在这首上反复重试。
+    /// 已经为它取过官方封面的那首。取不到时只按 `WidgetCoverPublishPolicy` 有限地重取几次。
     @ObservationIgnored var widgetAppleMusicArtworkRequestSongID: String?
+    /// 这首取官方封面失败了几次。
+    @ObservationIgnored var widgetAppleMusicArtworkFailures = 0
     #endif
 }
 
