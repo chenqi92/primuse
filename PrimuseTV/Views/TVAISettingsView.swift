@@ -89,6 +89,8 @@ struct TVAISettingsView: View {
             Spacer(minLength: 0)
             TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
         }
+        // 右上角的「完成」不在左栏各行的正上方,划成一段方向键才上得去。
+        .focusSection()
         .padding(.bottom, 28)
     }
 

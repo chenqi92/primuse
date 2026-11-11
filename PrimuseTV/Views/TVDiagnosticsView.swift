@@ -88,6 +88,8 @@ struct TVDiagnosticsView: View {
                 dismiss()
             }
         }
+        // 右上角的「完成」不在左栏各行的正上方,划成一段方向键才上得去。
+        .focusSection()
         .padding(.bottom, 28)
     }
 

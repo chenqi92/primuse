@@ -582,6 +582,31 @@ private struct TVExternalFocusModifier: ViewModifier {
     }
 }
 
+/// 只读的可滚动说明:要能停焦点遥控器才滚得动,停在上面时描一圈边。
+/// 不描边的话看不出焦点在这里,按确认键没有动作,会被当成旁边的按钮点了没反应。
+private struct TVReadOnlyScrollFocus: ViewModifier {
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .padding(12)
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(TVColor.focusRing.opacity(focused ? 0.9 : 0), lineWidth: 3)
+            }
+            .padding(-12)
+    }
+}
+
+extension View {
+    func tvReadOnlyScrollFocus() -> some View {
+        modifier(TVReadOnlyScrollFocus())
+    }
+}
+
 // MARK: - Ambient 背景
 
 /// 封面双色氛围背景。浅色外观使用柔和色场，深色外观保留沉浸式明暗层次。

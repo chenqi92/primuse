@@ -29,7 +29,6 @@ struct TVScraperSettingsView: View {
 
                         sideNotes
                             .frame(width: 440, alignment: .leading)
-                            .focusSection()
                     }
                 }
                 .padding(.horizontal, 80)
@@ -64,6 +63,9 @@ struct TVScraperSettingsView: View {
             Spacer(minLength: 0)
             TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
         }
+        // 「完成」在右上角,下面右栏只有说明文字、左栏的行又不在它正下方:
+        // 不划成一段的话方向键从哪一行往上都找不到它。
+        .focusSection()
         .padding(.bottom, 28)
     }
 
@@ -252,6 +254,10 @@ struct TVScraperImportView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @FocusState private var fieldFocused: Bool
+    /// 底部那排按钮的焦点。预览出来时输入框已经不在了,系统会把焦点放到上面那段
+    /// 只读说明上:那里看不出焦点,按确认键也没有任何动作,看上去就是「确认导入」点了没反应。
+    @FocusState private var actionFocus: String?
+    private static let confirmFocusID = "confirm"
 
     private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -296,6 +302,14 @@ struct TVScraperImportView: View {
         .onChange(of: text) { _, _ in
             preview = nil
             errorMessage = nil
+        }
+        .onChange(of: preview != nil) { _, showsPreview in
+            guard showsPreview else { return }
+            // 按钮这一拍才进树,等它挂上再把焦点交过去。
+            Task { @MainActor in
+                await Task.yield()
+                actionFocus = Self.confirmFocusID
+            }
         }
         .onAppear {
             // 不主动把焦点塞给输入框:tvOS 上那会直接弹出全屏键盘,用户还没看到下面的说明。
@@ -384,7 +398,7 @@ struct TVScraperImportView: View {
             }
             .frame(maxHeight: 460)
             // 只读的一段说明,要让焦点能停上去,遥控器才滚得动。
-            .focusable()
+            .tvReadOnlyScrollFocus()
         }
     }
 
@@ -413,7 +427,8 @@ struct TVScraperImportView: View {
                     .disabled(trimmedText.isEmpty || isLoading)
             } else {
                 TVPillButton(title: String(localized: "scraper_confirm_import"),
-                             systemImage: "checkmark", style: .solid) { confirmImport() }
+                             systemImage: "checkmark", style: .solid,
+                             focusBinding: $actionFocus, focusID: Self.confirmFocusID) { confirmImport() }
                 TVPillButton(title: String(localized: "edit"), systemImage: "pencil") {
                     preview = nil
                     fieldFocused = true

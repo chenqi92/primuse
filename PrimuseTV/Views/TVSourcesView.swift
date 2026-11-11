@@ -589,7 +589,7 @@ private struct TVGoogleDriveAccessChangeView: View {
                     }
                     .padding(8)
                 }
-                .focusable()
+                .tvReadOnlyScrollFocus()
                 TVFocusButton(action: { dismiss() }) { _ in
                     Text("done").tvFont(.caption, weight: .semibold)
                         .padding(.horizontal, 32).padding(.vertical, 16)
