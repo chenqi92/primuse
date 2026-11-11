@@ -91,6 +91,18 @@ enum MinimalBarEdgeEffect {
     case hard
 }
 
+/// 调试构建专用：启动时带 `PRIMUSE_DEBUG_LEGACY_CHROME=1`，iOS 26 起的系统也走 26.1 以前那套底部
+/// chrome —— 标签栏上方自绘的迷你条与它的让位、极简外壳的 `safeAreaInset` 与底板、迷你条的磨砂底。
+/// 编译机没有 iOS 18 运行时，老系统这条路只能这样在新系统上看；标签栏、搜索框、键盘这些系统自己
+/// 画的东西仍是新系统的样子。正式构建恒为 false。
+enum LegacyBottomChromeDebug {
+    #if DEBUG
+    static let isForced = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_LEGACY_CHROME"] == "1"
+    #else
+    static let isForced = false
+    #endif
+}
+
 extension View {
     /// 极简外壳的上下栏。iOS 26 起用 `safeAreaBar`，滚动内容在栏下面收边；
     /// 更早的系统退回 `safeAreaInset`，栏自己铺一层底，免得列表从字底下透出来。
@@ -100,16 +112,25 @@ extension View {
         edgeEffect: MinimalBarEdgeEffect = .soft,
         @ViewBuilder content: () -> Bar
     ) -> some View {
-        if #available(iOS 26.0, *) {
+        if LegacyBottomChromeDebug.isForced {
+            legacyMinimalSafeAreaBar(edge: edge, content: content)
+        } else if #available(iOS 26.0, *) {
             safeAreaBar(edge: edge, spacing: 0, content: content)
                 .scrollEdgeEffectStyle(
                     edgeEffect == .hard ? .hard : .soft,
                     for: edge == .top ? .top : .bottom
                 )
         } else {
-            safeAreaInset(edge: edge, spacing: 0) {
-                content().background(.bar)
-            }
+            legacyMinimalSafeAreaBar(edge: edge, content: content)
+        }
+    }
+
+    private func legacyMinimalSafeAreaBar<Bar: View>(
+        edge: VerticalEdge,
+        @ViewBuilder content: () -> Bar
+    ) -> some View {
+        safeAreaInset(edge: edge, spacing: 0) {
+            content().background(.bar)
         }
     }
 }

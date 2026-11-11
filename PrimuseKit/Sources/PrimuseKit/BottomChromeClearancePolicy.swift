@@ -24,4 +24,21 @@ public enum BottomChromeClearancePolicy {
     ) -> CGFloat {
         legacyOverlayActive ? max(0, accessoryHeight) : 0
     }
+
+    /// 键盘升起时，挂在安全区边上的停靠条（极简模式的迷你条胶囊）要不要收起。
+    ///
+    /// 停靠在窗口底边的键盘会算进安全区，`safeAreaInset` / `safeAreaBar` 里的条子随之被顶到
+    /// 键盘上面，压住本来就只剩半屏的列表。系统的底部附件、标签栏这时都留在原处让键盘盖住，
+    /// 停靠条收起来跟它们看着一样。浮动、拆分键盘不进安全区，条子本来就不动，不收。
+    /// - Parameter keyboardFrameInWindow: 键盘在**窗口**坐标系下的 frame，收起时传 nil。
+    public static func collapsesSafeAreaDock(
+        keyboardFrameInWindow keyboard: CGRect?,
+        windowBounds window: CGRect
+    ) -> Bool {
+        guard let keyboard else { return false }
+        return FloatingInputPanelClearancePolicy.isDocked(
+            panelFrameInWindow: keyboard,
+            windowBounds: window
+        )
+    }
 }

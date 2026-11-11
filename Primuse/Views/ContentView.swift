@@ -492,7 +492,9 @@ private struct LegacyMiniPlayerClearance: ViewModifier {
     let height: CGFloat
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.1, *) {
+        if LegacyBottomChromeDebug.isForced {
+            content.background(BottomSafeAreaReserve(height: height, container: .tabChild))
+        } else if #available(iOS 26.1, *) {
             content
         } else {
             content.background(BottomSafeAreaReserve(height: height, container: .tabChild))
@@ -1413,15 +1415,18 @@ struct ContentView: View {
 
     /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
     private var legacyBottomChromeOverlayActive: Bool {
-        var systemAccessoryAvailable = false
-        if #available(iOS 26.1, *) {
-            systemAccessoryAvailable = true
-        }
-        return BottomChromeClearancePolicy.usesLegacyOverlayAccessory(
+        BottomChromeClearancePolicy.usesLegacyOverlayAccessory(
             rootLayoutIsStandardTabs: rootLayout == .standardTabs,
             miniPlayerVisible: miniPlayerVisible,
-            systemAccessoryAvailable: systemAccessoryAvailable
+            systemAccessoryAvailable: Self.systemBottomAccessoryAvailable
         )
+    }
+
+    /// 标签栏能不能挂系统的底部附件（iOS 26.1 起）。不能时迷你条是 mainContent 里自绘的叠加条。
+    private static var systemBottomAccessoryAvailable: Bool {
+        if LegacyBottomChromeDebug.isForced { return false }
+        if #available(iOS 26.1, *) { return true }
+        return false
     }
 
     private var legacyMiniPlayerInset: CGFloat {
@@ -1658,25 +1663,31 @@ struct ContentView: View {
             }
     }
 
-    @ViewBuilder
     private var minimalBottomChrome: some View {
-        if miniPlayerVisible {
-            Group {
-                // regular 宽度单独判不出 iPad:大屏机型横屏也是 regular 宽,套上
-                // iPad 那块圆角板会在 440pt 高的视口里显得又厚又空。
-                if sizeClass == .regular && !heightClass.isCompact {
-                    PadNowPlayingAccessory(onTap: presentNowPlaying)
-                } else {
-                    MinimalNowPlayingAccessory(
-                        onTap: presentNowPlaying,
-                        onShowQueue: { showsMinimalQueue = true }
-                    )
+        // 外层用 ZStack 不用 Group：Group 上的修饰符会分给每个子视图，没在播时就没有子视图，
+        // 收起键盘那层得一直挂着。
+        ZStack {
+            if miniPlayerVisible {
+                Group {
+                    // regular 宽度单独判不出 iPad:大屏机型横屏也是 regular 宽,套上
+                    // iPad 那块圆角板会在 440pt 高的视口里显得又厚又空。
+                    if sizeClass == .regular && !heightClass.isCompact {
+                        PadNowPlayingAccessory(onTap: presentNowPlaying)
+                    } else {
+                        MinimalNowPlayingAccessory(
+                            onTap: presentNowPlaying,
+                            onShowQueue: { showsMinimalQueue = true }
+                        )
+                    }
                 }
+                // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
+                // 事务, 曲线只能附在过渡本身上。
+                .pmSlideTransition(edge: .bottom, motion: .panel)
             }
-            // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
-            // 事务, 曲线只能附在过渡本身上。
-            .pmSlideTransition(edge: .bottom, motion: .panel)
         }
+        // 停靠条挂在各页的安全区边上，停靠键盘一弹就会被顶到键盘上面压住列表(搜索页、
+        // 设置的搜索框)。键盘停靠期间收起，与标准模式里被键盘盖住的迷你条看着一样。
+        .collapsesWhileKeyboardDocked()
     }
 
     private var minimalTopChrome: some View {
@@ -1750,7 +1761,9 @@ struct ContentView: View {
         // result starts playback makes UIKit tear down UISearchController and
         // install the accessory in the same update; on iOS 26 that can abort
         // in `_willDismissSearchController` with an unowned-reference crash.
-        if #available(iOS 26.1, *) {
+        if LegacyBottomChromeDebug.isForced {
+            tabRoot
+        } else if #available(iOS 26.1, *) {
             tabRoot
                 .tabViewSearchActivation(searchTabActivation)
                 // A minimized tab bar keeps only the selected tab and Search.
@@ -1845,6 +1858,8 @@ struct ContentView: View {
                     }
                 }
                 .environment(\.layoutDirection, .leftToRight)
+                // 停靠键盘升起时留在底边让键盘盖住，不跟着顶到键盘上面压住详情栏的列表。
+                .ignoresSafeArea(.keyboard, edges: .bottom)
         }
     }
 
@@ -2069,20 +2084,25 @@ struct ContentView: View {
                 batchSelectionActive = isActive
             }
 
-            if miniPlayerVisible && rootLayout == .standardTabs {
-                if #available(iOS 26.1, *) {
-                    EmptyView()
-                } else {
-                    LegacyNowPlayingAccessory(onTap: presentNowPlaying)
-                        .onGeometryChange(for: CGFloat.self) { proxy in
-                            proxy.size.height
-                        } action: { height in
-                            legacyAccessoryHeight = height
-                        }
-                        .padding(.bottom, legacyTabBarClearance)
-                        .pmSlideTransition(edge: .bottom, motion: .panel)
-                        .zIndex(1)
+            if rootLayout == .standardTabs && !Self.systemBottomAccessoryAvailable {
+                // 26.1 以前标签栏上方的叠加条。单独一层铺满、不让键盘：停靠键盘升起时它留在
+                // 标签栏上方原处，跟标签栏一起被键盘盖住（同 26.1 起的系统底部附件）。原先这层
+                // 跟着键盘的安全区走，键盘一弹，条子就悬在键盘上方一个标签栏高的地方压着列表。
+                ZStack(alignment: .bottom) {
+                    if legacyBottomChromeOverlayActive {
+                        LegacyNowPlayingAccessory(onTap: presentNowPlaying)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.size.height
+                            } action: { height in
+                                legacyAccessoryHeight = height
+                            }
+                            .padding(.bottom, legacyTabBarClearance)
+                            .pmSlideTransition(edge: .bottom, motion: .panel)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .zIndex(1)
             }
 
             // 播放页第一次展开时挂上,之后收起也留着,收着时休眠(#322):每次展开、收起不再重建、
@@ -3508,28 +3528,34 @@ private struct NowPlayingAccessorySurface<S: InsettableShape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if LegacyBottomChromeDebug.isForced {
+            legacySurface(content)
+        } else if #available(iOS 26.0, *) {
             content.glassEffect(.regular.interactive(), in: shape)
         } else {
-            content
-                .background {
-                    if reduceTransparency {
-                        shape.fill(Color(uiColor: .secondarySystemBackground))
-                    } else {
-                        shape.fill(legacyMaterial)
-                    }
-                }
-                .overlay {
-                    shape
-                        .strokeBorder(.primary.opacity(legacyStrokeOpacity), lineWidth: 0.5)
-                        .allowsHitTesting(false)
-                }
-                .shadow(
-                    color: .black.opacity(legacyShadow.opacity),
-                    radius: legacyShadow.radius,
-                    y: legacyShadow.y
-                )
+            legacySurface(content)
         }
+    }
+
+    private func legacySurface(_ content: Content) -> some View {
+        content
+            .background {
+                if reduceTransparency {
+                    shape.fill(Color(uiColor: .secondarySystemBackground))
+                } else {
+                    shape.fill(legacyMaterial)
+                }
+            }
+            .overlay {
+                shape
+                    .strokeBorder(.primary.opacity(legacyStrokeOpacity), lineWidth: 0.5)
+                    .allowsHitTesting(false)
+            }
+            .shadow(
+                color: .black.opacity(legacyShadow.opacity),
+                radius: legacyShadow.radius,
+                y: legacyShadow.y
+            )
     }
 }
 
@@ -3691,7 +3717,8 @@ struct NowPlayingAccessory: View {
 /// 调试构建的启动自动化：`PRIMUSE_OPEN_PAGE=<页面>` 在曲库装载后直接打开指定页面，给编译机上无人值守截图用。
 /// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `album:<标题片段>` / `artist:<名字片段>` /
 /// `playlist:<名字片段>`（`liked` 是「喜欢」）/ `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `search`（`search:<词>` 直接搜）/
-/// `settings` / `onboarding`。
+/// `searchfocus`（进搜索页并弹出键盘；`searchfocus:<秒>` 过这么久再收起）/ `settings` / `onboarding`。
+/// 另有 `PRIMUSE_DEBUG_LEGACY_CHROME=1`：新系统上也走 26.1 以前的底部 chrome，见 `LegacyBottomChromeDebug`。
 /// 另有 `PRIMUSE_ORIENTATION=landscape|portrait|landscapeLeft|landscapeRight`：打开页面前先请求转屏
 /// （`landscape` 即 `landscapeRight`）。
 /// `section:<分类 rawValue>`（如 `section:folders`）。
@@ -3822,6 +3849,18 @@ extension ContentView {
             selectMinimalPage(.search)
             // `search:<搜索词>` 直接搜这个词(看 AI 补充里的专辑组)。
             if parts.count > 1 { searchText = parts[1] }
+        case "searchfocus":
+            // 进搜索页并弹出键盘，看键盘升起时迷你条摆在哪。搜索框由标签栏托管时不由代码弹。
+            selectMinimalPage(.search)
+            if !searchTabHostsSearchField { searchFieldActivationRequested = true }
+            // `searchfocus:<秒>`：过这么久收起键盘，看迷你条回到原处。
+            if let seconds = Double(needle), seconds > 0 {
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { return }
+                _ = UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+                )
+            }
         case "settings":
             selectMinimalPage(.settings)
         case "onboarding":

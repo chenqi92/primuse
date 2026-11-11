@@ -18,6 +18,74 @@ extension View {
     func floatingInputPanelClearance() -> some View {
         modifier(FloatingInputPanelClearanceModifier())
     }
+
+    /// 停靠键盘升起期间收起，键盘落下再回来。给挂在安全区边上的底部停靠条用（极简模式的
+    /// 迷你条胶囊）：停靠键盘算进安全区，不收的话条子会被顶到键盘上面压住列表；系统的底部
+    /// 附件和标签栏这时都留在原处让键盘盖住。判定见 `BottomChromeClearancePolicy.collapsesSafeAreaDock`。
+    ///
+    /// 修饰符本身要一直挂着（放在「有没有歌在播」的判断外面），这样歌在键盘弹着时才开始播，
+    /// 条子也知道键盘已经在了。
+    func collapsesWhileKeyboardDocked() -> some View {
+        modifier(DockedKeyboardCollapseModifier())
+    }
+}
+
+/// 键盘最近一次给出的终点 frame（屏幕坐标）。全 App 一份：条子可能在键盘已经弹起之后才挂上，
+/// 它自己收不到那次通知。
+@MainActor
+@Observable
+private final class KeyboardFrameTracker {
+    static let shared = KeyboardFrameTracker()
+
+    private(set) var frameInScreen: CGRect?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            MainActor.assumeIsolated { self?.update(frame) }
+        })
+        observers.append(center.addObserver(
+            forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update(nil) }
+        })
+    }
+
+    private func update(_ frame: CGRect?) {
+        if frameInScreen != frame { frameInScreen = frame }
+    }
+}
+
+private struct DockedKeyboardCollapseModifier: ViewModifier {
+    @State private var window: UIWindow?
+
+    func body(content: Content) -> some View {
+        ZStack {
+            if !collapsed {
+                content.pmSlideTransition(edge: .bottom, motion: .panel)
+            }
+        }
+        .background {
+            FloatingInputPanelWindowProbe { window = $0 }
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var collapsed: Bool {
+        guard let keyboard = KeyboardFrameTracker.shared.frameInScreen,
+              let window, let screen = window.windowScene?.screen else { return false }
+        // 键盘通知给的是屏幕坐标；分屏、台前调度下窗口只占屏幕一块。
+        return BottomChromeClearancePolicy.collapsesSafeAreaDock(
+            keyboardFrameInWindow: window.convert(keyboard, from: screen.coordinateSpace),
+            windowBounds: window.bounds
+        )
+    }
 }
 
 private struct FloatingInputPanelClearanceModifier: ViewModifier {
