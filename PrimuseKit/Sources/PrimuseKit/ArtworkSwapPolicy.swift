@@ -54,6 +54,20 @@ public enum ArtworkSwapPolicy {
         return nil
     }
 
+    /// 新封面滑进来时,走完这么多路程就已经完全不透明。新封面画在上面,不透明以后盖住旧封面重叠的那一块,
+    /// 换歌途中不会两张半透明的封面叠成一团(按下一首时最显眼的就是那一帧)。
+    public static let enteringOpaqueFraction = 0.45
+
+    /// 一层封面在换歌途中的透明度。`signedProgress`:0 停在原位;0→1 是退场(旧封面往一边让开),
+    /// -1→0 是入场(新封面从另一边进来)。退场的那一层在下面,跟着让开的路程匀速淡掉;
+    /// 入场的那一层走完 `enteringOpaqueFraction` 就不透明。
+    public static func layerOpacity(signedProgress: Double) -> Double {
+        guard signedProgress.isFinite else { return 1 }
+        let progress = min(max(signedProgress, -1), 1)
+        if progress >= 0 { return 1 - progress }
+        return min(1, (1 + progress) / enteringOpaqueFraction)
+    }
+
     /// 旧封面退场的水平位移(按封面宽度的比例,正数朝后/右)。新封面入场从反方向同样距离进来。
     /// 从右到左的版面整体镜像。
     public static func exitOffsetFraction(

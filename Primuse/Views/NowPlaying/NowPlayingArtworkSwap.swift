@@ -81,7 +81,7 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
             ForEach(layers) { item in
                 layer(item.frozen ?? displayed ?? subject)
                     .modifier(NowPlayingArtworkSwapMotion(
-                        isExiting: item.phase == .exiting,
+                        progress: item.phase == .exiting ? 1 : 0,
                         style: item.style,
                         artworkRect: artworkRect,
                         containerSize: containerSize,
@@ -119,15 +119,14 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
         return .asymmetric(
             insertion: .modifier(
                 active: NowPlayingArtworkSwapMotion(
-                    isExiting: true,
+                    progress: -1,
                     style: style,
                     artworkRect: artworkRect,
                     containerSize: containerSize,
-                    isRightToLeft: layoutDirection == .rightToLeft,
-                    isEntering: true
+                    isRightToLeft: layoutDirection == .rightToLeft
                 ),
                 identity: NowPlayingArtworkSwapMotion(
-                    isExiting: false,
+                    progress: 0,
                     style: style,
                     artworkRect: artworkRect,
                     containerSize: containerSize,
@@ -237,15 +236,22 @@ struct NowPlayingArtworkSwapHost<Layer: View>: View {
     }
 }
 
-/// 一层封面在换歌途中的样子:退场时往一边让、缩一点、淡掉;入场的起点在另一边,同样小一点、透明。
-private struct NowPlayingArtworkSwapMotion: ViewModifier {
-    let isExiting: Bool
+/// 一层封面在换歌途中的样子:退场时往一边让、缩一点、淡掉;入场从另一边进来,同样先小一点,
+/// 透明度按 `ArtworkSwapPolicy.layerOpacity` 走:新封面早早就不透明,盖住重叠的那一块,不和旧封面叠成一团。
+///
+/// 位移、缩放、透明度都从同一个 `progress` 算出来(可动画的那个值):0 停在原位,0→1 退场,-1→0 入场。
+/// 透明度和位移用不同的曲线,所以不能各自交给 SwiftUI 插值。
+private struct NowPlayingArtworkSwapMotion: ViewModifier, Animatable {
+    var progress: Double
     let style: ArtworkSwapStyle?
     let artworkRect: CGRect
     let containerSize: CGSize
     let isRightToLeft: Bool
-    /// 入场的起点:在退场那一边的对面。
-    var isEntering = false
+
+    nonisolated var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
 
     func body(content: Content) -> some View {
         let pose = pose
@@ -256,12 +262,17 @@ private struct NowPlayingArtworkSwapMotion: ViewModifier {
     }
 
     private var pose: (offset: CGFloat, scale: CGFloat, opacity: Double) {
-        guard isExiting, let style else { return (0, 1, 1) }
+        guard let style, progress != 0 else { return (0, 1, 1) }
         let fraction = ArtworkSwapPolicy.exitOffsetFraction(for: style.direction, isRightToLeft: isRightToLeft)
         // 自然播完那种挪得近一点、缩得少一点。
         let reach = CGFloat(fraction) * artworkRect.width * (style.isGentle ? 0.7 : 1)
-        let scale: CGFloat = style.isGentle ? 0.92 : 0.86
-        return (isEntering ? -reach : reach, scale, 0)
+        let smallest: CGFloat = style.isGentle ? 0.92 : 0.86
+        let amount = CGFloat(min(abs(progress), 1))
+        return (
+            reach * CGFloat(progress),
+            1 - (1 - smallest) * amount,
+            ArtworkSwapPolicy.layerOpacity(signedProgress: progress)
+        )
     }
 
     private var anchor: UnitPoint {

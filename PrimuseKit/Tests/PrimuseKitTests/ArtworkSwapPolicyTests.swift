@@ -70,4 +70,20 @@ struct ArtworkSwapPolicyTests {
         #expect(ltrBackward == -ltrForward)
         #expect(rtlForward == -ltrForward)
     }
+
+    @Test("The incoming cover turns opaque early so the two never blend; the outgoing one fades with its travel")
+    func layerOpacityCurve() {
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: 0) == 1)
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: 1) == 0)
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: 0.5) == 0.5)
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: -1) == 0)
+        // 新封面走完不到一半就不透明,上面那层盖住重叠处。
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: -1 + ArtworkSwapPolicy.enteringOpaqueFraction) > 0.999)
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: -0.5) == 1)
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: -0.8) > 0.4)
+        // 越界与 NaN 夹住。
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: 3) == 0)
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: -3) == 0)
+        #expect(ArtworkSwapPolicy.layerOpacity(signedProgress: .nan) == 1)
+    }
 }
