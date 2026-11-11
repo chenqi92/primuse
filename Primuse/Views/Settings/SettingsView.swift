@@ -1090,6 +1090,20 @@ private struct LibraryDisplaySettingsView: View {
             }
             #endif
 
+            // 和资料库分类放在一起:关掉后「环境音」这一类整个不存在,里面的声音回到音乐。
+            Section {
+                Toggle(isOn: Binding(
+                    get: { SpokenWordStore.shared.separatesAmbient },
+                    set: { SpokenWordStore.shared.setSeparatesAmbient($0) }
+                )) {
+                    SettingsInfoLabel("ambient_separate_setting_title") {
+                        Text("ambient_separate_setting_description")
+                    }
+                }
+                .settingsAnchor("library.separatesAmbient")
+                .accessibilityIdentifier("library.separatesAmbient")
+            }
+
             Section {
                 ForEach(sectionOrder) { section in
                     Toggle(isOn: visibilityBinding(for: section)) {

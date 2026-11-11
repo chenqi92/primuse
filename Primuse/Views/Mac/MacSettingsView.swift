@@ -8222,6 +8222,16 @@ private struct MacSTThemeView: View {
                 }
                 .settingsAnchor("library.showRowNumbers")
                 .accessibilityIdentifier("library.showRowNumbers")
+                MacSTRow(
+                    String(localized: "ambient_separate_setting_title"),
+                    help: String(localized: "ambient_separate_setting_description")
+                ) {
+                    MacSTToggle(isOn: Binding(
+                        get: { SpokenWordStore.shared.separatesAmbient },
+                        set: { SpokenWordStore.shared.setSeparatesAmbient($0) }
+                    ))
+                }
+                .settingsAnchor("library.separatesAmbient")
             }
 
             MacLibraryBackupGroup()

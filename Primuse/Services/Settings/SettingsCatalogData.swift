@@ -227,6 +227,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "library.show.songs", titleKey: "tab_songs", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.radio", titleKey: "radio_title", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.podcasts", titleKey: "listening_space_podcast", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["podcast", "播客", "RSS", "订阅", "訂閱"]),
+        SettingDefinition(id: "library.separatesAmbient", titleKey: "ambient_separate_setting_title", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["环境音", "環境音", "白噪音", "白噪声", "雨声", "助眠", "自然声", "ambient", "white noise", "rain", "sleep sounds", "nature sounds"]),
+        SettingDefinition(id: "library.show.ambient", titleKey: "listening_space_ambient", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["环境音", "環境音", "白噪音", "ambient", "white noise"]),
         SettingDefinition(id: "library.show.favorites", titleKey: "library_quick_access", iosPage: .libraryDisplay, macPage: nil),
         SettingDefinition(id: "library.show.folders", titleKey: "library_browse_folder", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.statistics", titleKey: "stats_title", iosPage: .libraryDisplay, macPage: nil),

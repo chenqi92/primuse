@@ -5550,6 +5550,8 @@
 "ambient_loop" = "Repeat One";
 "ambient_looping_hint" = "Looping seamlessly.";
 "ambient_play_once_hint" = "Stops when this sound ends.";
+"ambient_separate_setting_title" = "Separate Ambient Sounds";
+"ambient_separate_setting_description" = "White noise, rain, ocean waves, nature and sleep sounds stay out of your music lists, shuffle, recommendations and listening stats. They live under Ambient Sounds and loop seamlessly. Turn this off to treat them as ordinary music; your manual markings are kept and come back when you turn it on again.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Latest episodes from the podcasts you follow.";
 "home_cover_size_title" = "Cover Size";

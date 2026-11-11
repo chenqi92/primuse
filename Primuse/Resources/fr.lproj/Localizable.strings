@@ -5786,6 +5786,8 @@
 "ambient_loop" = "Répéter le morceau";
 "ambient_looping_hint" = "Lecture en boucle sans coupure.";
 "ambient_play_once_hint" = "S’arrête à la fin de ce son.";
+"ambient_separate_setting_title" = "Classer à part les sons d’ambiance";
+"ambient_separate_setting_description" = "Le bruit blanc, la pluie, les vagues, les sons de la nature et pour dormir restent hors des listes de musique, de la lecture aléatoire, des recommandations et des statistiques d’écoute. Ils sont regroupés dans « Sons d’ambiance » et bouclent sans coupure. Désactivé, ils sont traités comme de la musique ordinaire ; vos classements manuels sont conservés et reviennent quand vous le réactivez.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Les derniers épisodes des podcasts que vous suivez.";
 "home_cover_size_title" = "Taille des pochettes";

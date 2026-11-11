@@ -5692,6 +5692,8 @@
 "ambient_loop" = "Tek şarkıyı tekrarla";
 "ambient_looping_hint" = "Kesintisiz döngüde çalıyor.";
 "ambient_play_once_hint" = "Bu ses bitince durur.";
+"ambient_separate_setting_title" = "Ortam seslerini ayrı sınıflandır";
+"ambient_separate_setting_description" = "Beyaz gürültü, yağmur, dalga, doğa ve uyku sesleri müzik listelerine, karışık çalmaya, önerilere ve dinleme istatistiklerine karışmaz. “Ortam sesleri” altında toplanır ve kesintisiz döngüde çalar. Kapatırsanız normal müzik gibi işlenir; elle yaptığınız sınıflandırmalar korunur ve yeniden açtığınızda geri gelir.";
 "home_section_podcasts" = "Podcast'ler";
 "home_section_podcasts_hint" = "Takip ettiğiniz podcast'lerin en yeni bölümleri.";
 "home_cover_size_title" = "Kapak boyutu";

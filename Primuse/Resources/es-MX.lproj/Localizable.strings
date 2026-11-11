@@ -5692,6 +5692,8 @@
 "ambient_loop" = "Repetir una";
 "ambient_looping_hint" = "Se repite sin pausas.";
 "ambient_play_once_hint" = "Se detiene cuando termina este sonido.";
+"ambient_separate_setting_title" = "Separar sonidos ambientales";
+"ambient_separate_setting_description" = "El ruido blanco, la lluvia, las olas y los sonidos de la naturaleza o para dormir no se mezclan con tus listas de música, la reproducción aleatoria, las recomendaciones ni las estadísticas. Quedan en «Sonidos ambientales» y se repiten sin pausas. Si lo desactivas, se tratan como música normal; tus clasificaciones manuales se conservan y vuelven al activarlo de nuevo.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Los episodios más recientes de los podcasts que sigues.";
 "home_cover_size_title" = "Tamaño de portadas";

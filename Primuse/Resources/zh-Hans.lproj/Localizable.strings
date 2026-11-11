@@ -5879,6 +5879,8 @@
 "ambient_loop" = "单曲循环";
 "ambient_looping_hint" = "正在单曲循环，首尾无缝接上。";
 "ambient_play_once_hint" = "放完这一段就停。";
+"ambient_separate_setting_title" = "单独归类环境音";
+"ambient_separate_setting_description" = "白噪音、雨声、海浪、自然声、助眠声这类声音不混进音乐的列表、随机播放、推荐和听歌统计，单独放在「环境音」里，默认单曲无缝循环。关掉后它们按普通音乐处理；手动归类的记录会保留，重新打开后恢复。";
 "home_section_podcasts" = "播客";
 "home_section_podcasts_hint" = "订阅的播客最近出的单集。";
 "home_cover_size_title" = "封面大小";

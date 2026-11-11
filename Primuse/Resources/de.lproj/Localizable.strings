@@ -5786,6 +5786,8 @@
 "ambient_loop" = "Titel wiederholen";
 "ambient_looping_hint" = "Läuft nahtlos in Schleife.";
 "ambient_play_once_hint" = "Stoppt, wenn dieser Klang endet.";
+"ambient_separate_setting_title" = "Umgebungsklänge getrennt führen";
+"ambient_separate_setting_description" = "Weißes Rauschen, Regen, Meeresrauschen, Natur- und Schlafklänge bleiben aus Musiklisten, Zufallswiedergabe, Empfehlungen und Hörstatistiken heraus. Sie liegen unter „Umgebungsklänge“ und laufen nahtlos in Schleife. Ausgeschaltet gelten sie als normale Musik; manuelle Zuordnungen bleiben erhalten und kehren beim Einschalten zurück.";
 "home_section_podcasts" = "Podcasts";
 "home_section_podcasts_hint" = "Die neuesten Folgen der Podcasts, denen du folgst.";
 "home_cover_size_title" = "Covergröße";

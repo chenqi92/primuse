@@ -30,6 +30,7 @@ enum OfflineSettingsCatalog {
         EmbeddedCoverPolicy.modeDefaultsKey, EmbeddedLyricsCopyPolicy.modeDefaultsKey,
         ArtworkStoreLimitSetting.key, MissingArtworkStyle.storageKey,
         GenreSplitPreference.storageKey, LibrarySectionPagingPolicy.storageKey,
+        AmbientSoundPreferences.enabledKey, AmbientQuickTimerRow.storageKey,
         AIRecommendationRefreshInterval.storageKey, AIRecommendationUnit.storageKey,
         PlaybackSessionRestoreLifecycle.launchAutoplayKey, MedleyDataUsagePolicy.promptDisabledKey,
         AppleMusicFeatureSettings.autoAddToSmartPlaylistsKey,

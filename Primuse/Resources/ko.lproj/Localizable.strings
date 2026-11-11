@@ -5786,6 +5786,8 @@
 "ambient_loop" = "한 곡 반복";
 "ambient_looping_hint" = "끊김 없이 반복 재생 중.";
 "ambient_play_once_hint" = "이 사운드가 끝나면 멈춥니다.";
+"ambient_separate_setting_title" = "환경음 따로 분류";
+"ambient_separate_setting_description" = "백색소음, 빗소리, 파도 소리, 자연의 소리, 수면용 사운드를 음악 목록, 셔플, 추천, 감상 통계에 섞지 않고 ‘환경음’에 따로 모아 끊김 없이 반복 재생합니다. 끄면 일반 음악으로 취급하며, 직접 분류한 기록은 유지되어 다시 켜면 복원됩니다.";
 "home_section_podcasts" = "팟캐스트";
 "home_section_podcasts_hint" = "팔로우 중인 팟캐스트의 최신 에피소드입니다.";
 "home_cover_size_title" = "커버 크기";

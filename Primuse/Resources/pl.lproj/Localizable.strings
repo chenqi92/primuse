@@ -5692,6 +5692,8 @@
 "ambient_loop" = "Powtarzaj utwór";
 "ambient_looping_hint" = "Odtwarzane w pętli bez przerw.";
 "ambient_play_once_hint" = "Zatrzyma się po zakończeniu tego dźwięku.";
+"ambient_separate_setting_title" = "Osobno klasyfikuj dźwięki otoczenia";
+"ambient_separate_setting_description" = "Biały szum, deszcz, fale, odgłosy natury i dźwięki do snu nie trafiają do list muzyki, odtwarzania losowego, rekomendacji ani statystyk słuchania. Są zebrane w „Dźwiękach otoczenia” i grają w pętli bez przerw. Po wyłączeniu traktowane są jak zwykła muzyka; ręczne oznaczenia zostają zachowane i wracają po ponownym włączeniu.";
 "home_section_podcasts" = "Podcasty";
 "home_section_podcasts_hint" = "Najnowsze odcinki obserwowanych podcastów.";
 "home_cover_size_title" = "Rozmiar okładek";

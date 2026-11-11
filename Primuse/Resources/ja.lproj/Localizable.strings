@@ -5787,6 +5787,8 @@
 "ambient_loop" = "1曲リピート";
 "ambient_looping_hint" = "継ぎ目なくループ再生中。";
 "ambient_play_once_hint" = "このサウンドが終わったら停止します。";
+"ambient_separate_setting_title" = "環境音を分けて管理";
+"ambient_separate_setting_description" = "ホワイトノイズ、雨音、波の音、自然音、睡眠用サウンドを音楽のリスト、シャッフル、おすすめ、再生統計に混ぜず、「環境音」にまとめて継ぎ目なくループ再生します。オフにすると通常の音楽として扱います。手動で分類した記録は保持され、オンに戻すと復元されます。";
 "home_section_podcasts" = "ポッドキャスト";
 "home_section_podcasts_hint" = "フォロー中のポッドキャストの最新エピソード。";
 "home_cover_size_title" = "カバーのサイズ";
