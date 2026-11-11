@@ -8511,6 +8511,7 @@ final class AudioPlayerService {
             self.systemLyrics = lyrics
             self.systemSynchronizedLyrics = NowPlayingLyricsMetadataPolicy
                 .synchronizedLines(lyrics)
+            plog("📜 system lyrics '\(song.title)' lines=\(lyrics.count) synchronized=\(self.systemSynchronizedLyrics.count) appleMusic=\(self.isAppleMusicMode) lockScreen=\(self.systemNowPlayingLyricsEnabled) widget=\(self.shouldPublishWidgetLyrics)")
             if lyrics.isEmpty {
                 self.scheduleSystemLyricsRetryIfNeeded(
                     forSongID: expectedSongID,

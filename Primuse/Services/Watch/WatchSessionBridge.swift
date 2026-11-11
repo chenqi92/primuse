@@ -118,6 +118,33 @@ final class WatchSessionBridge: NSObject {
                 self?.noteOutputVolumeChange()
             }
         }
+        // 歌放到一半才刮削到或改过歌词: 换歌时读的那份已经过期, 重读一次。
+        let center = NotificationCenter.default
+        center.addObserver(forName: .primuseLyricsDidCache, object: nil, queue: .main) { [weak self] note in
+            guard let songID = note.userInfo?["songID"] as? String else { return }
+            MainActor.assumeIsolated { self?.reloadLyricsIfCurrent(songID: songID) }
+        }
+        center.addObserver(forName: .primuseLyricsDidChange, object: nil, queue: .main) { [weak self] note in
+            guard let songID = note.object as? String else { return }
+            MainActor.assumeIsolated { self?.reloadLyricsIfCurrent(songID: songID) }
+        }
+    }
+
+    private func reloadLyricsIfCurrent(songID: String) {
+        guard let song = player?.currentSong, song.id == songID else { return }
+        // 只读写好的缓存。再走一遍加载会去问来源、又写一次缓存, 通知就绕成了圈。
+        lyricsLoadTask?.cancel()
+        lyricsLoadTask = Task { [weak self] in
+            let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID) ?? []
+            let lines = SpokenWordTranscriptOffsetStore.shared.presenting(cached, for: song)
+            guard !Task.isCancelled, let self, self.player?.currentSong?.id == songID else { return }
+            self.lyricsLoadTask = nil
+            // 缓存被清掉(删了歌词), 或者打断的是换歌时那次还没读完的加载: 照常读一遍。
+            guard !lines.isEmpty else { self.refreshLyricsCache(for: song); return }
+            self.cachedLyricsForSongID = songID
+            self.cachedLyrics = lines
+            self.pushIfMeaningfulChange()
+        }
     }
 
     /// 音量在变: 立刻推一次, 不等 0.5 秒的 tick (暂停时 tick 还挂着)。连着转表冠时
