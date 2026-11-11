@@ -7160,9 +7160,9 @@
 
 /* 播放页转轮 */
 "player_carousel_title" = "Карусель плеєра";
-"player_carousel_subtitle" = "Гортайте плеєр убік, щоб відкрити еквалайзер, караоке та інше";
+"player_carousel_subtitle" = "Гортайте плеєр убік, щоб відкрити «Звук», «Огляд», «Далі» та «Сцену»";
 "player_carousel_enabled" = "Гортати сторінки плеєра";
-"player_carousel_footer" = "Якщо ввімкнено, гортайте вліво або вправо по обкладинці в музичному плеєрі, щоб переходити до сторінок обабіч. Доступно в музичному плеєрі в портретній орієнтації на iPhone та iPad.";
+"player_carousel_footer" = "Якщо ввімкнено, гортайте вліво або вправо по обкладинці в музичному плеєрі, щоб переходити до граней обабіч. Кнопка розгортання у правому верхньому куті кожної грані або розведення двома пальцями відкриває її власний повноекранний режим; якщо ввімкнено «Повний екран в альбомній орієнтації», те саме відбувається під час повороту. Доступно в музичному плеєрі в портретній орієнтації на iPhone та iPad.";
 "player_carousel_leading" = "Ліворуч (гортайте вправо)";
 "player_carousel_trailing" = "Праворуч (гортайте вліво)";
 "player_carousel_order_hint %lld" = "Найближча до плеєра сторінка — перша в списку. До %lld сторінок з кожного боку.";
@@ -7179,20 +7179,40 @@
 "player_carousel_preview_caption" = "Гортайте в плеєрі вбік, щоб обертати карусель";
 "player_carousel_player" = "Плеєр";
 "player_carousel_back" = "Назад до плеєра";
-"player_carousel_panel_equalizer" = "Еквалайзер";
-"player_carousel_panel_audio_effects" = "Звукові ефекти";
-"player_carousel_panel_similar_songs" = "Схожі пісні";
-"player_carousel_panel_album_artist" = "Альбом і виконавець";
-"player_carousel_panel_queue" = "Далі";
-"player_carousel_panel_karaoke" = "Караоке";
 "player_carousel_karaoke_hint" = "Зупиніться на цій сторінці, щоб почати караоке";
 "player_carousel_similar_seed %@" = "Схоже на «%@»";
 "player_carousel_nothing_playing" = "Нічого не відтворюється";
 "player_carousel_no_album" = "Немає відомостей про альбом для цієї пісні";
-"player_carousel_open_album" = "Альбом";
-"player_carousel_open_artist" = "Виконавець";
 "player_carousel_song_count %lld" = "Пісень: %lld";
-"player_carousel_more_by_artist %@" = "Більше від %@";
+"player_carousel_face_sound" = "Звук";
+"player_carousel_face_explore" = "Огляд";
+"player_carousel_face_up_next" = "Далі";
+"player_carousel_face_stage" = "Сцена";
+"player_carousel_face_sound_summary" = "Еквалайзер, ефекти, швидкість і тональність, вивід і якість";
+"player_carousel_face_explore_summary" = "Альбом, виконавець і схожі пісні";
+"player_carousel_face_up_next_summary" = "Режими відтворення і черга";
+"player_carousel_face_stage_summary" = "Караоке і повноекранні ефекти";
+"player_carousel_card_speed_pitch" = "Швидкість і тональність";
+"player_carousel_card_output_quality" = "Вивід і якість";
+"player_carousel_card_album" = "Альбом";
+"player_carousel_card_artist" = "Виконавець";
+"player_carousel_card_playback_modes" = "Відтворення";
+"player_carousel_card_fullscreen_effects" = "Повноекранні ефекти";
+"player_carousel_cards_header %@" = "Картки грані «%@»";
+"player_carousel_cards_sound_footer" = "Для пісень Apple Music еквалайзер, ефекти, швидкість і тональність не показуються; під час трансляції на інший пристрій приховано еквалайзер і ефекти.";
+"player_carousel_cards_stage_footer" = "Пісні Apple Music не мають караоке, тож на цій грані лишаються тільки повноекранні ефекти. Грань без жодної картки пропускається під час повороту.";
+"player_carousel_expand" = "Повний екран";
+"player_carousel_custom" = "Власний";
+"player_carousel_reset_short" = "Скинути";
+"player_carousel_casting_to" = "Трансляція на";
+"player_carousel_show_less" = "Згорнути";
+"player_carousel_see_all" = "Усі";
+"player_carousel_all_tracks %lld" = "Усі пісні (%lld)";
+"player_carousel_album_count %lld" = "Альбомів: %lld";
+"player_carousel_no_artist" = "Цього виконавця немає в медіатеці";
+"player_carousel_ab_range %@ %@" = "%1$@–%2$@";
+"player_carousel_effect_current" = "Поточний";
+"player_carousel_effect_hint" = "Відкриває повний екран із цим ефектом, не змінюючи вибраний ефект";
 
 "mini_player_show_lyrics" = "Мінітекст";
 

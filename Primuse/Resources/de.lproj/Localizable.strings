@@ -7254,9 +7254,9 @@
 
 /* 播放页转轮 */
 "player_carousel_title" = "Player-Karussell";
-"player_carousel_subtitle" = "Im Player seitlich wischen, um Equalizer, Karaoke und mehr zu öffnen";
+"player_carousel_subtitle" = "Im Player seitlich wischen, um Klang, Entdecken, Als Nächstes und Bühne zu öffnen";
 "player_carousel_enabled" = "Zwischen Player-Seiten wischen";
-"player_carousel_footer" = "Wenn aktiviert, wischst du im Musik-Player über dem Cover nach links oder rechts, um zu den Seiten daneben zu wechseln. Verfügbar im Musik-Player im Hochformat auf iPhone und iPad.";
+"player_carousel_footer" = "Wenn aktiviert, wischst du im Musik-Player über dem Cover nach links oder rechts, um zu den Seiten daneben zu wechseln. Die Erweitern-Taste oben rechts auf jeder Seite oder ein Aufziehen mit zwei Fingern öffnet das eigene Vollbild dieser Seite; ist „Im Querformat Vollbild“ aktiv, gilt das auch beim Drehen. Verfügbar im Musik-Player im Hochformat auf iPhone und iPad.";
 "player_carousel_leading" = "Linke Seite (nach rechts wischen)";
 "player_carousel_trailing" = "Rechte Seite (nach links wischen)";
 "player_carousel_order_hint %lld" = "Die Seite direkt neben dem Player steht oben. Bis zu %lld Seiten je Richtung.";
@@ -7273,20 +7273,40 @@
 "player_carousel_preview_caption" = "Im Player seitlich wischen, um das Karussell zu drehen";
 "player_carousel_player" = "Player";
 "player_carousel_back" = "Zurück zum Player";
-"player_carousel_panel_equalizer" = "Equalizer";
-"player_carousel_panel_audio_effects" = "Klangeffekte";
-"player_carousel_panel_similar_songs" = "Ähnliche Titel";
-"player_carousel_panel_album_artist" = "Album & Künstler";
-"player_carousel_panel_queue" = "Als Nächstes";
-"player_carousel_panel_karaoke" = "Karaoke";
 "player_carousel_karaoke_hint" = "Bleib auf dieser Seite, um Karaoke zu starten";
 "player_carousel_similar_seed %@" = "Ähnlich wie „%@“";
 "player_carousel_nothing_playing" = "Es wird nichts abgespielt";
 "player_carousel_no_album" = "Für diesen Titel gibt es keine Albuminformationen";
-"player_carousel_open_album" = "Album";
-"player_carousel_open_artist" = "Künstler";
 "player_carousel_song_count %lld" = "%lld Titel";
-"player_carousel_more_by_artist %@" = "Mehr von %@";
+"player_carousel_face_sound" = "Klang";
+"player_carousel_face_explore" = "Entdecken";
+"player_carousel_face_up_next" = "Als Nächstes";
+"player_carousel_face_stage" = "Bühne";
+"player_carousel_face_sound_summary" = "Equalizer, Effekte, Tempo und Tonhöhe, Ausgabe und Qualität";
+"player_carousel_face_explore_summary" = "Album, Künstler und ähnliche Titel";
+"player_carousel_face_up_next_summary" = "Wiedergabemodi und Warteschlange";
+"player_carousel_face_stage_summary" = "Karaoke und Vollbildeffekte";
+"player_carousel_card_speed_pitch" = "Tempo & Tonhöhe";
+"player_carousel_card_output_quality" = "Ausgabe & Qualität";
+"player_carousel_card_album" = "Album";
+"player_carousel_card_artist" = "Künstler";
+"player_carousel_card_playback_modes" = "Wiedergabe";
+"player_carousel_card_fullscreen_effects" = "Vollbildeffekte";
+"player_carousel_cards_header %@" = "Karten in „%@“";
+"player_carousel_cards_sound_footer" = "Bei Apple-Music-Titeln werden Equalizer, Effekte sowie Tempo und Tonhöhe nicht angezeigt; beim Streamen auf ein anderes Gerät fehlen Equalizer und Effekte.";
+"player_carousel_cards_stage_footer" = "Apple-Music-Titel haben kein Karaoke, daher bleiben hier nur die Vollbildeffekte. Seiten ganz ohne Karten werden beim Drehen übersprungen.";
+"player_carousel_expand" = "Vollbild";
+"player_carousel_custom" = "Eigene";
+"player_carousel_reset_short" = "Zurücksetzen";
+"player_carousel_casting_to" = "Streamt an";
+"player_carousel_show_less" = "Weniger";
+"player_carousel_see_all" = "Alle anzeigen";
+"player_carousel_all_tracks %lld" = "Alle %lld Titel";
+"player_carousel_album_count %lld" = "%lld Alben";
+"player_carousel_no_artist" = "Dieser Künstler ist nicht in deiner Mediathek";
+"player_carousel_ab_range %@ %@" = "%1$@–%2$@";
+"player_carousel_effect_current" = "Aktuell";
+"player_carousel_effect_hint" = "Öffnet das Vollbild mit diesem Effekt, ohne den gewählten Effekt zu ändern";
 
 "mini_player_show_lyrics" = "Mini-Songtext";
 

@@ -7160,9 +7160,9 @@
 
 /* 播放页转轮 */
 "player_carousel_title" = "प्लेयर कैरोसेल";
-"player_carousel_subtitle" = "इक्वलाइज़र, कराओके और बहुत कुछ के लिए प्लेयर को बगल में स्वाइप करें";
+"player_carousel_subtitle" = "साउंड, एक्सप्लोर, आगे और स्टेज के लिए प्लेयर को बगल में स्वाइप करें";
 "player_carousel_enabled" = "प्लेयर पेजों के बीच स्वाइप करें";
-"player_carousel_footer" = "चालू होने पर, म्यूज़िक प्लेयर में आर्टवर्क पर बाएँ या दाएँ स्वाइप करके दोनों ओर के पेजों पर जाएँ। iPhone और iPad पर पोर्ट्रेट म्यूज़िक प्लेयर में उपलब्ध।";
+"player_carousel_footer" = "चालू होने पर, म्यूज़िक प्लेयर में आर्टवर्क पर बाएँ या दाएँ स्वाइप करके दोनों ओर के फ़ेस पर जाएँ। हर फ़ेस के ऊपर दाईं ओर का बड़ा करें बटन या दो उँगलियों से फैलाना उस फ़ेस की अपनी फ़ुल स्क्रीन खोलता है; “लैंडस्केप में फ़ुल स्क्रीन” चालू हो तो डिवाइस घुमाने पर भी यही होता है। iPhone और iPad पर पोर्ट्रेट म्यूज़िक प्लेयर में उपलब्ध।";
 "player_carousel_leading" = "बायाँ हिस्सा (दाएँ स्वाइप करें)";
 "player_carousel_trailing" = "दायाँ हिस्सा (बाएँ स्वाइप करें)";
 "player_carousel_order_hint %lld" = "प्लेयर के सबसे पास वाला पेज सबसे ऊपर है। हर ओर अधिकतम %lld पेज।";
@@ -7179,20 +7179,40 @@
 "player_carousel_preview_caption" = "कैरोसेल घुमाने के लिए प्लेयर में बगल में स्वाइप करें";
 "player_carousel_player" = "प्लेयर";
 "player_carousel_back" = "प्लेयर पर वापस जाएँ";
-"player_carousel_panel_equalizer" = "इक्वलाइज़र";
-"player_carousel_panel_audio_effects" = "साउंड इफ़ेक्ट";
-"player_carousel_panel_similar_songs" = "मिलते-जुलते गाने";
-"player_carousel_panel_album_artist" = "एल्बम और कलाकार";
-"player_carousel_panel_queue" = "आगे चलेगा";
-"player_carousel_panel_karaoke" = "कराओके";
 "player_carousel_karaoke_hint" = "कराओके शुरू करने के लिए इस पेज पर रुकें";
 "player_carousel_similar_seed %@" = "“%@” से मिलते-जुलते";
 "player_carousel_nothing_playing" = "कुछ भी नहीं चल रहा है";
 "player_carousel_no_album" = "इस गाने के लिए एल्बम जानकारी नहीं है";
-"player_carousel_open_album" = "एल्बम";
-"player_carousel_open_artist" = "कलाकार";
 "player_carousel_song_count %lld" = "%lld गाने";
-"player_carousel_more_by_artist %@" = "%@ के और गाने";
+"player_carousel_face_sound" = "साउंड";
+"player_carousel_face_explore" = "एक्सप्लोर";
+"player_carousel_face_up_next" = "आगे";
+"player_carousel_face_stage" = "स्टेज";
+"player_carousel_face_sound_summary" = "तुल्यकारक, प्रभाव, गति और पिच, आउटपुट और क्वालिटी";
+"player_carousel_face_explore_summary" = "एल्बम, कलाकार और मिलते-जुलते गाने";
+"player_carousel_face_up_next_summary" = "प्लेबैक मोड और कतार";
+"player_carousel_face_stage_summary" = "कराओके और फ़ुल-स्क्रीन प्रभाव";
+"player_carousel_card_speed_pitch" = "गति और पिच";
+"player_carousel_card_output_quality" = "आउटपुट और क्वालिटी";
+"player_carousel_card_album" = "एल्बम";
+"player_carousel_card_artist" = "कलाकार";
+"player_carousel_card_playback_modes" = "प्लेबैक";
+"player_carousel_card_fullscreen_effects" = "फ़ुल-स्क्रीन प्रभाव";
+"player_carousel_cards_header %@" = "“%@” के कार्ड";
+"player_carousel_cards_sound_footer" = "Apple Music गानों में तुल्यकारक, प्रभाव और गति व पिच नहीं दिखते; दूसरे डिवाइस पर कास्ट करते समय तुल्यकारक और प्रभाव छिप जाते हैं।";
+"player_carousel_cards_stage_footer" = "Apple Music गानों में कराओके नहीं होता, इसलिए इस फ़ेस पर सिर्फ़ फ़ुल-स्क्रीन प्रभाव रहते हैं। जिस फ़ेस में कोई कार्ड नहीं, उसे घुमाते समय छोड़ दिया जाता है।";
+"player_carousel_expand" = "फ़ुल स्क्रीन";
+"player_carousel_custom" = "कस्टम";
+"player_carousel_reset_short" = "रीसेट करें";
+"player_carousel_casting_to" = "कास्ट हो रहा है";
+"player_carousel_show_less" = "कम दिखाएँ";
+"player_carousel_see_all" = "सभी देखें";
+"player_carousel_all_tracks %lld" = "सभी %lld गाने";
+"player_carousel_album_count %lld" = "%lld एल्बम";
+"player_carousel_no_artist" = "यह कलाकार आपकी लाइब्रेरी में नहीं है";
+"player_carousel_ab_range %@ %@" = "%1$@–%2$@";
+"player_carousel_effect_current" = "मौजूदा";
+"player_carousel_effect_hint" = "चुना हुआ प्रभाव बदले बिना इस प्रभाव के साथ फ़ुल स्क्रीन खोलता है";
 
 "mini_player_show_lyrics" = "मिनी गीत-बोल";
 

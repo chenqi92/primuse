@@ -2,13 +2,15 @@
 import PrimuseKit
 import SwiftUI
 
-/// 设置 › 播放器 › 转轮切换:总开关(默认关),以及播放器左右两侧各放哪几页、什么顺序。
+/// 设置 › 播放器 › 转轮切换:总开关(默认关),播放器左右两侧各放哪几面、什么顺序,以及每一面里放哪几张卡片。
 struct NowPlayingCarouselSettingsView: View {
     @AppStorage(NowPlayingCarouselConfiguration.enabledStorageKey)
     private var isEnabled = NowPlayingCarouselConfiguration.enabledByDefault
     @AppStorage(NowPlayingCarouselConfiguration.storageKey) private var storage = ""
+    @AppStorage(NowPlayingCarouselCardSettings.storageKey) private var cardStorage = ""
 
     private var configuration: NowPlayingCarouselConfiguration { .decode(storage) }
+    private var cardSettings: NowPlayingCarouselCardSettings { .decode(cardStorage) }
 
     var body: some View {
         Form {
@@ -32,7 +34,7 @@ struct NowPlayingCarouselSettingsView: View {
                     ForEach(configuration.unassigned) { panel in
                         HStack(spacing: 12) {
                             NowPlayingCarouselPanelIcon(panel: panel)
-                            Text(panel.titleKey)
+                            panelLabel(panel)
                             Spacer(minLength: 8)
                             Menu {
                                 Button {
@@ -60,16 +62,31 @@ struct NowPlayingCarouselSettingsView: View {
                 }
             }
 
+            ForEach(NowPlayingCarouselPanel.allCases) { panel in
+                cardSection(panel)
+            }
+
             Section {
                 Button("player_carousel_reset") {
                     update { $0 = .default }
+                    withAnimation(.snappy) { cardStorage = "" }
                 }
-                .disabled(configuration == .default)
+                .disabled(configuration == .default && cardSettings.isDefault)
             }
         }
         .environment(\.editMode, .constant(.active))
         .navigationTitle("player_carousel_title")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func panelLabel(_ panel: NowPlayingCarouselPanel) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(panel.titleKey)
+            Text(panel.summaryKey)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
     }
 
     @ViewBuilder
@@ -83,7 +100,7 @@ struct NowPlayingCarouselSettingsView: View {
             ForEach(panels) { panel in
                 HStack(spacing: 12) {
                     NowPlayingCarouselPanelIcon(panel: panel)
-                    Text(panel.titleKey)
+                    panelLabel(panel)
                     Spacer(minLength: 8)
                     Menu {
                         let other: NowPlayingCarouselConfiguration.Side = side == .leading ? .trailing : .leading
@@ -125,6 +142,37 @@ struct NowPlayingCarouselSettingsView: View {
         }
     }
 
+    /// 一面里的卡片开关。编辑态下这些行不出删除、拖动把手(没挂 onMove / onDelete),开关照常拨。
+    private func cardSection(_ panel: NowPlayingCarouselPanel) -> some View {
+        Section {
+            ForEach(panel.cards) { card in
+                Toggle(isOn: Binding(
+                    get: { cardSettings.isEnabled(card) },
+                    set: { enabled in
+                        var next = cardSettings
+                        next.setEnabled(enabled, for: card)
+                        withAnimation(.snappy) { cardStorage = next.storageValue }
+                    }
+                )) {
+                    Label {
+                        Text(card.titleKey)
+                    } icon: {
+                        Image(systemName: card.symbolName)
+                            .foregroundStyle(panel.tint)
+                    }
+                }
+            }
+        } header: {
+            Text("player_carousel_cards_header \(panel.localizedTitle)")
+        } footer: {
+            if panel == .sound {
+                Text("player_carousel_cards_sound_footer")
+            } else if panel == .stage {
+                Text("player_carousel_cards_stage_footer")
+            }
+        }
+    }
+
     private func update(_ change: (inout NowPlayingCarouselConfiguration) -> Void) {
         var next = configuration
         change(&next)
@@ -145,7 +193,7 @@ private struct NowPlayingCarouselPanelIcon: View {
     }
 }
 
-/// 顶上的示意:播放器居中,两侧的页像立方体的侧面一样斜着排开,离播放器越远越小、越淡。
+/// 顶上的示意:播放器居中,两侧的面像立方体的侧面一样斜着排开,离播放器越远越小、越淡。
 private struct NowPlayingCarouselPreview: View {
     let configuration: NowPlayingCarouselConfiguration
     let isEnabled: Bool
@@ -166,7 +214,7 @@ private struct NowPlayingCarouselPreview: View {
                         .zIndex(Double(-offset))
                 }
             }
-            .frame(height: 132)
+            .frame(height: 140)
             .saturation(isEnabled ? 1 : 0)
             .opacity(isEnabled ? 1 : 0.55)
 
@@ -206,17 +254,24 @@ private struct NowPlayingCarouselPreview: View {
             .shadow(color: .black.opacity(0.22), radius: 10, y: 5)
     }
 
-    /// `distance` 是离播放器第几页,`side` 为 -1 在左、1 在右。
+    /// `distance` 是离播放器第几面,`side` 为 -1 在左、1 在右。
     private func card(_ panel: NowPlayingCarouselPanel, distance: Int, side: Double) -> some View {
         let scale = max(0.62, 1 - Double(distance) * 0.12)
         return RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(panel.tint.gradient)
             .overlay {
-                Image(systemName: panel.symbolName)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
+                VStack(spacing: 6) {
+                    Image(systemName: panel.symbolName)
+                        .font(.system(size: 20, weight: .semibold))
+                    Text(panel.titleKey)
+                        .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .padding(.horizontal, 4)
+                }
+                .foregroundStyle(.white)
             }
-            .frame(width: 58, height: 104)
+            .frame(width: 62, height: 108)
             .scaleEffect(scale)
             .rotation3DEffect(.degrees(side * -38), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
             .opacity(1 - Double(distance - 1) * 0.16)

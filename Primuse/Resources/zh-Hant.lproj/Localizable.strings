@@ -7231,9 +7231,9 @@
 
 /* 播放页转轮 */
 "player_carousel_title" = "轉輪切換";
-"player_carousel_subtitle" = "左右滑動播放頁，轉到等化器、卡拉 OK 等介面";
+"player_carousel_subtitle" = "左右滑動播放頁，轉到調音、發現、接下來、舞台幾個面";
 "player_carousel_enabled" = "啟用轉輪切換";
-"player_carousel_footer" = "開啟後，在音樂播放頁的封面區域左右滑動，即可轉到兩側的介面。僅在 iPhone 與 iPad 直向的音樂播放頁可用。";
+"player_carousel_footer" = "開啟後，在音樂播放頁的封面區域左右滑動，即可轉到兩側的面。每一面右上角的展開鍵或雙指張開會進入這一面自己的全螢幕；開啟「橫向時進入全螢幕」時，轉成橫向也一樣。僅在 iPhone 與 iPad 直向的音樂播放頁可用。";
 "player_carousel_leading" = "左側（向右滑動）";
 "player_carousel_trailing" = "右側（向左滑動）";
 "player_carousel_order_hint %lld" = "離播放器最近的排在最上面，每側最多 %lld 個介面。";
@@ -7250,20 +7250,40 @@
 "player_carousel_preview_caption" = "在播放頁左右滑動即可轉動轉輪";
 "player_carousel_player" = "播放器";
 "player_carousel_back" = "返回播放器";
-"player_carousel_panel_equalizer" = "等化器";
-"player_carousel_panel_audio_effects" = "音效";
-"player_carousel_panel_similar_songs" = "相似歌曲";
-"player_carousel_panel_album_artist" = "專輯與藝人";
-"player_carousel_panel_queue" = "待播清單";
-"player_carousel_panel_karaoke" = "卡拉 OK";
 "player_carousel_karaoke_hint" = "停在這一頁即進入卡拉 OK";
 "player_carousel_similar_seed %@" = "與「%@」相似";
 "player_carousel_nothing_playing" = "目前沒有正在播放的歌曲";
 "player_carousel_no_album" = "這首歌沒有可用的專輯資訊";
-"player_carousel_open_album" = "專輯";
-"player_carousel_open_artist" = "藝人";
 "player_carousel_song_count %lld" = "%lld 首歌曲";
-"player_carousel_more_by_artist %@" = "%@ 的更多歌曲";
+"player_carousel_face_sound" = "調音";
+"player_carousel_face_explore" = "發現";
+"player_carousel_face_up_next" = "接下來";
+"player_carousel_face_stage" = "舞台";
+"player_carousel_face_sound_summary" = "等化器、音效、速度與音調、輸出與音質";
+"player_carousel_face_explore_summary" = "專輯、藝人與相似歌曲";
+"player_carousel_face_up_next_summary" = "播放方式與播放佇列";
+"player_carousel_face_stage_summary" = "卡拉 OK 與全螢幕效果";
+"player_carousel_card_speed_pitch" = "速度與音調";
+"player_carousel_card_output_quality" = "輸出與音質";
+"player_carousel_card_album" = "專輯";
+"player_carousel_card_artist" = "藝人";
+"player_carousel_card_playback_modes" = "播放方式";
+"player_carousel_card_fullscreen_effects" = "全螢幕效果";
+"player_carousel_cards_header %@" = "「%@」裡的卡片";
+"player_carousel_cards_sound_footer" = "Apple Music 歌曲不顯示等化器、音效、速度與音調；投放到其他裝置時不顯示等化器與音效。";
+"player_carousel_cards_stage_footer" = "Apple Music 歌曲沒有卡拉 OK，這一面只留全螢幕效果。一張卡片都沒有的面在轉動時會略過。";
+"player_carousel_expand" = "進入全螢幕";
+"player_carousel_custom" = "自訂";
+"player_carousel_reset_short" = "還原";
+"player_carousel_casting_to" = "正在投放到";
+"player_carousel_show_less" = "收合";
+"player_carousel_see_all" = "查看全部";
+"player_carousel_all_tracks %lld" = "全部 %lld 首";
+"player_carousel_album_count %lld" = "%lld 張專輯";
+"player_carousel_no_artist" = "資料庫裡沒有這位藝人";
+"player_carousel_ab_range %@ %@" = "%1$@–%2$@";
+"player_carousel_effect_current" = "目前";
+"player_carousel_effect_hint" = "以這種效果進入全螢幕，不改變已選的全螢幕效果";
 
 "mini_player_show_lyrics" = "迷你歌詞";
 

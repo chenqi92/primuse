@@ -7160,9 +7160,9 @@
 
 /* 播放页转轮 */
 "player_carousel_title" = "Carrossel do player";
-"player_carousel_subtitle" = "Deslize o player para os lados para acessar o equalizador, karaokê e mais";
+"player_carousel_subtitle" = "Deslize o player para os lados para acessar Som, Explorar, A seguir e Palco";
 "player_carousel_enabled" = "Deslizar entre páginas do player";
-"player_carousel_footer" = "Quando ativado, deslize para a esquerda ou para a direita sobre a capa no player de música para ir às páginas de cada lado. Disponível no player de música na vertical no iPhone e iPad.";
+"player_carousel_footer" = "Quando ativado, deslize para a esquerda ou para a direita sobre a capa no player de música para ir às faces de cada lado. O botão de ampliar no canto superior direito de cada face, ou afastar dois dedos, abre a tela cheia própria daquela face; com “Tela cheia na horizontal” ativado, girar o aparelho faz o mesmo. Disponível no player de música na vertical no iPhone e iPad.";
 "player_carousel_leading" = "Lado esquerdo (deslize para a direita)";
 "player_carousel_trailing" = "Lado direito (deslize para a esquerda)";
 "player_carousel_order_hint %lld" = "A página mais próxima do player aparece primeiro. Até %lld páginas de cada lado.";
@@ -7179,20 +7179,40 @@
 "player_carousel_preview_caption" = "Deslize para os lados no player para girar o carrossel";
 "player_carousel_player" = "Player";
 "player_carousel_back" = "Voltar ao player";
-"player_carousel_panel_equalizer" = "Equalizador";
-"player_carousel_panel_audio_effects" = "Efeitos sonoros";
-"player_carousel_panel_similar_songs" = "Músicas parecidas";
-"player_carousel_panel_album_artist" = "Álbum e artista";
-"player_carousel_panel_queue" = "A seguir";
-"player_carousel_panel_karaoke" = "Karaokê";
 "player_carousel_karaoke_hint" = "Pare nesta página para iniciar o karaokê";
 "player_carousel_similar_seed %@" = "Parecidas com “%@”";
 "player_carousel_nothing_playing" = "Nada está tocando";
 "player_carousel_no_album" = "Sem informações de álbum para esta música";
-"player_carousel_open_album" = "Álbum";
-"player_carousel_open_artist" = "Artista";
 "player_carousel_song_count %lld" = "%lld músicas";
-"player_carousel_more_by_artist %@" = "Mais de %@";
+"player_carousel_face_sound" = "Som";
+"player_carousel_face_explore" = "Explorar";
+"player_carousel_face_up_next" = "A seguir";
+"player_carousel_face_stage" = "Palco";
+"player_carousel_face_sound_summary" = "Equalizador, efeitos, velocidade e tom, saída e qualidade";
+"player_carousel_face_explore_summary" = "Álbum, artista e músicas parecidas";
+"player_carousel_face_up_next_summary" = "Modos de reprodução e a fila";
+"player_carousel_face_stage_summary" = "Karaokê e efeitos de tela cheia";
+"player_carousel_card_speed_pitch" = "Velocidade e tom";
+"player_carousel_card_output_quality" = "Saída e qualidade";
+"player_carousel_card_album" = "Álbum";
+"player_carousel_card_artist" = "Artista";
+"player_carousel_card_playback_modes" = "Reprodução";
+"player_carousel_card_fullscreen_effects" = "Efeitos de tela cheia";
+"player_carousel_cards_header %@" = "Cartões de “%@”";
+"player_carousel_cards_sound_footer" = "Músicas do Apple Music não mostram o equalizador, os efeitos nem a velocidade e o tom; ao transmitir para outro aparelho, o equalizador e os efeitos ficam ocultos.";
+"player_carousel_cards_stage_footer" = "Músicas do Apple Music não têm karaokê, então esta face mantém só os efeitos de tela cheia. Uma face sem nenhum cartão é pulada ao girar.";
+"player_carousel_expand" = "Tela cheia";
+"player_carousel_custom" = "Personalizado";
+"player_carousel_reset_short" = "Redefinir";
+"player_carousel_casting_to" = "Transmitindo para";
+"player_carousel_show_less" = "Ver menos";
+"player_carousel_see_all" = "Ver tudo";
+"player_carousel_all_tracks %lld" = "Todas as %lld músicas";
+"player_carousel_album_count %lld" = "%lld álbuns";
+"player_carousel_no_artist" = "Este artista não está na sua biblioteca";
+"player_carousel_ab_range %@ %@" = "%1$@–%2$@";
+"player_carousel_effect_current" = "Atual";
+"player_carousel_effect_hint" = "Abre a tela cheia com este efeito sem mudar o efeito escolhido";
 
 "mini_player_show_lyrics" = "Miniletra";
 

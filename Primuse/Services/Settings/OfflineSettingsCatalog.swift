@@ -21,6 +21,7 @@ enum OfflineSettingsCatalog {
         CloudKVSKey.lyricsFontScale, CloudKVSKey.lyricsTranslationFontScale,
         EQPresetLibrary.storageKey, CarPlayLayoutConfiguration.storageKey, MacKeyboardShortcutPolicy.storageKey,
         NowPlayingCarouselConfiguration.storageKey, NowPlayingCarouselConfiguration.enabledStorageKey,
+        NowPlayingCarouselCardSettings.storageKey,
         ImmersiveEffectRotationMode.storageKey, ImmersiveEffectRotationScope.storageKey,
         ImmersiveFrameRateMode.storageKey, ImmersiveKineticScenePreference.storageKey,
         ImmersiveMotionIntensity.storageKey, ImmersiveLyricsMotionSettings.storageKey,

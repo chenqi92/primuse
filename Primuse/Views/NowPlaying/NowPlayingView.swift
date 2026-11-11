@@ -1640,10 +1640,12 @@ struct NowPlayingView: View {
     @State private var windowSafeAreaInsets = UIEdgeInsets.zero
     /// 系统竖栏在哪一侧(iPhone Duo 等);没有竖栏的设备与 Xcode 27.0 构建为 nil。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
-    /// 播放页转轮(默认关):左右滑动转到均衡器、卡拉 OK 等页(见 `NowPlayingCarouselContainer`)。
+    /// 播放页转轮(默认关):左右滑动转到调音、发现、接下来、舞台几面(见 `NowPlayingCarouselContainer`)。
     @AppStorage(NowPlayingCarouselConfiguration.enabledStorageKey)
     private var carouselEnabled = NowPlayingCarouselConfiguration.enabledByDefault
     @AppStorage(NowPlayingCarouselConfiguration.storageKey) private var carouselStorage = ""
+    /// 设置里逐张关掉的卡片。
+    @AppStorage(NowPlayingCarouselCardSettings.storageKey) private var carouselCardStorage = ""
     /// 转轮停在哪一页。整页只读它的 `settledPage`(换页时才变),拖动中逐帧的位移只有转轮自己读。
     @State private var carouselState = NowPlayingCarouselState()
     #endif
@@ -2178,17 +2180,25 @@ struct NowPlayingView: View {
         guard isPhoneCanvas else { return }
         if oldMode == .portrait, newMode == .compactLandscape {
             guard entersFullscreenInLandscape,
-                  !isFullscreenPlayerPresented, !isLyricsImmersive,
+                  !isFullscreenPlayerPresented, !isLyricsImmersive, !showKaraoke,
                   player.currentSong != nil,
                   !player.isMusicVideoPlaybackActive, !player.isLiveRadio, !usesSpokenWordTransport,
                   isPresentationSettled, isPresentationActive, !surfaceMotion.isDismissing,
                   !hasBlockingNowPlayingPresentation
             else { return }
             lyricsVisibleBeforeLandscapeFullscreen = showLyrics
+            #if os(iOS)
+            // 停在转轮的某一面上时去那一面自己的全屏(见 `presentCarouselLandscapeFullscreen`)。
+            if !presentCarouselLandscapeFullscreen() { presentImmersiveLyrics() }
+            #else
             presentImmersiveLyrics()
+            #endif
             enteredFullscreenForLandscape = true
         } else if newMode == .portrait, enteredFullscreenForLandscape {
             enteredFullscreenForLandscape = false
+            #if os(iOS)
+            dismissCarouselLandscapeFullscreen()
+            #endif
             if isFullscreenPlayerPresented {
                 dismissFullscreenPlayer()
             } else if isLyricsImmersive {
@@ -2306,8 +2316,9 @@ struct NowPlayingView: View {
             deleteErrorMessage = nil
             showSimilarSongs = false
         }
-        // 转轮转回播放器:卡拉 OK 那一页收起时跟着卸下(会话停掉),下次展开是播放器本身。
-        carouselState.returnToPlayer(animated: false)
+        // 转轮转回播放器:卡拉 OK 那一面收起时跟着卸下(会话停掉),下次展开是播放器本身;
+        // 转横屏、进全屏前停着的那一面与临时指定的全屏效果也一并忘掉。
+        carouselState.reset()
     }
     #endif
 
@@ -3590,15 +3601,28 @@ struct NowPlayingView: View {
         }
     }
 
+    private var carouselCardSettings: NowPlayingCarouselCardSettings {
+        .decode(carouselCardStorage)
+    }
+
+    /// 卡片能不能用要看的播放状态:Apple Music 曲目、投放中各少几张卡(和「更多」菜单的取舍一致)。
+    private var carouselCardContext: NowPlayingCarouselCardContext {
+        NowPlayingCarouselCardContext(
+            isAppleMusic: player.isAppleMusicMode,
+            isCasting: player.castingRenderer != nil
+        )
+    }
+
     private func carouselPanel(
         _ panel: NowPlayingCarouselPanel,
-        phase: NowPlayingCarouselPanelPhase,
+        context: NowPlayingCarouselFaceContext,
         safeInsets: EdgeInsets
     ) -> AnyView {
         let state = carouselState
         let returnToPlayer = { state.returnToPlayer() }
         let side = carouselConfiguration.side(of: panel) ?? .leading
         let appearance = appearance
+        let expand = { presentCarouselFullscreen(from: .panel(panel)) }
 
         func page(_ content: some View) -> AnyView {
             AnyView(
@@ -3607,6 +3631,7 @@ struct NowPlayingView: View {
                     side: side,
                     safeInsets: safeInsets,
                     appearance: appearance,
+                    onExpand: expand,
                     onReturnToPlayer: returnToPlayer
                 ) {
                     content
@@ -3615,37 +3640,171 @@ struct NowPlayingView: View {
         }
 
         switch panel {
-        case .karaoke:
-            return AnyView(
-                NowPlayingCarouselKaraokePage(phase: phase, safeInsets: safeInsets, onClose: returnToPlayer)
-            )
-        case .equalizer:
+        case .sound:
             return page(
-                EqualizerView()
-                    .environment(player.equalizerService)
-            )
-        case .audioEffects:
-            return page(
-                AudioEffectsView()
-                    .environment(player.audioEffectsService)
-                    .scrollContentBackground(.hidden)
-            )
-        case .similarSongs:
-            return page(NowPlayingCarouselSimilarPanel(phase: phase, state: state, appearance: appearance))
-        case .albumAndArtist:
-            return page(
-                NowPlayingCarouselAlbumArtistPanel(
+                NowPlayingCarouselSoundFace(
+                    context: context,
                     appearance: appearance,
-                    onOpenAlbum: { album in presentAlbum(album, prefersMatchedArtworkSource: false) },
-                    onOpenArtist: { artist in onOpenArtist?(artist) }
+                    onShowSongInfo: { showSongInfo = true },
+                    onShowCastPicker: { showCastPicker = true }
                 )
             )
-        case .queue:
+        case .explore:
             return page(
-                QueueView(player: player, isEmbedded: true)
-                    .scrollContentBackground(.hidden)
+                NowPlayingCarouselExploreFace(
+                    context: context,
+                    appearance: appearance,
+                    state: state,
+                    onOpenAlbum: { album in presentAlbum(album, prefersMatchedArtworkSource: false) },
+                    onOpenArtist: { artist in onOpenArtist?(artist) },
+                    onShowAllSimilar: { showSimilarSongs = true }
+                )
+            )
+        case .upNext:
+            return page(
+                NowPlayingCarouselUpNextFace(
+                    context: context,
+                    appearance: appearance,
+                    onShowSleepTimer: { showSleepTimer = true },
+                    onShowABRepeatEditor: { showABRepeatEditor = true }
+                )
+            )
+        case .stage:
+            return AnyView(
+                NowPlayingCarouselStageFace(
+                    context: context,
+                    appearance: appearance,
+                    side: side,
+                    safeInsets: safeInsets,
+                    state: state,
+                    onExpand: expand,
+                    onReturnToPlayer: returnToPlayer,
+                    onPresentEffect: { effect in presentCarouselEffect(effect) }
+                )
             )
         }
+    }
+
+    // MARK: 转轮进全屏
+
+    /// 某一面进全屏去哪儿(标题栏的展开键、双指张开、转横屏共用,规则见 `NowPlayingCarouselFullscreenPolicy`)。
+    private func carouselFullscreenDestination(for page: NowPlayingCarouselPage) -> NowPlayingCarouselFullscreenDestination {
+        NowPlayingCarouselFullscreenPolicy.destination(
+            for: page,
+            karaokeAvailable: carouselCardSettings.visibleCards(on: .stage, in: carouselCardContext).contains(.karaoke),
+            hasAlbum: currentAlbum != nil,
+            hasArtist: currentArtist != nil && onOpenArtist != nil
+        )
+    }
+
+    /// 从某一面进全屏。调音、接下来临时指定的效果只给这一次全屏,不改所选效果;全屏收起后普通播放页重新装上,
+    /// 转轮还停在原来那一面。
+    private func presentCarouselFullscreen(from page: NowPlayingCarouselPage) {
+        switch carouselFullscreenDestination(for: page) {
+        case .playerDefault, .selectedEffect:
+            presentCarouselSelectedEffect(from: page)
+        case .effect(let id):
+            if let effect = FullscreenPlayerEffect(rawValue: id) {
+                presentCarouselEffect(effect)
+            } else {
+                presentCarouselSelectedEffect(from: page)
+            }
+        case .karaokeStage:
+            // 面里那一份先卸下(会话停掉),全屏那一份再挂上:同一时刻只能有一场卡拉 OK。
+            carouselState.isKaraokeHandedOff = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(120))
+                showKaraoke = true
+            }
+        case .albumPage:
+            guard let album = currentAlbum else { return }
+            presentAlbum(album, prefersMatchedArtworkSource: false)
+        case .artistPage:
+            guard let artist = currentArtist else { return }
+            onOpenArtist?(artist)
+        }
+    }
+
+    /// 用户选定的那一种。原生效果是全屏歌词:退出后收起歌词,转轮转回那一面。
+    private func presentCarouselSelectedEffect(from page: NowPlayingCarouselPage) {
+        if fullscreenPlayerEffect.isNative, page != .player {
+            carouselState.restoresFaceAfterImmersiveLyrics = true
+        }
+        presentImmersiveLyrics()
+    }
+
+    /// 临时以这一种效果进全屏(舞台那一排缩略卡、调音、接下来)。就是选定的那一种时照原来的入口走。
+    private func presentCarouselEffect(_ effect: FullscreenPlayerEffect) {
+        recordCarouselEffect(effect)
+        guard effect != fullscreenPlayerEffect, !effect.isNative else {
+            presentCarouselSelectedEffect(from: carouselState.settledPage)
+            return
+        }
+        carouselState.fullscreenEffectOverride = effect
+        withAnimation(.easeInOut(duration: 0.28)) {
+            isFullscreenPlayerPresented = true
+        }
+    }
+
+    /// 记进舞台那一排的「最近用过」。
+    private func recordCarouselEffect(_ effect: FullscreenPlayerEffect) {
+        guard !effect.isNative else { return }
+        let key = NowPlayingCarouselEffectShelf.recentStorageKey
+        let defaults = UserDefaults.standard
+        let recent = NowPlayingCarouselEffectShelf.decodeRecent(defaults.string(forKey: key) ?? "")
+        let updated = NowPlayingCarouselEffectShelf.recording(effect.rawValue, into: recent)
+        defaults.set(NowPlayingCarouselEffectShelf.encodeRecent(updated), forKey: key)
+    }
+
+    /// 全屏效果页用的那一种:有临时指定的效果时是它;在全屏里自己换了效果就照常写回所选效果(那是用户的选择)。
+    private var immersiveEffectBinding: Binding<FullscreenPlayerEffect> {
+        guard carouselState.fullscreenEffectOverride != nil else { return fullscreenPlayerEffectBinding }
+        let state = carouselState
+        return Binding(
+            get: { state.fullscreenEffectOverride ?? fullscreenPlayerEffect },
+            set: { newValue in
+                state.fullscreenEffectOverride = nil
+                if newValue == fullscreenPlayerEffect {
+                    // 所选效果没变,存储值不变就没有人接手:原生效果要换成全屏歌词。
+                    applyFullscreenEffectPresentation(newValue)
+                } else {
+                    fullscreenPlayerEffectBinding.wrappedValue = newValue
+                }
+            }
+        )
+    }
+
+    /// 打开了「转横屏自动进全屏」、停在转轮某一面上时,转横屏去那一面的全屏。停在播放器上返回 false,照原来的走。
+    private func presentCarouselLandscapeFullscreen() -> Bool {
+        guard usesPlayerCarousel else { return false }
+        let page = carouselState.currentOrSuspendedPage
+        guard page != .player,
+              let destination = NowPlayingCarouselFullscreenPolicy.landscapeDestination(
+                for: page,
+                entersFullscreenInLandscape: entersFullscreenInLandscape,
+                karaokeAvailable: carouselCardSettings.visibleCards(on: .stage, in: carouselCardContext).contains(.karaoke),
+                hasAlbum: currentAlbum != nil,
+                hasArtist: currentArtist != nil && onOpenArtist != nil
+              ) else { return false }
+        carouselState.landscapeDestination = destination
+        presentCarouselFullscreen(from: page)
+        // 转回竖屏由 `handleLandscapeFullscreenRotation` 收起歌词,这里不再另外收一次。
+        carouselState.restoresFaceAfterImmersiveLyrics = false
+        return true
+    }
+
+    /// 转回竖屏:收起转横屏时开的卡拉 OK 全屏。全屏效果与全屏歌词由原来那段收;转轮能转了就回到那一面。
+    private func dismissCarouselLandscapeFullscreen() {
+        guard let destination = carouselState.landscapeDestination else { return }
+        carouselState.landscapeDestination = nil
+        if destination == .karaokeStage { showKaraoke = false }
+    }
+
+    /// 从某一面进的原生全屏歌词退出了:收起歌词,转轮就能转回那一面。
+    private func restoreCarouselAfterImmersiveLyrics() {
+        guard carouselState.restoresFaceAfterImmersiveLyrics else { return }
+        carouselState.restoresFaceAfterImmersiveLyrics = false
+        if showLyrics { setStandardLyricsVisible(false) }
     }
     #endif
 
@@ -3743,6 +3902,7 @@ struct NowPlayingView: View {
                     }
                     .onChange(of: isLyricsImmersive) { _, isImmersive in
                         if !isImmersive, !isFullscreenPlayerPresented { enteredFullscreenForLandscape = false }
+                        if !isImmersive { restoreCarouselAfterImmersiveLyrics() }
                     }
 
                 // 右上角的横竖屏切换键与「跟随手机方向转屏」：播放页醒着时按住手动选的方向，收起时交还
@@ -3832,12 +3992,16 @@ struct NowPlayingView: View {
                                     toolColumnEdge: toolColumnEdge
                                 ),
                                 configuration: carouselConfiguration,
+                                cardSettings: carouselCardSettings,
+                                cardContext: carouselCardContext,
                                 state: carouselState,
                                 size: geo.size,
                                 safeInsets: safeInsets,
                                 appearance: appearance,
+                                isSurfaceExposed: isNowPlayingSurfaceExposed,
+                                isKaraokeCoverPresented: showKaraoke,
                                 playerSwipeRegion: carouselPlayerSwipeRegion(geo: geo, artSize: artSize),
-                                panel: { panel, phase in carouselPanel(panel, phase: phase, safeInsets: safeInsets) }
+                                panel: { panel, context in carouselPanel(panel, context: context, safeInsets: safeInsets) }
                             ) {
                                 ZStack {
                                     playerLayoutContent(
@@ -3919,7 +4083,8 @@ struct NowPlayingView: View {
                 #if os(iOS)
                 if isFullscreenPlayerPresented {
                     ImmersivePlayerView(
-                        effect: fullscreenPlayerEffectBinding,
+                        // 从转轮进来时可能是临时指定的效果(见 `immersiveEffectBinding`)。
+                        effect: immersiveEffectBinding,
                         lyrics: romanizedPresentedLyrics,
                         showsSimulatedWordTiming: usesSimulatedWordTiming,
                         lyricCompanions: {

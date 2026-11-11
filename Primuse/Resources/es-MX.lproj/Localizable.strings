@@ -7160,9 +7160,9 @@
 
 /* 播放页转轮 */
 "player_carousel_title" = "Carrusel del reproductor";
-"player_carousel_subtitle" = "Desliza el reproductor hacia los lados para ir al ecualizador, karaoke y más";
+"player_carousel_subtitle" = "Desliza el reproductor hacia los lados para ir a Sonido, Explorar, A continuación y Escenario";
 "player_carousel_enabled" = "Deslizar entre páginas del reproductor";
-"player_carousel_footer" = "Al activarlo, desliza a la izquierda o a la derecha sobre la portada en el reproductor de música para pasar a las páginas de cada lado. Disponible en el reproductor de música en vertical en iPhone y iPad.";
+"player_carousel_footer" = "Al activarlo, desliza a la izquierda o a la derecha sobre la portada en el reproductor de música para pasar a las caras de cada lado. El botón de ampliar arriba a la derecha de cada cara, o separar dos dedos, abre la pantalla completa propia de esa cara; si “Pantalla completa en horizontal” está activado, girar el dispositivo hace lo mismo. Disponible en el reproductor de música en vertical en iPhone y iPad.";
 "player_carousel_leading" = "Lado izquierdo (desliza a la derecha)";
 "player_carousel_trailing" = "Lado derecho (desliza a la izquierda)";
 "player_carousel_order_hint %lld" = "La página más cercana al reproductor aparece primero. Hasta %lld páginas por lado.";
@@ -7179,20 +7179,40 @@
 "player_carousel_preview_caption" = "Desliza hacia los lados en el reproductor para girar el carrusel";
 "player_carousel_player" = "Reproductor";
 "player_carousel_back" = "Volver al reproductor";
-"player_carousel_panel_equalizer" = "Ecualizador";
-"player_carousel_panel_audio_effects" = "Efectos de sonido";
-"player_carousel_panel_similar_songs" = "Canciones similares";
-"player_carousel_panel_album_artist" = "Álbum y artista";
-"player_carousel_panel_queue" = "A continuación";
-"player_carousel_panel_karaoke" = "Karaoke";
 "player_carousel_karaoke_hint" = "Detente en esta página para iniciar el karaoke";
 "player_carousel_similar_seed %@" = "Similares a “%@”";
 "player_carousel_nothing_playing" = "No se está reproduciendo nada";
 "player_carousel_no_album" = "No hay información del álbum de esta canción";
-"player_carousel_open_album" = "Álbum";
-"player_carousel_open_artist" = "Artista";
 "player_carousel_song_count %lld" = "%lld canciones";
-"player_carousel_more_by_artist %@" = "Más de %@";
+"player_carousel_face_sound" = "Sonido";
+"player_carousel_face_explore" = "Explorar";
+"player_carousel_face_up_next" = "A continuación";
+"player_carousel_face_stage" = "Escenario";
+"player_carousel_face_sound_summary" = "Ecualizador, efectos, velocidad y tono, salida y calidad";
+"player_carousel_face_explore_summary" = "Álbum, artista y canciones similares";
+"player_carousel_face_up_next_summary" = "Modos de reproducción y la cola";
+"player_carousel_face_stage_summary" = "Karaoke y efectos de pantalla completa";
+"player_carousel_card_speed_pitch" = "Velocidad y tono";
+"player_carousel_card_output_quality" = "Salida y calidad";
+"player_carousel_card_album" = "Álbum";
+"player_carousel_card_artist" = "Artista";
+"player_carousel_card_playback_modes" = "Reproducción";
+"player_carousel_card_fullscreen_effects" = "Efectos de pantalla completa";
+"player_carousel_cards_header %@" = "Tarjetas de “%@”";
+"player_carousel_cards_sound_footer" = "Las canciones de Apple Music no muestran el ecualizador, los efectos ni la velocidad y el tono; al transmitir a otro dispositivo se ocultan el ecualizador y los efectos.";
+"player_carousel_cards_stage_footer" = "Las canciones de Apple Music no tienen karaoke, así que esta cara solo conserva los efectos de pantalla completa. Una cara sin ninguna tarjeta se omite al girar.";
+"player_carousel_expand" = "Pantalla completa";
+"player_carousel_custom" = "Personalizado";
+"player_carousel_reset_short" = "Restablecer";
+"player_carousel_casting_to" = "Transmitiendo a";
+"player_carousel_show_less" = "Ver menos";
+"player_carousel_see_all" = "Ver todo";
+"player_carousel_all_tracks %lld" = "Las %lld canciones";
+"player_carousel_album_count %lld" = "%lld álbumes";
+"player_carousel_no_artist" = "Este artista no está en tu biblioteca";
+"player_carousel_ab_range %@ %@" = "%1$@–%2$@";
+"player_carousel_effect_current" = "Actual";
+"player_carousel_effect_hint" = "Abre la pantalla completa con este efecto sin cambiar el efecto elegido";
 
 "mini_player_show_lyrics" = "Miniletras";
 

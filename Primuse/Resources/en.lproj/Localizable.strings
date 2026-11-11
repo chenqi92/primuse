@@ -7015,9 +7015,9 @@
 
 /* 播放页转轮 */
 "player_carousel_title" = "Player Carousel";
-"player_carousel_subtitle" = "Swipe the player sideways to reach the equalizer, karaoke and more";
+"player_carousel_subtitle" = "Swipe the player sideways to reach Sound, Explore, Up Next and Stage";
 "player_carousel_enabled" = "Swipe Between Player Pages";
-"player_carousel_footer" = "When on, swipe left or right over the artwork in the music player to turn to the pages on either side. Available in the portrait music player on iPhone and iPad.";
+"player_carousel_footer" = "When on, swipe left or right over the artwork in the music player to turn to the faces on either side. The expand button at the top right of each face, or a pinch outward, opens that face’s own full screen; with Full screen in landscape on, turning the phone sideways does the same. Available in the portrait music player on iPhone and iPad.";
 "player_carousel_leading" = "Left Side (Swipe Right)";
 "player_carousel_trailing" = "Right Side (Swipe Left)";
 "player_carousel_order_hint %lld" = "The page nearest the player is listed first. Up to %lld pages on each side.";
@@ -7034,20 +7034,40 @@
 "player_carousel_preview_caption" = "Swipe sideways in the player to turn the carousel";
 "player_carousel_player" = "Player";
 "player_carousel_back" = "Back to Player";
-"player_carousel_panel_equalizer" = "Equalizer";
-"player_carousel_panel_audio_effects" = "Sound Effects";
-"player_carousel_panel_similar_songs" = "Similar Songs";
-"player_carousel_panel_album_artist" = "Album & Artist";
-"player_carousel_panel_queue" = "Up Next";
-"player_carousel_panel_karaoke" = "Karaoke";
 "player_carousel_karaoke_hint" = "Stop on this page to start karaoke";
 "player_carousel_similar_seed %@" = "Similar to “%@”";
 "player_carousel_nothing_playing" = "Nothing is playing";
 "player_carousel_no_album" = "No album information for this song";
-"player_carousel_open_album" = "Album";
-"player_carousel_open_artist" = "Artist";
 "player_carousel_song_count %lld" = "%lld songs";
-"player_carousel_more_by_artist %@" = "More by %@";
+"player_carousel_face_sound" = "Sound";
+"player_carousel_face_explore" = "Explore";
+"player_carousel_face_up_next" = "Up Next";
+"player_carousel_face_stage" = "Stage";
+"player_carousel_face_sound_summary" = "Equalizer, effects, speed and pitch, output and quality";
+"player_carousel_face_explore_summary" = "Album, artist and similar songs";
+"player_carousel_face_up_next_summary" = "Playback modes and the queue";
+"player_carousel_face_stage_summary" = "Karaoke and full-screen effects";
+"player_carousel_card_speed_pitch" = "Speed & Pitch";
+"player_carousel_card_output_quality" = "Output & Quality";
+"player_carousel_card_album" = "Album";
+"player_carousel_card_artist" = "Artist";
+"player_carousel_card_playback_modes" = "Playback";
+"player_carousel_card_fullscreen_effects" = "Full-Screen Effects";
+"player_carousel_cards_header %@" = "Cards in %@";
+"player_carousel_cards_sound_footer" = "Apple Music songs don’t show the equalizer, effects or speed and pitch; while casting to another device the equalizer and effects are hidden.";
+"player_carousel_cards_stage_footer" = "Apple Music songs have no karaoke, so this face keeps only the full-screen effects. A face with no cards at all is skipped while turning.";
+"player_carousel_expand" = "Full Screen";
+"player_carousel_custom" = "Custom";
+"player_carousel_reset_short" = "Reset";
+"player_carousel_casting_to" = "Casting to";
+"player_carousel_show_less" = "Show Less";
+"player_carousel_see_all" = "See All";
+"player_carousel_all_tracks %lld" = "All %lld Songs";
+"player_carousel_album_count %lld" = "%lld albums";
+"player_carousel_no_artist" = "This artist isn’t in your library";
+"player_carousel_ab_range %@ %@" = "%1$@–%2$@";
+"player_carousel_effect_current" = "Current";
+"player_carousel_effect_hint" = "Opens full screen with this effect without changing your chosen effect";
 
 "mini_player_show_lyrics" = "Mini Lyrics";
 

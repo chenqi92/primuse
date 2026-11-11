@@ -11,19 +11,22 @@ struct KaraokeStageView: View {
     /// 嵌在播放页转轮里那一页时由转轮给:关闭是转回播放器,不是收起整个呈现。
     /// 为 nil 时照旧是全屏 / 弹窗里的那一份,关闭走 `dismiss`。
     var onClose: (() -> Void)? = nil
+    /// 嵌在转轮里时顶栏多一颗「进全屏」;为 nil 时不出现。
+    var onExpand: (() -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
     @State private var session: KaraokeSession?
 
-    init(onClose: (() -> Void)? = nil) {
+    init(onClose: (() -> Void)? = nil, onExpand: (() -> Void)? = nil) {
         self.onClose = onClose
+        self.onExpand = onExpand
     }
 
     var body: some View {
         let stage = Group {
             if let session {
-                KaraokeStageContent(session: session, onClose: { (onClose ?? { dismiss() })() })
+                KaraokeStageContent(session: session, onClose: { (onClose ?? { dismiss() })() }, onExpand: onExpand)
             } else {
                 KaraokeStageBackdrop(isPlaying: false)
             }
@@ -56,6 +59,7 @@ struct KaraokeStageView: View {
 private struct KaraokeStageContent: View {
     @Bindable var session: KaraokeSession
     let onClose: () -> Void
+    var onExpand: (() -> Void)? = nil
 
     @Environment(\.pmHeightClass) private var heightClass
     /// 「…」里点的「导出伴奏 / 人声」(#362)。
@@ -70,7 +74,7 @@ private struct KaraokeStageContent: View {
             : AnyLayout(VStackLayout(spacing: 0))
 
         VStack(spacing: 0) {
-            KaraokeStageHeader(session: session, onClose: onClose) { part, format in
+            KaraokeStageHeader(session: session, onClose: onClose, onExpand: onExpand) { part, format in
                 guard let song = player.currentSong else { return }
                 stemExportRequest = KaraokeStemExportRequest(song: song, part: part, format: format)
             }
@@ -156,6 +160,7 @@ private struct KaraokeStageContent: View {
 private struct KaraokeStageHeader: View {
     let session: KaraokeSession
     let onClose: () -> Void
+    let onExpand: (() -> Void)?
     let onExportStem: (KaraokeStemExportPolicy.Part, KaraokeStemExportPolicy.Format) -> Void
 
     private var player: AudioPlayerService { session.player }
@@ -199,6 +204,13 @@ private struct KaraokeStageHeader: View {
             if let score = session.runningScore {
                 KaraokeScoreBadge(score: score)
                     .transition(.scale.combined(with: .opacity))
+            }
+            if let onExpand {
+                Button(action: onExpand) {
+                    ImmersiveGlassActionLabel(symbol: "arrow.up.left.and.arrow.down.right", diameter: 40)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("player_carousel_expand"))
             }
             KaraokeStageMenu(session: session, onExportStem: onExportStem)
         }
@@ -535,6 +547,8 @@ private struct KaraokeStatusStrip: View {
 /// 把高度让给歌词。
 private struct KaraokeMixerCard: View {
     @Bindable var session: KaraokeSession
+    /// 嵌在播放页转轮里时,拖人声滑杆期间转轮不翻页;全屏舞台里是空操作。
+    @Environment(\.nowPlayingCarouselControlEditing) private var reportsControlEditing
 
     var body: some View {
         VStack(spacing: 0) {
@@ -735,8 +749,9 @@ private struct KaraokeMixerCard: View {
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.55))
                 .accessibilityHidden(true)
-            Slider(value: $session.vocalLevel, in: 0...1)
+            Slider(value: $session.vocalLevel, in: 0...1, onEditingChanged: reportsControlEditing)
                 .tint(.white)
+                .nowPlayingCarouselHorizontalRegion()
                 .accessibilityLabel(Text("karaoke_vocals"))
                 .accessibilityValue(Text(session.vocalLevel, format: .percent.precision(.fractionLength(0))))
             Image(systemName: "person.wave.2.fill")
@@ -795,6 +810,8 @@ private struct KaraokeMixerCard: View {
 /// 都放在两端时间中间，来去不改高度。
 private struct KaraokeProgressRow: View {
     let session: KaraokeSession
+    /// 嵌在播放页转轮里时,拖进度条期间转轮不翻页;全屏舞台里是空操作。
+    @Environment(\.nowPlayingCarouselControlEditing) private var reportsControlEditing
 
     private var player: AudioPlayerService { session.player }
 
@@ -805,8 +822,10 @@ private struct KaraokeProgressRow: View {
                 total: player.duration,
                 interactionID: player.currentSong?.id,
                 fillTint: .white,
+                onPreview: { reportsControlEditing($0 != nil) },
                 onSeek: { player.seek(to: $0) }
             )
+            .nowPlayingCarouselHorizontalRegion()
             HStack(spacing: 8) {
                 Text(player.currentTime.formattedDuration)
                 Spacer(minLength: 0)
