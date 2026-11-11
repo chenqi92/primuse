@@ -784,18 +784,29 @@ struct SpokenWordShelfContent: View {
                             .accessibilityAddTraits(.isHeader)
                             .accessibilityIdentifier("spokenWord.shelf.heading")
                         Spacer(minLength: 12)
-                        #if os(macOS)
-                        macLayoutToggle
-                        #else
-                        HStack(spacing: 0) {
-                            if shelf.count + finished.count + archived.count > 1 {
-                                arrangeButton
+                        if isStartupPreview {
+                            // 画的是启动快照:排序、版式这时点了也不算数,这个位置换成「正在准备资料库」,
+                            // 就绪后原地换回按钮,书架不挪。放在页尾的话书少时被迷你条盖住、书多时要滚到底才看得到。
+                            SpokenWordShelfPreparingStatus()
+                                #if os(macOS)
+                                .frame(height: 32)
+                                #else
+                                .frame(minHeight: 44)
+                                #endif
+                        } else {
+                            #if os(macOS)
+                            macLayoutToggle
+                            #else
+                            HStack(spacing: 0) {
+                                if shelf.count + finished.count + archived.count > 1 {
+                                    arrangeButton
+                                }
+                                layoutButton(.bookshelf, icon: SpokenWordShelfLayout.bookshelf.symbol, title: "spoken_word_shelf_section")
+                                layoutButton(.covers, icon: SpokenWordShelfLayout.covers.symbol, title: "spoken_word_shelf_covers_only")
+                                layoutButton(.list, icon: SpokenWordShelfLayout.list.symbol, title: "songs_view_list")
                             }
-                            layoutButton(.bookshelf, icon: SpokenWordShelfLayout.bookshelf.symbol, title: "spoken_word_shelf_section")
-                            layoutButton(.covers, icon: SpokenWordShelfLayout.covers.symbol, title: "spoken_word_shelf_covers_only")
-                            layoutButton(.list, icon: SpokenWordShelfLayout.list.symbol, title: "songs_view_list")
+                            #endif
                         }
-                        #endif
                     }
                     if !shelf.isEmpty { bookCollection(shelf) }
                 }

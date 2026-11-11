@@ -15576,6 +15576,14 @@ final class MusicLibrary {
         let writerID = startupPlaylistWriterID()
         let directory = storageDirectory ?? defaultStorageDirectory()
         return await Task.detached(priority: .userInitiated) {
+            #if DEBUG
+            // 取证:`PRIMUSE_DEBUG_DELAY_LIBRARY_READY=<秒>` 让冷启动的曲库晚这么久才装好(最多一分钟),
+            // 看有声书书架的启动快照、首页与资料库在曲库还没就绪时的样子。
+            if let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_DELAY_LIBRARY_READY"],
+               let seconds = Double(raw), seconds > 0 {
+                try? await Task.sleep(for: .seconds(min(seconds, 60)))
+            }
+            #endif
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let songStore: IncrementalSongStore?
             do {

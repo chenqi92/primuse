@@ -40,16 +40,10 @@ struct SpokenWordShelfStartupHost<Content: View>: View {
         // A zero-height initial shelf can be skipped by its parent's lazy stack.
         ZStack(alignment: .top) {
             if let shown = settled ? Optional(books.snapshot) : preview {
-                VStack(alignment: .leading, spacing: 0) {
-                    content(shown)
-                        .environment(\.spokenWordShelfStartupPreview, !settled)
-                    if !settled {
-                        SpokenWordShelfPreparingFooter()
-                            .padding(.top, 28)
-                            .pmFadeTransition(motion: .contentAppear)
-                    }
-                }
-                .pmFadeTransition(motion: .contentAppear)
+                // 「正在准备资料库」画在书架标题那一行(`SpokenWordShelfContent`),不在页尾。
+                content(shown)
+                    .environment(\.spokenWordShelfStartupPreview, !settled)
+                    .pmFadeTransition(motion: .contentAppear)
             } else {
                 SpokenWordShelfSkeleton()
                     .pmFadeTransition(motion: .contentAppear)
@@ -99,13 +93,21 @@ struct SpokenWordShelfStartupHost<Content: View>: View {
     }
 }
 
-/// 启动快照下面那行「正在准备资料库」。
-private struct SpokenWordShelfPreparingFooter: View {
+/// 书架还在读时标题那一行右边的「正在准备资料库」:一个小转圈加一行字。
+struct SpokenWordShelfPreparingStatus: View {
     var body: some View {
-        ProgressView("library_preparing")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
+        HStack(spacing: 6) {
+            ProgressView()
+                .controlSize(.small)
+            Text("library_preparing")
+                .font(.footnote)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .accessibilityElement(children: .combine)
+        .pmFadeTransition(motion: .contentAppear)
     }
 }
 
@@ -133,9 +135,18 @@ private struct SpokenWordShelfSkeleton: View {
         ZStack(alignment: .top) {
             Color.clear.frame(maxWidth: .infinity, minHeight: 120)
             if isVisible {
-                VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
                         bar(width: 72, height: 18)
+                            .opacity(isDimmed ? 0.55 : 1)
+                        Spacer(minLength: 12)
+                        // 和真书架标题那一行同一个位置,换成真书架时不挪。
+                        if !library.isReady {
+                            SpokenWordShelfPreparingStatus()
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    Group {
                         if layout.isGrid {
                             grid
                         } else {
@@ -145,9 +156,6 @@ private struct SpokenWordShelfSkeleton: View {
                     .opacity(isDimmed ? 0.55 : 1)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text("library_preparing"))
-                    if !library.isReady {
-                        SpokenWordShelfPreparingFooter()
-                    }
                 }
                 .pmFadeTransition(motion: .contentAppear)
             }
