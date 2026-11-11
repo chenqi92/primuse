@@ -1018,7 +1018,7 @@
 "artist_name_settings_merge_collaborative_albums" = "Mesclar álbuns colaborativos com o mesmo título";
 
 "genre_split_title" = "Divisão de gêneros";
-"genre_split_footer" = "Por padrão, os gêneros são divididos apenas nos pontos e vírgulas. Quando ativado, uma etiqueta como “Hip-Hop/Rap” conta para os dois gêneros, e “R&B/Soul” também é dividido. Afeta apenas a navegação; as etiquetas dos seus arquivos não são alteradas.";
+"genre_split_footer" = "Por padrão, os gêneros são divididos nos pontos e vírgulas. Nas etiquetas ID3, como as de MP3, as barras também são tratadas como separadores, como de costume, mas nomes que já têm uma barra, como “R&B/Soul” e “Hip-Hop/Rap”, ficam inteiros. Ative a divisão por barras para dividir em todas. Afeta apenas a navegação; as etiquetas dos seus arquivos não são alteradas.";
 "genre_split_slash" = "Dividir gêneros nas barras";
 "genre_split_comma" = "Dividir gêneros nas vírgulas";
 "genre_split_bar" = "Dividir gêneros nas barras verticais e invertidas";

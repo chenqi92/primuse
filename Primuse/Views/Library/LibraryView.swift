@@ -2074,8 +2074,10 @@ private enum GenreVisualStyle {
 struct GenreLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @State private var searchText = ""
+    @AppStorage(GenreSplitPreference.storageKey) private var genreSeparatorsRaw = 0
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     #endif
     #if os(macOS)
     @State private var selectedGenreID: String?
@@ -2089,6 +2091,18 @@ struct GenreLibraryView: View {
     }
 
     @Environment(\.libraryStackRegistersCollectionDetails) private var stackRegistersDetails
+
+    /// 流派名里还有不少没拆开的斜杠、逗号、竖线时，菜单里「流派拆分」那一项下面写一句有几个。
+    /// 不弹提示，也不在别处显示。
+    private var genreSplitHint: String? {
+        let names = library.visibleGenres.map(\.name)
+        let count = GenreSeparatorHint.unsplitNameCount(
+            in: names,
+            enabled: GenreSeparatorOptions(rawValue: genreSeparatorsRaw)
+        )
+        guard GenreSeparatorHint.shouldHint(unsplitCount: count, totalCount: names.count) else { return nil }
+        return String(format: String(localized: "genre_split_menu_hint"), count)
+    }
 
     var body: some View {
         #if os(macOS)
@@ -2148,6 +2162,11 @@ struct GenreLibraryView: View {
             }
             .pmExtendsUnderVerticalBar()
             .libraryPageFind(text: $searchText, prompt: "genre_search_placeholder")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    GenreSplitMenu(hint: genreSplitHint, titled: verticalBarEdge != nil)
+                }
+            }
             // 极简模式根页没有导航栏：风格数与查找排成页头。
             .minimalPageHeader {
                 HStack(spacing: 4) {
@@ -2157,6 +2176,7 @@ struct GenreLibraryView: View {
                     Spacer(minLength: 8)
                     MinimalHeaderActions {
                         MinimalPageFindButton()
+                        GenreSplitMenu(hint: genreSplitHint)
                     }
                 }
             }
@@ -2191,9 +2211,17 @@ struct GenreLibraryView: View {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("tab_genres")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(PMColor.text)
+                        HStack(spacing: 8) {
+                            Text("tab_genres")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(PMColor.text)
+                            Spacer(minLength: 0)
+                            GenreSplitMenu(hint: genreSplitHint)
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                                .foregroundStyle(PMColor.textFaint)
+                        }
 
                         HStack(spacing: 6) {
                             Image(systemName: "magnifyingglass")
@@ -2284,6 +2312,31 @@ struct GenreLibraryView: View {
         .buttonStyle(.plain)
     }
     #endif
+}
+
+/// 流派页的菜单：直达设置里的「流派拆分」，流派名里还有不少没拆开的符号时下面带一句说明。
+/// 工具栏条目跑在自己的视图图里，只收值，不读环境。
+private struct GenreSplitMenu: View {
+    let hint: String?
+    var titled = false
+
+    var body: some View {
+        Menu {
+            Button {
+                SettingsNavigation.shared.open("artists.genreSeparators")
+            } label: {
+                Label("genre_split_menu_item", systemImage: "scissors")
+                if let hint {
+                    Text(verbatim: hint)
+                }
+            }
+            .accessibilityIdentifier("genres.splitSettings")
+        } label: {
+            PMToolbarItemLabel("genre_split_title", systemImage: "ellipsis.circle", titled: titled)
+        }
+        .accessibilityLabel(Text("genre_split_title"))
+        .accessibilityIdentifier("genres.menu")
+    }
 }
 
 private struct LibraryGenreCard: View {

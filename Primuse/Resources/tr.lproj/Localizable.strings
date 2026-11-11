@@ -7301,8 +7301,10 @@
 "lyrics_comment_save_failed" = "Yorumlarınıza erişilemedi. Lütfen tekrar deneyin.";
 
 "genre_split_title" = "Türleri Bölme";
-"genre_split_footer" = "Türler varsayılan olarak yalnızca noktalı virgülden bölünür. Açıldığında “Hip-Hop/Rap” gibi bir etiket iki türe de sayılır, “R&B/Soul” da bölünür. Yalnızca göz atmayı etkiler; dosyalarınızdaki etiketler değişmez.";
+"genre_split_footer" = "Türler varsayılan olarak noktalı virgülden bölünür. MP3 gibi ID3 etiketlerinde eğik çizgi de geleneksel olarak ayraç sayılır; ancak “R&B/Soul” ve “Hip-Hop/Rap” gibi adında eğik çizgi bulunan türler bütün kalır. Her eğik çizgiden bölmek için eğik çizgiyle bölmeyi açın. Yalnızca göz atmayı etkiler; dosyalarınızdaki etiketler değişmez.";
 "genre_split_slash" = "Türleri Eğik Çizgiden Böl";
 "genre_split_comma" = "Türleri Virgülden Böl";
 "genre_split_bar" = "Türleri Dikey Çizgi ve Ters Eğik Çizgiden Böl";
+"genre_split_menu_item" = "Tür bölme ayarları";
+"genre_split_menu_hint" = "Eğik çizgi, virgül veya dikey çizgi içeren tür adı: %lld";
 "genre_split_tv_detail" = "Yalnızca göz atmayı etkiler; dosya etiketleri değişmez";

@@ -7301,8 +7301,10 @@
 "lyrics_comment_save_failed" = "No se pudo acceder a tus comentarios. Inténtalo de nuevo.";
 
 "genre_split_title" = "División de géneros";
-"genre_split_footer" = "De forma predeterminada, los géneros solo se dividen en los puntos y coma. Al activarlo, una etiqueta como “Hip-Hop/Rap” cuenta para ambos géneros, y “R&B/Soul” también se divide. Solo afecta la exploración; las etiquetas de tus archivos no cambian.";
+"genre_split_footer" = "De forma predeterminada, los géneros se dividen en los puntos y coma. En las etiquetas ID3, como las de MP3, las barras también se tratan como separadores, como es costumbre, pero los nombres que ya llevan una barra, como “R&B/Soul” o “Hip-Hop/Rap”, se mantienen completos. Activa la división por barras para dividir en todas. Solo afecta la exploración; las etiquetas de tus archivos no cambian.";
 "genre_split_slash" = "Dividir géneros en las barras";
 "genre_split_comma" = "Dividir géneros en las comas";
 "genre_split_bar" = "Dividir géneros en las barras verticales e invertidas";
+"genre_split_menu_item" = "Ajustes de división de géneros";
+"genre_split_menu_hint" = "%lld nombres de género aún tienen barras, comas o barras verticales";
 "genre_split_tv_detail" = "Solo afecta la exploración; las etiquetas de los archivos no cambian";

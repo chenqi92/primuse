@@ -642,6 +642,8 @@ enum FileMetadataReader {
 
             // Try format-specific metadata for more detail
             var synchronizedLyrics: ID3SynchronizedLyricsParser.Frame?
+            // MP4 `gnre` 只是 ID3v1 编号，`©gen` 写了文字时以文字为准。
+            var predefinedGenre: String?
             for item in items {
                 guard let identifier = item.identifier else { continue }
                 let value = try? await item.load(.value)
@@ -745,7 +747,18 @@ enum FileMetadataReader {
                      .quickTimeUserDataCreationDate:
                     metadata.year = metadata.year ?? parsedYear(decodedText(value))
                 case .id3MetadataContentType:
-                    metadata.genre = decodedText(value)
+                    // TCON 原样交出来：ID3v2.3 的 `(17)` 编号、ID3v2.4 的 NUL 多值都要换成流派名。
+                    metadata.genre = ID3GenreNames.normalizedTCON(decodedText(value))
+                case .iTunesMetadataPredefinedGenre:
+                    let code: Int?
+                    if let number = value as? NSNumber {
+                        code = number.intValue
+                    } else if let bytes = value as? Data, (1...2).contains(bytes.count) {
+                        code = bytes.reduce(0) { ($0 << 8) | Int($1) }
+                    } else {
+                        code = decodedText(value).flatMap { Int($0) }
+                    }
+                    predefinedGenre = predefinedGenre ?? code.flatMap(ID3GenreNames.name(forMP4GenreCode:))
                 case .iTunesMetadataUserGenre,
                      .quickTimeMetadataGenre,
                      .quickTimeUserDataGenre:
@@ -820,6 +833,7 @@ enum FileMetadataReader {
                     break
                 }
             }
+            metadata.genre = metadata.genre ?? predefinedGenre
             metadata.title = MetadataTitleResolutionPolicy.preferredEmbeddedTitle(
                 from: titleCandidates
             )
@@ -1251,7 +1265,10 @@ enum FileMetadataReader {
         metadata.trackNumber = metadata.trackNumber ?? text?.trackNumber
         metadata.discNumber = metadata.discNumber ?? text?.discNumber
         metadata.year = metadata.year ?? text?.year
-        metadata.genre = metadata.genre ?? text?.genre
+        // AVFoundation 读 TCON 只交出一个值时，原生解析拿到的几个流派为准（同 FLAC 的处理）。
+        metadata.genre = GenreTagValues.names(in: text?.genre).count > GenreTagValues.names(in: metadata.genre).count
+            ? text?.genre
+            : (metadata.genre ?? text?.genre)
         if let type = text?.releaseType {
             var content = metadata.contentMetadata ?? SongContentMetadata()
             content.releaseType = content.releaseType ?? type

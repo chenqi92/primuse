@@ -7395,8 +7395,10 @@
 "lyrics_comment_save_failed" = "Zugriff auf Kommentare fehlgeschlagen. Bitte erneut versuchen.";
 
 "genre_split_title" = "Genres aufteilen";
-"genre_split_footer" = "Genres werden standardmäßig nur an Semikolons getrennt. Wenn aktiviert, zählt ein Tag wie „Hip-Hop/Rap“ zu beiden Genres, und auch „R&B/Soul“ wird getrennt. Das betrifft nur das Durchsuchen; die Tags in deinen Dateien bleiben unverändert.";
+"genre_split_footer" = "Genres werden standardmäßig an Semikolons getrennt. In MP3- und anderen ID3-Tags gelten Schrägstriche üblicherweise ebenfalls als Trenner; Namen, die selbst einen Schrägstrich enthalten, wie „R&B/Soul“ oder „Hip-Hop/Rap“, bleiben erhalten. Mit dem Trennen an Schrägstrichen wird an jedem Schrägstrich getrennt. Das betrifft nur das Durchsuchen; die Tags in deinen Dateien bleiben unverändert.";
 "genre_split_slash" = "Genres an Schrägstrichen trennen";
 "genre_split_comma" = "Genres an Kommas trennen";
 "genre_split_bar" = "Genres an senkrechten Strichen und Backslashes trennen";
+"genre_split_menu_item" = "Genre-Aufteilung einstellen";
+"genre_split_menu_hint" = "%lld Genrenamen enthalten noch Schrägstriche, Kommas oder senkrechte Striche";
 "genre_split_tv_detail" = "Betrifft nur das Durchsuchen; Datei-Tags bleiben unverändert";

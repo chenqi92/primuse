@@ -377,7 +377,8 @@ public enum ID3TextMetadataParser {
         case "TYER", "TDRC", "TYE":
             result.year = result.year ?? year(value)
         case "TCON", "TCO":
-            result.genre = result.genre ?? value
+            // ID3v2.4 的多个流派用 NUL 隔开，以前只留了第一个；ID3v2.3 的 `(17)` 编号换成流派名。
+            result.genre = result.genre ?? ID3GenreNames.normalizedTCON(values.joined(separator: "\0"))
         default:
             break
         }

@@ -306,6 +306,11 @@ HAN_LITERAL_ALLOWLIST = {
     /\A\s*\("[^"]+年代", \d{4}\)/,
     /suffix\.hasPrefix\("年代"\)/
   ],
+  # Genre names that contain a slash themselves ("嘻哈/说唱"), matched against tag
+  # values so the ID3 slash convention keeps them whole; matching vocabulary, never shown.
+  "PrimuseKit/Sources/PrimuseKit/LibraryGenreIndex.swift" => [
+    /\A\s*(?:"[^"]+", )*"[^"]+",\s*\z/
+  ],
   # Disc-folder names ("碟1", "光盘 2") matched when locating an album folder; never shown.
   "PrimuseKit/Sources/PrimuseKit/LibraryInsightFiles.swift" => [
     /\(cd\|disc\|disk\|dvd\|碟\|光盘\|ディスク\)/

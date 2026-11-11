@@ -7395,8 +7395,10 @@
 "lyrics_comment_save_failed" = "Impossible d’accéder aux commentaires. Veuillez réessayer.";
 
 "genre_split_title" = "Séparation des genres";
-"genre_split_footer" = "Par défaut, les genres ne sont séparés qu’aux points-virgules. Une fois activé, une étiquette comme « Hip-Hop/Rap » compte pour les deux genres, et « R&B/Soul » est également séparé. Cela ne concerne que la navigation ; les étiquettes de vos fichiers ne sont pas modifiées.";
+"genre_split_footer" = "Par défaut, les genres sont séparés aux points-virgules. Dans les étiquettes ID3, comme celles des MP3, les barres obliques servent aussi de séparateur selon l’usage, mais les noms qui en contiennent une, comme « R&B/Soul » ou « Hip-Hop/Rap », restent entiers. Activez la séparation aux barres obliques pour séparer à chacune. Cela ne concerne que la navigation ; les étiquettes de vos fichiers ne sont pas modifiées.";
 "genre_split_slash" = "Séparer les genres aux barres obliques";
 "genre_split_comma" = "Séparer les genres aux virgules";
 "genre_split_bar" = "Séparer les genres aux barres verticales et obliques inverses";
+"genre_split_menu_item" = "Régler la séparation des genres";
+"genre_split_menu_hint" = "%lld noms de genre contiennent encore des barres obliques, des virgules ou des barres verticales";
 "genre_split_tv_detail" = "Ne concerne que la navigation ; les étiquettes des fichiers ne changent pas";

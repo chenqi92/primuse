@@ -33,11 +33,19 @@ public struct ListeningRecapSongTraits: Sendable, Equatable {
     public var year: Int?
     /// 歌曲长度，认「同一首歌」时防误并（见 `ListeningSongIdentity`）。
     public var duration: TimeInterval?
+    /// 文件格式：流派按哪种惯例拆（见 `GenreSlashConvention`）。
+    public var format: AudioFormat?
 
-    public init(genre: String? = nil, year: Int? = nil, duration: TimeInterval? = nil) {
+    public init(
+        genre: String? = nil,
+        year: Int? = nil,
+        duration: TimeInterval? = nil,
+        format: AudioFormat? = nil
+    ) {
         self.genre = genre
         self.year = year
         self.duration = duration
+        self.format = format
     }
 }
 
@@ -296,7 +304,7 @@ public enum ListeningRecapBuilder {
         var years: [Int] = []
         for event in scoped {
             let songTraits = traits[event.songID]
-            for genre in GenreTagValues.browseNames(in: songTraits?.genre) {
+            for genre in GenreTagValues.browseNames(in: songTraits?.genre, format: songTraits?.format) {
                 let key = genre.lowercased()
                 genreNames[key] = genreNames[key] ?? genre
                 genrePlays[key, default: 0] += 1

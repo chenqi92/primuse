@@ -229,7 +229,7 @@ enum SmartPlaylistEngine {
         case .albumTitle:
             return compareString(song.albumTitle ?? "", rule)
         case .genre:
-            return compareStrings(GenreTagValues.browseNames(in: song.genre), rule)
+            return compareStrings(GenreTagValues.browseNames(for: song), rule)
         case .fileFormat:
             // M4A 里的 ALAC 既算 M4A，也算 ALAC。
             let codec = song.codecFormat

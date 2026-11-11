@@ -723,6 +723,7 @@
 		4D3A6BFB31C8699E95C3469D /* TVCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */; };
 		4D42EE479CE9E73467A23862 /* LiquidBackdropPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3BAD1AFCC87A7AD28F689B /* LiquidBackdropPolicy.swift */; };
 		4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */; };
+		3B4A3DCCD730DE08AE8F4DB1 /* ID3GenreNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE1A24DABC5ECE225E96DFA /* ID3GenreNames.swift */; };
 		4D970484FA45E36B191F0C9D /* ConfigurableScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */; };
 		4D9FDCB6AB92B02FFCFD83D4 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
 		4DAD8EC05A5F9510CE5999B3 /* SiriMediaInteractionDonor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */; };
@@ -4014,6 +4015,7 @@
 		DB466FBD197260ADD6DD0F9E /* LyricPosterWizard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterWizard.swift; sourceTree = "<group>"; };
 		DBB6099288DBCBB2E75611D2 /* PrimuseControlWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseControlWidgets.swift; sourceTree = "<group>"; };
 		DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ID3TextMetadataParser.swift; sourceTree = "<group>"; };
+		2CE1A24DABC5ECE225E96DFA /* ID3GenreNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ID3GenreNames.swift; sourceTree = "<group>"; };
 		DC58680E103085AFD9B2E909 /* PrimuseRadioAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseRadioAppIntents.swift; sourceTree = "<group>"; };
 		DCD85D44E43DCF18FC77EAB6 /* CloudScanConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudScanConcurrencyTests.swift; sourceTree = "<group>"; };
 		DCDD016919EF1C08589F0337 /* ImmersiveKineticMarbleRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveKineticMarbleRun.swift; sourceTree = "<group>"; };
@@ -5738,6 +5740,7 @@
 				27F922996E55613A514AD0D4 /* ID3LyricsFramePreservation.swift */,
 				25F35F3F45A8184ACB596613 /* ID3SynchronizedLyricsParser.swift */,
 				DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */,
+				2CE1A24DABC5ECE225E96DFA /* ID3GenreNames.swift */,
 				5706FAFB0F5B4FE7A9930C1E /* ISOAlbumMetadataPolicy.swift */,
 				4B5DA117AA215F5BE77B0D51 /* ISOAudioReader.swift */,
 				0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */,
@@ -7434,6 +7437,7 @@
 				35B6342BED0D222E166D96FD /* ID3LyricsFramePreservation.swift in Sources */,
 				7CC510CFB7AE45C4AF720D0E /* ID3SynchronizedLyricsParser.swift in Sources */,
 				4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */,
+				3B4A3DCCD730DE08AE8F4DB1 /* ID3GenreNames.swift in Sources */,
 				BD378CE4B0B34A35A5C97CA1 /* ISOAlbumMetadataPolicy.swift in Sources */,
 				F757718174218BC1E42B5898 /* ISOAudioReader.swift in Sources */,
 				3F874CF4B1939FAE36328711 /* ISOBaseMediaChapterParser.swift in Sources */,

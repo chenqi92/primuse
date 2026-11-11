@@ -1068,7 +1068,7 @@
 "artist_name_settings_merge_collaborative_albums" = "合并同名合作专辑";
 
 "genre_split_title" = "流派拆分";
-"genre_split_footer" = "流派默认只按分号拆开。打开后，“Hip-Hop/Rap”这样的写法会分别算进两个流派，“R&B/Soul”也会被拆开。只影响浏览，不会改动文件里的标签。";
+"genre_split_footer" = "流派默认按分号拆开。MP3 这类 ID3 标签里的斜杠按惯例也当作分隔，“R&B/Soul”“Hip-Hop/Rap”这类本身带斜杠的流派名保持完整。打开按斜杠拆分后，所有斜杠都会拆开。只影响浏览，不会改动文件里的标签。";
 "genre_split_slash" = "按斜杠拆分流派";
 "genre_split_comma" = "按逗号和顿号拆分流派";
 "genre_split_bar" = "按竖线和反斜杠拆分流派";

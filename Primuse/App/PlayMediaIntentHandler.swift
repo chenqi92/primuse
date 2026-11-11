@@ -1156,8 +1156,11 @@ final class PlayMediaIntentHandler: NSObject,
         var seen = Set<String>()
         var items: [SiriNamedMediaItem] = []
         for song in AppServices.shared.musicLibrary.visibleSongs {
-            guard let raw = song.genre, seenRaw.insert(raw).inserted else { continue }
-            for genre in GenreTagValues.browseNames(in: raw) where seen.insert(genre.lowercased()).inserted {
+            // ID3 格式的歌另按斜杠惯例拆：同一串流派写法按两种拆法各看一次。
+            guard let raw = song.genre,
+                  seenRaw.insert(GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + raw : raw).inserted
+            else { continue }
+            for genre in GenreTagValues.browseNames(for: song) where seen.insert(genre.lowercased()).inserted {
                 items.append(SiriNamedMediaItem(id: genre, name: genre))
             }
         }

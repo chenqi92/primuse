@@ -16,7 +16,9 @@ enum YearlyReportAnalyzer {
         var traits: [String: ListeningRecapSongTraits] = [:]
         for songID in Set(entries.map(\.songID)) {
             guard let song = library.song(id: songID) else { continue }
-            traits[songID] = ListeningRecapSongTraits(genre: song.genre, year: song.year, duration: song.duration)
+            traits[songID] = ListeningRecapSongTraits(
+                genre: song.genre, year: song.year, duration: song.duration, format: song.fileFormat
+            )
         }
         return traits
     }

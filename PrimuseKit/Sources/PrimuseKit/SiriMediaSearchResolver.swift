@@ -507,12 +507,14 @@ public enum SiriMediaSearchResolver {
             for value in values {
                 let target = normalized(value)
                 // 多个流派的歌按其中任一个算；整库的流派写法只有几十种，每种只拆一次。
+                // ID3 格式的歌另按斜杠惯例拆，记忆的键带上这一位。
                 var matchesByGenre: [String: Bool] = [:]
                 let selected = songs.filter { song in
                     guard let genre = song.genre else { return false }
-                    if let known = matchesByGenre[genre] { return known }
-                    let matches = GenreTagValues.browseNames(in: genre).contains { normalized($0) == target }
-                    matchesByGenre[genre] = matches
+                    let memoKey = GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + genre : genre
+                    if let known = matchesByGenre[memoKey] { return known }
+                    let matches = GenreTagValues.browseNames(for: song).contains { normalized($0) == target }
+                    matchesByGenre[memoKey] = matches
                     return matches
                 }
                 if !selected.isEmpty {
@@ -619,14 +621,15 @@ public enum SiriMediaSearchResolver {
         var scoreByGenre: [String: Int] = [:]
         let ranked = songs.compactMap { song -> (song: Song, score: Int)? in
             guard let genre = song.genre else { return nil }
+            let memoKey = GenreSlashConvention.applies(to: song.fileFormat) ? "\u{1}" + genre : genre
             let score: Int
-            if let known = scoreByGenre[genre] {
+            if let known = scoreByGenre[memoKey] {
                 score = known
             } else {
-                score = GenreTagValues.browseNames(in: genre).flatMap { label in
+                score = GenreTagValues.browseNames(for: song).flatMap { label in
                     requestedGenres.map { matchScore(requested: $0, candidate: label) }
                 }.max() ?? 0
-                scoreByGenre[genre] = score
+                scoreByGenre[memoKey] = score
             }
             return score > 0 ? (song, score) : nil
         }.sorted(by: rankedBefore)

@@ -466,7 +466,7 @@ struct TagEditorView: View {
         // 一首歌可以有好几个流派(分号隔开),候选按单个流派算。
         for entry in library.visibleSongs {
             guard let value = entry.genre, !value.isEmpty else { continue }
-            for name in GenreTagValues.browseNames(in: value) {
+            for name in GenreTagValues.browseNames(in: value, format: entry.fileFormat) {
                 let key = name.lowercased()
                 counts[key, default: 0] += 1
                 if displayByKey[key] == nil { displayByKey[key] = name }
@@ -674,7 +674,7 @@ struct TagEditorView: View {
     /// 这首歌会同时出现在每个流派下。
     @ViewBuilder
     private var genreChipRow: some View {
-        let selected = GenreTagValues.browseNames(in: genre)
+        let selected = GenreTagValues.browseNames(in: genre, format: song.fileFormat)
         let selectedKeys = Set(selected.map { $0.lowercased() })
         // 字段里已有、但不在常用候选里的也列出来,方便点掉。
         let candidates = genreCandidates + selected.filter { name in
@@ -711,7 +711,7 @@ struct TagEditorView: View {
     }
 
     private func toggleGenre(_ candidate: String) {
-        var names = GenreTagValues.browseNames(in: genre)
+        var names = GenreTagValues.browseNames(in: genre, format: song.fileFormat)
         if let index = names.firstIndex(where: { $0.lowercased() == candidate.lowercased() }) {
             names.remove(at: index)
         } else {

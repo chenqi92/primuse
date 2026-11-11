@@ -78,6 +78,89 @@ struct LibraryGenreIndexTests {
         #expect(index.genres.first { $0.id == "vocaloid" }?.representativeSongIDs == ["a", "d", "b"])
     }
 
+    @Test("ID3 genre references and NUL-separated values become genre names")
+    func normalizesID3GenreFrames() {
+        #expect(ID3GenreNames.standard.count == 192)
+        #expect(ID3GenreNames.names(fromTCON: "(17)") == ["Rock"])
+        #expect(ID3GenreNames.names(fromTCON: "(17)(13)") == ["Rock", "Pop"])
+        #expect(ID3GenreNames.names(fromTCON: "(17)Rock") == ["Rock"])
+        #expect(ID3GenreNames.names(fromTCON: "(4)Eurodisco") == ["Disco", "Eurodisco"])
+        #expect(ID3GenreNames.names(fromTCON: "(RX)(CR)") == ["Remix", "Cover"])
+        #expect(ID3GenreNames.names(fromTCON: "17") == ["Rock"])
+        #expect(ID3GenreNames.names(fromTCON: "Rock\0Pop\0rock") == ["Rock", "Pop"])
+        #expect(ID3GenreNames.names(fromTCON: "((Live) Sessions") == ["(Live) Sessions"])
+        #expect(ID3GenreNames.names(fromTCON: "(Live) Rock") == ["(Live) Rock"])
+        #expect(ID3GenreNames.names(fromTCON: "(999)") == ["(999)"])
+        #expect(ID3GenreNames.names(fromTCON: "2000") == ["2000"])
+        #expect(ID3GenreNames.normalizedTCON("(17)\0流行") == "Rock; 流行")
+        #expect(ID3GenreNames.normalizedTCON(" \0 ") == nil)
+        #expect(ID3GenreNames.name(forMP4GenreCode: 18) == "Rock")
+        #expect(ID3GenreNames.name(forMP4GenreCode: 0) == nil)
+    }
+
+    @Test("ID3 slash convention splits combinations but keeps known compound genre names")
+    func splitsID3SlashCombinations() {
+        #expect(GenreSlashConvention.split("Rock/Pop") == ["Rock", "Pop"])
+        #expect(GenreSlashConvention.split("流行/摇滚 / 电子") == ["流行", "摇滚", "电子"])
+        #expect(GenreSlashConvention.split("R&B/Soul") == ["R&B/Soul"])
+        #expect(GenreSlashConvention.split("Hip Hop / Rap") == ["Hip Hop / Rap"])
+        #expect(GenreSlashConvention.split("Rock/Hip-Hop/Rap") == ["Rock", "Hip-Hop/Rap"])
+        #expect(GenreSlashConvention.split("Singer/Songwriter/Folk") == ["Singer/Songwriter", "Folk"])
+        #expect(GenreSlashConvention.split("Breaks / Breakbeat / UK Bass") == ["Breaks / Breakbeat / UK Bass"])
+        #expect(GenreSlashConvention.split("嘻哈/说唱") == ["嘻哈/说唱"])
+        #expect(GenreSlashConvention.split("Pop／Rock") == ["Pop／Rock"])
+        #expect(GenreSlashConvention.split("Techno (Peak Time / Driving)") == ["Techno (Peak Time / Driving)"])
+        #expect(GenreSlashConvention.split("N/A") == ["N/A"])
+        #expect(GenreSlashConvention.split("Rock/") == ["Rock"])
+        #expect(GenreSlashConvention.split("Drum & Bass") == ["Drum & Bass"])
+        #expect(GenreSlashConvention.isProtected(" hip-hop/rap "))
+        #expect(!GenreSlashConvention.isProtected("Rock/Pop"))
+
+        #expect(GenreSlashConvention.applies(to: .mp3))
+        #expect(GenreSlashConvention.applies(to: .aiff))
+        #expect(!GenreSlashConvention.applies(to: .flac))
+        #expect(!GenreSlashConvention.applies(to: .m4a))
+        #expect(!GenreSlashConvention.applies(to: nil))
+    }
+
+    @Test("The user's slash switch still wins over the format convention")
+    func userSlashSwitchOverridesConvention() {
+        #expect(GenreTagValues.names(in: "Rock/Pop; R&B/Soul", alsoSplitting: [], slashConvention: true)
+            == ["Rock", "Pop", "R&B/Soul"])
+        #expect(GenreTagValues.names(in: "R&B/Soul", alsoSplitting: .slash, slashConvention: true) == ["R&B", "Soul"])
+        #expect(GenreTagValues.names(in: "Rock/Pop", alsoSplitting: [], slashConvention: false) == ["Rock/Pop"])
+        #expect(GenreTagValues.names(in: "流行；摇滚") == ["流行", "摇滚"])
+        #expect(GenreTagValues.primary(in: "流行；摇滚") == "流行")
+        #expect(GenreTagValues.primary(in: " 摇滚 ") == " 摇滚 ")
+    }
+
+    @Test("ID3 formats follow the slash convention in the genre index; other formats keep the name")
+    func indexAppliesSlashConventionPerFormat() {
+        let songs = [
+            song("a", genre: "Rock/Pop", albumID: "one"),
+            song("b", genre: "Rock/Pop", albumID: "two", format: .flac),
+            song("c", genre: "R&B/Soul", albumID: "three"),
+        ]
+        let index = LibraryGenreIndexBuilder.build(from: songs, alsoSplitting: [])
+        #expect(index.genres.map(\.id) == ["pop", "r&b/soul", "rock", "rock/pop"])
+        #expect(index.songIDsByGenreID["rock"] == ["a"])
+        #expect(index.songIDsByGenreID["rock/pop"] == ["b"])
+
+        let everySlash = LibraryGenreIndexBuilder.build(from: songs, alsoSplitting: .slash)
+        #expect(everySlash.genres.map(\.id) == ["pop", "r&b", "rock", "soul"])
+        #expect(everySlash.songIDsByGenreID["rock"] == ["a", "b"])
+    }
+
+    @Test("The genre page hint counts unsplit separators the user has not enabled")
+    func countsUnsplitSeparatorNames() {
+        let names = ["Rock/Pop", "R&B/Soul", "Folk, World", "Jazz", "Pop|Dance"]
+        #expect(GenreSeparatorHint.unsplitNameCount(in: names, enabled: []) == 3)
+        #expect(GenreSeparatorHint.unsplitNameCount(in: names, enabled: [.slash, .comma]) == 1)
+        #expect(GenreSeparatorHint.shouldHint(unsplitCount: 3, totalCount: 30))
+        #expect(!GenreSeparatorHint.shouldHint(unsplitCount: 3, totalCount: 31))
+        #expect(!GenreSeparatorHint.shouldHint(unsplitCount: 2, totalCount: 4))
+    }
+
     @Test("Single-genre comparisons use the first of several genres")
     func primaryGenreIsTheFirstLabel() {
         #expect(GenreTagValues.primary(in: "J-Pop; Vocaloid") == "J-Pop")
@@ -259,14 +342,15 @@ struct LibraryGenreIndexTests {
         genre: String?,
         albumID: String? = nil,
         year: Int? = nil,
-        artwork: String? = nil
+        artwork: String? = nil,
+        format: AudioFormat = .mp3
     ) -> Song {
         Song(
             id: id,
             title: id,
             albumID: albumID,
             duration: 180,
-            fileFormat: .mp3,
+            fileFormat: format,
             filePath: "\(id).mp3",
             sourceID: "source",
             genre: genre,

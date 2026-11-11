@@ -11,6 +11,24 @@ import Testing
     #expect(metadata?.artist == "张宇")
 }
 
+@Test func readsEveryID3v24GenreAndLegacyGenreReferences() throws {
+    let v24 = try #require(ID3TextMetadataParser.parse(makeID3v24Tag([
+        textFrameV24("TIT2", "Song"),
+        textFrameV24("TCON", "Rock\0Pop\0(17)"),
+    ])))
+    #expect(v24.genre == "Rock; Pop")
+
+    let v23 = try #require(ID3TextMetadataParser.parse(makeID3v23Tag([
+        textFrame("TIT2", "Song"),
+        textFrame("TCON", "(17)(13)"),
+    ])))
+    #expect(v23.genre == "Rock; Pop")
+
+    // 斜杠原样留在歌曲里，浏览时再按格式惯例拆，文件和库里存的值都不改。
+    let slash = try #require(ID3TextMetadataParser.parse(makeID3v23Tag([textFrame("TCON", "流行/摇滚")])))
+    #expect(slash.genre == "流行/摇滚")
+}
+
 @Test(arguments: [2, 3, 4], [UInt8(0), 1, 2, 3])
 func parsesAlbumArtistSeparatelyFromTrackArtist(version: Int, encoding: UInt8) throws {
     let metadata = try #require(ID3TextMetadataParser.parse(albumArtistTag(

@@ -7372,8 +7372,10 @@
 "lyrics_comment_save_failed" = "暫時無法存取評論，請重試。";
 
 "genre_split_title" = "類型拆分";
-"genre_split_footer" = "類型預設只按分號拆開。開啟後，「Hip-Hop/Rap」這樣的寫法會分別算進兩個類型，「R&B/Soul」也會被拆開。只影響瀏覽，不會更動檔案裡的標籤。";
+"genre_split_footer" = "類型預設按分號拆開。MP3 這類 ID3 標籤裡的斜線依慣例也當作分隔，「R&B/Soul」「Hip-Hop/Rap」這類本身帶斜線的類型名稱保持完整。開啟按斜線拆分後，所有斜線都會拆開。只影響瀏覽，不會更動檔案裡的標籤。";
 "genre_split_slash" = "按斜線拆分類型";
 "genre_split_comma" = "按逗號和頓號拆分類型";
 "genre_split_bar" = "按直線和反斜線拆分類型";
+"genre_split_menu_item" = "類型拆分設定";
+"genre_split_menu_hint" = "%lld 個類型名稱裡還帶著斜線、逗號或直線";
 "genre_split_tv_detail" = "只影響瀏覽，不更動檔案裡的標籤";

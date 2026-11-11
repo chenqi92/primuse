@@ -1071,7 +1071,7 @@
 "artist_name_settings_merge_collaborative_albums" = "제목이 같은 협업 앨범 병합";
 
 "genre_split_title" = "장르 분리";
-"genre_split_footer" = "장르는 기본적으로 세미콜론에서만 분리됩니다. 켜면 “Hip-Hop/Rap” 같은 표기는 두 장르 모두에 포함되고 “R&B/Soul”도 분리됩니다. 탐색에만 영향을 주며 파일의 태그는 바뀌지 않습니다.";
+"genre_split_footer" = "장르는 기본적으로 세미콜론에서 분리됩니다. MP3 같은 ID3 태그에서는 관례대로 슬래시도 구분자로 보지만, “R&B/Soul”, “Hip-Hop/Rap”처럼 이름에 슬래시가 들어간 장르는 그대로 둡니다. 슬래시로 분리를 켜면 모든 슬래시에서 분리합니다. 탐색에만 영향을 주며 파일의 태그는 바뀌지 않습니다.";
 "genre_split_slash" = "슬래시로 장르 분리";
 "genre_split_comma" = "쉼표로 장르 분리";
 "genre_split_bar" = "세로선과 백슬래시로 장르 분리";
