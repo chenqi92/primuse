@@ -315,3 +315,59 @@ struct NowPlayingCarouselPolicyTests {
         #expect(NowPlayingCarouselHintPolicy.bounceSteps(hasLeading: false, hasTrailing: false).isEmpty)
     }
 }
+
+@Suite("调音面频响曲线的起手")
+struct NowPlayingCarouselEQGestureTests {
+    private typealias Policy = NowPlayingCarouselEQGesturePolicy
+
+    @Test("竖着起手交给滚动,横着起手开始画,按住不动够久才开始调")
+    func decision() {
+        // 手指还在容差里:没按够久时继续等,按够了就开始调。
+        #expect(Policy.decision(translationX: 2, translationY: 3, heldFor: 0.05) == .undecided)
+        #expect(Policy.decision(translationX: 2, translationY: 3, heldFor: Policy.holdDuration) == .begin(.hold))
+        // 竖着起手:哪怕已经按了一会儿,只要还没开始调,就是在滚整面。
+        #expect(Policy.decision(translationX: 2, translationY: -14, heldFor: 0.1) == .yield)
+        #expect(Policy.decision(translationX: 0, translationY: 30, heldFor: 0.15) == .yield)
+        // 斜着起手不算横着。
+        #expect(Policy.decision(translationX: 12, translationY: 11, heldFor: 0.05) == .yield)
+        // 横着起手:左右都算。
+        #expect(Policy.decision(translationX: 14, translationY: 3, heldFor: 0.05) == .begin(.sweep))
+        #expect(Policy.decision(translationX: -16, translationY: -6, heldFor: 0.02) == .begin(.sweep))
+        #expect(Policy.decision(translationX: .nan, translationY: 0, heldFor: 1) == .yield)
+    }
+
+    @Test("横坐标认最近的一段,超出两端按两端算")
+    func band() {
+        #expect(Policy.band(atX: 12, plotMinX: 12, plotWidth: 300, count: 10) == 0)
+        #expect(Policy.band(atX: 312, plotMinX: 12, plotWidth: 300, count: 10) == 9)
+        #expect(Policy.band(atX: 12 + 300.0 / 9 * 4 + 10, plotMinX: 12, plotWidth: 300, count: 10) == 4)
+        #expect(Policy.band(atX: -40, plotMinX: 12, plotWidth: 300, count: 10) == 0)
+        #expect(Policy.band(atX: 900, plotMinX: 12, plotWidth: 300, count: 10) == 9)
+        #expect(Policy.band(atX: 50, plotMinX: 0, plotWidth: 0, count: 10) == 0)
+    }
+
+    @Test("高度换成增益:顶上最大、底下最小,半分贝一档,靠近 0 吸到 0")
+    func gain() {
+        #expect(Policy.gain(atY: 6, plotMinY: 6, plotHeight: 100, minimum: -12, maximum: 12) == 12)
+        #expect(Policy.gain(atY: 106, plotMinY: 6, plotHeight: 100, minimum: -12, maximum: 12) == -12)
+        #expect(Policy.gain(atY: -50, plotMinY: 6, plotHeight: 100, minimum: -12, maximum: 12) == 12)
+        #expect(Policy.gain(atY: 57, plotMinY: 6, plotHeight: 100, minimum: -12, maximum: 12) == 0)
+        // 4.4 分贝落在 4.5 这一档。
+        #expect(Policy.gain(atY: 6 + 100 * (1 - 16.4 / 24), plotMinY: 6, plotHeight: 100, minimum: -12, maximum: 12) == 4.5)
+        // 离 0 不到吸附范围的吸到 0。
+        #expect(Policy.gain(atY: 6 + 100 * (1 - 12.5 / 24), plotMinY: 6, plotHeight: 100, minimum: -12, maximum: 12) == 0)
+        #expect(Policy.gain(atY: 50, plotMinY: 0, plotHeight: 0, minimum: -12, maximum: 12) == 0)
+    }
+}
+
+@Suite("舞台那一面的全屏效果一排")
+struct NowPlayingCarouselStageLayoutTests {
+    @Test("矮屏收成胶囊,够高时是缩略画面")
+    func effectStrip() {
+        #expect(NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: 667) == .chips)
+        #expect(NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: 736) == .chips)
+        #expect(NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: 812) == .thumbnails)
+        #expect(NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: 874) == .thumbnails)
+        #expect(NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: 0) == .thumbnails)
+    }
+}

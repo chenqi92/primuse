@@ -14,6 +14,9 @@ struct NowPlayingCarouselStageFace: View {
     let onReturnToPlayer: () -> Void
     let onPresentEffect: (FullscreenPlayerEffect) -> Void
 
+    /// 整面有多高:矮屏上底下那一排全屏效果收成小胶囊(`NowPlayingCarouselStageLayout`)。
+    @State private var faceHeight: CGFloat = 0
+
     var body: some View {
         if context.cards.contains(.karaoke) {
             karaokeStage
@@ -73,7 +76,8 @@ struct NowPlayingCarouselStageFace: View {
                         .foregroundStyle(.white.opacity(0.6))
                         .padding(.horizontal, 20)
                     NowPlayingCarouselEffectShelfView(
-                        layout: .strip,
+                        layout: NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: Double(faceHeight)) == .chips
+                            ? .chips : .strip,
                         showsPreviews: context.isCommitted,
                         appearance: NowPlayingAppearance(colorScheme: .dark, contrast: .standard),
                         onPresent: onPresentEffect
@@ -95,6 +99,7 @@ struct NowPlayingCarouselStageFace: View {
         }
         .environment(\.colorScheme, .dark)
         .animation(.easeInOut(duration: 0.25), value: showsStage)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { faceHeight = $0 }
         .nowPlayingCarouselPinchToExpand(onExpand)
     }
 
@@ -130,6 +135,8 @@ struct NowPlayingCarouselEffectShelfView: View {
     enum Layout {
         /// 一排横着滑(卡拉 OK 舞台底下)。
         case strip
+        /// 同一排收成图标加名字的小胶囊(矮屏上的卡拉 OK 舞台底下)。
+        case chips
         /// 两列铺开(唱不了卡拉 OK 时这一面只有它)。
         case grid
     }
@@ -177,6 +184,17 @@ struct NowPlayingCarouselEffectShelfView: View {
             }
             .scrollIndicators(.hidden)
             .nowPlayingCarouselHorizontalRegion()
+        case .chips:
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(effects) { effect in
+                        chip(effect, isSelected: effect == selected)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            .scrollIndicators(.hidden)
+            .nowPlayingCarouselHorizontalRegion()
         case .grid:
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 14) {
                 ForEach(effects) { effect in
@@ -184,6 +202,30 @@ struct NowPlayingCarouselEffectShelfView: View {
                 }
             }
         }
+    }
+
+    private func chip(_ effect: FullscreenPlayerEffect, isSelected: Bool) -> some View {
+        Button { onPresent(effect) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: effect.symbolName)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(verbatim: effect.localizedTitle)
+                    .font(.caption.weight(isSelected ? .semibold : .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(appearance.primary.opacity(isSelected ? 1 : 0.82))
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(Capsule().fill(appearance.primary.opacity(isSelected ? 0.2 : 0.1)))
+            .overlay {
+                Capsule().strokeBorder(appearance.primary.opacity(isSelected ? 0.7 : 0), lineWidth: 1)
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.pmPressable)
+        .accessibilityLabel(Text(verbatim: effect.localizedTitle))
+        .accessibilityHint(Text("player_carousel_effect_hint"))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func tile(

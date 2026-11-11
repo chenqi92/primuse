@@ -567,8 +567,9 @@ private struct NowPlayingCarouselStage<Center: View>: View, Animatable {
                     onSelect: onSelect
                 )
                 .padding(.top, safeInsets.top + 4)
-                // 停在播放器上时整条往上挪,图标排在把手两边。
-                .offset(y: -12.5 * (1 - chrome))
+                // 停在播放器上时整条收矮、往上挪,图标与把手中心对齐,整条的下沿在封面上沿之上
+                // (把手占安全区下 6 到 11 点,封面从 21 点起)。
+                .offset(y: -NowPlayingCarouselDial.restingLift * (1 - chrome))
                 .opacity(dialOpacity)
                 .allowsHitTesting(dialOpacity > 0.5)
             }
@@ -661,6 +662,13 @@ private struct NowPlayingCarouselDial: View {
 
     /// 停在播放器上时中间让出的宽度:把手 48 点,两边各留一点空。
     private static let grabberGap: CGFloat = 64
+    /// 一格的高度:长全时 28 点;停在播放器上时只有 18 点,整条的下沿不碰封面上沿。
+    private static let fullSlotHeight: CGFloat = 28
+    private static let restingSlotHeight: CGFloat = 18
+    private static let fullVerticalPadding: CGFloat = 3
+    /// 停在播放器上时整条往上挪多少:整条从安全区下 4 点排起,收矮后图标中心在 4 + 9 点,
+    /// 挪到把手中心(安全区下 8.5 点);下沿落在 17.5 点,离封面上沿还有 3.5 点。
+    static let restingLift: CGFloat = 4 + restingSlotHeight / 2 - 8.5
 
     var body: some View {
         HStack(spacing: 4) {
@@ -670,7 +678,10 @@ private struct NowPlayingCarouselDial: View {
                     Image(systemName: page.panel?.symbolName ?? "music.note")
                         .font(.system(size: 11 + 4 * emphasis * chrome, weight: .semibold))
                         .foregroundStyle(appearance.primary.opacity(iconOpacity(page: page, emphasis: emphasis)))
-                        .frame(width: slotWidth(page: page, emphasis: emphasis), height: 28)
+                        .frame(
+                            width: slotWidth(page: page, emphasis: emphasis),
+                            height: Self.restingSlotHeight + (Self.fullSlotHeight - Self.restingSlotHeight) * chrome
+                        )
                         .background {
                             Capsule()
                                 .fill(appearance.primary.opacity(0.16 * emphasis * chrome))
@@ -683,7 +694,7 @@ private struct NowPlayingCarouselDial: View {
             }
         }
         .padding(.horizontal, 5)
-        .padding(.vertical, 3)
+        .padding(.vertical, Self.fullVerticalPadding * chrome)
         .background {
             Capsule()
                 .fill(.ultraThinMaterial)
@@ -969,6 +980,20 @@ struct NowPlayingCarouselCardStack<Content: View>: View {
         }
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
+        .nowPlayingCarouselHidesScrollEdges()
+    }
+}
+
+extension View {
+    /// 面里的卡片不在任何栏底下,系统的滚动边缘效果没有要让开的东西;iOS 27 上卡片里的开关、滑杆
+    /// 还会把它招出来,最上面两张卡整块糊成毛玻璃。面里竖着滚的地方一律关掉。
+    @ViewBuilder
+    func nowPlayingCarouselHidesScrollEdges() -> some View {
+        if #available(iOS 26.0, *) {
+            scrollEdgeEffectHidden(true, for: .vertical)
+        } else {
+            self
+        }
     }
 }
 
@@ -1098,6 +1123,8 @@ struct NowPlayingCarouselSongRow: View {
         HStack(spacing: 12) {
             switch leading {
             case .artwork:
+                // 不能关 `loadsHighResolution`:关了只认内存里已有的缩略图,相似歌曲、艺人的其他歌
+                // 多半没在别处画过,整列都是占位。40 点的图本来就只解码这么大。
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -1105,8 +1132,7 @@ struct NowPlayingCarouselSongRow: View {
                     cornerRadius: 8,
                     sourceID: song.sourceID,
                     filePath: song.filePath,
-                    fileFormat: song.fileFormat,
-                    loadsHighResolution: false
+                    fileFormat: song.fileFormat
                 )
                 .frame(width: 40, height: 40)
             case .trackNumber(let number):

@@ -1,6 +1,7 @@
 #if os(iOS)
 import PrimuseKit
 import SwiftUI
+import UIKit.UIGestureRecognizerSubclass
 
 /// 转轮的「调音」一面:这首歌听起来怎样。顶上一条跟着音乐跳的细频谱,下面是均衡器、音效、
 /// 速度与音调、输出与音质几张卡片,都是为这个尺寸重新排的紧凑版,不是把设置页原样塞进来。
@@ -179,8 +180,8 @@ private struct NowPlayingCarouselSpectrumStrip: View {
 
 // MARK: - 均衡器
 
-/// 均衡器卡:频响曲线可以直接拖(按下的那一段跟着手指上下),预设排成一条横向胶囊。
-/// 频段与预设逻辑都是设置里那一套(`EqualizerService`)。
+/// 均衡器卡:频响曲线可以直接调(横着扫过几段、或按住片刻再上下拖),预设收在标题行的小胶囊里,
+/// 卡片不必再多一行横排预设。频段与预设逻辑都是设置里那一套(`EqualizerService`)。
 private struct NowPlayingCarouselEqualizerCard: View {
     let appearance: NowPlayingAppearance
 
@@ -193,14 +194,16 @@ private struct NowPlayingCarouselEqualizerCard: View {
         NowPlayingCarouselCardContainer(
             card: .equalizer,
             appearance: appearance,
-            subtitle: eq.isEnabled ? eq.currentPreset.localizedName : nil,
             contentPadding: false
         ) {
-            Toggle(isOn: Binding(get: { eq.isEnabled }, set: { eq.setEnabled($0) }).pmAnimated(.control)) {
-                Text("eq_enabled")
+            HStack(spacing: 10) {
+                NowPlayingCarouselEQPresetMenu(eq: eq, appearance: appearance)
+                Toggle(isOn: Binding(get: { eq.isEnabled }, set: { eq.setEnabled($0) }).pmAnimated(.control)) {
+                    Text("eq_enabled")
+                }
+                .labelsHidden()
+                .tint(NowPlayingCarouselPanel.sound.tint)
             }
-            .labelsHidden()
-            .tint(NowPlayingCarouselPanel.sound.tint)
         } content: {
             VStack(alignment: .leading, spacing: 12) {
                 if isBypassed {
@@ -220,8 +223,6 @@ private struct NowPlayingCarouselEqualizerCard: View {
                     .allowsHitTesting(eq.isEnabled)
                     .pmAnimation(.control, value: eq.isEnabled)
 
-                NowPlayingCarouselEQPresetStrip(eq: eq, appearance: appearance)
-
                 if let lowered = eq.headroomLoweredDB, eq.isEnabled {
                     EQHeadroomNote(loweredDB: lowered)
                         .font(.caption)
@@ -233,14 +234,17 @@ private struct NowPlayingCarouselEqualizerCard: View {
     }
 }
 
-/// 频响曲线:十个频段连成一条平滑曲线,底下是频率。按下时认离手指最近的那一段,之后手指上下就是这一段的增益,
-/// 松手前不换段。拖着的时候告诉转轮别翻页。
+/// 频响曲线:十个频段连成一条平滑曲线,底下是频率。曲线在能上下滚的一面里,所以竖着起手的一划只是滚动;
+/// 横着起手时手指扫到哪一段就调哪一段,按住片刻再拖时只调按下的那一段,增益都跟着手指的高度
+/// (起手规则见 `NowPlayingCarouselEQGesturePolicy`)。调着的时候告诉转轮别翻页。
 private struct NowPlayingCarouselEQCurve: View {
     let eq: EqualizerService
     let appearance: NowPlayingAppearance
 
     @Environment(\.nowPlayingCarouselControlEditing) private var reportsControlEditing
     @State private var activeBand: Int?
+    @State private var start: NowPlayingCarouselEQGesturePolicy.Start?
+    @State private var holdFeedback = 0
 
     private static let range = PrimuseConstants.eqMinGain...PrimuseConstants.eqMaxGain
     private static let plotHeight: CGFloat = 112
@@ -297,10 +301,16 @@ private struct NowPlayingCarouselEQCurve: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(drag(plot: plot, count: bands.count))
+            .gesture(NowPlayingCarouselEQCurveGesture { event in
+                handle(event, plot: plot, count: bands.count)
+            })
         }
         .frame(height: Self.plotHeight + Self.labelHeight)
         .animation(.easeOut(duration: 0.12), value: activeBand)
+        .sensoryFeedback(.impact(weight: .light), trigger: holdFeedback)
+        .sensoryFeedback(.selection, trigger: activeBand) { old, new in
+            old != nil && new != nil
+        }
         .nowPlayingCarouselHorizontalRegion()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("eq_preset"))
@@ -325,35 +335,39 @@ private struct NowPlayingCarouselEQCurve: View {
         }
     }
 
-    private func drag(plot: CGRect, count: Int) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                let band: Int
-                if let activeBand {
-                    band = activeBand
-                } else {
-                    band = Self.nearestBand(x: value.startLocation.x, in: plot, count: count)
-                    activeBand = band
-                    reportsControlEditing(true)
-                }
-                let normalized = 1 - Float((value.location.y - plot.minY) / plot.height)
-                let clamped = min(max(normalized, 0), 1)
-                let gain = Self.range.lowerBound + clamped * (Self.range.upperBound - Self.range.lowerBound)
-                // 半分贝一档;靠近 0 时吸到 0,拖回平直容易。
-                var snapped = (gain * 2).rounded() / 2
-                if abs(snapped) < 0.6 { snapped = 0 }
-                if snapped != eq.bands[band] { eq.setBand(band, gain: snapped) }
-            }
-            .onEnded { _ in
-                activeBand = nil
-                reportsControlEditing(false)
-            }
+    private func handle(_ event: NowPlayingCarouselEQCurveGesture.Event, plot: CGRect, count: Int) {
+        switch event {
+        case .began(let kind, let location):
+            start = kind
+            reportsControlEditing(true)
+            if kind == .hold { holdFeedback &+= 1 }
+            adjust(at: location, plot: plot, count: count, picksBand: true)
+        case .changed(let location):
+            // 按住起手的只调按下的那一段;横着扫的跟着手指换段。
+            adjust(at: location, plot: plot, count: count, picksBand: start == .sweep || activeBand == nil)
+        case .ended:
+            guard start != nil || activeBand != nil else { return }
+            start = nil
+            activeBand = nil
+            reportsControlEditing(false)
+        }
     }
 
-    private static func nearestBand(x: CGFloat, in plot: CGRect, count: Int) -> Int {
-        guard count > 1 else { return 0 }
-        let fraction = (x - plot.minX) / plot.width
-        return min(max(Int((fraction * CGFloat(count - 1)).rounded()), 0), count - 1)
+    private func adjust(at location: CGPoint, plot: CGRect, count: Int, picksBand: Bool) {
+        typealias Policy = NowPlayingCarouselEQGesturePolicy
+        guard count > 0 else { return }
+        let band = picksBand || activeBand == nil
+            ? Policy.band(atX: Double(location.x), plotMinX: Double(plot.minX), plotWidth: Double(plot.width), count: count)
+            : (activeBand ?? 0)
+        if activeBand != band { activeBand = band }
+        let gain = Policy.gain(
+            atY: Double(location.y),
+            plotMinY: Double(plot.minY),
+            plotHeight: Double(plot.height),
+            minimum: Self.range.lowerBound,
+            maximum: Self.range.upperBound
+        )
+        if eq.bands.indices.contains(band), gain != eq.bands[band] { eq.setBand(band, gain: gain) }
     }
 
     private static func points(for bands: [Float], in plot: CGRect) -> [CGPoint] {
@@ -395,54 +409,188 @@ private struct NowPlayingCarouselEQCurve: View {
     }
 }
 
-/// 预设一条:内置的、自己存的、自定义曲线,横着滑。
-private struct NowPlayingCarouselEQPresetStrip: View {
+/// 标题行里的预设胶囊:内置的、自己存的、自定义曲线,点开一列挑。均衡器关着时挑一个就顺手打开。
+private struct NowPlayingCarouselEQPresetMenu: View {
     let eq: EqualizerService
     let appearance: NowPlayingAppearance
 
     var body: some View {
         let presets = EQPreset.builtInPresets + eq.userPresets + [eq.customPreset]
-        let selectedID = eq.currentPreset.id
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(presets) { preset in
-                        let isSelected = preset.id == selectedID && eq.isEnabled
-                        Button {
-                            if !eq.isEnabled { eq.setEnabled(true) }
-                            eq.applyPreset(preset)
-                        } label: {
-                            Text(verbatim: preset.localizedName)
-                                .font(.footnote.weight(isSelected ? .semibold : .medium))
-                                .lineLimit(1)
-                                .foregroundStyle(isSelected ? (appearance.isLight ? Color.white : Color.black) : appearance.primary)
-                                .padding(.horizontal, 13)
-                                .padding(.vertical, 7)
-                                .background(
-                                    Capsule().fill(isSelected ? appearance.primary : appearance.primary.opacity(0.1))
-                                )
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.pmPressable)
-                        .accessibilityAddTraits(isSelected ? .isSelected : [])
-                        .id(preset.id)
-                    }
+        Menu {
+            Picker(selection: Binding(
+                get: { eq.currentPreset.id },
+                set: { id in
+                    guard let preset = presets.first(where: { $0.id == id }) else { return }
+                    if !eq.isEnabled { eq.setEnabled(true) }
+                    eq.applyPreset(preset)
                 }
-                .padding(.horizontal, 16)
+            )) {
+                ForEach(presets) { preset in
+                    Text(verbatim: preset.localizedName).tag(preset.id)
+                }
+            } label: {
+                Text("eq_preset")
             }
-            .scrollIndicators(.hidden)
-            .nowPlayingCarouselHorizontalRegion()
-            .onAppear { proxy.scrollTo(selectedID, anchor: .center) }
-            .onChange(of: selectedID) { _, id in
-                pmWithAnimation(.selection) { proxy.scrollTo(id, anchor: .center) }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 3) {
+                Text(verbatim: eq.currentPreset.localizedName)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .bold))
             }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(eq.isEnabled ? appearance.primary : appearance.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(appearance.primary.opacity(eq.isEnabled ? 0.12 : 0.07)))
+            .contentShape(Capsule())
+        }
+        .accessibilityLabel(Text("eq_preset"))
+        .accessibilityValue(Text(verbatim: eq.currentPreset.localizedName))
+    }
+}
+
+/// 曲线上的手势,用 UIKit 识别器做:竖着起手时立刻放弃,整面照常滚动;横着起手或按住片刻才接手,
+/// 接手后整面的滚动让路。起手怎么判见 `NowPlayingCarouselEQGesturePolicy`。
+private struct NowPlayingCarouselEQCurveGesture: UIGestureRecognizerRepresentable {
+    enum Event {
+        /// 开始调;位置在曲线自己的坐标里。
+        case began(NowPlayingCarouselEQGesturePolicy.Start, CGPoint)
+        case changed(CGPoint)
+        /// 松手、被打断,或者这一下没调成。
+        case ended
+    }
+
+    let onEvent: @MainActor (Event) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> NowPlayingCarouselEQCurveRecognizer {
+        let recognizer = NowPlayingCarouselEQCurveRecognizer()
+        recognizer.cancelsTouchesInView = true
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = context.coordinator
+        return recognizer
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: NowPlayingCarouselEQCurveRecognizer, context: Context) {
+        let location = context.converter.localLocation
+        switch recognizer.state {
+        case .began:
+            onEvent(.began(recognizer.start ?? .hold, location))
+        case .changed:
+            onEvent(.changed(location))
+        case .ended, .cancelled, .failed:
+            onEvent(.ended)
+        default:
+            break
+        }
+    }
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        /// 整面的竖向滚动等曲线先表态:竖着起手时曲线马上放弃,滚动照常起步;横着起手或按住时滚动不动。
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            guard let scrollView = otherGestureRecognizer.view as? UIScrollView else { return false }
+            return otherGestureRecognizer === scrollView.panGestureRecognizer
+        }
+    }
+}
+
+/// 起手前一直停在 `.possible`:手指挪出容差那一下按方向认(横着就开始、竖着就放弃),
+/// 一直没挪出容差、按够了时长也开始。第二根手指落下(双指张开进全屏)时让出去。
+private final class NowPlayingCarouselEQCurveRecognizer: UIGestureRecognizer {
+    private(set) var start: NowPlayingCarouselEQGesturePolicy.Start?
+    private var startPoint: CGPoint = .zero
+    private var startTimestamp: TimeInterval = 0
+    private var holdTask: Task<Void, Never>?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard (event.allTouches?.count ?? touches.count) == 1, let touch = touches.first, let view else {
+            finish(cancelled: true)
+            return
+        }
+        startPoint = touch.location(in: view)
+        startTimestamp = touch.timestamp
+        holdTask?.cancel()
+        holdTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(NowPlayingCarouselEQGesturePolicy.holdDuration))
+            guard let self, !Task.isCancelled, self.state == .possible else { return }
+            self.start = .hold
+            self.state = .began
+        }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        guard let touch = touches.first, let view else { return }
+        switch state {
+        case .possible:
+            let point = touch.location(in: view)
+            let decision = NowPlayingCarouselEQGesturePolicy.decision(
+                translationX: Double(point.x - startPoint.x),
+                translationY: Double(point.y - startPoint.y),
+                heldFor: touch.timestamp - startTimestamp
+            )
+            switch decision {
+            case .undecided:
+                break
+            case .begin(let kind):
+                holdTask?.cancel()
+                start = kind
+                state = .began
+            case .yield:
+                holdTask?.cancel()
+                state = .failed
+            }
+        case .began, .changed:
+            state = .changed
+        default:
+            break
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        finish(cancelled: false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        finish(cancelled: true)
+    }
+
+    override func reset() {
+        super.reset()
+        holdTask?.cancel()
+        holdTask = nil
+        start = nil
+    }
+
+    private func finish(cancelled: Bool) {
+        holdTask?.cancel()
+        switch state {
+        case .began, .changed:
+            state = cancelled ? .cancelled : .ended
+        case .possible:
+            state = .failed
+        default:
+            break
         }
     }
 }
 
 // MARK: - 音效
 
-/// 音效卡:混响、压缩各一行开关,开关下面是强度滑杆。混响的强度是干湿比,压缩的强度在轻、中、重三档之间走。
+/// 音效卡:混响、压缩各一行开关,开着时下面多一条强度滑杆。混响的强度是干湿比,压缩的强度在轻、中、重三档之间走。
 private struct NowPlayingCarouselEffectsCard: View {
     let appearance: NowPlayingAppearance
 
@@ -568,6 +716,8 @@ private struct NowPlayingCarouselEffectsCard: View {
         .background(Capsule().fill(appearance.primary.opacity(0.08)))
     }
 
+    /// 强度滑杆只在开着时出现:关着的效果只占一行,整张卡短一截。
+    @ViewBuilder
     private func sliderRow(
         value: Binding<Float>,
         range: ClosedRange<Float>,
@@ -575,19 +725,20 @@ private struct NowPlayingCarouselEffectsCard: View {
         valueText: String,
         isEnabled: Bool
     ) -> some View {
-        HStack(spacing: 10) {
-            Slider(value: value, in: range, step: step, onEditingChanged: reportsControlEditing)
-                .tint(NowPlayingCarouselPanel.sound.tint)
-                .nowPlayingCarouselHorizontalRegion()
-            Text(verbatim: valueText)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(appearance.secondary)
-                .frame(minWidth: 42, alignment: .trailing)
-                .lineLimit(1)
+        if isEnabled {
+            HStack(spacing: 10) {
+                Slider(value: value, in: range, step: step, onEditingChanged: reportsControlEditing)
+                    .tint(NowPlayingCarouselPanel.sound.tint)
+                    .nowPlayingCarouselHorizontalRegion()
+                Text(verbatim: valueText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(appearance.secondary)
+                    .frame(minWidth: 42, alignment: .trailing)
+                    .lineLimit(1)
+            }
+            .padding(.leading, 32)
+            .transition(.opacity.combined(with: .offset(y: -6)))
         }
-        .padding(.leading, 32)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.4)
     }
 
     private static func compressorIndex(_ presetID: String?) -> Int {

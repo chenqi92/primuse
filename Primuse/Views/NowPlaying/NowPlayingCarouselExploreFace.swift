@@ -140,15 +140,8 @@ private struct NowPlayingCarouselAlbumCard: View {
     private func header(_ album: Album, trackCount: Int) -> some View {
         Button { onOpenAlbum(album) } label: {
             HStack(spacing: 14) {
-                CachedArtworkView(
-                    albumID: album.id,
-                    albumTitle: album.title,
-                    artistName: album.artistName,
-                    year: album.year,
-                    trackCount: album.songCount,
-                    size: 72,
-                    cornerRadius: 10
-                )
+                // 和曲库的专辑格一样:专辑自己没缓存封面时用专辑里的歌的封面。
+                AlbumArtworkView(album: album, size: 72, cornerRadius: 10)
                 .frame(width: 72, height: 72)
                 .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
 
@@ -343,15 +336,7 @@ private struct NowPlayingCarouselArtistCard: View {
                 ForEach(albums) { album in
                     Button { onOpenAlbum(album) } label: {
                         VStack(alignment: .leading, spacing: 5) {
-                            CachedArtworkView(
-                                albumID: album.id,
-                                albumTitle: album.title,
-                                artistName: album.artistName,
-                                year: album.year,
-                                trackCount: album.songCount,
-                                size: 96,
-                                cornerRadius: 10
-                            )
+                            AlbumArtworkView(album: album, size: 96, cornerRadius: 10)
                             .frame(width: 96, height: 96)
                             Text(verbatim: album.title)
                                 .font(.caption.weight(.medium))

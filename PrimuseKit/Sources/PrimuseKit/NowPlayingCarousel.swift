@@ -510,6 +510,79 @@ public enum NowPlayingCarouselStepper {
     }
 }
 
+/// 调音那一面的频响曲线什么时候开始调。曲线放在能上下滚的一面里:竖着起手的一划是在滚整面,不能改增益;
+/// 横着起手(手指扫过几段,像在曲线上画)或按住片刻再拖才开始调。
+public enum NowPlayingCarouselEQGesturePolicy {
+    public enum Start: Equatable, Sendable {
+        /// 按住片刻:之后只调按下时离手指最近的那一段,手指上下就是它的增益。
+        case hold
+        /// 横着起手:手指扫到哪一段就调哪一段,增益跟着手指的高度。
+        case sweep
+    }
+
+    public enum Decision: Equatable, Sendable {
+        /// 还看不出来:手指没挪出容差,也还没按够久。
+        case undecided
+        case begin(Start)
+        /// 竖着(或斜着)起手:交给滚动,这一次不调。
+        case yield
+    }
+
+    /// 按住这么久(手指没挪出容差)就开始调。
+    public static let holdDuration: TimeInterval = 0.22
+    /// 手指挪出这么远之前都还算按住不动;挪出去的那一下按方向认。
+    public static let movementTolerance = 10.0
+    /// 横向位移要比纵向大这么多倍才算横着起手。
+    public static let horizontalDominance = 1.25
+    /// 增益离 0 不到这么多(分贝)就吸到 0,拖回平直容易。
+    public static let zeroSnap: Float = 0.6
+
+    public static func decision(translationX: Double, translationY: Double, heldFor: TimeInterval) -> Decision {
+        let dx = abs(translationX)
+        let dy = abs(translationY)
+        guard dx.isFinite, dy.isFinite else { return .yield }
+        if max(dx, dy) < movementTolerance {
+            return heldFor >= holdDuration ? .begin(.hold) : .undecided
+        }
+        return dx > dy * horizontalDominance ? .begin(.sweep) : .yield
+    }
+
+    /// 离 `x` 最近的那一段(从 0 数)。曲线左右两端各是第一段和最后一段。
+    public static func band(atX x: Double, plotMinX: Double, plotWidth: Double, count: Int) -> Int {
+        guard count > 1, plotWidth > 0, x.isFinite else { return 0 }
+        let fraction = (x - plotMinX) / plotWidth
+        return min(max(Int((fraction * Double(count - 1)).rounded()), 0), count - 1)
+    }
+
+    /// 手指高度对应的增益:曲线区顶上是最大增益、底下是最小,超出去按两端算;半分贝一档,靠近 0 吸到 0。
+    public static func gain(atY y: Double, plotMinY: Double, plotHeight: Double, minimum: Float, maximum: Float) -> Float {
+        guard plotHeight > 0, y.isFinite, maximum > minimum else { return 0 }
+        let normalized = Float(1 - (y - plotMinY) / plotHeight)
+        let clamped = min(max(normalized, 0), 1)
+        let gain = minimum + clamped * (maximum - minimum)
+        let snapped = (gain * 2).rounded() / 2
+        return abs(snapped) < zeroSnap ? 0 : snapped
+    }
+}
+
+/// 舞台那一面底下那一排全屏效果:屏幕够高时是带缩略画面的卡,矮屏上收成一排小胶囊,
+/// 把高度让给卡拉 OK 的歌词与控制区。
+public enum NowPlayingCarouselStageLayout {
+    public enum EffectStrip: Equatable, Sendable {
+        /// 16:9 的缩略画面加名字。
+        case thumbnails
+        /// 图标加名字的小胶囊。
+        case chips
+    }
+
+    /// 整面(含安全区)矮于这个高度就收成胶囊。
+    public static let compactHeightThreshold = 740.0
+
+    public static func effectStrip(forFaceHeight height: Double) -> EffectStrip {
+        height.isFinite && height > 0 && height < compactHeightThreshold ? .chips : .thumbnails
+    }
+}
+
 /// 第一次打开转轮后在播放器上轻轻左右回弹一下,让人知道两边有东西。只做一次。
 public enum NowPlayingCarouselHintPolicy {
     public static let shownStorageKey = "primuse.player.carousel.swipeHintShown"
