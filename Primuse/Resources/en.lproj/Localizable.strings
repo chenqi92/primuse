@@ -5095,6 +5095,7 @@
 "tv_spoken_word_bookshelf" = "Bookshelf";
 "tv_spoken_word_chapters" = "Chapters";
 "tv_spoken_word_book_count" = "%lld books";
+"library_spoken_word_count_format" = "%1$lld books · %2$lld chapters";
 "spoken_word_now_listening_section" = "Now Listening";
 "spoken_word_shelf_section" = "Bookshelf";
 "spoken_word_chapter_position_format" = "Chapter %lld of %lld";

@@ -5237,6 +5237,7 @@
 "tv_spoken_word_bookshelf" = "رف الكتب";
 "tv_spoken_word_chapters" = "الفصول";
 "tv_spoken_word_book_count" = "%lld كتب";
+"library_spoken_word_count_format" = "%1$lld كتب · %2$lld فصول";
 "spoken_word_now_listening_section" = "أستمع الآن";
 "spoken_word_shelf_section" = "رف الكتب";
 "spoken_word_chapter_position_format" = "الفصل %lld من %lld";

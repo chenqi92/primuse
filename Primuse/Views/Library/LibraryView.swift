@@ -1797,7 +1797,12 @@ struct LibraryView: View {
             // 「歌曲」只数音乐,有声内容在有声那一页按书计。
             return countText(library.musicSongs.count, unitKey: "songs_count")
         case .spokenWord:
-            return countText(library.spokenWordSongCount, unitKey: "songs_count")
+            // 有声书按书和章节计,不是「几首歌曲」。
+            return String(
+                format: String(localized: "library_spoken_word_count_format"),
+                library.spokenWordBookCount,
+                library.spokenWordSongCount
+            )
         case .albums:
             return countText(albums.count, unitKey: "albums_count")
         case .artists:

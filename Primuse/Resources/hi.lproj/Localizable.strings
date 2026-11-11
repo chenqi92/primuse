@@ -5237,6 +5237,7 @@
 "tv_spoken_word_bookshelf" = "किताबों की अलमारी";
 "tv_spoken_word_chapters" = "अध्याय";
 "tv_spoken_word_book_count" = "%lld किताबें";
+"library_spoken_word_count_format" = "%1$lld किताबें · %2$lld अध्याय";
 "spoken_word_now_listening_section" = "अभी सुन रहे हैं";
 "spoken_word_shelf_section" = "बुकशेल्फ़";
 "spoken_word_chapter_position_format" = "अध्याय %lld / %lld";
