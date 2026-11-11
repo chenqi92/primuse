@@ -772,7 +772,8 @@ final class ScanService {
             let resumableStageSessions = startupState.checkpoints.compactMapValues {
                 $0.subsonicCatalogState?.stageSessionID
             }
-            SourceCacheReclamationQueue.enqueue {
+            // 启动时的例行整理,不是用户刚做的操作:留在后台优先级,给启动让路。
+            SourceCacheReclamationQueue.enqueue(priority: .background) {
                 do {
                     let discarded = try await pagedCatalogStore.discardUnresumableStagesInBatches(
                         keepingStageSessionIDs: resumableStageSessions,
@@ -2395,7 +2396,8 @@ final class ScanService {
     private static func scheduleCatalogCleanup(
         store: PagedSongCatalogStagingStore, sourceID: String, stageSessionID: String
     ) {
-        SourceCacheReclamationQueue.enqueue {
+        // 扫描用过的暂存分页,用户看不到也不占多少空间:留在后台优先级。
+        SourceCacheReclamationQueue.enqueue(priority: .background) {
             do {
                 try await store.discardInBatches(sourceID: sourceID, stageSessionID: stageSessionID,
                                                 afterBatch: waitForCatalogCleanupWindow)

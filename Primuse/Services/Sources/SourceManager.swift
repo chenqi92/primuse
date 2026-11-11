@@ -12,9 +12,18 @@ import UIKit
 enum SourceCacheReclamationQueue {
     private static var tail: Task<Void, Never>?
 
-    static func enqueue(_ work: @escaping @Sendable () async -> Void) {
+    /// 排在同一条串行队列里。`priority` 默认是 `.utility`:用户删除、停用音乐源之后的回收用它。
+    /// 后台优先级(`.background`)的磁盘操作会被系统限速,低电量模式下还会整个暂停,
+    /// 用户删了源、空间却迟迟不还。目录在入队前已经改名挪出命名空间,优先级只决定空间
+    /// 什么时候释放,不影响正确性;让路给播放靠的是 `CacheCleanupPacer` 的分批与停顿,
+    /// 不靠优先级。启动时的例行整理仍然传 `.background`。
+    /// 高优先级的任务排在低优先级的后面时,等待会把前面那个提上来,先后顺序不变。
+    static func enqueue(
+        priority: TaskPriority = .utility,
+        _ work: @escaping @Sendable () async -> Void
+    ) {
         let previous = tail
-        tail = Task.detached(priority: .background) {
+        tail = Task.detached(priority: priority) {
             await previous?.value
             await work()
         }
@@ -12214,6 +12223,7 @@ final class SourceManager {
         let parents = Array(Set(
             Self.perSourceCacheDirs(sourceID: "_").map { $0.deletingLastPathComponent() }
         ))
+        // 上次没删完的是用户已经删掉的源,接着按默认的 `.utility` 还空间。
         SourceCacheReclamationQueue.enqueue {
             let fileManager = FileManager.default
             var staged: [URL] = []
