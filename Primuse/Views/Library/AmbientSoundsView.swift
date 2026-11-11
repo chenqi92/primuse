@@ -155,18 +155,17 @@ struct AmbientQuickTimerRow: View {
     @AppStorage(AmbientQuickTimerRow.storageKey) private var quickTimerMinutes = 0
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Image(systemName: "moon.zzz")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-                ForEach(AmbientSoundPlaybackPolicy.quickTimerMinutes, id: \.self) { minutes in
-                    chip(minutes)
-                }
+        // 四颗一样宽、铺满一行:窄屏上也不必横着滑才看得到「不限时」,字长的语言自己缩一点。
+        HStack(spacing: 8) {
+            Image(systemName: "moon.zzz")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            ForEach(AmbientSoundPlaybackPolicy.quickTimerMinutes, id: \.self) { minutes in
+                chip(minutes)
             }
-            .padding(.vertical, 2)
         }
+        .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("sleep_timer"))
     }
@@ -188,15 +187,19 @@ struct AmbientQuickTimerRow: View {
         } label: {
             Text(verbatim: title)
                 .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .foregroundStyle(isSelected ? Color.white : tint)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 7)
+                .frame(maxWidth: .infinity)
                 .background(
                     Capsule().fill(isSelected ? AnyShapeStyle(tint) : AnyShapeStyle(tint.opacity(0.14)))
                 )
                 .contentShape(Capsule())
+                .animation(PMMotion.selection.animation, value: isSelected)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pmPressable)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -217,7 +220,8 @@ struct AmbientSoundCard: View {
         Color.clear
             .aspectRatio(1, contentMode: .fit)
             .background {
-                tint.opacity(0.35)
+                // 没有封面的声音画自己的图案(雨、海浪、风扇…各有图标和颜色),有封面时封面盖在上面。
+                AmbientSoundArtwork(song: song)
             }
             .overlay {
                 CachedArtworkView(
@@ -228,16 +232,17 @@ struct AmbientSoundCard: View {
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat,
-                    placeholderIcon: ListeningSpace.ambient.systemImage,
+                    showsPlaceholder: false,
                     fillsProposedSize: true
                 )
             }
             .overlay {
-                LinearGradient(
-                    colors: [tint.opacity(0.10), tint.opacity(0.55), tint.opacity(0.92)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                // 只压暗下半截托住字,不给封面整块染色。
+                LinearGradient(stops: [
+                    .init(color: .black.opacity(0), location: 0.42),
+                    .init(color: .black.opacity(0.2), location: 0.66),
+                    .init(color: .black.opacity(0.58), location: 1)
+                ], startPoint: .top, endPoint: .bottom)
             }
             .overlay(alignment: .bottomLeading) {
                 Text(song.title)
@@ -245,7 +250,7 @@ struct AmbientSoundCard: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                    .shadow(color: .black.opacity(0.3), radius: 4, y: 1)
                     .padding(12)
             }
             .overlay(alignment: .topTrailing) {
@@ -368,6 +373,65 @@ enum AmbientSoundPlayback {
     }
 }
 
+/// 一段声音没有封面时的图案:按声音名挑的渐变底(`AmbientSoundMotif`),一角几圈淡淡的涟漪,中间是图标。
+/// 声音卡、环境音播放页、搜索结果共用,同一段声音在哪儿都是同一个样子。
+struct AmbientSoundArtwork: View {
+    let song: Song
+    /// 图标占边长的比例。
+    var symbolScale: CGFloat = 0.28
+    var showsRipples = true
+
+    var body: some View {
+        let motif = AmbientSoundMotif.motif(
+            title: song.title, album: song.albumTitle, genre: song.genre, seed: song.id
+        )
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            ZStack {
+                LinearGradient(
+                    colors: [motif.topColor, motif.bottomColor],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                RadialGradient(
+                    colors: [.white.opacity(0.22), .clear],
+                    center: UnitPoint(x: 0.3, y: 0.22),
+                    startRadius: 0,
+                    endRadius: side * 0.7
+                )
+                if showsRipples {
+                    ForEach(0..<3, id: \.self) { ring in
+                        Circle()
+                            .strokeBorder(.white.opacity(0.14 - Double(ring) * 0.04), lineWidth: max(side * 0.006, 0.75))
+                            .frame(width: side * (0.5 + 0.32 * CGFloat(ring)), height: side * (0.5 + 0.32 * CGFloat(ring)))
+                            .position(x: geometry.size.width * 0.82, y: geometry.size.height * 0.18)
+                    }
+                }
+                Image(systemName: motif.symbol)
+                    .font(.system(size: max(side * symbolScale, 12), weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white.opacity(0.95))
+                    .shadow(color: .black.opacity(0.18), radius: side * 0.04, y: side * 0.015)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height * 0.44)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+extension AmbientSoundMotif {
+    /// 渐变上端的颜色(环境音播放页的光环也用它)。
+    var topColor: Color { Self.color(colors.top) }
+    var bottomColor: Color { Self.color(colors.bottom) }
+
+    private static func color(_ hex: UInt32) -> Color {
+        let rgb = ListeningSpaceTint.components(hex)
+        return Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue, opacity: 1)
+    }
+}
+
 /// 搜索结果里环境音那一组的一行。
 struct AmbientSoundSearchRow: View {
     let song: Song
@@ -375,17 +439,23 @@ struct AmbientSoundSearchRow: View {
     var compact = false
 
     var body: some View {
+        let side: CGFloat = compact ? 36 : 44
         HStack(spacing: 12) {
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
                 songID: song.id,
-                size: compact ? 36 : 44,
+                size: side,
                 cornerRadius: compact ? 6 : 8,
                 sourceID: song.sourceID,
                 filePath: song.filePath,
                 fileFormat: song.fileFormat,
-                placeholderIcon: ListeningSpace.ambient.systemImage
+                showsPlaceholder: false
             )
+            .frame(width: side, height: side)
+            .background {
+                AmbientSoundArtwork(song: song, symbolScale: 0.42, showsRipples: false)
+                    .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 8, style: .continuous))
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)
                     .font(compact ? .system(size: 13, weight: .medium) : .subheadline)

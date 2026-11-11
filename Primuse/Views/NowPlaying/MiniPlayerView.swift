@@ -163,6 +163,26 @@ struct MiniPlayerSwipeContent: View {
                     .frame(width: artworkSize, height: artworkSize)
                     .modifier(MiniPlayerLandingPop())
                     .padding(.trailing, artworkTrailingSpacing)
+                } else if player.currentItemIsAmbient, let song = player.currentSong {
+                    // 环境音没有封面时和环境音页的声音卡同一个图案,不是一个灰色音符。
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: artworkSize,
+                        cornerRadius: artworkCornerRadius,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat,
+                        showsPlaceholder: false,
+                        revisionToken: player.coverRevision
+                    )
+                    .frame(width: artworkSize, height: artworkSize)
+                    .background {
+                        AmbientSoundArtwork(song: song, symbolScale: 0.46, showsRipples: false)
+                            .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+                    }
+                    .modifier(MiniPlayerLandingPop())
+                    .padding(.trailing, artworkTrailingSpacing)
                 } else {
                     CachedArtworkView(
                         coverRef: player.currentSong?.coverArtFileName,

@@ -64,9 +64,14 @@ struct AmbientNowPlayingLayout<Volume: View>: View {
 
     private func centerpiece(side: CGFloat) -> some View {
         let song = player.currentSong
+        // 光环的颜色跟这段声音的图案走(雨是蓝、火是橙、白噪音是银灰蓝):封面取出来的控件色在没有封面、
+        // 封面偏暗时是一团灰,浅色模式下光环成了一圈脏影。
+        let motifTint = song.map {
+            AmbientSoundMotif.motif(title: $0.title, album: $0.albumTitle, genre: $0.genre, seed: $0.id).topColor
+        } ?? ListeningSpace.ambient.tint
         return ZStack {
             ImmersiveBreathingHalo(
-                palette: ImmersiveArtworkPalette(primary: accent, secondary: ListeningSpace.ambient.tint),
+                palette: ImmersiveArtworkPalette(primary: motifTint, secondary: accent),
                 isAnimating: player.isPlaying && !reduceMotion,
                 diameter: side
             )
@@ -78,8 +83,14 @@ struct AmbientNowPlayingLayout<Volume: View>: View {
                 sourceID: song?.sourceID,
                 filePath: song?.filePath,
                 fileFormat: song?.fileFormat,
-                placeholderIcon: ListeningSpace.ambient.systemImage
+                showsPlaceholder: false
             )
+            .frame(width: side * 0.74, height: side * 0.74)
+            .background {
+                if let song {
+                    AmbientSoundArtwork(song: song, symbolScale: 0.3, showsRipples: false)
+                }
+            }
             .clipShape(Circle())
             .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
         }

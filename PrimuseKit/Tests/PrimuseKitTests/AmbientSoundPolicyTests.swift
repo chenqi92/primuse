@@ -404,3 +404,56 @@ struct AmbientSoundPlaybackTests {
         #expect(!AmbientSoundLibrarySection.isReachable(separatesAmbient: true, hasContent: true, sectionHidden: true))
     }
 }
+
+@Suite("环境音没有封面时的图案")
+struct AmbientSoundMotifTests {
+    private func motif(_ title: String, album: String? = nil, genre: String? = nil, seed: String = "id") -> AmbientSoundMotif {
+        AmbientSoundMotif.motif(title: title, album: album, genre: genre, seed: seed)
+    }
+
+    @Test("按声音名认图标:雷雨先于雨,风扇先于风,几种噪音各有颜色")
+    func recognizesCommonSounds() {
+        #expect(motif("Thunderstorm") == .storm)
+        #expect(motif("Rain on Window") == .rain)
+        #expect(motif("Gentle Rain in the Forest at Dawn") == .rain)
+        #expect(motif("海浪声") == .ocean)
+        #expect(motif("Ocean Waves") == .ocean)
+        #expect(motif("风扇声") == .fan)
+        #expect(motif("山谷里的风") == .wind)
+        #expect(motif("Crackling Fireplace") == .fire)
+        #expect(motif("白噪音") == .whiteNoise)
+        #expect(motif("粉红噪音") == .pinkNoise)
+        #expect(motif("Brown Noise") == .brownNoise)
+        #expect(motif("Night Train") == .train)
+        #expect(motif("Coffee Shop") == .cafe)
+    }
+
+    @Test("英文按词认:短词要整词相同,不把 season、train、brainwave 认错")
+    func matchesWholeWords() {
+        #expect(motif("Four Seasons", seed: "a") != .ocean)
+        #expect(motif("Train Ride") == .train)
+        #expect(motif("Brainwave Focus", seed: "b") != .rain)
+        #expect(motif("Deep Sea") == .ocean)
+        #expect(motif("Rainfall") == .rain)
+    }
+
+    @Test("声音名认不出来时看专辑名、流派,都认不出来按条目挑一种自然色且每次一样")
+    func fallsBackToAlbumGenreAndSeed() {
+        #expect(motif("Track 1", album: "Night Rain") == .rain)
+        #expect(motif("Track 2", album: nil, genre: "白噪音") == .whiteNoise)
+        let first = motif("Untitled", seed: "song-42")
+        #expect(first == motif("Untitled", seed: "song-42"))
+        #expect(first.symbol == "leaf.fill")
+        let seeds = (0..<40).map { motif("Untitled", seed: "song-\($0)") }
+        #expect(Set(seeds).count > 1)
+    }
+
+    @Test("每种图案的下端颜色都够深,压白字看得清")
+    func bottomColorsAreDark() {
+        for motif in AmbientSoundMotif.allCases {
+            let (red, green, blue) = ListeningSpaceTint.components(motif.colors.bottom)
+            let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+            #expect(luminance < 0.4, "\(motif)")
+        }
+    }
+}

@@ -1479,6 +1479,7 @@ struct LibraryView: View {
             }
         case .ambient:
             overlappingPreview(Array(library.ambientSongs.prefix(3))) { song in
+                // 没有封面的声音和环境音页的声音卡一样画自己的图案,不是三块灰色占位。
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -1487,8 +1488,13 @@ struct LibraryView: View {
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat,
-                    placeholderIcon: ListeningSpace.ambient.systemImage
+                    showsPlaceholder: false
                 )
+                .frame(width: 36, height: 36)
+                .background {
+                    AmbientSoundArtwork(song: song, symbolScale: 0.46, showsRipples: false)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
             }
         }
     }
