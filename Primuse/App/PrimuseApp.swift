@@ -2655,6 +2655,8 @@ private struct DebugEvidenceOrientation: ViewModifier {
 ///   `PRIMUSE_AUTOPLAY_MODE=sequential|repeatAll|repeatOne|shuffle` 时开播后换成这种播放方式（看队列页那两颗键）。
 /// - `PRIMUSE_DEBUG_LIKE=<标题片段>[,…]`：曲库里出现标题包含这些片段的歌后给它们点心（看「我喜欢」页与「喜欢的单集」）。
 /// - `PRIMUSE_DEBUG_MOTION_SCRIPT=<步骤;…>`：有歌在播后按步骤做一遍交互，给录屏看动效用（见 `DebugMotionScript`）。
+/// - `PRIMUSE_DEBUG_SCROLL=<秒>:<位置>[@<时长>],…`（iOS）：把当前页最大的竖向滚动区滚到某处，截滚动途中或页面下半截用
+///   （见 `DebugScrollScript`）。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -2734,6 +2736,9 @@ private struct DebugLaunchAutomation: ViewModifier {
                 plog("🧪 DebugLaunchAutomation: no song matching '\(needle)' within the wait window")
             }
             .task { await DebugMotionScript.runIfRequested() }
+            #if os(iOS)
+            .task { await DebugScrollScript.runIfRequested() }
+            #endif
             #if os(macOS)
             .task { await MacSettingsDebugSnapshot.writeIfRequested() }
             .task { await MacPodcastDebugSnapshot.writeIfRequested() }
@@ -2742,6 +2747,85 @@ private struct DebugLaunchAutomation: ViewModifier {
             .modifier(DebugListeningFeatureAutomation())
     }
 }
+
+#if os(iOS)
+/// 无人值守地滚动页面：`PRIMUSE_DEBUG_SCROLL=6:640,2:+300@1.5,3:end,2:top`，逗号隔开的每一步先等「秒」再滚：
+/// - `<点>` 滚到离顶端这么远；`+<点>` / `-<点>` 在当前位置上再往下 / 往上滚这么多；`end` / `top` 滚到底 / 顶。
+/// - `@<秒>` 用这么长时间匀速缓动过去（逐帧改位置，滚动途中的随滚动效果照常算），不写就是 0.4 秒。
+/// 滚的是最上面那一层(有弹出页时是弹出页)里露出面积最大、能竖着滚的那个滚动区；每一步写 🧪 日志。
+@MainActor
+private enum DebugScrollScript {
+    static func runIfRequested() async {
+        guard let script = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SCROLL"], !script.isEmpty else { return }
+        for step in script.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+            let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let delay = Double(parts[0]) else {
+                plog("🧪 DebugScrollScript: bad step \(step)")
+                continue
+            }
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            let target = parts[1].split(separator: "@", maxSplits: 1).map(String.init)
+            let duration = target.count > 1 ? (Double(target[1]) ?? 0.4) : 0.4
+            guard let scrollView = largestVerticalScrollView() else {
+                plog("🧪 DebugScrollScript: no scroll view for \(step)")
+                continue
+            }
+            await scroll(scrollView, to: target[0], duration: duration)
+            plog("🧪 DebugScrollScript: \(step) -> y=\(Int(scrollView.contentOffset.y)) of \(Int(scrollView.contentSize.height))")
+        }
+    }
+
+    private static func scroll(_ scrollView: UIScrollView, to spec: String, duration: Double) async {
+        let minimum = -scrollView.adjustedContentInset.top
+        let maximum = max(minimum, scrollView.contentSize.height + scrollView.adjustedContentInset.bottom - scrollView.bounds.height)
+        let start = scrollView.contentOffset.y
+        let goal: CGFloat
+        switch spec {
+        case "end": goal = maximum
+        case "top": goal = minimum
+        default:
+            guard let value = Double(spec) else { return }
+            goal = spec.hasPrefix("+") || spec.hasPrefix("-") ? start + CGFloat(value) : minimum + CGFloat(value)
+        }
+        let end = min(max(goal, minimum), maximum)
+        let frames = max(Int(duration * 60), 1)
+        for frame in 1...frames {
+            let t = Double(frame) / Double(frames)
+            let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+            scrollView.contentOffset.y = start + (end - start) * CGFloat(eased)
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+    }
+
+    private static func largestVerticalScrollView() -> UIScrollView? {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .filter { $0.isKeyWindow }
+        var best: (view: UIScrollView, area: CGFloat)?
+        func visit(_ view: UIView, in window: UIWindow) {
+            guard !view.isHidden, view.alpha > 0.01 else { return }
+            if let scrollView = view as? UIScrollView,
+               scrollView.contentSize.height > scrollView.bounds.height + 1 {
+                let visible = scrollView.convert(scrollView.bounds, to: window).intersection(window.bounds)
+                let area = visible.isNull ? 0 : visible.width * visible.height
+                if area > (best?.area ?? 0) { best = (scrollView, area) }
+            }
+            for subview in view.subviews { visit(subview, in: window) }
+        }
+        for window in windows {
+            // 只在最上面那一层找:弹出页(标签编辑、设置面板)开着时滚它,不滚底下被盖住的列表。
+            var top = window.rootViewController
+            while let presented = top?.presentedViewController, !presented.isBeingDismissed {
+                top = presented
+            }
+            visit(top?.view ?? window, in: window)
+        }
+        return best?.view
+    }
+}
+#endif
 
 /// 无人值守地把一串交互做一遍，录屏看动效（红心、提示条、换歌封面、播放方式键）。
 /// `PRIMUSE_DEBUG_MOTION_SCRIPT="wait:6;like;wait:2;next;wait:2;queue:next;wait:2;shuffle"`，步骤用分号隔开：
@@ -2819,7 +2903,8 @@ private enum DebugMotionScript {
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
 /// - `PRIMUSE_DEBUG_PRESENT=book`：有声书在播后弹出这本书的详情页,`PRIMUSE_DEBUG_BOOK_RATE=<倍数>` 先把这本书的语速设好。
-/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|clip|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover`：弹出对应页面
+/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|clip|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover|carouselSettings|tabEditor`：弹出对应页面
+///   （carouselSettings 是设置 › 播放器 › 转轮切换，tabEditor 是设置 › 外观里的底部标签栏编辑）
 ///   （clip 是正在播的歌的「铃声与导出」，配合 `PRIMUSE_DEBUG_CLIP_ACTION=highlight,ringtone` 依次定位高潮、制作铃声；
 ///   sleep 是睡眠定时面板，`PRIMUSE_DEBUG_SLEEP_MINUTES=<分钟>` 先开一个倒计时）
 ///   （播客页配合 `PRIMUSE_DEBUG_PODCAST_SEED=<feed 地址>` 先订阅，见 `PodcastDebugScreen`）
@@ -3101,6 +3186,20 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
             AddSourceView(sourceType: .plex) { _ in presented = nil }
                 .environment(services.themeService)
                 .environment(services.sourceManager)
+        case "carouselSettings":
+            #if os(iOS)
+            NavigationStack { NowPlayingCarouselSettingsView() }
+            #else
+            EmptyView()
+            #endif
+        case "tabEditor":
+            #if os(iOS)
+            AppTabVisibilityEditor(configuration: AppTabConfiguration(
+                hiddenMask: UserDefaults.standard.integer(forKey: AppTabConfiguration.storageKey)
+            )) { _ in }
+            #else
+            EmptyView()
+            #endif
         case "batchReview", "tidyReview":
             NavigationStack {
                 TagChangeReviewView(input: TagChangeReviewInput(

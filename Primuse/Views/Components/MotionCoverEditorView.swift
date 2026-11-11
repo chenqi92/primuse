@@ -235,6 +235,19 @@ struct MotionCoverEditorView<Preview: View>: View {
             Text(controller.errorMessage ?? "")
         }
         .onDisappear { controller.cancel() }
+        #if DEBUG
+        .task {
+            // 取证:`PRIMUSE_DEBUG_MOTION_COVER_IMPORT=<Documents 里的文件名>` 打开编辑页后直接导入这个文件,
+            // 看处理中的进度卡和导入后的预览。
+            guard let name = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_MOTION_COVER_IMPORT"],
+                  !name.isEmpty else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            let url = URL.documentsDirectory.appendingPathComponent(name)
+            plog("🧪 Debug: motion cover import \(url.lastPathComponent)")
+            controller.importFile(at: url, for: owner)
+        }
+        #endif
     }
 
     private var previewTile: some View {
@@ -401,8 +414,30 @@ struct AlbumMotionCoverPreview: View {
 /// 标签编辑页（iPhone / iPad）里的「动态封面」卡片，样式跟歌词卡片一致。
 struct SongMotionCoverCard: View {
     let song: Song
+    #if DEBUG
+    @State private var debugOpensEditor = false
+    #endif
 
     var body: some View {
+        card
+            #if DEBUG
+            // 取证:`PRIMUSE_DEBUG_MOTION_COVER=open` 标签编辑页一打开就推进「动态封面」编辑页
+            // (配合 `PRIMUSE_DEBUG_TAG_EDITOR` 打开标签编辑)。
+            .navigationDestination(isPresented: $debugOpensEditor) {
+                MotionCoverEditorView(owner: .song(song.id), albumID: song.albumID) {
+                    SongMotionCoverPreview(song: song)
+                }
+            }
+            .task {
+                guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_MOTION_COVER"] == "open" else { return }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                debugOpensEditor = true
+            }
+            #endif
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text("motion_cover_title")
                 .font(.caption)
