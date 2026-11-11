@@ -75,6 +75,22 @@ func readsPodcastChaptersFromCHAPFrames(version: Int) {
     #expect(ID3ChapterParser.chapters(in: cut).map(\.title) == ["Complete"])
 }
 
+@Test func chapterCountNeedsTheWholeTag() {
+    let tag = chapterTag(version: 4, frames: [
+        chapFrame(version: 4, id: "ch0", start: 0, title: "One"),
+        chapFrame(version: 4, id: "ch1", start: 50_000, title: "Two"),
+        chapFrame(version: 4, id: "ch2", start: 90_000, title: "Three"),
+    ])
+    #expect(ID3ChapterParser.chapterCount(inCompleteTag: tag) == 3)
+    // 本机读标签会在标签后面接上 ID3v1 那 128 字节,多出来的不算进标签。
+    #expect(ID3ChapterParser.chapterCount(inCompleteTag: tag + Data(repeating: 0x54, count: 128)) == 3)
+    // 远端只读了开头一段:标签没读全就不数,免得把章数记少。
+    #expect(ID3ChapterParser.chapterCount(inCompleteTag: tag.prefix(tag.count - 6)) == nil)
+    #expect(ID3ChapterParser.chapterCount(inCompleteTag: Data("fLaC0000000000".utf8)) == nil)
+    let textOnly = chapterTag(version: 3, frames: [frame(version: 3, id: "TIT2", payload: Data([3]) + Data("Song".utf8))])
+    #expect(ID3ChapterParser.chapterCount(inCompleteTag: textOnly) == 0)
+}
+
 @Test func filesWithoutChaptersYieldNothing() {
     #expect(ID3ChapterParser.chapters(in: Data()).isEmpty)
     #expect(ID3ChapterParser.chapters(in: Data("fLaC0000000000".utf8)).isEmpty)

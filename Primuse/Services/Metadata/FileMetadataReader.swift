@@ -1233,6 +1233,7 @@ enum FileMetadataReader {
         data tagData: Data,
         tailData: Data? = nil
     ) {
+        applyID3ChapterCount(to: &metadata, tagData: tagData)
         let text = ID3TextMetadataParser.parse(head: tagData, tail: tailData)
         let artwork = parseID3Metadata(from: tagData)
         guard text != nil || artwork != nil else { return }
@@ -1301,6 +1302,17 @@ enum FileMetadataReader {
         metadata.replayGainTrackPeak = metadata.replayGainTrackPeak ?? artwork?.replayGainTrackPeak
         metadata.replayGainAlbumGain = metadata.replayGainAlbumGain ?? artwork?.replayGainAlbumGain
         metadata.replayGainAlbumPeak = metadata.replayGainAlbumPeak ?? artwork?.replayGainAlbumPeak
+    }
+
+    /// 长 MP3 有声书的 CHAP 章节数,资料库按它算章数。只看够长的文件(短的是歌,不为它复制整段标签),
+    /// 标签要整段在手才数;少于两章不记,不为一个「1」给每首歌多存一份内容信息。
+    private static func applyID3ChapterCount(to metadata: inout Metadata, tagData: Data) {
+        guard let duration = metadata.duration, duration.isFinite,
+              duration >= SongContentMetadata.chapterLookupMinimumDuration,
+              let count = ID3ChapterParser.chapterCount(inCompleteTag: tagData), count > 1 else { return }
+        var content = metadata.contentMetadata ?? SongContentMetadata()
+        content.embeddedChapterCount = content.embeddedChapterCount ?? count
+        metadata.contentMetadata = content
     }
 
     private static func preferredMetadataText(current: String?, rawID3: String?) -> String? {

@@ -2338,6 +2338,27 @@ extension ListeningFeaturesTests {
         XCTAssertLessThan(built.count, 100)
     }
 
+    func testSpokenWordChapterCountUsesEmbeddedChapters() async throws {
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        var m4b = song("chapters-m4b", duration: 6 * 3600, genre: "Audiobook", path: "/books/Long.m4b")
+        m4b.albumTitle = "带章节的书"
+        m4b.contentMetadata = SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: 28)
+        let parts = (1...3).map { index in
+            var item = song("chapters-part-\(index)", genre: "Audiobook")
+            item.albumTitle = "分集的书"
+            item.trackNumber = index
+            return item
+        }
+        let music = song("chapters-music")
+        library.addSongs([m4b] + parts + [music])
+        for _ in 0..<200 where library.spokenWordSongs.count != 4 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.spokenWordSongs.count, 4)
+        XCTAssertEqual(library.spokenWordBookCount, 2)
+        XCTAssertEqual(library.spokenWordChapterCount, 28 + 3)
+    }
+
     func testSpokenWordShelfRendersScrollableListAndRemembersLayout() async throws {
         let defaults = try makeDefaults()
         let library = MusicLibrary(storageDirectory: makeDirectory())

@@ -35,6 +35,16 @@ public enum ID3ChapterParser {
         return headerLength + size + ((header[5] & 0x10) != 0 ? 10 : 0)
     }
 
+    /// How many marks `chapters(in:)` finds in a tag `data` holds whole; nil
+    /// when `data` starts no ID3v2.3/2.4 tag or stops before its end, so a
+    /// tag cut off by a bounded read is never counted short.
+    public static func chapterCount(inCompleteTag data: Data) -> Int? {
+        guard let length = tagLength(header: data.prefix(headerLength)),
+              length <= data.count,
+              length <= maximumTagLength else { return nil }
+        return chapters(in: data.prefix(length)).count
+    }
+
     /// Reads the tag at the head of a local file; the audio is never touched.
     public static func chapters(fileURL: URL) -> [MediaChapter] {
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return [] }

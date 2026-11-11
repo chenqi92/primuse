@@ -1461,13 +1461,30 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
     public var iTunesAdvisory: Int?
     public var copyright: String?
     public var isFileInspectionComplete: Bool
+    /// 文件里内嵌的章节数(m4b/m4a 的章节轨或 Nero 章节表、长 MP3 的 CHAP 帧),读标签时顺手数的。
+    /// nil 是还没数过;读完整个 moov 没找到章节记 0。资料库「有声书」那一行的章数按它算,
+    /// 见 `SpokenWordChapterTally`。
+    public var embeddedChapterCount: Int?
 
-    public init(iTunesAdvisory: Int? = nil, copyright: String? = nil, isFileInspectionComplete: Bool = false, releaseType: String? = nil) {
+    private enum CodingKeys: String, CodingKey {
+        case releaseType, iTunesAdvisory, copyright, isFileInspectionComplete
+        // 每首 m4a 都带这一项,存短一点。
+        case embeddedChapterCount = "chapters"
+    }
+
+    public init(
+        iTunesAdvisory: Int? = nil,
+        copyright: String? = nil,
+        isFileInspectionComplete: Bool = false,
+        releaseType: String? = nil,
+        embeddedChapterCount: Int? = nil
+    ) {
         self.releaseType = releaseType
         self.isFileInspectionComplete = isFileInspectionComplete
         self.iTunesAdvisory = iTunesAdvisory
         let text = copyright?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.copyright = text?.isEmpty == false ? text : nil
+        self.embeddedChapterCount = embeddedChapterCount.map { max(0, $0) }
     }
 
     public var isExplicit: Bool { iTunesAdvisory == 1 || iTunesAdvisory == 4 }
@@ -1477,7 +1494,8 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
         Self(iTunesAdvisory: iTunesAdvisory ?? fallback?.iTunesAdvisory,
              copyright: copyright ?? fallback?.copyright,
              isFileInspectionComplete: isFileInspectionComplete || fallback?.isFileInspectionComplete == true,
-             releaseType: releaseType ?? fallback?.releaseType)
+             releaseType: releaseType ?? fallback?.releaseType,
+             embeddedChapterCount: embeddedChapterCount ?? fallback?.embeddedChapterCount)
     }
 
     public static func merging(previous: Self?, incoming: Self?) -> Self? {
@@ -1485,9 +1503,24 @@ public struct SongContentMetadata: Codable, Hashable, Sendable {
         return incoming.isFileInspectionComplete ? incoming : incoming.fillingMissing(from: previous)
     }
 
+    /// 播放器只在这么长的条目里找章节(有声内容不限长短);长 MP3 读标签时也只在这个长度以上数 CHAP 帧。
+    public static let chapterLookupMinimumDuration: TimeInterval = 20 * 60
+
     public static func needsInspection(_ song: Song) -> Bool {
-        song.contentMetadata?.isFileInspectionComplete != true && [.m4a, .alac].contains(song.fileFormat)
-            && !song.isStreamDescriptor && !song.isStandaloneMusicVideo
+        guard [.m4a, .alac].contains(song.fileFormat),
+              !song.isStreamDescriptor, !song.isStandaloneMusicVideo else { return false }
+        guard let content = song.contentMetadata, content.isFileInspectionComplete else { return true }
+        // 数章节之前就读完的有声书文件再读一遍 moov,只为补上章节数。短的音乐 m4a 不在其列,
+        // 不为它们把整库重读一遍。
+        return content.embeddedChapterCount == nil && mayCarryChapters(song)
+    }
+
+    /// `.m4b`,或够长、值得写章节的 m4a。按字节比扩展名,整库逐首判断时不分配字符串。
+    static func mayCarryChapters(_ song: Song) -> Bool {
+        if song.duration >= chapterLookupMinimumDuration { return true }
+        let suffix = song.filePath.utf8.suffix(4)
+        return suffix.count == 4
+            && suffix.lazy.map { $0 | 0x20 }.elementsEqual(".m4b".utf8)
     }
 
     public static func copyrightNotices<S: Sequence>(for songs: S) -> [String] where S.Element == Song {

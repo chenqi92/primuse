@@ -4381,6 +4381,9 @@ final class MusicLibrary {
     private(set) var hasSpokenWordContent = false
     /// 书架条数, 只在条数真变了时写。理由同上。
     private(set) var spokenWordSongCount = 0
+    /// 书架上一共几章: 带内嵌章节的文件按章节数算, 其余一个文件一章 (`SpokenWordChapterTally`)。
+    /// 后台整理可见集时一并算好, 只在变了时写。
+    private(set) var spokenWordChapterCount = 0
     @ObservationIgnored private(set) var spokenWordSongIDs: Set<String> = [] {
         didSet {
             // Music rankings and stats read the split from the play history.
@@ -4718,6 +4721,8 @@ final class MusicLibrary {
         let musicSongs: [Song]
         /// The book shelf's items: spoken word that is not a podcast.
         let spokenWordSongs: [Song]
+        /// `SpokenWordChapterTally.total(spokenWordSongs)`.
+        let spokenWordChapterCount: Int
         /// Everything played the spoken-word way — books and the listener's own
         /// podcast files — which is what the music lists leave out.
         let spokenWordSongIDs: Set<String>
@@ -5574,6 +5579,9 @@ final class MusicLibrary {
         if spokenWordBookCount != prepared.spokenWordBookIDSet.count {
             spokenWordBookCount = prepared.spokenWordBookIDSet.count
         }
+        if spokenWordChapterCount != prepared.spokenWordChapterCount {
+            spokenWordChapterCount = prepared.spokenWordChapterCount
+        }
         if booksWentAway || showsWentAway {
             carryRenamedSpokenWordBooks(
                 books: booksWentAway ? (previousBookIDs, prepared.spokenWordBookIDs) : nil,
@@ -5767,6 +5775,7 @@ final class MusicLibrary {
             songs: nextVisibleSongs,
             musicSongs: musicSongs,
             spokenWordSongs: spokenWordSongs,
+            spokenWordChapterCount: SpokenWordChapterTally.total(spokenWordSongs),
             spokenWordSongIDs: spokenWordSongIDs,
             podcastSongs: podcastSongs,
             ambientSongs: ambientSongs,

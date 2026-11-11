@@ -104,6 +104,43 @@ struct ISOBaseMediaChapterParserTests {
         #expect(ISOBaseMediaChapterParser.chapters(in: file).map(\.title) == ["Nero layout"])
     }
 
+    // MARK: - Count from the movie box
+
+    @Test("Counts Nero marks the way the chapter list keeps them")
+    func countsNeroChapters() {
+        let file = mediaFile(moovChildren: udta(chpl(
+            version: 1,
+            entries: [(30_000_000, "Later"), (0, "First"), (0, "Duplicate start"), (60_000_000, "")]
+        )))
+
+        #expect(ISOBaseMediaChapterParser.chapterCount(in: file) == 2)
+        #expect(ISOBaseMediaChapterParser.chapterCount(in: file)
+            == ISOBaseMediaChapterParser.chapters(in: file).count)
+    }
+
+    @Test("Counts a chapter track from moov alone, without the titles in mdat")
+    func countsChapterTrackWithoutMediaData() {
+        let file = quickTimeChapterFile(
+            timescale: 1000,
+            samples: [(durationUnits: 60_000, title: "One"),
+                      (durationUnits: 30_000, title: "Two"),
+                      (durationUnits: 30_000, title: "Three")]
+        )
+        let movieOnly = droppingMediaData(file)
+
+        #expect(movieOnly.count < file.count)
+        #expect(ISOBaseMediaChapterParser.chapterCount(in: movieOnly) == 3)
+        #expect(ISOBaseMediaChapterParser.chapterCount(in: file) == 3)
+    }
+
+    @Test("A complete movie without chapters counts zero; no movie box counts nothing")
+    func countsNothingWithoutChapters() {
+        #expect(ISOBaseMediaChapterParser.chapterCount(in: mediaFile(moovChildren: [])) == 0)
+        #expect(ISOBaseMediaChapterParser.chapterCount(in: Data()) == nil)
+        let complete = mediaFile(moovChildren: udta(chpl(version: 1, entries: [(0, "A"), (10_000_000, "B")])))
+        #expect(ISOBaseMediaChapterParser.chapterCount(in: complete.dropLast()) == nil)
+    }
+
     // MARK: - Malformed input
 
     @Test("Truncated and nonsense bytes yield no chapters instead of crashing")
@@ -297,6 +334,22 @@ private func trackHeader(id: UInt32) -> Data {
     payload.append(contentsOf: bigEndian(UInt32(0)))                      // reserved
     payload.append(contentsOf: bigEndian(UInt32(0)))                      // duration
     return atom("tkhd", payload)
+}
+
+/// Keeps every top-level atom but `mdat`: what a tag read hands over when it
+/// only fetched the movie box.
+private func droppingMediaData(_ file: Data) -> Data {
+    var cursor = 0
+    var result = Data()
+    while cursor + 8 <= file.count {
+        let size = Int(file[cursor]) << 24 | Int(file[cursor + 1]) << 16
+            | Int(file[cursor + 2]) << 8 | Int(file[cursor + 3])
+        let type = String(bytes: file[(cursor + 4)..<(cursor + 8)], encoding: .ascii)
+        guard size >= 8, cursor + size <= file.count else { break }
+        if type != "mdat" { result.append(file[cursor..<(cursor + size)]) }
+        cursor += size
+    }
+    return result
 }
 
 /// Rebuilds a chapter-track file with a Nero list added to `moov/udta`, so a

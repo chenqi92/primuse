@@ -172,6 +172,28 @@ public enum SpokenWordContentPolicy {
     ]
 }
 
+/// 资料库「有声书」那一行「N 本书 · M 章」里的章数。
+///
+/// 逐个文件算再相加:文件里有内嵌章节就按内嵌章节数算,没有就算一章。一本带章节的 m4b
+/// 因此不再只算一章。章节数是读标签时顺手记下的(`SongContentMetadata.embeddedChapterCount`),
+/// 这里不碰文件;还没数过的文件(读标签早于这一项、服务端曲库源)先按一章算。
+/// 用户自己生成或导入的章节不算在内:规则只认文件里带的章节。
+public enum SpokenWordChapterTally {
+    /// 一个文件算几章。
+    public static func chapters(embeddedChapterCount: Int?) -> Int {
+        max(1, embeddedChapterCount ?? 1)
+    }
+
+    /// 书架上这些文件一共几章。整理可见集时在后台线程上算一次,不在主线程逐首遍历。
+    public static func total(_ songs: [Song]) -> Int {
+        var total = 0
+        for song in songs {
+            total += chapters(embeddedChapterCount: song.contentMetadata?.embeddedChapterCount)
+        }
+        return total
+    }
+}
+
 /// Where a long recording resumes, and when that position stops being worth
 /// keeping.
 ///

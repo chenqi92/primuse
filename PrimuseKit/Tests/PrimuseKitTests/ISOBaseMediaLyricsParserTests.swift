@@ -273,6 +273,12 @@ struct ISOBaseMediaLyricsParserTests {
         #expect(ISOBaseMediaLyricsParser.contentMetadata(in: Data()) == nil)
     }
 
+    @Test("A complete inspection also records how many chapters the movie carries")
+    func contentInspectionCountsChapters() throws {
+        let complete = try #require(ISOBaseMediaLyricsParser.contentMetadata(in: mediaFile(items: Data())))
+        #expect(complete.embeddedChapterCount == 0)
+    }
+
     @Test("Malformed advisory is ignored without dropping valid copyright")
     func malformedContentTag() throws {
         let items = atom("rtng", payload: dataAtom(Data([4]), declaredType: 1))

@@ -66,6 +66,18 @@ public enum ISOBaseMediaChapterParser {
         return sanitized(quickTimeChapters(in: data, moov: moov))
     }
 
+    /// How many marks `chapters(in:)` would find, from `moov` alone: reading
+    /// tags hands over the movie box without the media data, so a chapter
+    /// track's marks are counted by their distinct start times rather than
+    /// by their titles. Nil when `data` holds no complete `moov`.
+    public static func chapterCount(in data: Data) -> Int? {
+        guard let moov = atoms(in: data, range: data.startIndex..<data.endIndex)
+            .first(where: { $0.type == "moov" }) else { return nil }
+        let nero = neroChapters(in: data, moov: moov)
+        if !nero.isEmpty { return sanitized(nero).count }
+        return quickTimeChapterStartCount(in: data, moov: moov)
+    }
+
     /// Drops marks that carry no title, orders them, and removes the duplicate
     /// start times some converters emit for a leading "chapter 0".
     static func sanitized(_ chapters: [MediaChapter]) -> [MediaChapter] {
@@ -122,6 +134,15 @@ public enum ISOBaseMediaChapterParser {
     // MARK: - QuickTime chapter track
 
     private static func quickTimeChapters(in data: Data, moov: Atom) -> [MediaChapter] {
+        for track in chapterTracks(in: data, moov: moov) {
+            let chapters = textTrackChapters(track: track, in: data)
+            if !chapters.isEmpty { return chapters }
+        }
+        return []
+    }
+
+    /// The tracks another track names through `tref/chap`, in file order.
+    private static func chapterTracks(in data: Data, moov: Atom) -> [Atom] {
         let tracks = atoms(in: data, range: moov.payload).filter { $0.type == "trak" }
         var referencedIDs: Set<UInt32> = []
         for track in tracks {
@@ -136,15 +157,32 @@ public enum ISOBaseMediaChapterParser {
             }
         }
         guard !referencedIDs.isEmpty else { return [] }
-
-        for track in tracks {
-            guard let id = trackID(of: track, in: data), referencedIDs.contains(id) else {
-                continue
-            }
-            let chapters = textTrackChapters(track: track, in: data)
-            if !chapters.isEmpty { return chapters }
+        return tracks.filter { track in
+            guard let id = trackID(of: track, in: data) else { return false }
+            return referencedIDs.contains(id)
         }
-        return []
+    }
+
+    /// Distinct mark times of the first chapter track that has any, the way
+    /// `sanitized` drops a repeated start. Titles are not read: they sit in
+    /// the media data, which a tag read does not carry.
+    private static func quickTimeChapterStartCount(in data: Data, moov: Atom) -> Int {
+        for track in chapterTracks(in: data, moov: moov) {
+            guard let mdia = atoms(in: data, range: track.payload)
+                    .first(where: { $0.type == "mdia" }),
+                  let timescale = mediaTimescale(mdia: mdia, in: data),
+                  timescale > 0,
+                  let minf = atoms(in: data, range: mdia.payload)
+                    .first(where: { $0.type == "minf" }),
+                  let stbl = atoms(in: data, range: minf.payload)
+                    .first(where: { $0.type == "stbl" }) else { continue }
+            var starts = Set<Int64>()
+            for start in sampleStartTimes(stbl: stbl, in: data, timescale: timescale) {
+                starts.insert(Int64((start * 1000).rounded()))
+            }
+            if !starts.isEmpty { return starts.count }
+        }
+        return 0
     }
 
     private static func trackID(of track: Atom, in data: Data) -> UInt32? {

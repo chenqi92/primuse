@@ -87,4 +87,74 @@ struct SongContentMetadataTests {
         )
         #expect(server.isEmpty)
     }
+
+    @Test("Embedded chapter counts persist under a short key and older rows decode without one")
+    func chapterCountPersistence() throws {
+        var value = song()
+        value.contentMetadata = SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: 24)
+        let encoded = try JSONEncoder().encode(value)
+        #expect(String(decoding: encoded, as: UTF8.self).contains("\"chapters\":24"))
+        #expect(try JSONDecoder().decode(Song.self, from: encoded).contentMetadata?.embeddedChapterCount == 24)
+        let legacy = try JSONDecoder().decode(
+            SongContentMetadata.self,
+            from: Data(#"{"isFileInspectionComplete":true,"copyright":"© Label"}"#.utf8)
+        )
+        #expect(legacy.embeddedChapterCount == nil)
+        #expect(legacy.copyright == "© Label")
+    }
+
+    @Test("A partial read keeps the chapter count; a complete reread replaces it")
+    func chapterCountMerging() {
+        let counted = SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: 12)
+        let partial = SongContentMetadata(copyright: "© Label")
+        #expect(SongContentMetadata.merging(previous: counted, incoming: partial)?.embeddedChapterCount == 12)
+        let reread = SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: 0)
+        #expect(SongContentMetadata.merging(previous: counted, incoming: reread)?.embeddedChapterCount == 0)
+        #expect(SongContentMetadata(embeddedChapterCount: -3).embeddedChapterCount == 0)
+    }
+
+    @Test("Books read before chapters were counted are read once more; short music is not")
+    func chapterCountReinspection() {
+        let readBeforeCounting = SongContentMetadata(isFileInspectionComplete: true)
+        var book = Song(id: "book", title: "Book", duration: 3 * 3600, fileFormat: .m4a,
+                        filePath: "books/Book.m4a", sourceID: "source")
+        book.contentMetadata = readBeforeCounting
+        #expect(SongContentMetadata.needsInspection(book))
+        book.contentMetadata = SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: 0)
+        #expect(!SongContentMetadata.needsInspection(book))
+
+        var shortPart = Song(id: "part", title: "Part", duration: 600, fileFormat: .m4a,
+                             filePath: "books/Part 01.M4B", sourceID: "source")
+        shortPart.contentMetadata = readBeforeCounting
+        #expect(SongContentMetadata.needsInspection(shortPart))
+
+        var music = song()
+        music.duration = 240
+        music.contentMetadata = readBeforeCounting
+        #expect(!SongContentMetadata.needsInspection(music))
+
+        var longMP3 = Song(id: "mp3", title: "Book", duration: 3 * 3600, fileFormat: .mp3,
+                           filePath: "books/Book.mp3", sourceID: "source")
+        longMP3.contentMetadata = readBeforeCounting
+        #expect(!SongContentMetadata.needsInspection(longMP3))
+    }
+
+    @Test("The shelf counts a file's embedded chapters, and one chapter for a file without them")
+    func chapterTally() {
+        func item(_ id: String, chapters: Int?) -> Song {
+            var song = Song(id: id, title: id, fileFormat: .m4a, filePath: "\(id).m4b", sourceID: "source")
+            song.contentMetadata = chapters.map {
+                SongContentMetadata(isFileInspectionComplete: true, embeddedChapterCount: $0)
+            }
+            return song
+        }
+        #expect(SpokenWordChapterTally.chapters(embeddedChapterCount: nil) == 1)
+        #expect(SpokenWordChapterTally.chapters(embeddedChapterCount: 0) == 1)
+        #expect(SpokenWordChapterTally.chapters(embeddedChapterCount: 1) == 1)
+        #expect(SpokenWordChapterTally.chapters(embeddedChapterCount: 37) == 37)
+        let shelf = [item("m4b", chapters: 37), item("part-1", chapters: 0), item("part-2", chapters: nil),
+                     item("mp3", chapters: 5)]
+        #expect(SpokenWordChapterTally.total(shelf) == 37 + 1 + 1 + 5)
+        #expect(SpokenWordChapterTally.total([]) == 0)
+    }
 }
