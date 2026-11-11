@@ -104,14 +104,17 @@ struct NowPlayingCapsuleProbe: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
-/// 迷你条封面接住收起的播放页时轻轻弹一下。减少动态效果时不弹。
+/// 迷你条封面接住收起的播放页时轻轻弹一下;列表里把歌滑进队列、从菜单设为下一首时也这样弹一下,
+/// 告诉人歌落到了这里(`QueueReceiptSignal`)。减少动态效果时不弹。
 private struct MiniPlayerLandingPop: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content.keyframeAnimator(
             initialValue: 1.0,
-            trigger: reduceMotion ? 0 : NowPlayingCollapseSignal.shared.revision
+            trigger: reduceMotion
+                ? 0
+                : NowPlayingCollapseSignal.shared.revision &+ QueueReceiptSignal.shared.revision
         ) { view, scale in
             view.scaleEffect(scale)
         } keyframes: { _ in

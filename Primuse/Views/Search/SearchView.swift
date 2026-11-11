@@ -588,7 +588,8 @@ struct SearchView: View {
     @State private var showsAddToPlaylist = false
     /// 正在加进 Apple Music 资料库的那首目录歌。
     @State private var savingAppleMusicSongID: MusicItemID?
-    @State private var appleMusicActionFeedback: AppleMusicActionFeedback?
+    /// 对 Apple Music 目录歌做完一件事后底部那条提示(加进资料库的进度与结果)。
+    @State private var appleMusicToasts = PMToastPresenter()
     @State private var expandedCollections: Set<SearchResultSection> = []
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
@@ -1364,10 +1365,7 @@ struct SearchView: View {
         .sheet(isPresented: $showsAddToPlaylist) {
             BatchAddToPlaylistSheet(songs: songsToAddToPlaylist)
         }
-        .overlay(alignment: .bottom) {
-            appleMusicActionToast
-        }
-        .animation(.easeInOut(duration: 0.2), value: appleMusicActionFeedback)
+        .pmToastHost(appleMusicToasts)
         .onChange(of: hiddenLibrarySectionsRawValue) { _, _ in
             performSearch(query: searchText)
         }
@@ -4205,13 +4203,14 @@ struct SearchView: View {
     private func insertAppleMusicSongNext(_ song: MusicKit.Song) {
         guard let queued = catalogQueueSong(song),
               player.insertNextInQueue([queued]) != nil else { return }
-        showAppleMusicFeedback(.success(String(localized: "apple_music_queued_next")))
+        // 和资料库里的歌滑动入队同一个回执:手上一下、迷你条封面弹一下、底部说一句。
+        QueueReceipt.announce(.next, systemImage: "text.line.first.and.arrowtriangle.forward")
     }
 
     private func appendAppleMusicSongToQueue(_ song: MusicKit.Song) {
         guard let queued = catalogQueueSong(song) else { return }
         player.appendToQueue([queued])
-        showAppleMusicFeedback(.success(String(localized: "apple_music_queued_last")))
+        QueueReceipt.announce(.last, systemImage: "text.line.last.and.arrowtriangle.forward")
     }
 
     private func likeAppleMusicSong(_ song: MusicKit.Song) {
@@ -4251,7 +4250,7 @@ struct SearchView: View {
                 if let message = then(saved) {
                     showAppleMusicFeedback(.success(message))
                 } else {
-                    appleMusicActionFeedback = nil
+                    appleMusicToasts.dismiss(key: Self.appleMusicToastKey)
                 }
             } catch {
                 savingAppleMusicSongID = nil
@@ -4260,46 +4259,34 @@ struct SearchView: View {
         }
     }
 
-    private func showAppleMusicFeedback(_ feedback: AppleMusicActionFeedback) {
-        appleMusicActionFeedback = feedback
-    }
+    private static let appleMusicToastKey = "search.appleMusicAction"
 
-    @ViewBuilder
-    private var appleMusicActionToast: some View {
-        if let feedback = appleMusicActionFeedback {
-            HStack(spacing: 10) {
-                if feedback.kind == .progress {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: feedback.kind == .success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(feedback.kind == .success ? Color.green : Color.orange)
-                }
-                Text(verbatim: feedback.message)
-                    .font(.subheadline.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
-            .frame(maxWidth: 560)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 0.5)
-            }
-            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .allowsHitTesting(false)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: feedback.message))
-            .task(id: feedback.id) {
-                // 进行中的一直留着;结果停一会儿自己收起。
-                guard feedback.kind != .progress else { return }
-                try? await Task.sleep(for: .seconds(feedback.kind == .failure ? 4 : 2.5))
-                guard !Task.isCancelled, appleMusicActionFeedback?.id == feedback.id else { return }
-                appleMusicActionFeedback = nil
-            }
+    /// 进行中的一直留着,结果停一会儿自己收起;后一句原地换掉前一句。
+    private func showAppleMusicFeedback(_ feedback: AppleMusicActionFeedback) {
+        switch feedback.kind {
+        case .progress:
+            appleMusicToasts.show(PMToastItem(
+                key: Self.appleMusicToastKey,
+                message: feedback.message,
+                showsProgress: true,
+                duration: nil
+            ))
+        case .success:
+            appleMusicToasts.show(PMToastItem(
+                key: Self.appleMusicToastKey,
+                message: feedback.message,
+                systemImage: "checkmark.circle.fill",
+                tint: Color.green,
+                duration: 2.5
+            ))
+        case .failure:
+            appleMusicToasts.show(PMToastItem(
+                key: Self.appleMusicToastKey,
+                message: feedback.message,
+                systemImage: "exclamationmark.triangle.fill",
+                tint: Color.orange,
+                duration: 4
+            ))
         }
     }
 

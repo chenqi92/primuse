@@ -582,6 +582,7 @@
 		3D50D86680E367623D7A2DC3 /* ListeningRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0960C95537888946529A51D9 /* ListeningRecap.swift */; };
 		3D564C4F029EAEE087B638FE /* RadioStationStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57DE7B8C5035D8C74F2E397 /* RadioStationStrip.swift */; };
 		3D5B0D110E921643707BA1A8 /* PMHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92290B82B054C09E84F16173 /* PMHaptics.swift */; };
+		4FB28CF2570D9C26812C958C /* PMToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3BBE8BD610B8ADA0623707 /* PMToast.swift */; };
 		3DB2D944BC6083DFCF50FC79 /* SFTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D64868ED9B01B2808EEFF51 /* SFTPSource.swift */; };
 		3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92713492CA49F4357602CCA3 /* ImageCache.swift */; };
 		3DB73508E1F2F7398C73DEC1 /* S3ListParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFCA331E6F42B56BA7100F2 /* S3ListParserTests.swift */; };
@@ -617,6 +618,7 @@
 		41D8C58E6ECF8A3C05977DEC /* TVSourceErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC760A27FC544A0A10359129 /* TVSourceErrorText.swift */; };
 		41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2D3494E7475F44773698F9 /* DropboxSource.swift */; };
 		42295F86DFFBCF1704ED002A /* SongRowSwipePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B258D9243E8F9A579865947D /* SongRowSwipePolicy.swift */; };
+		F4DA99DF8B55050EBAD67B24 /* ToastSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = E76F6128DD27CAEEF973BF8C /* ToastSchedule.swift */; };
 		423E3BC26C84850AC13B5919 /* libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		4260958BD2DEFA5C80D86EEE /* SimilarTracksService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F82086EB805A0948919DCF /* SimilarTracksService.swift */; };
 		42786BA198C03F835DBF49EC /* SourcesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43D86A7277FFD6BA412DECF /* SourcesStore.swift */; };
@@ -1977,6 +1979,7 @@
 		D7FB6F3F5B2FF7D18255B5F2 /* TVSiriRadioIntentRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5EF572CFF9251D5406F5AA /* TVSiriRadioIntentRoutingTests.swift */; };
 		D807361D6DE3891296DFDF58 /* MusicDiscoveryEngineEquivalenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738CA001A4119151DECB6874 /* MusicDiscoveryEngineEquivalenceTests.swift */; };
 		D8161B76AC51C255531C63E8 /* PMHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92290B82B054C09E84F16173 /* PMHaptics.swift */; };
+		7BB9F0692603D81B20CE496A /* PMToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B3BBE8BD610B8ADA0623707 /* PMToast.swift */; };
 		D84918920C71DB851E51AE09 /* SSLTrustStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD7C0A9B431AEBEC047E320 /* SSLTrustStore.swift */; };
 		D879C90A8DE7AB1E46EF12C5 /* PlexServerLinkRefresher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 040CD8D85207480295C5334F /* PlexServerLinkRefresher.swift */; };
 		D883087F146BDACAD8F342CB /* TVDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB6B97CD43A0EB834C00F58 /* TVDiagnosticsView.swift */; };
@@ -3592,6 +3595,7 @@
 		91CED344D90A31CB6096E8CF /* SendToTVSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendToTVSheet.swift; sourceTree = "<group>"; };
 		91F2E1034751F2A381A4B435 /* TVReplayGainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVReplayGainTests.swift; sourceTree = "<group>"; };
 		92290B82B054C09E84F16173 /* PMHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMHaptics.swift; sourceTree = "<group>"; };
+		8B3BBE8BD610B8ADA0623707 /* PMToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMToast.swift; sourceTree = "<group>"; };
 		9237FA090363711D3EC61458 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		9261E365FCA7CA1AF09E36F8 /* ExternalPlaylistImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlaylistImport.swift; sourceTree = "<group>"; };
 		92713492CA49F4357602CCA3 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
@@ -3784,6 +3788,7 @@
 		B2226198F80B0E17BBF3555D /* PreparedPlaybackStartPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedPlaybackStartPolicy.swift; sourceTree = "<group>"; };
 		B25006B53CDB1F8F21E5AA94 /* WebDAVDirectoryQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVDirectoryQuotaTests.swift; sourceTree = "<group>"; };
 		B258D9243E8F9A579865947D /* SongRowSwipePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongRowSwipePolicy.swift; sourceTree = "<group>"; };
+		E76F6128DD27CAEEF973BF8C /* ToastSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastSchedule.swift; sourceTree = "<group>"; };
 		B2C40237003577948906B518 /* ServerCatalogRefreshFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerCatalogRefreshFeedback.swift; sourceTree = "<group>"; };
 		B2E10701E146DC4195C7CAC4 /* LegacyAudioCacheMigrationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyAudioCacheMigrationPolicy.swift; sourceTree = "<group>"; };
 		B2F265BD725908B28266444C /* ObjCExceptionUnwindPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjCExceptionUnwindPolicy.swift; sourceTree = "<group>"; };
@@ -5040,6 +5045,7 @@
 				9A6E80970440262553A71FAF /* SongRadioMix.swift */,
 				0F99AA6FC13E79A7AE9255BE /* SongRowColumnsPolicy.swift */,
 				B258D9243E8F9A579865947D /* SongRowSwipePolicy.swift */,
+				E76F6128DD27CAEEF973BF8C /* ToastSchedule.swift */,
 				3207E612EB152C51814B2DF3 /* SourceAddressFormPolicy.swift */,
 				B14EF60E0BB79FBBE31FE5AA /* SourceAddressInputPolicy.swift */,
 				B09E1FFC29629DC9E3BB3883 /* SourceCatalogSnapshotPolicy.swift */,
@@ -6107,6 +6113,7 @@
 				537BEA3A04660BAFF1AE2204 /* PlayerOrientationControl.swift */,
 				E70ED09A58D609AB344A780B /* PlayerStatusBarAppearance.swift */,
 				92290B82B054C09E84F16173 /* PMHaptics.swift */,
+				8B3BBE8BD610B8ADA0623707 /* PMToast.swift */,
 				56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */,
 				82DE90F4A0194B1571C2E0A2 /* PMLayoutChangeFade.swift */,
 				8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */,
@@ -7767,6 +7774,7 @@
 				2EA80583377D4B489C9D2556 /* SongRadioMix.swift in Sources */,
 				DBE6CC8937ACBC0CCF6D6A23 /* SongRowColumnsPolicy.swift in Sources */,
 				42295F86DFFBCF1704ED002A /* SongRowSwipePolicy.swift in Sources */,
+				F4DA99DF8B55050EBAD67B24 /* ToastSchedule.swift in Sources */,
 				2C311B1B56FD151D4AAB5405 /* SongTagEditSync.swift in Sources */,
 				5E75E252278302AF1407D5C0 /* SongloftAPIProtocol.swift in Sources */,
 				915B26BCACF599ACF47A387E /* SongloftServiceClient.swift in Sources */,
@@ -8318,6 +8326,7 @@
 				476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */,
 				A208BF0550CF38EA88C45BC1 /* PCloudSource.swift in Sources */,
 				3D5B0D110E921643707BA1A8 /* PMHaptics.swift in Sources */,
+				4FB28CF2570D9C26812C958C /* PMToast.swift in Sources */,
 				7A3273F295FFDDCC05C65206 /* PMHeightClass.swift in Sources */,
 				C29C30F584C1E5C9F4158F4C /* PMLayoutChangeFade.swift in Sources */,
 				DAA94A7E4E994B6DF5DE2460 /* PMMenuLayout.swift in Sources */,
@@ -9174,6 +9183,7 @@
 				F807B1B51DE6DBC9D5B92CC6 /* OpenAICompatibleProvider.swift in Sources */,
 				4D13C4499A17E5CA00486F07 /* PCloudSource.swift in Sources */,
 				D8161B76AC51C255531C63E8 /* PMHaptics.swift in Sources */,
+				7BB9F0692603D81B20CE496A /* PMToast.swift in Sources */,
 				75B8FDAEDD57548B9A9EBA8F /* PMHeightClass.swift in Sources */,
 				FAF140A3DF3A94839742166A /* PMLayoutChangeFade.swift in Sources */,
 				85596F93306BD339283AB936 /* PMMenuLayout.swift in Sources */,

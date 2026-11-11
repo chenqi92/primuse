@@ -13,8 +13,6 @@ extension View {
 private struct SongBatchRemovalFeedbackModifier: ViewModifier {
     @Environment(SongBatchRemovalService.self) private var removal
 
-    @State private var toastMessage: String?
-    @State private var toastDismissTask: Task<Void, Never>?
     /// 源端永久拒绝删除的那些歌。留在库里对用户没有意义 —— 给一个可恢复的出口。
     @State private var localRemovalOffer: LocalRemovalOffer?
 
@@ -24,36 +22,16 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
         let details: [String: String]
     }
 
+    /// 进度和结果是两个来源:结果出来时顺手撤掉进度,进度那边收尾时也不会把结果撤掉。
+    private static let progressKey = "songBatchRemoval.progress"
+    private static let outcomeKey = "songBatchRemoval.outcome"
+
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .bottom) {
-                VStack(spacing: 8) {
-                    if let progress = removal.progress, !progress.isFinished {
-                        card {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(verbatim: String(
-                                format: String(localized: "batch_delete_progress_format"),
-                                progress.done,
-                                progress.total
-                            ))
-                            .monospacedDigit()
-                        }
-                    }
-
-                    if let toastMessage {
-                        card {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.tint)
-                            Text(verbatim: toastMessage)
-                        }
-                    }
-                }
-                // 抬过 mini player / 底部栏，否则提示正好被压在下面看不见。
-                .padding(.bottom, 96)
-                .pmAnimation(.list, value: removal.progress)
-                .pmAnimation(.list, value: toastMessage)
-                .allowsHitTesting(false)
+            // 提示条本身由根视图上的 `PMToastPresenter.shared` 宿主画:抬过迷你条、底部栏,
+            // 结果要活过发起它的页面(选择模式在提交瞬间就退出了)。
+            .onChange(of: removal.progress, initial: true) { _, progress in
+                presentProgress(progress)
             }
             .onChange(of: removal.completionRevision) { _, _ in
                 presentOutcome()
@@ -83,17 +61,21 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
             }
     }
 
-    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 8) {
-            content()
+    private func presentProgress(_ progress: SongBatchRemovalService.Progress?) {
+        guard let progress, !progress.isFinished else {
+            PMToastPresenter.shared.dismiss(key: Self.progressKey)
+            return
         }
-        .font(.footnote)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: .capsule)
-        .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.16), radius: 10, y: 3)
-        .pmSlideTransition(edge: .bottom)
+        PMToastPresenter.shared.show(PMToastItem(
+            key: Self.progressKey,
+            message: String(
+                format: String(localized: "batch_delete_progress_format"),
+                progress.done,
+                progress.total
+            ),
+            showsProgress: true,
+            duration: nil
+        ))
     }
 
     private func presentOutcome() {
@@ -114,19 +96,18 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
                 outcome.skipped
             ))
         }
-        toastMessage = parts.joined(separator: " · ")
+        PMToastPresenter.shared.dismiss(key: Self.progressKey)
+        PMToastPresenter.shared.show(PMToastItem(
+            key: Self.outcomeKey,
+            message: parts.joined(separator: " · "),
+            systemImage: "checkmark.circle.fill",
+            duration: 3.5
+        ))
         if outcome.offersLocalRemoval {
             localRemovalOffer = LocalRemovalOffer(
                 songs: outcome.locallyRemovableSongs,
                 details: outcome.locallyRemovableDetails
             )
-        }
-
-        toastDismissTask?.cancel()
-        toastDismissTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3.5))
-            guard !Task.isCancelled else { return }
-            toastMessage = nil
         }
     }
 }

@@ -50,4 +50,12 @@ enum PMHaptics {
         UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.7)
         #endif
     }
+
+    /// 左右滑、菜单里把歌加进播放队列成功时那一下(和原来滑动入队的成功震动同一种)。
+    @MainActor
+    static func queued() {
+        #if os(iOS)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
 }

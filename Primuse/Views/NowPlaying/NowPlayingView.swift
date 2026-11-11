@@ -8433,12 +8433,17 @@ struct NowPlayingView: View {
         }
     }
 
+    /// 出错提示用全 App 统一的提示条(红底那一种),从顶上浮下来。播放页里它嵌在版面里、跟着
+    /// `lastPlaybackError` 走,不经过提示条的排队:错误还在就一直在。
     private func playbackErrorToast(_ error: String) -> some View {
         let offersSourceSkip = player.pendingSourceSkip != nil
-        return VStack(spacing: 8) {
-            Text(error)
-                .font(.caption).fontWeight(.medium)
-                .multilineTextAlignment(.center)
+        return PMToastCapsule(
+            message: error,
+            systemImage: "exclamationmark.triangle.fill",
+            tone: .error,
+            isCompact: true,
+            accessoryBelow: true
+        ) {
             // 整个来源放不了、正在倒数跳过时:可以留在这首,也可以不等了。
             if offersSourceSkip {
                 HStack(spacing: 10) {
@@ -8447,16 +8452,8 @@ struct NowPlayingView: View {
                 }
             }
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 16).padding(.vertical, 8)
-        .background(
-            .red.opacity(0.8),
-            in: offersSourceSkip
-                ? AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                : AnyShape(Capsule())
-        )
-        .padding(.horizontal, offersSourceSkip ? 16 : 0)
-        .pmSlideTransition(edge: .top, motion: .list)
+        .padding(.horizontal, 16)
+        .pmToastTransition(edge: .top)
     }
 
     private func playbackErrorToastButton(

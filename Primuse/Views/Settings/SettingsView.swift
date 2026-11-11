@@ -2922,7 +2922,7 @@ struct StorageManagementView: View {
     @State private var isClearingMotionCovers = false
     @State private var showsMotionCoverClearConfirm = false
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
-    @State private var cacheActionToast: String?
+    @State private var cacheActionToasts = PMToastPresenter()
     @AppStorage(ArtworkStoreLimitSetting.key)
     private var artworkStoreLimit = Int(ArtworkStoreLimitPolicy.defaultBytes)
     @State private var companionAssetFlow = CompanionAssetDownloadFlow()
@@ -3255,16 +3255,7 @@ struct StorageManagementView: View {
             guard offlineDownloadsSummary != "..." else { return }
             Task { await refreshSizes() }
         }
-        .overlay(alignment: .bottom) {
-            if let msg = cacheActionToast {
-                Text(msg)
-                    .font(.subheadline)
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(.thinMaterial, in: Capsule())
-                    .padding(.bottom, 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
+        .pmToastHost(cacheActionToasts)
     }
 
     private func flashCacheToast(freed: Int64, failed: Int) {
@@ -3278,11 +3269,14 @@ struct StorageManagementView: View {
         } else {
             msg = String(format: String(localized: "cache_clear_done_format"), freedStr)
         }
-        pmWithAnimation(.list) { cacheActionToast = msg }
-        Task {
-            try? await Task.sleep(for: .seconds(3))
-            pmWithAnimation(.list) { cacheActionToast = nil }
-        }
+        // 连着清两样时后一句原地换掉前一句，各自从头计满三秒。
+        cacheActionToasts.show(PMToastItem(
+            key: "settings.cacheAction",
+            message: msg,
+            systemImage: failed > 0 ? "exclamationmark.circle.fill" : "checkmark.circle.fill",
+            tint: failed > 0 ? Color.orange : nil,
+            duration: 3
+        ))
     }
 
     private func storageRow(

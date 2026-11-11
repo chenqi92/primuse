@@ -799,6 +799,8 @@ struct SongRowView: View {
                     systemImage: "text.line.first.and.arrowtriangle.forward"
                 ) {
                     insertNextInQueue()
+                    // 菜单一收就什么都看不到了:和滑动入队一样给个回执。
+                    QueueReceipt.announce(.next, systemImage: "text.line.first.and.arrowtriangle.forward")
                 }
             }
 
@@ -1395,7 +1397,11 @@ private struct SongRowSwipeModifier: ViewModifier {
 
         let actionName = actionTitle(action)
         let countMessage = String(format: String(localized: "new_songs_added"), 1)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        // 只有震动看不出加没加上:迷你条封面弹一下、底部说一句(震动也在这里)。
+        QueueReceipt.announce(
+            action == .insertNext ? .next : .last,
+            systemImage: actionSystemImage(action)
+        )
         UIAccessibility.post(
             notification: .announcement,
             argument: "\(actionName), \(countMessage)"

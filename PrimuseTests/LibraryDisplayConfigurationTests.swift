@@ -1053,9 +1053,7 @@ final class SongMenuPresentationTests: XCTestCase {
     }
 
     func testPinFeedbackFitsContentAndSupportsLargeText() async throws {
-        let host = UIHostingController(rootView: PlaylistFeedbackToast(
-            message: "已置顶", systemImage: "checkmark", color: .red, isCompact: true
-        ))
+        let host = UIHostingController(rootView: PMToastCapsule(message: "已置顶", systemImage: "checkmark", tint: .red))
         let size = host.sizeThatFits(in: CGSize(width: 350, height: 200))
         XCTAssertLessThan(size.width, 180, "A short confirmation should not stretch across the screen")
         XCTAssertGreaterThan(size.height, 30)
@@ -1078,9 +1076,7 @@ final class SongMenuPresentationTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        let large = UIHostingController(rootView: PlaylistFeedbackToast(
-            message: "Moved 123 songs to the top", systemImage: "checkmark", color: .red, isCompact: true
-        ).environment(\.dynamicTypeSize, .accessibility3))
+        let large = UIHostingController(rootView: PMToastCapsule(message: "Moved 123 songs to the top", systemImage: "checkmark", tint: .red).environment(\.dynamicTypeSize, .accessibility3))
         let largeSize = large.sizeThatFits(in: CGSize(width: 280, height: 500))
         XCTAssertLessThanOrEqual(largeSize.width, 280)
         XCTAssertGreaterThan(largeSize.height, size.height)

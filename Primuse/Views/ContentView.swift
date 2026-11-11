@@ -2099,6 +2099,11 @@ struct ContentView: View {
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.appNavigationMode, navigationMode)
         .songBatchRemovalFeedback()
+        // 跟页面无关的提示条(滑动入队、批量删除):浮在迷你条胶囊上面,没有迷你条时浮在标签栏上面。
+        .pmToastHost(
+            .shared,
+            placement: .appRoot(fallbackClearance: rootLayout == .standardTabs ? 64 : 24)
+        )
         .serverCatalogRefreshFeedback()
         .smartNudges()
         .appleMusicSubscriptionOffer()

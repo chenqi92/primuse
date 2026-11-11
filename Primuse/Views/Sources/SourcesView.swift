@@ -562,7 +562,8 @@ struct SourcesContentView: View {
     @State private var pendingAddressEditSource: MusicSource?
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var optimisticallyHiddenIDs: Set<String> = []
-    @State private var undoToast: UndoDeleteToast?
+    /// 删除后底部那条「已删除，撤销」。跟着这一页走，离开页面时和未落地的删除一起清掉。
+    @State private var undoToasts = PMToastPresenter()
     @State private var pendingDeleteTasks: [String: Task<Void, Never>] = [:]
     @State private var diagnosingSource: MusicSource?
     @State private var browsingFoldersSource: MusicSource?
@@ -599,11 +600,7 @@ struct SourcesContentView: View {
             .navigationTitle("sources_title")
             .toolbarTitleDisplayMode(.inlineLarge)
             .pmVerticalBarTitleEdge()
-            .overlay(alignment: .bottom) {
-                if let toast = undoToast {
-                    undoToastView(toast)
-                }
-            }
+            .pmToastHost(undoToasts)
             .onDisappear {
                 flushPendingDeletes()
                 cachePreparationTask?.cancel()
@@ -2648,10 +2645,10 @@ struct SourcesContentView: View {
         updateSource(current.id) { $0.isEnabled = enabled }
     }
 
-    /// 撤销提示条数据(被删源的 id + 名字)。
-    struct UndoDeleteToast: Equatable {
-        let id: String
-        let name: String
+    /// 撤销提示条的来源键:每个源一条。新删一个源时它顶掉上一条(原地换内容),
+    /// 上一个源的删除照旧在自己的倒计时到点时落地。
+    private func undoToastKey(_ sourceID: String) -> String {
+        "sources.undoDelete.\(sourceID)"
     }
 
     /// 删除源(带撤销): 先把卡片乐观隐藏并弹底部撤销条, 延迟数秒后才真正落地
@@ -2677,9 +2674,17 @@ struct SourcesContentView: View {
         if pendingDeleteTasks[source.id] != nil { commitPendingDelete(source.id) }
         pmWithAnimation(.list) {
             optimisticallyHiddenIDs.insert(source.id)
-            undoToast = UndoDeleteToast(id: source.id, name: source.name)
         }
         let id = source.id
+        // 倒计时由下面的删除任务管(到点落地时撤掉提示条),提示条自己不计时。
+        undoToasts.show(PMToastItem(
+            key: undoToastKey(id),
+            message: String(format: String(localized: "source_deleted_toast"), source.name),
+            systemImage: "trash",
+            tint: Color.secondary,
+            duration: nil,
+            action: PMToastItem.Action(title: String(localized: "undo")) { undoDelete(id) }
+        ))
         let task = Task {
             try? await Task.sleep(for: .seconds(4))
             if Task.isCancelled { return }
@@ -2695,8 +2700,8 @@ struct SourcesContentView: View {
         if let source = sourceStore.source(id: id) { deleteSource(source) }
         pmWithAnimation(.list) {
             optimisticallyHiddenIDs.remove(id)
-            if undoToast?.id == id { undoToast = nil }
         }
+        undoToasts.dismiss(key: undoToastKey(id))
     }
 
     /// 用户点撤销 → 取消尚未执行的删除, 卡片恢复显示。
@@ -2705,8 +2710,8 @@ struct SourcesContentView: View {
         pendingDeleteTasks[id] = nil
         pmWithAnimation(.list) {
             optimisticallyHiddenIDs.remove(id)
-            undoToast = nil
         }
+        undoToasts.dismiss(key: undoToastKey(id))
     }
 
     /// 离开页面时把所有未落地的删除立即落地(不再有机会撤销)。
@@ -2717,31 +2722,7 @@ struct SourcesContentView: View {
             if let source = sourceStore.source(id: id) { deleteSource(source) }
         }
         optimisticallyHiddenIDs.removeAll()
-        undoToast = nil
-    }
-
-    @ViewBuilder
-    private func undoToastView(_ toast: UndoDeleteToast) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "trash")
-                .foregroundStyle(.secondary)
-            Text(String(format: String(localized: "source_deleted_toast"), toast.name))
-                .font(.subheadline)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            Button(String(localized: "undo")) { undoDelete(toast.id) }
-                .font(.subheadline.weight(.semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.08), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        undoToasts.dismissAll()
     }
 
     private func deleteSource(_ source: MusicSource) {

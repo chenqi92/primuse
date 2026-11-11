@@ -51,7 +51,8 @@ struct PlaylistDetailView: View {
     @State private var showsNoOfflineDownloads = false
     @State private var songOrderDraft: PlaylistSongOrderDraft?
     @State private var pendingPlaylistRemoval: PlaylistRemovalRequest?
-    @State private var scrapeFeedback: ScrapeFeedback?
+    /// 置顶、刮削开始 / 取消 / 完成的那一句提示。跟着这一页走，页面在弹出层里也看得见。
+    @State private var feedbackToasts = PMToastPresenter()
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
     @State private var trackedScrapeRunID: UUID?
@@ -397,14 +398,6 @@ struct PlaylistDetailView: View {
         let url: URL
     }
 
-    private struct ScrapeFeedback: Identifiable {
-        let id = UUID()
-        let message: String
-        let systemImage: String
-        let color: Color
-        var isCompact = false
-    }
-
     @ViewBuilder
     var body: some View {
         Group {
@@ -469,9 +462,7 @@ struct PlaylistDetailView: View {
         .sheet(isPresented: $showsDescriptionEditor) {
             PlaylistDescriptionEditor(playlist: currentPlaylist ?? playlist)
         }
-        .overlay(alignment: .bottom) {
-            scrapeFeedbackToast
-        }
+        .pmToastHost(feedbackToasts)
         .songBatchActions(
             selection: selection,
             context: .playlist(id: playlist.id, allowsRemoval: allowsPlaylistRemoval),
@@ -1481,21 +1472,6 @@ struct PlaylistDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private var scrapeFeedbackToast: some View {
-        if let scrapeFeedback {
-            PlaylistFeedbackToast(
-                message: scrapeFeedback.message,
-                systemImage: scrapeFeedback.systemImage,
-                color: scrapeFeedback.color,
-                isCompact: scrapeFeedback.isCompact
-            )
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-
     #if os(macOS)
     private var macPlaylistDetail: some View {
         GeometryReader { geometry in
@@ -2214,23 +2190,15 @@ struct PlaylistDetailView: View {
         color: Color,
         isCompact: Bool = false
     ) {
-        let feedback = ScrapeFeedback(
+        // 同一个来源：连着置顶两次、刮削开始后马上完成，后一句原地换掉前一句。
+        feedbackToasts.show(PMToastItem(
+            key: "playlist.feedback",
             message: message,
             systemImage: systemImage,
-            color: color,
-            isCompact: isCompact
-        )
-        pmWithAnimation(.list) {
-            scrapeFeedback = feedback
-        }
+            tint: color,
+            duration: isCompact ? 2 : 4
+        ))
         announceScrapeFeedback(message)
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(isCompact ? 2 : 4))
-            guard scrapeFeedback?.id == feedback.id else { return }
-            pmWithAnimation(.list) {
-                scrapeFeedback = nil
-            }
-        }
     }
 
     private func announceScrapeFeedback(_ message: String) {
@@ -2869,36 +2837,6 @@ private final class PlaylistSortedSongsCache {
         cachedDuration = make()
         durationKey = key
         return cachedDuration
-    }
-}
-
-struct PlaylistFeedbackToast: View {
-    let message: String
-    let systemImage: String
-    let color: Color
-    var isCompact = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(color)
-            Text(message)
-                .font(.subheadline.weight(.medium))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
-        .frame(maxWidth: isCompact ? nil : 560)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: isCompact ? 24 : 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: isCompact ? 24 : 12)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(isCompact ? 0.08 : 0.12), radius: 10, y: 3)
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(message))
     }
 }
 
