@@ -626,6 +626,9 @@ struct LibraryView: View {
     @Environment(\.pmHeightClass) private var heightClass
     /// 极简导航没有首页:「开始听」那一行卡片放在「歌曲」页顶上,可在界面编辑里关。
     @AppStorage(ListeningIntentService.minimalSongsVisibilityKey) private var showsMinimalStartListening = true
+    @AppStorage(LibrarySectionPagingPolicy.storageKey) private var sectionSwipeEnabled = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sectionPagingMotion = LibrarySectionPagingMotion()
     #endif
     @Binding private var deepLink: LibraryDeepLink?
     private let rootSection: LibrarySection?
@@ -858,7 +861,11 @@ struct LibraryView: View {
 
     private func sectionDestination(_ section: LibrarySection) -> some View {
         readyContent(section: section) {
+            #if os(iOS)
+            sectionSwipePage(section)
+            #else
             destination(for: section)
+            #endif
         }
             #if os(iOS)
             .minimalSafeAreaBar(edge: .top) {
@@ -879,6 +886,52 @@ struct LibraryView: View {
     }
 
     #if os(iOS)
+    /// 能左右滑动切换的那一串分类：极简导航「音乐」那一格下面的分类，只在 iPhone 上。
+    /// 经典导航的分类页是从资料库推进来的一页，往右划是返回（系统边缘返回与 iOS 26 的整页返回），
+    /// 再接一个翻页会和返回抢，所以不开；iPad 的分类在侧栏里，也不开。
+    private func swipeableSections(containing section: LibrarySection) -> [LibrarySection] {
+        guard sectionSwipeEnabled, appNavigationMode == .minimal, rootSection == nil,
+              UIDevice.current.userInterfaceIdiom == .phone else { return [] }
+        let sections = MinimalNavigationPolicy.musicSections(visibleSections: visibleLibrarySections)
+        return sections.count > 1 && sections.contains(section) ? sections : []
+    }
+
+    /// 分类页外面套一层横滑翻页；用不上时手势停用，页面本身不换身份。
+    private func sectionSwipePage(_ section: LibrarySection) -> some View {
+        let sections = swipeableSections(containing: section)
+        return LibrarySectionSwipeContainer(
+            sectionID: section.rawValue,
+            enabled: !sections.isEmpty,
+            motion: sectionPagingMotion,
+            neighbor: { forward in
+                LibrarySectionPagingPolicy.neighbor(in: sections, of: section, forward: forward)?.rawValue
+            },
+            onCommit: { rawValue in
+                guard let next = LibrarySection(rawValue: rawValue) else { return }
+                pageToSection(next)
+            }
+        ) {
+            destination(for: section)
+        }
+    }
+
+    /// 横滑翻到相邻分类：和点顶上的分类一样换掉导航栈里这一页，只是不要导航栈自己的推入动画
+    /// （旧页已经滑出去、新页自己从另一侧进来）；顶上的分类行照常把下划线和滚动位置挪过去。
+    private func pageToSection(_ next: LibrarySection) {
+        didRestorePersistedPage = true
+        persistedPageID = "section:\(next.rawValue)"
+        var path = NavigationPath()
+        path.append(next)
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            navigationPath = path
+        }
+        withAnimation(reduceMotion ? nil : PMMotion.selection.animation) {
+            onActiveSectionChange(next)
+        }
+    }
+
     private func standardSectionTabs(selection: LibrarySection?) -> some View {
         StandardLibrarySectionTabs(selection: selection) { section in
             guard section != selection else { return }

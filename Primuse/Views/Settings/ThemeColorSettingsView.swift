@@ -49,6 +49,7 @@ struct AppearanceSettingsView: View {
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     #if os(iOS)
     @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
+    @AppStorage(LibrarySectionPagingPolicy.storageKey) private var sectionSwipeEnabled = true
     @AppStorage(AppTabConfiguration.storageKey) private var hiddenTabsMask = 0
     @State private var showsTabEditor = false
     #endif
@@ -114,6 +115,14 @@ struct AppearanceSettingsView: View {
                         Label("minimal_show_home", systemImage: "house")
                     }
                     .id(ThemeColorSettings.shared.isWhiteTheme)
+                    // 「音乐」下面的分类（收藏、歌曲、流派……）在内容区左右滑动切换，只在 iPhone 上。
+                    if UIDevice.current.userInterfaceIdiom == .phone {
+                        Toggle(isOn: $sectionSwipeEnabled) {
+                            Label("minimal_section_swipe", systemImage: "arrow.left.and.right")
+                        }
+                        .id(ThemeColorSettings.shared.isWhiteTheme)
+                        .settingsAnchor("appearance.sectionSwipe")
+                    }
                 } else {
                     Button {
                         showsTabEditor = true

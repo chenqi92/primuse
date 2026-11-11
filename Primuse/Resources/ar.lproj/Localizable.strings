@@ -2390,6 +2390,7 @@
 "mini_player" = "مشغل صغير";
 "minimal_mode_description" = "يخفي شريط التنقل السفلي: بدّل بين الرئيسية والموسيقى والإذاعة والصوتيات من الأعلى، ويبقى المشغّل مثبتًا في الأسفل.";
 "minimal_show_home" = "إظهار «الرئيسية»";
+"minimal_section_swipe" = "التمرير للتنقل بين الفئات";
 "minimal_tab_spoken" = "صوتيات";
 "minimal_radio_on_air" = "مباشر";
 "minimal_mode_title" = "الوضع الأدنى";

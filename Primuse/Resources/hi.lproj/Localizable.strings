@@ -2390,6 +2390,7 @@
 "mini_player" = "मिनी प्लेयर";
 "minimal_mode_description" = "नीचे का नेविगेशन बार छुपाता है: ऊपर होम, संगीत, रेडियो और ऑडियो के बीच बदलें, प्लेयर नीचे टिका रहता है।";
 "minimal_show_home" = "“होम” दिखाएँ";
+"minimal_section_swipe" = "श्रेणियाँ बदलने के लिए स्वाइप करें";
 "minimal_tab_spoken" = "ऑडियो";
 "minimal_radio_on_air" = "लाइव";
 "minimal_mode_title" = "न्यूनतम मोड";

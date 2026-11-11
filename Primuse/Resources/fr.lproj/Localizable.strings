@@ -4050,6 +4050,7 @@
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure : passez d’Accueil à Musique, Radio et Audio en haut, le lecteur reste ancré en bas.";
 "minimal_show_home" = "Afficher « Accueil »";
+"minimal_section_swipe" = "Balayer entre les catégories";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "En direct";
 

@@ -3779,6 +3779,7 @@
 "lyrics_converter_summary_format" = "%1$d satırları · %2$d senkronize edildi · %3$d kelime zamanlı";
 "minimal_mode_description" = "Alttaki gezinme çubuğunu gizler: üstte Ana sayfa, Müzik, Radyo ve Sesli arasında geçiş yaparsınız; oynatıcı altta sabit kalır.";
 "minimal_show_home" = "“Ana sayfa” sekmesini göster";
+"minimal_section_swipe" = "Kategoriler arasında kaydır";
 "minimal_tab_spoken" = "Sesli";
 "minimal_radio_on_air" = "Canlı";
 "relay_share_password_placeholder" = "İsteğe bağlı dinleyici şifresi";

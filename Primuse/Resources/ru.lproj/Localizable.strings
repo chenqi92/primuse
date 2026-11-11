@@ -3779,6 +3779,7 @@
 "lyrics_converter_summary_format" = "Строки %1$d · Синхронизация %2$d · Синхронизация %3$d по словам";
 "minimal_mode_description" = "Скрывает нижнюю панель навигации: вверху переключайтесь между «Главная», «Музыка», «Радио» и «Аудио», плеер закреплён внизу.";
 "minimal_show_home" = "Показывать «Главная»";
+"minimal_section_swipe" = "Переключать разделы смахиванием";
 "minimal_tab_spoken" = "Аудио";
 "minimal_radio_on_air" = "В эфире";
 "relay_share_password_placeholder" = "Дополнительный пароль прослушивателя.";

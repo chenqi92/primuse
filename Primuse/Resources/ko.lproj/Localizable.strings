@@ -4050,6 +4050,7 @@
 "minimal_mode_title" = "미니멀 모드";
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 상단에서 홈, 음악, 라디오, 오디오를 전환합니다. 재생 막대는 하단에 고정됩니다.";
 "minimal_show_home" = "‘홈’ 표시";
+"minimal_section_swipe" = "좌우로 스와이프해 카테고리 전환";
 "minimal_tab_spoken" = "오디오";
 "minimal_radio_on_air" = "생방송 중";
 

@@ -3822,6 +3822,7 @@
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
 "minimal_show_home" = "Show Home";
+"minimal_section_swipe" = "Swipe Between Categories";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "Live";
 

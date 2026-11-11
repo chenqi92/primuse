@@ -2390,6 +2390,7 @@
 "mini_player" = "เครื่องเล่นขนาดเล็ก";
 "minimal_mode_description" = "ซ่อนแถบนำทางด้านล่าง สลับหน้าแรก เพลง วิทยุ และเสียงได้จากด้านบน แถบเล่นอยู่ด้านล่าง";
 "minimal_show_home" = "แสดง “หน้าแรก”";
+"minimal_section_swipe" = "ปัดเพื่อสลับหมวดหมู่";
 "minimal_tab_spoken" = "เสียง";
 "minimal_radio_on_air" = "กำลังออกอากาศ";
 "minimal_mode_title" = "โหมดขั้นต่ำ";

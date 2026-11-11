@@ -2390,6 +2390,7 @@
 "mini_player" = "Mini reproductor";
 "minimal_mode_description" = "Oculta la barra de navegación inferior: cambia entre Inicio, Música, Radio y Audio en la parte superior; el reproductor queda fijo abajo.";
 "minimal_show_home" = "Mostrar «Inicio»";
+"minimal_section_swipe" = "Deslizar entre categorías";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "En vivo";
 "minimal_mode_title" = "Modo Mínimo";
