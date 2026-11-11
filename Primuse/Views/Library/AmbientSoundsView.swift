@@ -146,15 +146,19 @@ struct AmbientSoundBoard: View {
 }
 
 /// 环境音页、Mac 播放页上那一行快捷定时:15 / 30 / 60 分钟、不限时。选了之后点卡开播时带着这个定时;
-/// 正放着环境音时马上照它重新定时。
+/// 正放着环境音时马上照它重新定时。放环境音时的睡眠定时面板顶上也是这一行,几处读写同一份选择。
 struct AmbientQuickTimerRow: View {
     /// 选的是几分钟;0 是不限时。只存在本机。
     nonisolated static let storageKey = "primuse.ambient.quickTimerMinutes"
+
+    /// 选过一颗之后(定时面板借它切回倒数的样子、Mac 的弹出面板借它收起)。
+    var onChoose: (() -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(AmbientQuickTimerRow.storageKey) private var quickTimerMinutes = 0
 
     var body: some View {
+        let highlighted = highlightedMinutes
         // 四颗一样宽、铺满一行:窄屏上也不必横着滑才看得到「不限时」,字长的语言自己缩一点。
         HStack(spacing: 8) {
             Image(systemName: "moon.zzz")
@@ -162,7 +166,7 @@ struct AmbientQuickTimerRow: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             ForEach(AmbientSoundPlaybackPolicy.quickTimerMinutes, id: \.self) { minutes in
-                chip(minutes)
+                chip(minutes, isSelected: highlighted == (minutes ?? AmbientQuickTimerSelection.unlimitedMinutes))
             }
         }
         .padding(.vertical, 2)
@@ -170,20 +174,35 @@ struct AmbientQuickTimerRow: View {
         .accessibilityLabel(Text("sleep_timer"))
     }
 
-    private func chip(_ minutes: Int?) -> some View {
-        let value = minutes ?? 0
-        let isSelected = quickTimerMinutes == value
+    /// 亮哪一颗:记下的选择;正放环境音、倒数的又不是这一档时哪颗都不亮。
+    private var highlightedMinutes: Int? {
+        var runningLength: TimeInterval?
+        if player.currentItemIsAmbient,
+           let end = player.sleepTimerEndDate,
+           let start = player.sleepTimerStartDate {
+            runningLength = end.timeIntervalSince(start)
+        }
+        return AmbientQuickTimerSelection.highlightedMinutes(
+            storedMinutes: quickTimerMinutes,
+            runningTimerLength: runningLength
+        )
+    }
+
+    private func chip(_ minutes: Int?, isSelected: Bool) -> some View {
+        let value = minutes ?? AmbientQuickTimerSelection.unlimitedMinutes
         let title = minutes.map { String(format: String(localized: "minutes_value_format"), $0) }
             ?? String(localized: "ambient_timer_unlimited")
         let tint = ListeningSpace.ambient.tint
         return Button {
             quickTimerMinutes = value
-            guard player.currentItemIsAmbient else { return }
-            if let minutes {
-                player.scheduleSleep(minutes: minutes)
-            } else if player.isSleepTimerActive {
-                player.cancelSleep()
+            if player.currentItemIsAmbient {
+                if let minutes {
+                    player.scheduleSleep(minutes: minutes)
+                } else if player.isSleepTimerActive {
+                    player.cancelSleep()
+                }
             }
+            onChoose?()
         } label: {
             Text(verbatim: title)
                 .font(.subheadline.weight(.semibold))

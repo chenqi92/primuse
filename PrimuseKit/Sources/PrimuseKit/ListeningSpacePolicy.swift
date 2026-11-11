@@ -313,8 +313,9 @@ public enum SleepTimerOptionPolicy {
             options.append(.endOfTrack)
             return options
         case .ambient:
-            // 一段声音循环着放,「播完这一首」没有意义;入睡要的时长也比一张专辑长。
-            return [.minutes(15), .minutes(30), .minutes(45), .minutes(60), .minutes(90)]
+            // 一段声音循环着放,「播完这一首」没有意义。时长与环境音页、播放页那一行快捷定时同一套,
+            // 「不限时」就是不定时,不算一个选项。
+            return AmbientSoundPlaybackPolicy.quickTimerMinutes.compactMap { $0.map(SleepTimerOption.minutes) }
         }
     }
 }

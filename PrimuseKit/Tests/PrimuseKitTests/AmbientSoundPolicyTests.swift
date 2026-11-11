@@ -315,7 +315,9 @@ struct AmbientSoundPlaybackTests {
     @Test("定时:以分钟为主,没有「播完这一首」;不淡入淡出、不从曲库续歌")
     func sleepAndTransitions() {
         let options = SleepTimerOptionPolicy.options(for: .ambient, hasChapters: true)
-        #expect(options == [.minutes(15), .minutes(30), .minutes(45), .minutes(60), .minutes(90)])
+        #expect(options == [.minutes(15), .minutes(30), .minutes(60)])
+        #expect(SleepTimerOptionPolicy.options(for: .music, hasChapters: false)
+            == [.minutes(15), .minutes(30), .minutes(45), .minutes(60), .endOfTrack])
         #expect(!ListeningSpaceTransitionPolicy.allowsCrossfade(from: .ambient, to: .ambient))
         #expect(!ListeningSpaceTransitionPolicy.allowsCrossfade(from: .music, to: .ambient))
         #expect(!ListeningSpaceTransitionPolicy.allowsCrossfade(from: .ambient, to: .music))
@@ -323,6 +325,23 @@ struct AmbientSoundPlaybackTests {
         #expect(SiriSleepTimerRequest.endOfTrack.resolution(space: .ambient, hasChapters: false) == .unavailable)
         #expect(SiriSleepTimerRequest.minutes30.resolution(space: .ambient, hasChapters: false) == .set(.minutes(30)))
         #expect(AmbientSoundPlaybackPolicy.quickTimerMinutes == [15, 30, 60, nil])
+    }
+
+    @Test("快捷定时:页面和面板亮同一颗,倒数的不是那一档时哪颗都不亮")
+    func quickTimerSelection() {
+        let select = AmbientQuickTimerSelection.highlightedMinutes
+        // 没在倒数:亮记下的那一颗,包括「不限时」。
+        #expect(select(30, nil) == 30)
+        #expect(select(0, nil) == 0)
+        // 记下的值不在这一行里(旧版本存过别的分钟数)就不亮。
+        #expect(select(45, nil) == nil)
+        // 正倒数记下的那一档:按下那一刻起算,差一点也算。
+        #expect(select(30, 30 * 60 - 0.2) == 30)
+        #expect(select(60, 60 * 60) == 60)
+        // 倒数的是自定义、延长过或别处定的时长,不亮;倒数时也不亮「不限时」。
+        #expect(select(30, 45 * 60) == nil)
+        #expect(select(30, 35 * 60) == nil)
+        #expect(select(0, 15 * 60) == nil)
     }
 
     @Test("全屏:环境音几秒就进休憩层,音乐照旧五分钟")

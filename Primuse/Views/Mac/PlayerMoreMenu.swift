@@ -1749,9 +1749,13 @@ struct MacSleepTimerPopover: View {
     @AppStorage(SleepTimerSchedulePolicy.finishesTrackPreferenceKey) private var finishesTrack = false
     /// 和 iPhone / iPad 的定时面板同一个键:上次选的「到几点停」。
     @AppStorage("primuse.sleepTimer.clockMinuteOfDay") private var clockMinuteOfDay = 23 * 60
+    /// 环境音那一行快捷定时记下的选择(右栏那一行读同一份);在这里关掉定时记成不限时。
+    @AppStorage(AmbientQuickTimerRow.storageKey) private var ambientQuickTimerMinutes = 0
 
     private var space: ListeningSpace {
-        MacListeningSpaceStyle.playingSpace(of: player) ?? .music
+        // 底栏的空间分不出环境音(按音乐算),定时这里要分开:环境音没有「播完这首」。
+        if player.currentItemIsAmbient { return .ambient }
+        return MacListeningSpaceStyle.playingSpace(of: player) ?? .music
     }
 
     private var options: [SleepTimerOption] {
@@ -1769,14 +1773,22 @@ struct MacSleepTimerPopover: View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(presets, id: \.self) { minutes in
-                    presetButton(minutes)
+            if space == .ambient {
+                // 环境音:与右栏、环境音页那一行快捷定时同一套,含「不限时」,亮的是同一颗。
+                AmbientQuickTimerRow(onChoose: onClose)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(presets, id: \.self) { minutes in
+                        presetButton(minutes)
+                    }
                 }
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
 
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
@@ -2033,6 +2045,9 @@ struct MacSleepTimerPopover: View {
             Spacer(minLength: 4)
             Button {
                 player.cancelSleep()
+                if space == .ambient {
+                    ambientQuickTimerMinutes = AmbientQuickTimerSelection.unlimitedMinutes
+                }
                 onClose()
             } label: {
                 Text("cancel_timer")

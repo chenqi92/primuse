@@ -86,6 +86,8 @@ struct SleepTimerSheet: View {
     /// 上一次自定义的时长与时刻,下次打开接着用。
     @AppStorage("primuse.sleepTimer.customMinutes") private var customMinutes = 20
     @AppStorage("primuse.sleepTimer.clockMinuteOfDay") private var clockMinuteOfDay = 23 * 60
+    /// 环境音那一行快捷定时记下的选择;在这里关掉定时就记成不限时,页面上那一行跟着变。
+    @AppStorage(AmbientQuickTimerRow.storageKey) private var ambientQuickTimerMinutes = 0
     @State private var customMode: CustomMode = .duration
     @State private var selectedEndOption: SleepTimerOption?
     @State private var selectedChapter: SpokenWordSleepChapter?
@@ -98,6 +100,10 @@ struct SleepTimerSheet: View {
     }
 
     private var space: ListeningSpace { player.currentListeningSpace ?? .music }
+
+    /// 放环境音时,预设时长换成环境音页、播放页那一行快捷定时(15 / 30 / 60 分钟、不限时),
+    /// 点了马上生效;自定义时长与到点停止照旧。
+    private var isAmbient: Bool { space == .ambient }
 
     private var options: [SleepTimerOption] {
         SleepTimerOptionPolicy.options(for: space, hasChapters: player.hasChapters)
@@ -136,6 +142,12 @@ struct SleepTimerSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if isAmbient {
+                    AmbientQuickTimerRow { isEditing = false }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                }
                 if !showsRunningTimer {
                     modePicker
                         .padding(.horizontal, 20)
@@ -211,7 +223,10 @@ struct SleepTimerSheet: View {
         case .duration:
             VStack(spacing: 14) {
                 durationPicker
-                presetSection
+                // 环境音的预设就是顶上那一行快捷定时,这里不再摆一份。
+                if !isAmbient {
+                    presetSection
+                }
             }
         case .clock:
             clockPicker
@@ -399,6 +414,9 @@ struct SleepTimerSheet: View {
     private var turnOffButton: some View {
         Button(role: .destructive) {
             player.cancelSleep()
+            if isAmbient {
+                ambientQuickTimerMinutes = AmbientQuickTimerSelection.unlimitedMinutes
+            }
             isEditing = false
         } label: {
             Text("cancel_timer")

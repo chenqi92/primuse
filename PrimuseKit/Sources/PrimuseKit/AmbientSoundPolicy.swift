@@ -21,7 +21,7 @@ public enum AmbientSoundPlaybackPolicy {
     /// 回到音乐时还回去。
     public static let playMode = ListeningPlayMode(shuffleEnabled: false, repeatMode: .one)
 
-    /// 环境音页顶上那一行快捷定时(分钟);nil 是不限时。
+    /// 环境音页顶上那一行快捷定时(分钟);nil 是不限时。播放页的定时面板放环境音时也是这一套。
     public static let quickTimerMinutes: [Int?] = [15, 30, 60, nil]
 
     /// 全屏播放闲置多久进休憩层(时钟加声音名的那块安静画面)。音乐要连续五分钟没人碰;
@@ -36,6 +36,31 @@ public enum AmbientSoundPlaybackPolicy {
     /// 单曲循环时首尾直接接上:不看「无缝播放」「淡入淡出」开没开,也不和自己交叉混合。
     public static func forcesSeamlessLoop(space: ListeningSpace?, repeatMode: RepeatMode) -> Bool {
         space == .ambient && repeatMode == .one
+    }
+}
+
+/// 环境音那一行快捷定时(环境音页、Mac 播放页右栏、定时面板)亮哪一颗。几处读同一份记下的选择,
+/// 点哪一处都改这一份,所以亮的总是同一颗。
+public enum AmbientQuickTimerSelection {
+    /// 记下的「不限时」。
+    public static let unlimitedMinutes = 0
+
+    /// 正倒数的定时和某一档差不到这么多就算那一档(定时从按下那一刻起算,差几毫秒)。
+    static let matchTolerance: TimeInterval = 30
+
+    /// 亮哪一颗(几分钟,0 是不限时);nil 是哪颗都不亮。
+    /// - Parameters:
+    ///   - storedMinutes: 记下的选择,0 是不限时。
+    ///   - runningTimerLength: 正放着环境音、又在倒数时,这次定时从开始到停止的总长;否则 nil。
+    ///     倒数的不是记下的那一档(自定义时长、到点停止、延长过、别处定的)就哪颗都不亮,
+    ///     免得一边倒数一边亮着「不限时」或另一档。
+    public static func highlightedMinutes(storedMinutes: Int, runningTimerLength: TimeInterval?) -> Int? {
+        let choices = AmbientSoundPlaybackPolicy.quickTimerMinutes.map { $0 ?? unlimitedMinutes }
+        guard choices.contains(storedMinutes) else { return nil }
+        guard let length = runningTimerLength else { return storedMinutes }
+        guard storedMinutes != unlimitedMinutes,
+              abs(TimeInterval(storedMinutes * 60) - length) < matchTolerance else { return nil }
+        return storedMinutes
     }
 }
 
