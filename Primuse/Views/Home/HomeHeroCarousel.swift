@@ -355,21 +355,30 @@ struct HomeHeroCarousel: View {
     }
 
     private func buttons(_ metrics: HomeHeroCarouselMetrics) -> some View {
-        Self.buttonRow(metrics) {
+        Self.playbackButtons(metrics, shuffleAll: shuffleAll, playAll: playAll)
+    }
+
+    /// 「随机播放」「全部播放」两颗。曲库还没装好时照样能点:首页先把这次播放记下,装好再放
+    /// (`LibraryStartupPlaybackCoordinator`)。首页加载占位用的也是这两颗,换上轮播时原地不动。
+    static func playbackButtons(
+        _ metrics: HomeHeroCarouselMetrics,
+        shuffleAll: @escaping () -> Void,
+        playAll: @escaping () -> Void
+    ) -> some View {
+        buttonRow(metrics) {
             Button(action: shuffleAll) {
-                Self.buttonLabel("shuffle", systemImage: "shuffle")
+                buttonLabel("shuffle", systemImage: "shuffle")
             }
             .buttonStyle(.borderedProminent)
             .prominentLabelOnAccent()
             .clipShape(Capsule())
 
             Button(action: playAll) {
-                Self.buttonLabel("play_all", systemImage: "play.fill")
+                buttonLabel("play_all", systemImage: "play.fill")
             }
             .buttonStyle(.bordered)
             .clipShape(Capsule())
         }
-        .disabled(!library.isReady)
     }
 
     /// 两个按钮的一行:竖屏平分整行(左右各留 16);横屏左边那一栏够宽时并排,
@@ -690,19 +699,41 @@ enum HomeHeroCarouselDiagnostics {
 /// 轮播的骨架:和轮播同样的位置、大小与转角。首页加载占位画整套(连两个按钮);
 /// 轮播自己还没摆好时只在封面和歌名上各盖一块(`HomeHeroCarouselSkeletonCards` /
 /// `HomeHeroCarouselSkeletonCaption`),换成真封面时形状不动,封面在原位淡进来。
+///
+/// 封面与歌名各自一组呼吸;给了 `playback` 时两颗按钮是真的(曲库还没装好也能先点),
+/// 和轮播里的同一个位置、同一个样子,就绪换上轮播时不动也不闪;没给时画两块占位。
 struct HomeHeroCarouselSkeleton: View {
+    struct Playback {
+        let shuffleAll: () -> Void
+        let playAll: () -> Void
+    }
+
     let metrics: HomeHeroCarouselMetrics
+    var playback: Playback?
 
     var body: some View {
         HomeHeroLayout(metrics: metrics) {
-            HomeHeroCarouselSkeletonCards(metrics: metrics)
-            HomeHeroCarouselSkeletonCaption(metrics: metrics)
-            HomeHeroCarousel.buttonRow(metrics) {
-                placeholderButton(HomeHeroCarousel.buttonLabel("shuffle", systemImage: "shuffle"))
-                placeholderButton(HomeHeroCarousel.buttonLabel("play_all", systemImage: "play.fill"))
+            LoadingSkeletonGroup {
+                HomeHeroCarouselSkeletonCards(metrics: metrics)
+            }
+            LoadingSkeletonGroup {
+                HomeHeroCarouselSkeletonCaption(metrics: metrics)
+            }
+            if let playback {
+                HomeHeroCarousel.playbackButtons(
+                    metrics,
+                    shuffleAll: playback.shuffleAll,
+                    playAll: playback.playAll
+                )
+            } else {
+                LoadingSkeletonGroup {
+                    HomeHeroCarousel.buttonRow(metrics) {
+                        placeholderButton(HomeHeroCarousel.buttonLabel("shuffle", systemImage: "shuffle"))
+                        placeholderButton(HomeHeroCarousel.buttonLabel("play_all", systemImage: "play.fill"))
+                    }
+                }
             }
         }
-        .accessibilityHidden(true)
     }
 
     private func placeholderButton(_ label: some View) -> some View {

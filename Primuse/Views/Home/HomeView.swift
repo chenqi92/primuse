@@ -3091,13 +3091,9 @@ struct HomeView: View {
             AmbientSoundBoard()
                 .padding(.horizontal, 16)
         } else if !model.isPrepared || (!library.isReady && !hasContent) {
-            VStack(spacing: 16) {
-                if !startupSourceIDs.isEmpty {
-                    LibraryStartupPlaybackControls(coordinator: startupPlayback, play: playLibrary)
-                        .padding(.horizontal, 16)
-                }
-                initialLoadingView
-            }
+            // 曲库还没装好时的「随机播放」「全部播放」就是顶部封面骨架里那两颗(见 `heroLoadingPlaceholder`),
+            // 不在骨架上面另加一排:那一排换上内容时整行消失,下面的主视觉跟着往上跳。
+            initialLoadingView
         } else if hasContent {
             // 冷启动第一次换上内容时由各区块自己错峰入场,整块不再跟着淡一遍(两层透明度会相乘);
             // 骨架照旧淡出。之后再换上内容(比如从空态)还是整块淡入。
@@ -3581,17 +3577,20 @@ struct HomeView: View {
     /// 冷启动的加载骨架,照用户自己的版面画:顶部封面关了就不画,区块按首页编辑里的顺序、
     /// 开关与排布(横排几行、网格、列表)画个大概,只画到填满一屏。读的只有界面设置和几个
     /// 现成的计数,不碰曲库内容,和原来的固定骨架一样轻。
+    ///
+    /// 顶部封面那块自己管呼吸:它的两颗按钮可能是真的(曲库装好前就能点),不能跟着整组
+    /// 半透明、也不能被整组挡住点按。
     private var initialLoadingView: some View {
         let width = loadingSkeletonContentWidth
         let sections = loadingSkeletonSections
         let layout = usesTwoColumnHome
             ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
             : AnyLayout(HomeSingleColumnSectionsLayout(spacing: 24))
-        return LoadingSkeletonGroup {
-            VStack(alignment: .leading, spacing: 24) {
-                if showHero {
-                    heroLoadingPlaceholder
-                }
+        return VStack(alignment: .leading, spacing: 24) {
+            if showHero {
+                heroLoadingPlaceholder
+            }
+            LoadingSkeletonGroup {
                 layout {
                     ForEach(sections) { section in
                         HomeLoadingSkeletonSection(
@@ -3785,22 +3784,35 @@ struct HomeView: View {
     /// 顶部那一块的占位,和换上来的内容同样高:封面轮播的形状(卡片叠放、转角、歌名与
     /// 两个按钮的位置都和轮播一样,换成真内容时只是封面在原位淡进来);手机横屏也是,
     /// 按横屏那种左边一栏、右边轮播的摆法画。
+    ///
+    /// 轮播的两颗按钮在有可放的源时就是真的:曲库没装好时点了先记下,装好再放,和换上来的
+    /// 轮播里那两颗是同一个动作。大、中卡片与关掉顶部封面的版面本来没有这两颗,骨架也不画。
     @ViewBuilder
     private var heroLoadingPlaceholder: some View {
         #if os(iOS)
         if heroStyle != .carousel {
-            VStack(alignment: .leading, spacing: 12) {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(HomeHeroCarouselSkeletonCards.fill)
-                    .frame(width: 120, height: 28)
-                    .padding(.horizontal, 20)
-                HomeHeroFeaturedSkeleton(metrics: heroFeaturedMetrics)
+            LoadingSkeletonGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(HomeHeroCarouselSkeletonCards.fill)
+                        .frame(width: 120, height: 28)
+                        .padding(.horizontal, 20)
+                    HomeHeroFeaturedSkeleton(metrics: heroFeaturedMetrics)
+                }
             }
         } else {
-            HomeHeroCarouselSkeleton(metrics: heroCarouselMetrics)
+            HomeHeroCarouselSkeleton(
+                metrics: heroCarouselMetrics,
+                playback: startupSourceIDs.isEmpty ? nil : HomeHeroCarouselSkeleton.Playback(
+                    shuffleAll: { playLibrary(shuffled: true) },
+                    playAll: { playLibrary(shuffled: false) }
+                )
+            )
         }
         #else
-        heroCardLoadingPlaceholder
+        LoadingSkeletonGroup {
+            heroCardLoadingPlaceholder
+        }
         #endif
     }
 
