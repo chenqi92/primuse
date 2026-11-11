@@ -511,7 +511,7 @@ public enum SiriMediaSearchResolver {
                 let selected = songs.filter { song in
                     guard let genre = song.genre else { return false }
                     if let known = matchesByGenre[genre] { return known }
-                    let matches = GenreTagValues.names(in: genre).contains { normalized($0) == target }
+                    let matches = GenreTagValues.browseNames(in: genre).contains { normalized($0) == target }
                     matchesByGenre[genre] = matches
                     return matches
                 }
@@ -623,7 +623,7 @@ public enum SiriMediaSearchResolver {
             if let known = scoreByGenre[genre] {
                 score = known
             } else {
-                score = GenreTagValues.names(in: genre).flatMap { label in
+                score = GenreTagValues.browseNames(in: genre).flatMap { label in
                     requestedGenres.map { matchScore(requested: $0, candidate: label) }
                 }.max() ?? 0
                 scoreByGenre[genre] = score

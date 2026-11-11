@@ -1016,3 +1016,10 @@
 "immersive_disc_settings" = "Ajustes del disco";
 
 "artist_name_settings_merge_collaborative_albums" = "Combinar álbumes colaborativos con el mismo título";
+
+"genre_split_title" = "División de géneros";
+"genre_split_footer" = "De forma predeterminada, los géneros solo se dividen en los puntos y coma. Al activarlo, una etiqueta como “Hip-Hop/Rap” cuenta para ambos géneros, y “R&B/Soul” también se divide. Solo afecta la exploración; las etiquetas de tus archivos no cambian.";
+"genre_split_slash" = "Dividir géneros en las barras";
+"genre_split_comma" = "Dividir géneros en las comas";
+"genre_split_bar" = "Dividir géneros en las barras verticales e invertidas";
+"genre_split_tv_detail" = "Solo afecta la exploración; las etiquetas de los archivos no cambian";

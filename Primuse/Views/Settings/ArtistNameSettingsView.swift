@@ -7,6 +7,18 @@ struct ArtistNameSettingsView: View {
     @State private var newProtectedName = ""
     @State private var displaySeparatorDraft = ""
     @State private var showsResetConfirmation = false
+    @AppStorage(GenreSplitPreference.storageKey) private var genreSeparatorsRaw = 0
+
+    private func genreSeparatorBinding(_ option: GenreSeparatorOptions) -> Binding<Bool> {
+        Binding(
+            get: { GenreSeparatorOptions(rawValue: genreSeparatorsRaw).contains(option) },
+            set: { isOn in
+                var options = GenreSeparatorOptions(rawValue: genreSeparatorsRaw)
+                if isOn { options.insert(option) } else { options.remove(option) }
+                genreSeparatorsRaw = options.rawValue
+            }
+        )
+    }
 
     private var preview: String {
         ArtistNameParser.displayName(
@@ -103,6 +115,17 @@ struct ArtistNameSettingsView: View {
                 ))
             }
             .settingsAnchor("artists.mergeCollaborativeAlbums")
+
+            Section {
+                Toggle("genre_split_slash", isOn: genreSeparatorBinding(.slash))
+                Toggle("genre_split_comma", isOn: genreSeparatorBinding(.comma))
+                Toggle("genre_split_bar", isOn: genreSeparatorBinding(.bar))
+            } header: {
+                SettingsInfoHeader("genre_split_title") {
+                    Text("genre_split_footer")
+                }
+            }
+            .settingsAnchor("artists.genreSeparators")
 
             Section {
                 Button("artist_name_settings_reset", role: .destructive) {

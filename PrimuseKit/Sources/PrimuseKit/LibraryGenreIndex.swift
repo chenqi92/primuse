@@ -1,12 +1,81 @@
 import Foundation
 
+/// 流派字段里除了分号之外，还按哪些符号拆。默认一个都不拆：`R&B/Soul`、
+/// `Folk, World, & Country` 这类名字本身就带符号，要用户自己决定。
+/// `&` 和 and 不在可选范围内（`R&B`、`Drum & Bass`）。
+public struct GenreSeparatorOptions: OptionSet, Hashable, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue & 0b111
+    }
+
+    public static let slash = GenreSeparatorOptions(rawValue: 1 << 0)
+    public static let comma = GenreSeparatorOptions(rawValue: 1 << 1)
+    public static let bar = GenreSeparatorOptions(rawValue: 1 << 2)
+
+    /// 半角和全角写法一起认。
+    var characters: String {
+        var result = ""
+        if contains(.slash) { result += "/／" }
+        if contains(.comma) { result += ",，、" }
+        if contains(.bar) { result += "|｜\\" }
+        return result
+    }
+}
+
+/// 用户选的拆分符号。只影响浏览（流派列表、智能歌单、语音点播、标签编辑里的候选），
+/// 不改文件里的标签，关掉就恢复原样。
+public enum GenreSplitPreference {
+    public static let storageKey = "primuse.genre.extraSeparators.v1"
+
+    private final class Storage: @unchecked Sendable {
+        let lock = NSLock()
+        var value: GenreSeparatorOptions?
+    }
+
+    private static let storage = Storage()
+
+    /// 整库逐首都会读，值缓存在内存里；设置改了之后由 `refresh()` 更新。
+    public static var current: GenreSeparatorOptions {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        if let value = storage.value { return value }
+        let loaded = stored(in: .standard)
+        storage.value = loaded
+        return loaded
+    }
+
+    /// 重新读一次设置；值变了返回 true。
+    @discardableResult
+    public static func refresh(from defaults: UserDefaults = .standard) -> Bool {
+        let loaded = stored(in: defaults)
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        guard storage.value != loaded else { return false }
+        let hadValue = storage.value != nil
+        storage.value = loaded
+        return hadValue || !loaded.isEmpty
+    }
+
+    private static func stored(in defaults: UserDefaults) -> GenreSeparatorOptions {
+        GenreSeparatorOptions(rawValue: defaults.integer(forKey: storageKey))
+    }
+}
+
 /// Multi-value genre tags use a semicolon-separated string in the existing
-/// song field. Slashes and commas remain part of a label (e.g. R&B/Soul).
+/// song field. Slashes and commas remain part of a label (e.g. R&B/Soul)
+/// unless the user opted into splitting on them for browsing.
 public enum GenreTagValues {
+    /// 写进标签、发给服务器时用的拆法：只认分号。
     public static func names(in value: String?) -> [String] {
+        names(in: value, alsoSplitting: [])
+    }
+
+    public static func names(in value: String?, alsoSplitting extra: GenreSeparatorOptions) -> [String] {
         guard let value else { return [] }
         var seen = Set<String>()
-        return value.components(separatedBy: CharacterSet(charactersIn: ";\0")).compactMap {
+        return value.components(separatedBy: CharacterSet(charactersIn: ";\0" + extra.characters)).compactMap {
             let name = $0.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty,
                   seen.insert(LibraryGenreIndexBuilder.normalizedID(for: name)).inserted else {
@@ -14,6 +83,15 @@ public enum GenreTagValues {
             }
             return name
         }
+    }
+
+    /// 浏览时用的拆法：分号之外再按用户选的符号拆。
+    public static func browseNames(in value: String?) -> [String] {
+        names(in: value, alsoSplitting: GenreSplitPreference.current)
+    }
+
+    public static func browsePrimary(in value: String?) -> String? {
+        browseNames(in: value).first
     }
 
     public static func joined(_ values: [String]) -> String? {
@@ -114,7 +192,10 @@ public enum LibraryGenreIndexBuilder {
         }
     }
 
-    public static func build(from songs: [Song]) -> LibraryGenreIndex {
+    public static func build(
+        from songs: [Song],
+        alsoSplitting separators: GenreSeparatorOptions = GenreSplitPreference.current
+    ) -> LibraryGenreIndex {
         var groups: [String: Group] = [:]
         // 整库只有几十种流派写法, 折叠要带区域设置, 按原始字符串各算一次。
         var resolvedByGenre: [String: [(displayName: String, id: String)]] = [:]
@@ -125,7 +206,7 @@ public enum LibraryGenreIndexBuilder {
             if let memoized = resolvedByGenre[genre] {
                 lookup = memoized
             } else {
-                lookup = GenreTagValues.names(in: genre).map { ($0, normalizedID(for: $0)) }
+                lookup = GenreTagValues.names(in: genre, alsoSplitting: separators).map { ($0, normalizedID(for: $0)) }
                 resolvedByGenre[genre] = lookup
             }
             for resolved in lookup where !resolved.id.isEmpty {

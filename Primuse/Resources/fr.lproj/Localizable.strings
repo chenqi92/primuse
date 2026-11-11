@@ -7370,3 +7370,10 @@
 "lyrics_comments_all" = "Voir tous les commentaires";
 "lyrics_comments_empty" = "Aucun commentaire pour le moment";
 "lyrics_comment_save_failed" = "Impossible d’accéder aux commentaires. Veuillez réessayer.";
+
+"genre_split_title" = "Séparation des genres";
+"genre_split_footer" = "Par défaut, les genres ne sont séparés qu’aux points-virgules. Une fois activé, une étiquette comme « Hip-Hop/Rap » compte pour les deux genres, et « R&B/Soul » est également séparé. Cela ne concerne que la navigation ; les étiquettes de vos fichiers ne sont pas modifiées.";
+"genre_split_slash" = "Séparer les genres aux barres obliques";
+"genre_split_comma" = "Séparer les genres aux virgules";
+"genre_split_bar" = "Séparer les genres aux barres verticales et obliques inverses";
+"genre_split_tv_detail" = "Ne concerne que la navigation ; les étiquettes des fichiers ne changent pas";
