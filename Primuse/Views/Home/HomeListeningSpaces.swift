@@ -291,7 +291,8 @@ struct SpokenWordContinueShelf: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(entries) { entry in
-                    HomeBookCard(book: entry.book, songs: entry.songs, showsAuthor: false, showsListeningProgress: true)
+                    HomeBookCard(book: entry.book, songs: entry.songs, showsAuthor: false, showsListeningProgress: true,
+                                 coverSong: entry.coverSong)
                         .contextMenu { contextMenu?(entry) }
                 }
             }
@@ -338,7 +339,7 @@ private struct SpokenWordContinueRow: View {
         HStack(spacing: 14) {
             SpokenWordBookLink(bookID: entry.id) {
                 HStack(alignment: .center, spacing: 12) {
-                    SpokenWordBookCover(song: entry.songs.first, width: featured ? 80 : rowCoverWidth, cornerRadius: 10)
+                    SpokenWordBookCover(song: entry.coverSong, width: featured ? 80 : rowCoverWidth, cornerRadius: 10)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(entry.book.title)
                             .font(.headline)
@@ -484,6 +485,8 @@ struct HomeBookCard: View {
     let songs: [Song]
     var showsAuthor = true
     var showsListeningProgress = false
+    /// 封面那首;不给就是第一章(书架的启动快照里 `songs` 是空的)。
+    var coverSong: Song? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.homeCoverCardWidth) private var cardWidth
@@ -500,7 +503,7 @@ struct HomeBookCard: View {
             NavigationLink {
                 SpokenWordBookDetailView(bookID: book.id)
             } label: {
-                SpokenWordBookCover(song: songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
+                SpokenWordBookCover(song: coverSong ?? songs.first, width: cardWidth, cornerRadius: HomeCoverCardMetrics.cornerRadius)
                     .overlay(alignment: .topTrailing) {
                         if book.isFinished {
                             Image(systemName: "checkmark.circle.fill")

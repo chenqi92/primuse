@@ -5,7 +5,12 @@ struct SpokenWordLibrarySnapshot: Sendable {
     struct Entry: Identifiable, Sendable {
         let book: SpokenWordBook
         let songs: [Song]
+        /// 启动快照里的书(见 `SpokenWordShelfStartupHost`)没有章节对应的歌, `songs` 是空的,
+        /// 只带一首画封面用的歌。
+        var previewCover: Song? = nil
         var id: String { book.id }
+        /// 画封面用的那首: 第一章; 启动快照里是记下的那首。
+        var coverSong: Song? { songs.first ?? previewCover }
     }
 
     let entriesByID: [String: Entry]
@@ -19,8 +24,12 @@ struct SpokenWordLibrarySnapshot: Sendable {
     /// 没归档的书,按分组的先后。
     private let active: [Entry]
 
+    /// 同上。启动快照按这个先后存书。
+    var activeEntries: [Entry] { active }
+
     var listeningEntries: [Entry] {
-        let recent = inProgress.map { Entry(book: $0.0, songs: $0.1) }.sorted {
+        // 从 `entriesByID` 取:启动快照里的书封面记在条目上,不在 `songs` 里。
+        let recent = inProgress.map { entriesByID[$0.0.id] ?? Entry(book: $0.0, songs: $0.1) }.sorted {
             let lhs = $0.book.lastListenedAt ?? .distantPast
             let rhs = $1.book.lastListenedAt ?? .distantPast
             return lhs == rhs ? $0.id < $1.id : lhs > rhs
@@ -48,11 +57,13 @@ struct SpokenWordLibrarySnapshot: Sendable {
         songsByID: [String: Song] = [:],
         archivedBookIDs: Set<String> = [],
         reusingSongsFrom previous: SpokenWordLibrarySnapshot? = nil,
-        isPrepared: Bool = true
+        isPrepared: Bool = true,
+        previewCovers: [String: Song] = [:]
     ) {
         let all = books.map { book in
             Entry(book: book, songs: previous?.entriesByID[book.id]?.songs
-                ?? book.items.compactMap { songsByID[$0.id] })
+                ?? book.items.compactMap { songsByID[$0.id] },
+                previewCover: previewCovers[book.id])
         }
         entriesByID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         archived = all.filter { archivedBookIDs.contains($0.id) }
@@ -115,19 +126,38 @@ struct SpokenWordLibrarySnapshot: Sendable {
 @Observable
 final class SpokenWordBooksModel {
     /// 分组用到的输入:分的是哪一类、曲库里这一类内容的修订号,和有声内容那份账(进度、听完、归档)的修订号。
+    /// 还有曲库装好没有:冷启动时曲库还在读,有声内容是空的,那时分出来的「一本书也没有」不算数。
     struct Inputs: Equatable {
         let collection: SpokenWordCollection
         let libraryRevision: UInt64
         let storeRevision: Int
+        var libraryIsReady = true
     }
 
-    private(set) var snapshot = SpokenWordLibrarySnapshot(isPrepared: false)
+    private(set) var snapshot = SpokenWordLibrarySnapshot(isPrepared: false) {
+        didSet { snapshotGeneration &+= 1 }
+    }
+    /// 每换一份 `snapshot` 加一。书架的启动快照跟着它记。
+    private(set) var snapshotGeneration: UInt = 0
+    /// `snapshot` 是不是按装好的曲库分的(见 `Inputs.libraryIsReady`)。
+    private(set) var isForReadyLibrary = true
     @ObservationIgnored private(set) var requestRevision: UInt = 0
     /// 当前 `snapshot` 是按哪一份输入分的。
     @ObservationIgnored private var preparedInputs: Inputs?
     @ObservationIgnored private var progressIndex: SpokenWordBookProgressIndex?
 
     var inProgress: [(SpokenWordBook, [Song])] { snapshot.inProgress }
+
+    /// 分好了,而且是按装好的曲库分的。曲库还在读时分出来的空书架不算:那时要等,不能当成没有书。
+    var isSettled: Bool {
+        snapshot.isPrepared && isForReadyLibrary
+    }
+
+    private func markPrepared(for inputs: Inputs?) {
+        preparedInputs = inputs
+        let forReadyLibrary = inputs?.libraryIsReady ?? true
+        if isForReadyLibrary != forReadyLibrary { isForReadyLibrary = forReadyLibrary }
+    }
 
     /// `inputs` 和上次分好的那份一样就不再重分:模型由外面持有时(首页),视图卸下再装回来
     /// 照旧用分好的书,不必整库再分一遍、也不发一份新快照让整页重画(#283)。
@@ -143,8 +173,11 @@ final class SpokenWordBooksModel {
         requestRevision &+= 1
         let revision = requestRevision
         guard !songs.isEmpty else {
-            snapshot = SpokenWordLibrarySnapshot()
-            preparedInputs = inputs
+            // 本来就是分好的空书架时不换一份新的: 首页整页读着它, 换一份就整页重画一遍。
+            if !snapshot.isPrepared || !snapshot.entriesByID.isEmpty {
+                snapshot = SpokenWordLibrarySnapshot()
+            }
+            markPrepared(for: inputs)
             progressIndex = nil
             return
         }
@@ -176,7 +209,7 @@ final class SpokenWordBooksModel {
         guard !Task.isCancelled, revision == requestRevision, let result else { return }
         snapshot = result.0
         progressIndex = result.1
-        preparedInputs = inputs
+        markPrepared(for: inputs)
     }
 }
 
@@ -227,7 +260,7 @@ struct SpokenWordLibraryContent<Content: View>: View {
         if showsPlaceholderUntilPrepared {
             // A zero-height initial shelf can be skipped by its parent's lazy stack.
             ZStack {
-                if books.snapshot.isPrepared {
+                if books.isSettled {
                     content(books.snapshot)
                 } else {
                     ProgressView()
@@ -253,11 +286,16 @@ private struct SpokenWordBooksRefresh: ViewModifier {
     private struct RefreshIdentity: Equatable {
         let libraryRevision: UInt64
         let progressRevision: Int
+        /// 曲库装好时有声内容可能还是空的(修订号不动),也要再分一次,好让书架知道真没有书。
+        let libraryIsReady: Bool
     }
 
     func body(content: Content) -> some View {
         content
-            .task(id: RefreshIdentity(libraryRevision: collection.revision(in: library), progressRevision: progressRevision)) {
+            .task(id: RefreshIdentity(
+                libraryRevision: collection.revision(in: library), progressRevision: progressRevision,
+                libraryIsReady: library.isReady
+            )) {
                 let store = SpokenWordStore.shared
                 await model.refresh(
                     songs: collection.songs(in: library),
@@ -267,7 +305,8 @@ private struct SpokenWordBooksRefresh: ViewModifier {
                     inputs: .init(
                         collection: collection,
                         libraryRevision: collection.revision(in: library),
-                        storeRevision: store.revision
+                        storeRevision: store.revision,
+                        libraryIsReady: library.isReady
                     )
                 )
             }
@@ -447,7 +486,8 @@ struct SpokenWordLibraryView: View {
             #endif
         }
         .overlay {
-            if library.spokenWordSongs.isEmpty {
+            // 曲库还在读时有声内容是空的,书架那边先摆上次的样子,不能盖一层「没有有声内容」。
+            if library.isReady, !library.hasSpokenWordContent {
                 ContentUnavailableView(
                     "tab_spoken_word",
                     systemImage: "books.vertical",
@@ -567,11 +607,15 @@ struct SpokenWordShelf: View {
     /// 首页那一面传首页持有的分组结果(见 `SpokenWordLibraryContent.model`)。
     var model: SpokenWordBooksModel? = nil
     var section: SpokenWordShelfSection = .all
+    @State private var ownBooks = SpokenWordBooksModel()
 
     var body: some View {
-        SpokenWordLibraryContent(model: model) { snapshot in
+        let books = model ?? ownBooks
+        // 分好组之前先摆上次的书架(冷启动时曲库还在读),见 `SpokenWordShelfStartupHost`。
+        SpokenWordShelfStartupHost(books: books) { snapshot in
             SpokenWordShelfContent(snapshot: snapshot, findText: findText, showsArchived: showsArchived, section: section)
         }
+        .spokenWordBooksRefresh(.books, model: books)
     }
 }
 
@@ -602,6 +646,8 @@ struct SpokenWordShelfContent: View {
     @State private var offlineUnavailable: AudiobookOfflinePolicy.Availability?
     /// 书架「排序」开着: iPhone、iPad 上只有这时按住一本书是拖动, 平时长按是这本书的菜单。
     @State private var isArranging = false
+    /// 画的是启动快照(曲库还在读): 书的菜单不给, 排序不记; 多章的书照样点得进去, 详情页自己等曲库。
+    @Environment(\.spokenWordShelfStartupPreview) private var isStartupPreview
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -693,30 +739,33 @@ struct SpokenWordShelfContent: View {
                     .frame(maxWidth: .infinity, minHeight: 120)
             }
 
-            if findQuery != nil, snapshot.isPrepared,
+            // 启动快照只有前面一屏的书, 找不到、这一档没有书都还说不准。
+            if findQuery != nil, snapshot.isPrepared, !isStartupPreview,
                nowListening == nil, shelf.isEmpty, finished.isEmpty, archived.isEmpty {
                 ContentUnavailableView.search(text: findText)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
             }
-            if findQuery == nil, section != .all, snapshot.isPrepared,
+            if findQuery == nil, section != .all, snapshot.isPrepared, !isStartupPreview,
                listening.isEmpty, shelf.isEmpty, finished.isEmpty {
                 ContentUnavailableView("home_subtabs_empty", systemImage: "books.vertical")
             }
 
             #if os(macOS)
             if let current = nowListening {
-                SpokenWordNowListeningCard(book: current.book, songs: current.songs, tint: tint)
-                    .contextMenu { bookMenu(current.book, songs: current.songs) }
+                SpokenWordNowListeningCard(book: current.book, songs: current.songs, tint: tint, coverSong: current.coverSong)
+                    .contextMenu { if !isStartupPreview { bookMenu(current.book, songs: current.songs) } }
             }
             #else
             if !listening.isEmpty {
                 let configuration = HomeSectionLayoutConfiguration.decode(homeLayoutRawValue)
+                let menu: ((SpokenWordLibrarySnapshot.Entry) -> AnyView)? = isStartupPreview
+                    ? nil : { AnyView(bookMenu($0.book, songs: $0.songs)) }
                 SpokenWordContinueShelf(
                     entries: listening,
                     style: configuration.booksInProgressStyle,
                     limit: configuration.itemCount(for: .booksInProgress) ?? 12,
-                    contextMenu: { AnyView(bookMenu($0.book, songs: $0.songs)) }
+                    contextMenu: menu
                 )
                 .environment(\.homeCoverCardWidth, HomeCoverCardMetrics.width(
                     usesPadMetrics: horizontalSizeClass == .regular,
@@ -938,6 +987,8 @@ struct SpokenWordShelfContent: View {
     }
 
     private func moveBook(_ id: String, onto target: String, entries: [SpokenWordLibrarySnapshot.Entry]) -> Bool {
+        // 启动快照只有前面一屏的书, 按它记下的顺序会把后面的书挤乱。
+        guard !isStartupPreview else { return false }
         let allIDs = snapshot.shelf.map(\.id) + snapshot.finished.map(\.id) + snapshot.archived.map(\.id)
             + [snapshot.nowListening?.id].compactMap { $0 }
         guard let moved = SpokenWordShelfOrder.moving(
@@ -963,16 +1014,17 @@ struct SpokenWordShelfContent: View {
                 .padding(.trailing, layout == .list ? 36 : 0)
                 #if os(iOS)
                 // 长按菜单挂在书本身上, 排序时被拖动层整个盖住, 按住只会拖。
-                .contextMenu { bookMenu(entry.book, songs: entry.songs, entries: entries) }
+                .contextMenu { if !isStartupPreview { bookMenu(entry.book, songs: entry.songs, entries: entries) } }
                 #endif
         }
         .modifier(SpokenWordBookMenuOverlay(
             alignment: layout.isGrid ? .topTrailing : .trailing,
             bookID: entry.id,
             isArranging: isArranging,
-            showsMenuButton: layout != .covers
+            showsMenuButton: layout != .covers,
+            isInert: isStartupPreview
         ) {
-            bookMenu(entry.book, songs: entry.songs, entries: entries)
+            if !isStartupPreview { bookMenu(entry.book, songs: entry.songs, entries: entries) }
         })
         .accessibilityAction(named: Text("home_edit_move_up")) { moveBook(entry.id, by: -1, entries: entries) }
         .accessibilityAction(named: Text("home_edit_move_down")) { moveBook(entry.id, by: 1, entries: entries) }
@@ -988,13 +1040,13 @@ struct SpokenWordShelfContent: View {
         let cell = Group {
             if layout.isGrid {
                 SpokenWordBookCoverCell(
-                    book: book, coverSong: songs.first,
+                    book: book, coverSong: entry.coverSong,
                     isPlaying: player.currentBookID == book.id, tint: tint,
                     showsText: layout == .bookshelf
                 )
             } else {
                 SpokenWordBookListRow(
-                    book: book, coverSong: songs.first,
+                    book: book, coverSong: entry.coverSong,
                     isPlaying: player.currentBookID == book.id, tint: tint
                 )
             }
@@ -1176,6 +1228,8 @@ private struct SpokenWordNowListeningCard: View {
     let book: SpokenWordBook
     let songs: [Song]
     let tint: Color
+    /// 封面那首(启动快照里 `songs` 是空的)。
+    var coverSong: Song? = nil
 
     @Environment(AudioPlayerService.self) private var player
 
@@ -1270,7 +1324,7 @@ private struct SpokenWordNowListeningCard: View {
     @ViewBuilder
     private var details: some View {
         let content = HStack(alignment: .top, spacing: 14) {
-            SpokenWordBookCover(song: songs.first, width: coverWidth, cornerRadius: 10)
+            SpokenWordBookCover(song: coverSong ?? songs.first, width: coverWidth, cornerRadius: 10)
                 .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
 
             VStack(alignment: .leading, spacing: 5) {
@@ -2195,6 +2249,8 @@ private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
     let bookID: String
     var isArranging = false
     var showsMenuButton = true
+    /// 启动快照里的书: 「⋯」照样画, 点不了。
+    var isInert = false
     @ViewBuilder var menuItems: () -> MenuItems
     #if os(macOS)
     @State private var isHovered = false
@@ -2204,7 +2260,7 @@ private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
         #if os(macOS)
         content
             .overlay(alignment: alignment) {
-                if isHovered, showsMenuButton { badge }
+                if isHovered, showsMenuButton, !isInert { badge }
             }
             .onHover { isHovered = $0 }
             .contextMenu { menuItems() }
@@ -2219,6 +2275,8 @@ private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
                         .accessibilityHidden(true)
                 } else if showsMenuButton {
                     badge
+                        .allowsHitTesting(!isInert)
+                        .accessibilityHidden(isInert)
                 }
             }
         #endif

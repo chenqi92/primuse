@@ -1856,6 +1856,7 @@ final class AppServices {
         let spokenWordWidgets = SpokenWordWidgetPublisher(library: musicLibrary)
         spokenWordWidgets.start()
         spokenWordWidgetPublisher = spokenWordWidgets
+        SpokenWordShelfStartupStore.shared.follow(library: musicLibrary)
         let listeningWidgets = ListeningWidgetPublisher(library: musicLibrary) { [weak self] in
             self?.siriRadioStations ?? []
         }
@@ -2984,6 +2985,8 @@ final class AppServices {
 
         let sourceIDs = Set(requests.keys)
         let removedSongIDs = await musicLibrary.removeSongsForSources(sourceIDs)
+        // 有声书架的启动快照里可能有这个源的书名, 跟着删; 下次分好组再记。
+        SpokenWordShelfStartupStore.shared.clear()
         await metadataBackfill.discardWorkNow(
             forSourceIDs: sourceIDs,
             knownSongIDs: removedSongIDs

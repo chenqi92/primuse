@@ -1234,9 +1234,18 @@ struct LibraryReadyContent<Content: View>: View {
         Set(sourcesStore.sources.filter(\.isEnabled).map(\.id))
     }
 
+    /// 不等曲库装好就直接画的分类: 电台、播客不读曲库; 有声书架自己先摆上次的书架或骨架
+    /// (见 `SpokenWordShelfStartupHost`)。
+    private var showsBeforeLibraryReady: Bool {
+        switch startupSection {
+        case .radio, .podcasts, .spokenWord: true
+        default: false
+        }
+    }
+
     var body: some View {
         ZStack {
-            if library.isReady || startupSection == .radio || startupSection == .podcasts {
+            if library.isReady || showsBeforeLibraryReady {
                 content()
             } else {
                 Group {
@@ -1878,7 +1887,7 @@ struct ContentView: View {
         case .librarySongs:
             librarySubpane(title: "tab_songs", startupSection: .songs) { SongListView() }
         case .librarySpokenWord:
-            librarySubpane(title: "tab_spoken_word") { SpokenWordLibraryView() }
+            librarySubpane(title: "tab_spoken_word", startupSection: .spokenWord) { SpokenWordLibraryView() }
         case .libraryAlbums:
             librarySubpane(title: "tab_albums", startupSection: .albums) { AlbumGridView() }
         case .libraryArtists:
