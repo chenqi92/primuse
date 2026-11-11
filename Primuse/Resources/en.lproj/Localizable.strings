@@ -3144,6 +3144,8 @@
 "player_animated_artwork_description" = "Play source-provided GIF, APNG, and animated WebP artwork on album details and primary player artwork. Lists always use a static first frame, and system motion and power settings are respected.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Only for Original Artwork";
 "player_animated_artwork_unmetered_only_description" = "Download animated artwork only over Wi-Fi or Ethernet. Cached animations can play offline.";
+"player_lock_screen_animated_artwork" = "Motion Artwork on Lock Screen";
+"player_lock_screen_animated_artwork_description" = "When the current song has motion artwork, the Lock Screen and other system playback views animate too. Only videos and GIFs already on this device are used, and nothing extra is downloaded. The system shows static artwork in Low Power Mode or when Reduce Motion is on.";
 "motion_artwork_service_enabled" = "Online Animated Artwork";
 "motion_artwork_service_endpoint" = "Service Endpoint";
 "motion_artwork_service_description" = "Send album information, including the title, artist and available album identifiers, to the selected service to find animated artwork.";

@@ -3134,6 +3134,8 @@
 "library_recommendations_theme" = "Öneri Odağı";
 "share_choose_primuse_relay_hint" = "Yalnızca yöntemi değiştirir; henüz yükleme yapmıyor veya izinleri değiştirmiyor";
 "player_animated_artwork_unmetered_only_description" = "Hareketli kapakları yalnızca Wi-Fi veya Ethernet üzerinden indir. Önbellekteki animasyonlar çevrimdışı oynatılabilir.";
+"player_lock_screen_animated_artwork" = "Kilit ekranında hareketli kapak";
+"player_lock_screen_animated_artwork_description" = "Çalan şarkının hareketli kapağı varsa kilit ekranında ve sistemin diğer oynatma görünümlerinde de hareket eder. Yalnızca bu cihazda zaten bulunan video ve GIF’ler kullanılır, ek bir şey indirilmez. Düşük Güç Modu’nda veya Hareketi Azalt açıkken sistem sabit kapağı gösterir.";
 "radio_batch_directory_placeholder" = "İstasyon adı";
 "ai_audio_transcription_model_detail" = "Google'nin mevcut model listesinden desteklenen bir ses transkripsiyon modeli seçin. Genel akıllı hizmetler kendi sağlayıcılarını ve modellerini korur.";
 "lyrics_audio_tools_section" = "Sesten şarkı sözleri";

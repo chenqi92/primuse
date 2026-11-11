@@ -139,6 +139,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.defaultArtwork", titleKey: "default_artwork_title", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.animatedArtwork", titleKey: "player_animated_artwork", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.animatedArtworkUnmeteredOnly", titleKey: "player_animated_artwork_unmetered_only", iosPage: .player, macPage: .appearance),
+        SettingDefinition(id: "appearance.lockScreenAnimatedArtwork", titleKey: "player_lock_screen_animated_artwork", iosPage: .player, macPage: .appearance, keywords: ["lock screen", "animated artwork", "motion artwork", "锁屏", "动态封面", "锁屏封面"], requiresAnimatedNowPlayingArtwork: true),
         SettingDefinition(id: "appearance.motionArtworkService", titleKey: "motion_artwork_service_enabled", iosPage: .player, macPage: .appearance, keywords: ["animated artwork", "动态封面", "服务端点"]),
         SettingDefinition(id: "appearance.motionArtworkEndpoint", titleKey: "motion_artwork_service_endpoint", iosPage: .player, macPage: .appearance, keywords: ["animated artwork URL", "动态封面地址"]),
         SettingDefinition(id: "appearance.playerControlTint", titleKey: "player_control_tint_title", iosPage: .playerStyle, macPage: nil, keywords: ["white", "monochrome", "color", "白色", "单色", "黑白", "控件颜色", "进度条颜色", "主题色"]),

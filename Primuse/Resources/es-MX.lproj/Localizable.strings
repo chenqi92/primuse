@@ -2632,6 +2632,8 @@
 "player_animated_artwork_description" = "Reproduzca portadas GIF, APNG y WebP animadas proporcionadas por el origen en los detalles del álbum y las portadas del reproductor principal. Las listas siempre utilizan un primer fotograma estático y se respetan los ajustes de energía y movimiento del sistema.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi solo para portadas originales";
 "player_animated_artwork_unmetered_only_description" = "Descarga portadas animadas solo por Wi-Fi o Ethernet. Las animaciones en caché pueden reproducirse sin conexión.";
+"player_lock_screen_animated_artwork" = "Portada en movimiento en la pantalla bloqueada";
+"player_lock_screen_animated_artwork_description" = "Si la canción actual tiene portada en movimiento, la pantalla bloqueada y otras vistas de reproducción del sistema también se animan. Solo se usan videos y GIF que ya están en este dispositivo; no se descarga nada adicional. Con el modo de bajo consumo o Reducir movimiento, el sistema muestra la portada fija.";
 "player_appearance_title" = "Reproductor";
 "player_blur_inactive_lyrics" = "Difuminar líneas inactivas";
 "player_blur_inactive_lyrics_description" = "Desenfoque ligeramente las letras sincronizadas que no sean la línea actual para enfatizar lo que se está reproduciendo.";

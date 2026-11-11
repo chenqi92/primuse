@@ -102,6 +102,7 @@ enum OfflineSettingsCatalog {
         "primuse.player.gradientLyricsStartColorHex",
         "primuse.player.immersiveShowsArtwork",
         "primuse.player.keepsScreenAwakeForLyrics",
+        "primuse.player.lockScreenAnimatedArtwork",
         "primuse.player.lyricsAlignment",
         "primuse.player.lyricsColorMode",
         "primuse.player.lyricsFont",

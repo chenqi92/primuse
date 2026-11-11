@@ -3359,6 +3359,8 @@
 "player_animated_artwork_description" = "在專輯詳細資訊和播放器主封面中播放來源提供的 GIF、APNG 與動態 WebP。列表一律顯示靜態首格，並遵循系統動態效果與電量設定。";
 "player_animated_artwork_unmetered_only" = "僅透過 Wi-Fi 下載原始封面";
 "player_animated_artwork_unmetered_only_description" = "僅在 Wi-Fi 或有線網路下載動態封面；已快取的動畫可離線播放。";
+"player_lock_screen_animated_artwork" = "鎖定畫面顯示動態封面";
+"player_lock_screen_animated_artwork_description" = "正在播放的歌有動態封面時，鎖定畫面等系統的播放介面也跟著動。只使用已經存在這台裝置上的影片和動圖，不會為此額外下載；低耗電模式、減少動態效果時系統會顯示靜態封面。";
 "motion_artwork_service_enabled" = "線上動態封面";
 "motion_artwork_service_endpoint" = "服務端點";
 "motion_artwork_service_description" = "開啟後，會向所選服務傳送專輯名稱、藝人及可用的專輯識別碼等資訊，以尋找動態封面。";

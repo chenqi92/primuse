@@ -180,6 +180,8 @@ extension AudioPlayerService {
             info[MPMediaItemPropertyArtwork] = cachedArtwork
             publishedArtworkSongID = songID
         }
+        // 锁屏动态封面跟着整份快照走：素材还没准备好时这里什么也不加，准备好后补发一次。
+        LockScreenMotionArtworkPublisher.shared.decorate(&info, song: song, player: self)
 
         nowPlayingCenter.nowPlayingInfo = info
         // 记住这份完整快照与它携带的封面对象: 下一次歌词行推进直接在它上面
@@ -241,6 +243,7 @@ extension AudioPlayerService {
         lastArtworkSongID = nil
         publishedArtworkSongID = nil
         invalidateCachedNowPlayingInfo()
+        LockScreenMotionArtworkPublisher.shared.reset()
         let nowPlayingCenter = MPNowPlayingInfoCenter.default()
         nowPlayingCenter.nowPlayingInfo = nil
         #if os(macOS)
@@ -375,6 +378,7 @@ extension AudioPlayerService {
         if shouldClearArtwork {
             var nowInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
             nowInfo[MPMediaItemPropertyArtwork] = nil
+            LockScreenMotionArtworkPublisher.removeEntries(from: &nowInfo)
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nowInfo
             invalidateCachedNowPlayingInfo()
         }

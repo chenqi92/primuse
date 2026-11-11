@@ -7506,6 +7506,8 @@ private struct MacSTThemeView: View {
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
+    @AppStorage(PlayerAppearancePreferences.lockScreenAnimatedArtworkKey)
+    private var lockScreenAnimatedArtwork = PlayerAppearancePreferences.lockScreenAnimatedArtworkByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
@@ -7817,6 +7819,17 @@ private struct MacSTThemeView: View {
                         .disabled(!animatedArtworkEnabled)
                 }
                 .settingsAnchor("appearance.animatedArtworkUnmeteredOnly")
+                if LockScreenMotionArtworkPublisher.isSupportedBySystem {
+                    MacSTRow(
+                        String(localized: "player_lock_screen_animated_artwork"),
+                        hint: String(localized: "player_lock_screen_animated_artwork_description"),
+                        hintLineLimit: 4
+                    ) {
+                        MacSTToggle(isOn: $lockScreenAnimatedArtwork)
+                            .disabled(!animatedArtworkEnabled)
+                    }
+                    .settingsAnchor("appearance.lockScreenAnimatedArtwork")
+                }
                 MacSTRow(
                     String(localized: "motion_artwork_service_enabled"),
                     hint: String(localized: "motion_artwork_service_description")

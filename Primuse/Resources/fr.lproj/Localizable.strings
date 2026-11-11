@@ -3373,6 +3373,8 @@
 "player_animated_artwork_description" = "Lit les pochettes GIF, APNG et WebP animées fournies par la source dans les détails de l’album et sur la pochette principale du lecteur. Les listes affichent toujours la première image statique et respectent les réglages système et d’énergie.";
 "player_animated_artwork_unmetered_only" = "Pochette originale via Wi-Fi uniquement";
 "player_animated_artwork_unmetered_only_description" = "Télécharger les pochettes animées uniquement en Wi-Fi ou Ethernet. Les animations en cache sont disponibles hors ligne.";
+"player_lock_screen_animated_artwork" = "Pochette animée sur l’écran verrouillé";
+"player_lock_screen_animated_artwork_description" = "Quand le morceau en cours a une pochette animée, l’écran verrouillé et les autres vues de lecture du système l’animent aussi. Seules les vidéos et GIF déjà présents sur cet appareil sont utilisés, sans téléchargement supplémentaire. En mode Économie d’énergie ou avec « Réduire les animations », le système affiche la pochette fixe.";
 "motion_artwork_service_enabled" = "Pochettes animées en ligne";
 "motion_artwork_service_endpoint" = "Point de terminaison du service";
 "motion_artwork_service_description" = "Envoyez les informations de l’album, dont le titre, l’artiste et les identifiants disponibles, au service choisi pour trouver une pochette animée.";

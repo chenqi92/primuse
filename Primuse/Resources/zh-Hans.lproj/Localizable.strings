@@ -3475,6 +3475,8 @@
 "player_animated_artwork_description" = "在专辑详情和播放器主封面中播放来源自带的 GIF、APNG 与动态 WebP。列表始终显示静态首帧，并遵循系统动态效果与电量设置。";
 "player_animated_artwork_unmetered_only" = "仅通过 Wi-Fi 下载原始封面";
 "player_animated_artwork_unmetered_only_description" = "仅在 Wi-Fi 或有线网络下载动态封面；已缓存的动画可离线播放。";
+"player_lock_screen_animated_artwork" = "锁屏显示动态封面";
+"player_lock_screen_animated_artwork_description" = "正在播放的歌有动态封面时，锁屏等系统的播放界面也跟着动。只用已经存在这台设备上的视频和动图，不会为此额外下载；低电量模式、减少动态效果时系统会显示静态封面。";
 "motion_artwork_service_enabled" = "在线动态封面";
 "motion_artwork_service_endpoint" = "服务端点";
 "motion_artwork_service_description" = "开启后，会向所选服务发送专辑名称、艺人及可用的专辑标识等信息，以查找动态封面。";

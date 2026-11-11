@@ -193,6 +193,8 @@ struct SettingDefinition: Identifiable, Hashable, Sendable {
     /// 只在 Debug / TestFlight 构建里存在的行。正式版里要从搜索索引摘掉,
     /// 否则用户搜得到一条点进去什么也没有的结果。
     var requiresDiagnosticBuild = false
+    /// 只有系统能放动态封面（iOS / macOS 26 起）时才有的行。
+    var requiresAnimatedNowPlayingArtwork = false
 
     var page: SettingsPage? {
         #if os(macOS)
@@ -245,6 +247,7 @@ enum SettingsCatalog {
 
     static let available: [SettingDefinition] = definitions.filter {
         guard $0.page?.available == true else { return false }
+        if $0.requiresAnimatedNowPlayingArtwork, !LockScreenMotionArtworkPublisher.isSupportedBySystem { return false }
         guard $0.requiresDiagnosticBuild else { return true }
         return DiagnosticLogExportPolicy.exposesExportEntry(
             channel: Bundle.main.distributionChannel

@@ -178,6 +178,9 @@ enum PlayerAppearancePreferences {
     static let animatedArtworkEnabledByDefault = true
     static let animatedArtworkUnmeteredOnlyKey = "primuse.player.animatedArtworkUnmeteredOnly"
     static let animatedArtworkUnmeteredOnlyByDefault = true
+    /// 「锁屏显示动态封面」：跟随「动态专辑封面」总开关，系统（iOS / macOS 26 起）支持时才显示。
+    static let lockScreenAnimatedArtworkKey = "primuse.player.lockScreenAnimatedArtwork"
+    static let lockScreenAnimatedArtworkByDefault = true
     static let motionArtworkServiceEnabledKey = "primuse.player.motionArtworkServiceEnabled"
     static let motionArtworkServiceEnabledByDefault = false
     static let motionArtworkServiceSourceKey = "motionArtworkServiceSource"

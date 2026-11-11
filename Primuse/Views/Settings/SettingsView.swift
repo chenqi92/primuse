@@ -659,6 +659,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
     private var animatedArtworkUnmeteredOnly = PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyByDefault
+    @AppStorage(PlayerAppearancePreferences.lockScreenAnimatedArtworkKey)
+    private var lockScreenAnimatedArtwork = PlayerAppearancePreferences.lockScreenAnimatedArtworkByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEnabledKey)
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceSourceKey)
@@ -751,6 +753,15 @@ private struct PlayerAppearanceSettingsView: View {
                 .settingsAnchor("appearance.animatedArtworkUnmeteredOnly")
                 .disabled(!animatedArtworkEnabled)
                 .accessibilityHint(Text("player_animated_artwork_unmetered_only_description"))
+                if LockScreenMotionArtworkPublisher.isSupportedBySystem {
+                    Toggle(isOn: $lockScreenAnimatedArtwork) {
+                        SettingsInfoLabel("player_lock_screen_animated_artwork") {
+                            Text("player_lock_screen_animated_artwork_description")
+                        }
+                    }
+                    .settingsAnchor("appearance.lockScreenAnimatedArtwork")
+                    .disabled(!animatedArtworkEnabled)
+                }
             }
 
             Section {

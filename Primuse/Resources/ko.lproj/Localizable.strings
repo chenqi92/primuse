@@ -3373,6 +3373,8 @@
 "player_animated_artwork_description" = "소스에서 제공하는 GIF, APNG 및 애니메이션 WebP 앨범 아트를 앨범 상세 화면과 플레이어의 기본 앨범 아트에서 재생합니다. 목록은 항상 정적인 첫 프레임을 표시하며 시스템 동작 및 전원 설정을 따릅니다.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi에서만 원본 앨범 아트 다운로드";
 "player_animated_artwork_unmetered_only_description" = "Wi-Fi 또는 이더넷에서만 다운로드합니다. 캐시된 애니메이션은 오프라인으로 재생할 수 있습니다.";
+"player_lock_screen_animated_artwork" = "잠금 화면에 움직이는 커버 표시";
+"player_lock_screen_animated_artwork_description" = "재생 중인 곡에 움직이는 커버가 있으면 잠금 화면 등 시스템 재생 화면에서도 움직입니다. 이 기기에 이미 있는 동영상과 GIF만 사용하며 추가로 다운로드하지 않습니다. 저전력 모드이거나 동작 줄이기가 켜져 있으면 시스템이 정지 커버를 표시합니다.";
 "motion_artwork_service_enabled" = "온라인 움직이는 앨범 아트";
 "motion_artwork_service_endpoint" = "서비스 엔드포인트";
 "motion_artwork_service_description" = "움직이는 앨범 아트를 찾기 위해 제목, 아티스트, 사용 가능한 앨범 식별자 등의 정보를 선택한 서비스로 보냅니다.";

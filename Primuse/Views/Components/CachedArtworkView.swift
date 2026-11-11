@@ -1225,6 +1225,7 @@ struct CachedArtworkView: View {
                     animatedArtworkContentKey = inspection.contentKey
                     animatedArtworkExpiresAt = expiration
                     animatedArtworkGeneration = generation
+                    noteServiceMaterialForLockScreen(animation: data)
                     return
                 }
                 try? await Self.animationDiskCache.removeValue(forKey: diskKey)
@@ -1255,6 +1256,7 @@ struct CachedArtworkView: View {
                 animatedArtworkIdentity = diskKey
                 animatedArtworkExpiresAt = expiration
                 animatedArtworkGeneration = generation
+                noteServiceMaterialForLockScreen(videoAt: url)
             case .downloaded(let payload):
                 let expiration = Self.configuredMotionArtworkExpiration(
                     providerExpiration: payload.asset.expiresAt,
@@ -1285,6 +1287,7 @@ struct CachedArtworkView: View {
                 animatedArtworkContentKey = contentKey
                 animatedArtworkExpiresAt = expiration
                 animatedArtworkGeneration = generation
+                noteServiceMaterialForLockScreen(animation: payload.data)
             case .notFound, .ambiguous(_), .unsupported:
                 try? await storeMotionArtworkNegative(
                     forKey: diskKey,
@@ -1311,6 +1314,17 @@ struct CachedArtworkView: View {
                 forKey: diskKey,
                 expiresAt: now.addingTimeInterval(Self.transientAnimationFailureTTL)
             )
+        }
+    }
+
+    /// 锁屏动态封面只用本机已有的素材：服务给的这份留个底，锁屏不必再去要。
+    private func noteServiceMaterialForLockScreen(animation data: Data? = nil, videoAt url: URL? = nil) {
+        let resolvedAlbumID = albumID ?? songID.flatMap { library.song(id: $0)?.albumID }
+        let registry = MotionCoverServiceMaterialRegistry.shared
+        if let data {
+            registry.noteAnimation(data, songID: songID, albumID: resolvedAlbumID)
+        } else if let url {
+            registry.noteVideo(at: url, songID: songID, albumID: resolvedAlbumID)
         }
     }
 

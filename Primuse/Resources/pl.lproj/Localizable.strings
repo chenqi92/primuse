@@ -2632,6 +2632,8 @@
 "player_animated_artwork_description" = "Odtwarzaj dostarczone przez źródło pliki GIF, APNG i animowane grafiki WebP na szczegółach albumu i grafice głównego odtwarzacza. Na listach zawsze używana jest statyczna pierwsza klatka, przy czym przestrzegane są systemowe ustawienia ruchu i zasilania.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Tylko dla oryginalnej grafiki";
 "player_animated_artwork_unmetered_only_description" = "Pobieraj animowane okładki tylko przez Wi-Fi lub Ethernet. Zapisane animacje można odtwarzać offline.";
+"player_lock_screen_animated_artwork" = "Ruchoma okładka na ekranie blokady";
+"player_lock_screen_animated_artwork_description" = "Gdy bieżący utwór ma ruchomą okładkę, porusza się ona także na ekranie blokady i w innych systemowych widokach odtwarzania. Używane są tylko filmy i GIF-y, które już są na tym urządzeniu, nic nie jest dodatkowo pobierane. W trybie niskiego zużycia energii lub przy ograniczonym ruchu system pokazuje statyczną okładkę.";
 "player_appearance_title" = "Odtwarzacz";
 "player_blur_inactive_lyrics" = "Rozmywaj nieaktywne wersy";
 "player_blur_inactive_lyrics_description" = "Nieznacznie rozmyj zsynchronizowany tekst inny niż bieżący wiersz, aby podkreślić to, co jest odtwarzane.";

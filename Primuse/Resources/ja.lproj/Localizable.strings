@@ -3374,6 +3374,8 @@
 "player_animated_artwork_description" = "ソースが提供する GIF、APNG、アニメーション WebP をアルバム詳細とプレーヤーのメインアートワークで再生します。一覧には常に静止した先頭フレームを表示し、システムのモーション設定と電源設定に従います。";
 "player_animated_artwork_unmetered_only" = "オリジナルは Wi-Fi のみ";
 "player_animated_artwork_unmetered_only_description" = "Wi-Fi または有線ネットワークでのみダウンロードします。キャッシュ済みのアニメーションはオフラインで再生できます。";
+"player_lock_screen_animated_artwork" = "ロック画面でモーションアートワーク";
+"player_lock_screen_animated_artwork_description" = "再生中の曲にモーションアートワークがあるとき、ロック画面などシステムの再生画面でも動きます。このデバイスにすでにある動画と GIF だけを使い、追加のダウンロードはしません。低電力モードや「視差効果を減らす」がオンのときは静止画が表示されます。";
 "motion_artwork_service_enabled" = "オンラインのアニメーションアートワーク";
 "motion_artwork_service_endpoint" = "サービスエンドポイント";
 "motion_artwork_service_description" = "アニメーションアートワークを検索するため、アルバム名、アーティスト、利用可能なアルバム識別子などを選択したサービスに送信します。";

@@ -2632,6 +2632,8 @@
 "player_animated_artwork_description" = "تشغيل أعمال GIF وAPNG وWebP المتحركة المقدمة من المصدر على تفاصيل الألبوم والأعمال الفنية للمشغل الأساسي. تستخدم القوائم دائمًا إطارًا أوليًا ثابتًا، ويتم احترام إعدادات حركة النظام والطاقة.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi فقط للأعمال الفنية الأصلية";
 "player_animated_artwork_unmetered_only_description" = "تنزيل الأغلفة المتحركة عبر Wi-Fi أو Ethernet فقط. يمكن تشغيل الرسوم المخزنة مؤقتًا دون اتصال.";
+"player_lock_screen_animated_artwork" = "غلاف متحرك على شاشة القفل";
+"player_lock_screen_animated_artwork_description" = "عندما يكون للأغنية الحالية غلاف متحرك، يتحرك أيضًا على شاشة القفل وفي واجهات التشغيل الأخرى في النظام. تُستخدم فقط الفيديوهات وصور GIF الموجودة بالفعل على هذا الجهاز دون أي تنزيل إضافي. في وضع الطاقة المنخفضة أو مع تقليل الحركة يعرض النظام الغلاف الثابت.";
 "player_appearance_title" = "المشغّل";
 "player_blur_inactive_lyrics" = "طمس كلمات غير نشطة";
 "player_blur_inactive_lyrics_description" = "قم بطمس الكلمات المتزامنة قليلاً بخلاف السطر الحالي للتأكيد على ما يتم تشغيله.";

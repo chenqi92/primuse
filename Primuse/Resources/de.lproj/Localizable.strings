@@ -3373,6 +3373,8 @@
 "player_animated_artwork_description" = "Spielt vom Anbieter bereitgestellte GIF-, APNG- und animierte WebP-Cover in Albumdetails und auf dem Hauptcover des Players ab. Listen zeigen immer das statische erste Bild; System- und Energiespareinstellungen werden berücksichtigt.";
 "player_animated_artwork_unmetered_only" = "Originalcover nur über WLAN";
 "player_animated_artwork_unmetered_only_description" = "Animierte Cover nur über WLAN oder Ethernet laden. Gespeicherte Animationen können offline abgespielt werden.";
+"player_lock_screen_animated_artwork" = "Bewegtes Cover auf dem Sperrbildschirm";
+"player_lock_screen_animated_artwork_description" = "Hat der aktuelle Titel ein bewegtes Cover, bewegt es sich auch auf dem Sperrbildschirm und in anderen Wiedergabeansichten des Systems. Es werden nur Videos und GIFs verwendet, die bereits auf diesem Gerät sind; dafür wird nichts zusätzlich geladen. Im Stromsparmodus oder mit „Bewegung reduzieren“ zeigt das System das statische Cover.";
 "motion_artwork_service_enabled" = "Animierte Cover online";
 "motion_artwork_service_endpoint" = "Dienst-Endpunkt";
 "motion_artwork_service_description" = "Albuminformationen wie Titel, Interpret und verfügbare Albumkennungen werden an den gewählten Dienst gesendet, um animierte Cover zu finden.";
