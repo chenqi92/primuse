@@ -2907,6 +2907,9 @@ struct StorageManagementView: View {
     @State private var isClearingSourceFiles = false
     @State private var isClearingMusicVideos = false
     @State private var isClearingQuarantine = false
+    @State private var motionCoverSize: String = "..."
+    @State private var isClearingMotionCovers = false
+    @State private var showsMotionCoverClearConfirm = false
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
     @State private var cacheActionToast: String?
     @AppStorage(ArtworkStoreLimitSetting.key)
@@ -3156,6 +3159,33 @@ struct StorageManagementView: View {
                 }
                 .settingsAnchor("storage.clearMetadata")
 
+                storageRow(
+                    icon: "film.stack",
+                    title: "motion_cover_storage",
+                    size: motionCoverSize,
+                    isClearing: isClearingMotionCovers
+                ) {
+                    showsMotionCoverClearConfirm = true
+                }
+                .settingsAnchor("storage.clearMotionCovers")
+                .confirmationDialog(
+                    String(localized: "motion_cover_storage_clear_title"),
+                    isPresented: $showsMotionCoverClearConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button(String(localized: "motion_cover_storage_clear_confirm"), role: .destructive) {
+                        isClearingMotionCovers = true
+                        Task {
+                            await MotionCoverStore.shared.removeAll()
+                            await refreshSizes()
+                            isClearingMotionCovers = false
+                        }
+                    }
+                    Button(String(localized: "cancel"), role: .cancel) {}
+                } message: {
+                    Text("motion_cover_storage_clear_message")
+                }
+
                 Picker("artwork_store_limit", selection: Binding(
                     get: { Int64(artworkStoreLimit) },
                     set: { artworkStoreLimit = Int($0) }
@@ -3174,6 +3204,7 @@ struct StorageManagementView: View {
             } header: {
                 SettingsInfoHeader("persistent_data") {
                     Text("metadata_clear_footer")
+                    Text("motion_cover_storage_footer")
                     Text("artwork_store_limit_footer")
                     Text("companion_assets_download_footer")
                 }
@@ -3487,6 +3518,7 @@ struct StorageManagementView: View {
 
         let metadata = await MetadataAssetStore.shared.cacheSize()
         metadataSize = formatter.string(fromByteCount: metadata)
+        motionCoverSize = formatter.string(fromByteCount: await MotionCoverStore.diskUsage())
 
         let sourceFiles = await sourceManager.sourceFileCacheUsage()
         sourceFileCache = sourceFiles

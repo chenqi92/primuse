@@ -1546,6 +1546,10 @@
 		A8E7B493EDA246098FAF8EB2 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 769C39487B88BFC43377D781 /* WidgetKit.framework */; };
 		A912A656CCA5065CE8682014 /* MacImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */; };
 		A9160AC574F31FCE96377AE8 /* MotionArtworkEndpointClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32D73848A8BD3AD508B3BD21 /* MotionArtworkEndpointClient.swift */; };
+		7F19F98BC08F6374E9803D18 /* MotionCoverImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A709567E4595FF41EB993A9A /* MotionCoverImporter.swift */; };
+		48FAEA2941C7134E8BFE933C /* MotionCoverImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A709567E4595FF41EB993A9A /* MotionCoverImporter.swift */; };
+		7587EB37CA80E71043A89A9A /* MotionCoverStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D89AFC8A638BC55FB5B8FAF /* MotionCoverStore.swift */; };
+		415D4F0182BA2C6F99C86371 /* MotionCoverStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D89AFC8A638BC55FB5B8FAF /* MotionCoverStore.swift */; };
 		A94A632B74898D56429171B4 /* NFSClientBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEEF77E944AB8BFB9DCC7A72 /* NFSClientBackend.swift */; };
 		A95A768894FFF953AA5F3F47 /* AppleMusicLocalFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72580B05B4A90C3ED1E365BD /* AppleMusicLocalFiles.swift */; };
 		A97257A55F6552E229E3AF9B /* LibraryInsightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89D1C8746C6AC4E67D9D0FB /* LibraryInsightStore.swift */; };
@@ -1611,6 +1615,7 @@
 		AE1E0F179439B3421A49EBEA /* LibNFS in Frameworks */ = {isa = PBXBuildFile; productRef = 609A5AE375E2F918AC617DD3 /* LibNFS */; };
 		AF0477B123E1E458EE651D73 /* SmartPlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */; };
 		AF201CC110B79690BE4F987C /* MotionArtworkProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADE3E47B952DDB0A1371635 /* MotionArtworkProvider.swift */; };
+		4B032738CFBC427AA82478EC /* MotionCoverPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E25B419BFDC7640618931FE /* MotionCoverPolicy.swift */; };
 		AF3F194CC28792D8B7BDF96C /* MacImmersiveEffectPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A731E59355B56771A9016F8 /* MacImmersiveEffectPicker.swift */; };
 		AF61E283075B6AC3CF69D517 /* AudioPlayerService+ReplayGain.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B450A0B6FBFC5693120C27 /* AudioPlayerService+ReplayGain.swift */; };
 		AF74F920038355A766A2A5FE /* AudioClipExportPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB3E283D4902045E81B5317 /* AudioClipExportPolicy.swift */; };
@@ -2202,6 +2207,8 @@
 		F2CD041D57050FD33E8A5B11 /* WatchConnectionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7AA3EAF3D22CD9D0642CDA /* WatchConnectionPresentation.swift */; };
 		F2CFCCF79AE1E1C60285A078 /* OrderedFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F40CBFED01F876CBD8E8DC5 /* OrderedFileWriter.swift */; };
 		F2F52D35807F227E5541E92D /* CachedArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128F97B910573229B86FAD8A /* CachedArtworkView.swift */; };
+		4D38FA6B1EF3D75CA03E2766 /* MotionCoverEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876988D123CE7AB4A019B13E /* MotionCoverEditorView.swift */; };
+		518D2DE9A9901C3608308063 /* MotionCoverEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876988D123CE7AB4A019B13E /* MotionCoverEditorView.swift */; };
 		F2FA589C90086063D7D5547D /* KaraokeWordTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = B98E3B3E433D066686B99DE6 /* KaraokeWordTiming.swift */; };
 		F3407D118CF62CCDC2414766 /* AudiobookshelfAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AFB51187BCABA4FAC770730 /* AudiobookshelfAPIProtocol.swift */; };
 		F352BC46B53156D1E4C9B924 /* SettingsSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBFD411F0195479667050DF /* SettingsSearchIndex.swift */; };
@@ -2719,6 +2726,7 @@
 		1178DD2CF47E24C862B0BECF /* MetadataBackfillSceneTransitionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataBackfillSceneTransitionPolicy.swift; sourceTree = "<group>"; };
 		11FC88814410BCA68F7799B3 /* LibraryGenreIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryGenreIndex.swift; sourceTree = "<group>"; };
 		128F97B910573229B86FAD8A /* CachedArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedArtworkView.swift; sourceTree = "<group>"; };
+		876988D123CE7AB4A019B13E /* MotionCoverEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCoverEditorView.swift; sourceTree = "<group>"; };
 		12A2BC6296FF8B06F4EA887E /* YearlyReportCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReportCards.swift; sourceTree = "<group>"; };
 		12AD42B5CE1CE635F570F26F /* NowPlayingPlaybackProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingPlaybackProjection.swift; sourceTree = "<group>"; };
 		1311FAE83819D951A690CABB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/CacheSync.strings; sourceTree = "<group>"; };
@@ -2925,6 +2933,8 @@
 		328976B021ACE0B2395E2621 /* AppIcon19.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon19.icon; sourceTree = "<group>"; };
 		32CA5273CD4D73BFA0B2657A /* TVLibraryFilterConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLibraryFilterConfiguration.swift; sourceTree = "<group>"; };
 		32D73848A8BD3AD508B3BD21 /* MotionArtworkEndpointClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionArtworkEndpointClient.swift; sourceTree = "<group>"; };
+		A709567E4595FF41EB993A9A /* MotionCoverImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCoverImporter.swift; sourceTree = "<group>"; };
+		3D89AFC8A638BC55FB5B8FAF /* MotionCoverStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCoverStore.swift; sourceTree = "<group>"; };
 		32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceMetadataStatusView.swift; sourceTree = "<group>"; };
 		32E1E7E3BEA5997BB31F8D20 /* PlayMedia.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = PlayMedia.intentdefinition; sourceTree = "<group>"; };
 		32EE4BC7DA2293641898FC84 /* ReleaseDateBrowseLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseDateBrowseLayout.swift; sourceTree = "<group>"; };
@@ -3818,6 +3828,7 @@
 		BABCDD184859E3A5DD05A21C /* SourceConnectionPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceConnectionPreflight.swift; sourceTree = "<group>"; };
 		BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBByteReader.swift; sourceTree = "<group>"; };
 		BADE3E47B952DDB0A1371635 /* MotionArtworkProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionArtworkProvider.swift; sourceTree = "<group>"; };
+		2E25B419BFDC7640618931FE /* MotionCoverPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCoverPolicy.swift; sourceTree = "<group>"; };
 		BADEEBD667CF5AF1A651686D /* FloatingLyricsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLyricsViews.swift; sourceTree = "<group>"; };
 		BB092854D451A9F1235A2B2A /* MacHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHomeView.swift; sourceTree = "<group>"; };
 		BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerFavoriteSyncServiceTests.swift; sourceTree = "<group>"; };
@@ -4847,6 +4858,7 @@
 				B98E3B3E433D066686B99DE6 /* KaraokeWordTiming.swift */,
 				C886146364848C1D5139C0CD /* KeyedRunRegistry.swift */,
 				291658F946F9B680DE8457B3 /* LastFmLibraryInsight.swift */,
+				2E25B419BFDC7640618931FE /* MotionCoverPolicy.swift */,
 				7F40EE83AAED17A17246BF69 /* WikipediaInsight.swift */,
 				B2E10701E146DC4195C7CAC4 /* LegacyAudioCacheMigrationPolicy.swift */,
 				A65DEADDA6A0296E8A521E82 /* LibraryDerivedRefreshPolicy.swift */,
@@ -5986,6 +5998,8 @@
 				4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */,
 				645BBABA564E600B40010061 /* MetadataService.swift */,
 				32D73848A8BD3AD508B3BD21 /* MotionArtworkEndpointClient.swift */,
+				A709567E4595FF41EB993A9A /* MotionCoverImporter.swift */,
+				3D89AFC8A638BC55FB5B8FAF /* MotionCoverStore.swift */,
 				FAE228964342BBAAB23DCAD8 /* MusicScraperService.swift */,
 				7C2B682A62F4394D846BA786 /* PlaybackWordLyricsDiscovery.swift */,
 				AE41DF2E4D5B75A369E0159B /* ScraperManager.swift */,
@@ -6074,6 +6088,7 @@
 				3305EA479E0347F99584ABAE /* MediaDetailActionBar.swift */,
 				281204C93E975E56E2AA02F1 /* MedleyDataUsageConfirmation.swift */,
 				F3E4A5D595F567E33E7F8EA7 /* MinimalShell.swift */,
+				876988D123CE7AB4A019B13E /* MotionCoverEditorView.swift */,
 				C7F149AF186A1E8E9004E602 /* PlaybackToggleHighlight.swift */,
 				75D2785104A3437943C8F439 /* PlayerActivityBar.swift */,
 				537BEA3A04660BAFF1AE2204 /* PlayerOrientationControl.swift */,
@@ -7487,6 +7502,7 @@
 				E36B48332A45BC06F4722959 /* LANSettingsTransfer.swift in Sources */,
 				72DE4A2D47DAEB67BBDB4492 /* LANSync.swift in Sources */,
 				1624163A651DE180304002E5 /* LastFmLibraryInsight.swift in Sources */,
+				4B032738CFBC427AA82478EC /* MotionCoverPolicy.swift in Sources */,
 				B29FEDB2CE45C72E5E82BB18 /* WikipediaInsight.swift in Sources */,
 				3A447F9292183A2E25B9F7D5 /* LegacyAudioCacheMigrationPolicy.swift in Sources */,
 				0117BCF5A8E19A2E8916DBF2 /* LibraryBrowseIndex.swift in Sources */,
@@ -8238,6 +8254,9 @@
 				BA734D2754207F90FB81DC54 /* MiniPlayerWindowController.swift in Sources */,
 				B46859F5EE6298CFC2C02C59 /* MinimalShell.swift in Sources */,
 				7E34F5ABBA1C9390C17D3CD8 /* MotionArtworkEndpointClient.swift in Sources */,
+				518D2DE9A9901C3608308063 /* MotionCoverEditorView.swift in Sources */,
+				7F19F98BC08F6374E9803D18 /* MotionCoverImporter.swift in Sources */,
+				7587EB37CA80E71043A89A9A /* MotionCoverStore.swift in Sources */,
 				1E6011D213B9E33B7DD9FDD2 /* MusicBrainzScraper.swift in Sources */,
 				BB3D6E2273DFAA1F96DF08E5 /* MusicIntelligenceService.swift in Sources */,
 				A19AAA0FCB37214487EC2B79 /* MusicLibrary.swift in Sources */,
@@ -9088,6 +9107,9 @@
 				878478B3EF597FD950C48064 /* MiniPlayerWindowController.swift in Sources */,
 				1FD64BC0773933000E43A536 /* MinimalShell.swift in Sources */,
 				A9160AC574F31FCE96377AE8 /* MotionArtworkEndpointClient.swift in Sources */,
+				4D38FA6B1EF3D75CA03E2766 /* MotionCoverEditorView.swift in Sources */,
+				48FAEA2941C7134E8BFE933C /* MotionCoverImporter.swift in Sources */,
+				415D4F0182BA2C6F99C86371 /* MotionCoverStore.swift in Sources */,
 				8A77CEB41659883181CEBEA5 /* MusicBrainzScraper.swift in Sources */,
 				355DAA4B1BA084A36C71AFBB /* MusicIntelligenceService.swift in Sources */,
 				0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */,

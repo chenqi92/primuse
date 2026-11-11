@@ -102,6 +102,7 @@ struct CachedArtworkView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.displayScale) private var displayScale
     @Environment(\.reportsArtworkImage) private var reportsArtworkImage
+    @Environment(\.motionCoverLookupEnabled) private var motionCoverLookupEnabled
     // 不用 @AppStorage: 每张封面四个偏好观察者, 一屏几十张, 任何一处写偏好都要全部醒来一遍。
     // 见 `AnimatedArtworkPreferences`。
     private var animatedArtworkEnabled: Bool { AnimatedArtworkPreferences.shared.animatedArtworkEnabled }
@@ -892,6 +893,8 @@ struct CachedArtworkView: View {
             normalizedMotionArtworkServiceEndpoint,
             sourceAnimationDiskKey,
             motionArtworkDiskKey,
+            // 歌曲、专辑的视频动态封面设了或移除了要重新挑。
+            motionCoverLookupEnabled ? String(MotionCoverStore.shared.revision) : "-",
             String(loadsHighResolution),
             String(isAnimationVisible),
             String(animationRequiresPlayback),
@@ -954,6 +957,24 @@ struct CachedArtworkView: View {
             animatedArtworkContentKey = nil
             animatedArtworkExpiresAt = nil
             animatedArtworkGeneration = nil
+            return
+        }
+
+        // 用户给这首歌（或它的专辑）指定的视频动态封面优先于来源自带的动图和在线服务（#411）。
+        if motionCoverLookupEnabled,
+           let localVideo = MotionCoverStore.shared.videoURL(
+            songID: songID,
+            albumID: albumID ?? songID.flatMap { library.song(id: $0)?.albumID }
+           ) {
+            if motionArtworkVideoURL != localVideo {
+                animatedArtworkData = nil
+                animatedArtworkDescriptor = nil
+                animatedArtworkContentKey = nil
+                animatedArtworkExpiresAt = nil
+                animatedArtworkGeneration = nil
+                motionArtworkVideoURL = localVideo
+            }
+            animatedArtworkIdentity = localVideo.path
             return
         }
 

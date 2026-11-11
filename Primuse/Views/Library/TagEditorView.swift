@@ -254,6 +254,8 @@ struct TagEditorView: View {
                         genreField
                         moreFieldsSection
                         lyricsCard
+                        SongMotionCoverCard(song: song)
+                            .disabled(isSaving)
                         resetRow
                     }
                     .padding(.horizontal, 20)
@@ -995,6 +997,19 @@ struct TagEditorView: View {
                 }
 
                 Spacer()
+
+                MotionCoverMacButton(owner: .song(song.id), albumID: song.albumID) {
+                    Label(String(localized: "motion_cover_title"), systemImage: "film")
+                        .font(PMFont.bodyM)
+                        .foregroundStyle(PMColor.text)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                }
 
                 PhotosPicker(
                     selection: $coverPickerItem,

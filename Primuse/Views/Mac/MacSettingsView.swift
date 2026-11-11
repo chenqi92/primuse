@@ -444,6 +444,8 @@ private struct MacSTStorageView: View {
     @State private var musicVideoCacheBytes: Int64?
     /// 隔离区平时是空的, 有内容才出现那一行。
     @State private var quarantinedCacheBytes: Int64 = 0
+    @State private var motionCoverBytes: Int64?
+    @State private var showsMotionCoverClearConfirm = false
     @AppStorage(ArtworkStoreLimitSetting.key)
     private var artworkStoreLimit = Int(ArtworkStoreLimitPolicy.defaultBytes)
     @State private var companionAssetFlow = CompanionAssetDownloadFlow()
@@ -596,6 +598,33 @@ private struct MacSTStorageView: View {
                     }
                     .settingsAnchor("storage.artworkLimit")
                     MacSTRow(
+                        String(localized: "motion_cover_storage"),
+                        hint: String(localized: "motion_cover_storage_footer"),
+                        hintLineLimit: 3
+                    ) {
+                        cacheSizeLabel(motionCoverBytes)
+                        MacSTButton(title: String(localized: "motion_cover_storage_clear_confirm")) {
+                            showsMotionCoverClearConfirm = true
+                        }
+                        .disabled(motionCoverBytes == 0)
+                    }
+                    .settingsAnchor("storage.clearMotionCovers")
+                    .confirmationDialog(
+                        String(localized: "motion_cover_storage_clear_title"),
+                        isPresented: $showsMotionCoverClearConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        Button(String(localized: "motion_cover_storage_clear_confirm"), role: .destructive) {
+                            Task {
+                                await MotionCoverStore.shared.removeAll()
+                                await refreshCacheSizes()
+                            }
+                        }
+                        Button(String(localized: "cancel"), role: .cancel) {}
+                    } message: {
+                        Text("motion_cover_storage_clear_message")
+                    }
+                    MacSTRow(
                         String(localized: "companion_assets_download"),
                         hint: companionAssetHint,
                         hintLineLimit: 5
@@ -670,6 +699,7 @@ private struct MacSTStorageView: View {
         sourceFileCacheBytes = await sourceManager.sourceFileCacheUsage().totalBytes
         musicVideoCacheBytes = await sourceManager.musicVideoCacheSize()
         quarantinedCacheBytes = await sourceManager.quarantinedAudioCacheSize()
+        motionCoverBytes = await MotionCoverStore.diskUsage()
     }
 
     private func cacheSizeLabel(_ bytes: Int64?) -> some View {

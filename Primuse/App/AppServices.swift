@@ -2068,6 +2068,8 @@ final class AppServices {
         startAppearanceColorSync()
         WidgetColorStyleMirror.start()
         _ = ArtistNameSettingsStore.shared
+        // 删歌、删专辑、删音乐源时要跟着清掉视频动态封面的设置，监听得在第一次删除前就挂上。
+        _ = MotionCoverStore.shared
 
         // Phase 3: Apple TV relay is opt-in. Starting its listeners after the
         // first frame preserves behavior without charging launch rendering.

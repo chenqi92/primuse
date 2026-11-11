@@ -701,6 +701,18 @@ struct AlbumArtworkView: View {
                 .aspectRatio(1, contentMode: .fit)
             }
         }
+        // 专辑的视频动态封面（#411）在最上层统一放一份；下面借用歌曲封面的各层不再各找各的。
+        .environment(\.motionCoverLookupEnabled, false)
+        .overlay {
+            if presentationRole == .animatedHero {
+                MotionCoverHeroOverlay(
+                    albumID: album.id,
+                    isVisible: isAnimationVisible,
+                    requiresPlayback: animationRequiresPlayback,
+                    isPlaying: isPlaying
+                )
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onAppear {
             // A parked lazy card may outlive a background scrape. Recheck on
@@ -1218,6 +1230,12 @@ struct LibraryArtworkEditorSheet: View {
                     Text("artwork_storage_hint")
                 }
 
+                if owner.kind == .album {
+                    Section {
+                        AlbumMotionCoverRow(albumID: owner.id)
+                    }
+                }
+
                 if !folderPictures.isEmpty {
                     Section("artwork_choose_folder_image") {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -1400,6 +1418,16 @@ struct LibraryArtworkEditorSheet: View {
                             )
                         }
                         .buttonStyle(.plain)
+
+                        if owner.kind == .album {
+                            MotionCoverMacButton(owner: .album(owner.id)) {
+                                macChoiceLabel(
+                                    titleKey: "motion_cover_title",
+                                    systemImage: "film",
+                                    isSelected: MotionCoverStore.shared.asset(for: .album(owner.id)) != nil
+                                )
+                            }
+                        }
                     }
 
                     if offersSongCoverSync {
@@ -1499,7 +1527,8 @@ struct LibraryArtworkEditorSheet: View {
             .padding(.horizontal, 24)
             .frame(height: 58)
         }
-        .frame(width: 700, height: 540)
+        // 专辑多一行「动态封面」，加高一点免得左栏挤出去。
+        .frame(width: 700, height: owner.kind == .album ? 580 : 540)
         .background(PMColor.bg)
         .disabled(isProcessing)
         .fileImporter(
