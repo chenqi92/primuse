@@ -105,7 +105,8 @@ enum LegacyBottomChromeDebug {
 
 extension View {
     /// 极简外壳的上下栏。iOS 26 起用 `safeAreaBar`，滚动内容在栏下面收边；
-    /// 更早的系统退回 `safeAreaInset`，栏自己铺一层底，免得列表从字底下透出来。
+    /// 更早的系统退回 `safeAreaInset`：顶栏自己铺一层底，免得列表从字底下透出来；底下只有
+    /// 停靠条，它的底由 `minimalDockLegacyBackdrop()` 自己铺。
     @ViewBuilder
     func minimalSafeAreaBar<Bar: View>(
         edge: VerticalEdge,
@@ -130,8 +131,48 @@ extension View {
         @ViewBuilder content: () -> Bar
     ) -> some View {
         safeAreaInset(edge: edge, spacing: 0) {
-            content().background(.bar)
+            switch edge {
+            case .top: content().background(.bar)
+            case .bottom: content()
+            }
         }
+    }
+
+    /// 26 以前极简停靠条底下那层底。不能像顶栏那样在外面套 `.background(.bar)`：停靠条自己的
+    /// 磨砂圆角板夹在两层材质中间，板上用 `.secondary` 的第二行（迷你歌词、歌手、章节）整行
+    /// 画不出来，只剩空着的一行（实测）；而且一块板摆在一整条工具栏里，上沿一道硬边横过整屏。
+    /// 这里用一层普通视图从板子中间往下渐渐铺实，列表在板子上方柔和地淡出去，接近 26 起
+    /// `safeAreaBar` 的收边。挂在停靠条本身上，条子不在（没在播、键盘弹着）时这层也不在。
+    @ViewBuilder
+    func minimalDockLegacyBackdrop() -> some View {
+        if LegacyBottomChromeDebug.isForced {
+            background { MinimalDockLegacyBackdrop() }
+        } else if #available(iOS 26.0, *) {
+            self
+        } else {
+            background { MinimalDockLegacyBackdrop() }
+        }
+    }
+}
+
+private struct MinimalDockLegacyBackdrop: View {
+    var body: some View {
+        Rectangle()
+            .fill(.bar)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.7), location: 0.45),
+                        .init(color: .black, location: 0.8),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

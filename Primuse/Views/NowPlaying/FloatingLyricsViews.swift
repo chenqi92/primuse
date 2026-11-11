@@ -30,17 +30,26 @@ struct MiniPlayerLyricsSubtitle: View {
     let artist: String
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(PlayerAppearancePreferences.miniPlayerLyricsKey) private var enabled = false
-    private var text: String {
+    /// 这首歌的逐行歌词正在迷你条上走。
+    private var followsLyrics: Bool {
         let lyrics = FloatingLyricsService.shared
-        return enabled && lyrics.songID == player.currentSong?.id ? lyrics.presentation.current ?? artist : artist
+        return enabled && lyrics.songID == player.currentSong?.id && lyrics.hasTimedLyrics
+    }
+    private var text: String {
+        followsLyrics ? FloatingLyricsService.shared.presentation.current ?? artist : artist
     }
     var body: some View {
-        Text(verbatim: text)
-            .font(.caption2)
-            .lineLimit(1)
-            .foregroundStyle(.secondary)
-            .contentTransition(.opacity)
-            .accessibilityIdentifier("miniPlayerLyricLine")
+        let line = text
+        // 没有歌手名、也没有在走的逐行歌词时不占这一行：空着一行会把歌名顶上去，看着像歌词没出来。
+        // 逐行歌词在走时前奏、间奏里照样留着这一行，换句时歌名不上下跳。
+        if !line.isEmpty || followsLyrics {
+            Text(verbatim: line)
+                .font(.caption2)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .contentTransition(.opacity)
+                .accessibilityIdentifier("miniPlayerLyricLine")
+        }
     }
 }
 

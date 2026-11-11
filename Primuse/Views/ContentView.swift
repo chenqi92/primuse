@@ -1680,6 +1680,7 @@ struct ContentView: View {
                         )
                     }
                 }
+                .minimalDockLegacyBackdrop()
                 // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
                 // 事务, 曲线只能附在过渡本身上。
                 .pmSlideTransition(edge: .bottom, motion: .panel)
