@@ -833,6 +833,10 @@ extension AudioPlayerService {
             await play(station: target, within: radioStationOrder)
             return true
         }
+        // 用户按的下一首:播放页大封面据此往前换(见 `ArtworkSwapPolicy`)。
+        if !isAutomaticAdvance, context == .userInitiated {
+            ManualTrackTraversal.note(.forward)
+        }
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             invalidateInterruptionResumePreservingIntent()
             return await AppServices.shared.appleMusic.skipToNextAppleMusic()
@@ -946,6 +950,7 @@ extension AudioPlayerService {
                 return true
             } else {
                 invalidateInterruptionResumePreservingIntent()
+                ManualTrackTraversal.note(.backward)
                 return await AppServices.shared.appleMusic.skipToPreviousAppleMusic()
             }
         }
@@ -956,6 +961,8 @@ extension AudioPlayerService {
             return true
         }
         guard var predecessor = previousQueueTraversalTarget() else { return false }
+        // 真的要换到上一首(不是回到这首开头):播放页大封面据此往回换。
+        ManualTrackTraversal.note(.backward)
         let sourcePlayID = playID
         switch await crossfadeToManualNeighbour(predecessor, rule: .manualPrevious) {
         case .committed?, .superseded?:
@@ -991,6 +998,7 @@ extension AudioPlayerService {
             ? upcomingQueueTraversalTargets(maximumCount: steps, respectsRepeatOne: false, wrapsAtEnd: false)
             : previousQueueTraversalTargets(maximumCount: -steps)
         guard targets.count == abs(steps), let target = targets.last else { return false }
+        ManualTrackTraversal.note(steps > 0 ? .forward : .backward)
         if steps > 0 {
             SmartNudgeCenter.shared.noteManualSkip(
                 of: currentSong,

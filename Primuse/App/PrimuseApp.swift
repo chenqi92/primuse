@@ -2654,6 +2654,7 @@ private struct DebugEvidenceOrientation: ViewModifier {
 ///   `PRIMUSE_AUTOPLAY_QUEUE=single` 时队列只有这一首（同 Siri 单曲点播，看播完后的自动续播）；
 ///   `PRIMUSE_AUTOPLAY_MODE=sequential|repeatAll|repeatOne|shuffle` 时开播后换成这种播放方式（看队列页那两颗键）。
 /// - `PRIMUSE_DEBUG_LIKE=<标题片段>[,…]`：曲库里出现标题包含这些片段的歌后给它们点心（看「我喜欢」页与「喜欢的单集」）。
+/// - `PRIMUSE_DEBUG_MOTION_SCRIPT=<步骤;…>`：有歌在播后按步骤做一遍交互，给录屏看动效用（见 `DebugMotionScript`）。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -2732,12 +2733,77 @@ private struct DebugLaunchAutomation: ViewModifier {
                 }
                 plog("🧪 DebugLaunchAutomation: no song matching '\(needle)' within the wait window")
             }
+            .task { await DebugMotionScript.runIfRequested() }
             #if os(macOS)
             .task { await MacSettingsDebugSnapshot.writeIfRequested() }
             .task { await MacPodcastDebugSnapshot.writeIfRequested() }
             .task { await MacFavoritesPopoverDebugSnapshot.writeIfRequested() }
             #endif
             .modifier(DebugListeningFeatureAutomation())
+    }
+}
+
+/// 无人值守地把一串交互做一遍，录屏看动效（红心、提示条、换歌封面、播放方式键）。
+/// `PRIMUSE_DEBUG_MOTION_SCRIPT="wait:6;like;wait:2;next;wait:2;queue:next;wait:2;shuffle"`，步骤用分号隔开：
+/// - `wait:<秒>`：等待。
+/// - `like`：给正在播的这首点心 / 取消（和点红心改的是同一份状态）。
+/// - `next` / `previous`：下一首 / 上一首（同用户按键，播放页大封面按方向换）。
+/// - `nearend`：跳到这首结束前一秒半，等它自己播完换到下一首（看「自然播完」的封面换法）。
+/// - `queue:next` / `queue:last`：把正在播的这首再排进队列，放一次入队回执（底部提示条、迷你条封面弹一下）。
+/// - `shuffle` / `repeat`：开关随机、轮换循环方式（看播放方式键的符号动效）。
+/// 开播前先等曲库与播放器就绪；每一步写 🧪 日志。
+@MainActor
+private enum DebugMotionScript {
+    static func runIfRequested() async {
+        guard let script = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_MOTION_SCRIPT"],
+              !script.isEmpty else { return }
+        let player = AppServices.shared.playerService
+        for _ in 0..<150 where player.currentSong == nil {
+            try? await Task.sleep(for: .seconds(1))
+        }
+        let steps = script.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+        plog("🧪 DebugMotionScript: \(steps)")
+        for step in steps {
+            guard !Task.isCancelled else { return }
+            await run(step, player: player)
+        }
+        plog("🧪 DebugMotionScript: done")
+    }
+
+    private static func run(_ step: String, player: AudioPlayerService) async {
+        let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+        let argument = parts.count > 1 ? parts[1] : ""
+        switch parts.first ?? "" {
+        case "wait":
+            try? await Task.sleep(for: .seconds(Double(argument) ?? 1))
+        case "like":
+            guard let song = player.currentSong else { return }
+            AppServices.shared.musicLibrary.toggleLiked(songID: song.id)
+        case "next":
+            _ = await player.next()
+        case "previous":
+            _ = await player.previous(restartsCurrentFirst: false)
+        case "nearend":
+            player.seek(to: max(0, player.duration - 1.5))
+        case "queue":
+            guard let song = player.currentSong else { return }
+            if argument == "last" {
+                player.appendToQueue([song])
+                QueueReceipt.announce(.last, systemImage: "text.line.last.and.arrowtriangle.forward")
+            } else {
+                player.insertNextInQueue([song])
+                QueueReceipt.announce(.next, systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+        case "shuffle":
+            player.shuffleEnabled.toggle()
+        case "repeat":
+            let mode = PlaybackOrderMode(shuffleEnabled: false, repeatMode: player.repeatMode)
+            player.applyPlaybackOrderMode(mode.next(allowsShuffle: false))
+        default:
+            plog("🧪 DebugMotionScript: unknown step \(step)")
+            return
+        }
+        plog("🧪 DebugMotionScript: \(step)")
     }
 }
 

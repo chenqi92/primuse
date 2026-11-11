@@ -8548,33 +8548,49 @@ struct NowPlayingView: View {
                 let rect = geometry[anchor.bounds]
                 // 封面按固定尺寸画一次，外框、圆角、图片和占位音符都在同一层里一起缩放。
                 let renderSize = Self.artworkRenderSize
-                // 播客铺满时也画在这一层:占位换成播客的图标,不去找动态封面。
-                CachedArtworkView(
-                    coverRef: player.currentSong?.coverArtFileName,
-                    songID: player.currentSong?.id ?? "",
-                    size: renderSize, cornerRadius: 0,
-                    sourceID: player.currentSong?.sourceID,
-                    filePath: player.currentSong?.filePath,
-                    fileFormat: player.currentSong?.fileFormat,
-                    placeholderIcon: currentItemIsPodcast ? "antenna.radiowaves.left.and.right" : "music.note",
-                    presentationRole: usesSpokenWordTransport ? .staticFirstFrame : .animatedHero,
-                    animationRequiresPlayback: true,
-                    isPlaying: player.isPlaying,
-                    isAnimationVisible: isNowPlayingSurfaceExposed && !surfaceMotion.isHeld,
-                    loadsHighResolution: isPresentationSettled,
-                    revisionToken: player.coverRevision
-                )
-                .artworkCrossfade()
-                .modifier(LyricsArtworkFlight(
-                    rect: rect,
-                    cornerRadius: anchor.cornerRadius,
-                    shadow: anchor.shadow,
-                    bottomFade: fullBleedMiddleSoftening ? anchor.bottomFade : 0,
-                    trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
-                    renderSize: renderSize,
-                    usesShadowSprite: currentItemIsPodcast,
-                    topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0
-                ))
+                // 换歌时按方向换(下一首从右边进、上一首从左边进,自己播完的更柔):只在大封面位、
+                // 封面⇄歌词没在飞、播放页露着时;其余时候照旧一层、原地交叉淡入。
+                NowPlayingArtworkSwapHost(
+                    subject: NowPlayingArtworkSwapSubject(
+                        song: player.currentSong,
+                        coverRevision: player.coverRevision
+                    ),
+                    allowsDirectionalSwap: placement == .cover
+                        && settledLyricsArtworkPlacement == .cover
+                        && !anchor.coversTopChrome
+                        && !player.isMusicVideoPlaybackActive
+                        && isNowPlayingSurfaceExposed,
+                    artworkRect: rect,
+                    containerSize: geometry.size
+                ) { subject in
+                    // 播客铺满时也画在这一层:占位换成播客的图标,不去找动态封面。
+                    CachedArtworkView(
+                        coverRef: subject.song?.coverArtFileName,
+                        songID: subject.song?.id ?? "",
+                        size: renderSize, cornerRadius: 0,
+                        sourceID: subject.song?.sourceID,
+                        filePath: subject.song?.filePath,
+                        fileFormat: subject.song?.fileFormat,
+                        placeholderIcon: currentItemIsPodcast ? "antenna.radiowaves.left.and.right" : "music.note",
+                        presentationRole: usesSpokenWordTransport ? .staticFirstFrame : .animatedHero,
+                        animationRequiresPlayback: true,
+                        isPlaying: player.isPlaying,
+                        isAnimationVisible: isNowPlayingSurfaceExposed && !surfaceMotion.isHeld,
+                        loadsHighResolution: isPresentationSettled,
+                        revisionToken: subject.coverRevision
+                    )
+                    .artworkCrossfade()
+                    .modifier(LyricsArtworkFlight(
+                        rect: rect,
+                        cornerRadius: anchor.cornerRadius,
+                        shadow: anchor.shadow,
+                        bottomFade: fullBleedMiddleSoftening ? anchor.bottomFade : 0,
+                        trailingFade: fullBleedMiddleSoftening ? anchor.trailingFade : 0,
+                        renderSize: renderSize,
+                        usesShadowSprite: currentItemIsPodcast,
+                        topContentInset: anchor.coversTopChrome ? FullBleedArtworkTopSoftening.height(topSafeArea: topSafeArea) : 0
+                    ))
+                }
                 .animation(standardLyricsAnimation, value: placement)
                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                 .animation(nil, value: geometry.size)
