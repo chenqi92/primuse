@@ -146,7 +146,9 @@ final class FileLogger: @unchecked Sendable {
             } else if case .enabled = resolution.change {
                 defaults.removeObject(forKey: diagnosticStackThresholdKey)
             }
-        } else {
+        } else if defaults.object(forKey: diagnosticStackThresholdKey) != nil {
+            // 没存过就不去删:删一个不存在的键也会发出偏好变化通知。这里可能在后台线程上第一次建日志器,
+            // 主线程同时在等这份单例,通知要排进主队列的观察者 —— 两边互等,调试构建启动就卡在白屏。
             defaults.removeObject(forKey: diagnosticStackThresholdKey)
         }
         #endif
