@@ -39,6 +39,8 @@ struct ArtistFeaturedReleaseCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // 和艺人页的专辑货架一样,专辑页从这张卡片放大展开。
+        .mediaZoomSource(.album, id: album.id)
         .layoutPriority(1)
         .accessibilityIdentifier("artistFeaturedRelease.open")
     }

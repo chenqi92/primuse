@@ -346,6 +346,8 @@ struct HomeHeroCarousel: View {
                 label.contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // 和首页其它专辑入口一样,专辑页从这里放大展开、返回时缩回来。
+            .mediaZoomSource(.album, id: album.id)
             .accessibilityHint(Text("go_to_album"))
         } else {
             label

@@ -372,6 +372,7 @@ struct HomeHeroRecommendationDetail: View {
                         ForEach(model.albums) { album in
                             NavigationLink(value: album) { AlbumCardView(album: album, showsSongCount: true) }
                                 .buttonStyle(.plain)
+                                .mediaZoomSource(.album, id: album.id)
                                 .accessibilityIdentifier("home.hero.recommendation.albumDetail.\(album.id)")
                         }
                     }
