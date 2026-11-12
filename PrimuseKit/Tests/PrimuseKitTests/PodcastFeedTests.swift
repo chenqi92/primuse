@@ -187,6 +187,7 @@ struct PodcastFeedTests {
           <description>短说明</description>
           <content:encoded><![CDATA[<p>长说明 <a href="https://example.com/x">链接</a></p><p>00:00 开场</p>]]></content:encoded>
           <itunes:image href="ep2.jpg"/>
+          <itunes:image href=" "/>
           <podcast:chapters url="https://example.com/ch.json" type="application/json+chapters"/>
           <podcast:transcript url="https://example.com/t.html" type="text/html"/>
           <podcast:transcript url="https://example.com/t.vtt" type="text/vtt"/>
@@ -294,6 +295,10 @@ struct PodcastFeedTests {
             <published>2026-09-01T10:00:00Z</published>
             <summary>Sum</summary>
             <link rel="enclosure" href="https://m.example.com/a.mp3" type="audio/mpeg" length="100"/>
+            <link rel="alternate" href="https://example.com/episodes/one"/>
+            <link rel="alternate"/>
+            <itunes:image href="https://img.example.com/one.png"/>
+            <itunes:image/>
             <itunes:duration>12:00</itunes:duration>
           </entry>
         </feed>
@@ -306,6 +311,8 @@ struct PodcastFeedTests {
         #expect(feed.items[0].guid == "urn:1")
         #expect(feed.items[0].duration == 720)
         #expect(feed.items[0].showNotes == "Sum")
+        #expect(feed.items[0].link?.absoluteString == "https://example.com/episodes/one")
+        #expect(feed.items[0].artworkURL?.absoluteString == "https://img.example.com/one.png")
     }
 
     @Test func movedFeedIsReported() throws {

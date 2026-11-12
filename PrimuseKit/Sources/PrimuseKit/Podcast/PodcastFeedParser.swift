@@ -799,8 +799,8 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
                !Self.isVideo(url: url, type: transport), transport != "application/octet-stream" { break }
             rememberVideo(url: url, type: alternateEnclosure.type, preferred: alternateEnclosure.preferred)
         case (.itunes, "image"):
-            let url = resolve(attributes["href"] ?? attributes["url"])
-            if item != nil { item?.artworkURL = url ?? item?.artworkURL } else if let url { channelItunesImageURL = url }
+            guard let url = resolve(attributes["href"] ?? attributes["url"]) else { break }
+            if item != nil { item?.artworkURL = url } else { channelItunesImageURL = url }
         case (.itunes, "category"):
             if item == nil, let text = PodcastText.nonEmpty(attributes["text"]) {
                 feed.categories.append(text)
@@ -1006,9 +1006,9 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
             itemVideoContent = nil
         case (.none, "link"), (.atom, "link"):
             let rel = attributes["rel"]?.lowercased() ?? "alternate"
-            let url = resolve(attributes["href"])
+            guard let url = resolve(attributes["href"]) else { break }
             if atomEntry != nil {
-                if rel == "enclosure", let url {
+                if rel == "enclosure" {
                     let type = attributes["type"]
                     rememberVideo(url: url, type: type)
                     if atomEntry?.enclosureURL == nil || (type?.lowercased().hasPrefix("audio/") == true
@@ -1018,14 +1018,14 @@ private final class PodcastFeedXMLDelegate: NSObject, XMLParserDelegate {
                         atomEntry?.enclosureLength = attributes["length"].flatMap { Int64($0) }
                     }
                 } else if rel == "alternate" {
-                    atomEntry?.link = url ?? atomEntry?.link
+                    atomEntry?.link = url
                 }
             } else if rel == "alternate" {
-                feed.websiteURL = url ?? feed.websiteURL
+                feed.websiteURL = url
             }
         case (.itunes, "image"):
-            let url = resolve(attributes["href"])
-            if atomEntry != nil { atomEntry?.artworkURL = url ?? atomEntry?.artworkURL } else if let url { channelItunesImageURL = url }
+            guard let url = resolve(attributes["href"]) else { break }
+            if atomEntry != nil { atomEntry?.artworkURL = url } else { channelItunesImageURL = url }
         case (.itunes, "category"):
             if atomEntry == nil, let text = PodcastText.nonEmpty(attributes["text"]) { feed.categories.append(text) }
         default:
