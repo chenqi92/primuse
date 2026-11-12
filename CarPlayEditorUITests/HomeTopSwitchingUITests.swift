@@ -98,7 +98,11 @@ final class HomeTopSwitchingUITests: XCTestCase {
         songs.tap()
         assertSelected(songs)
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "songRow."))
-        try XCTSkipUnless(rows.firstMatch.waitForExistence(timeout: 20), "Requires an installed music library with song rows")
+        let preview = app.descendants(matching: .any)["library.startup.songs"].firstMatch
+        if preview.waitForExistence(timeout: 5) {
+            XCTAssertTrue(preview.waitForNonExistence(timeout: 180), "The installed library must finish loading before testing row actions")
+        }
+        try XCTSkipUnless(rows.firstMatch.waitForExistence(timeout: 30), "Requires an installed music library with song rows")
         let screen = app.frame
         var visibleRows: [XCUIElement] = []
         for index in 0..<min(18, rows.count) {
@@ -111,6 +115,22 @@ final class HomeTopSwitchingUITests: XCTestCase {
             }
         }
         try XCTSkipUnless(visibleRows.count == 2, "Requires two visible playable song rows")
+        let more = app.buttons["songList.more"]
+        if more.isHittable {
+            more.tap()
+        } else {
+            visibleRows[1].press(forDuration: 1)
+        }
+        let select = app.buttons["选择"].firstMatch
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+        select.tap()
+        let cancel = app.buttons["batchSelection.cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.57))
+        right.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.57)))
+        XCTAssertTrue(cancel.isHittable, "A swipe while selecting songs must keep selection mode active")
+        cancel.tap()
+        assertSelected(songs)
         for (row, distance, title) in [(visibleRows[0], CGFloat(105), "下一首播放"), (visibleRows[1], CGFloat(-105), "加入播放队列")] {
             let frame = row.frame
             let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: screen.midX, dy: frame.midY))
@@ -127,22 +147,6 @@ final class HomeTopSwitchingUITests: XCTestCase {
         start.press(forDuration: 0.04, thenDragTo: start.withOffset(CGVector(dx: 8, dy: -145)))
         XCTAssertTrue(songs.isSelected)
         XCTAssertTrue(!anchor.exists || !anchor.isHittable || anchor.frame.midY < oldY - 25, "A vertical drag from a song must scroll the list")
-        let more = app.buttons["songList.more"]
-        if more.isHittable {
-            more.tap()
-        } else {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).press(forDuration: 0.8)
-        }
-        let select = app.buttons["选择"].firstMatch
-        XCTAssertTrue(select.waitForExistence(timeout: 5))
-        select.tap()
-        let cancel = app.buttons["batchSelection.cancel"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
-        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.57))
-        right.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.57)))
-        XCTAssertTrue(cancel.isHittable, "A swipe while selecting songs must keep selection mode active")
-        cancel.tap()
-        assertSelected(songs)
     }
 
     private func assertRevealedAction(_ title: String, in frame: CGRect, app: XCUIApplication) throws {

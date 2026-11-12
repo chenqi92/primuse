@@ -903,18 +903,14 @@ struct LibraryView: View {
     }
 
     private func sectionPage(_ section: LibrarySection) -> some View {
-        readyContent(section: section) {
+        Group {
             #if os(iOS)
             sectionSwipePage(section)
+                .gesture(standardSectionSwipe(selection: section))
             #else
             destination(for: section)
             #endif
         }
-        #if os(iOS)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .gesture(standardSectionSwipe(selection: section))
-        #endif
         .environment(\.libraryStackRegistersCollectionDetails, true)
     }
 
@@ -964,9 +960,12 @@ struct LibraryView: View {
                 pageToSection(next)
             }
         ) {
-            destination(for: section)
-                // 极简导航换分类是把这一页原地换掉：新页一出来就是完整的样子，不从透明淡进来。
-                .pmPageSwap(isActive: appNavigationMode == .minimal)
+            readyContent(section: section) {
+                destination(for: section)
+                    .pmPageSwap(isActive: appNavigationMode == .minimal)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
         }
     }
 
