@@ -8,6 +8,58 @@ import Vision
 #endif
 
 final class ReplayGainPlaybackTests: XCTestCase {
+    @MainActor func testRestoredShuffleWaitsForPlayBeforeActivatingAudio() async throws {
+        let suite = "replaygain-restore-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let settings = PlaybackSettingsStore(defaults: defaults, cloudSync: CloudKVSSync(store: nil, defaults: defaults, observing: nil))
+        settings.replayGainEnabled = true
+        settings.replayGainMode = .album
+        let url = directory.appendingPathComponent("track.wav")
+        try writeFixture(to: url, seconds: 12)
+        var song = Song(id: suite, title: "Restored", duration: 12, fileFormat: .wav, filePath: url.path, sourceID: "local")
+        song.replayGainAlbumGain = -6
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([song], affectedSourceIDs: [song.sourceID])
+        await library.waitForPendingIndex()
+        let store = PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        try store.save(.init(
+            queueSongIDs: [song.id], currentSongID: song.id, currentIndex: 0,
+            currentTime: 5, duration: 12, wasPlaying: true, shuffleEnabled: true,
+            shuffledIndices: [0], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false
+        ))
+        var activations = 0
+        let player = AudioPlayerService(library: library, playbackSettings: settings, playbackSessionStore: store,
+                                        activateAudioSession: { _ in activations += 1 })
+        player.audioEngine.setVolume(0, persist: false)
+        defer { player.stop() }
+
+        await player.restorePlaybackSessionIfAvailable()
+        await Task { @MainActor in }.value
+        XCTAssertTrue(player.shuffleEnabled)
+        XCTAssertNil(player.playID, "Restoring shuffle must not start a seek")
+
+        settings.dsdPlaybackMode = .pcm
+        settings.replayGainPreampDB = 2
+        await Task { @MainActor in }.value
+        XCTAssertNil(player.playID, "Changing settings on a cold queue must not prepare audio")
+        XCTAssertEqual(activations, 0)
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.currentTime, 5)
+
+        player.resume()
+        await player.seekTask?.value
+        XCTAssertEqual(activations, 1)
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertEqual(player.currentTime, 5, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(player.replayGainPlaybackInfo.appliedGainDB), -4, accuracy: 0.01)
+    }
+
     @MainActor func testSpokenWordBypassesTagsCacheAndPreparationAndCancelsPreviousWork() async throws {
         let suite = "replaygain-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

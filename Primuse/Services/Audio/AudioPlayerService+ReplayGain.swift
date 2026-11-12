@@ -238,10 +238,8 @@ extension AudioPlayerService {
     }
 
     private var shouldRebuildForReplayGainChange: Bool {
-        currentSong != nil
-            && !isLoading
+        canRebuildOutputPipelineForSettingsChange
             && playbackSettings.outputMode == .effects
-            && !isSystemMediaPlaybackActive
             && !isAppleMusicMode
             && !isLiveRadio
             && !isCastingMode

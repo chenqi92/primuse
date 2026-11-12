@@ -2488,6 +2488,12 @@ final class AudioPlayerService {
         }
     }
 
+    /// A cold restore selects a song without preparing audio. Its settings are
+    /// applied when playback starts, without activating the session early.
+    var canRebuildOutputPipelineForSettingsChange: Bool {
+        currentSong != nil && (isPlaying || hasPreparedLocalPlayback) && !isLoading && !isSystemMediaPlaybackActive
+    }
+
     /// Output-mode and DSD-policy changes alter the graph itself. Rebuild at
     /// the current playback position so the selection takes effect immediately
     /// without waiting for the next track.
@@ -2504,7 +2510,7 @@ final class AudioPlayerService {
                 #if os(macOS)
                 self.audioEngine.exclusiveOutputRequested = self.playbackSettings.exclusiveOutputEnabled
                 #endif
-                if self.currentSong != nil, !self.isLoading, !self.isSystemMediaPlaybackActive {
+                if self.canRebuildOutputPipelineForSettingsChange {
                     self.seek(to: self.currentTime, startPlaying: self.isPlaying)
                 } else {
                     self.applySpatialAudioSettings()
