@@ -947,6 +947,15 @@ public enum SongListSnapshotBuilder {
     ) throws -> [Int] {
         guard songs.count > 1 else { return Array(songs.indices) }
 
+        var titleKeys: [LibraryCollationPolicy.Key] = []
+        if order.criterion == .title {
+            titleKeys.reserveCapacity(songs.count)
+            for index in songs.indices {
+                if index.isMultiple(of: 1_024) { try checkCancellation() }
+                titleKeys.append(LibraryCollationPolicy.songTitleKey(for: songs[index].title))
+            }
+        }
+
         var source = Array(songs.indices)
         var destination = source
         var width = 1
@@ -976,6 +985,7 @@ public enum SongListSnapshotBuilder {
                         source[right],
                         source[left],
                         songs: songs,
+                        titleKeys: titleKeys,
                         order: order,
                         sortValues: sortValues
                     ) {
@@ -998,6 +1008,7 @@ public enum SongListSnapshotBuilder {
         _ lhsIndex: Int,
         _ rhsIndex: Int,
         songs: [Song],
+        titleKeys: [LibraryCollationPolicy.Key],
         order: LibrarySongSortOrder,
         sortValues: SongListSortValues
     ) -> Bool {
@@ -1006,6 +1017,11 @@ public enum SongListSnapshotBuilder {
         let comparison: ComparisonResult
         switch order {
         case .title, .titleDescending:
+            let lhsKey = titleKeys[lhsIndex]
+            let rhsKey = titleKeys[rhsIndex]
+            if lhsKey != rhsKey {
+                return order.isAscending ? lhsKey < rhsKey : rhsKey < lhsKey
+            }
             comparison = lhs.title.localizedCompare(rhs.title)
         case .artist, .artistDescending:
             comparison = (lhs.artistName ?? "").localizedCompare(rhs.artistName ?? "")

@@ -35,13 +35,22 @@ public enum LibraryCollationPolicy {
     /// 非 ASCII 字符逐个转写并按码位缓存:整串转写每次都要建一个 ICU 转写器,
     /// 一万多张专辑要好几秒;而曲库里出现的不同汉字只有几千个。
     public static func key(for name: String) -> Key {
-        let scalars = trimmedScalars(name)
+        key(for: trimmedScalars(name).prefix(keyPrefixLength))
+    }
+
+    /// 同系列曲目的标题可能有很长的相同前缀，要比较完整读音才能排对后面的曲名。
+    static func songTitleKey(for title: String) -> Key {
+        let key = key(for: trimmedScalars(title))
+        return key.text.isEmpty ? trailingKey : key
+    }
+
+    private static func key(for scalars: Substring.UnicodeScalarView) -> Key {
         guard let first = scalars.first else {
             return Key(bucketIndex: letterBuckets.count, text: "")
         }
         var text: [UInt8] = []
         text.reserveCapacity(keyPrefixLength * 3)
-        for scalar in scalars.prefix(keyPrefixLength) {
+        for scalar in scalars {
             switch scalar.value {
             case 0x41...0x5A: text.append(UInt8(scalar.value + 0x20))
             case 0..<0x80: text.append(UInt8(scalar.value))
@@ -541,10 +550,7 @@ public enum LibrarySongBrowseLayoutBuilder {
     /// 同名的歌再按艺人、id 排,顺序稳定;没有标题的放最后。条目是歌曲 id:几十万首时
     /// 再拷一份按序排好的 `Song` 要上百 MB,行视图按 id 现取就够了。
     public static func layout(songs: [Song]) -> LibraryBrowseLayout<String> {
-        let keys = songs.map { song in
-            let key = LibraryCollationPolicy.key(for: song.title)
-            return key.text.isEmpty ? LibraryCollationPolicy.trailingKey : key
-        }
+        let keys = songs.map { LibraryCollationPolicy.songTitleKey(for: $0.title) }
         let sortedIndices = songs.indices.sorted { lhs, rhs in
             if keys[lhs] != keys[rhs] { return keys[lhs] < keys[rhs] }
             if songs[lhs].title != songs[rhs].title { return songs[lhs].title < songs[rhs].title }

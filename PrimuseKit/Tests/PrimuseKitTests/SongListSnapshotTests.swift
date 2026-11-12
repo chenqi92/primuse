@@ -212,6 +212,27 @@ struct SongListSnapshotTests {
         #expect(sortedIDs(songs, by: .sourceDateOldest) == ["old", "a", "b", "missing"])
     }
 
+    @Test("Chinese and English titles share alphabetical order and index offsets in both directions")
+    func mixedTitleOrderAndIndex() {
+        let songs = ["晴天", "Bell", "安静", "Yellow", "本意", "北京"].map { song(id: $0, title: $0) }
+        let expected = ["安静", "北京", "Bell", "本意", "晴天", "Yellow"]
+        for order in [LibrarySongSortOrder.title, .titleDescending] {
+            let ids = order.isAscending ? expected : Array(expected.reversed())
+            let snapshot = SongListSnapshotBuilder.build(songs: songs, order: order)
+            #expect(snapshot.orderedSongIDs == ids)
+            #expect(SongListSnapshot.sortedSongs(songs, order: order).map(\.id) == ids)
+            let bOffset = snapshot.sectionIndexEntries.first { $0.label == "B" }?.rowOffset
+            #expect(bOffset == (order.isAscending ? 1 : 2))
+        }
+    }
+
+    @Test("Songs sharing a long title prefix sort by the reading of the suffix")
+    func longMixedTitleOrder() {
+        let prefix = "Recordings from the winter sessions — "
+        let songs = ["Yellow", "晴天", "安静", "Blue"].map { song(id: $0, title: prefix + $0) }
+        #expect(sortedIDs(songs, by: .title) == ["安静", "Blue", "晴天", "Yellow"])
+    }
+
     @Test("Sorts every supported metadata field")
     func sortsEveryMetadataField() {
         let songs = [
