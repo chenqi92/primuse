@@ -199,7 +199,7 @@ final class ScreenIdleHoldController {
         var deadlines = [playback.reevaluateAt, fullscreenPage.reevaluateAt].compactMap { $0 }
 
         if let requestAt = ScreenIdleHoldPolicy.playerSurfaceRequestTime(for: context) {
-            if now >= requestAt {
+            if now.timeIntervalSinceReferenceDate >= requestAt.timeIntervalSinceReferenceDate {
                 if lastSurfaceRequestFor != context.lastInteractionAt {
                     lastSurfaceRequestFor = context.lastInteractionAt
                     playerSurfaceRequest &+= 1
