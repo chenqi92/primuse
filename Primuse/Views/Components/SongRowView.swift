@@ -1448,6 +1448,8 @@ private struct SongRowSwipeModifier: ViewModifier {
     }
 }
 
+final class SongRowPanRecognizer: UIPanGestureRecognizer {}
+
 private struct SongRowHorizontalPanGesture: UIGestureRecognizerRepresentable {
     let isEnabled: Bool
     let isRightToLeft: Bool
@@ -1458,7 +1460,7 @@ private struct SongRowHorizontalPanGesture: UIGestureRecognizerRepresentable {
     }
 
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
-        let recognizer = UIPanGestureRecognizer()
+        let recognizer = SongRowPanRecognizer()
         recognizer.minimumNumberOfTouches = 1
         recognizer.maximumNumberOfTouches = 1
         recognizer.cancelsTouchesInView = false

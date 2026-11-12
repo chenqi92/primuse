@@ -951,7 +951,7 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
             } action: { newWidth in
                 width = newWidth
             }
-            .gesture(HomeFaceSwipeGesture(
+            .gesture(HorizontalPageSwipeGesture(
                 enabled: enabled,
                 exclusion: selectionID == ListeningSpace.radio.rawValue ? exclusion : nil,
                 onEvent: handle
@@ -969,7 +969,7 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
             .onDisappear { settle() }
     }
 
-    private func handle(_ event: HomeFaceSwipeGesture.Event) {
+    private func handle(_ event: HorizontalPageSwipeGesture.Event) {
         switch event {
         case .changed(let translation):
             offset = reduceMotion ? 0 : translation * (canMove(translation) ? 1 : 0.16)
@@ -1004,7 +1004,7 @@ private struct HomeFaceSwipeContainer<Content: View>: View {
 
 /// UIKit 的横向拖动手势:只在横着起手时接手,和页面的上下滚动同时识别;
 /// 在横滑的一排里(播客「继续收听」、放不下时的筛选条)和电台大卡上起手的不接,让它们自己左右滑。
-private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
+struct HorizontalPageSwipeGesture: UIGestureRecognizerRepresentable {
     enum Event {
         case changed(CGFloat)
         case ended(CGFloat, velocity: CGFloat)
@@ -1012,11 +1012,14 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
     }
 
     var enabled = true
-    let exclusion: HomeFaceSwipeExclusion?
+    var exclusion: HomeFaceSwipeExclusion? = nil
+    var respectsLibraryGestures = false
     let onEvent: (Event) -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator(exclusion: exclusion)
+        let coordinator = Coordinator(exclusion: exclusion)
+        coordinator.respectsLibraryGestures = respectsLibraryGestures
+        return coordinator
     }
 
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
@@ -1032,6 +1035,7 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
     }
 
     func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        context.coordinator.respectsLibraryGestures = respectsLibraryGestures
         context.coordinator.exclusion = exclusion
         recognizer.isEnabled = enabled
     }
@@ -1054,6 +1058,7 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var exclusion: HomeFaceSwipeExclusion?
+        var respectsLibraryGestures = false
         /// 这一次按下的时刻:按住一会儿才动的是长按菜单或拖动排序。
         private var touchDownTime: TimeInterval = 0
 
@@ -1064,6 +1069,11 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             touchDownTime = touch.timestamp
             if let frame = exclusion?.frame, frame.contains(touch.location(in: nil)) { return false }
+            if respectsLibraryGestures, let window = touch.window {
+                let x = touch.location(in: window).x
+                let edge = CGFloat(SongRowSwipePolicy.systemLeadingEdgeExclusion)
+                guard x > edge, x < window.bounds.width - edge else { return false }
+            }
             var view = touch.view
             while let current = view {
                 if let scrollView = current as? UIScrollView,
@@ -1087,6 +1097,30 @@ private struct HomeFaceSwipeGesture: UIGestureRecognizerRepresentable {
                 velocityY: Double(velocity.y),
                 heldBeforeMove: ProcessInfo.processInfo.systemUptime - touchDownTime
             )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            respectsLibraryGestures && otherGestureRecognizer is SongRowPanRecognizer
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            guard respectsLibraryGestures, #available(iOS 26, *) else { return false }
+            // 分类内容的横划先翻页；系统的边缘返回仍能从保留的起手区域触发。
+            var responder: UIResponder? = gestureRecognizer.view
+            while let current = responder {
+                if let controller = current as? UIViewController,
+                   let navigation = (controller as? UINavigationController) ?? controller.navigationController {
+                    return otherGestureRecognizer === navigation.interactiveContentPopGestureRecognizer
+                }
+                responder = current.next
+            }
+            return false
         }
 
         func gestureRecognizer(

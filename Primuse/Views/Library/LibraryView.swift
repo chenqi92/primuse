@@ -657,6 +657,10 @@ struct LibraryView: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.minimalSelectSection) private var minimalSelectSection
+    @Environment(\.layoutDirection) private var layoutDirection
+    @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsStandardSectionTabs = false
+    @State private var sectionHasBatchSelection = false
     @Environment(\.openLibraryDestination) private var openLibraryDestination
     @Environment(\.pmHeightClass) private var heightClass
     /// 极简导航没有首页:「开始听」那一行卡片放在「歌曲」页顶上,可在界面编辑里关。
@@ -867,16 +871,16 @@ struct LibraryView: View {
                     .environment(favoriteFolderModel)
             }
         }
+        #if os(iOS)
+        .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { sectionHasBatchSelection = $0 }
+        #endif
         .mediaZoomNamespace(libraryZoomNamespace)
     }
 
     @ViewBuilder
     private var rootContent: some View {
         if let rootSection {
-            readyContent(section: rootSection) {
-                destination(for: rootSection)
-            }
-            .environment(\.libraryStackRegistersCollectionDetails, true)
+            sectionPage(rootSection)
         } else {
             if !library.isReady || hasContent {
                 libraryHub
@@ -898,7 +902,7 @@ struct LibraryView: View {
         #endif
     }
 
-    private func sectionDestination(_ section: LibrarySection) -> some View {
+    private func sectionPage(_ section: LibrarySection) -> some View {
         readyContent(section: section) {
             #if os(iOS)
             sectionSwipePage(section)
@@ -906,12 +910,21 @@ struct LibraryView: View {
             destination(for: section)
             #endif
         }
+        #if os(iOS)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .gesture(sectionSwipe(selection: section))
+        #endif
+        .environment(\.libraryStackRegistersCollectionDetails, true)
+    }
+
+    private func sectionDestination(_ section: LibrarySection) -> some View {
+        sectionPage(section)
             #if os(iOS)
             .minimalSafeAreaBar(edge: .top) {
                 standardSectionTabs(selection: section)
             }
             #endif
-            .environment(\.libraryStackRegistersCollectionDetails, true)
             .navigationTitle(section.title)
             .toolbarTitleDisplayMode(.inline)
             #if os(iOS)
@@ -982,11 +995,35 @@ struct LibraryView: View {
     private func standardSectionTabs(selection: LibrarySection?) -> some View {
         StandardLibrarySectionTabs(selection: selection) { section in
             guard section != selection else { return }
-            if rootSection == nil {
-                applyDeepLink(.section(section))
-            } else {
-                openLibraryDestination?(.section(section))
-            }
+            selectMusicSection(section)
+        }
+    }
+
+    private func selectMusicSection(_ section: LibrarySection) {
+        if appNavigationMode == .minimal {
+            minimalSelectSection?(section)
+        } else if rootSection == nil {
+            applyDeepLink(.section(section))
+        } else {
+            openLibraryDestination?(.section(section))
+        }
+    }
+
+    private func sectionSwipe(selection: LibrarySection) -> HorizontalPageSwipeGesture {
+        let visible = LibraryDisplayConfiguration.visibleSections(
+            orderRawValue: sectionOrderRawValue, hiddenRawValue: hiddenSectionsRawValue
+        )
+        let sections = MinimalNavigationPolicy.musicSections(visibleSections: visible)
+        let index = sections.firstIndex(of: selection)
+        let enabled = UIDevice.current.userInterfaceIdiom == .phone && !sectionHasBatchSelection
+            && (appNavigationMode == .minimal || showsStandardSectionTabs) && index != nil && sections.count > 1
+        return HorizontalPageSwipeGesture(enabled: enabled, respectsLibraryGestures: true) { event in
+            guard case let .ended(translation, velocity) = event, let index,
+                  HomeFaceSwipePolicy.exits(translationX: Double(translation), velocityX: Double(velocity)) else { return }
+            let advances = layoutDirection == .rightToLeft ? translation > 0 : translation < 0
+            let target = index + (advances ? 1 : -1)
+            guard sections.indices.contains(target) else { return }
+            selectMusicSection(sections[target])
         }
     }
     #endif

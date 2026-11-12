@@ -41,6 +41,54 @@ final class LibraryLaunchPerformanceUITests: XCTestCase {
 
 @MainActor
 final class HomeTopSwitchingUITests: XCTestCase {
+    func testMusicSectionSwipesFollowVisibleTabsInBothDirections() {
+        verifyMusicSectionSwipes(mode: "minimal", tabPrefix: "minimal.section")
+    }
+
+    func testStandardLibrarySectionTabsFollowPageSwipes() {
+        verifyMusicSectionSwipes(mode: "standard", tabPrefix: "library.sectionTab")
+    }
+
+    private func verifyMusicSectionSwipes(mode: String, tabPrefix: String) {
+        continueAfterFailure = false
+        let app = configuredHomeRegressionApp()
+        restoreHomeAfterTest(app, arguments: app.launchArguments)
+        addTeardownBlock { @MainActor in
+            if self.testRun?.hasSucceeded == false {
+                self.attach(app, "library-section-swipe-\(mode)")
+            }
+        }
+        app.launchArguments += [
+            "-primuse.navigation.mode.v1", mode, "-primuse.navigation.selectedTab.v1", "1",
+            "-primuse.minimal.librarySection.v1", "favorites",
+            "-primuse.navigation.libraryPage.v1", "section:favorites",
+            "-primuse.home.showsLibrarySections.v1", "YES",
+            "-primuse.library.sectionOrder.v1", "",
+            "-primuse.library.hiddenSections.v1",
+            stringDefaultArgument(#"["songs","artists","albums","folders","releaseDate","statistics","recommendations"]"#)
+        ]
+        app.launch()
+        let favorites = app.buttons["\(tabPrefix).favorites"]
+        let genres = app.buttons["\(tabPrefix).genres"]
+        XCTAssertTrue(favorites.waitForExistence(timeout: 30))
+        favorites.tap()
+        assertSelected(favorites)
+        let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.65))
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.65))
+        right.press(forDuration: 0.05, thenDragTo: left)
+        assertSelected(genres)
+        left.press(forDuration: 0.05, thenDragTo: right)
+        assertSelected(favorites)
+        left.press(forDuration: 0.05, thenDragTo: right)
+        XCTAssertTrue(favorites.isSelected)
+        if mode == "standard" {
+            let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.65))
+            edge.press(forDuration: 0.05, thenDragTo: right)
+            XCTAssertTrue(app.descendants(matching: .any)["library.hub"].firstMatch.waitForExistence(timeout: 5)
+                || !favorites.isSelected)
+        }
+    }
+
     func testCircularPagingAndInterruptedSwipesStayCentered() {
         continueAfterFailure = false
         let app = configuredHomeRegressionApp()
@@ -93,7 +141,20 @@ final class HomeTopSwitchingUITests: XCTestCase {
             radio.doubleTap()
         }
         XCTAssertFalse(music.isSelected)
-        XCTAssertFalse(radio.isSelected)
+        // A double-tap gesture may deliver one button activation. In either case
+        // the selected filter and the visible page must agree after the burst.
+        let overview = homePage(app, "overview")
+        if radio.isSelected {
+            assertPageCentered(radioPage, midX: expectedMidX)
+            radio.tap()
+        }
+        assertPageCentered(overview, midX: expectedMidX)
+
+        music.tap()
+        assertSelected(music)
+        music.tap()
+        XCTAssertFalse(music.isSelected)
+        assertPageCentered(overview, midX: expectedMidX)
         radio.tap()
         assertSelected(radio)
         assertPageCentered(radioPage, midX: expectedMidX)
