@@ -169,10 +169,9 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
 
 /// 简介的编辑与合并规则。
 public enum LibraryInsightEditing {
-    public static let maximumUserSummaryLength = 2_000
     public static let maximumUserTags = 10
 
-    /// 用户写的简介:去掉首尾空白、行内多余空白,最多保留空一行分段,超长截断。
+    /// 导入或手写的简介保留全文，清理行内空白，段落之间最多空一行。
     public static func normalizedSummary(_ text: String) -> String {
         var paragraphs: [String] = []
         var blank = false
@@ -186,7 +185,7 @@ public enum LibraryInsightEditing {
             blank = false
             paragraphs.append(collapsed)
         }
-        return String(paragraphs.joined(separator: "\n").prefix(maximumUserSummaryLength))
+        return paragraphs.joined(separator: "\n")
     }
 
     /// 标签输入框的文字拆成标签:逗号、顿号、分号、换行都算分隔;去重,每个不超过 24 字。

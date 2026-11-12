@@ -48,11 +48,17 @@ struct LastFmLibraryInsightTests {
         #expect(throws: (any Error).self) { try LastFmLibraryInsight.decode(Data("{}".utf8), for: artist) }
     }
 
-    @Test func importedTextUsesTheExistingLengthLimitAndRejectsUntrustedSourceLinks() throws {
+    @Test func longImportedTextSurvivesSaveAndReloadAndRejectsUntrustedSourceLinks() throws {
+        let text = String(repeating: "完整的专辑介绍。", count: 500) + "\n\n最后一段。"
         for url in ["https://last.fm.evil.example/music/a", "javascript:alert(1)", "https://secret@www.last.fm/music/a"] {
-            let data = try JSONSerialization.data(withJSONObject: ["album": ["url": url, "wiki": ["content": String(repeating: "a", count: 2500)]]])
+            let data = try JSONSerialization.data(withJSONObject: ["album": ["url": url, "wiki": ["content": text, "summary": "Short"]]])
             let result = try #require(try LastFmLibraryInsight.decode(data, for: album))
-            #expect(result.summary.count == LibraryInsightEditing.maximumUserSummaryLength)
+            let record = try #require(LibraryInsightEditing.recordFromImport(
+                summary: result.summary, tags: result.tags, subject: album, id: album.recordID(),
+                sourceLabel: result.sourceLabel, sourceURL: result.sourceURL, now: Date()
+            ))
+            let reloaded = try JSONDecoder().decode(LibraryInsightRecord.self, from: JSONEncoder().encode(record))
+            #expect(reloaded.summary == text)
             #expect(result.sourceURL?.absoluteString == "https://www.last.fm/music/Artist/Album")
         }
     }

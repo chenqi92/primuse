@@ -44,13 +44,16 @@ final class LibraryInsightRecordStoreTests: XCTestCase {
         let directory = try Self.makeIsolatedStorageDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let library = MusicLibrary(storageDirectory: directory)
-        library.saveLibraryInsightRecord(record("Mine", at: 10))
-        XCTAssertEqual(library.libraryInsightRecord(id: "album-intro-test")?.summary, "Mine")
+        await library.whenReady()
+        let fullText = String(repeating: "专辑录制于冬季。", count: 500) + "\n\n尾声。"
+        library.saveLibraryInsightRecord(record(fullText, at: 10))
+        XCTAssertEqual(library.libraryInsightRecord(id: "album-intro-test")?.summary, fullText)
         guard case .success = await library.persistNowAndWait() else {
             return XCTFail("Snapshot did not persist")
         }
         let reopened = MusicLibrary(storageDirectory: directory)
-        XCTAssertEqual(reopened.libraryInsightRecord(id: "album-intro-test")?.summary, "Mine")
+        await reopened.whenReady()
+        XCTAssertEqual(reopened.libraryInsightRecord(id: "album-intro-test")?.summary, fullText)
         XCTAssertEqual(reopened.libraryInsightRecord(id: "album-intro-test")?.tags, ["Pop"])
     }
 

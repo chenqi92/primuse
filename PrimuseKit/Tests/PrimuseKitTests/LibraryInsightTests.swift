@@ -144,7 +144,20 @@ struct LibraryInsightTests {
         #expect(summary == "第一段 内容\n\n第二段 文字")
         #expect(LibraryInsightEditing.tags(fromText: "流行， 九十年代、流行; R&B\n ") == ["流行", "九十年代", "R&B"])
         #expect(LibraryInsightEditing.tags(fromText: (0..<15).map { "t\($0)" }.joined(separator: ",")).count == 10)
-        #expect(LibraryInsightEditing.normalizedSummary(String(repeating: "a", count: 3_000)).count == 2_000)
+    }
+
+    @Test func editingOnlyTagsKeepsTheEntireImportedSummary() throws {
+        let summary = String(repeating: "An introduction. ", count: 250) + "The end."
+        let previous = try #require(LibraryInsightEditing.recordFromImport(
+            summary: summary, tags: [], subject: subject, id: subject.recordID(),
+            sourceLabel: "album.nfo", now: t0
+        ))
+        let edited = try #require(LibraryInsightEditing.recordAfterUserEdit(
+            summary: previous.summary, tags: ["Pop"], subject: subject, id: previous.id,
+            previous: previous, aiDraft: nil, now: t0
+        ))
+        #expect(edited.summary == summary)
+        #expect(edited.tags == ["Pop"])
     }
 
     @Test func aiFillReplacesContentAndUnknownClearsIt() {
