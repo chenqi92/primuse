@@ -108,6 +108,7 @@ private struct WatchPlaybackPager: View {
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .navigationTitle(navigationTitle)
+        .toolbarBackground(selection == .seek ? .hidden : .automatic, for: .navigationBar)
         .containerBackground(for: .navigation) {
             WatchNowPlayingBackdrop(cover: store.coverImage, accent: store.accent)
         }
