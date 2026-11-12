@@ -1028,6 +1028,7 @@
 
 // MARK: - Scrobble (听歌记录上报)
 "scrobble_title" = "听歌记录";
+"scrobble_report_to_server" = "向音乐服务器回传播放记录";
 "scrobble_enabled" = "启用听歌记录";
 "scrobble_send_now_playing" = "上报正在播放";
 "scrobble_overall_footer" = "把听歌历史同步到 Last.fm / ListenBrainz 等服务,听够 50% 或 4 分钟才计入。";

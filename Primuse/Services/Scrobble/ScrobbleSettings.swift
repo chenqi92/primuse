@@ -16,6 +16,10 @@ final class ScrobbleSettingsStore {
         didSet { persist(); ScrobbleSettingsStore.notifyChanged() }
     }
 
+    var reportPlaybackToServer: Bool {
+        didSet { persist() }
+    }
+
     /// 启用了哪些 provider。多选 — 用户可以同时同步到 Last.fm + ListenBrainz。
     var enabledProviders: Set<ScrobbleProviderID> {
         didSet { persist(); ScrobbleSettingsStore.notifyChanged() }
@@ -29,10 +33,12 @@ final class ScrobbleSettingsStore {
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
+            self.reportPlaybackToServer = decoded.reportPlaybackToServer ?? true
             self.isEnabled = decoded.isEnabled
             self.enabledProviders = Set(decoded.enabledProviders.compactMap(ScrobbleProviderID.init(rawValue:)))
             self.sendNowPlaying = decoded.sendNowPlaying
         } else {
+            self.reportPlaybackToServer = true
             self.isEnabled = false
             self.enabledProviders = []
             self.sendNowPlaying = true
@@ -42,6 +48,7 @@ final class ScrobbleSettingsStore {
     func reloadAfterOfflineImport() {
         let loaded = ScrobbleSettingsStore()
         suppressPersist = true
+        reportPlaybackToServer = loaded.reportPlaybackToServer
         isEnabled = loaded.isEnabled
         enabledProviders = loaded.enabledProviders
         sendNowPlaying = loaded.sendNowPlaying
@@ -52,6 +59,7 @@ final class ScrobbleSettingsStore {
     private func persist() {
         guard !suppressPersist else { return }
         let p = Persisted(
+            reportPlaybackToServer: reportPlaybackToServer,
             isEnabled: isEnabled,
             enabledProviders: enabledProviders.map(\.rawValue),
             sendNowPlaying: sendNowPlaying
@@ -67,6 +75,7 @@ final class ScrobbleSettingsStore {
     }
 
     private struct Persisted: Codable {
+        let reportPlaybackToServer: Bool?
         let isEnabled: Bool
         let enabledProviders: [String]
         let sendNowPlaying: Bool

@@ -297,6 +297,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appleMusic.syncUserLibrary", titleKey: "Sync User Library", table: "SettingsSearch", iosPage: nil, macPage: .appleMusic),
         SettingDefinition(id: "appleMusic.catalogSearch", titleKey: "Catalog Search", table: "SettingsSearch", iosPage: nil, macPage: .appleMusic),
         SettingDefinition(id: "appleMusic.autoSmartPlaylists", titleKey: "Auto Add to Smart Playlists", table: "SettingsSearch", iosPage: nil, macPage: .appleMusic),
+        SettingDefinition(id: "scrobble.server", titleKey: "scrobble_report_to_server", iosPage: .scrobble, macPage: .scrobble),
         SettingDefinition(id: "scrobble.enabled", titleKey: "scrobble_enabled", iosPage: .scrobble, macPage: .scrobble),
         SettingDefinition(id: "scrobble.nowPlaying", titleKey: "scrobble_send_now_playing", iosPage: .scrobble, macPage: .scrobble),
         SettingDefinition(id: "scrobble.listenBrainz", titleKey: "ListenBrainz", iosPage: .scrobble, macPage: .scrobble),

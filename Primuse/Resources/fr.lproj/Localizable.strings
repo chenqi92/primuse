@@ -1220,6 +1220,7 @@
 "carplay_play_failed_format" = "Impossible de lire %@";
 "carplay_ok" = "OK";
 "scrobble_title" = "Scrobble";
+"scrobble_report_to_server" = "Envoyer l’historique d’écoute aux serveurs de musique";
 "scrobble_enabled" = "Activer le scrobble";
 "scrobble_send_now_playing" = "Envoyer le morceau en cours";
 "scrobble_overall_footer" = "Envoyez votre historique d'écoute vers Last.fm / ListenBrainz. Comptabilisé après 50 % ou 4 minutes de lecture.";

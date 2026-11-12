@@ -2049,6 +2049,7 @@
 "Search Radio Stations" = "Поиск радиостанций";
 "enable" = "Включить";
 "cloud_guide_dropbox" = "Перейдите на сайт dropbox.com/developers/apps, чтобы создать приложение.";
+"scrobble_report_to_server" = "Отправлять историю прослушивания на музыкальные серверы";
 "scrobble_enabled" = "Включить скроббл";
 "ai_path_mode_append_v1" = "Добавить /v1";
 "ai_playlist_current_section" = "Текущий плейлист";

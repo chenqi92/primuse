@@ -47,6 +47,11 @@ struct TVScrobbleSettingsView: View {
                 VStack(alignment: .leading, spacing: 28) {
                     header
                     panel {
+                        TVSwitchRow(icon: "server.rack", title: String(localized: "scrobble_report_to_server"),
+                                    isOn: $settings.reportPlaybackToServer, maxWidth: .infinity)
+                        .accessibilityIdentifier("tv.scrobble.server")
+                    }
+                    panel {
                         TVSwitchRow(
                             icon: "dot.radiowaves.left.and.right",
                             title: String(localized: "scrobble_enabled"),

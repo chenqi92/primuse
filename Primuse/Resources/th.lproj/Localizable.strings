@@ -3173,6 +3173,7 @@
 "scrobble_api_secret" = "API ความลับ";
 "scrobble_clear_queue" = "ล้างคิว";
 "scrobble_clear_queue_confirm" = "ล้างรายการรอดำเนินการทั้งหมดหรือไม่";
+"scrobble_report_to_server" = "ส่งประวัติการเล่นไปยังเซิร์ฟเวอร์เพลง";
 "scrobble_enabled" = "เปิดใช้งาน Scrobble";
 "scrobble_lastfm_advanced_hint" = "หากคุณต้องการใช้แอปพลิเคชัน Last.fm ของคุณเอง (โควต้าแยกกัน) ให้วางคีย์ API + ความลับที่แชร์ที่นี่ เว้นว่างไว้เพื่อใช้ค่าเริ่มต้นในตัว";
 "scrobble_lastfm_advanced_title" = "ใช้แอปพลิเคชันของฉันเอง";

@@ -15262,7 +15262,8 @@ final class SourceManager {
     func reportServerScrobble(for song: Song, submission: Bool) async {
         guard let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }) else { return }
-        guard let conn = connector(for: source) as? ServerScrobblingConnector else { return }
+        guard ScrobbleSettingsStore.shared.reportPlaybackToServer,
+              let conn = connector(for: source) as? ServerScrobblingConnector else { return }
         await conn.scrobble(songPath: song.filePath, submission: submission)
     }
 

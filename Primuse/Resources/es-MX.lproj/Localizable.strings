@@ -3173,6 +3173,7 @@
 "scrobble_api_secret" = "Secreto API";
 "scrobble_clear_queue" = "Borrar cola";
 "scrobble_clear_queue_confirm" = "¿Borrar todas las escuchas pendientes?";
+"scrobble_report_to_server" = "Enviar el historial de reproducción a los servidores de música";
 "scrobble_enabled" = "Habilitar Scrobble";
 "scrobble_lastfm_advanced_hint" = "Si desea utilizar su propia aplicación Last.fm (cuota separada), pegue la clave API + secreto compartido aquí. Déjelo vacío para utilizar los valores predeterminados integrados.";
 "scrobble_lastfm_advanced_title" = "Usar mi propia aplicación";

@@ -975,6 +975,7 @@
 "carplay_play_failed_format" = "無法播放 %@";
 "carplay_ok" = "好";
 "scrobble_title" = "聽歌記錄";
+"scrobble_report_to_server" = "向音樂伺服器回傳播放記錄";
 "scrobble_enabled" = "啟用聽歌記錄";
 "scrobble_send_now_playing" = "回報正在播放";
 "scrobble_overall_footer" = "把聽歌歷史同步到 Last.fm / ListenBrainz 等服務,聽夠 50% 或 4 分鐘才計入。";

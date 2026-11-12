@@ -1221,6 +1221,7 @@
 "carplay_play_failed_format" = "%@ を再生できませんでした";
 "carplay_ok" = "OK";
 "scrobble_title" = "Scrobble";
+"scrobble_report_to_server" = "音楽サーバーに再生履歴を送信";
 "scrobble_enabled" = "Scrobble を有効にする";
 "scrobble_send_now_playing" = "再生中の曲を送信";
 "scrobble_overall_footer" = "再生履歴を Last.fm / ListenBrainz に送信します。50% または 4 分以上再生するとカウントされます。";

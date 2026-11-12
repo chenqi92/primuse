@@ -263,7 +263,7 @@ final class TVServerFeedbackService {
                 sourceID: song.sourceID,
                 fingerprint: fingerprint,
                 generation: generation,
-                shouldContinue: { true }
+                shouldContinue: { ScrobbleSettingsStore.shared.reportPlaybackToServer }
             ) { source, credential in
                 try await self.client.report(feedback, source: source, credential: credential)
             }
@@ -501,7 +501,7 @@ final class TVServerFeedbackService {
                 fingerprint: pending.sourceScopeFingerprint,
                 generation: pending.sourceGeneration,
                 shouldContinue: {
-                    self.pendingNowPlaying[sourceID] == nil
+                    ScrobbleSettingsStore.shared.reportPlaybackToServer && self.pendingNowPlaying[sourceID] == nil
                 }
             ) { source, credential in
                 try await self.client.report(

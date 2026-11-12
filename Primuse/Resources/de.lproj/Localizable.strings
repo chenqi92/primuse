@@ -1220,6 +1220,7 @@
 "carplay_play_failed_format" = "%@ konnte nicht wiedergegeben werden";
 "carplay_ok" = "OK";
 "scrobble_title" = "Scrobbeln";
+"scrobble_report_to_server" = "Wiedergabeverlauf an Musikserver senden";
 "scrobble_enabled" = "Scrobbeln aktivieren";
 "scrobble_send_now_playing" = "„Aktuelle Wiedergabe“ senden";
 "scrobble_overall_footer" = "Wiedergabeverlauf an Last.fm / ListenBrainz übermitteln. Zählt erst nach 50 % oder 4 Minuten Wiedergabe.";

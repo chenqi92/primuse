@@ -125,6 +125,10 @@ struct ScrobbleSettingsView: View {
     private var iosBody: some View {
         Form {
             Section {
+                Toggle("scrobble_report_to_server", isOn: $settings.reportPlaybackToServer)
+                    .settingsAnchor("scrobble.server")
+            }
+            Section {
                 Toggle(isOn: $settings.isEnabled.pmAnimated()) {
                     SettingsInfoLabel("scrobble_enabled") {
                         Text("scrobble_overall_footer")
@@ -164,6 +168,12 @@ struct ScrobbleSettingsView: View {
             Text("scrobble_mac_subtitle")
                 .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.textMuted)
+
+            macRow(icon: "server.rack", title: String(localized: "scrobble_report_to_server")) {
+                macSwitch(isOn: $settings.reportPlaybackToServer)
+            }
+            .background(PMColor.bgElev, in: .rect(cornerRadius: 12))
+            .settingsAnchor("scrobble.server")
 
             macMasterCard
 
@@ -541,7 +551,7 @@ struct ScrobbleSettingsView: View {
 
     private func macRow<Trailing: View>(icon: String,
                                         title: String,
-                                        subtitle: String,
+                                        subtitle: String? = nil,
                                         @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
@@ -553,10 +563,12 @@ struct ScrobbleSettingsView: View {
                 Text(title)
                     .font(.system(size: 13.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
-                Text(subtitle)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(PMColor.textFaint)
-                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 10)
             trailing()

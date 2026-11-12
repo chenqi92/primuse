@@ -386,6 +386,40 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
     }
 
     @MainActor
+    func testServerOptOutStopsNowPlayingAndPlayCountIndependentlyOfLastFm() async throws {
+        try await withContentFixture { defaults, store in
+            let settings = ScrobbleSettingsStore.shared
+            let provider = ScrobbleRecordingProvider(id: .lastFm)
+            let service = ScrobbleService(defaults: defaults, providers: { [provider] },
+                                          spokenWordStore: store, songLookup: { _ in nil })
+            var reports = [String]()
+            service.serverScrobbleHandler = { song, submission in
+                reports.append(song.id + (submission ? ":played" : ":started"))
+            }
+
+            settings.isEnabled = true
+            service.handlePlaybackStarted(song: contentSong("first"))
+            settings.reportPlaybackToServer = false
+            service.handleProgressTick(playedDelta: 240)
+            service.handlePlaybackStarted(song: contentSong("private"))
+            service.handleProgressTick(playedDelta: 240)
+            settings.reloadAfterOfflineImport()
+            XCTAssertFalse(settings.reportPlaybackToServer)
+            for _ in 0..<500 where provider.listens.count < 2 {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(Set(provider.listens), ["first", "private"])
+            XCTAssertEqual(reports, ["first:started"])
+
+            settings.isEnabled = false
+            settings.reportPlaybackToServer = true
+            service.handlePlaybackStarted(song: contentSong("resumed"))
+            service.handleProgressTick(playedDelta: 240)
+            XCTAssertEqual(reports, ["first:started", "resumed:started", "resumed:played"])
+        }
+    }
+
+    @MainActor
     func testSwitchingToSpokenWordAndReclassificationDoNotSubmitMusicSession() async throws {
         try await withContentFixture { defaults, store in
             let provider = ScrobbleRecordingProvider(id: .lastFm)
@@ -489,13 +523,15 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
             MusicSource(id: "books-server", name: "Books", type: .tingReader)
         ], pruningStaleTags: false)
         let settings = ScrobbleSettingsStore.shared
-        let previous = (settings.isEnabled, settings.enabledProviders, settings.sendNowPlaying)
+        let previous = (settings.isEnabled, settings.enabledProviders, settings.sendNowPlaying, settings.reportPlaybackToServer)
+        settings.reportPlaybackToServer = true
         settings.isEnabled = false
         settings.enabledProviders = Set(ScrobbleProviderID.allCases)
         settings.sendNowPlaying = true
         defer {
             settings.isEnabled = false
             settings.enabledProviders = previous.1
+            settings.reportPlaybackToServer = previous.3
             settings.sendNowPlaying = previous.2
             settings.isEnabled = previous.0
             store.persistLocally()

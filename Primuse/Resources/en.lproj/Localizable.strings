@@ -1014,6 +1014,7 @@
 
 // MARK: - Scrobble (Listening history submission)
 "scrobble_title" = "Scrobble";
+"scrobble_report_to_server" = "Send playback history to music servers";
 "scrobble_enabled" = "Enable Scrobble";
 "scrobble_send_now_playing" = "Send Now Playing";
 "scrobble_overall_footer" = "Submit listening history to Last.fm / ListenBrainz. Counts after 50% or 4 minutes played.";

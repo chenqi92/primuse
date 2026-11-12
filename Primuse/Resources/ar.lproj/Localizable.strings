@@ -3173,6 +3173,7 @@
 "scrobble_api_secret" = "API سر";
 "scrobble_clear_queue" = "مسح قائمة الانتظار";
 "scrobble_clear_queue_confirm" = "مسح كافة عمليات الاستماع المعلقة؟";
+"scrobble_report_to_server" = "إرسال سجل التشغيل إلى خوادم الموسيقى";
 "scrobble_enabled" = "تمكين التمرير";
 "scrobble_lastfm_advanced_hint" = "إذا كنت تريد استخدام تطبيق Last.fm الخاص بك (حصة منفصلة)، فالصق API المفتاح + السر المشترك هنا. اتركه فارغًا لاستخدام الإعدادات الافتراضية المضمنة.";
 "scrobble_lastfm_advanced_title" = "استخدم تطبيقي الخاص";
