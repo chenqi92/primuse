@@ -582,7 +582,7 @@ struct ArtistListView: View {
 
     private func artistRow(_ artist: Artist) -> some View {
         let isSelected = selectedArtist?.id == artist.id
-        return Button {
+        return PMScrollingButton {
             selectedArtistID = artist.id
         } label: {
             HStack(spacing: 10) {
@@ -608,7 +608,6 @@ struct ArtistListView: View {
             .pmRowBackground(selected: isSelected)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .contextMenu { artistMenu(artist) }
     }
     #endif

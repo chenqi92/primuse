@@ -20,6 +20,52 @@ struct MacHomeDashboardScroll<Content: View>: View {
     }
 }
 
+/// 首页卡片上进专辑、进艺人的那一下。macOS 26 起是 value 式 `NavigationLink`;
+/// macOS 15 上是点按面,由详情栈收到通知后压栈(标题栏、播放页进专辑也走这条),原因见 `PMScrollingButton`。
+struct MacHomeDetailLink<Label: View>: View {
+    private enum Target {
+        case album(Album)
+        case artist(Artist)
+    }
+
+    private let target: Target
+    private let label: Label
+
+    init(album: Album, @ViewBuilder label: () -> Label) {
+        target = .album(album)
+        self.label = label()
+    }
+
+    init(artist: Artist, @ViewBuilder label: () -> Label) {
+        target = .artist(artist)
+        self.label = label()
+    }
+
+    var body: some View {
+        if PMScrollingControls.usesButtons {
+            switch target {
+            case .album(let album):
+                NavigationLink(value: album) { label }
+                    .buttonStyle(.plain)
+            case .artist(let artist):
+                NavigationLink(value: artist) { label }
+                    .buttonStyle(.plain)
+            }
+        } else {
+            label.pmScrollingTapSurface(action: open)
+        }
+    }
+
+    private func open() {
+        switch target {
+        case .album(let album):
+            NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
+        case .artist(let artist):
+            NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+        }
+    }
+}
+
 @MainActor
 private final class MacHomeRefreshCoordinator {
     var debounceTask: Task<Void, Never>?
@@ -917,7 +963,7 @@ struct MacHomeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityLabel(Text("later"))
             }
-            .pmScrollingHelp(Text("later"))
+            .help(Text("later"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -1033,10 +1079,9 @@ struct MacHomeView: View {
         MacHomeHeroCard(resume: { resumeShelf($0) }) {
             // 卡片底色 — 暗色模式必须明显高于窗口 bg, 否则跟背景融在一起。
             // 整张卡空白处点一下进歌曲列表。
-            Button(action: openLibrarySongs) {
+            PMScrollingButton(action: openLibrarySongs) {
                 Rectangle().fill(PMColor.bgElev)
             }
-            .buttonStyle(.plain)
             .accessibilityLabel(Text("tab_songs"))
             .accessibilityHint(Text("library_browse"))
             .accessibilityIdentifier("macHomeLibraryHeroOpenSongs")
@@ -1070,7 +1115,7 @@ struct MacHomeView: View {
                         .allowsHitTesting(false)
 
                     HStack(spacing: PMSpace.s10) {
-                        Button { playLibrary(shuffled: true) } label: {
+                        PMScrollingButton { playLibrary(shuffled: true) } label: {
                             Label("shuffle_all", systemImage: "shuffle")
                                 .font(.system(size: 13.5, weight: .semibold))
                                 .padding(.horizontal, 20)
@@ -1078,11 +1123,10 @@ struct MacHomeView: View {
                                 .background(PMColor.brand, in: Capsule())
                                 .foregroundStyle(.white)
                         }
-                        .buttonStyle(.plain)
                         .disabled(!hasContent)
                         .shadow(color: PMColor.brand.opacity(0.45), radius: 10, y: 4)
 
-                        Button { playLibrary(shuffled: false) } label: {
+                        PMScrollingButton { playLibrary(shuffled: false) } label: {
                             Label("play_all", systemImage: "play.fill")
                                 .font(.system(size: 13.5, weight: .semibold))
                                 .padding(.horizontal, 20)
@@ -1091,7 +1135,6 @@ struct MacHomeView: View {
                                 .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.5) }
                                 .foregroundStyle(.white)
                         }
-                        .buttonStyle(.plain)
                         .disabled(!hasContent)
                     }
                     .padding(.top, 8)
@@ -1108,7 +1151,7 @@ struct MacHomeView: View {
         let isActive = player.isPlaying || player.isLoading
 
         return HStack(spacing: PMSpace.m14) {
-            Button {
+            PMScrollingButton {
                 NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
             } label: {
                 HStack(spacing: PMSpace.m14) {
@@ -1140,11 +1183,10 @@ struct MacHomeView: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
 
             Spacer(minLength: PMSpace.m)
 
-            Button {
+            PMScrollingButton {
                 NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
             } label: {
                 Image(systemName: "chevron.right")
@@ -1153,11 +1195,10 @@ struct MacHomeView: View {
                     .frame(width: 30, height: 30)
                     .background(PMColor.glassBtn, in: Circle())
             }
-            .buttonStyle(.plain)
-            .pmScrollingHelp(Text("home_section_view_all"))
+            .help(Text("home_section_view_all"))
             .accessibilityLabel(Text("home_section_view_all"))
 
-            Button {
+            PMScrollingButton {
                 toggleRadio(station)
             } label: {
                 Image(systemName: isActive ? "pause.fill" : "play.fill")
@@ -1166,8 +1207,7 @@ struct MacHomeView: View {
                     .frame(width: 34, height: 34)
                     .background(PMColor.brand, in: Circle())
             }
-            .buttonStyle(.plain)
-            .pmScrollingHelp(Text(isActive ? "pause" : "play"))
+            .help(Text(isActive ? "pause" : "play"))
             .accessibilityLabel(Text(isActive ? "pause" : "play"))
         }
         .padding(PMSpace.m14)
@@ -1188,10 +1228,11 @@ struct MacHomeView: View {
                 // 切侧栏的「电台」项，而不是 push 一个带返回键的新页面 ——
                 // 侧栏已经有这个目的地了，push 会让同一个页面有两条路径、
                 // 两种退出方式(返回键 vs 点侧栏)。
-                Button("home_section_view_all") {
+                PMScrollingButton {
                     NotificationCenter.default.post(name: .primuseSelectRadio, object: nil)
+                } label: {
+                    Text("home_section_view_all")
                 }
-                .buttonStyle(.plain)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(PMColor.brand)
             }
@@ -1535,10 +1576,9 @@ struct MacHomeView: View {
                 spacing: PMSpace.l
             ) {
                 ForEach(model.snapshot.recentlyAddedAlbums.prefix(12)) { album in
-                    NavigationLink(value: album) {
+                    MacHomeDetailLink(album: album) {
                         albumCard(album)
                     }
-                    .buttonStyle(.plain)
                     .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                 }
             }
@@ -1592,10 +1632,9 @@ struct MacHomeView: View {
                 spacing: PMSpace.m
             ) {
                 ForEach(Array(recentSongs.prefix(8).enumerated()), id: \.element.id) { index, song in
-                    Button { playSong(song) } label: {
+                    PMScrollingButton { playSong(song) } label: {
                         recentSongRow(song, ordinal: index + 1)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -1645,10 +1684,9 @@ struct MacHomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: PMSpace.l) {
                     ForEach(model.snapshot.artists.prefix(14)) { artist in
-                        NavigationLink(value: artist) {
+                        MacHomeDetailLink(artist: artist) {
                             artistChip(artist)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 2)
@@ -1728,20 +1766,19 @@ struct MacHomeView: View {
             }
             Spacer()
             if let onPlay {
-                Button(action: onPlay) {
+                PMScrollingButton(action: onPlay) {
                     Label("home_play_latest_album", systemImage: "play.fill")
                         .labelStyle(.iconOnly)
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
                 .foregroundStyle(PMColor.brand)
-                .pmScrollingHelp(Text("home_play_latest_album"))
+                .help(Text("home_play_latest_album"))
                 .accessibilityIdentifier("home.recentAlbums.playLatest")
             }
             if let destination {
-                Button {
+                PMScrollingButton {
                     pmWithAnimation(.list) {
                         activeSection = destination
                     }
@@ -1755,8 +1792,7 @@ struct MacHomeView: View {
                     .foregroundStyle(PMColor.brand)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .pmScrollingHelp(Text("home_section_view_all"))
+                .help(Text("home_section_view_all"))
             }
         }
     }
@@ -1805,10 +1841,9 @@ struct MacHomeView: View {
                     spacing: 24
                 ) {
                     ForEach(albums) { album in
-                        NavigationLink(value: album) {
+                        MacHomeDetailLink(album: album) {
                             albumCard(album)
                         }
-                        .buttonStyle(.plain)
                         .contextMenu { Toggle("home_show_preview_albums", isOn: $showsExternalAlbums) }
                     }
                 }
@@ -1841,10 +1876,9 @@ struct MacHomeView: View {
                     spacing: PMSpace.m
                 ) {
                     ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                        Button { playSong(song) } label: {
+                        PMScrollingButton { playSong(song) } label: {
                             recentSongRow(song, ordinal: index + 1)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, PMSpace.xxxl)
@@ -2573,7 +2607,7 @@ private struct MacHomeResumeTile<Artwork: View>: View {
     var body: some View {
         let tint = MacListeningSpaceStyle.color(for: space)
         let shape = RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous)
-        Button(action: action) {
+        PMScrollingButton(action: action) {
             HStack(spacing: PMSpace.s10) {
                 artwork
                     .frame(width: MacHomeResumeTileMetrics.artworkSize, height: MacHomeResumeTileMetrics.artworkSize)
@@ -2611,11 +2645,10 @@ private struct MacHomeResumeTile<Artwork: View>: View {
             .overlay { shape.strokeBorder(Color.white.opacity(isHovered ? 0.2 : 0.1), lineWidth: 0.5) }
             .contentShape(shape)
         }
-        .buttonStyle(.plain)
-        .pmScrollingOnHover { hovering in
+        .onHover { hovering in
             pmWithAnimation(.hover) { isHovered = hovering }
         }
-        .pmScrollingHelp(Text("home_continue_spaces_hint"))
+        .help(Text("home_continue_spaces_hint"))
         .accessibilityElement(children: .combine)
         .accessibilityHint(Text("home_continue_spaces_hint"))
     }
@@ -2675,7 +2708,7 @@ private struct MacHomeBooksStrip: View {
                         .foregroundStyle(PMColor.text)
                     Spacer()
                     // 切到侧栏的「有声」项, 不 push 第二条路径 (同电台)。
-                    Button {
+                    PMScrollingButton {
                         NotificationCenter.default.post(name: .primuseSelectSpokenWord, object: nil)
                     } label: {
                         HStack(spacing: 3) {
@@ -2687,7 +2720,6 @@ private struct MacHomeBooksStrip: View {
                         .foregroundStyle(PMColor.brand)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -2727,7 +2759,7 @@ private struct MacHomeBooksStrip: View {
         let cover = songs.first { $0.id == book.resumeItemID } ?? songs[0]
         let isPlaying = songs.contains { $0.id == player.currentSong?.id }
         let tint = MacListeningSpaceStyle.color(for: .spokenWord)
-        return Button {
+        return PMScrollingButton {
             SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
@@ -2754,9 +2786,8 @@ private struct MacHomeBooksStrip: View {
             .frame(width: MacHomeShelfCardMetrics.side, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .pmScrollingHoverLift()
-        .pmScrollingHelp(Text("spoken_word_continue"))
+        .pmHoverLift()
+        .help(Text("spoken_word_continue"))
     }
 }
 

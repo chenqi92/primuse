@@ -120,12 +120,11 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
             Rectangle().fill(PMColor.bgElev)
         } content: {
             HStack(alignment: .center, spacing: 36) {
-                NavigationLink(value: album) {
+                MacHomeDetailLink(album: album) {
                     AlbumArtworkView(album: album, size: 240, cornerRadius: PMRadius.l)
                         .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
                 }
-                .buttonStyle(.plain)
-                .pmScrollingHelp(Text("go_to_album"))
+                .help(Text("go_to_album"))
                 .contextMenu { menu }
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -133,7 +132,7 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.78))
 
-                    NavigationLink(value: album) {
+                    MacHomeDetailLink(album: album) {
                         Text(verbatim: pick.title)
                             .font(.system(size: 36, weight: .bold))
                             .tracking(-0.7)
@@ -142,7 +141,6 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
                             .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.plain)
 
                     Text(verbatim: [pick.artistName, pick.detailLine].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 13.5, weight: .medium))
@@ -172,7 +170,7 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
 
     private func actionButtons(compact: Bool) -> some View {
         HStack(spacing: PMSpace.s10) {
-            Button(action: onPlay) {
+            PMScrollingButton(action: onPlay) {
                 Label("album_pick_play", systemImage: "play.fill")
                     .font(.system(size: 13.5, weight: .semibold))
                     .padding(.horizontal, 20)
@@ -180,7 +178,6 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
                     .background(PMColor.brand, in: Capsule())
                     .foregroundStyle(.white)
             }
-            .buttonStyle(.plain)
             .shadow(color: PMColor.brand.opacity(0.45), radius: 10, y: 4)
             .accessibilityIdentifier("macHome.albumPick.play")
 
@@ -201,7 +198,7 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
         action: @escaping () -> Void
     ) -> some View {
         if compact {
-            Button(action: action) {
+            PMScrollingButton(action: action) {
                 Image(systemName: symbol)
                     .font(.system(size: 13.5, weight: .semibold))
                     .frame(width: 40, height: 40)
@@ -210,11 +207,10 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
                     .foregroundStyle(.white)
                     .contentShape(Circle())
             }
-            .buttonStyle(.plain)
-            .pmScrollingHelp(Text(title))
+            .help(Text(title))
             .accessibilityLabel(Text(title))
         } else {
-            Button(action: action) {
+            PMScrollingButton(action: action) {
                 Label(title, systemImage: symbol)
                     .font(.system(size: 13.5, weight: .semibold))
                     .padding(.horizontal, 18)
@@ -223,7 +219,6 @@ struct MacHomeAlbumPickHero<Resume: View>: View {
                     .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.5) }
                     .foregroundStyle(.white)
             }
-            .buttonStyle(.plain)
         }
     }
 

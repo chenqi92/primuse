@@ -26,6 +26,10 @@ import PrimuseKit
 /// - `open:album:<片段>` / `open:artist:<片段>` / `open:book:<片段>`：把名字含这一段（不分大小写）的第一张专辑、
 ///   第一位艺人、第一本有声书压进当前页的详情栈，和在页面里点进去走同一条通知。
 /// - `snapshot:<png 路径>`：把主窗口内容离屏画成 PNG —— 锁屏时 screencapture 只拍得到壁纸。
+/// - `click:<x>,<y>`：在主窗口内容里这一点（点，从左上角量）按一下鼠标左键，事件走窗口正常的派发 ——
+///   核对点按面（`PMScrollingButton`）和系统按钮点下去是不是同一个结果。
+/// - `axbuttons`：数主窗口辅助功能树里角色是按钮的元素、带「按下」动作的元素，并逐个记下按钮的标签，
+///   核对换成点按面后旁白看到的按钮没少。
 /// - `layers`：按类名统计主窗口的图层树，系统私有类（背板、传送门、远端图层）逐个记下位置 ——
 ///   离屏截图某块画不出来时拿它找原因。
 /// - `trace:<标签>`：开始 1.5 秒的红绿灯状态取样（`PMWindowChromeTrace`），换页前先开好能看到换页前的样子。
@@ -77,6 +81,10 @@ enum DebugAccessibilityScript {
             openDetail(argument)
         case "snapshot":
             snapshotMainWindow(to: argument)
+        case "click":
+            click(argument)
+        case "axbuttons":
+            await countButtons()
         case "layers":
             reportLayers()
         case "trace":
@@ -197,6 +205,63 @@ enum DebugAccessibilityScript {
         let selector = NSSelectorFromString(selectorName)
         guard object.responds(to: selector) else { return nil }
         return object.perform(selector)?.takeUnretainedValue()
+    }
+
+    @MainActor
+    private static func click(_ argument: String) {
+        let values = argument.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard values.count == 2, let window = mainWindow, let content = window.contentView else {
+            plog("🧪 AX script: click \(argument) skipped")
+            return
+        }
+        let local = NSPoint(x: values[0], y: content.isFlipped ? values[1] : content.bounds.height - values[1])
+        let location = content.convert(local, to: nil)
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(
+                with: type, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+            )
+        }
+        guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return }
+        // 窗口不是关键窗口时第一下只用来激活窗口, 点不到内容; 先把它变成关键窗口。
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        // 抬起先排进队列: 按下若进了控件自己的跟踪循环, 它从队列里取得到抬起, 不会一直等。
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        plog("🧪 AX script: click \(values[0]),\(values[1]) -> window \(location) key=\(window.isKeyWindow) hit=\(content.hitTest(location).map { String(describing: type(of: $0)) } ?? "nil")")
+    }
+
+    @MainActor
+    private static func countButtons() async {
+        await connectAccessibilityClient()
+        guard let window = mainWindow else { return }
+        var buttons: [String] = []
+        var pressable = 0
+        countButtons(in: window, depth: 0, buttons: &buttons, pressable: &pressable)
+        plog("🧪 AX script: axbuttons role=\(buttons.count) press=\(pressable)")
+        for label in buttons.sorted() {
+            plog("🧪 AX script: axbutton \(label)")
+        }
+    }
+
+    @MainActor
+    private static func countButtons(in element: Any, depth: Int, buttons: inout [String], pressable: inout Int) {
+        guard depth < 48, let object = element as? NSObject else { return }
+        if (send("accessibilityRole", to: object) as? String) == NSAccessibility.Role.button.rawValue {
+            let label = (send("accessibilityLabel", to: object) as? String)
+                ?? (send("accessibilityTitle", to: object) as? String)
+                ?? ""
+            buttons.append(label.isEmpty ? "(no label)" : String(label.prefix(60)))
+        }
+        if let names = send("accessibilityActionNames", to: object) as? [String],
+           names.contains(NSAccessibility.Action.press.rawValue) {
+            pressable += 1
+        }
+        for child in (send("accessibilityChildren", to: object) as? [Any]) ?? [] {
+            countButtons(in: child, depth: depth + 1, buttons: &buttons, pressable: &pressable)
+        }
     }
 
     @MainActor

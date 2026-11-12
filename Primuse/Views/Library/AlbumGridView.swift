@@ -297,12 +297,11 @@ struct AlbumGridView: View {
                                 spacing: 24
                             ) {
                                 ForEach(albums) { album in
-                                    Button {
+                                    PMScrollingButton {
                                         openAlbum(album)
                                     } label: {
                                         macAlbumTile(album, artworkSize: metrics.artworkSize)
                                     }
-                                    .buttonStyle(.plain)
                                     .contextMenu { albumMenu(album) }
                                     .pmHoverLift()
                                 }
@@ -312,12 +311,11 @@ struct AlbumGridView: View {
                         } else {
                             LazyVStack(spacing: 1) {
                                 ForEach(albums) { album in
-                                    Button {
+                                    PMScrollingButton {
                                         openAlbum(album)
                                     } label: {
                                         macAlbumListRow(album)
                                     }
-                                    .buttonStyle(.plain)
                                     .contextMenu { albumMenu(album) }
                                 }
                             }

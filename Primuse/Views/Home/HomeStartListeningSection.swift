@@ -148,10 +148,9 @@ struct StartListeningShelf: View {
             sectionTitle
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            Button(action: openAll) {
+            PMScrollingButton(action: openAll) {
                 viewAllLabel
             }
-            .buttonStyle(.plain)
             .accessibilityIdentifier("home.startListening.all")
         }
     }
@@ -244,7 +243,7 @@ struct StartListeningShelf: View {
     private func heroTile(_ item: ListeningIntentShelfItem, isBlock: Bool) -> some View {
         let title = service.title(for: item.intent)
         let detail = ListeningIntentText.songCount(item.songCount)
-        return Button {
+        return PMScrollingButton(style: .pressable) {
             start(item.intent)
         } label: {
             ListeningIntentHeroTile(
@@ -257,7 +256,6 @@ struct StartListeningShelf: View {
                 isBlock: isBlock
             )
         }
-        .buttonStyle(.pmPressable)
         .contextMenu { menu(item) }
         .accessibilityLabel(Text(verbatim: "\(title), \(detail)"))
         .accessibilityIdentifier("home.startListening." + item.id)
@@ -285,7 +283,7 @@ struct StartListeningShelf: View {
     private func tile(_ item: ListeningIntentShelfItem, isCompact: Bool) -> some View {
         let title = service.title(for: item.intent)
         let detail = ListeningIntentText.songCount(item.songCount)
-        return Button {
+        return PMScrollingButton(style: .pressable) {
             start(item.intent)
         } label: {
             ListeningIntentTile(
@@ -299,14 +297,13 @@ struct StartListeningShelf: View {
                 isCompact: isCompact
             )
         }
-        .buttonStyle(.pmPressable)
         .contextMenu { menu(item) }
         .accessibilityLabel(Text(verbatim: "\(title), \(detail)"))
         .accessibilityIdentifier("home.startListening." + item.id)
     }
 
     private func expandToggle(hiddenCount: Int) -> some View {
-        Button {
+        PMScrollingButton {
             pmWithAnimation(.list) { isGridExpanded.toggle() }
         } label: {
             HStack(spacing: 4) {
@@ -324,7 +321,6 @@ struct StartListeningShelf: View {
             .frame(maxWidth: .infinity, minHeight: 32)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .accessibilityIdentifier("home.startListening.expand")
     }
 
@@ -356,7 +352,7 @@ struct StartListeningShelf: View {
     private func card(_ item: ListeningIntentShelfItem) -> some View {
         let title = service.title(for: item.intent)
         let detail = ListeningIntentText.songCount(item.songCount)
-        return Button {
+        return PMScrollingButton(style: .pressable) {
             start(item.intent)
         } label: {
             ListeningIntentCard(
@@ -369,14 +365,13 @@ struct StartListeningShelf: View {
                 decade: item.decade
             )
         }
-        .buttonStyle(.pmPressable)
         .contextMenu { menu(item) }
         .accessibilityLabel(Text(verbatim: "\(title), \(detail)"))
         .accessibilityIdentifier("home.startListening." + item.id)
     }
 
     private var allIntentsCard: some View {
-        Button(action: openAll) {
+        PMScrollingButton(style: .pressable, action: openAll) {
             VStack(alignment: .leading, spacing: 0) {
                 Image(systemName: "square.grid.2x2")
                     .font(.system(size: 18, weight: .semibold))
@@ -397,7 +392,6 @@ struct StartListeningShelf: View {
             .background(ListeningIntentCard.neutralSurface, in: RoundedRectangle(cornerRadius: ListeningIntentCard.cornerRadius, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: ListeningIntentCard.cornerRadius, style: .continuous))
         }
-        .buttonStyle(.pmPressable)
         .accessibilityIdentifier("home.startListening.allCard")
     }
 

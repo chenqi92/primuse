@@ -18,7 +18,7 @@ struct MacHomePodcastsStrip: View {
                     .tracking(-0.3)
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                Button {
+                PMScrollingButton {
                     NotificationCenter.default.post(name: .primuseSelectSpokenWord, object: LibrarySection.podcasts)
                 } label: {
                     HStack(spacing: 3) {
@@ -30,7 +30,6 @@ struct MacHomePodcastsStrip: View {
                     .foregroundStyle(PMColor.brand)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
 
             if store.isLoaded, store.shows.isEmpty {
@@ -63,7 +62,7 @@ struct MacHomePodcastsStrip: View {
     private func tile(_ episode: PodcastEpisode, continuing: [PodcastEpisode]) -> some View {
         let show = store.show(id: episode.showID)
         let isCurrent = player.currentSong?.id == episode.id
-        return Button {
+        return PMScrollingButton {
             if isCurrent {
                 player.togglePlayPause()
             } else {
@@ -107,8 +106,7 @@ struct MacHomePodcastsStrip: View {
             .frame(width: MacHomeShelfCardMetrics.side, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .pmScrollingHoverLift()
+        .pmHoverLift()
         .podcastEpisodeContextMenu(episode, continuing: continuing)
     }
 }

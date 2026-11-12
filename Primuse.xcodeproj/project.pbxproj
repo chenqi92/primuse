@@ -1939,6 +1939,7 @@
 		D0165ECB27849861E2204675 /* AnimatedArtworkDataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44E04BAF67DF37C98C9FDAF /* AnimatedArtworkDataView.swift */; };
 		D01986AA0B65976FAA436D0A /* MetadataBackfillSceneTransitionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1178DD2CF47E24C862B0BECF /* MetadataBackfillSceneTransitionPolicy.swift */; };
 		D0223B06EA923E5E84C8E154 /* ScreenChangeTransitionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D43872DB076D765B01FC84 /* ScreenChangeTransitionPolicy.swift */; };
+		91AC0BDAB205674DEEFDDEB7 /* ScrollingControlSurfacePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536CAC3661A90892B6D876DA /* ScrollingControlSurfacePolicy.swift */; };
 		D04F987B505F8C44A75F2164 /* AudioPlayerService+Radio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87E29F8A7B6645AF7CD654D0 /* AudioPlayerService+Radio.swift */; };
 		D09F35EB2DAAE2BCD6D0B875 /* ListeningShare.strings in Resources */ = {isa = PBXBuildFile; fileRef = CFB47B562941745BC59E3FB0 /* ListeningShare.strings */; };
 		D0A637B74EFF47DA6AC36364 /* SynologyAudioStationErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60CEED3AD7295532D6B1833 /* SynologyAudioStationErrorText.swift */; };
@@ -2794,6 +2795,7 @@
 		18580B6FCDDC9D293B7820BF /* SubsonicStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubsonicStreamResolver.swift; sourceTree = "<group>"; };
 		18A468A68A399967D0D73645 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		18D43872DB076D765B01FC84 /* ScreenChangeTransitionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenChangeTransitionPolicy.swift; sourceTree = "<group>"; };
+		536CAC3661A90892B6D876DA /* ScrollingControlSurfacePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingControlSurfacePolicy.swift; sourceTree = "<group>"; };
 		18E9EF462C4BA07422560B67 /* SpotlightIndexRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightIndexRecovery.swift; sourceTree = "<group>"; };
 		1949B8417ED490628653C570 /* WatchFileTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFileTransferService.swift; sourceTree = "<group>"; };
 		19C30AFD749ACCECB1E36F80 /* LyricsRomanizationTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsRomanizationTask.swift; sourceTree = "<group>"; };
@@ -5043,6 +5045,7 @@
 				4A5E3854301A90D6807F3BEA /* ScanTLSTrustRetryPolicy.swift */,
 				EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */,
 				18D43872DB076D765B01FC84 /* ScreenChangeTransitionPolicy.swift */,
+				536CAC3661A90892B6D876DA /* ScrollingControlSurfacePolicy.swift */,
 				8129A4B4D8CDEA3EE20F4B0A /* SearchResultSectionLayout.swift */,
 				6D37B006FAFB65239DFDD75D /* SentencePieceUnigramTokenizer.swift */,
 				83E23F5C254D3F53BCCFB053 /* ServerCatalogChangeDetection.swift */,
@@ -7778,6 +7781,7 @@
 				C78883EEF4E8ECF986774E31 /* ScanTLSTrustRetryPolicy.swift in Sources */,
 				175CA91636CD93FF58990750 /* SceneTransitionScanQuiescePolicy.swift in Sources */,
 				D0223B06EA923E5E84C8E154 /* ScreenChangeTransitionPolicy.swift in Sources */,
+				91AC0BDAB205674DEEFDDEB7 /* ScrollingControlSurfacePolicy.swift in Sources */,
 				D7172B5749B4BB657027F66B /* SearchResultSectionLayout.swift in Sources */,
 				0E439F36101F40F622AC6D90 /* SentencePieceUnigramTokenizer.swift in Sources */,
 				71D09835973FF18EB862C34E /* ServerCatalogChangeDetection.swift in Sources */,

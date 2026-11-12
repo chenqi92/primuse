@@ -920,12 +920,11 @@ struct MacHomeForYouSection: View {
         switch entry {
         case .song(let songID):
             if let result = presentation.songsByID[songID] {
-                Button { play(result.song, in: presentation) } label: {
+                PMScrollingButton { play(result.song, in: presentation) } label: {
                     songCard(result, ordinal: presentation.songOrdinals[songID] ?? 1, reason: feed.reason(
                         for: songID, key: presentation.key, isAvailable: presentation.isAvailable
                     ))
                 }
-                .buttonStyle(.plain)
             }
         case .album(let albumKey):
             if let pick = presentation.albumsByID[albumKey],
@@ -989,13 +988,12 @@ struct MacHomeForYouSection: View {
             for: pick.albumID, key: presentation.key, isAvailable: presentation.isAvailable
         )
         return HStack(spacing: 12) {
-            NavigationLink(value: album) {
+            MacHomeDetailLink(album: album) {
                 AlbumArtworkView(album: album, size: 78, cornerRadius: PMRadius.m)
             }
-            .buttonStyle(.plain)
-            .pmScrollingHelp(Text("go_to_album"))
+            .help(Text("go_to_album"))
 
-            Button { playAlbum(pick.albumID) } label: {
+            PMScrollingButton { playAlbum(pick.albumID) } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     if let aiReason, !aiReason.isEmpty {
                         intelligentReason(aiReason)
@@ -1025,7 +1023,6 @@ struct MacHomeForYouSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
         }
         .padding(10)
         .frame(width: 292, height: 100)

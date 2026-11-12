@@ -2798,7 +2798,7 @@ struct SongListView: View {
 
     private func songGridTile(_ song: Song, ordinal: Int, isCurrent: Bool, isLocated: Bool) -> some View {
         let isEmphasized = isCurrent || isLocated
-        return Button { playSong(song) } label: {
+        return PMScrollingButton { playSong(song) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomTrailing) {
                     CachedArtworkView(
@@ -2838,7 +2838,6 @@ struct SongListView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .background {
             if isLocated {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -7137,10 +7136,9 @@ private struct MacSongRowContainer<Content: View & Equatable & Sendable, Menu: V
     }
 
     var body: some View {
-        Button(action: play) {
+        PMScrollingButton(action: play) {
             content
         }
-        .buttonStyle(.plain)
         .contextMenu { menu() }
     }
 }

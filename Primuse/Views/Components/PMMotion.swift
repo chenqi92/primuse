@@ -1,4 +1,5 @@
 import SwiftUI
+import PrimuseKit
 
 #if os(macOS)
 import AppKit
@@ -203,64 +204,98 @@ extension View {
     }
 }
 
-extension View {
-    /// 放在跟着页面一起滚动的内容里的悬停提示。
-    ///
-    /// macOS 15 的 SwiftUI 每滚一帧都会给滚动内容里所有的提示区域、悬停区域各排一个回调，
-    /// 而且每排一个就把整条队列拷一遍，区域一多整页滚动就卡（#380 的取样里占了主线程一半以上）。
-    /// macOS 26 起系统不再这样做。所以老系统上滚动内容里不登记提示，只留给旁白的说明。
-    @ViewBuilder
-    func pmScrollingHelp(_ text: Text) -> some View {
+/// 跟着页面一起滚动的卡片、行上的按钮。iOS 和 macOS 26 起就是一个普通 `Button`；
+/// macOS 15 上换成点按手势，原因见 `ScrollingControlSurfacePolicy`（#380）。
+///
+/// 点按面保留按钮的辅助功能特征与默认动作、右键菜单和悬停，少的是按下时变暗或缩一下、键盘焦点。
+/// 给跟着页面滚动的卡片、行和区块标题上的按钮用；窗口边上固定不动的按钮照旧写 `Button`。
+struct PMScrollingButton<Label: View>: View {
+    enum Style {
+        /// `.buttonStyle(.plain)`
+        case plain
+        /// `.buttonStyle(.pmPressable)`
+        case pressable
+    }
+
+    private let style: Style
+    private let action: () -> Void
+    private let label: Label
+
+    init(style: Style = .plain, action: @escaping () -> Void, @ViewBuilder label: () -> Label) {
+        self.style = style
+        self.action = action
+        self.label = label()
+    }
+
+    var body: some View {
         #if os(macOS)
-        if PMScrollingPointerRegions.isAffordable {
-            help(text)
+        if PMScrollingControls.usesButtons {
+            button
         } else {
-            accessibilityHint(text)
+            label.pmScrollingTapSurface(dimsWhenDisabled: style == .plain, action: action)
         }
         #else
-        help(text)
+        button
         #endif
     }
 
-    /// 放在跟着页面一起滚动的内容里的悬停回调，老系统上不登记，原因同 `pmScrollingHelp`。
     @ViewBuilder
-    func pmScrollingOnHover(perform action: @escaping (Bool) -> Void) -> some View {
-        #if os(macOS)
-        if PMScrollingPointerRegions.isAffordable {
-            onHover(perform: action)
-        } else {
-            self
+    private var button: some View {
+        switch style {
+        case .plain:
+            Button(action: action) { label }
+                .buttonStyle(.plain)
+        case .pressable:
+            Button(action: action) { label }
+                .buttonStyle(.pmPressable)
         }
-        #else
-        self
-        #endif
-    }
-
-    /// 放在跟着页面一起滚动的内容里的悬停抬起，老系统上不登记，原因同 `pmScrollingHelp`。
-    @ViewBuilder
-    func pmScrollingHoverLift(scale: CGFloat = 1.02, cornerRadius: CGFloat? = nil) -> some View {
-        #if os(macOS)
-        if PMScrollingPointerRegions.isAffordable {
-            pmHoverLift(scale: scale, cornerRadius: cornerRadius)
-        } else {
-            self
-        }
-        #else
-        self
-        #endif
     }
 }
 
 #if os(macOS)
-enum PMScrollingPointerRegions {
-    /// 滚动内容里登记指针区域是否划算。调试时可用 `PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS=1` 走老系统那条路。
-    static let isAffordable: Bool = {
+enum PMScrollingControls {
+    /// 滚动内容里的卡片用不用系统按钮。调试时 `PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS=1` 在新系统上也走点按那条路。
+    static let usesButtons: Bool = {
+        var forcesLegacy = false
         #if DEBUG
-        if ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_LEGACY_POINTER_REGIONS"] == "1" { return false }
+        forcesLegacy = ProcessInfo.processInfo.environment[
+            ScrollingControlSurfacePolicy.legacyOverrideEnvironmentKey
+        ] == "1"
         #endif
-        if #available(macOS 26.0, *) { return true }
-        return false
+        return ScrollingControlSurfacePolicy.surface(
+            macOSMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+            forcesLegacy: forcesLegacy
+        ) == .button
     }()
+}
+
+extension View {
+    /// macOS 15 上代替按钮的点按面：整块可点，旁白读作按钮，默认动作就是点它。
+    /// 禁用时（`.disabled`）点了不响应；`dimsWhenDisabled` 时像 `.plain` 按钮那样整块变淡。
+    func pmScrollingTapSurface(dimsWhenDisabled: Bool = true, action: @escaping () -> Void) -> some View {
+        modifier(PMScrollingTapSurfaceModifier(dimsWhenDisabled: dimsWhenDisabled, action: action))
+    }
+}
+
+private struct PMScrollingTapSurfaceModifier: ViewModifier {
+    let dimsWhenDisabled: Bool
+    let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+
+    /// `.plain` 按钮禁用时整块的不透明度，照 macOS 上系统按钮的样子量的。
+    private static let disabledOpacity: Double = 0.55
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(dimsWhenDisabled && !isEnabled ? Self.disabledOpacity : 1)
+            .contentShape(Rectangle())
+            .onTapGesture { if isEnabled { action() } }
+            // 系统按钮在窗口没被激活时第一下就能点中;点按手势默认只拿来激活窗口,要点第二下。
+            .allowsWindowActivationEvents(true)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { if isEnabled { action() } }
+    }
 }
 #endif
 
