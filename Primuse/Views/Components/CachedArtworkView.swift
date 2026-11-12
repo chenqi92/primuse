@@ -2514,7 +2514,9 @@ struct UncroppedArtwork<Content: View>: View {
     var body: some View {
         GeometryReader { geometry in
             let bounds = CGRect(origin: .zero, size: geometry.size)
-            let fitted = ArtworkContentLayout.fittedRect(imageSize: image.size, in: viewport ?? bounds)
+            // 播放页铺满时给的视口夹在顶部控件和渐隐之间,只能整张放进去;方框里的封面短边太窄时放大一些。
+            let fitted = viewport.map { ArtworkContentLayout.fittedRect(imageSize: image.size, in: $0) }
+                ?? ArtworkContentLayout.displayRect(imageSize: image.size, in: bounds)
             Color.clear
                 .overlay {
                     Image(platformImage: image).resizable().scaledToFill()
