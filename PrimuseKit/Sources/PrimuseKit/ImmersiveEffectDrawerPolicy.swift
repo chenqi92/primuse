@@ -188,6 +188,27 @@ public enum ImmersiveEffectDrawerPolicy {
         return effectIDs.contains(currentID) ? currentID : first
     }
 
+    /// 缩略卡换上真实画面的先后:停在中间的那张最先,再往两边一张一张排(后面那张先于前面那张),
+    /// 一张都不跳过。返回值按卡片下标给出它排第几。
+    ///
+    /// 真实画面是整套舞台缩下来的,一张要建好几十毫秒;一起建会卡住抽屉的滑入,滑到才建会让卡片
+    /// 一张张「闪」出来。所以打开时先放占位,按这个顺序一张接一张换上。
+    public static func previewSequence(count: Int, centerIndex: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        let center = min(max(centerIndex, 0), count - 1)
+        var ranks = Array(repeating: 0, count: count)
+        var rank = 0
+        ranks[center] = rank
+        for distance in 1..<count {
+            for index in [center + distance, center - distance] where ranks.indices.contains(index) {
+                rank += 1
+                ranks[index] = rank
+            }
+            if center + distance >= count - 1, center - distance <= 0 { break }
+        }
+        return ranks
+    }
+
     /// 居中项该不该写回当前效果。
     ///
     /// - Parameters:

@@ -29,6 +29,8 @@ struct ImmersiveEffectDrawer: View {
     @Environment(MusicLibrary.self) private var library
     @State private var centeredID: String?
     @State private var settleTask: Task<Void, Never>?
+    /// 每张卡排第几个换上真实画面(从打开时停着的那张往两边排)。
+    private let previewSequence: [Int]
 
     init(
         selection: Binding<FullscreenPlayerEffect>,
@@ -50,11 +52,14 @@ struct ImmersiveEffectDrawer: View {
         self.onClose = onClose
         // 打开时就停在当前效果上。放在 init 里而不是 onAppear，转轮第一次布局就位，
         // 不会先显示第一张再跳一下。
-        _centeredID = State(
-            initialValue: ImmersiveEffectDrawerPolicy.initialCenterID(
-                effectIDs: effects.map(\.id),
-                currentID: selection.wrappedValue.id
-            )
+        let initialCenterID = ImmersiveEffectDrawerPolicy.initialCenterID(
+            effectIDs: effects.map(\.id),
+            currentID: selection.wrappedValue.id
+        )
+        _centeredID = State(initialValue: initialCenterID)
+        previewSequence = ImmersiveEffectDrawerPolicy.previewSequence(
+            count: effects.count,
+            centerIndex: effects.firstIndex { $0.id == initialCenterID } ?? 0
         )
     }
 
@@ -73,6 +78,19 @@ struct ImmersiveEffectDrawer: View {
                 settleTask?.cancel()
                 settleTask = nil
             }
+            #if DEBUG
+            .task {
+                // 取证:`PRIMUSE_DEBUG_EFFECT_DRAWER_SWEEP=1` 打开后转轮挨张转到头再转回来,录屏看卡片滑进来时
+                // 是不是已经画好(模拟器上没法用手指划)。
+                guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EFFECT_DRAWER_SWEEP"] == "1" else { return }
+                try? await Task.sleep(for: .seconds(0.4))
+                for effect in effects + effects.reversed() {
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeInOut(duration: 0.35)) { centeredID = effect.id }
+                    try? await Task.sleep(for: .seconds(0.45))
+                }
+            }
+            #endif
     }
 
     private var drawerLayout: ImmersiveEffectDrawerLayout {
@@ -248,14 +266,20 @@ struct ImmersiveEffectDrawer: View {
 
     // MARK: - 转轮
 
+    /// 卡片一次全建好、不用惰性容器:惰性容器滑到才建,建一张那一帧就卡一下,卡片是「闪」出来的。
+    /// 全建好时重的只是真实画面,由 `ImmersiveEffectThumbnail` 排着队换上,打开那一下只画占位。
+    private var indexedEffects: [(offset: Int, element: FullscreenPlayerEffect)] {
+        Array(effects.enumerated())
+    }
+
     private func verticalWheel(layout: ImmersiveEffectDrawerLayout) -> some View {
         // scrollTransition 的闭包是 @Sendable 的，读不到 @MainActor 的视图成员，
         // 所以先把要用到的环境取成局部值，闭包里只调用文件内的自由函数。
         let reducesMotion = reduceMotion
         return ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: Self.cardSpacing) {
-                ForEach(effects) { effect in
-                    card(effect, layout: layout)
+            VStack(spacing: Self.cardSpacing) {
+                ForEach(indexedEffects, id: \.element.id) { index, effect in
+                    card(effect, sequence: previewSequence[index], layout: layout)
                         .scrollTransition(.interactive, axis: .vertical) { content, phase in
                             immersiveEffectWheelEffect(
                                 content,
@@ -277,9 +301,9 @@ struct ImmersiveEffectDrawer: View {
     private func horizontalWheel(layout: ImmersiveEffectDrawerLayout) -> some View {
         let reducesMotion = reduceMotion
         return ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: Self.cardSpacing) {
-                ForEach(effects) { effect in
-                    card(effect, layout: layout)
+            HStack(spacing: Self.cardSpacing) {
+                ForEach(indexedEffects, id: \.element.id) { index, effect in
+                    card(effect, sequence: previewSequence[index], layout: layout)
                         .scrollTransition(.interactive, axis: .horizontal) { content, phase in
                             immersiveEffectWheelEffect(
                                 content,
@@ -298,16 +322,22 @@ struct ImmersiveEffectDrawer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func card(_ effect: FullscreenPlayerEffect, layout: ImmersiveEffectDrawerLayout) -> some View {
+    private func card(
+        _ effect: FullscreenPlayerEffect,
+        sequence: Int,
+        layout: ImmersiveEffectDrawerLayout
+    ) -> some View {
         let isCurrent = effect == selection
         return Button {
             selectCard(effect)
         } label: {
             VStack(spacing: Self.cardNameSpacing) {
-                ImmersiveEffectPreview(
+                ImmersiveEffectThumbnail(
                     effect: effect,
-                    isActive: false,
                     palette: palette,
+                    sequence: sequence,
+                    // 等抽屉滑入放完再开始换,别和滑入抢主线程。
+                    startDelay: PMMotion.panel.settleDuration + 0.02,
                     song: .current(player: player, library: library)
                 )
                     .frame(width: layout.cardWidth, height: layout.cardHeight)
@@ -451,6 +481,71 @@ extension ImmersiveEffectDrawer {
         case .trailing: return .trailing
         case .bottom: return .bottom
         }
+    }
+}
+
+/// 全屏效果的缩略卡画面(效果抽屉、转轮舞台面共用):先放同色调的占位,真实舞台的静止一帧排着队挂上、淡入。
+///
+/// 真实画面是整套舞台按 960×540 建好再缩小,一张就要几十毫秒。几张一起建会卡住正在放的滑入或转动,
+/// 滑到才建会让卡片一张张「闪」出来;排着队一张接一张换上,每次只多建一张。已经换上的不再撤回。
+struct ImmersiveEffectThumbnail: View {
+    let effect: FullscreenPlayerEffect
+    let palette: ImmersiveArtworkPalette
+    /// 排第几个换上真实画面,0 最先。
+    let sequence: Int
+    /// 从可以开始换起再等多久(秒):等抽屉滑入、转轮转停这类正在放的动画放完。
+    var startDelay: TimeInterval = 0
+    /// false 时只放占位、不开始排(转轮还在转)。
+    var isEnabled = true
+    var song: ImmersivePreviewSong? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showsPreview = false
+
+    /// 相邻两张换上的间隔。
+    private static let step: TimeInterval = 0.05
+
+    var body: some View {
+        ZStack {
+            placeholder
+            if showsPreview {
+                ImmersiveEffectPreview(
+                    effect: effect,
+                    isActive: false,
+                    palette: palette,
+                    song: song
+                )
+                .transition(.opacity)
+            }
+        }
+        .task(id: isEnabled) {
+            guard isEnabled, !showsPreview else { return }
+            let delay = startDelay + Double(max(sequence, 0)) * Self.step
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3)) {
+                showsPreview = true
+            }
+        }
+    }
+
+    /// 和舞台一样的深底,叠一层压暗的主题色与效果图标。
+    private var placeholder: some View {
+        ZStack {
+            ImmersiveStagePalette.obsidian
+            LinearGradient(
+                colors: [palette.primary.opacity(0.42), palette.secondary.opacity(0.26)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: effect.symbolName)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.72))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 #endif

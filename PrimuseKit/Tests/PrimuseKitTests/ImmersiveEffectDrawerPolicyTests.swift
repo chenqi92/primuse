@@ -197,6 +197,32 @@ struct ImmersiveEffectDrawerPolicyTests {
         #expect(ImmersiveEffectDrawerPolicy.initialCenterID(effectIDs: [], currentID: "native") == nil)
     }
 
+    @Test("缩略卡从停在中间的那张起往两边依次换上真实画面")
+    func previewSequenceStartsAtTheCenterAndAlternates() {
+        #expect(ImmersiveEffectDrawerPolicy.previewSequence(count: 5, centerIndex: 2) == [4, 2, 0, 1, 3])
+        // 停在第一张:只能往后排。
+        #expect(ImmersiveEffectDrawerPolicy.previewSequence(count: 4, centerIndex: 0) == [0, 1, 2, 3])
+        // 停在最后一张:只能往前排。
+        #expect(ImmersiveEffectDrawerPolicy.previewSequence(count: 4, centerIndex: 3) == [3, 2, 1, 0])
+        // 偏向一边时,另一边排完后剩下的按距离接着排。
+        #expect(ImmersiveEffectDrawerPolicy.previewSequence(count: 6, centerIndex: 1) == [2, 0, 1, 3, 4, 5])
+        #expect(ImmersiveEffectDrawerPolicy.previewSequence(count: 1, centerIndex: 0) == [0])
+        #expect(ImmersiveEffectDrawerPolicy.previewSequence(count: 0, centerIndex: 0).isEmpty)
+        // 越界的中心按最近的一张算。
+        #expect(ImmersiveEffectDrawerPolicy.previewSequence(count: 3, centerIndex: 9) == [2, 1, 0])
+    }
+
+    @Test("每张卡都排到且名次不重复")
+    func previewSequenceIsAPermutation() {
+        for count in 1...14 {
+            for center in 0..<count {
+                let ranks = ImmersiveEffectDrawerPolicy.previewSequence(count: count, centerIndex: center)
+                #expect(ranks.sorted() == Array(0..<count))
+                #expect(ranks[center] == 0)
+            }
+        }
+    }
+
     // MARK: - 是否应用
 
     @Test("普通全屏必须点选，滚停不能切换宿主")

@@ -34,7 +34,7 @@ struct NowPlayingCarouselStageFace: View {
                         NowPlayingCarouselCardContainer(card: .fullscreenEffects, appearance: appearance) {
                             NowPlayingCarouselEffectShelfView(
                                 layout: .grid,
-                                showsPreviews: context.isCommitted,
+                                showsPreviews: context.isSettled,
                                 appearance: appearance,
                                 onPresent: onPresentEffect
                             )
@@ -78,7 +78,7 @@ struct NowPlayingCarouselStageFace: View {
                     NowPlayingCarouselEffectShelfView(
                         layout: NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: Double(faceHeight)) == .chips
                             ? .chips : .strip,
-                        showsPreviews: context.isCommitted,
+                        showsPreviews: context.isSettled,
                         appearance: NowPlayingAppearance(colorScheme: .dark, contrast: .standard),
                         onPresent: onPresentEffect
                     )
@@ -130,7 +130,8 @@ struct NowPlayingCarouselStageFace: View {
 // MARK: - 全屏效果一排
 
 /// 全屏效果的缩略卡:当前选定的在最前(标着「当前」),然后是最近从转轮进过的,不够按推荐补。点一张就以那一种
-/// 进全屏;这只是这一次,不改设置里选定的效果。缩略图是真实舞台的静止一帧,落定在这一面以后才画,转动途中先放图标。
+/// 进全屏;这只是这一次,不改设置里选定的效果。缩略图是真实舞台的静止一帧,转停在这一面以后才一张接一张换上,
+/// 转动途中先放图标(换上那一下要建整套舞台,放在转动途中会把转动卡成一跳)。
 struct NowPlayingCarouselEffectShelfView: View {
     enum Layout {
         /// 一排横着滑(卡拉 OK 舞台底下)。
@@ -176,8 +177,8 @@ struct NowPlayingCarouselEffectShelfView: View {
         case .strip:
             ScrollView(.horizontal) {
                 HStack(spacing: 10) {
-                    ForEach(effects) { effect in
-                        tile(effect, isSelected: effect == selected, palette: palette, width: 124)
+                    ForEach(Array(effects.enumerated()), id: \.element.id) { index, effect in
+                        tile(effect, sequence: index, isSelected: effect == selected, palette: palette, width: 124)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -197,8 +198,8 @@ struct NowPlayingCarouselEffectShelfView: View {
             .nowPlayingCarouselHorizontalRegion()
         case .grid:
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 14) {
-                ForEach(effects) { effect in
-                    tile(effect, isSelected: effect == selected, palette: palette, width: nil)
+                ForEach(Array(effects.enumerated()), id: \.element.id) { index, effect in
+                    tile(effect, sequence: index, isSelected: effect == selected, palette: palette, width: nil)
                 }
             }
         }
@@ -230,6 +231,7 @@ struct NowPlayingCarouselEffectShelfView: View {
 
     private func tile(
         _ effect: FullscreenPlayerEffect,
+        sequence: Int,
         isSelected: Bool,
         palette: ImmersiveArtworkPalette,
         width: CGFloat?
@@ -237,25 +239,15 @@ struct NowPlayingCarouselEffectShelfView: View {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return Button { onPresent(effect) } label: {
             VStack(alignment: .leading, spacing: 6) {
-                ZStack {
-                    LinearGradient(
-                        colors: [palette.primary.opacity(0.75), palette.secondary.opacity(0.9)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    Image(systemName: effect.symbolName)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.85))
-                    if showsPreviews {
-                        ImmersiveEffectPreview(
-                            effect: effect,
-                            isActive: false,
-                            palette: palette,
-                            song: .current(player: player, library: library)
-                        )
-                        .transition(.opacity)
-                    }
-                }
+                ImmersiveEffectThumbnail(
+                    effect: effect,
+                    palette: palette,
+                    sequence: sequence,
+                    // 转停那一下卡拉 OK 舞台也正挂上来,让它先。
+                    startDelay: 0.12,
+                    isEnabled: showsPreviews,
+                    song: .current(player: player, library: library)
+                )
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .frame(width: width)
                 .clipShape(shape)
@@ -276,7 +268,6 @@ struct NowPlayingCarouselEffectShelfView: View {
                             .padding(6)
                     }
                 }
-                .animation(.easeInOut(duration: 0.3), value: showsPreviews)
 
                 Text(verbatim: effect.localizedTitle)
                     .font(.caption.weight(isSelected ? .semibold : .medium))
