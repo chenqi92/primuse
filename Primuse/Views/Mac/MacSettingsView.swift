@@ -5708,46 +5708,84 @@ struct MacLyricsColorSettings: View {
     private var colors = PlayerLyricsColors()
     @Environment(\.layoutDirection) private var layoutDirection
 
+    /// 四档颜色排成一行胶囊,名字就用那一档的颜色写,不另摆预览;自定义、渐变的取色跟在胶囊里,
+    /// 取了颜色同时选中那一档。
     var body: some View {
-        MacSTRow(String(localized: "player_current_lyric_color"), divider: false) {
-            Picker("player_current_lyric_color", selection: colors.$modeRawValue) {
+        MacSTRow(
+            String(localized: "player_current_lyric_color"),
+            help: String(localized: "player_current_lyric_color_description"),
+            divider: false
+        ) {
+            HStack(spacing: 8) {
                 ForEach(PlayerLyricsColorMode.allCases) { mode in
-                    Text(mode.localizedTitle).tag(mode.rawValue)
+                    option(mode)
                 }
             }
-            .labelsHidden()
-            .frame(width: 180)
             .accessibilityIdentifier("playerLyricsColorModePicker")
         }
         .settingsAnchor("lyrics.colorMode")
-        switch colors.mode {
-        case .defaultColor, .artwork:
-            EmptyView()
-        case .custom:
-            colorRow("player_lyrics_custom_color", selection: colors.$customHex,
-                     fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex,
-                     identifier: "playerLyricsCustomColorPicker")
-        case .gradient:
-            colorRow("player_lyrics_gradient_start_color", selection: colors.$startHex,
-                     fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex,
-                     identifier: "playerLyricsGradientStartColorPicker")
-            colorRow("player_lyrics_gradient_end_color", selection: colors.$endHex,
-                     fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex,
-                     identifier: "playerLyricsGradientEndColorPicker")
-        }
-        MacSTRow(String(localized: "player_lyrics_color_preview")) {
-            Text("player_lyrics_color_preview_sample")
-                .font(.headline)
-                .foregroundStyle(colors.style(defaultColor: .primary, layoutDirection: layoutDirection))
-        }
     }
 
-    private func colorRow(_ key: String, selection: Binding<String>, fallback: String, identifier: String) -> some View {
-        MacSTRow(PMString(key)) {
-            ColorPicker(LocalizedStringKey(key), selection: PlayerLyricsColors.binding(selection, fallback: fallback), supportsOpacity: false)
-                .labelsHidden()
-                .accessibilityIdentifier(identifier)
+    private func option(_ mode: PlayerLyricsColorMode) -> some View {
+        let isSelected = colors.mode == mode
+        return HStack(spacing: 6) {
+            Button {
+                colors.modeRawValue = mode.rawValue
+            } label: {
+                Text(mode.localizedTitle)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(colors.style(for: mode, defaultColor: .primary, layoutDirection: layoutDirection))
+                    .lineLimit(1)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+            switch mode {
+            case .defaultColor, .artwork:
+                EmptyView()
+            case .custom:
+                picker("player_lyrics_custom_color", mode: .custom, selection: colors.$customHex,
+                       fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex,
+                       identifier: "playerLyricsCustomColorPicker")
+            case .gradient:
+                picker("player_lyrics_gradient_start_color", mode: .gradient, selection: colors.$startHex,
+                       fallback: PlayerAppearancePreferences.defaultGradientLyricsStartColorHex,
+                       identifier: "playerLyricsGradientStartColorPicker")
+                picker("player_lyrics_gradient_end_color", mode: .gradient, selection: colors.$endHex,
+                       fallback: PlayerAppearancePreferences.defaultGradientLyricsEndColorHex,
+                       identifier: "playerLyricsGradientEndColorPicker")
+            }
         }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(Capsule().fill(Color.primary.opacity(isSelected ? 0.08 : 0)))
+        .overlay(
+            Capsule().strokeBorder(
+                isSelected ? Color.accentColor : PMColor.divider,
+                lineWidth: isSelected ? 1.5 : 0.5
+            )
+        )
+    }
+
+    private func picker(
+        _ key: String,
+        mode: PlayerLyricsColorMode,
+        selection: Binding<String>,
+        fallback: String,
+        identifier: String
+    ) -> some View {
+        let color = PlayerLyricsColors.binding(selection, fallback: fallback)
+        return ColorPicker(LocalizedStringKey(key), selection: Binding(
+            get: { color.wrappedValue },
+            set: { newValue in
+                color.wrappedValue = newValue
+                colors.modeRawValue = mode.rawValue
+            }
+        ), supportsOpacity: false)
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier(identifier)
     }
 }
 

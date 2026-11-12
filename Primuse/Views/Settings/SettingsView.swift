@@ -399,13 +399,6 @@ struct LyricsAppearanceSections: View {
         PlayerLyricsColorMode(rawValue: lyricsColorModeRawValue) ?? .defaultValue
     }
 
-    private var lyricsColorMode: Binding<PlayerLyricsColorMode> {
-        Binding(
-            get: { selectedLyricsColorMode },
-            set: { lyricsColorModeRawValue = $0.rawValue }
-        )
-    }
-
     private var customLyricsColor: Binding<Color> {
         colorBinding(
             $customLyricsColorHex,
@@ -427,12 +420,13 @@ struct LyricsAppearanceSections: View {
         )
     }
 
-    private var lyricsColorPreviewStyle: AnyShapeStyle {
-        switch selectedLyricsColorMode {
+    /// 每一档在列表里的字色:就是这一档放在播放页上的样子,按设置页的深浅底调。
+    private func lyricsColorStyle(for mode: PlayerLyricsColorMode) -> AnyShapeStyle {
+        switch mode {
         case .defaultColor:
             AnyShapeStyle(Color.primary)
         case .artwork:
-            // 预览用正在播放的封面色,按设置页的深浅底调;没在放、封面没有彩色时和默认一样。
+            // 用正在播放的封面色;没在放、封面没有彩色时和默认一样。
             AnyShapeStyle(lyricsArtworkTint?.lyricColor(onDarkBackdrop: colorScheme == .dark) ?? Color.primary)
         case .custom:
             AnyShapeStyle(color(from: customLyricsColorHex, fallback: PlayerAppearancePreferences.defaultCustomLyricsColorHex))
@@ -450,55 +444,75 @@ struct LyricsAppearanceSections: View {
         }
     }
 
-    var body: some View {
-        Section {
-            Picker("player_current_lyric_color", selection: lyricsColorMode) {
-                ForEach(PlayerLyricsColorMode.allCases) { mode in
+    /// 一档颜色一行:左边勾选,名字用这一档的颜色写;自定义、渐变右边是取色。
+    private func lyricsColorOptionRow(_ mode: PlayerLyricsColorMode) -> some View {
+        let isSelected = selectedLyricsColorMode == mode
+        return HStack(spacing: 12) {
+            Button {
+                lyricsColorModeRawValue = mode.rawValue
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.tint)
+                        .opacity(isSelected ? 1 : 0)
+                        .frame(width: 20)
+                        .accessibilityHidden(true)
                     Text(mode.localizedTitle)
-                        .tag(mode)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(lyricsColorStyle(for: mode))
+                    Spacer(minLength: 8)
                 }
+                .contentShape(Rectangle())
             }
-            .settingsAnchor("lyrics.colorMode")
-            .pickerStyle(.menu)
-            .accessibilityHint(Text("player_current_lyric_color_description"))
-            .accessibilityIdentifier("playerLyricsColorModePicker")
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
 
-            switch selectedLyricsColorMode {
+            switch mode {
             case .defaultColor, .artwork:
                 EmptyView()
             case .custom:
-                ColorPicker(
-                    "player_lyrics_custom_color",
-                    selection: customLyricsColor,
-                    supportsOpacity: false
-                )
-                .accessibilityIdentifier("playerLyricsCustomColorPicker")
+                ColorPicker("player_lyrics_custom_color", selection: selecting(.custom, customLyricsColor), supportsOpacity: false)
+                    .labelsHidden()
+                    .accessibilityIdentifier("playerLyricsCustomColorPicker")
             case .gradient:
-                ColorPicker(
-                    "player_lyrics_gradient_start_color",
-                    selection: gradientLyricsStartColor,
-                    supportsOpacity: false
-                )
-                .accessibilityIdentifier("playerLyricsGradientStartColorPicker")
-
-                ColorPicker(
-                    "player_lyrics_gradient_end_color",
-                    selection: gradientLyricsEndColor,
-                    supportsOpacity: false
-                )
-                .accessibilityIdentifier("playerLyricsGradientEndColorPicker")
+                ColorPicker("player_lyrics_gradient_start_color", selection: selecting(.gradient, gradientLyricsStartColor), supportsOpacity: false)
+                    .labelsHidden()
+                    .accessibilityIdentifier("playerLyricsGradientStartColorPicker")
+                ColorPicker("player_lyrics_gradient_end_color", selection: selecting(.gradient, gradientLyricsEndColor), supportsOpacity: false)
+                    .labelsHidden()
+                    .accessibilityIdentifier("playerLyricsGradientEndColorPicker")
             }
+        }
+        .settingsAnchor(mode == .defaultColor ? "lyrics.colorMode" : "lyrics.colorMode.\(mode.rawValue)")
+        .accessibilityIdentifier("playerLyricsColorMode.\(mode.rawValue)")
+    }
 
-            HStack(spacing: 12) {
-                Text("player_lyrics_color_preview")
-                Spacer(minLength: 12)
-                Text("player_lyrics_color_preview_sample")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(lyricsColorPreviewStyle)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+    /// 在某一行取了颜色,就同时选中那一行。
+    private func selecting(_ mode: PlayerLyricsColorMode, _ binding: Binding<Color>) -> Binding<Color> {
+        Binding(
+            get: { binding.wrappedValue },
+            set: { newValue in
+                binding.wrappedValue = newValue
+                lyricsColorModeRawValue = mode.rawValue
             }
+        )
+    }
 
+    var body: some View {
+        // 四种颜色直接列成四行,每行的字就用那一种颜色写(封面取色用正在放的封面色,渐变用渐变),
+        // 不另摆一行预览;自定义、渐变的取色就在那一行右边,改了颜色同时选中这一行。
+        Section {
+            ForEach(PlayerLyricsColorMode.allCases) { mode in
+                lyricsColorOptionRow(mode)
+            }
+        } header: {
+            Text("player_current_lyric_color")
+        } footer: {
+            Text("player_current_lyric_color_description")
+        }
+
+        Section {
             Picker("player_lyrics_alignment", selection: lyricsAlignment) {
                 ForEach(PlayerLyricsAlignment.allCases) { alignment in
                     Text(alignment.localizedTitle)

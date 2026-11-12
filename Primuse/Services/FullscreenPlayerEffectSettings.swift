@@ -484,6 +484,16 @@ struct PlayerLyricsColors: DynamicProperty {
     ) -> AnyShapeStyle {
         let opacity = min(max(opacity, 0), 1)
         guard isActive else { return AnyShapeStyle(defaultColor.opacity(opacity)) }
+        return style(for: mode, defaultColor: defaultColor, opacity: opacity, layoutDirection: layoutDirection)
+    }
+
+    /// 某一档颜色画出来的样子(不看现在选的是哪一档):设置里每一档的名字就用它写。
+    func style(
+        for mode: PlayerLyricsColorMode,
+        defaultColor: Color,
+        opacity: Double = 1,
+        layoutDirection: LayoutDirection = .leftToRight
+    ) -> AnyShapeStyle {
         switch mode {
         case .defaultColor:
             return AnyShapeStyle(defaultColor.opacity(opacity))
