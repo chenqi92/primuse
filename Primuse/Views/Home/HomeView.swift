@@ -137,6 +137,13 @@ struct PersistedHomeRecommendation: Codable, Sendable {
 /// then the expensive highlights and recommendations refresh in the background.
 struct PersistedHomeSnapshot: Codable, Sendable {
     static let currentVersion = 2
+    static let compactCarouselKey = "primuse.home.compactCarouselPreview.v1"
+
+    var usesCompactCarousel: Bool? {
+        guard version == Self.currentVersion else { return nil }
+        return heroSongIDs.count < HomeHeroCarouselSelection.minimumCardCount
+    }
+
 
     let version: Int
     let dayStamp: Int
@@ -167,7 +174,16 @@ private actor HomeInitialSnapshotCacheStore {
 
     func load() -> PersistedHomeSnapshot? {
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? PropertyListDecoder().decode(PersistedHomeSnapshot.self, from: data)
+        let snapshot = try? PropertyListDecoder().decode(PersistedHomeSnapshot.self, from: data)
+        if let snapshot { rememberCarouselLayout(snapshot) }
+        return snapshot
+    }
+
+    // 首帧只读一个布局标记；旧版本已有的快照在首次读取时补上。
+    private func rememberCarouselLayout(_ snapshot: PersistedHomeSnapshot) {
+        guard let compact = snapshot.usesCompactCarousel,
+              UserDefaults.standard.bool(forKey: PersistedHomeSnapshot.compactCarouselKey) != compact else { return }
+        UserDefaults.standard.set(compact, forKey: PersistedHomeSnapshot.compactCarouselKey)
     }
 
     func save(_ snapshot: PersistedHomeSnapshot) {
@@ -179,6 +195,7 @@ private actor HomeInitialSnapshotCacheStore {
             let encoder = PropertyListEncoder()
             encoder.outputFormat = .binary
             try encoder.encode(snapshot).write(to: url, options: .atomic)
+            rememberCarouselLayout(snapshot)
         } catch {
             plog("⚠️ Home snapshot cache write failed: \(error.localizedDescription)")
         }
@@ -2094,6 +2111,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showHero") private var showHero = true
     #if os(iOS)
     @AppStorage(HomeHeroStyle.storageKey) private var heroStyle: HomeHeroStyle = .carousel
+    @AppStorage(PersistedHomeSnapshot.compactCarouselKey) private var compactCarouselPreview = false
     @State private var heroRecommendations = HomeHeroRecommendationCatalog()
     #endif
     /// 老版本全首页一个封面大小;没单独调过的块跟着它,见 `HomeCoverSize.legacyStorageKey`。
@@ -3790,6 +3808,7 @@ struct HomeView: View {
         if heroStyle != .carousel {
             return heroFeaturedMetrics.cardHeight(captionHeight: 84) + 52
         }
+        if compactCarouselPreview { return heightClass.value(154, compact: 96) }
         let metrics = heroCarouselMetrics
         return metrics.isCompactHeight ? metrics.carouselHeight : metrics.carouselHeight + 114
         #else
@@ -3816,6 +3835,9 @@ struct HomeView: View {
                     HomeHeroFeaturedSkeleton(metrics: heroFeaturedMetrics)
                 }
             }
+        } else if compactCarouselPreview {
+            libraryMixHeroFallback
+                .disabled(startupSourceIDs.isEmpty)
         } else {
             HomeHeroCarouselSkeleton(
                 metrics: heroCarouselMetrics,

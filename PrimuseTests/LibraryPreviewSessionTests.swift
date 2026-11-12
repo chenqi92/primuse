@@ -350,6 +350,22 @@ final class HomeHeroCarouselLayoutTests: XCTestCase {
 
 @MainActor
 final class HomePresentationCacheTests: XCTestCase {
+    func testCompactCarouselUsesTheLastCompleteCoverSelection() {
+        func preview(version: Int, coverCount: Int) -> Bool? {
+            PersistedHomeSnapshot(
+                version: version, dayStamp: 0, visibleSongCount: 40, visibleAlbumCount: 20,
+                visibleArtistCount: 4, recentSongIDs: [], heroSongIDs: (0..<coverCount).map { String($0) },
+                recentlyAddedAlbums: [], recommendations: []
+            ).usesCompactCarousel
+        }
+        let version = PersistedHomeSnapshot.currentVersion
+        let minimum = HomeHeroCarouselSelection.minimumCardCount
+        XCTAssertNil(preview(version: version - 1, coverCount: 0))
+        XCTAssertEqual(preview(version: version, coverCount: 0), true)
+        XCTAssertEqual(preview(version: version, coverCount: minimum - 1), true)
+        XCTAssertEqual(preview(version: version, coverCount: minimum), false)
+    }
+
     func testChangingPreviewVisibilityDoesNotRestoreTheOtherModeFromDisk() throws {
         let album = Album(id: "preview", title: "Preview")
         let cache = PersistedHomeSnapshot(
