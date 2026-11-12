@@ -6938,6 +6938,7 @@
 "companion_assets_download" = "सभी कवर और लिरिक्स डाउनलोड करें";
 "companion_assets_download_footer" = "हर संगीत स्रोत से वे कवर और लिरिक्स लाता है जो अभी इस डिवाइस पर नहीं हैं, ऑडियोबुक और पॉडकास्ट भी, और फ़ोल्डरों में .lrc व अन्य लिरिक्स फ़ाइलें भी पढ़ता है। सिर्फ़ स्रोतों के अपने लिरिक्स इस्तेमाल होते हैं; सर्वर के लिरिक्स बिगड़े हों तो ऑनलाइन से पढ़ने लायक कॉपी लाई जाती है।";
 "companion_assets_download_progress_format" = "%2$d में से %1$d पूरे";
+"companion_assets_checking" = "डिवाइस पर कवर और गीत के बोल जाँचे जा रहे हैं…";
 "companion_assets_download_in_progress" = "कवर और लिरिक्स डाउनलोड हो रहे हैं";
 "companion_assets_download_result_format" = "पिछली बार %1$d कवर और %2$d लिरिक्स सहेजे गए।";
 "companion_assets_download_failed_format" = "%d आइटम कैश नहीं हो सके। फिर से कोशिश करने के लिए दोबारा डाउनलोड करें।";

@@ -7032,6 +7032,7 @@
 "companion_assets_download" = "모든 아트워크 및 가사 다운로드";
 "companion_assets_download_footer" = "각 음악 소스에서 이 기기에 아직 없는 아트워크와 가사를 가져옵니다. 오디오북과 팟캐스트도 포함하며 폴더의 .lrc 등 가사 파일도 읽습니다. 가사는 소스 자체의 것만 사용하며, 서버 가사가 깨져 있으면 온라인에서 읽을 수 있는 것을 가져옵니다.";
 "companion_assets_download_progress_format" = "%2$d개 중 %1$d개 완료";
+"companion_assets_checking" = "기기의 앨범 표지와 가사를 확인하는 중…";
 "companion_assets_download_in_progress" = "아트워크 및 가사 다운로드 중";
 "companion_assets_download_result_format" = "지난번: 아트워크 %1$d개, 가사 %2$d개 저장.";
 "companion_assets_download_failed_format" = "%d개 항목을 캐시하지 못했습니다. 다시 다운로드하여 재시도하세요.";

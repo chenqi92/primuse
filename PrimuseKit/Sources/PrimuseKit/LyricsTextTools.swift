@@ -223,7 +223,13 @@ public actor LyricsSourceRefreshCoordinator {
     public static let defaultAutomaticRefreshInterval: TimeInterval = 15 * 60
 
     private let minimumAutomaticRefreshInterval: TimeInterval
-    private var inFlight: [LyricsSourceRefreshKey: Task<LyricsSourceRefreshResult, Never>] = [:]
+    private struct Request {
+        let id: UUID
+        let trigger: LyricsSourceRefreshTrigger
+        let task: Task<Void, Never>
+        var waiters: [UUID: CheckedContinuation<LyricsSourceRefreshResult, Never>]
+    }
+    private var inFlight: [LyricsSourceRefreshKey: Request] = [:]
     private var lastAutomaticAttempt: [LyricsSourceRefreshKey: Date] = [:]
 
     public init(
@@ -240,54 +246,82 @@ public actor LyricsSourceRefreshCoordinator {
         fetch: @escaping @Sendable () async throws -> [LyricLine]?,
         replace: @escaping @Sendable ([LyricLine]) async -> Bool
     ) async -> LyricsSourceRefreshResult {
-        if let existing = inFlight[key] {
-            return await existing.value
-        }
-        if trigger == .automatic {
-            if let lastAttempt = lastAutomaticAttempt[key],
-               now.timeIntervalSince(lastAttempt) < minimumAutomaticRefreshInterval {
-                return .throttled
-            }
-            lastAutomaticAttempt[key] = now
-        }
-
-        let task = Task<LyricsSourceRefreshResult, Never> {
-            do {
-                guard let fetched = try await fetch(), !fetched.isEmpty else {
-                    return .emptyPreservingCache
+        guard !Task.isCancelled else { return .failedPreservingCache }
+        let waiter = UUID()
+        return await withTaskCancellationHandler {
+            let result: LyricsSourceRefreshResult = await withCheckedContinuation { continuation in
+                if inFlight[key] != nil {
+                    inFlight[key]?.waiters[waiter] = continuation
+                    return
                 }
-                let refreshed: [LyricLine]
-                if let currentDocument {
-                    guard let preserved = LyricManualTranslationPolicy
-                        .preservingStoredTranslations(
-                            from: currentDocument,
-                            in: fetched
-                        ) else {
-                        return .failedPreservingCache
+                if trigger == .automatic {
+                    if let lastAttempt = lastAutomaticAttempt[key],
+                       now.timeIntervalSince(lastAttempt) < minimumAutomaticRefreshInterval {
+                        continuation.resume(returning: .throttled)
+                        return
                     }
-                    refreshed = preserved
-                } else {
-                    refreshed = fetched
+                    lastAutomaticAttempt[key] = now
                 }
-                // 内容没变,但这次多知道了歌词来自哪台服务器(旧缓存没记来源)时照样写一次,
-                // 播放页才标得出来源(#357)。
-                if let currentDocument,
-                   LyricsDocumentFingerprint(lines: currentDocument)
-                    == LyricsDocumentFingerprint(lines: refreshed),
-                   !LyricsDocumentSource.adds(to: currentDocument, from: refreshed) {
-                    return .unchanged
+                let task = Task {
+                    let result = await Self.refreshDocument(currentDocument, fetch: fetch, replace: replace)
+                    guard inFlight[key]?.id == waiter, let request = inFlight.removeValue(forKey: key) else { return }
+                    for pending in request.waiters.values { pending.resume(returning: result) }
                 }
-                return await replace(refreshed)
-                    ? .updated(refreshed)
-                    : .failedPreservingCache
-            } catch {
-                return .failedPreservingCache
+                inFlight[key] = Request(id: waiter, trigger: trigger, task: task, waiters: [waiter: continuation])
             }
+            return Task.isCancelled ? .failedPreservingCache : result
+        } onCancel: {
+            Task { await self.cancel(waiter, key: key) }
         }
-        inFlight[key] = task
-        let result = await task.value
-        inFlight[key] = nil
-        return result
+    }
+
+    private func cancel(_ waiter: UUID, key: LyricsSourceRefreshKey) {
+        guard let continuation = inFlight[key]?.waiters.removeValue(forKey: waiter) else { return }
+        if inFlight[key]?.waiters.isEmpty == true, let request = inFlight.removeValue(forKey: key) {
+            if request.trigger == .automatic { lastAutomaticAttempt.removeValue(forKey: key) }
+            request.task.cancel()
+        }
+        continuation.resume(returning: .failedPreservingCache)
+    }
+
+    private static func refreshDocument(
+        _ currentDocument: [LyricLine]?,
+        fetch: @Sendable () async throws -> [LyricLine]?,
+        replace: @Sendable ([LyricLine]) async -> Bool
+    ) async -> LyricsSourceRefreshResult {
+        do {
+            try Task.checkCancellation()
+            guard let fetched = try await fetch(), !fetched.isEmpty else {
+                return .emptyPreservingCache
+            }
+            let refreshed: [LyricLine]
+            if let currentDocument {
+                guard let preserved = LyricManualTranslationPolicy
+                    .preservingStoredTranslations(
+                        from: currentDocument,
+                        in: fetched
+                    ) else {
+                    return .failedPreservingCache
+                }
+                refreshed = preserved
+            } else {
+                refreshed = fetched
+            }
+            // 内容没变,但这次多知道了歌词来自哪台服务器(旧缓存没记来源)时照样写一次,
+            // 播放页才标得出来源(#357)。
+            if let currentDocument,
+               LyricsDocumentFingerprint(lines: currentDocument)
+                == LyricsDocumentFingerprint(lines: refreshed),
+               !LyricsDocumentSource.adds(to: currentDocument, from: refreshed) {
+                return .unchanged
+            }
+            try Task.checkCancellation()
+            return await replace(refreshed)
+                ? .updated(refreshed)
+                : .failedPreservingCache
+        } catch {
+            return .failedPreservingCache
+        }
     }
 }
 

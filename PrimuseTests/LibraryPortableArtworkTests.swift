@@ -468,7 +468,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertNil(restarted.cachedSourceCover(sourceID: "removed", reference: reference, maximumPixels: 480, allowsStale: true))
         XCTAssertNil(restarted.cachedSourceCover(sourceID: "removed", reference: reference, maximumPixels: 1536, allowsStale: true))
         XCTAssertEqual(restarted.cachedSourceCover(sourceID: "retained", reference: reference, maximumPixels: 480), surviving)
-        XCTAssertEqual(restarted.artworkContentUsage().count, 1)
+        XCTAssertEqual(try restarted.artworkContentUsage().count, 1)
     }
 
     func testRemovedSongAssetsKeepSharedAndReusableArtworkButReclaimUnmatchableLyrics() async throws {
@@ -520,7 +520,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let artist = await assets.cachedArtistImage(forArtistID: "stable-artist")
         XCTAssertEqual(album, reusable)
         XCTAssertEqual(artist, reusable)
-        XCTAssertEqual(assets.artworkContentUsage().count, 2)
+        XCTAssertEqual(try assets.artworkContentUsage().count, 2)
     }
 
     func testRemovedSourceCleanupHandlesLegacySongOnlyArtworkReceipts() async throws {
@@ -544,7 +544,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
 
         XCTAssertNil(assets.cachedSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 480, allowsStale: true))
         XCTAssertNil(assets.cachedSourceCover(sourceID: song.sourceID, reference: reference, maximumPixels: 1536, allowsStale: true))
-        XCTAssertEqual(assets.artworkContentUsage().count, 0)
+        XCTAssertEqual(try assets.artworkContentUsage().count, 0)
         let receipts = try FileManager.default.contentsOfDirectory(atPath: assets.artworkDirectoryURL.appendingPathComponent("receipts").path)
         XCTAssertTrue(receipts.isEmpty)
     }
@@ -569,7 +569,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertEqual(assets.readCoverData(named: try XCTUnwrap(cover)), bytes)
         let remaining = await assets.lyrics(named: lyrics)
         XCTAssertEqual(remaining?.first?.text, "shared")
-        XCTAssertEqual(assets.artworkContentUsage().count, 1)
+        XCTAssertEqual(try assets.artworkContentUsage().count, 1)
     }
 
     func testRemovedSourceCleanupPreservesArtworkAndLyricsRewrittenAfterRemoval() async throws {
@@ -595,7 +595,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertEqual(assets.readCoverData(named: assets.expectedCoverFileName(for: song.id)), updated)
         let lyrics = await assets.cachedLyrics(forSongID: song.id)
         XCTAssertEqual(lyrics?.first?.text, "new")
-        XCTAssertEqual(assets.artworkContentUsage().count, 1)
+        XCTAssertEqual(try assets.artworkContentUsage().count, 1)
     }
 
     func testCacheCleanupPreservesAssetsRewrittenAfterCleanupStarted() async throws {
@@ -1337,18 +1337,23 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let artist = Artist(id: "artist", name: "Paper Lantern", thumbnailPath: owned)
         let playlist = Playlist(id: ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: "list"),
             name: "All Music", coverArtPath: "subsonic-cover/pl-list", hasDedicatedCoverArt: true)
-        func plan() -> SourceManager.CompanionAssetPlan {
-            SourceManager.companionAssetPlan(for: [song, song], artists: [artist, artist],
+        func plan() throws -> SourceManager.CompanionAssetPlan {
+            try SourceManager.companionAssetPlan(for: [song, song], artists: [artist, artist],
                 playlists: [playlist, playlist], store: store)
         }
-        XCTAssertEqual(plan().coverCount, 3)
-        XCTAssertEqual(plan().collectionArtwork.count, 2)
+        XCTAssertEqual(try plan().coverCount, 3)
+        XCTAssertEqual(try plan().collectionArtwork.count, 2)
         await store.cacheSourceCover(try image(), songID: song.id, sourceID: sourceID, reference: reference, maximumPixels: 480)
         await store.cacheSourceCover(try image(), songID: nil, sourceID: sourceID, reference: playlist.coverArtPath, maximumPixels: 480)
         let artistKey = SubsonicArtistArtworkRequest.cacheID(artistID: artist.id, reference: owned)
         _ = await store.storeArtistImage(try image(), forArtistID: artistKey)
-        XCTAssertTrue(plan().collectionArtwork.isEmpty)
-        XCTAssertTrue(plan().coverGroups.isEmpty)
+        XCTAssertTrue(try plan().collectionArtwork.isEmpty)
+        XCTAssertTrue(try plan().coverGroups.isEmpty)
+        // Cancellation can leave the shared image cached before every song has its own mirror.
+        var next = song
+        next.id = "next"
+        let remaining = try SourceManager.companionAssetPlan(for: [song, next], store: store)
+        XCTAssertEqual(remaining.coverGroups.map { $0.map(\.id) }, [[next.id]])
     }
 
     func testSourceLyricsAbsenceExpiresAndInvalidatesWithSongRevisionAndClear() async throws {
@@ -1361,12 +1366,12 @@ final class LibraryPortableArtworkTests: XCTestCase {
         await store.recordSourceLyricsAbsence(for: song, now: now)
         XCTAssertTrue(store.hasConfirmedSourceLyricsAbsence(for: song, now: now))
         XCTAssertFalse(store.hasCachedLyricsFile(forSongID: song.id))
-        XCTAssertTrue(SourceManager.companionAssetPlan(for: [song], store: store).lyricsSongs.isEmpty)
+        XCTAssertTrue(try SourceManager.companionAssetPlan(for: [song], store: store).lyricsSongs.isEmpty)
         XCTAssertFalse(store.hasConfirmedSourceLyricsAbsence(for: song, now: now.addingTimeInterval(86_401)))
         var replaced = song
         replaced.revision = "new-version"
         XCTAssertFalse(store.hasConfirmedSourceLyricsAbsence(for: replaced, now: now))
-        XCTAssertEqual(SourceManager.companionAssetPlan(for: [replaced], store: store).lyricsSongs.count, 1)
+        XCTAssertEqual(try SourceManager.companionAssetPlan(for: [replaced], store: store).lyricsSongs.count, 1)
         _ = await store.invalidateLyricsCache(forSongID: song.id)
         XCTAssertFalse(store.hasConfirmedSourceLyricsAbsence(for: song))
         await store.recordSourceLyricsAbsence(for: song)
@@ -1389,7 +1394,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let playlist = Playlist(id: ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: "list"),
             name: "All Music", coverArtPath: "subsonic-cover/pl-list", hasDedicatedCoverArt: true)
         let store = MetadataAssetStore.shared
-        let plan = SourceManager.companionAssetPlan(for: [song], artists: [artist], playlists: [playlist])
+        let plan = try SourceManager.companionAssetPlan(for: [song], artists: [artist], playlists: [playlist])
         XCTAssertEqual(plan.itemCount, 4)
         func run(_ plan: SourceManager.CompanionAssetPlan) async throws -> SourceManager.CompanionAssetProgress {
             manager.startCompanionAssetDownload(plan)
@@ -1406,7 +1411,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertEqual(saved.unavailable, 1)
         XCTAssertEqual(saved.failed, 0)
         XCTAssertTrue(saved.succeeded)
-        XCTAssertTrue(SourceManager.companionAssetPlan(for: [song], artists: [artist], playlists: [playlist]).isEmpty)
+        XCTAssertTrue(try SourceManager.companionAssetPlan(for: [song], artists: [artist], playlists: [playlist]).isEmpty)
         let artistPreview = await CachedArtworkView.resolveCachedImage(coverRef: owned, songID: nil,
             size: 300, sourceID: sourceID, artistID: artist.id)
         XCTAssertNotNil(artistPreview)
@@ -1418,7 +1423,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         let failed = try await run(SourceManager.companionAssetPlan(for: [missing]))
         XCTAssertEqual(failed.failed, 2)
         XCTAssertFalse(failed.succeeded)
-        XCTAssertEqual(SourceManager.companionAssetPlan(for: [missing]).itemCount, 2)
+        XCTAssertEqual(try SourceManager.companionAssetPlan(for: [missing]).itemCount, 2)
         await store.clearSourceLyricsAbsence(songID: song.id)
         store.invalidateCoverCacheSync(forSongID: song.id)
         for reference in [song.coverArtFileName!, playlist.coverArtPath!] {
@@ -1428,6 +1433,71 @@ final class LibraryPortableArtworkTests: XCTestCase {
         }
         let artistFile = SHA256.hash(data: Data("artist_\(artistKey)".utf8)).map { String(format: "%02x", $0) }.joined() + ".jpg"
         try? FileManager.default.removeItem(at: store.artworkDirectoryURL.appendingPathComponent("artist/" + artistFile))
+    }
+
+    func testCancellationWithFiftyThousandSongsStopsPlanningAndPendingDownloads() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceID = UUID().uuidString
+        let songs = (0..<50_001).map { index in
+            Song(id: "\(sourceID)-\(index)", title: "Track \(index)", fileFormat: .flac,
+                 filePath: "/songs/\(index).flac", sourceID: sourceID)
+        }
+        let store = MetadataAssetStore(storageDirectory: root)
+        let started = expectation(description: "Inventory worker started")
+        let scan = Task.detached {
+            started.fulfill()
+            return try SourceManager.companionAssetPlan(for: songs, store: store)
+        }
+        await fulfillment(of: [started], timeout: 3)
+        scan.cancel()
+        do {
+            _ = try await scan.value
+            XCTFail("A cancelled inventory must not publish a partial plan")
+        } catch is CancellationError { }
+
+        let gate = UploadedArtworkReadGate()
+        let connector = ServerCoverFixtureConnector(sourceID: sourceID, artworkGate: gate, lyricsGate: gate)
+        let source = MusicSource(id: sourceID, name: "Slow source", type: .navidrome, host: "lyrics.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let flow = manager.companionAssetFlow
+        let library = MusicLibrary(storageDirectory: root)
+        flow.begin(library: library, sourceManager: manager)
+        XCTAssertTrue(flow.isPlanning)
+        flow.cancel()
+        XCTAssertFalse(flow.isPlanning)
+        var cover = songs[0]
+        cover.coverArtFileName = "subsonic-cover/slow"
+        manager.startCompanionAssetDownload(.init(coverGroups: [[cover]], lyricsSongs: songs,
+                                                  existingCoverCount: 0, existingCoverBytes: 0))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            let hasLyricsRequest = await connector.lyricsReadCount > 0
+            if hasLyricsRequest, await !connector.purposes.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let coverReads = await connector.purposes.count
+        XCTAssertEqual(coverReads, 1)
+        let began = await connector.lyricsReadCount
+        XCTAssertGreaterThan(began, 0)
+        let cancelledAt = ContinuousClock.now
+        flow.cancel()
+        XCTAssertEqual(manager.companionAssetProgress?.cancelled, true)
+        while manager.companionAssetProgress != nil, ContinuousClock.now < cancelledAt + .seconds(2) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let stoppedBeforeServerReplied = manager.companionAssetProgress == nil
+        let latency = cancelledAt.duration(to: .now)
+        await gate.release()
+        print("Companion cancellation: \(songs.count) tracks, stopped after \(latency)")
+        XCTAssertLessThan(latency, .seconds(2))
+        XCTAssertTrue(stoppedBeforeServerReplied)
+        let result = try XCTUnwrap(manager.lastCompanionAssetResult)
+        XCTAssertTrue(result.cancelled)
+        XCTAssertEqual(result.failed, 0)
+        XCTAssertEqual(result.completed, 0)
+        let reads = await connector.lyricsReadCount
+        XCTAssertLessThanOrEqual(reads, 3)
     }
 
     func testBatchLyricsAbsenceIsDifferentFromTransportFailure() async throws {
@@ -1555,12 +1625,12 @@ final class LibraryPortableArtworkTests: XCTestCase {
             filePath: "/songs/embedded.flac", sourceID: "server", coverArtFileName: "subsonic-cover/revision-1")
         let data = try image(width: 480)
         await store.cacheEmbeddedSourceCover(data, songID: song.id, sourceID: song.sourceID, reference: song.coverArtFileName!)
-        XCTAssertTrue(SourceManager.companionAssetPlan(for: [song], store: store).coverGroups.isEmpty)
+        XCTAssertTrue(try SourceManager.companionAssetPlan(for: [song], store: store).coverGroups.isEmpty)
         XCTAssertEqual(store.displayCoverData(songID: song.id, reference: song.coverArtFileName), data)
         XCTAssertNil(store.cachedSourceCover(sourceID: song.sourceID, reference: song.coverArtFileName, maximumPixels: 1536))
         var replaced = song
         replaced.coverArtFileName = "subsonic-cover/revision-2"
-        XCTAssertEqual(SourceManager.companionAssetPlan(for: [replaced], store: store).coverGroups.count, 1)
+        XCTAssertEqual(try SourceManager.companionAssetPlan(for: [replaced], store: store).coverGroups.count, 1)
     }
 
     func testCompanionCompletionDoesNotTreatFailuresOrCancellationAsSuccess() {
@@ -1602,7 +1672,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         await MetadataAssetStore.shared.cacheCover(try image(width: 480), forSongID: songID)
         let song = Song(id: songID, title: "Artwork fixture", fileFormat: .m4a,
                         filePath: "/songs/song.m4a", sourceID: sourceID, coverArtFileName: reference)
-        XCTAssertEqual(SourceManager.companionAssetPlan(for: [song]).coverGroups.count, 1)
+        XCTAssertEqual(try SourceManager.companionAssetPlan(for: [song]).coverGroups.count, 1)
         let legacy = await resolve()
         XCTAssertEqual(legacy?.cgImage?.width, 480)
         await MetadataAssetStore.shared.cacheSubsonicCover(
@@ -1613,7 +1683,7 @@ final class LibraryPortableArtworkTests: XCTestCase {
         await connector.setArtwork(try image(color: .blue, width: 1536))
         let full = await resolve()
         XCTAssertEqual(full?.cgImage?.width, 1536)
-        XCTAssertTrue(SourceManager.companionAssetPlan(for: [song]).coverGroups.isEmpty)
+        XCTAssertTrue(try SourceManager.companionAssetPlan(for: [song]).coverGroups.isEmpty)
         let purposes = await connector.purposes
         XCTAssertEqual(purposes.count, 3)
         XCTAssertTrue(purposes.allSatisfy { $0 == .fullResolution })
@@ -2287,15 +2357,22 @@ private actor ServerCoverFixtureConnector: RefreshingMetadataSongConnector, Serv
     var purposes: [ArtworkFetchPurpose] = []
     var byteLimits: [Int] = []
     private let artworkGate: UploadedArtworkReadGate?
+    private let lyricsGate: UploadedArtworkReadGate?
+    private(set) var lyricsReadCount = 0
     private var lyrics: ServerLyricsReadResult = .absent
     private var artwork: Data?
     private var catalog: [Song] = []
-    init(sourceID: String, artworkGate: UploadedArtworkReadGate? = nil) {
+    init(sourceID: String, artworkGate: UploadedArtworkReadGate? = nil, lyricsGate: UploadedArtworkReadGate? = nil) {
+        self.lyricsGate = lyricsGate
         self.sourceID = sourceID
         self.artworkGate = artworkGate
     }
     func setLyrics(_ result: ServerLyricsReadResult) { lyrics = result }
-    func readServerLyrics(for path: String) async -> ServerLyricsReadResult { lyrics }
+    func readServerLyrics(for path: String) async -> ServerLyricsReadResult {
+        lyricsReadCount += 1
+        if let lyricsGate { await lyricsGate.suspend() }
+        return lyrics
+    }
     func fetchServerLyrics(for path: String) async -> String? {
         if case .content(let content) = lyrics { return content }
         return nil
@@ -2329,14 +2406,14 @@ private actor UploadedArtworkReadGate {
     private var isSuspended = false
     private var isReleased = false
     private var suspendedWaiter: CheckedContinuation<Void, Never>?
-    private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
 
     func suspend() async {
         guard !isReleased else { return }
         isSuspended = true
         suspendedWaiter?.resume()
         suspendedWaiter = nil
-        await withCheckedContinuation { releaseWaiter = $0 }
+        await withCheckedContinuation { releaseWaiters.append($0) }
     }
 
     func waitUntilSuspended() async {
@@ -2346,8 +2423,8 @@ private actor UploadedArtworkReadGate {
 
     func release() {
         isReleased = true
-        releaseWaiter?.resume()
-        releaseWaiter = nil
+        for waiter in releaseWaiters { waiter.resume() }
+        releaseWaiters.removeAll()
     }
 }
 

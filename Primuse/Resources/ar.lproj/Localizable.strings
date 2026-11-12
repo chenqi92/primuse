@@ -6938,6 +6938,7 @@
 "companion_assets_download" = "تنزيل كل الأغلفة وكلمات الأغاني";
 "companion_assets_download_footer" = "يجلب من كل مصدر موسيقى الأغلفة وكلمات الأغاني غير الموجودة بعد على هذا الجهاز، بما فيها الكتب الصوتية والبودكاست، ويقرأ ملفات .lrc وغيرها من ملفات الكلمات في المجلدات. تُستخدم كلمات المصادر نفسها فقط؛ وإذا كانت كلمات أحد الخوادم غير مقروءة، تُجلب نسخة مقروءة من الإنترنت.";
 "companion_assets_download_progress_format" = "تم %1$d من %2$d";
+"companion_assets_checking" = "جارٍ التحقق من الأغلفة وكلمات الأغاني على الجهاز…";
 "companion_assets_download_in_progress" = "جارٍ تنزيل الأغلفة وكلمات الأغاني";
 "companion_assets_download_result_format" = "في المرة السابقة حُفظ %1$d غلاف و%2$d من كلمات الأغاني.";
 "companion_assets_download_failed_format" = "تعذر حفظ %d عناصر في ذاكرة التخزين المؤقت. أعد التنزيل للمحاولة مجددًا.";

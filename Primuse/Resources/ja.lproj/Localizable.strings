@@ -7033,6 +7033,7 @@
 "companion_assets_download" = "すべてのアートワークと歌詞をダウンロード";
 "companion_assets_download_footer" = "各音楽ソースから、このデバイスにまだないアートワークと歌詞を取得します。オーディオブックやポッドキャストも対象で、フォルダ内の .lrc などの歌詞ファイルも読み込みます。歌詞はソース自身のものだけを使い、サーバの歌詞が文字化けしているときはオンラインで読める版を取得します。";
 "companion_assets_download_progress_format" = "%1$d / %2$d 件完了";
+"companion_assets_checking" = "端末内のアートワークと歌詞を確認中…";
 "companion_assets_download_in_progress" = "アートワークと歌詞をダウンロード中";
 "companion_assets_download_result_format" = "前回：アートワーク %1$d 件、歌詞 %2$d 件を保存しました。";
 "companion_assets_download_failed_format" = "%d件をキャッシュできませんでした。再度ダウンロードすると再試行できます。";

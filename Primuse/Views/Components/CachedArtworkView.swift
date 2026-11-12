@@ -2600,49 +2600,42 @@ private actor ArtworkFetchLimiter {
 /// of letting a fast scroll download artwork for hundreds of off-screen rows.
 private actor InFlightFetchTracker {
     private struct Entry {
-        let task: Task<Data?, Never>
-        var waiterIDs: Set<UUID>
+        let id: UUID
+        let task: Task<Void, Never>
+        var waiters: [UUID: CheckedContinuation<Data?, Never>]
     }
 
     private let limiter = ArtworkFetchLimiter()
     private var inFlight: [String: Entry] = [:]
 
     func deduplicated(key: String, fetch: @Sendable @escaping () async -> Data?) async -> Data? {
+        guard !Task.isCancelled else { return nil }
         let waiterID = UUID()
-        let task: Task<Data?, Never>
-        if var existing = inFlight[key] {
-            existing.waiterIDs.insert(waiterID)
-            inFlight[key] = existing
-            task = existing.task
-        } else {
-            let limiter = limiter
-            task = Task<Data?, Never> {
-                await limiter.run(fetch)
-            }
-            inFlight[key] = Entry(task: task, waiterIDs: [waiterID])
-        }
-
         return await withTaskCancellationHandler {
-            let result = await task.value
-            finishWaiter(waiterID, for: key, cancelIfUnused: false)
+            let result: Data? = await withCheckedContinuation { continuation in
+                if inFlight[key] != nil {
+                    inFlight[key]?.waiters[waiterID] = continuation
+                    return
+                }
+                let task = Task {
+                    let data = await limiter.run(fetch)
+                    guard inFlight[key]?.id == waiterID, let entry = inFlight.removeValue(forKey: key) else { return }
+                    for pending in entry.waiters.values { pending.resume(returning: data) }
+                }
+                inFlight[key] = Entry(id: waiterID, task: task, waiters: [waiterID: continuation])
+            }
             return Task.isCancelled ? nil : result
         } onCancel: {
-            Task { await self.finishWaiter(waiterID, for: key, cancelIfUnused: true) }
+            Task { await self.cancel(waiterID, for: key) }
         }
     }
 
-    private func finishWaiter(_ waiterID: UUID, for key: String, cancelIfUnused: Bool) {
-        guard var entry = inFlight[key], entry.waiterIDs.remove(waiterID) != nil else {
-            return
+    private func cancel(_ waiterID: UUID, for key: String) {
+        guard let continuation = inFlight[key]?.waiters.removeValue(forKey: waiterID) else { return }
+        if inFlight[key]?.waiters.isEmpty == true {
+            inFlight.removeValue(forKey: key)?.task.cancel()
         }
-        guard entry.waiterIDs.isEmpty else {
-            inFlight[key] = entry
-            return
-        }
-        inFlight[key] = nil
-        if cancelIfUnused {
-            entry.task.cancel()
-        }
+        continuation.resume(returning: nil)
     }
 }
 

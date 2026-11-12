@@ -1684,14 +1684,15 @@ actor MetadataAssetStore {
     }
 
     /// 封面内容现在有几张、一共多大(按内容去重后的,和空间上限比的就是它)。只查目录。
-    nonisolated func artworkContentUsage() -> (count: Int, bytes: Int64) {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: artworkContentDirectoryURL,
-            includingPropertiesForKeys: [.fileSizeKey]
-        ) else { return (0, 0) }
+    nonisolated func artworkContentUsage() throws -> (count: Int, bytes: Int64) {
+        try Task.checkCancellation()
+        guard let contents = FileManager.default.enumerator(at: artworkContentDirectoryURL,
+            includingPropertiesForKeys: [.fileSizeKey], options: [.skipsSubdirectoryDescendants]) else { return (0, 0) }
         var count = 0
         var bytes: Int64 = 0
-        for url in contents where url.pathExtension == "jpg" {
+        for case let url as URL in contents {
+            try Task.checkCancellation()
+            guard url.pathExtension == "jpg" else { continue }
             count += 1
             bytes += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         }

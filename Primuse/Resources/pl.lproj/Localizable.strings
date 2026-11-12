@@ -6938,6 +6938,7 @@
 "companion_assets_download" = "Pobierz wszystkie okładki i teksty";
 "companion_assets_download_footer" = "Pobiera z każdego źródła muzyki okładki i teksty, których nie ma jeszcze na tym urządzeniu, także dla audiobooków i podcastów, i czyta pliki .lrc oraz inne pliki z tekstami w folderach. Używane są tylko teksty ze źródeł; gdy tekst z serwera jest nieczytelny, czytelna wersja jest pobierana z internetu.";
 "companion_assets_download_progress_format" = "Gotowe %1$d z %2$d";
+"companion_assets_checking" = "Sprawdzanie okładek i tekstów na urządzeniu…";
 "companion_assets_download_in_progress" = "Pobieranie okładek i tekstów";
 "companion_assets_download_result_format" = "Ostatnio zapisano %1$d okładek i %2$d tekstów.";
 "companion_assets_download_failed_format" = "Nie udało się zapisać %d elementów w pamięci podręcznej. Pobierz ponownie, aby spróbować jeszcze raz.";

@@ -7009,6 +7009,7 @@
 "companion_assets_download" = "下載全部封面和歌詞";
 "companion_assets_download_footer" = "從各個音樂來源取回還沒存在本機的封面和歌詞，有聲書和 Podcast 也算，資料夾裡的 .lrc 等歌詞檔也會讀。歌詞只用音樂來源自己的；伺服器給的歌詞亂碼時會連網換一份能讀的。";
 "companion_assets_download_progress_format" = "已處理 %1$d / %2$d 項";
+"companion_assets_checking" = "正在檢查本機封面和歌詞…";
 "companion_assets_download_in_progress" = "正在下載封面和歌詞";
 "companion_assets_download_result_format" = "上次存下 %1$d 張封面、%2$d 份歌詞。";
 "companion_assets_download_failed_format" = "仍有 %d 項未能快取，可再次下載以重試。";

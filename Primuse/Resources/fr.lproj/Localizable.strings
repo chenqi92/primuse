@@ -7032,6 +7032,7 @@
 "companion_assets_download" = "Télécharger toutes les pochettes et paroles";
 "companion_assets_download_footer" = "Récupère auprès de chaque source musicale les pochettes et paroles absentes de cet appareil, y compris pour les livres audio et podcasts, et lit les fichiers .lrc et autres fichiers de paroles des dossiers. Seules les paroles des sources sont utilisées ; si celles d’un serveur sont illisibles, une version lisible est récupérée en ligne.";
 "companion_assets_download_progress_format" = "%1$d sur %2$d traités";
+"companion_assets_checking" = "Vérification des pochettes et des paroles sur cet appareil…";
 "companion_assets_download_in_progress" = "Téléchargement des pochettes et paroles";
 "companion_assets_download_result_format" = "La dernière fois : %1$d pochettes et %2$d paroles enregistrées.";
 "companion_assets_download_failed_format" = "%d éléments n’ont pas pu être mis en cache. Relancez le téléchargement pour réessayer.";

@@ -448,7 +448,7 @@ private struct MacSTStorageView: View {
     @State private var showsMotionCoverClearConfirm = false
     @AppStorage(ArtworkStoreLimitSetting.key)
     private var artworkStoreLimit = Int(ArtworkStoreLimitPolicy.defaultBytes)
-    @State private var companionAssetFlow = CompanionAssetDownloadFlow()
+    private var companionAssetFlow: CompanionAssetDownloadFlow { sourceManager.companionAssetFlow }
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -629,18 +629,15 @@ private struct MacSTStorageView: View {
                         hint: companionAssetHint,
                         hintLineLimit: 5
                     ) {
-                        if sourceManager.companionAssetProgress != nil {
+                        if companionAssetFlow.isPlanning || sourceManager.companionAssetProgress != nil {
                             MacSTButton(title: String(localized: "cancel")) {
-                                sourceManager.cancelCompanionAssetDownload()
+                                companionAssetFlow.cancel()
                             }
+                            .disabled(sourceManager.companionAssetProgress?.cancelled == true)
                         } else {
-                            if companionAssetFlow.isPlanning {
-                                ProgressView().controlSize(.small)
-                            }
                             MacSTButton(title: String(localized: "companion_assets_download_start")) {
                                 companionAssetFlow.begin(library: library, sourceManager: sourceManager)
                             }
-                            .disabled(companionAssetFlow.isPlanning)
                         }
                     }
                     .settingsAnchor("storage.downloadCompanions")
@@ -743,11 +740,7 @@ private struct MacSTStorageView: View {
     /// 说明下面接着写进度、上一轮的结果。
     private var companionAssetHint: String {
         let footer = String(localized: "companion_assets_download_footer")
-        guard let status = CompanionAssetDownloadFlow.statusText(
-            progress: sourceManager.companionAssetProgress,
-            lastResult: sourceManager.lastCompanionAssetResult,
-            foundNothing: companionAssetFlow.foundNothingToDownload
-        ) else { return footer }
+        guard let status = companionAssetFlow.statusText(for: sourceManager) else { return footer }
         return footer + "\n" + status
     }
 }

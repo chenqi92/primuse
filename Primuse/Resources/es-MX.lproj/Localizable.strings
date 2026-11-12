@@ -6938,6 +6938,7 @@
 "companion_assets_download" = "Descargar todas las portadas y letras";
 "companion_assets_download_footer" = "Trae de cada fuente de música las portadas y letras que aún no están en este dispositivo, incluidos audiolibros y podcasts, y lee los archivos .lrc y otros de letras en las carpetas. Solo se usan las letras de las propias fuentes; si las letras de un servidor salen ilegibles, se busca en línea una copia legible.";
 "companion_assets_download_progress_format" = "%1$d de %2$d listos";
+"companion_assets_checking" = "Comprobando las portadas y las letras en este dispositivo…";
 "companion_assets_download_in_progress" = "Descargando portadas y letras";
 "companion_assets_download_result_format" = "La última vez se guardaron %1$d portadas y %2$d letras.";
 "companion_assets_download_failed_format" = "No se pudieron guardar %d elementos en caché. Vuelve a descargar para reintentar.";

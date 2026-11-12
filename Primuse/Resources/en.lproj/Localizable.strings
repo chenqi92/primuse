@@ -6793,6 +6793,7 @@
 "companion_assets_download" = "Download All Artwork and Lyrics";
 "companion_assets_download_footer" = "Fetches covers and lyrics that aren't on this device yet from each music source, including audiobooks and podcasts, and reads .lrc and other lyrics files in folders. Only the sources' own lyrics are used; when a server's lyrics are garbled, a readable copy is fetched online.";
 "companion_assets_download_progress_format" = "%1$d of %2$d done";
+"companion_assets_checking" = "Checking local artwork and lyrics…";
 "companion_assets_download_in_progress" = "Downloading Artwork and Lyrics";
 "companion_assets_download_result_format" = "Last time: %1$d covers and %2$d lyrics saved.";
 "companion_assets_download_failed_format" = "%d items could not be cached. Download again to retry.";

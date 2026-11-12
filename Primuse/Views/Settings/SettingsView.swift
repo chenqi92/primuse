@@ -2982,7 +2982,7 @@ struct StorageManagementView: View {
     @State private var cacheActionToasts = PMToastPresenter()
     @AppStorage(ArtworkStoreLimitSetting.key)
     private var artworkStoreLimit = Int(ArtworkStoreLimitPolicy.defaultBytes)
-    @State private var companionAssetFlow = CompanionAssetDownloadFlow()
+    private var companionAssetFlow: CompanionAssetDownloadFlow { sourceManager.companionAssetFlow }
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -3369,12 +3369,8 @@ struct StorageManagementView: View {
     /// 「下载全部封面和歌词」: 进行中显示进度与停止, 结束后在按钮下面说一句结果。
     @ViewBuilder
     private var companionAssetDownloadRow: some View {
-        let status = CompanionAssetDownloadFlow.statusText(
-            progress: sourceManager.companionAssetProgress,
-            lastResult: sourceManager.lastCompanionAssetResult,
-            foundNothing: companionAssetFlow.foundNothingToDownload
-        )
-        if sourceManager.companionAssetProgress != nil {
+        let status = companionAssetFlow.statusText(for: sourceManager)
+        if companionAssetFlow.isPlanning || sourceManager.companionAssetProgress != nil {
             HStack(spacing: 10) {
                 ProgressView()
                 VStack(alignment: .leading, spacing: 2) {
@@ -3388,22 +3384,16 @@ struct StorageManagementView: View {
                 }
                 Spacer()
                 Button("cancel") {
-                    sourceManager.cancelCompanionAssetDownload()
+                    companionAssetFlow.cancel()
                 }
+                .disabled(sourceManager.companionAssetProgress?.cancelled == true)
             }
         } else {
             Button {
                 companionAssetFlow.begin(library: library, sourceManager: sourceManager)
             } label: {
-                HStack {
-                    Label("companion_assets_download", systemImage: "arrow.down.circle")
-                    Spacer()
-                    if companionAssetFlow.isPlanning {
-                        ProgressView()
-                    }
-                }
+                Label("companion_assets_download", systemImage: "arrow.down.circle")
             }
-            .disabled(companionAssetFlow.isPlanning)
             if let status {
                 Text(verbatim: status)
                     .font(.caption)
@@ -4176,7 +4166,9 @@ struct CloudSharingControllerView: View {
 @MainActor
 @Observable
 final class CompanionAssetDownloadFlow {
-    private(set) var isPlanning = false
+    private var planningTask: Task<Void, Never>?
+    var isPlanning: Bool { planningTask != nil }
+    private var cancelledPlanning = false
     /// 数完发现封面和歌词都已经在本机了。
     private(set) var foundNothingToDownload = false
     var showsLimitPrompt = false
@@ -4186,24 +4178,39 @@ final class CompanionAssetDownloadFlow {
     @ObservationIgnored private weak var sourceManager: SourceManager?
 
     func begin(library: MusicLibrary, sourceManager: SourceManager) {
-        guard !isPlanning, sourceManager.companionAssetProgress == nil else { return }
-        let songs = library.visibleSongs
-        let artists = (library.visibleArtists + library.visibleAlbumArtists).map { artist in
-            var candidate = artist
-            candidate.thumbnailPath = SubsonicArtistArtworkRequest.contextualReference(
-                artist: artist, song: library.scopedPreferredArtworkSong(forArtistID: artist.id)
-            )
-            return candidate
-        }
-        let playlists = library.playlists
+        guard !isPlanning, plan == nil, sourceManager.companionAssetProgress == nil else { return }
         self.sourceManager = sourceManager
-        isPlanning = true
         foundNothingToDownload = false
-        Task {
-            let plan = await Task.detached(priority: .userInitiated) {
-                SourceManager.companionAssetPlan(for: songs, artists: artists, playlists: playlists)
-            }.value
-            isPlanning = false
+        cancelledPlanning = false
+        let songs = library.visibleSongs
+        let artists = library.visibleArtists + library.visibleAlbumArtists
+        let playlists = library.playlists
+        planningTask = Task {
+            var candidates = [Artist]()
+            candidates.reserveCapacity(artists.count)
+            for (index, artist) in artists.enumerated() {
+                if index.isMultiple(of: 64) {
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                }
+                var candidate = artist
+                candidate.thumbnailPath = SubsonicArtistArtworkRequest.contextualReference(
+                    artist: artist, song: library.preferredArtworkSong(forArtistID: artist.id)
+                )
+                candidates.append(candidate)
+            }
+            guard !Task.isCancelled else { return }
+            let scan = Task.detached(priority: .userInitiated) { [candidates] in
+                try SourceManager.companionAssetPlan(for: songs, artists: candidates, playlists: playlists)
+            }
+            let plan = await withTaskCancellationHandler {
+                try? await scan.value
+            } onCancel: {
+                scan.cancel()
+            }
+            guard !Task.isCancelled else { return }
+            planningTask = nil
+            guard let plan else { return }
             guard !plan.isEmpty else {
                 foundNothingToDownload = true
                 return
@@ -4219,6 +4226,24 @@ final class CompanionAssetDownloadFlow {
                 confirmNetworkThenStart()
             }
         }
+    }
+
+    func cancel() {
+        if let planningTask {
+            planningTask.cancel()
+            self.planningTask = nil
+            cancelledPlanning = true
+        } else {
+            sourceManager?.cancelCompanionAssetDownload()
+        }
+    }
+
+    func statusText(for manager: SourceManager) -> String? {
+        if isPlanning { return String(localized: "companion_assets_checking") }
+        if manager.companionAssetProgress?.cancelled == true { return String(localized: "local_import_progress_cancelling") }
+        if cancelledPlanning { return String(localized: "source_address_probe_cancelled") }
+        return Self.statusText(progress: manager.companionAssetProgress, lastResult: manager.lastCompanionAssetResult,
+                               foundNothing: foundNothingToDownload)
     }
 
     func raiseLimitAndContinue() {

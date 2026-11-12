@@ -6938,6 +6938,7 @@
 "companion_assets_download" = "Tüm Kapakları ve Şarkı Sözlerini İndir";
 "companion_assets_download_footer" = "Bu aygıtta henüz olmayan kapakları ve şarkı sözlerini her müzik kaynağından alır; sesli kitaplar ve podcast’ler de dahildir, klasörlerdeki .lrc ve diğer şarkı sözü dosyaları da okunur. Yalnızca kaynakların kendi şarkı sözleri kullanılır; bir sunucunun sözleri bozuk gelirse okunabilir bir kopya çevrimiçi alınır.";
 "companion_assets_download_progress_format" = "%2$d öğeden %1$d tanesi bitti";
+"companion_assets_checking" = "Cihazdaki kapaklar ve şarkı sözleri kontrol ediliyor…";
 "companion_assets_download_in_progress" = "Kapaklar ve Şarkı Sözleri İndiriliyor";
 "companion_assets_download_result_format" = "Geçen sefer %1$d kapak ve %2$d şarkı sözü kaydedildi.";
 "companion_assets_download_failed_format" = "%d öğe önbelleğe alınamadı. Yeniden denemek için tekrar indirin.";

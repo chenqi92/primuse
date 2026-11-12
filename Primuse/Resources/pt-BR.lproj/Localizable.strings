@@ -6938,6 +6938,7 @@
 "companion_assets_download" = "Baixar todas as capas e letras";
 "companion_assets_download_footer" = "Busca em cada fonte de música as capas e letras que ainda não estão neste dispositivo, inclusive de audiolivros e podcasts, e lê arquivos .lrc e outros de letras nas pastas. Só as letras das próprias fontes são usadas; quando a letra de um servidor vem ilegível, uma cópia legível é buscada online.";
 "companion_assets_download_progress_format" = "%1$d de %2$d prontos";
+"companion_assets_checking" = "Verificando capas e letras neste dispositivo…";
 "companion_assets_download_in_progress" = "Baixando capas e letras";
 "companion_assets_download_result_format" = "Da última vez: %1$d capas e %2$d letras salvas.";
 "companion_assets_download_failed_format" = "Não foi possível armazenar %d itens em cache. Baixe novamente para tentar de novo.";

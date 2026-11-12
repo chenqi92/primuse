@@ -598,6 +598,43 @@ struct LyricsSourceRefreshCoordinatorTests {
         #expect(await replacementCount.value == 1)
     }
 
+    @Test func cancelledBatchWaiterLeavesForegroundLyricsRequestRunning() async throws {
+        let coordinator = LyricsSourceRefreshCoordinator()
+        let key = LyricsSourceRefreshKey(sourceID: "source", songID: "shared-song")
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        let (release, gate) = AsyncStream<Void>.makeStream()
+        let fetched = Self.document(lineIDs: ["a", "b", "c"])
+        let fetchCount = Counter()
+        @Sendable func refresh() async -> LyricsSourceRefreshResult {
+            await coordinator.refresh(key: key, currentDocument: nil, trigger: .initial, fetch: {
+                await fetchCount.increment()
+                signal.yield()
+                for await _ in release { break }
+                try Task.checkCancellation()
+                return fetched
+            }, replace: { _ in true })
+        }
+        let foreground = Task { await refresh() }
+        for await _ in started { break }
+        let batch = Task { await refresh() }
+        try await Task.sleep(for: .milliseconds(10))
+        let cancelledAt = ContinuousClock.now
+        batch.cancel()
+        // Bound the test even if a cancelled consumer incorrectly waits for the server.
+        let timeout = Task {
+            try await Task.sleep(for: .seconds(2))
+            gate.finish()
+        }
+        let result = await batch.value
+        let elapsed = cancelledAt.duration(to: .now)
+        gate.finish()
+        timeout.cancel()
+        #expect(elapsed < .seconds(1))
+        #expect(result == .failedPreservingCache)
+        #expect(await foreground.value.updatedDocument == fetched)
+        #expect(await fetchCount.value == 1)
+    }
+
     @Test func automaticRefreshIsRateLimitedPerSourceAndSong() async {
         let coordinator = LyricsSourceRefreshCoordinator(minimumAutomaticRefreshInterval: 60)
         let base = Date(timeIntervalSinceReferenceDate: 1_000)

@@ -7125,6 +7125,7 @@
 "companion_assets_download" = "下载全部封面和歌词";
 "companion_assets_download_footer" = "从各个音乐源取回还没存在本机的封面和歌词，有声书和播客也算，文件夹里的 .lrc 等歌词文件也会读。歌词只用音乐源自己的；服务器给的歌词乱码时会联网换一份能读的。";
 "companion_assets_download_progress_format" = "已处理 %1$d / %2$d 项";
+"companion_assets_checking" = "正在检查本机封面和歌词…";
 "companion_assets_download_in_progress" = "正在下载封面和歌词";
 "companion_assets_download_result_format" = "上次存下 %1$d 张封面、%2$d 份歌词。";
 "companion_assets_download_failed_format" = "还有 %d 项未能缓存，再次下载可重试。";

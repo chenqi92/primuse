@@ -113,12 +113,13 @@ enum LyricsLoader {
             trigger: trigger,
             fetch: {
                 let raw: String
-                switch await server.readServerLyrics(for: sourcePath) {
+                let response = await server.readServerLyrics(for: sourcePath)
+                try Task.checkCancellation()
+                switch response {
                 case .content(let content):
                     await MetadataAssetStore.shared.clearSourceLyricsAbsence(songID: songID)
                     raw = content
                 case .absent:
-                    try Task.checkCancellation()
                     await MetadataAssetStore.shared.recordSourceLyricsAbsence(for: song)
                     return nil
                 case .unavailable:
