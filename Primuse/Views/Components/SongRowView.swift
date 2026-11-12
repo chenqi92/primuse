@@ -649,21 +649,13 @@ struct SongRowView: View {
         // Only songs with nothing to play (no path and no duration) intercept
         // taps with a hint; metadata-pending cloud songs stay tappable and
         // play — the player resolves their duration on the fly.
-        .overlay {
+        .gesture(TapGesture().onEnded {
             if !song.isPlayable {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { showBareAlert = true }
-            } else if unreachable, selection?.isActive != true {
-                // Starting this song would stop the music only to fail. The
-                // tap asks the source again instead; the trailing menu stays
-                // outside the intercepted area.
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { retryUnreachableSource() }
-                    .padding(.trailing, unreachableTapTrailingInset)
+                showBareAlert = true
+            } else {
+                retryUnreachableSource()
             }
-        }
+        }, isEnabled: !song.isPlayable || (unreachable && selection?.isActive != true))
     }
 
     /// 点这一行开播时的触感。多选时点行只是勾选；播不了、源连不上时点行是弹说明、重连，都不震。
@@ -1568,6 +1560,7 @@ private struct SongRowHorizontalPanGesture: UIGestureRecognizerRepresentable {
 /// 进度更新留在徽标内，避免让承载已展开菜单的整行重新构建。
 private struct SongRowOfflineStatusBadge: View {
     @Environment(SourceManager.self) private var sourceManager
+    @State private var showsFailure = false
     let song: Song
     let reservesSpace: Bool
 
@@ -1575,7 +1568,37 @@ private struct SongRowOfflineStatusBadge: View {
         let snapshot = song.sourceID == AppleMusicLibraryService.systemSourceID
             ? OfflineAudioCacheSnapshot.notCached
             : sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
-        OfflineAudioStatusBadge(snapshot: snapshot, reservesSpace: reservesSpace)
+        let badge = OfflineAudioStatusBadge(snapshot: snapshot, reservesSpace: reservesSpace)
+        if snapshot.state == .failed {
+            Button { showsFailure = true } label: {
+                badge
+                    .frame(width: 36, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("offline_download_failed"))
+            .help(Text("offline_download_failed"))
+            .popover(isPresented: $showsFailure) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("offline_download_failed")
+                        .font(.headline)
+                    if let reason = snapshot.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !reason.isEmpty, reason != String(localized: "offline_download_failed") {
+                        Text(verbatim: LogRedactionPolicy.redact(reason))
+                            .font(.subheadline)
+                    }
+                }
+                .foregroundStyle(.primary)
+                .lineLimit(nil)
+                .frame(idealWidth: 220, maxWidth: 280, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding()
+                .presentationCompactAdaptation(.popover)
+            }
+            .padding(.horizontal, reservesSpace ? -8 : 0)
+        } else {
+            badge
+        }
     }
 }
 

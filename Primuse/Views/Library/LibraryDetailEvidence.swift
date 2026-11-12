@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import AVFAudio
 import PrimuseKit
 import SwiftUI
 
@@ -434,7 +435,13 @@ private final class SongLocationEvidenceFixture {
     let player: AudioPlayerService
     let folderModel = HomeDiscoveryModel()
     let sources: SourcesStore
+    lazy var offlineFailureSourceManager = SourceManager(sourcesProvider: {
+        [MusicSource(id: "location-fixture", name: "Location Source", type: .local)]
+    })
     var playlist: Playlist?
+    private var testsOfflineFailure: Bool {
+        ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_PAGE"] == "artistOfflineFailure"
+    }
     var targetID: String {
         let index = ProcessInfo.processInfo.environment["PRIMUSE_LOCATION_TARGET"] ?? "3990"
         return Self.showsContentTags ? "location-0" : "location-\(index)"
@@ -516,6 +523,22 @@ private final class SongLocationEvidenceFixture {
                 }
             }
         }
+        if testsOfflineFailure {
+            // 让点歌名后的播放停留在选中曲目，避免缺失的占位文件触发自动跳歌。
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("offline-hint-fixture.wav")
+            let format = AVAudioFormat(standardFormatWithSampleRate: 8_000, channels: 1)!
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 80_000)!
+            buffer.frameLength = buffer.frameCapacity
+            buffer.floatChannelData![0].update(repeating: 0, count: Int(buffer.frameLength))
+            do {
+                let audio = try AVAudioFile(forWriting: url, settings: format.settings)
+                try audio.write(from: buffer)
+            } catch {
+                preconditionFailure("Could not create offline hint playback fixture: \(error)")
+            }
+            songs[0].filePath = url.path
+            songs[0].fileFormat = .wav
+        }
         library.addSongs(songs, affectedSourceIDs: ["location-fixture"])
         await library.waitForPendingIndex()
         playlist = library.playlists.first(where: { $0.name == "Location Playlist" })
@@ -527,6 +550,12 @@ private final class SongLocationEvidenceFixture {
         library.saveSmartPlaylist(SmartPlaylist(id: "location-smart", name: "Location Smart",
                                                sortField: .title, sortDirection: .ascending))
         player.currentSong = library.song(id: targetID)
+        if testsOfflineFailure, let song = library.song(id: "location-0") {
+            await offlineFailureSourceManager.ensureOfflineAudioSnapshot(for: song)
+            offlineFailureSourceManager.offlineAudioSnapshotEntry(for: song).update(
+                .init(state: .failed, errorMessage: String(localized: "error_connection_timeout"))
+            )
+        }
         if folders {
             let descriptors = sources.allSources.map(LibraryFolderSourceDescriptor.init(source:))
             folderModel.publish(
@@ -604,6 +633,10 @@ struct SongLocationEvidenceHost: View {
             if let album = fixture.library.visibleAlbums.first { AlbumDetailView(album: album) }
         case "artist":
             if let artist = fixture.library.visibleArtists.first { ArtistDetailView(artist: artist) }
+        case "artistOfflineFailure":
+            if let artist = fixture.library.visibleArtists.first {
+                ArtistDetailView(artist: artist).environment(fixture.offlineFailureSourceManager)
+            }
         default:
             SongListView(locationRequest: $request)
         }

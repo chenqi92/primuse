@@ -619,6 +619,33 @@ final class SongLocationUITests: XCTestCase {
         attach(app, "song-location-artist-all-songs")
     }
 
+    func testArtistOfflineFailureHintKeepsCurrentSongUntilTitleIsTapped() {
+        let app = launch("artistOfflineFailure")
+        defer { app.terminate() }
+        let mini = app.buttons["locationFixture.miniPlayer"].firstMatch
+        XCTAssertTrue(mini.waitForExistence(timeout: 30))
+        XCTAssertTrue(mini.label.contains("Track 3990"), mini.label)
+
+        let warning = app.buttons["离线下载失败"].firstMatch
+        for _ in 0..<3 where !warning.isHittable || warning.frame.maxY >= mini.frame.minY - 16 {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -240)),
+                        withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTAssertTrue(warning.isHittable)
+        warning.tap()
+        let reason = app.staticTexts["连接超时。"]
+        XCTAssertTrue(reason.waitForExistence(timeout: 5))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.15)).tap()
+        XCTAssertTrue(reason.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(mini.label.contains("Track 3990"), mini.label)
+
+        app.scrollViews.staticTexts["Track 0000"].firstMatch.tap()
+        let changed = expectation(for: NSPredicate(format: "label CONTAINS %@", "Track 0000"),
+                                  evaluatedWith: mini)
+        wait(for: [changed], timeout: 8)
+    }
+
     func testMiniPlayerMenuRevealsSongInLibrary() {
         let app = launch("playlist")
         defer { app.terminate() }
