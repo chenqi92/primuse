@@ -38,6 +38,8 @@
 "favorites_count_format" = "%d 項目";
 "library_sections_settings_label" = "ライブラリのカテゴリ";
 "library_sections_settings_footer" = "ドラッグして並べ替えます。オフにするとライブラリとサイドバーで非表示になります。";
+"library_music_space_footer" = "オフにすると、ライブラリ、サイドバー、検索にミュージックが表示されなくなり、ホームの上部の切り替えとミニマルモードのタブからも「ミュージック」が消えます。ほかのカテゴリもすべてオフにすると、アプリはホームから始まります。隠すのは入口だけで、ライブラリの内容、スキャン、再生中の曲には影響せず、ホームのセクションは個別にオン／オフできます。オンに戻せば元どおりです。";
+"library_music_space_turn_on" = "ミュージックをオンにする";
 "library_sections_restore_default_order" = "デフォルトの順序に戻す";
 "playlists_count" = "件のプレイリスト";
 "search_title" = "検索";
@@ -4074,6 +4076,8 @@
 "minimal_mode_title" = "ミニマルモード";
 "minimal_mode_description" = "下部のナビゲーションバーを隠し、上部でホーム・ミュージック・ラジオ・音声を切り替えます。再生バーは下部に固定されます。";
 "minimal_show_home" = "「ホーム」を表示";
+"minimal_show_home_music_off_hint" = "ミュージックがオフの間は常に表示";
+"minimal_show_home_music_off_message" = "ミュージックをオフにしている間はアプリがホームから始まるため、ホームは常に表示されます。ホームを隠すには、まず「ライブラリ」設定でミュージックをオンにしてください。";
 "minimal_section_swipe" = "左右スワイプでカテゴリを切り替え";
 "minimal_tab_spoken" = "音声";
 "minimal_radio_on_air" = "ライブ配信中";
@@ -6397,6 +6401,7 @@
 "home_filter_bar_none" = "ホーム上部に切り替えボタンはありません";
 "home_filter_bar_footer" = "ドラッグで並べ替えます。オーディオブックはライブラリに音声コンテンツがあるときだけ表示されます。1つだけオンのときは列ごと表示されません。";
 "home_filter_bar_footer_following" = "現在、各ボタンはホームの対応するセクションの表示に合わせています。ここで変更すると、セクションを非表示にしてもボタンはホーム上部に残ります。ドラッグで並べ替えます。";
+"home_filter_bar_music_off_hint" = "ライブラリ設定でミュージックがオフのため、オンにするまで表示されません";
 "home_filter_bar_follow_sections" = "ホームのセクションに合わせる";
 "player_control_tint_white_theme_note" = "テーマカラーが「ホワイト」のときは、再生画面のコントロールも常にモノクロになります。";
 

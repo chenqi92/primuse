@@ -42,6 +42,8 @@
 "favorites_count_format" = "%d items";
 "library_sections_settings_label" = "Library Categories";
 "library_sections_settings_footer" = "Drag to reorder. Visibility and order apply to Library, the sidebar, and minimal mode tabs.";
+"library_music_space_footer" = "Turn this off to remove Music from Library, the sidebar and Search, and from the top filters on Home and the minimal mode tabs. With the other categories off too, the app opens straight to Home. Only the entry points are hidden: your library, scanning and what’s playing are not affected, Home sections keep their own switches, and everything comes back when you turn it on again.";
+"library_music_space_turn_on" = "Turn On Music";
 "library_sections_restore_default_order" = "Restore Default Order";
 "playlists_count" = "playlists";
 "sources_title" = "Sources";
@@ -3845,6 +3847,8 @@
 "minimal_mode_title" = "Minimal Mode";
 "minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
 "minimal_show_home" = "Show Home";
+"minimal_show_home_music_off_hint" = "Always shown while Music is off";
+"minimal_show_home_music_off_message" = "With Music turned off, the app opens to Home, so Home stays shown. To hide Home, first turn Music back on in Library settings.";
 "minimal_section_swipe" = "Swipe Between Categories";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "Live";
@@ -6157,6 +6161,7 @@
 "home_filter_bar_none" = "No filters at the top of Home";
 "home_filter_bar_footer" = "Drag to reorder. Audiobooks appears only when your library has spoken-word content. With only one turned on, the row is hidden.";
 "home_filter_bar_footer_following" = "Each filter currently follows whether its section is shown on Home. After you change them here, they stay at the top even when the section is hidden. Drag to reorder.";
+"home_filter_bar_music_off_hint" = "Music is off in Library settings and won’t appear until it’s back on";
 "home_filter_bar_follow_sections" = "Follow Home Sections Again";
 "player_control_tint_white_theme_note" = "With the White theme color, player controls are always monochrome.";
 

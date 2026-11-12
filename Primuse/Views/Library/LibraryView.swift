@@ -12,6 +12,9 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
 
     var id: String { rawValue }
 
+    /// 跟设置里「音乐」开关一起收起的分类:电台、有声书、播客、环境音以外的都是。
+    var isMusicSection: Bool { MusicSpaceVisibility.isMusicSection(named: rawValue) }
+
     var title: LocalizedStringKey {
         switch self {
         case .recommendations: return "library_recommendations_title"
@@ -150,9 +153,19 @@ enum LibraryDisplayConfiguration {
         LibrarySectionLayoutPolicy.encodeNames(defaultSectionOrder.filter(sections.contains).map(\.rawValue))
     }
 
-    static func visibleSections(orderRawValue: String, hiddenRawValue: String) -> [LibrarySection] {
+    /// `showsMusic` 是设置里的「音乐」开关(`MusicSpaceVisibility`):关着时音乐的分类一起收起,
+    /// 各分类自己的显隐不改。
+    static func visibleSections(
+        orderRawValue: String,
+        hiddenRawValue: String,
+        showsMusic: Bool = MusicSpaceVisibility.defaultValue
+    ) -> [LibrarySection] {
         let hidden = decodeHiddenSections(hiddenRawValue)
-        return decodeSectionOrder(orderRawValue).filter { !hidden.contains($0) }
+        return MusicSpaceVisibility.visibleSections(
+            decodeSectionOrder(orderRawValue).filter { !hidden.contains($0) },
+            showsMusic: showsMusic,
+            name: \.rawValue
+        )
     }
 
     /// 启动时、任何界面读资料库分类之前调一次:升级前调过顺序却没关过任何分类的人,
@@ -675,6 +688,7 @@ struct LibraryView: View {
     private var sectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenSectionsRawValue = ""
+    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     @AppStorage(ArtistBrowseMode.storageKey)
     private var artistBrowseModeRaw = ArtistBrowseMode.allArtists.rawValue
@@ -721,7 +735,8 @@ struct LibraryView: View {
     private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
             orderRawValue: sectionOrderRawValue,
-            hiddenRawValue: hiddenSectionsRawValue
+            hiddenRawValue: hiddenSectionsRawValue,
+            showsMusic: showsMusic
         )
         // 「有声内容」只在真的有的时候出现: 绝大多数曲库一本有声书也没有,
         // 给它们摆一个永远空着的入口是噪音。

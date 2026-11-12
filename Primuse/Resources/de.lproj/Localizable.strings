@@ -37,6 +37,8 @@
 "favorites_count_format" = "%d Einträge";
 "library_sections_settings_label" = "Mediathekskategorien";
 "library_sections_settings_footer" = "Zum Sortieren ziehen. Deaktivierte Kategorien werden in der Mediathek und Seitenleiste ausgeblendet.";
+"library_music_space_footer" = "Wenn deaktiviert, erscheint Musik nicht mehr in Mediathek, Seitenleiste und Suche, und auch die Filter oben auf „Start“ und die Tabs im Minimalmodus zeigen „Musik“ nicht mehr. Sind auch die anderen Kategorien aus, öffnet die App direkt „Start“. Nur die Einstiege werden ausgeblendet: Mediathek, Scans und die laufende Wiedergabe bleiben unberührt, die Bereiche auf „Start“ behalten ihre eigenen Schalter, und beim Wiedereinschalten ist alles wie zuvor.";
+"library_music_space_turn_on" = "Musik aktivieren";
 "library_sections_restore_default_order" = "Standardreihenfolge wiederherstellen";
 "playlists_count" = "Playlists";
 "search_title" = "Suchen";
@@ -4073,6 +4075,8 @@
 "minimal_mode_title" = "Minimalmodus";
 "minimal_mode_description" = "Blendet die untere Navigation aus: Oben wechselst du zwischen Start, Musik, Radio und Audio, der Player sitzt unten.";
 "minimal_show_home" = "„Start“ anzeigen";
+"minimal_show_home_music_off_hint" = "Immer sichtbar, solange Musik aus ist";
+"minimal_show_home_music_off_message" = "Bei deaktivierter Musik öffnet die App mit „Start“, daher bleibt „Start“ sichtbar. Um „Start“ auszublenden, aktiviere zuerst Musik in den Mediathek-Einstellungen.";
 "minimal_section_swipe" = "Zwischen Kategorien wischen";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "Live";
@@ -6396,6 +6400,7 @@
 "home_filter_bar_none" = "Keine Filter oben auf der Startseite";
 "home_filter_bar_footer" = "Zum Umsortieren ziehen. Hörbücher erscheint nur, wenn deine Mediathek Hörinhalte enthält. Ist nur ein Filter aktiv, wird die Leiste ausgeblendet.";
 "home_filter_bar_footer_following" = "Jeder Filter richtet sich derzeit danach, ob sein Bereich auf der Startseite angezeigt wird. Sobald du sie hier änderst, bleiben sie oben, auch wenn der Bereich ausgeblendet ist. Zum Umsortieren ziehen.";
+"home_filter_bar_music_off_hint" = "Musik ist in den Mediathek-Einstellungen deaktiviert und erscheint erst, wenn sie wieder an ist";
 "home_filter_bar_follow_sections" = "Wieder den Bereichen folgen";
 "player_control_tint_white_theme_note" = "Mit der Designfarbe „Weiß“ sind die Player-Bedienelemente immer monochrom.";
 

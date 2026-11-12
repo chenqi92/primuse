@@ -224,6 +224,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "library.show.artists", titleKey: "tab_artists", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.genres", titleKey: "tab_genres", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.albums", titleKey: "tab_albums", iosPage: .libraryDisplay, macPage: .appearance),
+        SettingDefinition(id: "library.show.music", titleKey: "listening_space_music", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["音乐", "音樂", "关闭音乐", "隐藏音乐", "只听有声书", "music", "hide music", "turn off music"]),
         SettingDefinition(id: "library.show.songs", titleKey: "tab_songs", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.radio", titleKey: "radio_title", iosPage: .libraryDisplay, macPage: .appearance),
         SettingDefinition(id: "library.show.podcasts", titleKey: "listening_space_podcast", iosPage: .libraryDisplay, macPage: .appearance, keywords: ["podcast", "播客", "RSS", "订阅", "訂閱"]),

@@ -37,6 +37,8 @@
 "favorites_count_format" = "%d개";
 "library_sections_settings_label" = "라이브러리 카테고리";
 "library_sections_settings_footer" = "드래그하여 순서를 바꾸고, 끄면 라이브러리와 사이드바에서 숨깁니다.";
+"library_music_space_footer" = "끄면 라이브러리, 사이드바, 검색에 음악이 나타나지 않고, 홈 상단 전환과 미니멀 모드 탭에서도 ‘음악’이 사라집니다. 다른 카테고리도 모두 끄면 앱이 바로 홈에서 열립니다. 입구만 숨기므로 라이브러리 내용, 스캔, 재생 중인 곡에는 영향이 없고, 홈 섹션은 따로 켜고 끌 수 있습니다. 다시 켜면 모두 그대로 돌아옵니다.";
+"library_music_space_turn_on" = "음악 켜기";
 "library_sections_restore_default_order" = "기본 순서 복원";
 "playlists_count" = "개의 플레이리스트";
 "search_title" = "검색";
@@ -4073,6 +4075,8 @@
 "minimal_mode_title" = "미니멀 모드";
 "minimal_mode_description" = "하단 탐색 막대를 숨기고 상단에서 홈, 음악, 라디오, 오디오를 전환합니다. 재생 막대는 하단에 고정됩니다.";
 "minimal_show_home" = "‘홈’ 표시";
+"minimal_show_home_music_off_hint" = "음악이 꺼져 있는 동안 항상 표시";
+"minimal_show_home_music_off_message" = "음악을 끄면 앱이 홈에서 열리므로 홈은 항상 표시됩니다. 홈을 숨기려면 먼저 ‘라이브러리’ 설정에서 음악을 켜세요.";
 "minimal_section_swipe" = "좌우로 스와이프해 카테고리 전환";
 "minimal_tab_spoken" = "오디오";
 "minimal_radio_on_air" = "생방송 중";
@@ -6396,6 +6400,7 @@
 "home_filter_bar_none" = "홈 상단에 전환 버튼 없음";
 "home_filter_bar_footer" = "드래그하여 순서를 바꿉니다. 오디오북은 보관함에 오디오 콘텐츠가 있을 때만 나타납니다. 하나만 켜면 줄 전체가 숨겨집니다.";
 "home_filter_bar_footer_following" = "지금은 각 버튼이 홈의 해당 섹션 표시 여부를 따릅니다. 여기서 변경하면 섹션을 숨겨도 버튼이 홈 상단에 남습니다. 드래그하여 순서를 바꿉니다.";
+"home_filter_bar_music_off_hint" = "라이브러리 설정에서 음악이 꺼져 있어 켜기 전까지 나타나지 않습니다";
 "home_filter_bar_follow_sections" = "홈 섹션을 다시 따르기";
 "player_control_tint_white_theme_note" = "테마 색상이 화이트이면 재생 화면 컨트롤도 항상 모노크롬입니다.";
 

@@ -37,6 +37,8 @@
 "favorites_count_format" = "%d éléments";
 "library_sections_settings_label" = "Catégories de la bibliothèque";
 "library_sections_settings_footer" = "Faites glisser pour réorganiser. Désactivez une catégorie pour la masquer dans la bibliothèque et la barre latérale.";
+"library_music_space_footer" = "Une fois désactivée, la musique n’apparaît plus dans la bibliothèque, la barre latérale ni la recherche, ni dans les filtres en haut de l’Accueil et les onglets du mode minimal. Si les autres catégories sont aussi désactivées, l’app s’ouvre directement sur l’Accueil. Seuls les accès sont masqués : votre bibliothèque, l’analyse et la lecture en cours ne sont pas touchées, les sections de l’Accueil gardent leurs propres réglages, et tout revient à l’identique quand vous la réactivez.";
+"library_music_space_turn_on" = "Activer la musique";
 "library_sections_restore_default_order" = "Rétablir l’ordre par défaut";
 "playlists_count" = "playlists";
 "search_title" = "Rechercher";
@@ -4073,6 +4075,8 @@
 "minimal_mode_title" = "Mode minimal";
 "minimal_mode_description" = "Masque la navigation inférieure : passez d’Accueil à Musique, Radio et Audio en haut, le lecteur reste ancré en bas.";
 "minimal_show_home" = "Afficher « Accueil »";
+"minimal_show_home_music_off_hint" = "Toujours affiché tant que la musique est désactivée";
+"minimal_show_home_music_off_message" = "Quand la musique est désactivée, l’app s’ouvre sur l’Accueil, qui reste donc affiché. Pour masquer l’Accueil, réactivez d’abord la musique dans les réglages de la bibliothèque.";
 "minimal_section_swipe" = "Balayer entre les catégories";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "En direct";
@@ -6396,6 +6400,7 @@
 "home_filter_bar_none" = "Aucun filtre en haut de l’accueil";
 "home_filter_bar_footer" = "Faites glisser pour réorganiser. Livres audio n’apparaît que si votre bibliothèque contient des contenus parlés. Avec un seul filtre activé, la rangée est masquée.";
 "home_filter_bar_footer_following" = "Pour l’instant, chaque filtre suit l’affichage de sa section sur l’accueil. Une fois modifiés ici, ils restent en haut même si la section est masquée. Faites glisser pour réorganiser.";
+"home_filter_bar_music_off_hint" = "La musique est désactivée dans les réglages de la bibliothèque et n’apparaîtra qu’une fois réactivée";
 "home_filter_bar_follow_sections" = "Suivre à nouveau les sections de l’accueil";
 "player_control_tint_white_theme_note" = "Avec la couleur de thème Blanc, les commandes du lecteur sont toujours monochromes.";
 

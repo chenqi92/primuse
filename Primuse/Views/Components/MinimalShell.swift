@@ -196,10 +196,18 @@ struct MinimalTopTabBar: View {
         selectedTab == .music && musicSections.count > 1
     }
 
+    private var onlyTab: MinimalTopTab? {
+        tabs.count == 1 ? tabs.first : nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
-                if heightClass.isCompact {
+                if let onlyTab {
+                    // 只剩一格（音乐、电台、有声都收起了，只有首页）：不摆一颗选不了别处的分段，写页名。
+                    MinimalTopTabTitle(tab: onlyTab) { onSelectTab(onlyTab) }
+                    Spacer(minLength: 0)
+                } else if heightClass.isCompact {
                     MinimalTopTabPicker(tabs: tabs, selection: selectedTab, onSelect: onSelectTab)
                         .fixedSize()
                     if showsSectionRow {
@@ -241,6 +249,27 @@ struct MinimalTopTabBar: View {
         .padding(.top, 2)
         .padding(.bottom, 2)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+}
+
+/// 顶栏上只剩一格时左边的页名。点了回到这一格，和点分段一样（从别处推进来的分类页上用得着）。
+private struct MinimalTopTabTitle: View {
+    let tab: MinimalTopTab
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(tab.titleKey)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier("minimal.tab.\(tab.rawValue)")
     }
 }
 
@@ -318,13 +347,15 @@ struct StandardLibrarySectionTabs: View {
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var enabled = false
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey) private var orderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey) private var hiddenRawValue = ""
+    /// 音乐关着时这一排(都是音乐的分类)不出现。
+    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     @Environment(MusicLibrary.self) private var library
 
     var body: some View {
         let sections = StandardLibrarySectionTabsPolicy.sections(
             enabled: enabled, mode: navigationMode, selection: selection,
             visibleSections: LibraryDisplayConfiguration.visibleSections(
-                orderRawValue: orderRawValue, hiddenRawValue: hiddenRawValue
+                orderRawValue: orderRawValue, hiddenRawValue: hiddenRawValue, showsMusic: showsMusic
             )
             // 「环境音」只在真有环境音时出现,和资料库首页一样。
             .filter { $0 != .ambient || library.hasAmbientContent }

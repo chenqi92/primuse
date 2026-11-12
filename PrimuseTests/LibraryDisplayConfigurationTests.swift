@@ -797,6 +797,81 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
     }
 
+    func testTurningMusicOffLeavesOnlyTheOtherSpacesAndKeepsHome() {
+        let visible = LibraryDisplayConfiguration.visibleSections(
+            orderRawValue: "",
+            hiddenRawValue: "[]",
+            showsMusic: false
+        )
+        XCTAssertEqual(visible, [.radio, .spokenWord, .podcasts, .ambient])
+        XCTAssertTrue(visible.allSatisfy { !$0.isMusicSection })
+        XCTAssertEqual(MinimalNavigationPolicy.musicSections(visibleSections: visible), [.ambient])
+        // 关了「显示首页」也一样有首页:音乐那一格没了,首页是落脚的地方。
+        XCTAssertEqual(
+            MinimalNavigationPolicy.topTabs(
+                showsHome: false,
+                visibleSections: visible,
+                spokenSections: [.spokenWord],
+                showsMusic: false
+            ),
+            [.home, .radio, .spoken]
+        )
+        // 全都关掉:只剩首页。
+        XCTAssertEqual(
+            MinimalNavigationPolicy.topTabs(
+                showsHome: false,
+                visibleSections: [],
+                spokenSections: [],
+                showsMusic: false
+            ),
+            [.home]
+        )
+        // 各分类自己的显隐不受影响,打开音乐后原样回来。
+        let hidden = LibraryDisplayConfiguration.encodeHiddenSections([.genres, .radio])
+        let musicOn = LibraryDisplayConfiguration.visibleSections(orderRawValue: "", hiddenRawValue: hidden)
+        XCTAssertTrue(musicOn.contains(.songs))
+        XCTAssertFalse(musicOn.contains(.genres))
+        XCTAssertEqual(
+            LibraryDisplayConfiguration.visibleSections(orderRawValue: "", hiddenRawValue: hidden, showsMusic: false),
+            [.spokenWord, .podcasts, .ambient]
+        )
+    }
+
+    func testEmptyLibraryTabStepsAsideForHome() {
+        let library = 1 << AppNavigationTab.library.rawValue
+        let home = 1 << AppNavigationTab.home.rawValue
+        // 有分类时照用户的标签设置。
+        XCTAssertEqual(AppTabConfiguration(hiddenMask: home).applyingSpaceVisibility(showsMusic: true, libraryHasSections: true).hiddenMask, home)
+        // 资料库空了:收起资料库,首页一定在。
+        let emptied = AppTabConfiguration(hiddenMask: home).applyingSpaceVisibility(showsMusic: false, libraryHasSections: false)
+        XCTAssertFalse(emptied.isVisible(.library))
+        XCTAssertTrue(emptied.isVisible(.home))
+        XCTAssertEqual(emptied.selection(for: AppNavigationTab.library.rawValue), AppNavigationTab.home.rawValue)
+        XCTAssertEqual(AppTabConfiguration().applyingSpaceVisibility(showsMusic: false, libraryHasSections: false).hiddenMask, library)
+    }
+
+    func testMusicOffColdLaunchReturnsHomeFromSettingsOrSearch() {
+        let stored = AppTabConfiguration(hiddenMask: 1 << AppNavigationTab.home.rawValue)
+        let effective = stored.applyingSpaceVisibility(showsMusic: false, libraryHasSections: true)
+        XCTAssertTrue(effective.isVisible(.library))
+        XCTAssertFalse(stored.isVisible(.home))
+        for tab in [AppNavigationTab.settings, .search, .library] {
+            XCTAssertEqual(effective.launchSelection(restoring: tab.rawValue, showsMusic: false), AppNavigationTab.home.rawValue)
+            XCTAssertEqual(stored.launchSelection(restoring: tab.rawValue, showsMusic: true), tab.rawValue)
+            XCTAssertEqual(effective.selection(for: tab.rawValue), tab.rawValue)
+        }
+    }
+
+    func testSearchLayoutDropsMusicResultsWhenMusicIsOff() {
+        let layout = SearchResultLayout(orderRawValue: "", hiddenRawValue: "", showsMusic: false)
+        XCTAssertFalse(layout.shows(.metadata))
+        XCTAssertFalse(layout.shows(.albums))
+        XCTAssertTrue(layout.shows(.radio))
+        XCTAssertTrue(layout.shows(.spokenWord))
+        XCTAssertTrue(layout.matchKinds.isEmpty)
+        XCTAssertTrue(SearchResultLayout(orderRawValue: "", hiddenRawValue: "").shows(.metadata))
+    }
+
     func testMinimalDeepLinksSelectTheirLibraryCategory() {
         XCTAssertNil(MinimalNavigationPolicy.section(for: .root))
         XCTAssertEqual(

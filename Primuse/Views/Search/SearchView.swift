@@ -584,6 +584,9 @@ struct SearchView: View {
     @State private var showsResultLayoutEditor = false
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
+    /// 设置 › 资料库里关了「音乐」:音乐的结果块(歌曲、专辑、艺人、歌单、目录、Apple Music……)都不列,
+    /// 电台、有声、环境音照旧(`MusicSpaceVisibility`)。
+    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     @State private var songsToAddToPlaylist: [PrimuseKit.Song] = []
     @State private var showsAddToPlaylist = false
     /// 正在加进 Apple Music 资料库的那首目录歌。
@@ -699,7 +702,7 @@ struct SearchView: View {
     }
 
     private var appleMusicSearchEnabled: Bool {
-        scope == nil && AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
+        scope == nil && showsMusic && AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
             catalogSearchEnabled: appleMusicCatalogSearchEnabled,
             sourceInstalled: library.appleMusicSourceInstalled,
             disabledSourceIDs: library.disabledSourceIDs
@@ -726,7 +729,8 @@ struct SearchView: View {
     private var resultLayout: SearchResultLayout {
         SearchResultLayout(
             orderRawValue: resultSectionOrderRawValue,
-            hiddenRawValue: hiddenResultSectionsRawValue
+            hiddenRawValue: hiddenResultSectionsRawValue,
+            showsMusic: showsMusic
         )
     }
 
@@ -754,7 +758,8 @@ struct SearchView: View {
             ),
             showsRadioRow: radioSearchAvailable,
             showsSpokenWordRow: spokenWordSearchAvailable,
-            showsAmbientRow: library.hasAmbientContent
+            showsAmbientRow: library.hasAmbientContent,
+            showsMusicRows: showsMusic
         )
     }
 
@@ -813,7 +818,7 @@ struct SearchView: View {
 
     private func showsSpace(_ space: ListeningSpace) -> Bool {
         switch space {
-        case .music: true
+        case .music: showsMusic
         case .radio: scope == nil && radioSearchAvailable && resultLayout.shows(.radio)
         case .spokenWord: scope == nil && spokenWordSearchAvailable && resultLayout.shows(.spokenWord)
         // 订阅的播客在播客页里搜(发现页),全局搜索暂不混进来。
@@ -1411,6 +1416,9 @@ struct SearchView: View {
         .onChange(of: hiddenLibrarySectionsRawValue) { _, _ in
             performSearch(query: searchText)
         }
+        .onChange(of: showsMusic) { _, _ in
+            performSearch(query: searchText)
+        }
         .onChange(of: intelligence.settingsStore.revision) { _, _ in
             performSearch(query: searchText)
         }
@@ -1835,10 +1843,13 @@ struct SearchView: View {
                     }
                 }
 
-                HStack(spacing: 14) {
-                    macSummaryTile(value: "\(library.musicSongs.count)", label: "tab_songs", icon: "music.note")
-                    macSummaryTile(value: "\(library.visibleAlbums.count)", label: "tab_albums", icon: "square.stack")
-                    macSummaryTile(value: "\(library.visibleArtists.count)", label: "tab_artists", icon: "music.mic")
+                // 曲库的歌、专辑、艺人数:设置里关了音乐时不摆。
+                if showsMusic {
+                    HStack(spacing: 14) {
+                        macSummaryTile(value: "\(library.musicSongs.count)", label: "tab_songs", icon: "music.note")
+                        macSummaryTile(value: "\(library.visibleAlbums.count)", label: "tab_albums", icon: "square.stack")
+                        macSummaryTile(value: "\(library.visibleArtists.count)", label: "tab_artists", icon: "music.mic")
+                    }
                 }
             }
             .padding(.horizontal, PMSpace.xxxl)
@@ -1872,10 +1883,9 @@ struct SearchView: View {
                 if showsSpace(.music) {
                     macTopRow(model)
                 }
-                if showsSpace(.music) {
-                    ForEach(model.plan.rows) { row in
-                        macResultRow(row, model: model)
-                    }
+                // 音乐关着时排版计划里只有电台、有声、环境音这几块。
+                ForEach(model.plan.rows) { row in
+                    macResultRow(row, model: model)
                 }
                 macRecentSearchInlineSection
             }
@@ -3652,22 +3662,25 @@ struct SearchView: View {
                 }
             }
 
-            Section {
-                HStack {
-                    Image(systemName: "music.note.list")
-                        .foregroundStyle(.secondary)
-                    Text("\(scope?.songIDs.count ?? library.musicSongs.count) \(String(localized: "tab_songs"))")
-                    if scope == nil {
-                        Spacer()
-                        Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
-                        Text("·")
-                        Text("\(library.visibleArtists.count) \(String(localized: "tab_artists"))")
+            // 曲库的歌、专辑、艺人数:设置里关了音乐、又不是在某个范围里搜时不摆。
+            if showsMusic || scope != nil {
+                Section {
+                    HStack {
+                        Image(systemName: "music.note.list")
+                            .foregroundStyle(.secondary)
+                        Text("\(scope?.songIDs.count ?? library.musicSongs.count) \(String(localized: "tab_songs"))")
+                        if scope == nil {
+                            Spacer()
+                            Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
+                            Text("·")
+                            Text("\(library.visibleArtists.count) \(String(localized: "tab_artists"))")
+                        }
                     }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } header: {
+                    Text(scope?.title ?? String(localized: "library"))
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            } header: {
-                Text(scope?.title ?? String(localized: "library"))
             }
         }
     }
@@ -3687,10 +3700,9 @@ struct SearchView: View {
                 }
             }
 
-            if showsSpace(.music) {
-                ForEach(displayedResultSections) { section in
-                    resultSection(section)
-                }
+            // 音乐关着时音乐的块已经不在 displayedResultSections 里,电台、有声、环境音照旧从这里排出来。
+            ForEach(displayedResultSections) { section in
+                resultSection(section)
             }
         }
         .listStyle(.plain)
@@ -4473,7 +4485,8 @@ struct SearchView: View {
         let matchKinds = layout.matchKinds
         // 全局搜索只在音乐里找歌: 有声条目按书列在自己那一组, 不混进歌曲结果。
         // 在某个歌单 / 文件夹范围里搜时, 范围里有什么就找什么。
-        let sourceSongsSnapshot = scopedSearch ? library.visibleSongs : library.musicSongs
+        // 设置里关了音乐时全局搜索不找歌(音乐的结果块都收起了),在某个范围里搜照旧。
+        let sourceSongsSnapshot = scopedSearch ? library.visibleSongs : (showsMusic ? library.musicSongs : [])
         let scopeSnapshot = scope
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
         let artistsSnapshot = scopedSearch || !layout.shows(.artists) ? [] : library.visibleArtists

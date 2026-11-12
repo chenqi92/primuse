@@ -21,9 +21,13 @@ struct SearchResultLayout: Equatable {
     let order: [SearchResultSection]
     let hidden: Set<SearchResultSection>
 
-    init(orderRawValue: String, hiddenRawValue: String) {
+    /// `showsMusic` 是设置 › 资料库里的「音乐」:关着时音乐的块一律当作收起,用户自己的显隐不改。
+    init(orderRawValue: String, hiddenRawValue: String, showsMusic: Bool = MusicSpaceVisibility.defaultValue) {
         order = SearchResultSectionLayout.decodeOrder(orderRawValue)
-        hidden = SearchResultSectionLayout.decodeHidden(hiddenRawValue)
+        hidden = MusicSpaceVisibility.hiddenResults(
+            SearchResultSectionLayout.decodeHidden(hiddenRawValue),
+            showsMusic: showsMusic
+        )
     }
 
     /// Apple Music 的开关在别处(曲库搜索设置), 这里只管本机的几块。
@@ -78,6 +82,8 @@ struct SearchResultLayoutEditor: View {
     var showsSpokenWordRow = true
     /// 没有环境音(或关了单独归类)时不列这一行。
     var showsAmbientRow = false
+    /// 设置里关了「音乐」时不列音乐的几块:开着它们搜索页也不会多出东西。
+    var showsMusicRows = true
 
     @AppStorage(SearchResultSectionLayout.orderKey) private var orderRawValue = ""
     @AppStorage(SearchResultSectionLayout.hiddenKey) private var hiddenRawValue = ""
@@ -99,12 +105,12 @@ struct SearchResultLayoutEditor: View {
     private var displayed: [SearchResultSection] {
         order.filter { section in
             switch section {
-            case .intelligent: showsIntelligentRow
-            case .appleMusic: showsAppleMusicRow
+            case .intelligent: showsIntelligentRow && showsMusicRows
+            case .appleMusic: showsAppleMusicRow && showsMusicRows
             case .radio: showsRadioRow
             case .spokenWord: showsSpokenWordRow
             case .ambient: showsAmbientRow
-            default: true
+            default: showsMusicRows
             }
         }
     }

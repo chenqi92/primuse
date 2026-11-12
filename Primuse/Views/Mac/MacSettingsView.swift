@@ -7457,6 +7457,7 @@ private struct MacSTThemeView: View {
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
+    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     /// 排序列表一行的实际高度, 拖动手柄按它换算「挪了几行」。
     @State private var sidebarSectionRowHeight: CGFloat = 40
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
@@ -7633,9 +7634,14 @@ private struct MacSTThemeView: View {
         LibraryDisplayConfiguration.decodeSectionOrder(librarySectionOrderRawValue)
     }
 
-    /// 侧栏「资料库」分组可能出现的行, 按用户的顺序 (含已关掉的)。
+    /// 侧栏「资料库」分组可能出现的行, 按用户的顺序 (含已关掉的)。设置里关了「音乐」时不列音乐的分类,
+    /// 它们的开关与位置原样留着。
     private var sidebarSectionOrder: [LibrarySection] {
-        librarySectionOrder.filter(MacSidebarLibraryLayout.isLibraryGroupRow)
+        librarySectionOrder.filter(isListedSidebarRow)
+    }
+
+    private func isListedSidebarRow(_ section: LibrarySection) -> Bool {
+        MacSidebarLibraryLayout.isLibraryGroupRow(section) && (showsMusic || !section.isMusicSection)
     }
 
     private var customRecommendationIntents: [AICustomRecommendationIntent] {
@@ -8237,11 +8243,22 @@ private struct MacSTThemeView: View {
             MacLibraryBackupGroup()
 
             MacSTGroup {
+                // 音乐和电台、有声书、播客一样能整类收起: 关掉后侧栏只剩那几类, 歌单分区也收起。
+                MacSTRow(
+                    String(localized: "listening_space_music"),
+                    help: String(localized: "library_music_space_footer"),
+                    divider: false
+                ) {
+                    MacSTToggle(isOn: $showsMusic)
+                }
+                .settingsAnchor("library.show.music")
+                .accessibilityIdentifier("library.show.music")
+
                 // 这张列表就是侧栏「资料库」分组的样子: 同一条规则取行、同一个顺序,
                 // 拖左侧手柄排序, 右侧开关管显不显示。
                 let rows = sidebarSectionOrder
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, section in
-                    MacSTRow(MacSidebarLibraryLayout.localizedTitle(for: section), divider: index != 0) {
+                    MacSTRow(MacSidebarLibraryLayout.localizedTitle(for: section)) {
                         MacSTToggle(isOn: librarySectionVisibilityBinding(for: section))
                     }
                     .padding(.leading, 26)
@@ -8268,11 +8285,13 @@ private struct MacSTThemeView: View {
                     .settingsAnchor("library.show." + section.rawValue)
                 }
 
-                // 歌单是侧栏下面自己的分区, 不参与这组排序, 只管显不显示。
-                MacSTRow(MacSidebarLibraryLayout.localizedTitle(for: .playlists)) {
-                    MacSTToggle(isOn: librarySectionVisibilityBinding(for: .playlists))
+                // 歌单是侧栏下面自己的分区, 不参与这组排序, 只管显不显示。音乐关着时整个分区收起, 不列。
+                if showsMusic {
+                    MacSTRow(MacSidebarLibraryLayout.localizedTitle(for: .playlists)) {
+                        MacSTToggle(isOn: librarySectionVisibilityBinding(for: .playlists))
+                    }
+                    .settingsAnchor("library.show." + LibrarySection.playlists.rawValue)
                 }
-                .settingsAnchor("library.show." + LibrarySection.playlists.rawValue)
 
                 MacSTRow(
                     String(localized: "library_sections_settings_label")
@@ -8513,7 +8532,7 @@ private struct MacSTThemeView: View {
         rows.move(fromOffsets: source, toOffset: destination)
         var reordered = rows.makeIterator()
         let updated = librarySectionOrder.map { section in
-            MacSidebarLibraryLayout.isLibraryGroupRow(section) ? (reordered.next() ?? section) : section
+            isListedSidebarRow(section) ? (reordered.next() ?? section) : section
         }
         guard updated != librarySectionOrder else { return }
         pmWithAnimation(.list) {
