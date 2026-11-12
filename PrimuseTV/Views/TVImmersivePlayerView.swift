@@ -93,26 +93,12 @@ enum TVImmersiveChromeMotionPolicy {
 }
 
 enum TVImmersiveScreenWakePolicy {
+    /// 全屏播放页自己的那份常亮租约。「播放时屏幕常亮」选了延时档时，由 `ScreenIdleHoldController`
+    /// 再按无操作时长放手；跟随系统与一直常亮照这里的结果。
     /// - Parameter systemIdleAllowed: 省电档里又暂停着（`ImmersiveIdlePowerPolicy.holdsScreenAwake`），
     ///   把屏保与休眠交还给系统。
     static func shouldHoldLease(isMounted: Bool, sceneIsActive: Bool, systemIdleAllowed: Bool = false) -> Bool {
         isMounted && sceneIsActive && !systemIdleAllowed
-    }
-}
-
-@MainActor
-private enum TVImmersiveScreenWakeCoordinator {
-    private static var owners: Set<UUID> = []
-
-    static func update(ownerID: UUID, shouldHold: Bool) {
-        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
-            owners,
-            ownerID: ownerID,
-            shouldHold: shouldHold
-        )
-        let shouldDisableIdleTimer = !owners.isEmpty
-        guard UIApplication.shared.isIdleTimerDisabled != shouldDisableIdleTimer else { return }
-        UIApplication.shared.isIdleTimerDisabled = shouldDisableIdleTimer
     }
 }
 
@@ -121,7 +107,7 @@ private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
     var systemIdleAllowed = false
 
     @Environment(\.scenePhase) private var scenePhase
-    @State private var ownerID = UUID()
+    @State private var ownerID = UUID().uuidString
 
     private var shouldHoldLease: Bool {
         TVImmersiveScreenWakePolicy.shouldHoldLease(
@@ -134,19 +120,13 @@ private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear {
-                TVImmersiveScreenWakeCoordinator.update(
-                    ownerID: ownerID,
-                    shouldHold: shouldHoldLease
-                )
+                ScreenIdleHoldController.shared.updateFullscreenPage(owner: ownerID, holds: shouldHoldLease)
             }
             .onChange(of: shouldHoldLease) { _, shouldHold in
-                TVImmersiveScreenWakeCoordinator.update(
-                    ownerID: ownerID,
-                    shouldHold: shouldHold
-                )
+                ScreenIdleHoldController.shared.updateFullscreenPage(owner: ownerID, holds: shouldHold)
             }
             .onDisappear {
-                TVImmersiveScreenWakeCoordinator.update(ownerID: ownerID, shouldHold: false)
+                ScreenIdleHoldController.shared.updateFullscreenPage(owner: ownerID, holds: false)
             }
     }
 }
@@ -400,7 +380,10 @@ struct TVImmersivePlayerView: View {
             .animation(.easeInOut(duration: reduceMotion ? 0.01 : 1.2), value: isLowPower)
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.65)
-                    .onEnded { _ in if !showsDiscPosition { presentModePicker() } }
+                    .onEnded { _ in
+                        ScreenIdleHoldController.shared.noteUserInteraction()
+                        if !showsDiscPosition { presentModePicker() }
+                    }
             )
         }
         .ignoresSafeArea()
@@ -415,6 +398,7 @@ struct TVImmersivePlayerView: View {
             )
         ))
         .onExitCommand {
+            ScreenIdleHoldController.shared.noteUserInteraction()
             // 省电时和屏保一样：第一下只是叫醒，不直接退出全屏页。
             if showsDiscPosition {
                 closeDiscPosition()
@@ -1380,6 +1364,8 @@ struct TVImmersivePlayerView: View {
     }
 
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
+        // 全屏页上方向键多半不挪焦点，系统的焦点通知收不到，这里自己报一次操作。
+        ScreenIdleHoldController.shared.noteUserInteraction()
         guard !showsDiscPosition else { return }
         // 省电时第一下只是叫醒，不在黑着的屏幕上切歌。
         if isLowPower {

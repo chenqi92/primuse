@@ -779,7 +779,6 @@ struct IOSAudioCacheSyncView: View {
     @State private var selectedPeerID: String?
     @State private var direction: AudioCacheSyncDirection = .send
     @State private var showsFullSyncConfirmation = false
-    @State private var previousIdleTimerDisabled = false
 
     var body: some View {
         Form {
@@ -1185,7 +1184,6 @@ struct IOSAudioCacheSyncView: View {
 
     private func startSession() {
         if cacheSync.incomingTransferCount > 0 { direction = .receive }
-        previousIdleTimerDisabled = UIApplication.shared.isIdleTimerDisabled
         cacheSync.clearFeedback()
         cacheSync.retryNetworking(discover: direction == .send)
         cacheSync.refreshLocalInventory()
@@ -1197,12 +1195,15 @@ struct IOSAudioCacheSyncView: View {
             cacheSync.cancelTransfer()
         }
         cacheSync.stopDiscovery()
-        UIApplication.shared.isIdleTimerDisabled = previousIdleTimerDisabled
+        ScreenWakeLeases.update(owner: "audioCacheSync", holds: false)
     }
 
+    /// 传输中、等着接收时不锁屏；和播放时屏幕常亮各持一份，互不还原对方的。
     private func updateScreenWake(for operation: AudioCacheSyncOperation) {
-        UIApplication.shared.isIdleTimerDisabled =
-            previousIdleTimerDisabled || operation == .transferring || direction == .receive
+        ScreenWakeLeases.update(
+            owner: "audioCacheSync",
+            holds: operation == .transferring || direction == .receive
+        )
     }
 
     private func updateSelection(for peers: [AudioCacheSyncPeer]) {

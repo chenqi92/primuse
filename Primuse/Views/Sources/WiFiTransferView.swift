@@ -73,9 +73,6 @@ struct WiFiTransferView: View {
     @State private var closeAfterStopping = false
     @State private var dismissWhenStopped = false
     @State private var showReceiveHistory = false
-    #if os(iOS)
-    @State private var previousIdleTimer: Bool?
-    #endif
 
     init(initialMode: String = "send") { _mode = State(initialValue: initialMode) }
 
@@ -134,8 +131,7 @@ struct WiFiTransferView: View {
         .onChange(of: receiver.running || sender.busy) { _, active in
             #if os(iOS)
             if active {
-                if previousIdleTimer == nil { previousIdleTimer = UIApplication.shared.isIdleTimerDisabled }
-                UIApplication.shared.isIdleTimerDisabled = true
+                ScreenWakeLeases.update(owner: Self.screenWakeOwner, holds: true)
             } else { restoreIdleTimer() }
             #endif
         }
@@ -437,11 +433,11 @@ struct WiFiTransferView: View {
     }
 
     #if os(iOS)
+    /// 传输中不自动锁屏。和播放时屏幕常亮各持一份，互不还原对方的。
+    private static let screenWakeOwner = "wifiTransfer"
+
     private func restoreIdleTimer() {
-        if let previousIdleTimer {
-            UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
-            self.previousIdleTimer = nil
-        }
+        ScreenWakeLeases.update(owner: Self.screenWakeOwner, holds: false)
     }
     #endif
 

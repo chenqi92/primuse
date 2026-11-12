@@ -3,66 +3,6 @@ import Testing
 @testable import PrimuseKit
 
 struct NowPlayingInteractionPolicyTests {
-    @Test func screenAwakeRequiresTheSettingAVisiblePlayerAndAnActiveScene() {
-        #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true, requiresCharging: false, isCharging: false,
-            playerVisible: true, sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: false, requiresCharging: false, isCharging: true,
-            playerVisible: true, sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true, requiresCharging: false, isCharging: true,
-            playerVisible: false, sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true, requiresCharging: false, isCharging: true,
-            playerVisible: true, sceneIsActive: false
-        ))
-    }
-
-    @Test func chargingOnlyReleasesTheScreenOnBattery() {
-        #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true, requiresCharging: true, isCharging: true,
-            playerVisible: true, sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true, requiresCharging: true, isCharging: false,
-            playerVisible: true, sceneIsActive: true
-        ))
-    }
-
-    @Test func screenWakeLeaseSurvivesUntilTheLastVisibleWindowReleasesIt() {
-        let firstWindow = UUID()
-        let secondWindow = UUID()
-        var owners: Set<UUID> = []
-
-        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
-            owners,
-            ownerID: firstWindow,
-            shouldHold: true
-        )
-        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
-            owners,
-            ownerID: secondWindow,
-            shouldHold: true
-        )
-        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
-            owners,
-            ownerID: firstWindow,
-            shouldHold: false
-        )
-        #expect(owners == [secondWindow])
-
-        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
-            owners,
-            ownerID: secondWindow,
-            shouldHold: false
-        )
-        #expect(owners.isEmpty)
-    }
-
     @Test func lyricSeekingRequiresTheToggleAndSynchronizedTiming() {
         #expect(NowPlayingInteractionPolicy.shouldSeekFromLyricTap(
             settingEnabled: true,

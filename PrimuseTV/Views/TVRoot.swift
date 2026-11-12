@@ -281,8 +281,15 @@ struct TVRoot: View {
     var body: some View {
         rootContent
             .modifier(TVReturnToTabsModifier(enabled: hidesTabBar || !isTabBarFocused) {
+                ScreenIdleHoldController.shared.noteUserInteraction()
                 if hidesTabBar { leavePlayer() } else { returnFocusToTabs() }
             })
+            // 播放时屏幕常亮选了一直常亮:静止页面停够了就转到播放页,不让同一幅画面一直亮着。
+            .modifier(TVScreenIdleRestModifier(
+                isOnPlayerSurface: hidesTabBar,
+                canOpenPlayer: store.hasNowPlaying && rootModalPresentationCount == 0 && !hasChildModalPresentation,
+                openPlayer: { openPlayerFromPage(from: tab) }
+            ))
             .modifier(TVRemoteTransportModifier(
                 shortcutsEnabled: store.hasNowPlaying && rootModalPresentationCount == 0
                     && !hasChildModalPresentation && tab != .search

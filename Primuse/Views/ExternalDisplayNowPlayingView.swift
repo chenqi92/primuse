@@ -23,7 +23,6 @@ struct ExternalDisplayNowPlayingView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.lyricsTypeface) private var lyricsTypeface
 
     @State private var lyrics: [LyricLine] = []
@@ -65,12 +64,6 @@ struct ExternalDisplayNowPlayingView: View {
                 updateLyricIndex(for: time)
             }
         }
-        #if os(iOS)
-        .playerScreenWakeLease(
-            isVisible: player.currentSong != nil,
-            sceneIsActive: scenePhase == .active
-        )
-        #endif
     }
 
     private func externalBackdrop(size: CGSize) -> some View {
@@ -332,10 +325,6 @@ struct ExternalDisplayImmersiveView: View {
         .modifier(ExternalDisplayLyricsReload(songID: player.currentSong?.id) {
             Task { await loadLyrics() }
         })
-        .playerScreenWakeLease(
-            isVisible: player.currentSong != nil,
-            sceneIsActive: scenePhase == .active
-        )
     }
 
     private func loadLyrics() async {

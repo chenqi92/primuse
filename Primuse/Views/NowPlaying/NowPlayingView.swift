@@ -308,104 +308,6 @@ private struct NowPlayingBarColumnIcon: View {
     }
 }
 
-#if os(iOS)
-/// 播放页与外接显示器各持一份租约，谁最后释放谁关掉常亮。
-@MainActor
-private enum PlayerScreenWakeCoordinator {
-    private static var owners: Set<UUID> = []
-
-    static func update(ownerID: UUID, shouldHold: Bool) {
-        owners = NowPlayingInteractionPolicy.updatedScreenWakeOwners(
-            owners,
-            ownerID: ownerID,
-            shouldHold: shouldHold
-        )
-
-        let shouldDisableIdleTimer = !owners.isEmpty
-        guard UIApplication.shared.isIdleTimerDisabled != shouldDisableIdleTimer else { return }
-        UIApplication.shared.isIdleTimerDisabled = shouldDisableIdleTimer
-    }
-}
-
-/// `UIDevice.batteryState` only reports a real value while monitoring is on,
-/// so monitoring runs just for the window in which the charging rule matters.
-@MainActor
-private enum DeviceChargingState {
-    static var isCharging: Bool {
-        switch UIDevice.current.batteryState {
-        case .charging, .full: true
-        case .unplugged, .unknown: false
-        @unknown default: false
-        }
-    }
-
-    static func setMonitoring(_ enabled: Bool) {
-        guard UIDevice.current.isBatteryMonitoringEnabled != enabled else { return }
-        UIDevice.current.isBatteryMonitoringEnabled = enabled
-    }
-}
-
-/// 整个播放器界面（封面、歌词、全屏效果）只要是当前展示面就持有常亮租约，
-/// 不再区分歌词有没有显示。
-private struct PlayerScreenWakeLeaseModifier: ViewModifier {
-    let isVisible: Bool
-    let sceneIsActive: Bool
-
-    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
-    private var isEnabled = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
-    @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
-    private var requiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
-    @State private var ownerID = UUID()
-    @State private var isCharging = false
-
-    private var observesCharging: Bool {
-        isEnabled && requiresCharging && isVisible && sceneIsActive
-    }
-
-    private var shouldHoldLease: Bool {
-        NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: isEnabled,
-            requiresCharging: requiresCharging,
-            isCharging: isCharging,
-            playerVisible: isVisible,
-            sceneIsActive: sceneIsActive
-        )
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: observesCharging, initial: true) { _, observes in
-                DeviceChargingState.setMonitoring(observes)
-                isCharging = DeviceChargingState.isCharging
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(for: UIDevice.batteryStateDidChangeNotification)
-            ) { _ in
-                isCharging = DeviceChargingState.isCharging
-            }
-            .onChange(of: shouldHoldLease, initial: true) { _, shouldHold in
-                PlayerScreenWakeCoordinator.update(
-                    ownerID: ownerID,
-                    shouldHold: shouldHold
-                )
-            }
-            .onDisappear {
-                DeviceChargingState.setMonitoring(false)
-                PlayerScreenWakeCoordinator.update(ownerID: ownerID, shouldHold: false)
-            }
-    }
-}
-
-extension View {
-    func playerScreenWakeLease(isVisible: Bool, sceneIsActive: Bool) -> some View {
-        modifier(PlayerScreenWakeLeaseModifier(
-            isVisible: isVisible,
-            sceneIsActive: sceneIsActive
-        ))
-    }
-}
-#endif
-
 /// 播放页背景:封面取色的色场(或流动色彩)、声音律动、明暗两种遮罩,以及铺在最上面的背景图
 /// (封面模糊 / 专辑封底 / 自选图片)。播放页和设置里「播放页样式与按钮」那张预览共用,
 /// 预览里看到的就是播放页的背景。
@@ -3891,12 +3793,6 @@ struct NowPlayingView: View {
                 }
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
-                // 常亮租约挂在这个常驻的零尺寸视图上：播放页是当前展示面就持有，
-                // 收成迷你条或整页消失就释放。
-                .playerScreenWakeLease(
-                    isVisible: isPresentationSettled && isPresentationActive,
-                    sceneIsActive: isVisualSceneActive
-                )
                 .onChange(of: isPlayerDormant) { _, dormant in
                     if dormant {
                         enterPlayerDormancy()

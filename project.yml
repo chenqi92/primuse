@@ -900,6 +900,8 @@ targets:
       - path: Primuse/Utilities/Extensions/TimeInterval+Format.swift
       # 沉浸播放:风格枚举与共享工艺层,与 iOS / macOS 同一份实现
       - path: Primuse/Services/FullscreenPlayerEffectSettings.swift
+      # 播放时屏幕常亮:租约登记与到点放手,与 iOS / macOS 同一份实现
+      - path: Primuse/Services/ScreenIdleHoldController.swift
       # 播放页背景:设置与图片处理与 iOS / macOS 同一份实现
       - path: Primuse/Services/PlayerBackdropSettingsStore.swift
       - path: Primuse/Services/PlayerBackdropImaging.swift

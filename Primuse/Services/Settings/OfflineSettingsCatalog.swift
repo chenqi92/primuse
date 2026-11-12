@@ -33,6 +33,7 @@ enum OfflineSettingsCatalog {
         AmbientSoundPreferences.enabledKey, AmbientQuickTimerRow.storageKey,
         AIRecommendationRefreshInterval.storageKey, AIRecommendationUnit.storageKey,
         PlaybackSessionRestoreLifecycle.launchAutoplayKey, MedleyDataUsagePolicy.promptDisabledKey,
+        ScreenIdleHoldMode.storageKey,
         AppleMusicFeatureSettings.autoAddToSmartPlaylistsKey,
         AppleMusicFeatureSettings.catalogSearchEnabledKey, AppleMusicFeatureSettings.syncUserLibraryKey,
         MusicScraperService.sidecarCoverWriteEnabledKey, MusicScraperService.sidecarLyricsWriteEnabledKey,

@@ -618,6 +618,9 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
             self.desktopLyrics = lyrics
 
             self.miniPlayer = MiniPlayerWindowController()
+            // 播放时屏幕常亮(各设备各自存):播放中且窗口看得见时拦住屏保与显示器睡眠。
+            let player = AppServices.shared.playerService
+            ScreenIdleHoldController.shared.start { player.isPlaying }
             plog("🪟 AppDelegate didFinishLaunching: menuBar=ok lyrics=ok miniPlayer=\(self.miniPlayer == nil ? "nil" : "ok") delegateType=\(type(of: NSApp.delegate as Any))")
             MacScreenshotWindowPreset.applyIfRequested()
 
@@ -1652,6 +1655,11 @@ struct PrimuseApp: App {
         _musicIntelligence = State(initialValue: services.musicIntelligence)
         #if os(iOS) || os(macOS)
         _audioCacheSync = State(initialValue: services.audioCacheSync)
+        #endif
+        #if os(iOS)
+        // 播放时屏幕常亮(各设备各自存):播放状态一变就重算要不要拦住自动锁屏。Mac 等 NSApp 起来后再开。
+        let player = services.playerService
+        ScreenIdleHoldController.shared.start { player.isPlaying }
         #endif
     }
 

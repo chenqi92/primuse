@@ -1081,16 +1081,21 @@ struct TVRemoteTransportModifier: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
+        // 播放键、快进这些不挪焦点的按键也算一次操作（播放时屏幕常亮的计时从这里重算）。
+        let reportingCommand: (TVRemoteTransportCommand) -> Void = { [onCommand] command in
+            ScreenIdleHoldController.shared.noteUserInteraction()
+            onCommand(command)
+        }
+        return content
             .background {
-                TVRemoteTransportBridge(enabled: capturesPresses, onCommand: onCommand)
+                TVRemoteTransportBridge(enabled: capturesPresses, onCommand: reportingCommand)
                     .frame(width: 0, height: 0)
                     .accessibilityHidden(true)
             }
             .onPlayPauseCommand {
                 // The UIKit recognizers arbitrate single/double/long presses.
                 // Keep the native single-press route when shortcuts are unavailable.
-                if !capturesPresses { onCommand(.togglePlayback) }
+                if !capturesPresses { reportingCommand(.togglePlayback) }
             }
             .onAppear { isVisible = true }
             .onDisappear { isVisible = false }

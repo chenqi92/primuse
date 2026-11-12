@@ -164,6 +164,8 @@ final class CloudKVSSyncTests: XCTestCase {
             PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey,
             PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey,
             PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey,
+            // 播放时屏幕常亮各设备各自存。
+            ScreenIdleHoldMode.storageKey,
             PlayerAppearancePreferences.entersFullscreenInLandscapeKey,
             ImmersiveLyricsMotionSettings.storageKey,
             ImmersiveFrameRateMode.storageKey,

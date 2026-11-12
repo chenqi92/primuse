@@ -2879,6 +2879,9 @@ private struct MacSTInfoText: View {
 
 private struct MacSTPlaybackView: View {
     @AppStorage(PlaybackSessionRestoreLifecycle.launchAutoplayKey) private var autoplayOnLaunch = false
+    /// 播放时屏幕常亮：只存在这台 Mac 上，不随 iCloud 同步。
+    @AppStorage(ScreenIdleHoldMode.storageKey)
+    private var screenIdleModeRawValue = ScreenIdleHoldMode.defaultValue.rawValue
     // 接真 Store, 拖滑块/切 toggle 会立即写回 PlaybackSettingsStore 并 persist。
     @Environment(PlaybackSettingsStore.self) private var store
     @Environment(SourceManager.self) private var sourceManager
@@ -2926,7 +2929,27 @@ private struct MacSTPlaybackView: View {
                 }
                 .settingsAnchor("playback.autoplayOnLaunch")
                 .accessibilityIdentifier("playback.autoplayOnLaunch")
+                MacSTRow(
+                    String(localized: "screen_idle_title"),
+                    help: String(localized: "screen_idle_info_mac")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { ScreenIdleHoldMode(storedValue: screenIdleModeRawValue) },
+                            set: { screenIdleModeRawValue = $0.rawValue }
+                        ),
+                        options: ScreenIdleHoldMode.allCases.map {
+                            ($0, String(localized: String.LocalizationValue($0.titleKey)))
+                        },
+                        width: 180
+                    )
+                }
+                .settingsAnchor("player.keepScreenAwake")
+                .accessibilityIdentifier("screenIdleModePicker")
             }
+        }
+        .onChange(of: screenIdleModeRawValue) { _, _ in
+            ScreenIdleHoldController.shared.settingsDidChange()
         }
 
         MacSTSection(Lz("Audio Output")) {

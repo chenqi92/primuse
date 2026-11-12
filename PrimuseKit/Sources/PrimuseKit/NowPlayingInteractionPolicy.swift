@@ -148,36 +148,6 @@ public enum NowPlayingInteractionPolicy {
     public static let minimumScrubDistance: Double = 8
     public static let minimumScrubHitTargetSize: Double = 44
 
-    /// The whole player screen (artwork, lyrics or a full-screen effect) keeps
-    /// the display awake while it is the active presentation. The charging
-    /// requirement keeps the option from draining a phone left unplugged.
-    public static func shouldKeepScreenAwake(
-        settingEnabled: Bool,
-        requiresCharging: Bool,
-        isCharging: Bool,
-        playerVisible: Bool,
-        sceneIsActive: Bool
-    ) -> Bool {
-        settingEnabled
-            && playerVisible
-            && sceneIsActive
-            && (!requiresCharging || isCharging)
-    }
-
-    public static func updatedScreenWakeOwners(
-        _ owners: Set<UUID>,
-        ownerID: UUID,
-        shouldHold: Bool
-    ) -> Set<UUID> {
-        var updatedOwners = owners
-        if shouldHold {
-            updatedOwners.insert(ownerID)
-        } else {
-            updatedOwners.remove(ownerID)
-        }
-        return updatedOwners
-    }
-
     public static func shouldSeekFromLyricTap(
         settingEnabled: Bool,
         lineIsSynchronized: Bool

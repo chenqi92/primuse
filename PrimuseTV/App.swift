@@ -59,6 +59,9 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         // CKSyncEngine 靠 CloudKit 的静默推送才知道该去拉取。不注册就只剩启动时
         // 那一次和设置页的手动同步 —— 与 iOS / macOS 端注册的理由完全相同。
         application.registerForRemoteNotifications()
+        // 播放时屏幕常亮(各设备各自存):播放状态一变就重算要不要挡住屏保。
+        let store = self.store
+        ScreenIdleHoldController.shared.start { store.isPlaying }
         radioCatalogObserver = NotificationCenter.default.addObserver(
             forName: .primuseTVSiriRadioCatalogDidChange,
             object: nil,

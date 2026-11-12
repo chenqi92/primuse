@@ -377,11 +377,12 @@ struct KaraokeRemoteMicView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            UIApplication.shared.isIdleTimerDisabled = true
+            // 手机当麦克风时不锁屏；和播放时屏幕常亮各持一份，离开时不会把对方的也关掉。
+            ScreenWakeLeases.update(owner: "karaokeRemoteMic", holds: true)
             controller.start()
         }
         .onDisappear {
-            UIApplication.shared.isIdleTimerDisabled = false
+            ScreenWakeLeases.update(owner: "karaokeRemoteMic", holds: false)
             controller.stop()
         }
     }

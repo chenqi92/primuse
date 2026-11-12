@@ -246,9 +246,11 @@ enum PlayerAppearancePreferences {
     /// 歌词页换句时怎么滚(`PlayerLyricsMotion` 的原始值):整份歌词一起平滑滚动,或一行接一行像弹簧一样落位、
     /// 离当前句越远越淡越虚。随 iCloud 同步。
     static let lyricsMotionKey = "primuse.player.lyricsMotion"
-    /// 播放器界面保持常亮。沿用早先「歌词界面常亮」的存储键，老用户开过的直接生效。
-    static let keepsScreenAwakeInPlayerKey = "primuse.player.keepsScreenAwakeForLyrics"
+    /// 旧版的「播放器界面保持屏幕常亮」。已并进「播放时屏幕常亮」（`ScreenIdleHoldMode`）：开着的在第一次
+    /// 启动新版时迁移成一直常亮，之后不再读它。
+    static let keepsScreenAwakeInPlayerKey = ScreenIdleHoldMode.legacyKeepsScreenAwakeKey
     static let keepsScreenAwakeInPlayerByDefault = false
+    /// 「播放时屏幕常亮」的「仅在充电时」（iPhone / iPad），沿用原来的键。
     static let playerScreenWakeRequiresChargingKey = "primuse.player.screenWakeRequiresCharging"
     static let playerScreenWakeRequiresChargingByDefault = false
     static let tapLyricsToSeekKey = "primuse.player.tapLyricsToSeek"

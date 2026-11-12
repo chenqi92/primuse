@@ -27,7 +27,6 @@ struct TVTransferReceiveView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var receiver = WiFiTransferReceiver()
     @State private var error: String?
-    @State private var previousIdleTimer: Bool?
     @State private var showMusic = false
     @State private var showStopConfirmation = false
     @State private var requestedAction = "stop"
@@ -134,8 +133,7 @@ struct TVTransferReceiveView: View {
         }
         .onChange(of: receiver.running) { _, running in
             if running {
-                if previousIdleTimer == nil { previousIdleTimer = UIApplication.shared.isIdleTimerDisabled }
-                UIApplication.shared.isIdleTimerDisabled = true
+                ScreenWakeLeases.update(owner: Self.screenWakeOwner, holds: true)
             } else {
                 restoreIdleTimer()
                 if let next = actionAfterStop { actionAfterStop = nil; performAction(next) }
@@ -249,11 +247,11 @@ struct TVTransferReceiveView: View {
 
     private func stop() { receiver.stop(); restoreIdleTimer() }
 
+    /// 接收中不让电视进屏保。和播放时屏幕常亮、全屏页各持一份，互不还原对方的。
+    private static let screenWakeOwner = "tvTransferReceive"
+
     private func restoreIdleTimer() {
-        if let previousIdleTimer {
-            UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
-            self.previousIdleTimer = nil
-        }
+        ScreenWakeLeases.update(owner: Self.screenWakeOwner, holds: false)
     }
 
     private func refresh(source: MusicSource, path: String, deleted: Bool) {

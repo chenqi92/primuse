@@ -163,7 +163,7 @@ struct SettingsActionService {
         case "appearance.artworkLyrics": preference(PlayerAppearancePreferences.showsArtworkLyricsKey, fallback: PlayerAppearancePreferences.showsArtworkLyricsByDefault)
         case "appearance.playerProgressGlow": preference(PlayerAppearancePreferences.progressGlowKey, fallback: PlayerAppearancePreferences.progressGlowByDefault)
         case "player.pinMiniPlayer": preference(PlayerAppearancePreferences.pinsMiniPlayerKey, fallback: PlayerAppearancePreferences.pinsMiniPlayerByDefault)
-        case "player.keepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault)
+        case "player.keepScreenAwake": ScreenIdleHoldMode(storedValue: defaults.string(forKey: ScreenIdleHoldMode.storageKey)).holdsWhilePlaying
         case "player.tapArtworkOpensLyrics": preference(PlayerAppearancePreferences.tapArtworkOpensLyricsKey, fallback: PlayerAppearancePreferences.tapArtworkOpensLyricsByDefault)
         case "player.keepScreenAwakeChargingOnly": preference(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey, fallback: PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault)
         default: nil
@@ -211,9 +211,16 @@ struct SettingsActionService {
         case "appearance.artworkLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsArtworkLyricsKey)
         case "appearance.playerProgressGlow": defaults.set(enabled, forKey: PlayerAppearancePreferences.progressGlowKey)
         case "player.pinMiniPlayer": defaults.set(enabled, forKey: PlayerAppearancePreferences.pinsMiniPlayerKey)
-        case "player.keepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
+        case "player.keepScreenAwake":
+            // 打开：已经是延长几分钟的就照旧，跟随系统的改成一直常亮；关掉：回到跟随系统。
+            let current = ScreenIdleHoldMode(storedValue: defaults.string(forKey: ScreenIdleHoldMode.storageKey))
+            let updated: ScreenIdleHoldMode = enabled ? (current.holdsWhilePlaying ? current : .always) : .system
+            defaults.set(updated.rawValue, forKey: ScreenIdleHoldMode.storageKey)
+            ScreenIdleHoldController.shared.settingsDidChange()
         case "player.tapArtworkOpensLyrics": defaults.set(enabled, forKey: PlayerAppearancePreferences.tapArtworkOpensLyricsKey)
-        case "player.keepScreenAwakeChargingOnly": defaults.set(enabled, forKey: PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
+        case "player.keepScreenAwakeChargingOnly":
+            defaults.set(enabled, forKey: PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
+            ScreenIdleHoldController.shared.settingsDidChange()
         default: throw SettingsActionError.unavailable(SettingsStrings.text("Open this setting in the app to make changes."))
         }
         var result = status(for: id)
