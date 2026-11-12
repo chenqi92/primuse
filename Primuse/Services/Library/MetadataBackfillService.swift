@@ -4577,17 +4577,30 @@ final class MetadataBackfillService {
         offlineReadableSourceIDs().union(directFileSourceIDs())
     }
 
-    /// 直接读文件的源里，这一首眼下读不了：网络策略拦着，而文件还在 iCloud 云盘里没下到本机、
-    /// 或者放在网络卷上，一读就要联网。沙盒副本不用看；解析不出路径时按能读算，交给真正的
-    /// 读取去报错。
     private func localFileAwaitsNetwork(_ song: Song) async -> Bool {
         let sourceID = song.sourceID
-        guard shouldBlockForCellular(),
-              directFileSourceIDs().contains(sourceID),
-              !offlineReadableSourceIDs().contains(sourceID),
-              let connector = try? await sourceManager.auxiliaryConnector(for: song),
-              let url = try? await connector.localURL(for: song.filePath) else { return false }
-        return await UbiquitousPlaybackFile.readingNeedsNetwork(url)
+        guard directFileSourceIDs().contains(sourceID),
+              !offlineReadableSourceIDs().contains(sourceID) else { return false }
+        return await Self.shouldDeferAutomaticLocalRead(
+            networkRestricted: shouldBlockForCellular(),
+            chapterCountOnly: song.contentMetadata?.isFileInspectionComplete == true
+                && workReasons(for: song) == .contentMetadata
+        ) {
+            let connector = try await self.sourceManager.auxiliaryConnector(for: song)
+            return try await connector.localURL(for: song.filePath)
+        }
+    }
+
+    static func shouldDeferAutomaticLocalRead(
+        networkRestricted: Bool,
+        chapterCountOnly: Bool,
+        resolveURL: () async throws -> URL
+    ) async -> Bool {
+        guard networkRestricted || chapterCountOnly,
+              let url = try? await resolveURL() else { return false }
+        if networkRestricted { return await UbiquitousPlaybackFile.readingNeedsNetwork(url) }
+        // 旧书只缺章数时等文件落地再补，避免升级后为计数取回整本书。
+        return await UbiquitousPlaybackFile.needsDownload(url)
     }
 
     private func canDispatchUnderCurrentNetworkPolicy(_ song: Song) -> Bool {

@@ -1509,15 +1509,10 @@ enum UbiquitousPlaybackFile {
             .ubiquitousItemIsDownloadingKey,
             .ubiquitousItemDownloadingErrorKey,
         ]
-        guard let values = try? fresh.resourceValues(forKeys: keys) else {
-            return Snapshot(
-                status: isEvictedPlaceholder(url) ? .notDownloaded : .notUbiquitous,
-                isDownloading: false,
-                downloadErrorText: nil
-            )
-        }
-        guard values.isUbiquitousItem == true else {
-            return Snapshot(status: .notUbiquitous, isDownloading: false, downloadErrorText: nil)
+        guard let values = try? fresh.resourceValues(forKeys: keys), values.isUbiquitousItem == true else {
+            // 只有旧式占位文件时 Foundation 也可能成功返回一组空属性。
+            let evicted = !FileManager.default.fileExists(atPath: fresh.path) && isEvictedPlaceholder(fresh)
+            return Snapshot(status: evicted ? .notDownloaded : .notUbiquitous, isDownloading: false, downloadErrorText: nil)
         }
         let status: UbiquitousPlaybackDownloadPolicy.Status
         switch values.ubiquitousItemDownloadingStatus {

@@ -2338,6 +2338,34 @@ extension ListeningFeaturesTests {
         XCTAssertLessThan(built.count, 100)
     }
 
+    func testChapterBackfillWaitsForAnEvictedBookEvenOnWiFi() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let book = root.appendingPathComponent("book.m4b")
+        let placeholder = root.appendingPathComponent(".book.m4b.icloud")
+        try Data().write(to: placeholder)
+
+        let parked = await MetadataBackfillService.shouldDeferAutomaticLocalRead(
+            networkRestricted: false, chapterCountOnly: true
+        ) { book }
+        XCTAssertTrue(parked)
+        let otherMetadata = await MetadataBackfillService.shouldDeferAutomaticLocalRead(
+            networkRestricted: false, chapterCountOnly: false
+        ) {
+            XCTFail("Ordinary Wi-Fi backfill should not probe local availability")
+            return book
+        }
+        XCTAssertFalse(otherMetadata)
+
+        // A downloaded file wins even if an old hidden sibling is still present.
+        try Data().write(to: book)
+        let available = await MetadataBackfillService.shouldDeferAutomaticLocalRead(
+            networkRestricted: false, chapterCountOnly: true
+        ) { book }
+        XCTAssertFalse(available)
+    }
+
     func testSpokenWordChapterCountUsesEmbeddedChapters() async throws {
         let library = MusicLibrary(storageDirectory: makeDirectory())
         var m4b = song("chapters-m4b", duration: 6 * 3600, genre: "Audiobook", path: "/books/Long.m4b")
