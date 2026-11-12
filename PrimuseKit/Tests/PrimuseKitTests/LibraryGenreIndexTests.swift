@@ -63,7 +63,7 @@ struct LibraryGenreIndexTests {
     @Test("Explicit genre separators do not duplicate membership or counts")
     func indexesDistinctGenreNames() {
         let index = LibraryGenreIndexBuilder.build(from: [
-            song("a", genre: " J-Pop ; Vocaloid; VOCALOID\0ＶＯＣＡＬＯＩＤ; ", albumID: "one"),
+            song("a", genre: " J-Pop ； Vocaloid; VOCALOID\0ＶＯＣＡＬＯＩＤ; ", albumID: "one"),
             song("b", genre: "Vócaloid; J-Pop", albumID: "one"),
             song("c", genre: " ; \0 ; ", albumID: "two"),
             song("d", genre: "Vocaloid", albumID: "two"),
@@ -164,6 +164,7 @@ struct LibraryGenreIndexTests {
     @Test("Single-genre comparisons use the first of several genres")
     func primaryGenreIsTheFirstLabel() {
         #expect(GenreTagValues.primary(in: "J-Pop; Vocaloid") == "J-Pop")
+        #expect(GenreTagValues.primary(in: "J-Pop；Vocaloid") == "J-Pop")
         #expect(GenreTagValues.primary(in: " ; Vocaloid\0J-Pop") == "Vocaloid")
         #expect(GenreTagValues.primary(in: "R&B/Soul") == "R&B/Soul")
         #expect(GenreTagValues.primary(in: "Rock, Live") == "Rock, Live")

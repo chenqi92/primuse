@@ -171,6 +171,16 @@ func standardAlbumArtistOverridesCustomFieldsRegardlessOfOrder(customFirst: Bool
     #expect(metadata?.artist == "Artist A; Artist B")
 }
 
+@Test func preservesAllID3GenresAndLetsTheBrowseSettingSplitSlashes() throws {
+    let tag = makeID3v24Tag([
+        textFrameV24("TCON", "Rock/Pop\0Jazz"),
+        textFrameV24("TCON", "jazz；Soul"),
+    ])
+    let genre = try #require(ID3TextMetadataParser.parse(tag)?.genre)
+    #expect(genre == "Rock/Pop; Jazz; Soul")
+    #expect(GenreTagValues.names(in: genre, alsoSplitting: .slash) == ["Rock", "Pop", "Jazz", "Soul"])
+}
+
 @Test func parsesLegacyID3TextFromGB18030Big5AndLatin1Bytes() throws {
     let gb18030 = legacyTextFrame("TIT2", bytes: [0xD6, 0xD0, 0xCE, 0xC4])
     let big5 = legacyTextFrame(

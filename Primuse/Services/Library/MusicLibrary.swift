@@ -5002,6 +5002,7 @@ final class MusicLibrary {
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
     @ObservationIgnored private var preparingAlbumArtistFolders: AlbumArtistFolderIndex?
     @ObservationIgnored private var preparingGenreSeparatorsChanged = false
+    @ObservationIgnored nonisolated(unsafe) private var genreSeparatorObserver: NSObjectProtocol?
     @ObservationIgnored private var preparingContentClassificationRefresh = false
     @ObservationIgnored private var visibleContentClassification: SpokenWordClassificationInputs = .empty
     /// S1: `.preparing` 期间被拦截的持久化请求, 发布后各补一次。
@@ -5089,6 +5090,7 @@ final class MusicLibrary {
     /// 这里只搬走两张续体表并逐个唤醒; `onReady` 回调不必再跑, 它们要看的
     /// 库已经没了。
     deinit {
+        if let genreSeparatorObserver { NotificationCenter.default.removeObserver(genreSeparatorObserver) }
         let unbounded = readinessContinuations
         readinessContinuations = []
         let bounded = boundedReadinessContinuations
@@ -6117,6 +6119,7 @@ final class MusicLibrary {
         /// 以 `.preparing` 构造: 不读盘、不发布, 等待 `publish(_:)`。
         startsPreparing: Bool = false
     ) {
+        let observedGenreSeparators = OSAllocatedUnfairLock(initialState: GenreSplitPreference.current)
         self.searchIndexDefaults = searchIndexDefaults
         self.lyricsSearchIndexRefresh = lyricsSearchIndexRefresh
         self.deferredMaintenanceAllowed = deferredMaintenanceAllowed ?? {
@@ -6215,12 +6218,19 @@ final class MusicLibrary {
         // 流派拆分符号是普通的设置项，设置页、设备间传输设置都会改它；
         // 这里只在值真的变了时才重建。通知在写偏好的那条线程上同步送达，不能挂主队列：
         // 后台线程写偏好时会等主线程，主线程恰好在等这条线程（启动时首次初始化日志）就卡死。
-        NotificationCenter.default.addObserver(
+        genreSeparatorObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
             queue: nil
         ) { [weak self] _ in
-            guard GenreSplitPreference.refresh() else { return }
+            GenreSplitPreference.refresh()
+            let changed = observedGenreSeparators.withLock { previous in
+                let current = GenreSplitPreference.current
+                guard previous != current else { return false }
+                previous = current
+                return true
+            }
+            guard changed else { return }
             Task { @MainActor [weak self] in
                 self?.genreSeparatorsDidChange()
             }

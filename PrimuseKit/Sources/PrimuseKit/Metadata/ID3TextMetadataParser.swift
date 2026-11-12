@@ -87,6 +87,7 @@ public enum ID3TextMetadataParser {
         }
 
         var result = ID3TextMetadata()
+        var genres: [String] = []
         var userTextValues: [String: [String]] = [:]
         var cursor = extendedHeaderLength(in: tag, version: version, flags: data[5])
 
@@ -111,7 +112,7 @@ public enum ID3TextMetadataParser {
                 let payload = recovered?.payload
                     ?? tag.subdata(in: payloadStart..<declaredEnd)
                 cursor = recovered?.nextFrameOffset ?? declaredEnd
-                apply(frameID: frameID, payload: payload, to: &result, userTextValues: &userTextValues)
+                apply(frameID: frameID, payload: payload, to: &result, genres: &genres, userTextValues: &userTextValues)
                 continue
             }
 
@@ -146,9 +147,13 @@ public enum ID3TextMetadataParser {
             if version == 4, (formatFlags & 0x02) != 0 {
                 payload = removingUnsynchronization(from: payload)
             }
-            apply(frameID: frameID, payload: payload, to: &result, userTextValues: &userTextValues)
+            apply(frameID: frameID, payload: payload, to: &result, genres: &genres, userTextValues: &userTextValues)
         }
 
+        if !genres.isEmpty {
+            let names = ID3GenreNames.names(fromTCON: genres.joined(separator: "\0"))
+            result.genre = GenreTagValues.joined(names)
+        }
         // TPE2/TP2 remains authoritative regardless of frame order. Custom
         // Album Artist fields are a fallback for files using tagger mappings.
         if !userTextValues.isEmpty {
@@ -349,6 +354,7 @@ public enum ID3TextMetadataParser {
         frameID: String,
         payload: Data,
         to result: inout ID3TextMetadata,
+        genres: inout [String],
         userTextValues: inout [String: [String]]
     ) {
         if frameID == "TXXX" || frameID == "TXX" {
@@ -377,8 +383,7 @@ public enum ID3TextMetadataParser {
         case "TYER", "TDRC", "TYE":
             result.year = result.year ?? year(value)
         case "TCON", "TCO":
-            // ID3v2.4 的多个流派用 NUL 隔开，以前只留了第一个；ID3v2.3 的 `(17)` 编号换成流派名。
-            result.genre = result.genre ?? ID3GenreNames.normalizedTCON(values.joined(separator: "\0"))
+            genres.append(contentsOf: values)
         default:
             break
         }

@@ -291,6 +291,63 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         XCTAssertEqual(metadata.albumArtist, "Host; Guest")
     }
 
+    func testMP3GenresSurviveLocalAndRangeReads() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).mp3")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let audioFrame = Data([0xFF, 0xFB, 0x90, 0x64]) + Data(count: 413)
+        let tags: [(version: UInt8, raw: String, expected: String)] = [
+            (3, "Rock/Pop", "Rock/Pop"),
+            (4, "Rock/Pop\0Jazz", "Rock/Pop; Jazz"),
+        ]
+        for (version, raw, expected) in tags {
+            let payload = Data([0]) + Data(raw.utf8)
+            let frame = Data("TCON".utf8) + Data([0, 0, 0, UInt8(payload.count), 0, 0]) + payload
+            var data = Data([0x49, 0x44, 0x33, version, 0, 0, 0, 0, 0, UInt8(frame.count)]) + frame
+            for _ in 0..<8 { data.append(audioFrame) }
+            try data.write(to: url)
+            let local = await FileMetadataReader.read(from: url)
+            let range = await FileMetadataReader.read(from: data, fileExtension: "mp3")
+            XCTAssertEqual(local.genre, expected)
+            XCTAssertEqual(range.genre, expected)
+        }
+    }
+
+    func testSlashSettingReindexesStoredGenresWithoutRereadingFiles() async throws {
+        let defaults = UserDefaults.standard
+        let key = GenreSplitPreference.storageKey
+        let original = defaults.object(forKey: key)
+        defer {
+            defaults.set(original, forKey: key)
+            GenreSplitPreference.refresh()
+        }
+        defaults.set(0, forKey: key)
+        GenreSplitPreference.refresh()
+
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: storage) }
+        let track = song(id: "track", metadata: .init(genre: "R&B/Soul"))
+        let libraries = ["first", "second"].map { name in
+            let library = MusicLibrary(storageDirectory: storage.appendingPathComponent(name), artistNameConfiguration: .defaultValue)
+            library.addSongs([track], affectedSourceIDs: [track.sourceID])
+            return library
+        }
+        for (setting, expected) in [(0, ["r&b/soul"]), (GenreSeparatorOptions.slash.rawValue, ["r&b", "soul"]), (0, ["r&b/soul"])] {
+            defaults.set(setting, forKey: key)
+            for _ in 0..<200 where libraries.contains(where: { $0.visibleGenres.map(\.id) != expected }) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            for library in libraries {
+                XCTAssertEqual(library.visibleGenres.map(\.id), expected)
+                for genre in expected {
+                    XCTAssertEqual(library.songs(forGenre: genre).first?.genre, "R&B/Soul")
+                }
+            }
+        }
+        for library in libraries {
+            try await library.persistNowAndWait().get()
+        }
+    }
+
     func testCompleteFLACRangePreservesTagsAndAudioProperties() async throws {
         let data = completeFLACFixture()
         let native = try XCTUnwrap(FileMetadataReader.completeFLACMetadata(from: data, fileExtension: "FLAC"))
