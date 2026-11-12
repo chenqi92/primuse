@@ -313,9 +313,16 @@ private struct HomeHeroRecommendationArtwork: View {
     var body: some View {
         Group {
             if songs.count >= 4 {
-                VStack(spacing: 1) {
-                    HStack(spacing: 1) { artwork(songs[0], size: (side - 1) / 2); artwork(songs[1], size: (side - 1) / 2) }
-                    HStack(spacing: 1) { artwork(songs[2], size: (side - 1) / 2); artwork(songs[3], size: (side - 1) / 2) }
+                let tileSide = side / 2
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        artwork(songs[0], size: tileSide)
+                        artwork(songs[1], size: tileSide)
+                    }
+                    HStack(spacing: 0) {
+                        artwork(songs[2], size: tileSide)
+                        artwork(songs[3], size: tileSide)
+                    }
                 }
             } else if let song = songs.first {
                 artwork(song, size: side)
