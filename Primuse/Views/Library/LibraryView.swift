@@ -913,7 +913,7 @@ struct LibraryView: View {
         #if os(iOS)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        .gesture(sectionSwipe(selection: section))
+        .gesture(standardSectionSwipe(selection: section))
         #endif
         .environment(\.libraryStackRegistersCollectionDetails, true)
     }
@@ -941,9 +941,7 @@ struct LibraryView: View {
     }
 
     #if os(iOS)
-    /// 能左右滑动切换的那一串分类：极简导航「音乐」那一格下面的分类，只在 iPhone 上。
-    /// 经典导航的分类页是从资料库推进来的一页，往右划是返回（系统边缘返回与 iOS 26 的整页返回），
-    /// 再接一个翻页会和返回抢，所以不开；iPad 的分类在侧栏里，也不开。
+    /// 极简导航的音乐分类支持跟手翻页，iPad 的分类通过侧栏切换。
     private func swipeableSections(containing section: LibrarySection) -> [LibrarySection] {
         guard sectionSwipeEnabled, appNavigationMode == .minimal, rootSection == nil,
               UIDevice.current.userInterfaceIdiom == .phone else { return [] }
@@ -1009,14 +1007,14 @@ struct LibraryView: View {
         }
     }
 
-    private func sectionSwipe(selection: LibrarySection) -> HorizontalPageSwipeGesture {
-        let visible = LibraryDisplayConfiguration.visibleSections(
-            orderRawValue: sectionOrderRawValue, hiddenRawValue: hiddenSectionsRawValue
+    private func standardSectionSwipe(selection: LibrarySection) -> HorizontalPageSwipeGesture {
+        let sections = StandardLibrarySectionTabsPolicy.sections(
+            enabled: showsStandardSectionTabs, mode: appNavigationMode,
+            selection: selection, visibleSections: visibleLibrarySections
         )
-        let sections = MinimalNavigationPolicy.musicSections(visibleSections: visible)
         let index = sections.firstIndex(of: selection)
         let enabled = UIDevice.current.userInterfaceIdiom == .phone && !sectionHasBatchSelection
-            && (appNavigationMode == .minimal || showsStandardSectionTabs) && index != nil && sections.count > 1
+            && index != nil && sections.count > 1
         return HorizontalPageSwipeGesture(enabled: enabled, respectsLibraryGestures: true) { event in
             guard case let .ended(translation, velocity) = event, let index,
                   HomeFaceSwipePolicy.exits(translationX: Double(translation), velocityX: Double(velocity)) else { return }

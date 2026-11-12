@@ -1,3 +1,4 @@
+import Vision
 import XCTest
 
 @MainActor
@@ -49,6 +50,118 @@ final class HomeTopSwitchingUITests: XCTestCase {
         verifyMusicSectionSwipes(mode: "standard", tabPrefix: "library.sectionTab")
     }
 
+    func testMinimalPagingCanBeDisabledWithoutDisablingTabButtons() {
+        continueAfterFailure = false
+        let app = configuredHomeRegressionApp()
+        restoreHomeAfterTest(app, arguments: app.launchArguments)
+        app.launchArguments += [
+            "-primuse.navigation.mode.v1", "minimal", "-primuse.navigation.selectedTab.v1", "1",
+            "-primuse.library.sectionSwipe.v1", "NO", "-primuse.minimal.librarySection.v1", "favorites",
+            "-primuse.library.hiddenSections.v1",
+            stringDefaultArgument(#"["songs","artists","albums","folders","releaseDate","statistics","recommendations"]"#)
+        ]
+        app.launch()
+        let favorites = app.buttons["minimal.section.favorites"]
+        let genres = app.buttons["minimal.section.genres"]
+        XCTAssertTrue(favorites.waitForExistence(timeout: 45))
+        favorites.tap()
+        assertSelected(favorites)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.65))
+        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.65)))
+        XCTAssertTrue(favorites.isSelected)
+        genres.tap()
+        assertSelected(genres)
+    }
+
+    func testStandardSongRowsKeepQueueSwipesAndVerticalScrolling() throws {
+        try verifyInstalledSongRowGestures(mode: "standard", tabPrefix: "library.sectionTab")
+    }
+
+    func testMinimalSongRowsKeepQueueSwipesAndVerticalScrolling() throws {
+        try verifyInstalledSongRowGestures(mode: "minimal", tabPrefix: "minimal.section")
+    }
+
+    private func verifyInstalledSongRowGestures(mode: String, tabPrefix: String) throws {
+        continueAfterFailure = false
+        let app = configuredHomeRegressionApp()
+        restoreHomeAfterTest(app, arguments: app.launchArguments)
+        app.launchArguments += [
+            "-primuse.navigation.mode.v1", mode, "-primuse.navigation.selectedTab.v1", "1",
+            "-primuse.navigation.libraryPage.v1", "section:songs", "-primuse.minimal.librarySection.v1", "songs",
+            "-primuse.home.showsLibrarySections.v1", "YES", "-primuse.library.sectionSwipe.v1", "YES",
+            "-primuse.library.hiddenSections.v1", stringDefaultArgument("[]"),
+            "-songListAppearance", "list", "-library.songBrowseMode", "flat", "-library.songFilter.v1", "all"
+        ]
+        app.launch()
+        let songs = app.buttons["\(tabPrefix).songs"]
+        XCTAssertTrue(songs.waitForExistence(timeout: 60))
+        songs.tap()
+        assertSelected(songs)
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "songRow."))
+        try XCTSkipUnless(rows.firstMatch.waitForExistence(timeout: 20), "Requires an installed music library with song rows")
+        let screen = app.frame
+        var visibleRows: [XCUIElement] = []
+        for index in 0..<min(18, rows.count) {
+            let row = rows.element(boundBy: index)
+            let frame = row.frame
+            if frame.width > screen.width / 2, frame.minY > screen.height * 0.24,
+               frame.maxY < screen.height * 0.79, row.isHittable {
+                visibleRows.append(rows.matching(identifier: row.identifier).firstMatch)
+                if visibleRows.count == 2 { break }
+            }
+        }
+        try XCTSkipUnless(visibleRows.count == 2, "Requires two visible playable song rows")
+        for (row, distance, title) in [(visibleRows[0], CGFloat(105), "下一首播放"), (visibleRows[1], CGFloat(-105), "加入播放队列")] {
+            let frame = row.frame
+            let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: screen.midX, dy: frame.midY))
+            start.press(forDuration: 0.04, thenDragTo: start.withOffset(CGVector(dx: distance, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0)
+            XCTAssertTrue(songs.isSelected, "Swiping a song must keep the current category")
+            let actionWidth = min(115, frame.width)
+            let actionFrame = CGRect(x: distance > 0 ? frame.minX : frame.maxX - actionWidth,
+                                     y: frame.minY, width: actionWidth, height: frame.height)
+            try assertRevealedAction(title, in: actionFrame, app: app)
+        }
+        let anchor = visibleRows[1]
+        let oldY = anchor.frame.midY
+        let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: screen.midX, dy: oldY))
+        start.press(forDuration: 0.04, thenDragTo: start.withOffset(CGVector(dx: 8, dy: -145)))
+        XCTAssertTrue(songs.isSelected)
+        XCTAssertTrue(!anchor.exists || !anchor.isHittable || anchor.frame.midY < oldY - 25, "A vertical drag from a song must scroll the list")
+        let more = app.buttons["songList.more"]
+        if more.isHittable {
+            more.tap()
+        } else {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).press(forDuration: 0.8)
+        }
+        let select = app.buttons["选择"].firstMatch
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+        select.tap()
+        let cancel = app.buttons["batchSelection.cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.57))
+        right.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.57)))
+        XCTAssertTrue(cancel.isHittable, "A swipe while selecting songs must keep selection mode active")
+        cancel.tap()
+        assertSelected(songs)
+    }
+
+    private func assertRevealedAction(_ title: String, in frame: CGRect, app: XCUIApplication) throws {
+        if app.buttons[title].firstMatch.isHittable { return }
+        // The song row can combine its accessibility children, hiding the rendered action from XCTest.
+        let shot = try XCTUnwrap(app.screenshot().image.cgImage)
+        let scale = CGFloat(shot.width) / app.frame.width
+        let crop = try XCTUnwrap(shot.cropping(to: frame.applying(.init(scaleX: scale, y: scale))))
+        let proof = XCTAttachment(image: UIImage(cgImage: crop))
+        proof.name = title
+        add(proof)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLanguages = ["zh-Hans", "en-US"]
+        try VNImageRequestHandler(cgImage: crop).perform([request])
+        let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined().replacingOccurrences(of: " ", with: "")
+        XCTAssertTrue(text.contains(title), "The row did not reveal \(title)")
+    }
+
     private func verifyMusicSectionSwipes(mode: String, tabPrefix: String) {
         continueAfterFailure = false
         let app = configuredHomeRegressionApp()
@@ -63,6 +176,7 @@ final class HomeTopSwitchingUITests: XCTestCase {
             "-primuse.minimal.librarySection.v1", "favorites",
             "-primuse.navigation.libraryPage.v1", "section:favorites",
             "-primuse.home.showsLibrarySections.v1", "YES",
+            "-primuse.library.sectionSwipe.v1", "YES",
             "-primuse.library.sectionOrder.v1", "",
             "-primuse.library.hiddenSections.v1",
             stringDefaultArgument(#"["songs","artists","albums","folders","releaseDate","statistics","recommendations"]"#)
@@ -75,6 +189,10 @@ final class HomeTopSwitchingUITests: XCTestCase {
         assertSelected(favorites)
         let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.65))
         let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.65))
+        let trailing = app.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.65))
+            .withOffset(CGVector(dx: -36, dy: 0))
+        trailing.press(forDuration: 0.05, thenDragTo: left)
+        XCTAssertTrue(favorites.isSelected, "A drag starting in the alphabet index area must keep the current page")
         right.press(forDuration: 0.05, thenDragTo: left)
         assertSelected(genres)
         left.press(forDuration: 0.05, thenDragTo: right)
@@ -84,8 +202,7 @@ final class HomeTopSwitchingUITests: XCTestCase {
         if mode == "standard" {
             let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.65))
             edge.press(forDuration: 0.05, thenDragTo: right)
-            XCTAssertTrue(app.descendants(matching: .any)["library.hub"].firstMatch.waitForExistence(timeout: 5)
-                || !favorites.isSelected)
+            XCTAssertTrue(app.descendants(matching: .any)["library.hub"].firstMatch.waitForExistence(timeout: 5))
         }
     }
 

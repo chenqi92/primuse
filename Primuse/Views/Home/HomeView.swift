@@ -1069,10 +1069,13 @@ struct HorizontalPageSwipeGesture: UIGestureRecognizerRepresentable {
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             touchDownTime = touch.timestamp
             if let frame = exclusion?.frame, frame.contains(touch.location(in: nil)) { return false }
-            if respectsLibraryGestures, let window = touch.window {
-                let x = touch.location(in: window).x
-                let edge = CGFloat(SongRowSwipePolicy.systemLeadingEdgeExclusion)
-                guard x > edge, x < window.bounds.width - edge else { return false }
+            if respectsLibraryGestures, let window = touch.window,
+               LibrarySectionPagingPolicy.startsInEdgeExclusion(
+                   startX: Double(touch.location(in: window).x),
+                   containerWidth: Double(window.bounds.width),
+                   isRightToLeft: window.effectiveUserInterfaceLayoutDirection == .rightToLeft
+               ) {
+                return false
             }
             var view = touch.view
             while let current = view {
