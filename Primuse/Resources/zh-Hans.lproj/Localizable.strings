@@ -6413,18 +6413,18 @@
 "playback_pitch_unavailable_apple_music" = "Apple Music 的歌曲不能升降调。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到局域网设备。";
 "player_controls_tiles_header %lld %lld" = "功能块（%1$lld/%2$lld）";
-"player_controls_tiles_footer %lld" = "按住拖动换顺序。打开的按顺序平均排开，关掉的不留空位，在「更多」里仍然找得到。AirPlay、喜欢、「更多」与文字稿键打开后从原处挪到这一排，关掉回原处。这台设备一排最多放 %lld 块，开满后要先关掉一块。";
+"player_controls_tiles_footer %lld" = "按住拖动换顺序。打开的按顺序平均排开，关掉的不留空位。AirPlay、喜欢、「更多」与文字稿键打开后从原处挪到这一排，关掉回原处。这台设备一排最多放 %lld 块，开满后要先关掉一块。";
 "player_controls_spoken_buttons_header" = "其他按钮";
 "player_controls_spoken_transcript" = "文字稿键";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
 "player_controls_tile_label_style" = "功能块文字";
 "player_controls_tile_label_icon_text" = "图标和文字";
 "player_controls_tile_label_icon_only" = "仅图标";
-"player_menu_items_spoken_footer" = "关掉的项不再出现在「更多」里。页面上拿掉的文字稿、书签和「接下来」仍会补进菜单。";
+"player_menu_items_spoken_footer" = "关掉的项不再出现在「更多」里。";
 "player_menu_group_book" = "这本书";
 "player_menu_group_episode" = "这一集";
 "player_menu_group_spoken_playback" = "播放与文字稿";
-"player_controls_spoken_buttons_footer" = "关掉的喜欢和文字稿键会出现在「更多」里，点封面也能打开文字稿；章节可以从目录跳转，长按快退、快进键也能跳章。文字稿键与上一章 / 下一章只影响选了「自动」的格子。";
+"player_controls_spoken_buttons_footer" = "点封面也能打开文字稿；章节可以从目录跳转，长按快退、快进键也能跳章。文字稿键与上一章 / 下一章只影响选了「自动」的格子。";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "这份歌词装不进 LRC 文本";
@@ -6481,7 +6481,7 @@
 "player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";
 "player_menu_items_title" = "「更多」菜单";
 "player_menu_items_hidden_count %lld" = "已隐藏 %lld 项";
-"player_menu_items_footer" = "关掉的项不再出现在播放页的「更多」里，已在页面上的按钮不会重复。歌词、队列、随机和循环在页面上没有其他入口时才会补进菜单。";
+"player_menu_items_footer" = "关掉的项不再出现在播放页的「更多」里，已在页面上的按钮不会重复。";
 "player_menu_items_show_all" = "全部显示";
 "player_menu_group_quick" = "最上面一排";
 "player_menu_group_modes" = "玩法";
@@ -6953,7 +6953,7 @@
 "player_skip_style_filled_circle" = "圆底";
 "player_skip_style_outlined_circle" = "圆圈";
 "player_controls_slots_title" = "按钮位置";
-"player_controls_slots_info" = "点一行换按钮，也可以留空；在预览的实际大小里点左上角的铅笔，可以直接点虚线框换。选已经在别处的按钮，两格会对调。没放在页面上的按钮都在「更多」里；手机横屏、iPad 和折叠屏侧栏按各自的版面摆放同一组按钮。设置经 iCloud 同步。";
+"player_controls_slots_info" = "点一行换按钮，也可以留空；在预览的实际大小里点左上角的铅笔，可以直接点虚线框换。选已经在别处的按钮，两格会对调。手机横屏、iPad 和折叠屏侧栏按各自的版面摆放同一组按钮。设置经 iCloud 同步。";
 "player_style_preview_pip_hint" = "预览浮在页面上，跟着这一页的设置实时变。可以拖到任意位置，双指捏合调大小；下面那一排切换界面、看实际大小。";
 "player_style_preview_title" = "播放页预览";
 "player_style_preview_edit_buttons" = "编辑按钮位置";

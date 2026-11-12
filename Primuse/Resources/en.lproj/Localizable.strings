@@ -6081,18 +6081,18 @@
 "playback_pitch_unavailable_apple_music" = "The key can’t be changed for Apple Music songs.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music songs can’t be cast to devices on your network.";
 "player_controls_tiles_header %lld %lld" = "Action Tiles (%1$lld/%2$lld)";
-"player_controls_tiles_footer %lld" = "Touch and hold to drag them into a new order. Tiles that are on spread out evenly, and turned-off ones leave no gap; they’re still in the More menu. Turning on AirPlay, Like, More, or the transcript button moves it here from where it was; turning it off puts it back. This device fits up to %lld tiles in a row; once it’s full, turn one off before turning another on.";
+"player_controls_tiles_footer %lld" = "Touch and hold to drag them into a new order. Tiles that are on spread out evenly, and turned-off ones leave no gap. Turning on AirPlay, Like, More, or the transcript button moves it here from where it was; turning it off puts it back. This device fits up to %lld tiles in a row; once it’s full, turn one off before turning another on.";
 "player_controls_spoken_buttons_header" = "Other Buttons";
 "player_controls_spoken_transcript" = "Transcript Button";
 "player_controls_spoken_chapters" = "Previous / Next Chapter";
 "player_controls_tile_label_style" = "Tile Labels";
 "player_controls_tile_label_icon_text" = "Icon and Text";
 "player_controls_tile_label_icon_only" = "Icon Only";
-"player_menu_items_spoken_footer" = "Items you turn off no longer appear in the More menu. The transcript button, Bookmark, and Up Next still move to the menu when you take them off the page.";
+"player_menu_items_spoken_footer" = "Items you turn off no longer appear in the More menu.";
 "player_menu_group_book" = "This Book";
 "player_menu_group_episode" = "This Episode";
 "player_menu_group_spoken_playback" = "Playback & Transcript";
-"player_controls_spoken_buttons_footer" = "Like and the transcript button move to the More menu when turned off; tapping the cover also opens the transcript. Jump between chapters from the contents, or touch and hold the skip buttons. The transcript button and previous / next chapter switches only affect spots set to Automatic.";
+"player_controls_spoken_buttons_footer" = "Tapping the cover also opens the transcript. Jump between chapters from the contents, or touch and hold the skip buttons. The transcript button and previous / next chapter switches only affect spots set to Automatic.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "These lyrics don't fit in LRC text";
@@ -6149,7 +6149,7 @@
 "player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";
 "player_menu_items_title" = "More Menu";
 "player_menu_items_hidden_count %lld" = "%lld hidden";
-"player_menu_items_footer" = "Items you turn off no longer appear in the player’s More menu. Buttons already on the page are not repeated in the menu. Lyrics, Queue, Shuffle, and Repeat are added when there is no other way to access them on the page.";
+"player_menu_items_footer" = "Items you turn off no longer appear in the player’s More menu. Buttons already on the page are not repeated in the menu.";
 "player_menu_items_show_all" = "Show All";
 "player_menu_group_quick" = "Top Row";
 "player_menu_group_modes" = "Modes";
@@ -6621,7 +6621,7 @@
 "player_skip_style_filled_circle" = "Filled";
 "player_skip_style_outlined_circle" = "Outline";
 "player_controls_slots_title" = "Button Positions";
-"player_controls_slots_info" = "Tap a row to choose a button, or leave it empty. In the actual-size preview, tap the pencil in the top-left corner to change buttons by tapping the dashed boxes. Choosing a button that is already placed elsewhere swaps the two. Buttons not on the page are in the More menu; iPhone landscape, iPad and the foldable side column arrange the same set in their own layouts. Settings sync through iCloud.";
+"player_controls_slots_info" = "Tap a row to choose a button, or leave it empty. In the actual-size preview, tap the pencil in the top-left corner to change buttons by tapping the dashed boxes. Choosing a button that is already placed elsewhere swaps the two. iPhone landscape, iPad and the foldable side column arrange the same set in their own layouts. Settings sync through iCloud.";
 "player_style_preview_pip_hint" = "The preview floats over the page and follows these settings live. Drag it anywhere and pinch to resize; the buttons under it switch between screens and show it at actual size.";
 "player_style_preview_title" = "Player Preview";
 "player_style_preview_edit_buttons" = "Edit Button Positions";

@@ -6321,18 +6321,18 @@
 "playback_pitch_unavailable_apple_music" = "Apple Music の曲はキーを変えられません。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music の曲はネットワーク上のデバイスにキャストできません。";
 "player_controls_tiles_header %lld %lld" = "機能タイル（%1$lld/%2$lld）";
-"player_controls_tiles_footer %lld" = "長押ししてドラッグすると順番を変えられます。オンのタイルは均等に並び、オフにしたものは隙間を残さず「その他」メニューに残ります。AirPlay、「好き」、「その他」、文字起こしボタンはオンにすると元の場所からこの列に移り、オフにすると戻ります。このデバイスでは 1 列に最大 %lld 個まで置けます。いっぱいのときは先に 1 つオフにしてください。";
+"player_controls_tiles_footer %lld" = "長押ししてドラッグすると順番を変えられます。オンのタイルは均等に並び、オフにしたものは隙間を残しません。AirPlay、「好き」、「その他」、文字起こしボタンはオンにすると元の場所からこの列に移り、オフにすると戻ります。このデバイスでは 1 列に最大 %lld 個まで置けます。いっぱいのときは先に 1 つオフにしてください。";
 "player_controls_spoken_buttons_header" = "そのほかのボタン";
 "player_controls_spoken_transcript" = "文字起こしボタン";
 "player_controls_spoken_chapters" = "前の章 / 次の章";
 "player_controls_tile_label_style" = "タイルの表示";
 "player_controls_tile_label_icon_text" = "アイコンと文字";
 "player_controls_tile_label_icon_only" = "アイコンのみ";
-"player_menu_items_spoken_footer" = "オフにした項目は「その他」に表示されなくなります。画面から外した文字起こしボタン、「ブックマーク」「次に再生」は引き続きメニューに入ります。";
+"player_menu_items_spoken_footer" = "オフにした項目は「その他」に表示されなくなります。";
 "player_menu_group_book" = "この本";
 "player_menu_group_episode" = "このエピソード";
 "player_menu_group_spoken_playback" = "再生と文字起こし";
-"player_controls_spoken_buttons_footer" = "オフにした「好き」と文字起こしボタンは「その他」メニューに移ります。カバーをタップしても文字起こしを開けます。章は目次から、またはスキップボタンの長押しで移動できます。文字起こしボタンと前の章 / 次の章のスイッチは「自動」の位置にだけ影響します。";
+"player_controls_spoken_buttons_footer" = "カバーをタップしても文字起こしを開けます。章は目次から、またはスキップボタンの長押しで移動できます。文字起こしボタンと前の章 / 次の章のスイッチは「自動」の位置にだけ影響します。";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "この歌詞は LRC テキストに収まりません";
@@ -6389,7 +6389,7 @@
 "player_control_tint_footer" = "進行バーやオンになったシャッフル・リピートなど、再生画面のコントロールの色です。モノクロはダークモードで白、ライトモードで黒になり、リキッドカラーのような背景でも色がぶつかりません。オーディオブックのレイアウトは独自の配色のままです。";
 "player_menu_items_title" = "「その他」メニュー";
 "player_menu_items_hidden_count %lld" = "%lld 項目を非表示";
-"player_menu_items_footer" = "オフにした項目は再生画面の「その他」に表示されなくなります。画面上のボタンはメニューに重複しません。「歌詞」「キュー」「シャッフル」「リピート」は、画面上にほかの操作手段がない場合のみメニューに追加されます。";
+"player_menu_items_footer" = "オフにした項目は再生画面の「その他」に表示されなくなります。画面上のボタンはメニューに重複しません。";
 "player_menu_items_show_all" = "すべて表示";
 "player_menu_group_quick" = "上段";
 "player_menu_group_modes" = "モード";
@@ -6861,7 +6861,7 @@
 "player_skip_style_filled_circle" = "塗りつぶし";
 "player_skip_style_outlined_circle" = "輪郭";
 "player_controls_slots_title" = "ボタンの配置";
-"player_controls_slots_info" = "行をタップしてボタンを選びます。空けておくこともできます。実際のサイズのプレビューで左上の鉛筆をタップすると、点線の枠を直接タップして変更できます。すでに別の場所にあるボタンを選ぶと入れ替わります。画面に置いていないボタンは「その他」にあります。iPhone の横向き、iPad、折りたたみ端末のサイド列は同じボタンをそれぞれのレイアウトで配置します。設定は iCloud で同期されます。";
+"player_controls_slots_info" = "行をタップしてボタンを選びます。空けておくこともできます。実際のサイズのプレビューで左上の鉛筆をタップすると、点線の枠を直接タップして変更できます。すでに別の場所にあるボタンを選ぶと入れ替わります。iPhone の横向き、iPad、折りたたみ端末のサイド列は同じボタンをそれぞれのレイアウトで配置します。設定は iCloud で同期されます。";
 "player_style_preview_pip_hint" = "プレビューはページの上に浮かび、ここでの設定にリアルタイムで追従します。好きな位置にドラッグでき、ピンチで大きさを変えられます。下のボタンで画面を切り替えたり実際のサイズで表示したりできます。";
 "player_style_preview_title" = "再生画面のプレビュー";
 "player_style_preview_edit_buttons" = "ボタンの配置を編集";

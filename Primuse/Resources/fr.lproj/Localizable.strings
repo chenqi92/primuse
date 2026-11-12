@@ -6320,18 +6320,18 @@
 "playback_pitch_unavailable_apple_music" = "Impossible de modifier la tonalité des morceaux Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Les morceaux Apple Music ne peuvent pas être diffusés vers les appareils de votre réseau.";
 "player_controls_tiles_header %lld %lld" = "Tuiles de fonctions (%1$lld/%2$lld)";
-"player_controls_tiles_footer %lld" = "Maintenez le doigt puis faites glisser pour changer l’ordre. Les tuiles activées se répartissent régulièrement et celles désactivées ne laissent pas de vide ; elles restent dans « Plus ». Activer AirPlay, J’aime, Plus ou le bouton de transcription les déplace ici depuis leur place ; les désactiver les y remet. Cet appareil peut afficher jusqu’à %lld tuiles sur une rangée ; quand elle est pleine, désactivez-en une avant d’en activer une autre.";
+"player_controls_tiles_footer %lld" = "Maintenez le doigt puis faites glisser pour changer l’ordre. Les tuiles activées se répartissent régulièrement et celles désactivées ne laissent pas de vide. Activer AirPlay, J’aime, Plus ou le bouton de transcription les déplace ici depuis leur place ; les désactiver les y remet. Cet appareil peut afficher jusqu’à %lld tuiles sur une rangée ; quand elle est pleine, désactivez-en une avant d’en activer une autre.";
 "player_controls_spoken_buttons_header" = "Autres boutons";
 "player_controls_spoken_transcript" = "Bouton de transcription";
 "player_controls_spoken_chapters" = "Chapitre précédent / suivant";
 "player_controls_tile_label_style" = "Libellés des tuiles";
 "player_controls_tile_label_icon_text" = "Icône et texte";
 "player_controls_tile_label_icon_only" = "Icône seule";
-"player_menu_items_spoken_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus. Le bouton de transcription, Signets et À suivre passent toujours dans le menu si vous les retirez de la page.";
+"player_menu_items_spoken_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus.";
 "player_menu_group_book" = "Ce livre";
 "player_menu_group_episode" = "Cet épisode";
 "player_menu_group_spoken_playback" = "Lecture et transcription";
-"player_controls_spoken_buttons_footer" = "Une fois désactivés, J’aime et le bouton de transcription passent dans « Plus » ; toucher la pochette ouvre aussi la transcription. Changez de chapitre depuis la table des matières ou en maintenant les boutons de saut. Le bouton de transcription et chapitre précédent / suivant ne concernent que les emplacements en Automatique.";
+"player_controls_spoken_buttons_footer" = "Toucher la pochette ouvre aussi la transcription. Changez de chapitre depuis la table des matières ou en maintenant les boutons de saut. Le bouton de transcription et chapitre précédent / suivant ne concernent que les emplacements en Automatique.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "Ces paroles ne tiennent pas dans du texte LRC";
@@ -6388,7 +6388,7 @@
 "player_control_tint_footer" = "Couleur de la barre de progression, de la lecture aléatoire et de la répétition activées, et des autres commandes du lecteur. Monochrome est blanc en mode sombre et noir en mode clair, discret sur des fonds comme Couleurs fluides. Les mises en page des livres audio gardent leurs propres couleurs.";
 "player_menu_items_title" = "Menu Plus";
 "player_menu_items_hidden_count %lld" = "%lld masqués";
-"player_menu_items_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus du lecteur. Les boutons déjà sur la page ne sont pas répétés dans le menu. Paroles, File d’attente, Aléatoire et Répétition y sont ajoutés lorsqu’aucun autre accès n’est disponible sur la page.";
+"player_menu_items_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus du lecteur. Les boutons déjà sur la page ne sont pas répétés dans le menu.";
 "player_menu_items_show_all" = "Tout afficher";
 "player_menu_group_quick" = "Rangée du haut";
 "player_menu_group_modes" = "Modes";
@@ -6860,7 +6860,7 @@
 "player_skip_style_filled_circle" = "Plein";
 "player_skip_style_outlined_circle" = "Contour";
 "player_controls_slots_title" = "Emplacement des boutons";
-"player_controls_slots_info" = "Touchez une ligne pour choisir un bouton, ou laissez-la vide. Dans l’aperçu en taille réelle, touchez le crayon en haut à gauche pour changer les boutons directement en touchant les cadres en pointillés. Choisir un bouton déjà placé ailleurs échange les deux. Les boutons absents de la page se trouvent dans le menu Plus ; l’iPhone en paysage, l’iPad et la colonne latérale des appareils pliables disposent les mêmes boutons à leur façon. Les réglages se synchronisent via iCloud.";
+"player_controls_slots_info" = "Touchez une ligne pour choisir un bouton, ou laissez-la vide. Dans l’aperçu en taille réelle, touchez le crayon en haut à gauche pour changer les boutons directement en touchant les cadres en pointillés. Choisir un bouton déjà placé ailleurs échange les deux. L’iPhone en paysage, l’iPad et la colonne latérale des appareils pliables disposent les mêmes boutons à leur façon. Les réglages se synchronisent via iCloud.";
 "player_style_preview_pip_hint" = "L’aperçu flotte au-dessus de la page et suit ces réglages en direct. Faites-le glisser où vous voulez et pincez pour le redimensionner ; les boutons en dessous changent d’écran et l’affichent en taille réelle.";
 "player_style_preview_title" = "Aperçu du lecteur";
 "player_style_preview_edit_buttons" = "Modifier l’emplacement des boutons";

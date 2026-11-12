@@ -75,6 +75,29 @@ import Testing
         }
     }
 
+    @Test func spokenMenuSwitchesPreserveThePageAndOtherFallbackRows() {
+        let context = SpokenWordControlContext(hasTranscript: true)
+        for kind in SpokenWordPlayerKind.allCases {
+            let removed = Layout.default(for: kind)
+                .settingShowsTranscriptToggle(false)
+                .settingTile(kind == .podcast ? .upNext : .bookmark, shown: false)
+            let expected: [SpokenWordMenuFallback] = [.transcript, kind == .podcast ? .upNext : .bookmark]
+            let controls = removed.resolved(in: context)
+            #expect(removed.menuFallback(for: controls, context: context) == expected)
+            for (row, item) in zip(expected, [NowPlayingMenuItem.transcript, kind == .podcast ? .upNext : .bookmark]) {
+                let hidden = Layout.decode(removed.settingMenuItem(item, visible: false).encoded(), kind: kind)
+                #expect(hidden.resolved(in: context) == controls)
+                #expect(hidden.menuFallback(for: controls, context: context) == expected.filter { $0 != row })
+                #expect(hidden.showingAllMenuItems() == removed)
+            }
+            let old = Layout.decode(#"{"hiddenMenu":["lyricsDisplay","playbackSpeed"]}"#, kind: kind)
+            #expect(old.hiddenMenuItems.contains(.transcriptOffset))
+            #expect(!old.hiddenMenuItems.contains(.pitch))
+            let edited = old.settingMenuItem(.transcriptOffset, visible: true)
+            #expect(Layout.decode(edited.encoded(), kind: kind).hiddenMenuItems == old.hiddenMenuItems.subtracting([.transcriptOffset]))
+        }
+    }
+
     @Test func tilesFollowTheTogglesWhenContentsMovesAway() {
         // 目录常驻时只去掉目录块,不拿书签补位。
         let book = Layout.default(for: .audiobook).settingTile(.bookmark, shown: false)

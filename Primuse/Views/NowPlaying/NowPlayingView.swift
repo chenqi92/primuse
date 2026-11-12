@@ -9016,7 +9016,7 @@ struct NowPlayingView: View {
         let podcastShareURL = isPodcastEpisode ? currentPodcastShareURL : nil
         // 「播放页按钮」:页面上没摆出来、本来只能靠那颗键点到的补进菜单,已经摆在页面上的不再重复。
         // 有声内容和不按配置摆的版面照旧,只有手机横屏让出两端时补上随机与循环。
-        let menuFallback: [NowPlayingControlAction]
+        let menuFallback: [NowPlayingMenuItem]
         let menuSuppressed: Set<NowPlayingControlAction>
         if let controlSurface, !isSpokenWord {
             menuFallback = musicControlLayout.menuFallback(
@@ -9025,7 +9025,8 @@ struct NowPlayingView: View {
             )
             menuSuppressed = musicControlLayout.menuSuppressed(on: controlSurface)
         } else {
-            menuFallback = compactLandscapeHidesModeToggles && !isSpokenWord ? [.shuffle, .repeatMode] : []
+            menuFallback = compactLandscapeHidesModeToggles && !isSpokenWord
+                ? musicControlLayout.menuFallback(forMissing: [.shuffle, .repeatMode]) : []
             menuSuppressed = []
         }
         // 有声书、播客页上藏起来的入口(喜欢、文字稿、书签、播客的「接下来」)补进菜单。功能块只在竖屏
@@ -9045,7 +9046,10 @@ struct NowPlayingView: View {
         let shows: (NowPlayingMenuItem) -> Bool = { !menuHidden.contains($0) }
         var columnOverflow = columnOverflow
         columnOverflow.like = columnOverflow.like && shows(.like)
+        columnOverflow.effect = columnOverflow.effect && shows(.fullScreenEffect)
+        columnOverflow.lock = columnOverflow.lock && shows(.lockControls)
         let snapshot = NowPlayingMoreMenuSnapshot(
+            hiddenMenuItems: menuHidden,
             songID: player.currentSong?.id,
             isSpokenWord: isSpokenWord,
             isPodcastEpisode: isPodcastEpisode,
@@ -9055,7 +9059,7 @@ struct NowPlayingView: View {
                 && shows(.podcastGoToShow),
             showsPodcastMarkPlayed: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastMarkPlayed),
             showsPodcastDownload: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastDownload),
-            spokenWordVideoShown: player.offersSpokenWordVideoToggle ? player.isSpokenWordVideoShown : nil,
+            spokenWordVideoShown: shows(.spokenWordVideo) && player.offersSpokenWordVideoToggle ? player.isSpokenWordVideoShown : nil,
             // 关掉的是入口;正在生成时那一行是进度,照样显示。
             transcriptGeneration: transcriptGenerationMenuItem.flatMap {
                 shows(.generateTranscript) || $0.isRunning ? $0 : nil
@@ -9076,7 +9080,7 @@ struct NowPlayingView: View {
             } ?? false),
             appleMusicCatalogURL: shows(.openInAppleMusic) ? appleMusicCatalogURL : nil,
             // 有声内容没有文字时歌词页是空的, 字号与翻译无从调起。
-            showsLyricsPreferences: showLyrics && (!isSpokenWord || !lyrics.isEmpty) && shows(.lyricsDisplay),
+            offersTextPreferences: showLyrics && (!isSpokenWord || !lyrics.isEmpty),
             showsLyricsWeight: showLyrics && (!isSpokenWord || !lyrics.isEmpty) && shows(.lyricsWeight),
             showsFullScreenAction: !isSpokenWord && !isLyricsImmersive && !isFullscreenPlayerPresented
                 && !menuSuppressed.contains(.fullScreen) && shows(.fullScreen),
@@ -9089,7 +9093,7 @@ struct NowPlayingView: View {
             showsAddToPlaylist: !menuSuppressed.contains(.addToPlaylist) && shows(.addToPlaylist),
             showsCastAction: !menuSuppressed.contains(.cast) && shows(.cast),
             showsSleepTimer: !menuSuppressed.contains(.sleepTimer) && shows(.sleepTimer),
-            showsPlaybackRate: !menuSuppressed.contains(.playbackSpeed) && shows(.playbackSpeed),
+            offersPlaybackRateControls: !player.isAppleMusicMode && !menuSuppressed.contains(.playbackSpeed),
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             sleepTimerSummary: SleepTimerStatusText.summary(player),
@@ -9128,8 +9132,8 @@ struct NowPlayingView: View {
             shufflePreference: playbackSettings.shufflePreference,
             repeatBehavior: player.repeatBehavior,
             offersEachTrackStops: player.supportsEachTrackStop || player.eachTrackStop != nil,
-            isMedleyActive: player.isMedleyActive,
-            canStartMedley: !isSpokenWord && !player.isAppleMusicMode && !player.isLiveRadio
+            showsContinueMedley: player.isMedleyActive && shows(.continueMedley),
+            canStartMedley: !player.isMedleyActive && !isSpokenWord && !player.isAppleMusicMode && !player.isLiveRadio
                 && player.canPlayMedleyFromQueue && shows(.medley),
             canStartKaraoke: !isSpokenWord && player.currentSong != nil && !player.isAppleMusicMode
                 && !player.isLiveRadio && !menuSuppressed.contains(.karaoke) && shows(.karaoke),
@@ -14051,6 +14055,10 @@ private struct NowPlayingBookRoute: Identifiable {
 }
 
 private struct NowPlayingMoreMenuSnapshot: Equatable {
+    let hiddenMenuItems: Set<NowPlayingMenuItem>
+
+    func shows(_ item: NowPlayingMenuItem) -> Bool { !hiddenMenuItems.contains(item) }
+
     let songID: String?
     /// 正在播有声内容: 菜单收起音乐专属的项。
     let isSpokenWord: Bool
@@ -14077,7 +14085,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isAppleMusicMode: Bool
     let canDeleteSourceFile: Bool
     let appleMusicCatalogURL: URL?
-    let showsLyricsPreferences: Bool
+    let offersTextPreferences: Bool
     let showsLyricsWeight: Bool
     let showsFullScreenAction: Bool
     let albumID: String?
@@ -14089,7 +14097,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsAddToPlaylist: Bool
     let showsCastAction: Bool
     let showsSleepTimer: Bool
-    let showsPlaybackRate: Bool
+    let offersPlaybackRateControls: Bool
     let castingRendererName: String?
     let isSleepTimerActive: Bool
     /// 定时开着时写停在哪儿(「将在 23:41 停止」「当前曲目结束后停止」),菜单项的第二行。
@@ -14121,7 +14129,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsBundledLyricsTranslations: Bool
     /// 页面上点不到、要在菜单里补上的(「播放页按钮」里没摆出来的心形、歌词、队列、随机、循环,
     /// 以及手机横屏右栏窄到让出来的两端)。
-    let fallbackActions: [NowPlayingControlAction]
+    let fallbackActions: [NowPlayingMenuItem]
     /// 有声书、播客页上藏起来的入口。
     let spokenFallbackActions: [SpokenWordMenuFallback]
     let isShowingLyrics: Bool
@@ -14131,7 +14139,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let repeatBehavior: RepeatBehavior
     /// 「单曲播一遍」「逐首播放」此刻做得到(Apple Music 自己排队列时做不到)。
     let offersEachTrackStops: Bool
-    let isMedleyActive: Bool
+    let showsContinueMedley: Bool
     let canStartMedley: Bool
     let canStartKaraoke: Bool
     let medleyPlayQueueTitle: String
@@ -14579,7 +14587,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     }
 
     @ViewBuilder
-    private func fallbackItem(_ action: NowPlayingControlAction) -> some View {
+    private func fallbackItem(_ action: NowPlayingMenuItem) -> some View {
         switch action {
         case .like:
             Button(action: onToggleLike) {
@@ -14609,6 +14617,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     systemImage: snapshot.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle"
                 )
             }
+        case .shufflePreference:
             Picker(selection: Binding(
                 get: { snapshot.shufflePreference },
                 set: { onSelectShufflePreference($0) }
@@ -14775,9 +14784,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if snapshot.isMedleyActive || snapshot.canStartMedley {
+            if snapshot.showsContinueMedley || snapshot.canStartMedley {
                 Section {
-                    if snapshot.isMedleyActive {
+                    if snapshot.showsContinueMedley {
                         Button(action: onContinueMedleySongInFull) {
                             Label(String(localized: "medley_continue_full"), systemImage: "music.note")
                         }
@@ -14905,7 +14914,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
-                ShowCurrentSongInLibraryButton()
+                if snapshot.shows(.showInLibrary) {
+                    ShowCurrentSongInLibraryButton()
+                }
                 if snapshot.isPodcastEpisode {
                     if snapshot.canOpenPodcastEpisode {
                         Button(action: onOpenBook) {
@@ -14986,30 +14997,36 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if snapshot.showsLyricsPreferences {
+            if snapshot.offersTextPreferences {
                 Section {
-                    Picker(selection: $lyricsFontScale) {
-                        Text("lyrics_font_small").tag(0.85)
-                        Text("lyrics_font_medium").tag(1.0)
-                        Text("lyrics_font_large").tag(1.2)
-                        Text("lyrics_font_xlarge").tag(1.5)
-                    } label: {
-                        Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
-                    }
-                    .pickerStyle(.menu)
-
-                    LyricsLanguageFontMenu()
-
-                    Picker(selection: $lyricsScrollMotionRawValue) {
-                        ForEach(PlayerLyricsMotion.allCases) { motion in
-                            Text(motion.localizedTitle).tag(motion.rawValue)
+                    if snapshot.shows(.lyricsFontSize) {
+                        Picker(selection: $lyricsFontScale) {
+                            Text("lyrics_font_small").tag(0.85)
+                            Text("lyrics_font_medium").tag(1.0)
+                            Text("lyrics_font_large").tag(1.2)
+                            Text("lyrics_font_xlarge").tag(1.5)
+                        } label: {
+                            Label(String(localized: "lyrics_font_size"), systemImage: "textformat.size")
                         }
-                    } label: {
-                        Label(String(localized: "player_lyrics_motion"), systemImage: "arrow.up.and.down.text.horizontal")
+                        .pickerStyle(.menu)
                     }
-                    .pickerStyle(.menu)
 
-                    if snapshot.showsCompanionFontSize {
+                    if snapshot.shows(.lyricsFont) {
+                        LyricsLanguageFontMenu()
+                    }
+
+                    if snapshot.shows(.lyricsScrollMotion) {
+                        Picker(selection: $lyricsScrollMotionRawValue) {
+                            ForEach(PlayerLyricsMotion.allCases) { motion in
+                                Text(motion.localizedTitle).tag(motion.rawValue)
+                            }
+                        } label: {
+                            Label(String(localized: "player_lyrics_motion"), systemImage: "arrow.up.and.down.text.horizontal")
+                        }
+                        .pickerStyle(.menu)
+                    }
+
+                    if snapshot.showsCompanionFontSize, snapshot.shows(.translationFontSize) {
                         Picker(selection: $lyricsTranslationFontScale) {
                             Text("lyrics_translation_font_follow").tag(0.0)
                             Text("lyrics_font_small").tag(0.85)
@@ -15022,54 +15039,56 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         .pickerStyle(.menu)
                     }
 
-                    if let offsetKey = snapshot.transcriptOffsetItemKey {
+                    if let offsetKey = snapshot.transcriptOffsetItemKey, snapshot.shows(.transcriptOffset) {
                         transcriptOffsetMenu(key: offsetKey, delay: snapshot.transcriptOffsetItemDelay)
                     }
 
-                    // 关闭 / 系统翻译 / 智能翻译直接在这里选,不用先去设置里找翻译方式。
-                    Menu {
-                        Picker(selection: Binding<LyricsTranslationMode?>(
-                            get: {
-                                guard snapshot.isLyricsTranslationEnabled else { return nil }
-                                return snapshot.lyricsTranslationMode == .intelligentWithSystemFallback
-                                    && !snapshot.offersSmartLyricsTranslation
-                                    ? .system : snapshot.lyricsTranslationMode
-                            },
-                            set: { onSelectLyricsTranslation($0) }
-                        )) {
-                            Text("lyrics_translation_mode_off").tag(LyricsTranslationMode?.none)
-                            Text("lyrics_translation_mode_system")
-                                .tag(LyricsTranslationMode?.some(.system))
-                            if snapshot.offersSmartLyricsTranslation {
-                                Text("lyrics_translation_mode_smart")
-                                    .tag(LyricsTranslationMode?.some(.intelligentWithSystemFallback))
+                    if snapshot.shows(.lyricsTranslation) {
+                        // 关闭 / 系统翻译 / 智能翻译直接在这里选,不用先去设置里找翻译方式。
+                        Menu {
+                            Picker(selection: Binding<LyricsTranslationMode?>(
+                                get: {
+                                    guard snapshot.isLyricsTranslationEnabled else { return nil }
+                                    return snapshot.lyricsTranslationMode == .intelligentWithSystemFallback
+                                        && !snapshot.offersSmartLyricsTranslation
+                                        ? .system : snapshot.lyricsTranslationMode
+                                },
+                                set: { onSelectLyricsTranslation($0) }
+                            )) {
+                                Text("lyrics_translation_mode_off").tag(LyricsTranslationMode?.none)
+                                Text("lyrics_translation_mode_system")
+                                    .tag(LyricsTranslationMode?.some(.system))
+                                if snapshot.offersSmartLyricsTranslation {
+                                    Text("lyrics_translation_mode_smart")
+                                        .tag(LyricsTranslationMode?.some(.intelligentWithSystemFallback))
+                                }
+                                if snapshot.offersBaiduLyricsTranslation {
+                                    Text("lyrics_translation_mode_baidu")
+                                        .tag(LyricsTranslationMode?.some(.baidu))
+                                }
+                            } label: {
+                                EmptyView()
                             }
-                            if snapshot.offersBaiduLyricsTranslation {
-                                Text("lyrics_translation_mode_baidu")
-                                    .tag(LyricsTranslationMode?.some(.baidu))
-                            }
-                        } label: {
-                            EmptyView()
-                        }
-                        .pickerStyle(.inline)
+                            .pickerStyle(.inline)
 
-                        if snapshot.lyricsHaveBundledTranslations {
-                            Section {
-                                Toggle(isOn: Binding(
-                                    get: { snapshot.showsBundledLyricsTranslations },
-                                    set: { onSetBundledLyricsTranslationsShown($0) }
-                                )) {
-                                    Text("lyrics_bundled_translation_shown")
+                            if snapshot.lyricsHaveBundledTranslations {
+                                Section {
+                                    Toggle(isOn: Binding(
+                                        get: { snapshot.showsBundledLyricsTranslations },
+                                        set: { onSetBundledLyricsTranslationsShown($0) }
+                                    )) {
+                                        Text("lyrics_bundled_translation_shown")
+                                    }
                                 }
                             }
+                        } label: {
+                            Label(
+                                String(localized: "lyrics_translation_title"),
+                                systemImage: snapshot.isLyricsTranslationEnabled
+                                    ? "character.bubble.fill"
+                                    : "character.bubble"
+                            )
                         }
-                    } label: {
-                        Label(
-                            String(localized: "lyrics_translation_title"),
-                            systemImage: snapshot.isLyricsTranslationEnabled
-                                ? "character.bubble.fill"
-                                : "character.bubble"
-                        )
                     }
                 }
             }
@@ -15111,7 +15130,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     )
                 }
 
-                if !snapshot.isAppleMusicMode, snapshot.showsPlaybackRate {
+                if snapshot.offersPlaybackRateControls, snapshot.shows(.playbackRate) {
                     Picker(selection: $playbackRate) {
                         Text("0.5×").tag(Float(0.5))
                         Text("0.75×").tag(Float(0.75))
@@ -15134,6 +15153,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     .pickerStyle(.menu)
                     .disabled(!snapshot.canChangePlaybackRate)
+                }
+
+                if snapshot.offersPlaybackRateControls, snapshot.shows(.pitch) {
                     NowPlayingPitchMenuItem(
                         semitones: $pitchSemitones,
                         availability: snapshot.pitchAvailability,

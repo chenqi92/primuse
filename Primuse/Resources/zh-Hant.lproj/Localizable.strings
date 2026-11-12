@@ -6297,18 +6297,18 @@
 "playback_pitch_unavailable_apple_music" = "Apple Music 的歌曲不能升降調。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到區域網路裝置。";
 "player_controls_tiles_header %lld %lld" = "功能塊（%1$lld/%2$lld）";
-"player_controls_tiles_footer %lld" = "按住拖移換順序。打開的按順序平均排開，關掉的不留空位，在「更多」裡仍然找得到。AirPlay、喜歡、「更多」與文字稿鍵打開後從原處挪到這一排，關掉回原處。這台裝置一排最多放 %lld 塊，放滿後要先關掉一塊。";
+"player_controls_tiles_footer %lld" = "按住拖移換順序。打開的按順序平均排開，關掉的不留空位。AirPlay、喜歡、「更多」與文字稿鍵打開後從原處挪到這一排，關掉回原處。這台裝置一排最多放 %lld 塊，放滿後要先關掉一塊。";
 "player_controls_spoken_buttons_header" = "其他按鈕";
 "player_controls_spoken_transcript" = "文字稿鍵";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
 "player_controls_tile_label_style" = "功能塊文字";
 "player_controls_tile_label_icon_text" = "圖示和文字";
 "player_controls_tile_label_icon_only" = "僅圖示";
-"player_menu_items_spoken_footer" = "關掉的項目不再出現在「更多」裡。頁面上拿掉的文字稿、書籤和「接下來」仍會補進選單。";
+"player_menu_items_spoken_footer" = "關掉的項目不再出現在「更多」裡。";
 "player_menu_group_book" = "這本書";
 "player_menu_group_episode" = "這一集";
 "player_menu_group_spoken_playback" = "播放與文字稿";
-"player_controls_spoken_buttons_footer" = "關掉的喜歡和文字稿鍵會出現在「更多」裡，點封面也能打開文字稿；章節可以從目錄跳轉，長按倒轉、快轉鍵也能跳章。文字稿鍵與上一章 / 下一章只影響選了「自動」的格子。";
+"player_controls_spoken_buttons_footer" = "點封面也能打開文字稿；章節可以從目錄跳轉，長按倒轉、快轉鍵也能跳章。文字稿鍵與上一章 / 下一章只影響選了「自動」的格子。";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "這份歌詞無法放進 LRC 文字";
@@ -6365,7 +6365,7 @@
 "player_control_tint_footer" = "進度列、開著的隨機與循環等播放頁控制項的顏色。選單色時深色外觀下是白色、淺色外觀下是黑色，搭配流動色彩之類的背景不搶色；有聲書版面保留自己的配色。";
 "player_menu_items_title" = "「更多」選單";
 "player_menu_items_hidden_count %lld" = "已隱藏 %lld 項";
-"player_menu_items_footer" = "關掉的項目不再出現在播放頁的「更多」裡，已在頁面上的按鈕不會重複。歌詞、佇列、隨機和循環在頁面上沒有其他入口時才會補進選單。";
+"player_menu_items_footer" = "關掉的項目不再出現在播放頁的「更多」裡，已在頁面上的按鈕不會重複。";
 "player_menu_items_show_all" = "全部顯示";
 "player_menu_group_quick" = "最上面一排";
 "player_menu_group_modes" = "玩法";
@@ -6837,7 +6837,7 @@
 "player_skip_style_filled_circle" = "圓底";
 "player_skip_style_outlined_circle" = "圓圈";
 "player_controls_slots_title" = "按鈕位置";
-"player_controls_slots_info" = "點一行換按鈕，也可以留空；在預覽的實際大小裡點左上角的鉛筆，可以直接點虛線框換。選已經在別處的按鈕，兩格會對調。沒放在頁面上的按鈕都在「更多」裡；手機橫向、iPad 和摺疊機側欄按各自的版面擺放同一組按鈕。設定經 iCloud 同步。";
+"player_controls_slots_info" = "點一行換按鈕，也可以留空；在預覽的實際大小裡點左上角的鉛筆，可以直接點虛線框換。選已經在別處的按鈕，兩格會對調。手機橫向、iPad 和摺疊機側欄按各自的版面擺放同一組按鈕。設定經 iCloud 同步。";
 "player_style_preview_pip_hint" = "預覽浮在頁面上，跟著這一頁的設定即時變。可以拖到任意位置，雙指捏合調大小；下面那一排切換介面、看實際大小。";
 "player_style_preview_title" = "播放頁預覽";
 "player_style_preview_edit_buttons" = "編輯按鈕位置";

@@ -114,7 +114,7 @@ struct RepeatBehaviorTests {
         #expect(NowPlayingControlAction.abRepeat.rawValue == "abRepeat")
         // 两端都不放它时,随机与循环照旧补进「更多」。
         let none = merged.placing(.sleepTimer, at: .slot(.leadingEdge))
-        #expect(none.menuFallback(on: .portrait) == [.shuffle, .repeatMode])
+        #expect(none.menuFallback(on: .portrait) == [.shuffle, .shufflePreference, .repeatMode])
     }
 }
 

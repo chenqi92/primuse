@@ -6320,18 +6320,18 @@
 "playback_pitch_unavailable_apple_music" = "Apple Music 곡은 키를 바꿀 수 없습니다.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 곡은 네트워크의 기기로 캐스트할 수 없습니다.";
 "player_controls_tiles_header %lld %lld" = "기능 타일(%1$lld/%2$lld)";
-"player_controls_tiles_footer %lld" = "길게 누른 채 드래그하면 순서를 바꿀 수 있습니다. 켠 타일은 고르게 배치되고, 끈 타일은 빈자리를 남기지 않으며 '더 보기' 메뉴에 있습니다. AirPlay, 좋아요, 더 보기, 스크립트 버튼을 켜면 원래 자리에서 이 줄로 옮겨지고, 끄면 돌아갑니다. 이 기기에서는 한 줄에 최대 %lld개까지 놓을 수 있습니다. 가득 차면 먼저 하나를 끄세요.";
+"player_controls_tiles_footer %lld" = "길게 누른 채 드래그하면 순서를 바꿀 수 있습니다. 켠 타일은 고르게 배치되고, 끈 타일은 빈자리를 남기지 않습니다. AirPlay, 좋아요, 더 보기, 스크립트 버튼을 켜면 원래 자리에서 이 줄로 옮겨지고, 끄면 돌아갑니다. 이 기기에서는 한 줄에 최대 %lld개까지 놓을 수 있습니다. 가득 차면 먼저 하나를 끄세요.";
 "player_controls_spoken_buttons_header" = "기타 버튼";
 "player_controls_spoken_transcript" = "스크립트 버튼";
 "player_controls_spoken_chapters" = "이전 / 다음 챕터";
 "player_controls_tile_label_style" = "타일 표시";
 "player_controls_tile_label_icon_text" = "아이콘과 텍스트";
 "player_controls_tile_label_icon_only" = "아이콘만";
-"player_menu_items_spoken_footer" = "끈 항목은 '더 보기'에 더 이상 나타나지 않습니다. 화면에서 뺀 스크립트 버튼·북마크·다음 곡은 계속 메뉴로 들어갑니다.";
+"player_menu_items_spoken_footer" = "끈 항목은 '더 보기'에 더 이상 나타나지 않습니다.";
 "player_menu_group_book" = "이 책";
 "player_menu_group_episode" = "이 에피소드";
 "player_menu_group_spoken_playback" = "재생 및 스크립트";
-"player_controls_spoken_buttons_footer" = "끄면 좋아요와 스크립트 버튼이 '더 보기' 메뉴로 옮겨지며, 표지를 탭해도 스크립트가 열립니다. 챕터는 목차에서 이동하거나 건너뛰기 버튼을 길게 눌러 이동할 수 있습니다. 스크립트 버튼과 이전 / 다음 챕터 스위치는 '자동'으로 둔 자리에만 적용됩니다.";
+"player_controls_spoken_buttons_footer" = "표지를 탭해도 스크립트가 열립니다. 챕터는 목차에서 이동하거나 건너뛰기 버튼을 길게 눌러 이동할 수 있습니다. 스크립트 버튼과 이전 / 다음 챕터 스위치는 '자동'으로 둔 자리에만 적용됩니다.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "이 가사는 LRC 텍스트에 담을 수 없습니다";
@@ -6388,7 +6388,7 @@
 "player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";
 "player_menu_items_title" = "'더 보기' 메뉴";
 "player_menu_items_hidden_count %lld" = "%lld개 숨김";
-"player_menu_items_footer" = "끈 항목은 재생 화면의 더 보기 메뉴에 나타나지 않습니다. 화면에 있는 버튼은 메뉴에 중복되지 않습니다. 가사, 대기열, 셔플, 반복은 화면에서 다른 방법으로 접근할 수 없을 때만 메뉴에 추가됩니다.";
+"player_menu_items_footer" = "끈 항목은 재생 화면의 더 보기 메뉴에 나타나지 않습니다. 화면에 있는 버튼은 메뉴에 중복되지 않습니다.";
 "player_menu_items_show_all" = "모두 표시";
 "player_menu_group_quick" = "맨 위 줄";
 "player_menu_group_modes" = "모드";
@@ -6860,7 +6860,7 @@
 "player_skip_style_filled_circle" = "채움";
 "player_skip_style_outlined_circle" = "윤곽선";
 "player_controls_slots_title" = "버튼 위치";
-"player_controls_slots_info" = "행을 탭해 버튼을 고르거나 비워 둘 수 있습니다. 실제 크기 미리보기에서 왼쪽 위 연필을 탭하면 점선 상자를 직접 탭해 바꿀 수 있습니다. 이미 다른 곳에 있는 버튼을 고르면 두 자리가 서로 바뀝니다. 화면에 없는 버튼은 '더 보기'에 있으며, iPhone 가로 화면·iPad·폴더블 측면 열은 같은 버튼을 각자의 레이아웃으로 배치합니다. 설정은 iCloud로 동기화됩니다.";
+"player_controls_slots_info" = "행을 탭해 버튼을 고르거나 비워 둘 수 있습니다. 실제 크기 미리보기에서 왼쪽 위 연필을 탭하면 점선 상자를 직접 탭해 바꿀 수 있습니다. 이미 다른 곳에 있는 버튼을 고르면 두 자리가 서로 바뀝니다. iPhone 가로 화면·iPad·폴더블 측면 열은 같은 버튼을 각자의 레이아웃으로 배치합니다. 설정은 iCloud로 동기화됩니다.";
 "player_style_preview_pip_hint" = "미리보기는 페이지 위에 떠 있으며 이 설정을 실시간으로 따라갑니다. 원하는 위치로 끌어다 놓고 두 손가락으로 크기를 조절하세요. 아래 버튼으로 화면을 바꾸거나 실제 크기로 볼 수 있습니다.";
 "player_style_preview_title" = "재생 화면 미리보기";
 "player_style_preview_edit_buttons" = "버튼 위치 편집";

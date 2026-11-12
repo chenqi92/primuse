@@ -6226,18 +6226,18 @@
 "playback_pitch_unavailable_apple_music" = "No se puede cambiar el tono de las canciones de Apple Music.";
 "player_controls_unavailable_cast_apple_music" = "Las canciones de Apple Music no se pueden transmitir a dispositivos de tu red.";
 "player_controls_tiles_header %lld %lld" = "Mosaicos de funciones (%1$lld/%2$lld)";
-"player_controls_tiles_footer %lld" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos activados se reparten de forma uniforme y los desactivados no dejan hueco; siguen en Más. Al activar AirPlay, Me gusta, Más o el botón de transcripción, pasan aquí desde su lugar; al desactivarlos, vuelven. En este dispositivo caben hasta %lld mosaicos en una fila; cuando esté llena, desactiva uno antes de activar otro.";
+"player_controls_tiles_footer %lld" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos activados se reparten de forma uniforme y los desactivados no dejan hueco. Al activar AirPlay, Me gusta, Más o el botón de transcripción, pasan aquí desde su lugar; al desactivarlos, vuelven. En este dispositivo caben hasta %lld mosaicos en una fila; cuando esté llena, desactiva uno antes de activar otro.";
 "player_controls_spoken_buttons_header" = "Otros botones";
 "player_controls_spoken_transcript" = "Botón de transcripción";
 "player_controls_spoken_chapters" = "Capítulo anterior / siguiente";
 "player_controls_tile_label_style" = "Etiquetas de mosaicos";
 "player_controls_tile_label_icon_text" = "Ícono y texto";
 "player_controls_tile_label_icon_only" = "Solo ícono";
-"player_menu_items_spoken_footer" = "Los elementos que desactives ya no aparecerán en el menú Más. El botón de transcripción, Marcadores y A continuación siguen pasando al menú si los quitas de la página.";
+"player_menu_items_spoken_footer" = "Los elementos que desactives ya no aparecerán en el menú Más.";
 "player_menu_group_book" = "Este libro";
 "player_menu_group_episode" = "Este episodio";
 "player_menu_group_spoken_playback" = "Reproducción y transcripción";
-"player_controls_spoken_buttons_footer" = "Al desactivarlos, Me gusta y el botón de transcripción pasan a Más; también puedes tocar la portada para abrir la transcripción. Cambia de capítulo desde el contenido o manteniendo presionados los botones de salto. El botón de transcripción y el de capítulo anterior / siguiente solo afectan a los lugares en Automático.";
+"player_controls_spoken_buttons_footer" = "También puedes tocar la portada para abrir la transcripción. Cambia de capítulo desde el contenido o manteniendo presionados los botones de salto. El botón de transcripción y el de capítulo anterior / siguiente solo afectan a los lugares en Automático.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "Esta letra no cabe en texto LRC";
@@ -6294,7 +6294,7 @@
 "player_control_tint_footer" = "Color de la barra de progreso, del aleatorio y la repetición activados y de otros controles del reproductor. Monocromo es blanco en modo oscuro y negro en modo claro, así no compite con fondos como Colores fluidos. Los diseños de audiolibros conservan sus propios colores.";
 "player_menu_items_title" = "Menú Más";
 "player_menu_items_hidden_count %lld" = "%lld ocultos";
-"player_menu_items_footer" = "Los elementos que desactives ya no aparecerán en el menú Más del reproductor. Los botones que ya están en la página no se repiten en el menú. Letra, Cola, Aleatorio y Repetir se agregan cuando no hay otra forma de acceder a ellos en la página.";
+"player_menu_items_footer" = "Los elementos que desactives ya no aparecerán en el menú Más del reproductor. Los botones que ya están en la página no se repiten en el menú.";
 "player_menu_items_show_all" = "Mostrar todo";
 "player_menu_group_quick" = "Fila superior";
 "player_menu_group_modes" = "Modos";
@@ -6766,7 +6766,7 @@
 "player_skip_style_filled_circle" = "Relleno";
 "player_skip_style_outlined_circle" = "Contorno";
 "player_controls_slots_title" = "Posición de los botones";
-"player_controls_slots_info" = "Toca una fila para elegir un botón o déjala vacía. En la vista previa a tamaño real, toca el lápiz de la esquina superior izquierda para cambiar los botones tocando directamente los recuadros punteados. Si eliges un botón que ya está en otro lugar, se intercambian. Los botones que no están en la página están en el menú Más; el iPhone en horizontal, el iPad y la columna lateral de los plegables acomodan los mismos botones a su manera. La configuración se sincroniza con iCloud.";
+"player_controls_slots_info" = "Toca una fila para elegir un botón o déjala vacía. En la vista previa a tamaño real, toca el lápiz de la esquina superior izquierda para cambiar los botones tocando directamente los recuadros punteados. Si eliges un botón que ya está en otro lugar, se intercambian. El iPhone en horizontal, el iPad y la columna lateral de los plegables acomodan los mismos botones a su manera. La configuración se sincroniza con iCloud.";
 "player_style_preview_pip_hint" = "La vista previa flota sobre la página y sigue estos ajustes en vivo. Arrástrala a donde quieras y pellizca para cambiar su tamaño; los botones de abajo cambian de pantalla y la muestran a tamaño real.";
 "player_style_preview_title" = "Vista previa del reproductor";
 "player_style_preview_edit_buttons" = "Editar posición de los botones";

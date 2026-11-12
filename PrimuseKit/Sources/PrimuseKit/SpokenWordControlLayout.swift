@@ -305,7 +305,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             tileLabelStyle: stored.labelStyle.flatMap(SpokenWordTileLabelStyle.init(rawValue:)) ?? .iconAndText,
             showsSource: stored.showsSource ?? true,
             slots: stored.slots ?? [:],
-            hiddenMenu: stored.hiddenMenu ?? []
+            hiddenMenu: NowPlayingMenuItem.decodeHidden(stored.hiddenMenu, spokenWord: true)
         )
     }
 
@@ -320,7 +320,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             labelStyle: tileLabelStyle == .iconAndText ? nil : tileLabelStyle.rawValue,
             showsSource: showsSource ? nil : false,
             slots: slots.isEmpty ? nil : slots,
-            hiddenMenu: hiddenMenu.isEmpty ? nil : hiddenMenu
+            hiddenMenu: NowPlayingMenuItem.encodeHidden(hiddenMenu, spokenWord: true)
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -453,7 +453,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             result.append(.like)
         }
         guard context.hasTiles else { return result }
-        if context.hasTranscript, !resolved.placedActions.contains(.transcript), !resolved.tiles.contains(.transcript) {
+        if showsMenuItem(.transcript), context.hasTranscript, !resolved.placedActions.contains(.transcript), !resolved.tiles.contains(.transcript) {
             result.append(.transcript)
         }
         let defaults = SpokenWordControlLayout.default(for: kind).resolved(in: context)
@@ -462,8 +462,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         }
         let shown = reachable(resolved)
         let defaultShown = reachable(defaults)
-        if defaultShown.contains(.bookmark), !shown.contains(.bookmark) { result.append(.bookmark) }
-        if defaultShown.contains(.upNext), !shown.contains(.upNext) { result.append(.upNext) }
+        if showsMenuItem(.bookmark), defaultShown.contains(.bookmark), !shown.contains(.bookmark) { result.append(.bookmark) }
+        if showsMenuItem(.upNext), defaultShown.contains(.upNext), !shown.contains(.upNext) { result.append(.upNext) }
         return result
     }
 

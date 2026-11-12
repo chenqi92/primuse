@@ -271,8 +271,8 @@ import Testing
         #expect(layout.menuFallback(on: .wideLandscape).isEmpty)
         #expect(layout.menuFallback(on: .compactLandscape(showsTransportEdges: true)).isEmpty)
         // 横屏右栏窄到摆不下两端时,随机与循环照旧补进「更多」。
-        #expect(layout.menuFallback(on: .compactLandscape(showsTransportEdges: false)) == [.shuffle, .repeatMode])
-        #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: false, headerOverflows: false)) == [.shuffle, .repeatMode])
+        #expect(layout.menuFallback(on: .compactLandscape(showsTransportEdges: false)) == [.shuffle, .shufflePreference, .repeatMode])
+        #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: false, headerOverflows: false)) == [.shuffle, .shufflePreference, .repeatMode])
         #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: true, headerOverflows: false)).isEmpty)
         // 竖栏放不下时心形收进「更多」(原来由竖栏自己补,现在走同一套兜底)。
         #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: true, headerOverflows: true)) == [.like])
@@ -321,9 +321,9 @@ import Testing
             .placing(.equalizer, at: .slot(.header))
         let surface = NowPlayingControlSurface.toolColumn(showsTransportEdges: false, headerOverflows: false)
         #expect(layout.menuFallback(on: surface, lyricsReachableFromArtwork: false)
-            == [.like, .lyrics, .queue, .shuffle, .repeatMode])
+            == [.like, .lyrics, .queue, .shuffle, .shufflePreference, .repeatMode])
         #expect(layout.menuFallback(on: surface, lyricsReachableFromArtwork: true)
-            == [.like, .queue, .shuffle, .repeatMode])
+            == [.like, .queue, .shuffle, .shufflePreference, .repeatMode])
     }
 
     @Test func edgeActionsHiddenInNarrowLandscapeStayInTheMenu() {
@@ -331,7 +331,7 @@ import Testing
         #expect(layout.menuSuppressed(on: .portrait).contains(.sleepTimer))
         let narrow = NowPlayingControlSurface.compactLandscape(showsTransportEdges: false)
         #expect(!layout.menuSuppressed(on: narrow).contains(.sleepTimer))
-        #expect(layout.menuFallback(on: narrow) == [.shuffle, .repeatMode])
+        #expect(layout.menuFallback(on: narrow) == [.shuffle, .shufflePreference, .repeatMode])
     }
 
     @Test func landscapeChromeSkipsLyricsAndFullScreenAndKeepsAirPlayLast() {
@@ -402,6 +402,39 @@ import Testing
         #expect(removed.menuFallback(on: .portrait).contains(.like))
     }
 
+    @Test func menuSwitchesHideOnlyTheirOwnFallbackRow() {
+        let removed = Layout.default
+            .placing(nil, at: .slot(.leadingEdge))
+            .placing(nil, at: .slot(.trailingEdge))
+            .placing(nil, at: .bar(2))
+            .placing(nil, at: .bar(0))
+        let items: [NowPlayingMenuItem] = [.lyrics, .queue, .shuffle, .shufflePreference, .repeatMode]
+        #expect(removed.menuFallback(on: .portrait) == items)
+        for item in items {
+            let hidden = Layout.decode(removed.settingMenuItem(item, visible: false).encoded())
+            #expect(hidden.menuFallback(on: .portrait) == items.filter { $0 != item })
+            #expect(hidden.showingAllMenuItems() == removed)
+            let narrow = NowPlayingControlSurface.compactLandscape(showsTransportEdges: false)
+            #expect(hidden.menuFallback(on: narrow) == removed.menuFallback(on: narrow).filter { $0 != item })
+            let modeItems = hidden.menuFallback(forMissing: [.shuffle, .repeatMode])
+            #expect(modeItems == [.shuffle, .shufflePreference, .repeatMode].filter { $0 != item })
+            #expect(Layout.default.settingMenuItem(item, visible: false).visibleActions(on: .portrait)
+                == Layout.default.visibleActions(on: .portrait))
+        }
+    }
+
+    @Test func legacyHiddenGroupsSurviveUpgradesAndCanBeSplit() {
+        let raw = #"{"hiddenMenu":["futureItem","lyricsDisplay","playbackSpeed"]}"#
+        let old = Layout.decode(raw)
+        #expect(old.hiddenMenuItems == [.lyricsFontSize, .lyricsFont, .lyricsScrollMotion, .translationFontSize,
+                                        .lyricsTranslation, .playbackRate, .pitch])
+        #expect(old.encoded() == raw)
+        let edited = old.settingMenuItem(.pitch, visible: true).settingMenuItem(.lyricsFont, visible: true)
+        let reloaded = Layout.decode(edited.encoded())
+        #expect(reloaded.hiddenMenuItems == old.hiddenMenuItems.subtracting([.pitch, .lyricsFont]))
+        #expect(reloaded.encoded().contains("futureItem"))
+    }
+
     @Test func menuItemsCanBeHiddenAndRoundTrip() {
         #expect(Layout.default.hiddenMenuItems.isEmpty)
         let layout = Layout.default
@@ -424,13 +457,13 @@ import Testing
     }
 
     @Test func floatingLyricsAndWeightVisibilityAreIndependentOfDisplayAndPlayback() {
-        let existing = Layout.default.settingMenuItem(.lyricsDisplay, visible: false)
+        let existing = Layout.default.settingMenuItem(.lyricsFontSize, visible: false)
         let hidden = existing.settingMenuItem(.miniPlayerLyrics, visible: false)
             .settingMenuItem(.lyricsWeight, visible: false)
         let restored = Layout.decode(hidden.encoded())
         #expect(!restored.showsMenuItem(.miniPlayerLyrics))
         #expect(!restored.showsMenuItem(.lyricsWeight))
-        #expect(!restored.showsMenuItem(.lyricsDisplay))
+        #expect(!restored.showsMenuItem(.lyricsFontSize))
         #expect(restored.showsMenuItem(.floatingLyrics))
         #expect(restored.bar == existing.bar)
         let shown = restored.settingMenuItem(.miniPlayerLyrics, visible: true)

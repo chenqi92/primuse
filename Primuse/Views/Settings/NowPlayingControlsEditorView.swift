@@ -1945,8 +1945,7 @@ private struct PlayerArtworkStyleSection: View {
 
 // MARK: - 「更多」菜单
 
-/// 音乐播放页「更多」菜单里哪些项出现(#198)。按菜单里的分组排,关掉的项不再出现;
-/// 歌词、队列、随机、循环保留兜底入口。
+/// 音乐播放页「更多」菜单里的显示项目。
 private struct NowPlayingMenuItemsEditor: View {
     @Binding var storage: String
 
@@ -1954,14 +1953,17 @@ private struct NowPlayingMenuItemsEditor: View {
 
     private static let groups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
         ("player_menu_group_quick", [.like, .fullScreen, .immersiveFaceToggle, .share, .addToPlaylist, .delete]),
-        ("player_menu_group_modes", [.karaoke, .medley]),
+        ("player_menu_group_modes", [.shuffle, .shufflePreference, .repeatMode, .karaoke, .medley, .continueMedley]),
         ("player_menu_group_song", [
             .scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .clipExport, .shuffleLink,
             .editTags, .editLyrics, .exportText,
         ]),
-        ("player_menu_group_go", [.songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
-        ("player_menu_group_playback", [.cast, .miniPlayerLyrics, .floatingLyrics, .lyricsDisplay, .lyricsWeight,
-                                       .lyricsMotion, .sleepTimer, .equalizer, .playbackSpeed]),
+        ("player_menu_group_go", [.showInLibrary, .songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
+        ("player_menu_group_playback", [
+            .lyrics, .queue, .cast, .miniPlayerLyrics, .floatingLyrics, .lyricsFontSize, .lyricsFont, .lyricsWeight,
+            .lyricsScrollMotion, .translationFontSize, .lyricsTranslation, .lyricsMotion, .fullScreenEffect,
+            .lockControls, .sleepTimer, .equalizer, .playbackRate, .pitch,
+        ]),
     ]
 
     var body: some View {
@@ -1976,33 +1978,37 @@ private struct NowPlayingMenuItemsEditor: View {
     }
 }
 
-/// 有声书或播客播放页「更多」菜单里哪些项出现。只列这一种播放页的菜单里会出现的项;
-/// 文字稿、书签、「接下来」保留兜底入口。
+/// 有声书或播客播放页「更多」菜单里的显示项目。
 private struct SpokenWordMenuItemsEditor: View {
     let kind: SpokenWordPlayerKind
     @Binding var storage: String
 
     private var layout: SpokenWordControlLayout { .decode(storage, kind: kind) }
 
-    /// 资料库里的播客(自己下载、标成播客的歌)走的也是播客这一份配置,菜单里有加歌单、
-    /// 改标签这些曲库项,所以播客这边把它们也列出来。
+    private static let playbackItems: [NowPlayingMenuItem] = [
+        .spokenWordVideo, .transcript, .cast, .lyricsFontSize, .lyricsFont, .lyricsWeight, .lyricsScrollMotion,
+        .translationFontSize, .transcriptOffset, .lyricsTranslation, .lockControls, .sleepTimer, .equalizer, .playbackRate,
+    ]
+
     private static let audiobookGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
         ("player_menu_group_quick", [.like, .share, .addToPlaylist, .delete]),
         ("player_menu_group_book", [
-            .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
-            .reloadLyrics,
+            .bookmark, .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
+            .reloadLyrics, .openInAppleMusic,
         ]),
-        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .lyricsWeight, .sleepTimer, .equalizer, .playbackSpeed]),
+        ("player_menu_group_spoken_playback", playbackItems),
     ]
 
+    /// 资料库里的播客(自己下载、标成播客的歌)走的也是播客这一份配置,菜单里有加歌单、
+    /// 改标签这些曲库项,所以播客这边把它们也列出来。
     private static let podcastGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
         ("player_menu_group_quick", [.like, .share, .addToPlaylist, .delete]),
         ("player_menu_group_episode", [
-            .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow,
+            .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow, .upNext,
             .chaptersAndBookmarks, .goToBook, .generateTranscript, .exportText, .songInfo, .editTags, .editLyrics,
-            .reloadLyrics,
+            .reloadLyrics, .openInAppleMusic,
         ]),
-        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .lyricsWeight, .sleepTimer, .equalizer, .playbackSpeed]),
+        ("player_menu_group_spoken_playback", playbackItems),
     ]
 
     var body: some View {
@@ -2082,14 +2088,33 @@ extension NowPlayingMenuItem {
         case .goToArtist: "music.mic"
         case .openInAppleMusic: "arrow.up.right.square"
         case .cast: "airplayaudio"
-        case .lyricsDisplay: "textformat.size"
+        case .lyrics: "quote.bubble"
+        case .queue: "list.bullet"
+        case .shuffle: "shuffle"
+        case .shufflePreference: "dice"
+        case .repeatMode: "repeat"
+        case .showInLibrary: "music.note.list"
+        case .fullScreenEffect: "viewfinder.rectangular"
+        case .lockControls: "lock"
+        case .continueMedley: "music.note"
+        case .lyricsFontSize: "textformat.size"
+        case .lyricsFont: "textformat"
+        case .lyricsScrollMotion: "arrow.up.and.down.text.horizontal"
+        case .translationFontSize: "character.textbox"
+        case .lyricsTranslation: "character.bubble"
+        case .transcript: "text.bubble"
+        case .bookmark: "bookmark"
+        case .upNext: "list.bullet"
+        case .spokenWordVideo: "play.rectangle"
+        case .transcriptOffset: "arrow.left.arrow.right"
+        case .pitch: PlaybackPitchText.symbol
         case .lyricsWeight: "bold"
         case .miniPlayerLyrics: "captions.bubble"
         case .floatingLyrics: "pip"
         case .lyricsMotion: "text.line.first.and.arrowtriangle.forward"
         case .sleepTimer: "moon.zzz"
         case .equalizer: "slider.vertical.3"
-        case .playbackSpeed: "speedometer"
+        case .playbackRate: "speedometer"
         case .goToBook: "books.vertical"
         case .chaptersAndBookmarks: "list.bullet.indent"
         case .podcastEpisodeDetails: "info.circle"
@@ -2125,14 +2150,33 @@ extension NowPlayingMenuItem {
         case .goToArtist: "go_to_artist"
         case .openInAppleMusic: "apple_music_open_in_app"
         case .cast: "cast_to_device"
-        case .lyricsDisplay: "player_menu_item_lyrics_display"
+        case .lyrics: "lyrics_title"
+        case .queue: "a11y_queue"
+        case .shuffle: "shuffle"
+        case .shufflePreference: "shuffle_preference_title"
+        case .repeatMode: "repeat"
+        case .showInLibrary: "show_in_library"
+        case .fullScreenEffect: "fullscreen_effect_settings_title"
+        case .lockControls: "immersive_lock_controls"
+        case .continueMedley: "medley_continue_full"
+        case .lyricsFontSize: "lyrics_font_size"
+        case .lyricsFont: "transcript_font"
+        case .lyricsScrollMotion: "player_lyrics_motion"
+        case .translationFontSize: "lyrics_translation_font_size"
+        case .lyricsTranslation: "lyrics_translation_title"
+        case .transcript: "spoken_word_text_tab"
+        case .bookmark: "spoken_word_add_bookmark"
+        case .upNext: "up_next"
+        case .spokenWordVideo: "spoken_word_video_show"
+        case .transcriptOffset: "transcript_offset_title"
+        case .pitch: "karaoke_key"
         case .lyricsWeight: "lyrics_weight"
         case .miniPlayerLyrics: "mini_player_show_lyrics"
         case .floatingLyrics: "lyrics_pip_title"
         case .lyricsMotion: "immersive_lyrics_motion_title"
         case .sleepTimer: "sleep_timer"
         case .equalizer: "equalizer"
-        case .playbackSpeed: "playback_rate"
+        case .playbackRate: "playback_rate"
         case .goToBook: "spoken_word_go_to_book"
         case .chaptersAndBookmarks: "spoken_word_chapters_and_bookmarks"
         case .podcastEpisodeDetails: "podcast_player_episode_details"
@@ -2659,7 +2703,6 @@ enum NowPlayingStylePreset: String, CaseIterable, Identifiable {
         let reset = current.resettingActions()
         switch self {
         case .concise:
-            // 随机与循环从两端拿掉之后照样在「更多」里(`needsMenuFallback`)。
             return reset
                 .placing(nil, at: .slot(.leadingEdge))
                 .placing(nil, at: .slot(.trailingEdge))

@@ -6226,18 +6226,18 @@
 "playback_pitch_unavailable_apple_music" = "Apple Music şarkılarında ton değiştirilemez.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music şarkıları ağınızdaki aygıtlara yayınlanamaz.";
 "player_controls_tiles_header %lld %lld" = "İşlev Kutucukları (%1$lld/%2$lld)";
-"player_controls_tiles_footer %lld" = "Sırayı değiştirmek için basılı tutup sürükleyin. Açık kutucuklar eşit aralıkla yayılır, kapattıklarınız boşluk bırakmaz ve Diğer menüsünde yine bulunur. AirPlay, Beğen, Daha Fazla veya döküm düğmesini açtığınızda yerinden bu sıraya taşınır, kapattığınızda geri döner. Bu aygıtta bir sıraya en fazla %lld kutucuk sığar; sıra dolduğunda önce birini kapatın.";
+"player_controls_tiles_footer %lld" = "Sırayı değiştirmek için basılı tutup sürükleyin. Açık kutucuklar eşit aralıkla yayılır, kapattıklarınız boşluk bırakmaz. AirPlay, Beğen, Daha Fazla veya döküm düğmesini açtığınızda yerinden bu sıraya taşınır, kapattığınızda geri döner. Bu aygıtta bir sıraya en fazla %lld kutucuk sığar; sıra dolduğunda önce birini kapatın.";
 "player_controls_spoken_buttons_header" = "Diğer Düğmeler";
 "player_controls_spoken_transcript" = "Döküm Düğmesi";
 "player_controls_spoken_chapters" = "Önceki / Sonraki Bölüm";
 "player_controls_tile_label_style" = "Kutucuk Etiketleri";
 "player_controls_tile_label_icon_text" = "Simge ve Metin";
 "player_controls_tile_label_icon_only" = "Yalnızca Simge";
-"player_menu_items_spoken_footer" = "Kapattığınız öğeler Diğer menüsünde artık görünmez. Döküm düğmesi, Yer imleri ve Sıradaki sayfadan kaldırıldığında yine menüye geçer.";
+"player_menu_items_spoken_footer" = "Kapattığınız öğeler Diğer menüsünde artık görünmez.";
 "player_menu_group_book" = "Bu Kitap";
 "player_menu_group_episode" = "Bu Bölüm";
 "player_menu_group_spoken_playback" = "Oynatma ve Döküm";
-"player_controls_spoken_buttons_footer" = "Kapatıldığında Beğen ve döküm düğmesi Diğer menüsüne geçer; kapağa dokunmak da dökümü açar. Bölümler arasında içindekilerden ya da atlama düğmelerini basılı tutarak geçebilirsiniz. Döküm düğmesi ve önceki / sonraki bölüm anahtarı yalnızca Otomatik olan yerleri etkiler.";
+"player_controls_spoken_buttons_footer" = "Kapağa dokunmak da dökümü açar. Bölümler arasında içindekilerden ya da atlama düğmelerini basılı tutarak geçebilirsiniz. Döküm düğmesi ve önceki / sonraki bölüm anahtarı yalnızca Otomatik olan yerleri etkiler.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "Bu şarkı sözleri LRC metnine sığmıyor";
@@ -6294,7 +6294,7 @@
 "player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";
 "player_menu_items_title" = "Diğer Menüsü";
 "player_menu_items_hidden_count %lld" = "%lld gizli";
-"player_menu_items_footer" = "Kapattığınız öğeler çaların Diğer menüsünde görünmez. Sayfadaki düğmeler menüde tekrarlanmaz. Sözler, Sıra, Karıştır ve Yinele, sayfada bunlara erişmenin başka bir yolu olmadığında menüye eklenir.";
+"player_menu_items_footer" = "Kapattığınız öğeler çaların Diğer menüsünde görünmez. Sayfadaki düğmeler menüde tekrarlanmaz.";
 "player_menu_items_show_all" = "Tümünü Göster";
 "player_menu_group_quick" = "Üst Sıra";
 "player_menu_group_modes" = "Modlar";
@@ -6766,7 +6766,7 @@
 "player_skip_style_filled_circle" = "Dolu";
 "player_skip_style_outlined_circle" = "Dış Çizgi";
 "player_controls_slots_title" = "Düğme Konumları";
-"player_controls_slots_info" = "Düğme seçmek için bir satıra dokunun ya da boş bırakın. Gerçek boyuttaki önizlemede sol üstteki kaleme dokunun ve kesikli kutulara doğrudan dokunarak düğmeleri değiştirin. Başka bir yerde olan bir düğmeyi seçerseniz ikisi yer değiştirir. Sayfada olmayan düğmeler Diğer menüsündedir; iPhone yatay görünümü, iPad ve katlanabilir cihazların yan sütunu aynı düğmeleri kendi düzenlerinde yerleştirir. Ayarlar iCloud ile eşzamanlanır.";
+"player_controls_slots_info" = "Düğme seçmek için bir satıra dokunun ya da boş bırakın. Gerçek boyuttaki önizlemede sol üstteki kaleme dokunun ve kesikli kutulara doğrudan dokunarak düğmeleri değiştirin. Başka bir yerde olan bir düğmeyi seçerseniz ikisi yer değiştirir. iPhone yatay görünümü, iPad ve katlanabilir cihazların yan sütunu aynı düğmeleri kendi düzenlerinde yerleştirir. Ayarlar iCloud ile eşzamanlanır.";
 "player_style_preview_pip_hint" = "Önizleme sayfanın üzerinde yüzer ve bu ayarları canlı olarak izler. İstediğiniz yere sürükleyin, boyutunu iki parmakla değiştirin; altındaki düğmeler ekranlar arasında geçiş yapar ve gerçek boyutu gösterir.";
 "player_style_preview_title" = "Oynatıcı Önizlemesi";
 "player_style_preview_edit_buttons" = "Düğme Konumlarını Düzenle";

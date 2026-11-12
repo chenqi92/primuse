@@ -36,10 +36,14 @@ public enum NowPlayingControlAction: String, CaseIterable, Codable, Hashable, Id
     public var fitsTransportEdge: Bool { self != .airPlay }
 
     /// 「更多」里本来没有、只能靠页面上那颗键点到的几样。没摆在页面上时补进「更多」。
-    public var needsMenuFallback: Bool {
+    fileprivate var fallbackMenuItems: [NowPlayingMenuItem] {
         switch self {
-        case .like, .lyrics, .queue, .shuffle, .repeatMode: true
-        default: false
+        case .like: [.like]
+        case .lyrics: [.lyrics]
+        case .queue: [.queue]
+        case .shuffle: [.shuffle, .shufflePreference]
+        case .repeatMode: [.repeatMode]
+        default: []
         }
     }
 
@@ -137,7 +141,7 @@ public enum NowPlayingBarMetrics {
 }
 
 /// 音乐播放页「更多」菜单里能关掉的项(#198:串烧、卡拉OK 这类用得少的可以不出现)。
-/// rawValue 会写进配置并经 iCloud 同步,发布后不能改名。歌词、队列、随机和循环保留兜底入口。
+/// rawValue 会写进配置并经 iCloud 同步。
 public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case like
     case fullScreen
@@ -158,15 +162,34 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case goToArtist
     case openInAppleMusic
     case cast
-    case lyricsDisplay
+    case lyrics
+    case queue
+    case shuffle
+    case shufflePreference
+    case repeatMode
+    case showInLibrary
+    case fullScreenEffect
+    case lockControls
+    case lyricsFontSize
+    case lyricsFont
+    case lyricsScrollMotion
+    case translationFontSize
+    case lyricsTranslation
     case lyricsWeight
     case miniPlayerLyrics
     case floatingLyrics
     case lyricsMotion
     case sleepTimer
     case equalizer
-    case playbackSpeed
+    case playbackRate
+    case pitch
+    case continueMedley
     // 下面几项只在有声书、播客的菜单里出现(`SpokenWordControlLayout` 管它们的显隐)。
+    case transcript
+    case bookmark
+    case upNext
+    case spokenWordVideo
+    case transcriptOffset
     case goToBook
     case chaptersAndBookmarks
     case podcastEpisodeDetails
@@ -185,6 +208,36 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case exportText
 
     public var id: String { rawValue }
+
+    /// 旧设置把字号、字体和翻译等入口合在一起,音乐的变速和升降调也共用一个开关。
+    /// 整组隐藏时仍写旧键,只隐藏其中几项时才写各项的键。
+    private static func legacyGroups(spokenWord: Bool) -> [(String, [Self])] {
+        var textItems: [Self] = [.lyricsFontSize, .lyricsFont, .lyricsScrollMotion, .translationFontSize, .lyricsTranslation]
+        if spokenWord { textItems.append(.transcriptOffset) }
+        return [("lyricsDisplay", textItems), ("playbackSpeed", spokenWord ? [.playbackRate] : [.playbackRate, .pitch])]
+    }
+
+    static func decodeHidden(_ stored: [String]?, spokenWord: Bool) -> [String] {
+        guard let stored, !stored.isEmpty else { return [] }
+        var names = Set(stored)
+        for (key, items) in legacyGroups(spokenWord: spokenWord) {
+            if names.remove(key) != nil { names.formUnion(items.map(\.rawValue)) }
+        }
+        return names.sorted()
+    }
+
+    static func encodeHidden(_ hidden: [String], spokenWord: Bool) -> [String]? {
+        guard !hidden.isEmpty else { return nil }
+        var names = Set(hidden)
+        for (key, items) in legacyGroups(spokenWord: spokenWord) {
+            let group = items.map(\.rawValue)
+            if names.isSuperset(of: group) {
+                names.subtract(group)
+                names.insert(key)
+            }
+        }
+        return names.sorted()
+    }
 }
 
 /// 播放页最底下那行可以显示的状态。
@@ -315,7 +368,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             stored: decoded.slots ?? [:],
             storedBar: decoded.bar,
             hiddenStatus: decoded.hiddenStatus ?? [],
-            hiddenMenu: decoded.hiddenMenu ?? [],
+            hiddenMenu: NowPlayingMenuItem.decodeHidden(decoded.hiddenMenu, spokenWord: false),
             statusOrder: decoded.statusOrder
         )
     }
@@ -335,7 +388,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             bar: storedBar,
             hiddenStatus: hiddenStatus.isEmpty ? nil : hiddenStatus,
             statusOrder: storedStatusOrder,
-            hiddenMenu: hiddenMenu.isEmpty ? nil : hiddenMenu
+            hiddenMenu: NowPlayingMenuItem.encodeHidden(hiddenMenu, spokenWord: false)
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -730,14 +783,16 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     public func menuFallback(
         on surface: NowPlayingControlSurface,
         lyricsReachableFromArtwork: Bool = false
-    ) -> [NowPlayingControlAction] {
+    ) -> [NowPlayingMenuItem] {
         var reachable = visibleActions(on: surface).union(surface.alwaysReachable)
         if lyricsReachableFromArtwork { reachable.insert(.lyrics) }
         // 「播放方式」那一颗里随机、循环都选得到,摆着它时不再往「更多」里补。
         if reachable.contains(.playMode) { reachable.formUnion([.shuffle, .repeatMode]) }
-        return NowPlayingControlAction.allCases.filter {
-            $0.needsMenuFallback && !reachable.contains($0) && ($0 != .like || showsMenuItem(.like))
-        }
+        return menuFallback(forMissing: NowPlayingControlAction.allCases.filter { !reachable.contains($0) })
+    }
+
+    public func menuFallback(forMissing actions: [NowPlayingControlAction]) -> [NowPlayingMenuItem] {
+        actions.flatMap(\.fallbackMenuItems).filter(showsMenuItem)
     }
 
     /// 已经摆在页面上、「更多」里不再重复的。
