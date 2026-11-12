@@ -739,6 +739,22 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.playerControls")
+                // 转轮也是在改播放页长什么样,和样式与按钮放在一起。
+                NavigationLink {
+                    NowPlayingCarouselSettingsView()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("player_carousel_title")
+                            Text("player_carousel_subtitle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "rotate.3d")
+                    }
+                }
+                .settingsAnchor("player.carousel")
             }
 
             Section {
@@ -871,23 +887,6 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                     .settingsAnchor("player.externalDisplayEffect")
                 }
-            }
-            Section {
-                NavigationLink {
-                    NowPlayingCarouselSettingsView()
-                } label: {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("player_carousel_title")
-                            Text("player_carousel_subtitle")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "rotate.3d")
-                    }
-                }
-                .settingsAnchor("player.carousel")
             }
             Section {
                 NavigationLink {

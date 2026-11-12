@@ -16,6 +16,9 @@ struct NowPlayingCarouselStageFace: View {
 
     /// 整面有多高:矮屏上底下那一排全屏效果收成小胶囊(`NowPlayingCarouselStageLayout`)。
     @State private var faceHeight: CGFloat = 0
+    /// 卡拉 OK 舞台挂上以后,转走的途中留着它,不换回占位:一按住往外拖整面就换一张图,看着很跳。
+    /// 这一面转出视野时整个卸掉(会话随之停下),下次转回来再从停稳时挂。
+    @State private var keepsKaraokeStage = false
 
     var body: some View {
         if context.cards.contains(.karaoke) {
@@ -49,7 +52,7 @@ struct NowPlayingCarouselStageFace: View {
     // MARK: 卡拉 OK
 
     private var karaokeStage: some View {
-        let showsStage = context.isSettled && !state.isKaraokeHandedOff
+        let showsStage = (context.isSettled || keepsKaraokeStage) && !state.isKaraokeHandedOff
         return VStack(spacing: 0) {
             ZStack {
                 if showsStage {
@@ -98,7 +101,14 @@ struct NowPlayingCarouselStageFace: View {
             .ignoresSafeArea()
         }
         .environment(\.colorScheme, .dark)
-        .animation(.easeInOut(duration: 0.25), value: showsStage)
+        .animation(.easeInOut(duration: 0.3), value: showsStage)
+        .onChange(of: context.isSettled, initial: true) { _, settled in
+            if settled { keepsKaraokeStage = true }
+        }
+        .onChange(of: state.isKaraokeHandedOff) { _, handedOff in
+            // 交给全屏那一份时这里卸下;全屏收起后等这一面再停稳才挂回来。
+            if handedOff { keepsKaraokeStage = false }
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { faceHeight = $0 }
         .nowPlayingCarouselPinchToExpand(onExpand)
     }

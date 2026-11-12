@@ -371,3 +371,33 @@ struct NowPlayingCarouselStageLayoutTests {
         #expect(NowPlayingCarouselStageLayout.effectStrip(forFaceHeight: 0) == .thumbnails)
     }
 }
+
+@Suite("转轮松手时接着手指的速度")
+struct NowPlayingCarouselReleaseVelocityTests {
+    @Test("往左甩转向下一页:速度换成剩下这段的相对值")
+    func flingTowardTheTarget() {
+        // 停在第 0.6 页、往第 1 页走,剩 0.4 页;手指往左 800 点/秒,页宽 400 → 每秒 2 页 → 相对 5。
+        let v = NowPlayingCarouselPolicy.releaseVelocity(position: 0.6, target: 1, velocity: -800, pageWidth: 400)
+        #expect(abs(v - 5) < 0.0001)
+    }
+
+    @Test("往回甩、已经到位或页宽为零时从静止开始")
+    func noVelocityWhenMovingAwayOrDone() {
+        #expect(NowPlayingCarouselPolicy.releaseVelocity(position: 0.6, target: 1, velocity: 800, pageWidth: 400) == 0)
+        #expect(NowPlayingCarouselPolicy.releaseVelocity(position: 1, target: 1, velocity: -800, pageWidth: 400) == 0)
+        #expect(NowPlayingCarouselPolicy.releaseVelocity(position: 0.6, target: 1, velocity: -800, pageWidth: 0) == 0)
+    }
+
+    @Test("甩得太快时封顶")
+    func clampsVeryFastFlings() {
+        let v = NowPlayingCarouselPolicy.releaseVelocity(position: 0.95, target: 1, velocity: -4000, pageWidth: 400)
+        #expect(v == NowPlayingCarouselPolicy.maximumReleaseVelocity)
+    }
+
+    @Test("往前一页(位置变小)同样按方向算")
+    func flingTowardThePreviousPage() {
+        // 从第 2 页往第 1 页,停在 1.5,手指往右 400 点/秒,页宽 400 → 每秒 -1 页,剩 -0.5 → 相对 2。
+        let v = NowPlayingCarouselPolicy.releaseVelocity(position: 1.5, target: 1, velocity: 400, pageWidth: 400)
+        #expect(abs(v - 2) < 0.0001)
+    }
+}

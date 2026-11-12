@@ -335,6 +335,28 @@ public enum NowPlayingCarouselPolicy {
     }
 
     /// 拖动中整轮的位置(以页为单位,可以是小数)。两端再往外拖有阻尼,最多露出小半页。
+    /// 松手时弹簧的起始速度(相对值:1 是一秒走完剩下这段):接着手指的速度走,不从静止重新起步。
+    /// 手指正往反方向甩(回弹到原处)或几乎停住时为 0;封顶,免得一甩就冲过头。
+    ///
+    /// - Parameters:
+    ///   - velocity: 手指横向速度(点/秒,已按书写方向换成「往右为正」)。往右甩是往前一页,位置变小。
+    public static func releaseVelocity(
+        position: Double,
+        target: Int,
+        velocity: Double,
+        pageWidth: Double
+    ) -> Double {
+        guard pageWidth > 0, velocity.isFinite else { return 0 }
+        let remaining = Double(target) - position
+        guard abs(remaining) > 0.001 else { return 0 }
+        let pagesPerSecond = -velocity / pageWidth
+        let relative = pagesPerSecond / remaining
+        guard relative > 0 else { return 0 }
+        return min(relative, maximumReleaseVelocity)
+    }
+
+    public static let maximumReleaseVelocity = 8.0
+
     public static func position(
         current: Int,
         translation: Double,

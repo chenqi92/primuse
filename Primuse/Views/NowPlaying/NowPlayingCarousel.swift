@@ -199,6 +199,17 @@ final class NowPlayingCarouselState {
     }
 
     static let settleAnimation = Animation.spring(response: 0.52, dampingFraction: 0.86)
+    /// 松手后的那一段:不回弹,接着手指的速度转到位(`releaseVelocity`)。
+    static let releaseSpring = Spring(duration: 0.42, bounce: 0)
+
+    /// 松手时转到这一面:弹簧从手指的速度起步,手感连着,不会松手那一下先顿住再转。
+    func release(onto page: NowPlayingCarouselPage, initialVelocity: Double) {
+        withAnimation(.interpolatingSpring(Self.releaseSpring, initialVelocity: initialVelocity)) {
+            settledPage = page
+            dragTranslation = 0
+            isDragging = false
+        }
+    }
 
     func settle(on page: NowPlayingCarouselPage, animated: Bool = true) {
         let apply = {
@@ -379,7 +390,8 @@ struct NowPlayingCarouselContainer<Center: View>: View {
                 guard pages.indices.contains(index) else { return }
                 state.settle(on: pages[index])
             },
-            center: center
+            center: center,
+            width: size.width
         )
         .contentShape(Rectangle())
         .simultaneousGesture(carouselDrag(pages: pages, settledIndex: settledIndex, playerIndex: playerIndex), including: isActive ? .all : .subviews)
@@ -450,14 +462,29 @@ struct NowPlayingCarouselContainer<Center: View>: View {
             .onEnded { value in
                 defer { state.resetGesture() }
                 guard state.gestureAxis == .horizontal, state.isDragging else { return }
+                let translation = Double(value.translation.width * direction)
                 let target = NowPlayingCarouselPolicy.settledIndex(
                     current: settledIndex,
-                    translation: Double(value.translation.width * direction),
+                    translation: translation,
                     predictedEndTranslation: Double(value.predictedEndTranslation.width * direction),
                     pageWidth: Double(size.width),
                     pageCount: pages.count
                 )
-                state.settle(on: pages[target])
+                let releasedAt = NowPlayingCarouselPolicy.position(
+                    current: settledIndex,
+                    translation: Double(state.dragTranslation),
+                    pageWidth: Double(size.width),
+                    pageCount: pages.count
+                )
+                state.release(
+                    onto: pages[target],
+                    initialVelocity: reduceMotion ? 0 : NowPlayingCarouselPolicy.releaseVelocity(
+                        position: releasedAt,
+                        target: target,
+                        velocity: Double(value.velocity.width * direction),
+                        pageWidth: Double(size.width)
+                    )
+                )
             }
     }
 
@@ -508,6 +535,9 @@ private struct NowPlayingCarouselStage<Center: View>: View, Animatable {
     let panel: (NowPlayingCarouselPanel, NowPlayingCarouselFaceContext) -> AnyView
     let onSelect: (Int) -> Void
     let center: Center
+    /// 转轮的宽度,转盘居中时用。
+    let width: CGFloat
+    @State private var dialWidth: CGFloat = 0
 
     nonisolated var animatableData: Double {
         get { position }
@@ -559,6 +589,10 @@ private struct NowPlayingCarouselStage<Center: View>: View, Animatable {
         .overlay(alignment: .top) {
             if isActive, pages.count > 1 {
                 let chrome = NowPlayingCarouselPolicy.dialChrome(position: position, playerIndex: playerIndex)
+                // 停在播放器上时整条居中、绕着把手;转到两侧的面时滑到左边,右边让给这一面的两颗键,
+                // 和它们排成一行。
+                let centered = max((width - dialWidth) / 2, 0)
+                let edge = NowPlayingCarouselDial.edgeInset + safeInsets.leading
                 NowPlayingCarouselDial(
                     pages: pages,
                     position: position,
@@ -566,11 +600,16 @@ private struct NowPlayingCarouselStage<Center: View>: View, Animatable {
                     appearance: appearance,
                     onSelect: onSelect
                 )
-                .padding(.top, safeInsets.top + 4)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { dialWidth = $0 }
+                .padding(.leading, centered + (edge - centered) * chrome)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, safeInsets.top + NowPlayingCarouselDial.topInset)
                 // 停在播放器上时整条收矮、往上挪,图标与把手中心对齐,整条的下沿在封面上沿之上
                 // (把手占安全区下 6 到 11 点,封面从 21 点起)。
                 .offset(y: -NowPlayingCarouselDial.restingLift * (1 - chrome))
                 .opacity(dialOpacity)
+                // 停到卡拉 OK 舞台上让出、从那里拖出来再出现:淡入淡出,不是一下没了、一下冒出来。
+                .animation(.easeOut(duration: 0.2), value: dialOpacity)
                 .allowsHitTesting(dialOpacity > 0.5)
             }
         }
@@ -649,44 +688,69 @@ private struct NowPlayingCarouselFaceShade: View {
 
 // MARK: - 顶上的转盘
 
-/// 一排小图标,当前页放大、亮起,跟着转轮连续过渡;点一下转到那一页。
+/// 一排小图标,当前页放大、亮起,跟着转轮连续过渡;点一下转到那一页。停在两侧的面上时,那一面的图标
+/// 换成它的名字(转到一半时图标淡出、名字淡入,格子跟着撑开),这一面就不用再另起一行写标题。
 ///
 /// `chrome` 为 0 时(停在播放器上)只剩两边几个淡淡的小图标,中间空出播放器的把手;离开播放器
 /// 逐渐长成整条胶囊。
-private struct NowPlayingCarouselDial: View {
+struct NowPlayingCarouselDial: View {
     let pages: [NowPlayingCarouselPage]
     let position: Double
     let chrome: Double
     let appearance: NowPlayingAppearance
     let onSelect: (Int) -> Void
 
+    /// 各面名字写出来有多宽(按下标),量好以前按图标格算。
+    @State private var titleWidths: [Int: CGFloat] = [:]
+
+    /// 整条离安全区上沿多远。两侧面右上角那两颗键和它对齐。
+    static let topInset: CGFloat = 4
+    /// 转到两侧的面时整条靠左,离屏幕边多远;右边那两颗键离右边也是这么多。
+    static let edgeInset: CGFloat = 16
     /// 停在播放器上时中间让出的宽度:把手 48 点,两边各留一点空。
     private static let grabberGap: CGFloat = 64
     /// 一格的高度:长全时 28 点;停在播放器上时只有 18 点,整条的下沿不碰封面上沿。
     private static let fullSlotHeight: CGFloat = 28
     private static let restingSlotHeight: CGFloat = 18
     private static let fullVerticalPadding: CGFloat = 3
+    /// 长全时整条的高度。两侧面右上角的两颗键也是这么高。
+    static let rowHeight: CGFloat = fullSlotHeight + fullVerticalPadding * 2
+    /// 名字两边留的空。
+    private static let titlePadding: CGFloat = 12
+    private static let titleFont = Font.system(size: 13, weight: .semibold, design: .rounded)
     /// 停在播放器上时整条往上挪多少:整条从安全区下 4 点排起,收矮后图标中心在 4 + 9 点,
     /// 挪到把手中心(安全区下 8.5 点);下沿落在 17.5 点,离封面上沿还有 3.5 点。
-    static let restingLift: CGFloat = 4 + restingSlotHeight / 2 - 8.5
+    static let restingLift: CGFloat = topInset + restingSlotHeight / 2 - 8.5
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
                 let emphasis = max(0, 1 - abs(Double(index) - position))
+                let reveal = titleReveal(page: page, emphasis: emphasis)
                 Button { onSelect(index) } label: {
-                    Image(systemName: page.panel?.symbolName ?? "music.note")
-                        .font(.system(size: 11 + 4 * emphasis * chrome, weight: .semibold))
-                        .foregroundStyle(appearance.primary.opacity(iconOpacity(page: page, emphasis: emphasis)))
-                        .frame(
-                            width: slotWidth(page: page, emphasis: emphasis),
-                            height: Self.restingSlotHeight + (Self.fullSlotHeight - Self.restingSlotHeight) * chrome
-                        )
-                        .background {
-                            Capsule()
-                                .fill(appearance.primary.opacity(0.16 * emphasis * chrome))
+                    ZStack {
+                        Image(systemName: page.panel?.symbolName ?? "music.note")
+                            .font(.system(size: 11 + 4 * emphasis * chrome, weight: .semibold))
+                            .opacity(1 - reveal)
+                        if let panel = page.panel {
+                            Text(panel.titleKey)
+                                .font(Self.titleFont)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .opacity(reveal)
                         }
-                        .contentShape(Capsule())
+                    }
+                    .foregroundStyle(appearance.primary.opacity(iconOpacity(page: page, emphasis: emphasis)))
+                    .frame(
+                        width: slotWidth(page: page, index: index, emphasis: emphasis, reveal: reveal),
+                        height: Self.restingSlotHeight + (Self.fullSlotHeight - Self.restingSlotHeight) * chrome
+                    )
+                    .clipped()
+                    .background {
+                        Capsule()
+                            .fill(appearance.primary.opacity(0.16 * emphasis * chrome))
+                    }
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(page.panel?.titleKey ?? "player_carousel_player"))
@@ -702,6 +766,33 @@ private struct NowPlayingCarouselDial: View {
                 .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
                 .opacity(chrome)
         }
+        .background { titleMeasurements }
+    }
+
+    /// 各面的名字量一遍宽度,不画出来。
+    private var titleMeasurements: some View {
+        ZStack {
+            ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
+                if let panel = page.panel {
+                    Text(panel.titleKey)
+                        .font(Self.titleFont)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                            if titleWidths[index] != width { titleWidths[index] = width }
+                        }
+                }
+            }
+        }
+        .hidden()
+        .accessibilityHidden(true)
+    }
+
+    /// 名字露出来多少:离这一面不到半格才开始换,停稳时全是名字;停在播放器上(`chrome` 为 0)时不换。
+    private func titleReveal(page: NowPlayingCarouselPage, emphasis: Double) -> Double {
+        guard page.panel != nil else { return 0 }
+        let t = min(max((emphasis - 0.5) * 2, 0), 1)
+        return t * t * (3 - 2 * t) * chrome
     }
 
     private func iconOpacity(page: NowPlayingCarouselPage, emphasis: Double) -> Double {
@@ -710,17 +801,21 @@ private struct NowPlayingCarouselDial: View {
         return 0.34 + (full - 0.34) * chrome
     }
 
-    private func slotWidth(page: NowPlayingCarouselPage, emphasis: Double) -> CGFloat {
+    private func slotWidth(page: NowPlayingCarouselPage, index: Int, emphasis: Double, reveal: Double) -> CGFloat {
         let full = 26 + 10 * emphasis
-        guard page == .player else { return 22 + (full - 22) * chrome }
+        guard page == .player else {
+            let iconWidth = 22 + (full - 22) * chrome
+            let titleWidth = titleWidths[index].map { $0 + Self.titlePadding * 2 } ?? iconWidth
+            return iconWidth + (max(titleWidth, iconWidth) - iconWidth) * reveal
+        }
         return Self.grabberGap + (full - Self.grabberGap) * chrome
     }
 }
 
 // MARK: - 两侧普通面的外壳
 
-/// 两侧普通面共用的外壳:顶上留出转盘,标题、进全屏与「回到播放器」,中间是内容,底下一条正在播放。
-/// 双指张开也进全屏(去向由调用方按面定)。
+/// 两侧普通面共用的外壳:顶上一行左边是转盘(当前这一面在转盘上写着名字),右边是进全屏与「回到播放器」,
+/// 中间是内容,底下一条正在播放。双指张开也进全屏(去向由调用方按面定)。
 struct NowPlayingCarouselPanelPage<Content: View>: View {
     let panel: NowPlayingCarouselPanel
     let side: NowPlayingCarouselConfiguration.Side
@@ -734,9 +829,9 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .padding(.top, safeInsets.top + 46)
-                .padding(.horizontal, 22)
-                .padding(.bottom, 10)
+                .padding(.top, safeInsets.top + NowPlayingCarouselDial.topInset)
+                .padding(.horizontal, NowPlayingCarouselDial.edgeInset)
+                .padding(.bottom, 12)
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -755,26 +850,9 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
         .nowPlayingCarouselPinchToExpand(onExpand)
     }
 
+    /// 和转盘同一行:名字已经写在转盘上,这里只放右边两颗键;左边让给转盘。
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(panel.tint.gradient)
-                Image(systemName: panel.symbolName)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 38, height: 38)
-            .shadow(color: panel.tint.opacity(0.35), radius: 8, y: 3)
-            .accessibilityHidden(true)
-
-            Text(panel.titleKey)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(appearance.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .accessibilityAddTraits(.isHeader)
-
+        HStack(spacing: 8) {
             Spacer(minLength: 8)
 
             NowPlayingCarouselHeaderButton(
@@ -791,6 +869,7 @@ struct NowPlayingCarouselPanelPage<Content: View>: View {
                 action: onReturnToPlayer
             )
         }
+        .frame(height: NowPlayingCarouselDial.rowHeight)
     }
 }
 
@@ -804,11 +883,11 @@ struct NowPlayingCarouselHeaderButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .bold))
+                .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(appearance.primary)
-                .frame(width: 38, height: 38)
+                .frame(width: NowPlayingCarouselDial.rowHeight, height: NowPlayingCarouselDial.rowHeight)
                 .background(Circle().fill(appearance.primary.opacity(0.12)))
-                .contentShape(Circle())
+                .contentShape(Circle().inset(by: -5))
         }
         .buttonStyle(.pmPressable)
         .accessibilityLabel(Text(label))
