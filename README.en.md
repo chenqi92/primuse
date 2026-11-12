@@ -1,3 +1,5 @@
+> **Primuse icon contest:** [Submit your app icon design or vote for your favorite.](https://palveni.com/zh-hans/funbox/primuse-icon-vote)
+
 <p align="right"><a href="README.md">中文</a> · <strong>English</strong></p>
 
 # Primuse

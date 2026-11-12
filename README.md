@@ -1,3 +1,5 @@
+> **Primuse 图标征集：** [提交你的图标设计，或为喜欢的作品投票。](https://palveni.com/zh-hans/funbox/primuse-icon-vote)
+
 <p align="right"><strong>中文</strong> · <a href="README.en.md">English</a></p>
 
 # Primuse（猿音）
