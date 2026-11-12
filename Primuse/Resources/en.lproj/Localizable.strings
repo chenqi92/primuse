@@ -7214,3 +7214,12 @@
 "genre_split_menu_item" = "Genre Splitting Settings";
 "genre_split_menu_hint" = "%lld genre names still contain slashes, commas, or bars";
 "genre_split_tv_detail" = "Only affects browsing; file tags are not changed";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "Lyrics Timing";
+"lyrics_timing_hint" = "If the lyrics run ahead of the singing, move them later; if they lag, move them earlier. This song remembers it.";
+"lyrics_timing_earlier" = "Earlier";
+"lyrics_timing_later" = "Later";
+"lyrics_timing_earlier_step" = "0.1 s Earlier";
+"lyrics_timing_later_step" = "0.1 s Later";
+"lyrics_timing_reset" = "Reset";

@@ -7453,3 +7453,12 @@
 "genre_split_menu_item" = "Genre-Aufteilung einstellen";
 "genre_split_menu_hint" = "%lld Genrenamen enthalten noch Schrägstriche, Kommas oder senkrechte Striche";
 "genre_split_tv_detail" = "Betrifft nur das Durchsuchen; Datei-Tags bleiben unverändert";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "Liedtext-Timing";
+"lyrics_timing_hint" = "Läuft der Text dem Gesang voraus, schieb ihn später; hinkt er hinterher, früher. Wird für diesen Song gemerkt.";
+"lyrics_timing_earlier" = "Früher";
+"lyrics_timing_later" = "Später";
+"lyrics_timing_earlier_step" = "0,1 s früher";
+"lyrics_timing_later_step" = "0,1 s später";
+"lyrics_timing_reset" = "Zurücksetzen";

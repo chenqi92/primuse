@@ -7453,3 +7453,12 @@
 "genre_split_menu_item" = "장르 분리 설정";
 "genre_split_menu_hint" = "장르 이름 %lld개에 슬래시, 쉼표 또는 세로 막대가 남아 있습니다";
 "genre_split_tv_detail" = "탐색에만 영향을 주며 파일 태그는 바뀌지 않습니다";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "가사 타이밍";
+"lyrics_timing_hint" = "가사가 노래보다 빠르면 늦추고, 느리면 앞당기세요. 이 곡에 기억됩니다.";
+"lyrics_timing_earlier" = "앞당기기";
+"lyrics_timing_later" = "늦추기";
+"lyrics_timing_earlier_step" = "0.1초 앞당기기";
+"lyrics_timing_later_step" = "0.1초 늦추기";
+"lyrics_timing_reset" = "재설정";

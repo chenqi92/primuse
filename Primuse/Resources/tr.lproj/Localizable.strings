@@ -7359,3 +7359,12 @@
 "genre_split_menu_item" = "Tür bölme ayarları";
 "genre_split_menu_hint" = "Eğik çizgi, virgül veya dikey çizgi içeren tür adı: %lld";
 "genre_split_tv_detail" = "Yalnızca göz atmayı etkiler; dosya etiketleri değişmez";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "Şarkı sözü zamanlaması";
+"lyrics_timing_hint" = "Sözler şarkıdan önce geliyorsa geciktirin, geride kalıyorsa öne alın. Bu şarkı için hatırlanır.";
+"lyrics_timing_earlier" = "Öne al";
+"lyrics_timing_later" = "Geciktir";
+"lyrics_timing_earlier_step" = "0,1 sn öne al";
+"lyrics_timing_later_step" = "0,1 sn geciktir";
+"lyrics_timing_reset" = "Sıfırla";

@@ -7359,3 +7359,12 @@
 "genre_split_menu_item" = "Настройки разделения жанров";
 "genre_split_menu_hint" = "Названий жанров с косой чертой, запятой или вертикальной чертой: %lld";
 "genre_split_tv_detail" = "Влияет только на просмотр; теги в файлах не изменяются";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "Синхронизация текста";
+"lyrics_timing_hint" = "Если текст опережает пение, сдвиньте позже; если отстаёт — раньше. Запоминается для этой песни.";
+"lyrics_timing_earlier" = "Раньше";
+"lyrics_timing_later" = "Позже";
+"lyrics_timing_earlier_step" = "На 0,1 с раньше";
+"lyrics_timing_later_step" = "На 0,1 с позже";
+"lyrics_timing_reset" = "Сбросить";

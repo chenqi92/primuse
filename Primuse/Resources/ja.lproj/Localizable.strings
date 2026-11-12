@@ -7454,3 +7454,12 @@
 "genre_split_menu_item" = "ジャンル分割の設定";
 "genre_split_menu_hint" = "%lld 件のジャンル名にスラッシュ、カンマ、縦線が残っています";
 "genre_split_tv_detail" = "ブラウズにのみ影響し、ファイルのタグは変更されません";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "歌詞のタイミング";
+"lyrics_timing_hint" = "歌詞が歌より早ければ「遅らせる」、遅ければ「早める」へ。この曲で記憶されます。";
+"lyrics_timing_earlier" = "早める";
+"lyrics_timing_later" = "遅らせる";
+"lyrics_timing_earlier_step" = "0.1秒早める";
+"lyrics_timing_later_step" = "0.1秒遅らせる";
+"lyrics_timing_reset" = "リセット";

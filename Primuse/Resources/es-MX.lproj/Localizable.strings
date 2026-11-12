@@ -7359,3 +7359,12 @@
 "genre_split_menu_item" = "Ajustes de división de géneros";
 "genre_split_menu_hint" = "%lld nombres de género aún tienen barras, comas o barras verticales";
 "genre_split_tv_detail" = "Solo afecta la exploración; las etiquetas de los archivos no cambian";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "Sincronización de la letra";
+"lyrics_timing_hint" = "Si la letra va antes que el canto, retrásala; si va después, adelántala. Se recuerda para esta canción.";
+"lyrics_timing_earlier" = "Antes";
+"lyrics_timing_later" = "Después";
+"lyrics_timing_earlier_step" = "0.1 s antes";
+"lyrics_timing_later_step" = "0.1 s después";
+"lyrics_timing_reset" = "Restablecer";

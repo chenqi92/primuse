@@ -7359,3 +7359,12 @@
 "genre_split_menu_item" = "Ustawienia dzielenia gatunków";
 "genre_split_menu_hint" = "Nazwy gatunków z ukośnikiem, przecinkiem lub kreską pionową: %lld";
 "genre_split_tv_detail" = "Dotyczy tylko przeglądania; tagi w plikach się nie zmieniają";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "Synchronizacja tekstu";
+"lyrics_timing_hint" = "Jeśli tekst wyprzedza śpiew, przesuń go później; jeśli się spóźnia — wcześniej. Zapamiętane dla tego utworu.";
+"lyrics_timing_earlier" = "Wcześniej";
+"lyrics_timing_later" = "Później";
+"lyrics_timing_earlier_step" = "0,1 s wcześniej";
+"lyrics_timing_later_step" = "0,1 s później";
+"lyrics_timing_reset" = "Resetuj";

@@ -7359,3 +7359,12 @@
 "genre_split_menu_item" = "शैली विभाजन सेटिंग्स";
 "genre_split_menu_hint" = "स्लैश, कॉमा या खड़ी रेखा वाले शैली नाम: %lld";
 "genre_split_tv_detail" = "केवल ब्राउज़िंग को प्रभावित करता है; फ़ाइल टैग नहीं बदलते";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "बोल का समय";
+"lyrics_timing_hint" = "अगर बोल गायन से पहले आएँ तो बाद में करें, पीछे रहें तो पहले। यह गाना इसे याद रखेगा।";
+"lyrics_timing_earlier" = "पहले";
+"lyrics_timing_later" = "बाद में";
+"lyrics_timing_earlier_step" = "0.1 से. पहले";
+"lyrics_timing_later_step" = "0.1 से. बाद में";
+"lyrics_timing_reset" = "रीसेट करें";

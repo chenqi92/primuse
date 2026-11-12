@@ -206,6 +206,8 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case shuffleLink
     /// 把歌词、有声书或播客的文字稿存成 LRC / SRT / 纯文本(#362)。
     case exportText
+    /// 音乐的「歌词时间」:打开刻度尺,这一首的歌词整体提前、推后(按首记住)。
+    case lyricsTiming
 
     public var id: String { rawValue }
 

@@ -1437,6 +1437,8 @@ struct NowPlayingView: View {
     @State private var immersiveControlsState = ImmersiveControlsState.inactive
     @State private var immersiveControlsAutoHideTask: Task<Void, Never>?
     @State private var showsImmersiveEffectPicker = false
+    /// 「歌词时间」刻度尺开着。
+    @State private var showsLyricsTimingRuler = false
     /// 手机横屏自己的「锁」。竖屏沉浸歌词那套 `immersiveControlsState` 带自动
     /// 隐藏计时，语义不同，不能共用。离开这个布局时会自动解锁，免得用户在别的
     /// 布局里找不到解锁入口。
@@ -2764,6 +2766,13 @@ struct NowPlayingView: View {
     }
 
     /// 歌词键:分栏时打开右栏的歌词(已经在看就收起右栏),其它时候在同一栏里切歌词。
+    /// 打开「歌词时间」:歌词没在显示就先翻到歌词,挪的时候看得到效果。
+    private func openLyricsTimingRuler() {
+        let lyricsVisible = isPlayerSplit ? (!sidePaneHidden && showLyrics) : showLyrics
+        if !lyricsVisible { toggleLyricsForLayout() }
+        showsLyricsTimingRuler = true
+    }
+
     private func toggleLyricsForLayout() {
         guard isPlayerSplit else {
             toggleStandardLyrics()
@@ -4047,6 +4056,21 @@ struct NowPlayingView: View {
                         )
                         .zIndex(61)
                 }
+
+                // 「歌词时间」刻度尺:浮在底部,歌词留在上面看得见,拖的时候能对着歌声看。
+                if showsLyricsTimingRuler, let song = player.currentSong,
+                   let key = SpokenWordTranscriptOffsetStore.shared.lyricsItemKey(for: song) {
+                    LyricsTimingRulerPanel(itemKey: key, appearance: appearance) {
+                        showsLyricsTimingRuler = false
+                    }
+                    .id(key)
+                    .frame(maxWidth: 520)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, max(safeInsets.bottom, 12))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .pmSlideTransition(edge: .bottom, motion: .panel)
+                    .zIndex(63)
+                }
                 #endif
             }
         }
@@ -4442,6 +4466,8 @@ struct NowPlayingView: View {
                 showLyrics = false
                 isLyricsImmersive = false
             }
+            // 「歌词时间」调的是那一首:换了歌就收起。
+            showsLyricsTimingRuler = false
         }
         .onChange(of: player.isMusicVideoModeEnabled) { _, enabled in
             // 独立 MV 不受模式开关影响(始终播视频), 关模式不退全屏
@@ -9110,6 +9136,9 @@ struct NowPlayingView: View {
             transcriptOffsetItemDelay: player.currentSong
                 .flatMap { SpokenWordTranscriptOffsetStore.shared.itemKey(for: $0) }
                 .flatMap { SpokenWordTranscriptOffsetStore.shared.itemDelay(forKey: $0) } ?? 0,
+            lyricsTimingDelay: lyrics.contains(where: \.isSynchronized) ? player.currentSong
+                .flatMap { SpokenWordTranscriptOffsetStore.shared.lyricsItemKey(for: $0) }
+                .map { SpokenWordTranscriptOffsetStore.shared.itemDelay(forKey: $0) ?? 0 } : nil,
             canChangePlaybackRate: canChangeCurrentPlaybackRate,
             // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
             showsEqualizer: !player.isAppleMusicMode && player.castingRenderer == nil
@@ -9242,6 +9271,7 @@ struct NowPlayingView: View {
                 immersiveControlsAutoHideTask?.cancel()
                 showsImmersiveEffectPicker = true
             },
+            onAdjustLyricsTiming: { openLyricsTimingRuler() },
             onLockControls: {
                 immersiveControlsAutoHideTask?.cancel()
                 isCompactLandscapeLocked = true
@@ -11729,7 +11759,7 @@ struct NowPlayingView: View {
             of: lyrics,
             showsBundledTranslations: LyricsTranslationSettingsStore.shared.showsBundledTranslations
         )
-        // 文字稿按这一集 / 这本书的偏移平移时间轴(#320);音乐原样。
+        // 文字稿按这一集 / 这本书的偏移平移时间轴(#320);音乐按这一首在「歌词时间」里挪的。
         presentedLyrics = SpokenWordTranscriptOffsetStore.shared.presenting(
             presentation.lines,
             for: player.currentSong
@@ -14114,6 +14144,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 有声内容有文字稿时,「文字稿时间」调的是这一集 / 这本书那一层;nil 时不给(#320)。
     let transcriptOffsetItemKey: String?
     let transcriptOffsetItemDelay: TimeInterval
+    /// 音乐有逐行时间的歌词时,「歌词时间」那一行和它现在挪了多少;nil 时不给。
+    let lyricsTimingDelay: TimeInterval?
     let canChangePlaybackRate: Bool
     let showsEqualizer: Bool
     /// 高保真直通的图里没有均衡器。
@@ -14468,6 +14500,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onEditPlaybackRange: (SongPlaybackRangeEditor.Purpose) -> Void
     let onSetShuffleLink: (ShuffleLinkDirection, Bool) -> Void
     let onShowEffectPicker: () -> Void
+    let onAdjustLyricsTiming: () -> Void
     let onLockControls: () -> Void
     /// nil 表示关闭歌词翻译;选了方式就按这个方式打开。
     let onSelectLyricsTranslation: (LyricsTranslationMode?) -> Void
@@ -15046,6 +15079,21 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     if let offsetKey = snapshot.transcriptOffsetItemKey, snapshot.shows(.transcriptOffset) {
                         transcriptOffsetMenu(key: offsetKey, delay: snapshot.transcriptOffsetItemDelay)
                     }
+
+                    #if os(iOS)
+                    if let delay = snapshot.lyricsTimingDelay, snapshot.shows(.lyricsTiming) {
+                        Button { onAdjustLyricsTiming() } label: {
+                            Label {
+                                Text("lyrics_timing_title")
+                                if delay != 0 {
+                                    Text(verbatim: SpokenWordTranscriptOffsetRow.valueText(delay))
+                                }
+                            } icon: {
+                                Image(systemName: "ruler")
+                            }
+                        }
+                    }
+                    #endif
 
                     if snapshot.shows(.lyricsTranslation) {
                         // 关闭 / 系统翻译 / 智能翻译直接在这里选,不用先去设置里找翻译方式。

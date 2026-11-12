@@ -949,3 +949,45 @@ public enum SpokenWordTranscriptOffsetPolicy {
         return LyricDocumentOffsetPolicy.applying(offset: -delay, to: lines)
     }
 }
+
+/// 音乐歌词按首挪时间(播放页「歌词时间」的刻度尺)。和文稿同一种平移(正数是往后挪),但只按这一首记、
+/// 不叠文稿的全局那一层,刻度细到 0.1 秒:歌词文件差的多半就是零点几秒。
+public enum LyricsTimingPolicy {
+    /// 刻度尺一格。
+    public static let tick: TimeInterval = 0.1
+    /// 刻度尺往两边各能拖多远。差得更多的多半是歌词版本不对,该换一份歌词。
+    public static let range: TimeInterval = 10
+    public static let tickRange: ClosedRange<Int> = -100...100
+
+    public enum TickWeight: Sendable, Equatable {
+        /// 整秒,下面写秒数。
+        case major
+        /// 半秒。
+        case medium
+        case minor
+    }
+
+    /// 音乐歌词那一层的键:和文稿按单集、按书记的键分开。
+    public static func itemKey(songID: String) -> String {
+        "lyrics:\(songID)"
+    }
+
+    /// 偏移落在刻度尺第几格(0 是不挪),夹在刻度尺范围里。
+    public static func tickIndex(for delay: TimeInterval) -> Int {
+        guard delay.isFinite else { return 0 }
+        let index = Int((delay / tick).rounded())
+        return min(max(index, tickRange.lowerBound), tickRange.upperBound)
+    }
+
+    /// 第几格对应的偏移(秒,取到 0.1)。
+    public static func delay(forTick index: Int) -> TimeInterval {
+        let clamped = min(max(index, tickRange.lowerBound), tickRange.upperBound)
+        return SpokenWordTranscriptOffsetPolicy.normalized(Double(clamped) * tick)
+    }
+
+    public static func weight(ofTick index: Int) -> TickWeight {
+        if index % 10 == 0 { return .major }
+        if index % 5 == 0 { return .medium }
+        return .minor
+    }
+}

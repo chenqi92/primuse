@@ -7359,3 +7359,12 @@
 "genre_split_menu_item" = "การตั้งค่าการแยกแนวเพลง";
 "genre_split_menu_hint" = "ชื่อแนวเพลงที่ยังมีเครื่องหมายทับ จุลภาค หรือเส้นตั้ง: %lld";
 "genre_split_tv_detail" = "มีผลกับการเลือกดูเท่านั้น แท็กในไฟล์ไม่เปลี่ยน";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "จังหวะเนื้อเพลง";
+"lyrics_timing_hint" = "ถ้าเนื้อเพลงมาก่อนเสียงร้องให้เลื่อนช้าลง ถ้ามาช้าให้เลื่อนเร็วขึ้น เพลงนี้จะจำค่าไว้";
+"lyrics_timing_earlier" = "เร็วขึ้น";
+"lyrics_timing_later" = "ช้าลง";
+"lyrics_timing_earlier_step" = "เร็วขึ้น 0.1 วิ";
+"lyrics_timing_later_step" = "ช้าลง 0.1 วิ";
+"lyrics_timing_reset" = "รีเซ็ต";

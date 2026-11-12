@@ -700,3 +700,43 @@ struct SpokenWordTranscriptOffsetPolicyTests {
         #expect(Policy.itemKey(songID: "single", bookID: nil, isPodcastEpisode: false) == "song:single")
     }
 }
+
+@Suite("歌词时间刻度尺")
+struct LyricsTimingPolicyTests {
+    @Test("偏移和刻度互换,取到 0.1 秒")
+    func ticksRoundTrip() {
+        #expect(LyricsTimingPolicy.tickIndex(for: 0) == 0)
+        #expect(LyricsTimingPolicy.tickIndex(for: 0.4) == 4)
+        #expect(LyricsTimingPolicy.tickIndex(for: -1.25) == -13)
+        #expect(LyricsTimingPolicy.delay(forTick: 4) == 0.4)
+        #expect(LyricsTimingPolicy.delay(forTick: -13) == -1.3)
+        #expect(LyricsTimingPolicy.delay(forTick: 0) == 0)
+        for index in LyricsTimingPolicy.tickRange {
+            #expect(LyricsTimingPolicy.tickIndex(for: LyricsTimingPolicy.delay(forTick: index)) == index)
+        }
+    }
+
+    @Test("超出刻度尺的偏移夹在两头")
+    func clampsToTheRuler() {
+        #expect(LyricsTimingPolicy.tickIndex(for: 42) == 100)
+        #expect(LyricsTimingPolicy.tickIndex(for: -42) == -100)
+        #expect(LyricsTimingPolicy.tickIndex(for: .nan) == 0)
+        #expect(LyricsTimingPolicy.delay(forTick: 500) == 10)
+    }
+
+    @Test("整秒是主刻度、半秒是中刻度")
+    func tickWeights() {
+        #expect(LyricsTimingPolicy.weight(ofTick: 0) == .major)
+        #expect(LyricsTimingPolicy.weight(ofTick: -20) == .major)
+        #expect(LyricsTimingPolicy.weight(ofTick: 5) == .medium)
+        #expect(LyricsTimingPolicy.weight(ofTick: -15) == .medium)
+        #expect(LyricsTimingPolicy.weight(ofTick: 3) == .minor)
+    }
+
+    @Test("音乐歌词按首记,键和文稿分开")
+    func itemKeyIsSeparateFromTranscripts() {
+        #expect(LyricsTimingPolicy.itemKey(songID: "abc") == "lyrics:abc")
+        #expect(LyricsTimingPolicy.itemKey(songID: "abc")
+            != SpokenWordTranscriptOffsetPolicy.itemKey(songID: "abc", bookID: nil, isPodcastEpisode: false))
+    }
+}

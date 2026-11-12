@@ -7359,3 +7359,12 @@
 "genre_split_menu_item" = "إعدادات تقسيم الأنواع";
 "genre_split_menu_hint" = "أسماء أنواع ما زالت تحتوي شرطة مائلة أو فاصلة أو خطًا عموديًا: %lld";
 "genre_split_tv_detail" = "يؤثر في التصفح فقط؛ ولا تتغير علامات الملفات";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "توقيت الكلمات";
+"lyrics_timing_hint" = "إذا سبقت الكلمات الغناء فأخّرها، وإذا تأخرت فقدّمها. يُحفظ لهذه الأغنية.";
+"lyrics_timing_earlier" = "تقديم";
+"lyrics_timing_later" = "تأخير";
+"lyrics_timing_earlier_step" = "تقديم 0.1 ث";
+"lyrics_timing_later_step" = "تأخير 0.1 ث";
+"lyrics_timing_reset" = "إعادة تعيين";

@@ -7430,3 +7430,12 @@
 "genre_split_menu_item" = "類型拆分設定";
 "genre_split_menu_hint" = "%lld 個類型名稱裡還帶著斜線、逗號或直線";
 "genre_split_tv_detail" = "只影響瀏覽，不更動檔案裡的標籤";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "歌詞時間";
+"lyrics_timing_hint" = "歌詞比歌聲早就往延後調，晚了往提前調，這首歌會記住";
+"lyrics_timing_earlier" = "提前";
+"lyrics_timing_later" = "延後";
+"lyrics_timing_earlier_step" = "提前 0.1 秒";
+"lyrics_timing_later_step" = "延後 0.1 秒";
+"lyrics_timing_reset" = "重設";

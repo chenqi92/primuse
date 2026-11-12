@@ -1961,7 +1961,7 @@ private struct NowPlayingMenuItemsEditor: View {
         ("player_menu_group_go", [.showInLibrary, .songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
         ("player_menu_group_playback", [
             .lyrics, .queue, .cast, .miniPlayerLyrics, .floatingLyrics, .lyricsFontSize, .lyricsFont, .lyricsWeight,
-            .lyricsScrollMotion, .translationFontSize, .lyricsTranslation, .lyricsMotion, .fullScreenEffect,
+            .lyricsScrollMotion, .translationFontSize, .lyricsTranslation, .lyricsTiming, .lyricsMotion, .fullScreenEffect,
             .lockControls, .sleepTimer, .equalizer, .playbackRate, .pitch,
         ]),
     ]
@@ -2126,6 +2126,7 @@ extension NowPlayingMenuItem {
         case .immersiveFaceToggle: "photo"
         case .shuffleLink: "link"
         case .exportText: "doc.text"
+        case .lyricsTiming: "ruler"
         }
     }
 
@@ -2188,6 +2189,7 @@ extension NowPlayingMenuItem {
         case .immersiveFaceToggle: "player_menu_item_immersive_face"
         case .shuffleLink: "shuffle_link_menu"
         case .exportText: "lyrics_export_menu_item"
+        case .lyricsTiming: "lyrics_timing_title"
         }
     }
 }

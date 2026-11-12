@@ -7546,3 +7546,12 @@
 "genre_split_menu_item" = "流派拆分设置";
 "genre_split_menu_hint" = "%lld 个流派名里还带着斜杠、逗号或竖线";
 "genre_split_tv_detail" = "只影响浏览，不改文件里的标签";
+
+/* 播放页「歌词时间」刻度尺 */
+"lyrics_timing_title" = "歌词时间";
+"lyrics_timing_hint" = "歌词比歌声早就往推后调，晚了往提前调，这首歌会记住";
+"lyrics_timing_earlier" = "提前";
+"lyrics_timing_later" = "推后";
+"lyrics_timing_earlier_step" = "提前 0.1 秒";
+"lyrics_timing_later_step" = "推后 0.1 秒";
+"lyrics_timing_reset" = "复位";
