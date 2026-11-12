@@ -72,7 +72,7 @@ struct TagEditorView: View {
     @State private var cachedSiblingNames: [String] = []
     @State private var cachedArtistChips: [String] = []
     @State private var cachedGenreChips: [String] = []
-    @State private var editorSongID: String
+    @State private var initialSong: Song
 
     init(
         song: Song,
@@ -92,7 +92,7 @@ struct TagEditorView: View {
         _yearText = State(initialValue: song.year.map { String($0) } ?? "")
         _trackText = State(initialValue: song.trackNumber.map { String($0) } ?? "")
         _discText = State(initialValue: song.discNumber.map { String($0) } ?? "")
-        _editorSongID = State(initialValue: song.id)
+        _initialSong = State(initialValue: song)
     }
 
     var body: some View {
@@ -105,7 +105,7 @@ struct TagEditorView: View {
         }
         .task(id: song.id) {
             let requestedSongID = song.id
-            if editorSongID != requestedSongID {
+            if initialSong.id != requestedSongID {
                 // Live-player hosts can swap their `song` value while this
                 // editor (or a picker it launched) is still open. Close that
                 // single-song session instead of ever applying A's state to B.
@@ -114,7 +114,6 @@ struct TagEditorView: View {
                     return
                 }
                 resetEditorState(for: song)
-                editorSongID = requestedSongID
             }
             computeCandidates()
             let canRename = await sourceManager.canRenameSongFile(song)
@@ -368,7 +367,12 @@ struct TagEditorView: View {
     }
 
     private var fileNameDisplay: String {
-        (song.filePath as NSString).lastPathComponent
+        (initialSong.filePath as NSString).lastPathComponent
+    }
+
+    private var requestedRenameStem: String? {
+        guard canRenameFile, fileNameStem != (fileNameDisplay as NSString).deletingPathExtension else { return nil }
+        return fileNameStem
     }
 
     private var fileNameEditor: some View {
@@ -1042,19 +1046,19 @@ struct TagEditorView: View {
                     }
                     suggestionCard
                         .padding(.bottom, tagSuggestions.isEmpty ? 0 : 6)
-                    macField(String(localized: "tag_editor_title"), text: $title, original: song.title)
-                    macField(String(localized: "tag_editor_artist"), text: $artist, original: song.artistName ?? "")
-                    macField(String(localized: "tag_editor_album"), text: $album, original: song.albumTitle ?? "")
+                    macField(String(localized: "tag_editor_title"), text: $title, original: initialSong.title)
+                    macField(String(localized: "tag_editor_artist"), text: $artist, original: initialSong.artistName ?? "")
+                    macField(String(localized: "tag_editor_album"), text: $album, original: initialSong.albumTitle ?? "")
                     macEncodingFixRow
                     macReadOnlyField(String(localized: "tag_editor_field_format"), value: song.detailedFormatName)
                     macReadOnlyField(String(localized: "tag_editor_field_audio_spec"), value: macAudioSpec)
-                    macField(String(localized: "tag_editor_genre"), text: $genre, original: song.genre ?? "")
+                    macField(String(localized: "tag_editor_genre"), text: $genre, original: initialSong.genre ?? "")
                     genreChipRow
-                    macField(String(localized: "tag_editor_year"), text: $yearText, original: song.year.map(String.init) ?? "")
+                    macField(String(localized: "tag_editor_year"), text: $yearText, original: initialSong.year.map(String.init) ?? "")
 
                     HStack(spacing: 10) {
-                        macField(String(localized: "tag_editor_track"), text: $trackText, original: song.trackNumber.map(String.init) ?? "")
-                        macField(String(localized: "tag_editor_disc"), text: $discText, original: song.discNumber.map(String.init) ?? "")
+                        macField(String(localized: "tag_editor_track"), text: $trackText, original: initialSong.trackNumber.map(String.init) ?? "")
+                        macField(String(localized: "tag_editor_disc"), text: $discText, original: initialSong.discNumber.map(String.init) ?? "")
                     }
 
                     macLyricsEditor
@@ -1274,17 +1278,8 @@ struct TagEditorView: View {
     }
 
     private var macChangedCount: Int {
-        var count = 0
-        if pickedCoverData != nil { count += 1 }
-        if fieldChanged(title, song.title) { count += 1 }
-        if fieldChanged(artist, song.artistName ?? "") { count += 1 }
-        if fieldChanged(album, song.albumTitle ?? "") { count += 1 }
-        if fieldChanged(genre, song.genre ?? "") { count += 1 }
-        if fieldChanged(yearText, song.year.map(String.init) ?? "") { count += 1 }
-        if fieldChanged(trackText, song.trackNumber.map(String.init) ?? "") { count += 1 }
-        if fieldChanged(discText, song.discNumber.map(String.init) ?? "") { count += 1 }
-        if hasLyricsChanges { count += 1 }
-        return count
+        metadataEdits.count + (requestedRenameStem == nil ? 0 : 1)
+            + (pickedCoverData == nil ? 0 : 1) + (hasLyricsChanges ? 1 : 0)
     }
 
     private var macLyricsEditor: some View {
@@ -1553,25 +1548,32 @@ struct TagEditorView: View {
         pickedCoverData = processed
     }
 
-    /// 跟原始 Song 比对 ── 全部 trim 后比较,没差就 disable 保存按钮,
-    /// 避免用户改了一下又改回去也触发 CloudKit 同步。封面有改时也算 change。
+    private var metadataEdits: [TagCleanupProposal] {
+        Self.metadataEdits(for: initialSong, fields: [
+            (.title, title), (.artist, artist), (.album, album), (.genre, genre),
+            (.year, yearText), (.trackNumber, trackText), (.discNumber, discText)
+        ])
+    }
+
+    static func metadataEdits(for song: Song, fields: [(TagCleanupField, String)]) -> [TagCleanupProposal] {
+        let original = BatchTagEditService.cleanupSong(song)
+        return fields.compactMap { field, text in
+            let old = original.value(of: field)
+            let entered = trimmedOrNil(text)
+            guard entered != trimmedOrNil(old ?? "") else { return nil }
+            let value: String?
+            switch field {
+            case .title: value = entered ?? (song.filePath as NSString).lastPathComponent
+            case .year, .trackNumber, .discNumber: value = entered.flatMap(Int.init).map(String.init)
+            default: value = entered
+            }
+            guard value != old else { return nil }
+            return TagCleanupProposal(songID: song.id, field: field, oldValue: old, newValue: value, reason: .assistant)
+        }
+    }
+
     private var hasChanges: Bool {
-        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let a = artist.trimmingCharacters(in: .whitespacesAndNewlines)
-        let al = album.trimmingCharacters(in: .whitespacesAndNewlines)
-        let g = genre.trimmingCharacters(in: .whitespacesAndNewlines)
-        let y = Int(yearText.trimmingCharacters(in: .whitespacesAndNewlines))
-        let tn = Int(trackText.trimmingCharacters(in: .whitespacesAndNewlines))
-        let dn = Int(discText.trimmingCharacters(in: .whitespacesAndNewlines))
-        return pickedCoverData != nil
-            || t != song.title
-            || a != (song.artistName ?? "")
-            || al != (song.albumTitle ?? "")
-            || g != (song.genre ?? "")
-            || y != song.year
-            || tn != song.trackNumber
-            || dn != song.discNumber
-            || hasLyricsChanges
+        !metadataEdits.isEmpty || requestedRenameStem != nil || pickedCoverData != nil || hasLyricsChanges
     }
 
     private var hasLyricsChanges: Bool {
@@ -1607,7 +1609,7 @@ struct TagEditorView: View {
     }
 
     private var canSubmitChanges: Bool {
-        guard hasChanges, !lyricsLoading, !isSaving else { return false }
+        guard initialSong.id == song.id, hasChanges, !isLoadingCover, !isSaving else { return false }
         guard hasLyricsChanges else { return true }
         let content = LyricsWriteback.normalized(lyricsText)
         if content.isEmpty {
@@ -1647,63 +1649,29 @@ struct TagEditorView: View {
 
     @MainActor
     private func save(allowLyricsRemoval: Bool = false) async -> Bool {
-        guard !isSaving, !isLoadingCover else { return false }
+        guard canSubmitChanges else { return false }
         isSaving = true
         defer { isSaving = false }
 
         // 冲突判断按库里记的文件身份做：从正在播放或列表打开时拿到的那份可能是
         // 重扫前的旧行，拿它去写回会一直判成「编辑期间已发生变化」。
-        var original = song
-        if let stored = library.storedSong(id: song.id) {
-            original.filePath = stored.filePath
-            original.fileSize = stored.fileSize
-            original.lastModified = stored.lastModified
-            original.revision = stored.revision
-        }
-        let desiredFileName: String
-        do {
-            desiredFileName = canRenameFile
-                ? try AudioFileRenamePlan.fileName(stem: fileNameStem, original: fileNameDisplay)
-                : (original.filePath as NSString).lastPathComponent
-        } catch {
-            writebackErrorMessage = SongFileRenameError.plan(.invalidName).localizedDescription
-            return false
-        }
-        if desiredFileName != (original.filePath as NSString).lastPathComponent {
+        let original = library.storedSong(id: song.id) ?? song
+        let renameStem = requestedRenameStem
+        let lyricsChanged = hasLyricsChanges
+        var updated = BatchTagEditService.song(original, applying: metadataEdits)
+        if let renameStem {
             do {
-                try await sourceManager.validateSongFileRename(original, stem: fileNameStem)
+                try await sourceManager.validateSongFileRename(original, stem: renameStem)
             } catch {
                 writebackErrorMessage = error.localizedDescription
                 return false
             }
         }
-        var updated = original
-        updated.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if updated.title.isEmpty {
-            // 不允许空标题,fallback 回 filename(最后一段)
-            updated.title = (song.filePath as NSString).lastPathComponent
-        }
-        updated.artistName = trimmedOrNil(artist)
-        if updated.artistName != song.artistName {
-            // A manual scalar edit replaces the source-provided contributor
-            // list. The edited text can still be split by the user's rules.
-            updated.sourceArtistNames = nil
-        }
-        updated.albumTitle = trimmedOrNil(album)
-        updated.albumArtistName = AlbumGroupingPolicy.updatedAlbumArtistName(
-            existingAlbumArtistName: song.albumArtistName,
-            previousTrackArtistName: song.artistName,
-            updatedTrackArtistName: updated.artistName
-        )
-        updated.genre = trimmedOrNil(genre)
-        updated.year = Int(yearText.trimmingCharacters(in: .whitespacesAndNewlines))
-        updated.trackNumber = Int(trackText.trimmingCharacters(in: .whitespacesAndNewlines))
-        updated.discNumber = Int(discText.trimmingCharacters(in: .whitespacesAndNewlines))
 
         // Do not update that reference before remote verification: otherwise a
         // failed WebDAV replacement would still make the app show the new cover.
         let tagOrCoverChanged = pickedCoverData != nil
-            || SongUserMetadataPolicy.editableFieldsChanged(from: song, to: updated)
+            || SongUserMetadataPolicy.editableFieldsChanged(from: original, to: updated)
         if tagOrCoverChanged { updated.userMetadataEditedAt = Date() }
 
         var sourceMutationOccurred = false
@@ -1752,8 +1720,7 @@ struct TagEditorView: View {
             SongTagEditStore.shared.recordUserChosenCovers(songIDs: [song.id])
         }
 
-        let lyricsChanged = hasLyricsChanges
-        var needsLibraryReplace = true
+        var needsLibraryReplace = tagOrCoverChanged
         if lyricsChanged {
             // Lyrics persistence merges into the latest library row. Publish
             // accepted tags first so that merge retains this editor's changes,
@@ -1813,9 +1780,9 @@ struct TagEditorView: View {
         if needsLibraryReplace {
             library.replaceSong(updated)
         }
-        if desiredFileName != (updated.filePath as NSString).lastPathComponent {
+        if let renameStem {
             do {
-                let result = try await sourceManager.renameSongFile(updated, stem: fileNameStem)
+                let result = try await sourceManager.renameSongFile(updated, stem: renameStem)
                 updated = result.song
                 library.replaceSong(updated)
                 metadataWritebackNotice = [metadataWritebackNotice, result.notice].compactMap { $0 }.joined(separator: "\n")
@@ -1901,6 +1868,7 @@ struct TagEditorView: View {
     }
 
     private func resetFromOriginal() {
+        initialSong = song
         title = song.title
         fileNameStem = (fileNameDisplay as NSString).deletingPathExtension
         artist = song.artistName ?? ""
@@ -1917,6 +1885,7 @@ struct TagEditorView: View {
 
     @MainActor
     private func resetEditorState(for song: Song) {
+        initialSong = song
         title = song.title
         fileNameStem = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
         canRenameFile = false
@@ -1952,7 +1921,7 @@ struct TagEditorView: View {
         cachedGenreChips.removeAll(keepingCapacity: true)
     }
 
-    private func trimmedOrNil(_ s: String) -> String? {
+    private static func trimmedOrNil(_ s: String) -> String? {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? nil : t
     }

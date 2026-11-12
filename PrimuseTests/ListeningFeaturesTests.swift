@@ -2032,6 +2032,26 @@ final class ListeningFeaturesTests: XCTestCase {
 
     // MARK: - Batch edit
 
+    func testChangingOnlyTheSongNamePreservesTheCurrentPathAndOtherTags() {
+        var initial = song("title-edit")
+        initial.filePath = "/Music/Old: name?.m4a"
+        initial.artistName = " Artist "
+        initial.albumArtistName = nil
+        let edits = TagEditorView.metadataEdits(for: initial, fields: [
+            (.title, "  New title  "), (.artist, " Artist "), (.album, initial.albumTitle ?? ""),
+            (.year, initial.year.map(String.init) ?? "")
+        ])
+        XCTAssertEqual(edits.map(\.field), [.title])
+        var latest = initial
+        latest.albumTitle = "Album corrected during editing"
+        latest.filePath = "/Music/Moved: name?.m4a"
+        let updated = BatchTagEditService.song(latest, applying: edits)
+        XCTAssertEqual(updated.title, "New title")
+        XCTAssertEqual(updated.filePath, latest.filePath)
+        XCTAssertEqual(updated.albumTitle, latest.albumTitle)
+        XCTAssertEqual(TagMetadataWritebackField.changedFields(from: latest, to: updated, includesCover: false), [.title])
+    }
+
     func testProposalsBecomeTheUpdatedRow() {
         var original = song("t")
         original.albumArtistName = nil

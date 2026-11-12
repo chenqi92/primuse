@@ -1420,7 +1420,7 @@
 "tag_editor_title_navigation" = "编辑标签";
 "tag_editor_basic_section" = "基本信息";
 "tag_editor_extra_section" = "细节";
-"tag_editor_title" = "标题";
+"tag_editor_title" = "歌曲名称";
 "tag_editor_artist" = "艺术家";
 "tag_editor_album" = "专辑";
 "tag_editor_genre" = "流派";

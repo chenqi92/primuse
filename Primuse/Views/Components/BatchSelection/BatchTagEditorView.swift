@@ -36,11 +36,12 @@ struct BatchTagEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     private enum EditableField: String, CaseIterable, Identifiable {
-        case artist, album, genre, year, disc
+        case title, artist, album, genre, year, disc
         var id: String { rawValue }
 
         var cleanupField: TagCleanupField {
             switch self {
+            case .title: .title
             case .artist: .artist
             case .album: .album
             case .genre: .genre
@@ -51,6 +52,7 @@ struct BatchTagEditorView: View {
 
         var titleKey: LocalizedStringKey {
             switch self {
+            case .title: "tag_editor_title"
             case .artist: "tag_editor_artist"
             case .album: "tag_editor_album"
             case .genre: "tag_editor_genre"
@@ -181,7 +183,7 @@ struct BatchTagEditorView: View {
             }
             if enabled.contains(field) {
                 SwiftUI.TextField(
-                    String(localized: "batch_edit_empty_clears"),
+                    field == .title ? String(localized: "tag_editor_title") : String(localized: "batch_edit_empty_clears"),
                     text: Binding(get: { values[field] ?? "" }, set: { values[field] = $0 })
                 )
                 .textFieldStyle(.roundedBorder)
@@ -193,7 +195,9 @@ struct BatchTagEditorView: View {
     }
 
     private var hasAnyChange: Bool {
-        !enabled.isEmpty || renumberTracks || coverData != nil
+        if renumberTracks || coverData != nil || !enabled.subtracting([.title]).isEmpty { return true }
+        let title = (values[.title] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return enabled.contains(.title) && !title.isEmpty && songs.contains { $0.title != title }
     }
 
     private func currentValues(_ field: EditableField) -> [String] {
@@ -220,6 +224,7 @@ struct BatchTagEditorView: View {
             let current = BatchTagEditService.cleanupSong(song)
             for field in enabled {
                 let raw = (values[field] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if field == .title, raw.isEmpty { continue }
                 var newValue: String? = raw.isEmpty ? nil : raw
                 if field.isNumeric, let text = newValue {
                     guard let number = Int(text), number > 0 else { continue }

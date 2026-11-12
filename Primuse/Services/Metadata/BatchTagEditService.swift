@@ -293,7 +293,8 @@ enum BatchTagEditService {
                 updated.discNumber = value.flatMap { Int($0) }
             }
         }
-        if !proposals.contains(where: { $0.songID == song.id && $0.field == .albumArtist }) {
+        if updated.artistName != song.artistName,
+           !proposals.contains(where: { $0.songID == song.id && $0.field == .albumArtist }) {
             updated.albumArtistName = AlbumGroupingPolicy.updatedAlbumArtistName(
                 existingAlbumArtistName: song.albumArtistName,
                 previousTrackArtistName: song.artistName,

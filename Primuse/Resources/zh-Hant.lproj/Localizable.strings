@@ -1339,7 +1339,7 @@
 "tag_editor_title_navigation" = "編輯標籤";
 "tag_editor_basic_section" = "基本資訊";
 "tag_editor_extra_section" = "細節";
-"tag_editor_title" = "標題";
+"tag_editor_title" = "歌曲名稱";
 "tag_editor_artist" = "演出者";
 "tag_editor_album" = "專輯";
 "tag_editor_genre" = "曲風";
