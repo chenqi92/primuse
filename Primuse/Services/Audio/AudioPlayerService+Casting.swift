@@ -837,13 +837,13 @@ extension AudioPlayerService {
         if !isAutomaticAdvance, context == .userInitiated {
             ManualTrackTraversal.note(.forward)
         }
+        let callerFile = (caller as NSString).lastPathComponent
+        plog("⏭️ next() called FROM=\(callerFile):\(callerLine) \(queueSkipDiagnosticState)")
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             invalidateInterruptionResumePreservingIntent()
             return await AppServices.shared.appleMusic.skipToNextAppleMusic()
         }
         guard !queueEntries.isEmpty else { return false }
-        let callerFile = (caller as NSString).lastPathComponent
-        plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queueEntries.count)")
         // Track end and failure recovery arrive here with the default context
         // too, so a real press is told apart by `isAutomaticAdvance`: by then
         // the outgoing node has nothing left to blend out of.
@@ -935,6 +935,7 @@ extension AudioPlayerService {
     @discardableResult
     func previous(restartsCurrentFirst: Bool = true) async -> Bool {
         let restartsCurrentFirst = restartsCurrentFirst && playbackSettings.previousRestartsCurrentSong
+        plog("previous() called restartsCurrentFirst=\(restartsCurrentFirst) \(queueSkipDiagnosticState)")
         if isLiveRadio {
             guard let station = currentRadioStation,
                   radioStationOrder.count > 1,
@@ -977,6 +978,12 @@ extension AudioPlayerService {
         applyQueueTraversalTarget(predecessor)
         await play(song: queueEntries[currentIndex].song)
         return true
+    }
+
+    private var queueSkipDiagnosticState: String {
+        "currentIndex=\(currentIndex) queueCount=\(queueEntries.count) playing=\(isPlaying) loading=\(isLoading) "
+            + "time=\(currentTime) appleMusic=\(isAppleMusicMode) managed=\(isPrimuseManagingAppleMusicQueue) "
+            + "request=\(activeAppleMusicRequestID.map { String($0.uuidString.prefix(8)) } ?? "none")"
     }
 
     /// 全屏「封面流」(#191)：沿播放顺序跳 `steps` 首（负数往回），落在连按 |steps| 次下一首 / 上一首
@@ -1026,7 +1033,20 @@ extension AudioPlayerService {
         }
         noteSpokenWordSeekWhilePaused(to: time, isRecovery: isRecovery)
         if isAppleMusicMode {
-            AppServices.shared.appleMusic.seekAppleMusic(to: TimeInterval.sanitized(time))
+            let target = TimeInterval.sanitized(time)
+            if isPrimuseManagingAppleMusicQueue, activeAppleMusicRequestID == nil, !isPlaying, !isLoading {
+                // A cold session has no MusicKit clock. Play will resume from currentTime.
+                currentTime = duration > 0 ? min(target, duration) : target
+                isAtTrackEnd = isAtTrackEnd && currentTime >= duration
+                pendingRecoveryTime = currentTime
+                needsPlaybackRecovery = currentTime > 0 && !isAtTrackEnd
+                pendingRecoveryIsColdSessionRestore = needsPlaybackRecovery
+                updateNowPlayingInfo()
+                updatePlaybackState()
+                plog("Apple Music paused queue seek index=\(currentIndex) time=\(currentTime)")
+            } else {
+                AppServices.shared.appleMusic.seekAppleMusic(to: target)
+            }
             return
         }
         if isCastingMode, let controller = castingController {

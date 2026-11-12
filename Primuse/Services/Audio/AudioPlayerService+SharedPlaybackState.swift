@@ -341,6 +341,8 @@ extension AudioPlayerService {
 
         let song = songApplyingPlaybackRange(prepared.entries[plan.currentIndex].song)
         currentSong = song
+        // MusicKit has no transport yet. Skips must traverse the restored Primuse queue.
+        isPrimuseManagingAppleMusicQueue = isAppleMusicMode
         duration = song.duration.isFinite && song.duration > 0
             ? song.duration
             : plan.duration
@@ -366,11 +368,13 @@ extension AudioPlayerService {
         updatePlaybackState()
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
-            format: "▶️ Restored paused playback session: queue=%d index=%d shuffle=%@ position=%d total=%.0fms load=%.0f plan=%.0f lookup=%.0f apply=%.0f",
+            format: "▶️ Restored paused playback session: queue=%d index=%d shuffle=%@ shufflePosition=%d time=%.2f managedAppleMusic=%@ total=%.0fms load=%.0f plan=%.0f lookup=%.0f apply=%.0f",
             queueEntries.count,
             currentIndex,
             String(shuffleEnabled),
             shufflePosition,
+            currentTime,
+            String(isPrimuseManagingAppleMusicQueue),
             (restoreFinishedAt - restoreStartedAt) * 1_000,
             (prepared.loadFinishedAt - restoreStartedAt) * 1_000,
             (prepared.planFinishedAt - prepared.loadFinishedAt) * 1_000,
@@ -425,6 +429,7 @@ extension AudioPlayerService {
         playbackAdvancePolicy = PlaybackAdvanceEligibilityPolicy()
         localPipelineAdvanceTicket = nil
         currentSong = song
+        isPrimuseManagingAppleMusicQueue = isAppleMusicMode && queuedSong(at: currentIndex)?.id == song.id
         duration = song.duration.sanitizedDuration
         currentTime = duration > 0 ? min(max(0, time), duration) : max(0, time)
         if let applied = song.appliedPlaybackRange {

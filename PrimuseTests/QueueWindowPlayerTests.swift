@@ -84,6 +84,60 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    private func restorePausedAppleMusicQueue(at time: TimeInterval) async throws -> AudioPlayerService {
+        let savedCatalog = AppleMusicCatalogPlaybackMemory.shared.songs()
+        addTeardownBlock { @MainActor in
+            AppleMusicCatalogPlaybackMemory.shared.remember(savedCatalog)
+        }
+        let sourceID = AppleMusicLibraryIdentity.sourceID
+        let catalog = (0..<649).map { index in
+            Song(id: "restored-am-\(index)", title: "Track \(index)", duration: 180, fileFormat: .m4a,
+                 filePath: "fixture-\(index)", sourceID: sourceID)
+        }
+        let player = try await makePlayer(librarySongs: catalog, startsPreparing: true)
+        try player.playbackSessionStore.save(.init(
+            queueSongIDs: catalog.map(\.id), currentSongID: catalog[14].id, currentIndex: 14,
+            currentTime: time, duration: 180, wasPlaying: false, shuffleEnabled: false,
+            shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false
+        ))
+        await player.restorePlaybackSessionIfAvailable(startupSourceIDs: [sourceID])
+        XCTAssertEqual(player.queueCount, catalog.count)
+        XCTAssertEqual(player.currentIndex, 14)
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertNil(player.activeAppleMusicRequestID)
+        return player
+    }
+
+    @MainActor
+    func testNextFromRestoredAppleMusicQueueBeforePressingPlay() async throws {
+        let player = try await restorePausedAppleMusicQueue(at: 0)
+        defer { player.stop() }
+        let advanced = await player.next()
+        XCTAssertTrue(advanced)
+        XCTAssertEqual(player.currentIndex, 15)
+        XCTAssertEqual(player.currentSong?.id, "restored-am-15")
+        XCTAssertNotNil(player.activeAppleMusicRequestID)
+    }
+
+    @MainActor
+    func testPreviousFromRestoredAppleMusicQueueRestartsThenSkipsBeforePressingPlay() async throws {
+        let player = try await restorePausedAppleMusicQueue(at: 47)
+        defer { player.stop() }
+        let restarted = await player.previous()
+        XCTAssertTrue(restarted)
+        XCTAssertEqual(player.currentIndex, 14)
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertNil(player.activeAppleMusicRequestID)
+
+        let movedBack = await player.previous()
+        XCTAssertTrue(movedBack)
+        XCTAssertEqual(player.currentIndex, 13)
+        XCTAssertEqual(player.currentSong?.id, "restored-am-13")
+        XCTAssertNotNil(player.activeAppleMusicRequestID)
+    }
+
+    @MainActor
     func testStartupRestorationDoesNotRestoreRemovedSource() async throws {
         let song = songs(1)[0]
         let player = try await makePlayer(librarySongs: [song], startsPreparing: true)

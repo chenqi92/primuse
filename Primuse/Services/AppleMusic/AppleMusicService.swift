@@ -499,6 +499,13 @@ final class AppleMusicService {
         }
         if isPlaybackRequestActive(requestID) {
             rememberInstalledManagedQueue(attemptID: installationID)
+            if let queueEntryIDs {
+                let player = ApplicationMusicPlayer.shared
+                let actual = player.queue.currentEntry.flatMap { managedQueueEntryIDs[$0.id] }
+                let matches = actual.map { String($0 == queueEntryIDs[index]) } ?? "unknown"
+                plog("Apple Music play returned request=\(requestID.uuidString.prefix(8)) targetIndex=\(index) "
+                    + "nativeEntryMatches=\(matches) status=\(player.state.playbackStatus) time=\(player.playbackTime)")
+            }
         }
     }
 
