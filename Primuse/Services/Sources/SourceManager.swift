@@ -2353,12 +2353,24 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerPlaylistDescriptionConnector,
     ServerPlaylistCreatingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
-    ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector {
+    ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector,
+    ServerInsightReadingConnector {
     private let enrichmentContext = RoutedCatalogEnrichmentContext()
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func serverInsightOverview(
+        _ kind: LibraryInsightKind,
+        subjectName: String,
+        for song: Song
+    ) async throws -> String? {
+        try await routing.withRead { connector in
+            guard let reader = connector as? any ServerInsightReadingConnector else { return nil }
+            return try await reader.serverInsightOverview(kind, subjectName: subjectName, for: song)
+        }
+    }
 
     func temporaryAudioProcessingURL(for path: String) async throws -> URL {
         try await routing.withRead { connector in

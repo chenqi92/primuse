@@ -205,12 +205,26 @@ enum LibraryInsightWriteback {
                     )
                     if !summary.isEmpty { found = (summary, [], source.name) }
                 }
-            } else if let folder = folder(for: subject, songs: sourceSongs, library: library),
-                      let connector = try? await sourceManager.auxiliaryConnector(for: first) {
-                let path = LibraryInsightFolderPolicy.filePath(in: folder, kind: subject.kind)
-                if let existing = try? await readText(at: path, in: folder, using: connector),
-                   let read = LibraryInsightNFO.read(existing.text, kind: subject.kind) {
-                    found = (read.summary, read.tags, LibraryInsightNFO.fileName(for: subject.kind))
+            } else {
+                // Navidrome 等 Subsonic 服务器自己抓过的简介(Last.fm、插件):只读回来,不往服务器写。
+                if isSubsonicServer(source.type),
+                   let reader = try? await sourceManager.connectorForSong(first) as? any ServerInsightReadingConnector,
+                   let overview = try? await reader.serverInsightOverview(
+                       subject.kind,
+                       subjectName: subject.kind == .artist ? subject.artistName : subject.albumTitle,
+                       for: first
+                   ) {
+                    let summary = LastFmLibraryInsight.plainText(overview)
+                    if !summary.isEmpty { found = (summary, [], source.name) }
+                }
+                if found == nil,
+                   let folder = folder(for: subject, songs: sourceSongs, library: library),
+                   let connector = try? await sourceManager.auxiliaryConnector(for: first) {
+                    let path = LibraryInsightFolderPolicy.filePath(in: folder, kind: subject.kind)
+                    if let existing = try? await readText(at: path, in: folder, using: connector),
+                       let read = LibraryInsightNFO.read(existing.text, kind: subject.kind) {
+                        found = (read.summary, read.tags, LibraryInsightNFO.fileName(for: subject.kind))
+                    }
                 }
             }
             guard let found else { continue }
@@ -224,7 +238,7 @@ enum LibraryInsightWriteback {
                     sourceLabel: found.label,
                     now: Date()
                   ) else { return }
-            plog("📥 Library insight imported kind=\(subject.kind.rawValue) from=\(isMediaServer(source.type) ? "server" : "nfo")")
+            plog("📥 Library insight imported kind=\(subject.kind.rawValue) from=\(isMediaServer(source.type) || isSubsonicServer(source.type) ? "server" : "nfo")")
             library.saveLibraryInsightRecord(record, persistAfter: persistAfter)
             return
         }
@@ -234,6 +248,11 @@ enum LibraryInsightWriteback {
 
     static func isMediaServer(_ type: MusicSourceType) -> Bool {
         type == .jellyfin || type == .emby || type == .plex
+    }
+
+    /// 只能读回简介、不能写的 Subsonic 一族。
+    static func isSubsonicServer(_ type: MusicSourceType) -> Bool {
+        type == .subsonic || type == .navidrome || type == .airsonic || type == .gonic
     }
 
     /// 只看真的文件:流地址与 CUE 分轨的虚拟路径不算。

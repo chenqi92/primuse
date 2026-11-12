@@ -2382,6 +2382,43 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return nil
     }
 
+    /// 服务器替这位艺人 / 这张专辑存着的简介(Navidrome 从 Last.fm 或插件抓来的):艺人是
+    /// `getArtistInfo2` 的 biography,专辑是 `getAlbumInfo2` 的 notes,原样返回(可能带 HTML)。
+    /// 只读:Subsonic 接口没有写简介的地方。艺人按名字在这首歌的艺人里认,合唱的歌不会拿成别人的简介。
+    func serverInsightOverview(
+        _ kind: LibraryInsightKind,
+        subjectName: String,
+        for song: Song
+    ) async throws -> String? {
+        try await connect()
+        switch kind {
+        case .artist:
+            let context = try await resolveArtistArtworkContext(
+                SubsonicArtistArtworkRequest(artistID: nil, artistName: subjectName, songPath: song.filePath)
+            )
+            var artistID = context.id
+            // 老一些的服务器不给 artists / albumArtists:歌的主艺人名字对得上也算。
+            if artistID == nil, let child = context.song, let id = child.artistId, !id.isEmpty,
+               let name = child.artist,
+               ArtistIdentityPolicy.groupingKey(name) == ArtistIdentityPolicy.groupingKey(subjectName) {
+                artistID = id
+            }
+            guard let artistID else { return nil }
+            let info: ArtistInfoContainer = try await requestJSON("getArtistInfo2", query: [
+                URLQueryItem(name: "id", value: artistID), URLQueryItem(name: "count", value: "0")
+            ])
+            return info.artistInfo2?.biography
+        case .album:
+            guard let id = songID(from: song.filePath) else { return nil }
+            let response: GetSongContainer = try await requestJSON("getSong", query: [URLQueryItem(name: "id", value: id)])
+            guard let albumID = response.song?.albumId, !albumID.isEmpty else { return nil }
+            let info: AlbumInfoContainer = try await requestJSON("getAlbumInfo2", query: [
+                URLQueryItem(name: "id", value: albumID)
+            ])
+            return info.albumInfo?.notes
+        }
+    }
+
     private func readArtistImage(_ url: URL, maximumBytes: Int) async throws -> Data? {
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         var request = URLRequest(url: url)
@@ -3016,9 +3053,31 @@ private struct ArtistInfoContainer: SubsonicResponseContainer {
 }
 
 private struct ArtistInfo: Decodable {
+    let biography: String?
     let largeImageUrl: String?
     let mediumImageUrl: String?
     let smallImageUrl: String?
+}
+
+/// 能把服务器上存着的专辑 / 艺人简介读回来(只读)。Subsonic 一族与它们的双地址代理都有。
+protocol ServerInsightReadingConnector: MusicSourceConnector {
+    func serverInsightOverview(
+        _ kind: LibraryInsightKind,
+        subjectName: String,
+        for song: Song
+    ) async throws -> String?
+}
+
+extension SubsonicSource: ServerInsightReadingConnector {}
+
+private struct AlbumInfoContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let albumInfo: AlbumInfo?
+}
+
+private struct AlbumInfo: Decodable {
+    let notes: String?
 }
 
 private struct ArtistContainer: SubsonicResponseContainer {

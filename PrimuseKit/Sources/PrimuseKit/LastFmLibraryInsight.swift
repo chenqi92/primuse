@@ -55,7 +55,9 @@ public enum LastFmLibraryInsight {
         )
     }
 
-    private static func plainText(_ text: String) -> String {
+    /// Last.fm 介绍原文(HTML、段落、数字实体、结尾的「Read more on Last.fm」)整理成纯文字。
+    /// Navidrome 等服务器从 Last.fm 抓来的简介也是这个样子,读回时同用。
+    public static func plainText(_ text: String) -> String {
         let withoutFooter = text.replacingOccurrences(
             of: #"(?is)\s*<a\b[^>]*>\s*Read more on Last\.fm\s*</a>.*$"#,
             with: "", options: .regularExpression
