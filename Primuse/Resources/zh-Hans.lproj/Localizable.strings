@@ -42,8 +42,6 @@
 "favorites_count_format" = "%d 项";
 "library_sections_settings_label" = "资料库分类";
 "library_sections_settings_footer" = "拖动调整顺序；分类的显示、隐藏和顺序同时应用于资料库、侧栏与极简模式标签。";
-"library_music_space_footer" = "关掉后资料库、侧栏和搜索里不再出现音乐，首页顶部切换和极简顶栏也没有「音乐」；其他几类也都关掉时，打开 App 直接是首页。只是收起入口：曲库、扫描和正在放的歌都不受影响，首页的区块仍在首页编辑里单独开关，重新打开后一切照旧。";
-"library_music_space_turn_on" = "打开音乐";
 "library_sections_restore_default_order" = "恢复默认顺序";
 "playlists_count" = "个歌单";
 "sources_title" = "音乐源";
@@ -4187,8 +4185,6 @@
 "minimal_mode_title" = "极简模式";
 "minimal_mode_description" = "隐藏底部导航栏：在顶部切换首页、音乐、电台与有声，播放条停靠在底部。";
 "minimal_show_home" = "显示「首页」";
-"minimal_show_home_music_off_hint" = "音乐关着时首页一直显示";
-"minimal_show_home_music_off_message" = "音乐关掉后，打开 App 会落在首页，所以首页一直显示。想收起首页，先在「资料库」设置里打开音乐。";
 "minimal_section_swipe" = "左右滑动切换分类";
 "minimal_tab_spoken" = "有声";
 "minimal_radio_on_air" = "正在直播";
@@ -6503,7 +6499,6 @@
 "home_filter_bar_none" = "首页顶上不显示切换按钮";
 "home_filter_bar_footer" = "拖动调整顺序。有声书要资料库里有有声内容才会出现；只打开一个时整排不显示。";
 "home_filter_bar_footer_following" = "现在每个按钮跟着首页里对应区块的开关显示。在这里改过之后，区块收起时按钮也会留在首页顶上。拖动调整顺序。";
-"home_filter_bar_music_off_hint" = "已在资料库设置里关闭音乐，打开前不会出现";
 "home_filter_bar_follow_sections" = "改回跟随首页区块";
 "player_control_tint_white_theme_note" = "主题色是「白色」时，播放页控件也是单色。";
 

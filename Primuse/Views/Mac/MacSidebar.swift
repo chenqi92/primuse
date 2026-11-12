@@ -24,8 +24,6 @@ struct MacSidebar: View {
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
-    /// 设置里关了「音乐」:资料库分组只剩电台、有声这几类,歌单分区也收起。
-    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     @AppStorage(PlaylistListOrder.storageKey)
     private var playlistListOrderRawValue = PlaylistListOrder.custom.rawValue
     @State private var copyToServerPlaylist: Playlist?
@@ -36,8 +34,7 @@ struct MacSidebar: View {
     private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
             orderRawValue: librarySectionOrderRawValue,
-            hiddenRawValue: hiddenLibrarySectionsRawValue,
-            showsMusic: showsMusic
+            hiddenRawValue: hiddenLibrarySectionsRawValue
         )
         // 环境音只在真有环境音时占一行。
         .filter { $0 != .ambient || library.hasAmbientContent }
@@ -63,9 +60,7 @@ struct MacSidebar: View {
                     .padding(.bottom, 16)
 
                 homeItem
-                if !sidebarLibrarySections.isEmpty {
-                    librarySection
-                }
+                librarySection
                 if showsPlaylistsSection {
                     playlistsSection
                         .pmFadeTransition()

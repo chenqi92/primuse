@@ -52,9 +52,6 @@ struct AppearanceSettingsView: View {
     @AppStorage(LibrarySectionPagingPolicy.storageKey) private var sectionSwipeEnabled = true
     @AppStorage(AppTabConfiguration.storageKey) private var hiddenTabsMask = 0
     @State private var showsTabEditor = false
-    /// 音乐关着时极简顶栏一直有首页(`MusicSpaceVisibility.showsHomeTab`),「显示首页」那一行点了说明原因。
-    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
-    @State private var explainsHomeKeptForMusic = false
     #endif
     @AppStorage(WidgetColorStyle.storageKey) private var widgetColorStyle = WidgetColorStyle.defaultValue
     @AppStorage(InterfaceOrientationPreference.storageKey)
@@ -74,52 +71,6 @@ struct AppearanceSettingsView: View {
             }
         )
     }
-
-    #if os(iOS)
-    /// 音乐关着时「显示首页」关不掉:看得出关不掉(开关画灰、底下一行写原因),但整行能点,
-    /// 点了说明为什么,并给一键打开音乐。
-    private var minimalHomeKeptRow: some View {
-        Button {
-            explainsHomeKeptForMusic = true
-        } label: {
-            HStack(spacing: 12) {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("minimal_show_home")
-                            .foregroundStyle(.primary)
-                        Text("minimal_show_home_music_off_hint")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "house")
-                }
-                Spacer(minLength: 8)
-                Toggle("minimal_show_home", isOn: .constant(true))
-                    .labelsHidden()
-                    .disabled(true)
-                    .allowsHitTesting(false)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityValue(Text("minimal_show_home_music_off_hint"))
-        .alert("minimal_show_home", isPresented: $explainsHomeKeptForMusic) {
-            Button("library_music_space_turn_on") { showsMusic = true }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text("minimal_show_home_music_off_message")
-        }
-        #if DEBUG
-        // 调试构建:`PRIMUSE_DEBUG_MUSIC_SPACE=explainHome` 进到这一页就弹出说明,无人值守截图用。
-        .task {
-            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_MUSIC_SPACE"] == "explainHome" else { return }
-            try? await Task.sleep(for: .seconds(1))
-            explainsHomeKeptForMusic = true
-        }
-        #endif
-    }
-    #endif
 
     var body: some View {
         List {
@@ -160,14 +111,10 @@ struct AppearanceSettingsView: View {
                 #if os(iOS)
                 // 极简顶栏上要不要摆「首页」那一格(#69:想要的是能藏,不是去掉)。
                 if minimalModeEnabled.wrappedValue {
-                    if showsMusic {
-                        Toggle(isOn: $minimalShowsHome) {
-                            Label("minimal_show_home", systemImage: "house")
-                        }
-                        .id(ThemeColorSettings.shared.isWhiteTheme)
-                    } else {
-                        minimalHomeKeptRow
+                    Toggle(isOn: $minimalShowsHome) {
+                        Label("minimal_show_home", systemImage: "house")
                     }
+                    .id(ThemeColorSettings.shared.isWhiteTheme)
                     // 「音乐」下面的分类（收藏、歌曲、流派……）在内容区左右滑动切换，只在 iPhone 上。
                     if UIDevice.current.userInterfaceIdiom == .phone {
                         Toggle(isOn: $sectionSwipeEnabled) {

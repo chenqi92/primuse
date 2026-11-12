@@ -991,7 +991,6 @@ private struct LibraryDisplaySettingsView: View {
     private var sectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenSectionsRawValue = ""
-    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customIntentsRawValue = ""
     @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
@@ -1007,11 +1006,6 @@ private struct LibraryDisplaySettingsView: View {
 
     private var sectionOrder: [LibrarySection] {
         LibraryDisplayConfiguration.decodeSectionOrder(sectionOrderRawValue)
-    }
-
-    /// 分类列表里列出来的行:音乐关着时不列音乐的分类,它们的开关与位置原样留着。
-    private var listedSections: [LibrarySection] {
-        MusicSpaceVisibility.visibleSections(sectionOrder, showsMusic: showsMusic, name: \.rawValue)
     }
 
     private var customIntents: [AICustomRecommendationIntent] {
@@ -1131,19 +1125,8 @@ private struct LibraryDisplaySettingsView: View {
                 .accessibilityIdentifier("library.separatesAmbient")
             }
 
-            // 音乐和电台、有声书、播客一样能整类收起:只收入口,不动曲库、扫描与正在放的歌。
             Section {
-                Toggle(isOn: $showsMusic.animation()) {
-                    Label("listening_space_music", systemImage: ListeningSpace.music.systemImage)
-                }
-                .settingsAnchor("library.show.music")
-                .accessibilityIdentifier("library.show.music")
-            } footer: {
-                Text("library_music_space_footer")
-            }
-
-            Section {
-                ForEach(listedSections) { section in
+                ForEach(sectionOrder) { section in
                     Toggle(isOn: visibilityBinding(for: section)) {
                         Label(section.title, systemImage: section.icon)
                     }
@@ -1366,14 +1349,9 @@ private struct LibraryDisplaySettingsView: View {
         )
     }
 
-    /// 下标相对列出来的那几行;音乐关着时没列出的音乐分类原地不动。
     private func moveSections(from source: IndexSet, to destination: Int) {
-        let updated = MusicSpaceVisibility.reordering(
-            sectionOrder,
-            listed: listedSections,
-            fromOffsets: source,
-            toOffset: destination
-        )
+        var updated = sectionOrder
+        updated.move(fromOffsets: source, toOffset: destination)
         sectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
     }
 

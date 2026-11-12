@@ -736,8 +736,6 @@ final class InterfaceLayoutSync {
         // 资料库
         LibrarySectionLayoutPolicy.orderKey,
         LibrarySectionLayoutPolicy.hiddenKey,
-        // 「音乐」整类开关,和分类显隐一起走(`MusicSpaceVisibility`)。
-        MusicSpaceVisibility.storageKey,
         PlaylistGrouping.storageKey,
         QuickAccessCoverStyle.storageKey,
         LibraryRowNumberPreferences.storageKey,

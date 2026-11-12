@@ -43,8 +43,6 @@
 "favorites_count_format" = "%d 項";
 "library_sections_settings_label" = "資料庫分類";
 "library_sections_settings_footer" = "拖移以調整順序；分類的顯示、隱藏與順序會同步套用至資料庫、側邊欄及極簡模式標籤。";
-"library_music_space_footer" = "關掉後資料庫、側欄和搜尋裡不再出現音樂，首頁頂部切換和極簡頂欄也沒有「音樂」；其他幾類也都關掉時，打開 App 直接是首頁。只是收起入口：曲庫、掃描和正在播放的歌都不受影響，首頁的區塊仍在首頁編輯裡單獨開關，重新打開後一切照舊。";
-"library_music_space_turn_on" = "打開音樂";
 "library_sections_restore_default_order" = "還原預設順序";
 "playlists_count" = "個歌單";
 "sources_title" = "音樂來源";
@@ -4071,8 +4069,6 @@
 "minimal_mode_title" = "極簡模式";
 "minimal_mode_description" = "隱藏底部導覽列：在頂部切換首頁、音樂、電台與有聲，播放條停靠在底部。";
 "minimal_show_home" = "顯示「首頁」";
-"minimal_show_home_music_off_hint" = "音樂關著時首頁一直顯示";
-"minimal_show_home_music_off_message" = "音樂關掉後，打開 App 會落在首頁，所以首頁一直顯示。想收起首頁，先在「資料庫」設定裡打開音樂。";
 "minimal_section_swipe" = "左右滑動切換分類";
 "minimal_tab_spoken" = "有聲";
 "minimal_radio_on_air" = "正在直播";
@@ -6387,7 +6383,6 @@
 "home_filter_bar_none" = "首頁頂端不顯示切換按鈕";
 "home_filter_bar_footer" = "拖動調整順序。有聲書要資料庫裡有有聲內容才會出現；只開啟一個時整排不顯示。";
 "home_filter_bar_footer_following" = "目前每個按鈕跟著首頁裡對應區塊的開關顯示。在這裡改過之後，區塊收起時按鈕也會留在首頁頂端。拖動調整順序。";
-"home_filter_bar_music_off_hint" = "已在資料庫設定裡關閉音樂，打開前不會出現";
 "home_filter_bar_follow_sections" = "改回跟隨首頁區塊";
 "player_control_tint_white_theme_note" = "主題色是「白色」時，播放頁控制項也是單色。";
 

@@ -1912,8 +1912,6 @@
 "library_recommendations_title" = "Recomendaciones";
 "library_sections_restore_default_order" = "Restaurar orden predeterminada";
 "library_sections_settings_footer" = "Arrastre para reordenar. Desactive una categoría para ocultarla de la Biblioteca y de la barra lateral.";
-"library_music_space_footer" = "Al desactivarla, la música deja de aparecer en la biblioteca, la barra lateral y la búsqueda, y también en los filtros superiores de Inicio y las pestañas del modo mínimo. Si las demás categorías también están desactivadas, la app abre directamente en Inicio. Solo se ocultan los accesos: tu biblioteca, el escaneo y lo que se está reproduciendo no cambian, las secciones de Inicio conservan sus propios interruptores y todo vuelve a como estaba al activarla de nuevo.";
-"library_music_space_turn_on" = "Activar música";
 "library_sections_settings_label" = "Categorías de biblioteca";
 "library_stats_header" = "Esta semana";
 "library_stats_plays_suffix" = "reproduce";
@@ -2392,8 +2390,6 @@
 "mini_player" = "Mini reproductor";
 "minimal_mode_description" = "Oculta la barra de navegación inferior: cambia entre Inicio, Música, Radio y Audio en la parte superior; el reproductor queda fijo abajo.";
 "minimal_show_home" = "Mostrar «Inicio»";
-"minimal_show_home_music_off_hint" = "Siempre visible mientras Música esté desactivada";
-"minimal_show_home_music_off_message" = "Con Música desactivada, la app abre en Inicio, así que Inicio siempre se muestra. Para ocultar Inicio, primero activa Música en los ajustes de Biblioteca.";
 "minimal_section_swipe" = "Deslizar entre categorías";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "En vivo";
@@ -6316,7 +6312,6 @@
 "home_filter_bar_none" = "Sin filtros en la parte superior de Inicio";
 "home_filter_bar_footer" = "Arrastra para reordenar. Audiolibros aparece solo cuando tu biblioteca tiene contenido hablado. Si solo hay uno activado, la fila se oculta.";
 "home_filter_bar_footer_following" = "Por ahora, cada filtro sigue si su sección se muestra en Inicio. Después de cambiarlos aquí, se quedan arriba aunque la sección esté oculta. Arrastra para reordenar.";
-"home_filter_bar_music_off_hint" = "Música está desactivada en los ajustes de Biblioteca y no aparecerá hasta que la actives";
 "home_filter_bar_follow_sections" = "Volver a seguir las secciones de Inicio";
 "player_control_tint_white_theme_note" = "Con el color de tema Blanco, los controles del reproductor siempre son monocromos.";
 

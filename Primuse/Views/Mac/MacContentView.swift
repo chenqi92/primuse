@@ -865,15 +865,8 @@ struct MacContentView: View {
         didRestorePersistedRoute = true
         // 听歌统计、智能推荐挪到了标题栏, 上次停在那两页的从首页开始。
         let restored = UserDefaults.standard.string(forKey: Self.persistedRouteKey).flatMap(route(for:)) ?? .home
-        // 设置里关了「音乐」:上次停在音乐的分类、歌单上的也从首页开始,侧栏里已经没有这几行。
-        let showsMusic = UserDefaults.standard.object(forKey: MusicSpaceVisibility.storageKey) as? Bool
-            ?? MusicSpaceVisibility.defaultValue
         switch restored {
         case .stats, .section(.statistics), .section(.recommendations):
-            selectRoute(.home)
-        case .section(let section) where !showsMusic && section.isMusicSection:
-            selectRoute(.home)
-        case .liked where !showsMusic, .playlist where !showsMusic, .smartPlaylist where !showsMusic:
             selectRoute(.home)
         default:
             selectRoute(restored)

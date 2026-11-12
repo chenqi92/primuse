@@ -1476,8 +1476,6 @@
 "apple_music_library_hint" = "Apple Music arşivinizdeki şarkılar, Primuse'deki müziğinizin geri kalanıyla birlikte görünür.";
 "relay_share_allow_import" = "Primuse'ye İçe Aktarmaya İzin Ver";
 "library_sections_settings_footer" = "Yeniden sıralamak için sürükleyin. Bir kategoriyi Arşiv'tan ve kenar çubuğundan gizlemek için kapatın.";
-"library_music_space_footer" = "Kapatınca müzik Arşiv, kenar çubuğu ve aramada görünmez; Ana sayfadaki üst filtrelerde ve Minimal Mod sekmelerinde de “Müzik” yer almaz. Diğer kategoriler de kapalıysa uygulama doğrudan Ana sayfada açılır. Yalnızca girişler gizlenir: arşivin, taramalar ve çalan şarkı etkilenmez, Ana sayfa bölümleri kendi anahtarlarını korur ve yeniden açınca her şey eskisi gibi olur.";
-"library_music_space_turn_on" = "Müziği Aç";
 "Set Playback Speed" = "Oynatma Hızını Ayarla";
 "scrobble_send_now_playing" = "Şimdi Gönder Oynatılıyor";
 "reverb_mix" = "Islak/Kuru Karışım";
@@ -3814,8 +3812,6 @@
 "lyrics_converter_summary_format" = "%1$d satırları · %2$d senkronize edildi · %3$d kelime zamanlı";
 "minimal_mode_description" = "Alttaki gezinme çubuğunu gizler: üstte Ana sayfa, Müzik, Radyo ve Sesli arasında geçiş yaparsınız; oynatıcı altta sabit kalır.";
 "minimal_show_home" = "“Ana sayfa” sekmesini göster";
-"minimal_show_home_music_off_hint" = "Müzik kapalıyken her zaman görünür";
-"minimal_show_home_music_off_message" = "Müzik kapalıyken uygulama Ana sayfada açılır, bu yüzden Ana sayfa hep görünür. Ana sayfayı gizlemek için önce Arşiv ayarlarında Müziği açın.";
 "minimal_section_swipe" = "Kategoriler arasında kaydır";
 "minimal_tab_spoken" = "Sesli";
 "minimal_radio_on_air" = "Canlı";
@@ -6316,7 +6312,6 @@
 "home_filter_bar_none" = "Ana sayfanın üstünde filtre yok";
 "home_filter_bar_footer" = "Sıralamak için sürükleyin. Sesli kitaplar yalnızca arşivinizde sesli içerik olduğunda görünür. Yalnızca biri açıksa satır gizlenir.";
 "home_filter_bar_footer_following" = "Şu anda her filtre, bölümünün ana sayfada gösterilip gösterilmediğine göre görünür. Burada değiştirdikten sonra bölüm gizlense de filtreler üstte kalır. Sıralamak için sürükleyin.";
-"home_filter_bar_music_off_hint" = "Müzik, Arşiv ayarlarında kapalı; açılana kadar görünmez";
 "home_filter_bar_follow_sections" = "Yeniden ana sayfa bölümlerini izle";
 "player_control_tint_white_theme_note" = "Tema rengi Beyaz olduğunda çalar denetimleri her zaman tek renklidir.";
 

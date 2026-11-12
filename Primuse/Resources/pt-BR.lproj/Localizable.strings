@@ -1912,8 +1912,6 @@
 "library_recommendations_title" = "Recomendações";
 "library_sections_restore_default_order" = "Restaurar ordem padrão";
 "library_sections_settings_footer" = "Arraste para reordenar. Desative uma categoria para ocultá-la da Biblioteca e da barra lateral.";
-"library_music_space_footer" = "Quando desativada, a música deixa de aparecer na biblioteca, na barra lateral e na busca, e também nos filtros no topo do Início e nas abas do modo mínimo. Com as outras categorias também desativadas, o app abre direto no Início. Só os acessos são ocultados: sua biblioteca, a varredura e o que está tocando não mudam, as seções do Início mantêm seus próprios controles e tudo volta como estava ao reativar.";
-"library_music_space_turn_on" = "Ativar música";
 "library_sections_settings_label" = "Categorias de biblioteca";
 "library_stats_header" = "Esta semana";
 "library_stats_plays_suffix" = "toca";
@@ -2392,8 +2390,6 @@
 "mini_player" = "Miniplayer";
 "minimal_mode_description" = "Oculta a barra de navegação inferior: alterne entre Início, Música, Rádio e Áudio no topo; o player fica fixo embaixo.";
 "minimal_show_home" = "Mostrar “Início”";
-"minimal_show_home_music_off_hint" = "Sempre visível enquanto Música estiver desativada";
-"minimal_show_home_music_off_message" = "Com Música desativada, o app abre no Início, por isso o Início fica sempre visível. Para ocultar o Início, ative Música primeiro nos ajustes da Biblioteca.";
 "minimal_section_swipe" = "Deslizar entre categorias";
 "minimal_tab_spoken" = "Áudio";
 "minimal_radio_on_air" = "Ao vivo";
@@ -6316,7 +6312,6 @@
 "home_filter_bar_none" = "Nenhum filtro no topo do Início";
 "home_filter_bar_footer" = "Arraste para reordenar. Audiolivros aparece só quando sua biblioteca tem conteúdo falado. Com apenas um ativado, a fileira fica oculta.";
 "home_filter_bar_footer_following" = "Por enquanto, cada filtro segue se a seção correspondente aparece no Início. Depois de alterá-los aqui, eles ficam no topo mesmo com a seção oculta. Arraste para reordenar.";
-"home_filter_bar_music_off_hint" = "Música está desativada nos ajustes da Biblioteca e só aparece depois de ativada";
 "home_filter_bar_follow_sections" = "Voltar a seguir as seções do Início";
 "player_control_tint_white_theme_note" = "Com a cor de tema Branco, os controles do player são sempre monocromáticos.";
 

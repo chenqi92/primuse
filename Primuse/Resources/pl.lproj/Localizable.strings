@@ -1912,8 +1912,6 @@
 "library_recommendations_title" = "Polecane";
 "library_sections_restore_default_order" = "Przywróć domyślną kolejność";
 "library_sections_settings_footer" = "Przeciągnij, aby zmienić kolejność. Wyłącz kategorię, aby ukryć ją w Bibliotece i na pasku bocznym.";
-"library_music_space_footer" = "Po wyłączeniu muzyka znika z biblioteki, paska bocznego i wyszukiwania, a także z filtrów u góry ekranu Główna i kart trybu minimalnego. Gdy pozostałe kategorie też są wyłączone, aplikacja otwiera się od razu na ekranie Główna. Ukrywane są tylko wejścia: biblioteka, skanowanie i to, co gra, pozostają bez zmian, sekcje ekranu Główna mają własne przełączniki, a po ponownym włączeniu wszystko wraca na miejsce.";
-"library_music_space_turn_on" = "Włącz muzykę";
 "library_sections_settings_label" = "Kategorie bibliotek";
 "library_stats_header" = "W tym tygodniu";
 "library_stats_plays_suffix" = "odtwarza";
@@ -2392,8 +2390,6 @@
 "mini_player" = "Miniodtwarzacz";
 "minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny: u góry przełączasz Główna, Muzyka, Radia i Audio, a odtwarzacz jest przypięty na dole.";
 "minimal_show_home" = "Pokazuj „Główna”";
-"minimal_show_home_music_off_hint" = "Zawsze widoczna, gdy Muzyka jest wyłączona";
-"minimal_show_home_music_off_message" = "Gdy Muzyka jest wyłączona, aplikacja otwiera się na ekranie Główna, więc pozostaje on zawsze widoczny. Aby go ukryć, najpierw włącz Muzykę w ustawieniach biblioteki.";
 "minimal_section_swipe" = "Przesuwaj, aby zmieniać kategorie";
 "minimal_tab_spoken" = "Audio";
 "minimal_radio_on_air" = "Na żywo";
@@ -6316,7 +6312,6 @@
 "home_filter_bar_none" = "Brak filtrów u góry ekranu głównego";
 "home_filter_bar_footer" = "Przeciągnij, aby zmienić kolejność. Audiobooki pojawiają się tylko wtedy, gdy biblioteka zawiera treści mówione. Gdy włączony jest tylko jeden filtr, rząd jest ukryty.";
 "home_filter_bar_footer_following" = "Na razie każdy filtr zależy od tego, czy jego sekcja jest widoczna na ekranie głównym. Po zmianie tutaj filtry zostają u góry, nawet gdy sekcja jest ukryta. Przeciągnij, aby zmienić kolejność.";
-"home_filter_bar_music_off_hint" = "Muzyka jest wyłączona w ustawieniach biblioteki i pojawi się dopiero po włączeniu";
 "home_filter_bar_follow_sections" = "Znów zależnie od sekcji ekranu głównego";
 "player_control_tint_white_theme_note" = "Przy kolorze motywu „Biały” elementy sterujące odtwarzacza są zawsze monochromatyczne.";
 

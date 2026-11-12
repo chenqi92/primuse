@@ -79,17 +79,6 @@ struct AppTabConfiguration: Equatable {
         if let tab = AppNavigationTab(rawValue: storedValue), isVisible(tab) { return storedValue }
         return visibleTabs.first!.rawValue
     }
-
-    func applyingSpaceVisibility(showsMusic: Bool, libraryHasSections: Bool) -> Self {
-        var configuration = self
-        if !showsMusic || !libraryHasSections { configuration.setVisible(true, for: .home) }
-        if !libraryHasSections { configuration.setVisible(false, for: .library) }
-        return configuration
-    }
-
-    func launchSelection(restoring tab: Int, showsMusic: Bool) -> Int {
-        selection(for: showsMusic ? tab : AppNavigationTab.home.rawValue)
-    }
 }
 
 enum AppNavigationLayoutPolicy {
@@ -180,16 +169,14 @@ enum MinimalNavigationPolicy {
         return sections
     }
 
-    /// 音乐关着(`MusicSpaceVisibility`)时没有「音乐」那一格,首页一定在;只剩首页时顶栏不摆分段。
     static func topTabs(
         showsHome: Bool,
         visibleSections: [LibrarySection],
-        spokenSections: [LibrarySection],
-        showsMusic: Bool = MusicSpaceVisibility.defaultValue
+        spokenSections: [LibrarySection]
     ) -> [MinimalTopTab] {
         var tabs: [MinimalTopTab] = []
-        if MusicSpaceVisibility.showsHomeTab(userChoice: showsHome, showsMusic: showsMusic) { tabs.append(.home) }
-        if showsMusic { tabs.append(.music) }
+        if showsHome { tabs.append(.home) }
+        tabs.append(.music)
         if visibleSections.contains(.radio) { tabs.append(.radio) }
         if !spokenSections.isEmpty { tabs.append(.spoken) }
         return tabs
@@ -1360,7 +1347,6 @@ struct ContentView: View {
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
-    @State private var didRestoreInitialTab = false
     @AppStorage(AppTabConfiguration.storageKey) private var hiddenTabsMask = 0
     @AppStorage(AppTabConfiguration.joinsSearchTabStorageKey) private var joinsSearchTab = false
     @State private var supplementaryTab: AppNavigationTab?
@@ -1402,8 +1388,6 @@ struct ContentView: View {
     @AppStorage("primuse.minimal.musicSection.v1") private var minimalMusicSectionRaw = ""
     @AppStorage("primuse.minimal.spokenSection.v1") private var minimalSpokenSectionRaw = ""
     @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
-    /// 设置 › 资料库里的「音乐」(`MusicSpaceVisibility`):关着时不摆音乐的入口,首页一定在。
-    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     /// 进搜索、设置之前停的那一页；「取消」与设置的返回键回到这里。
     @State private var minimalReturnPage: MinimalNavigationPage?
     @State private var showsMinimalQueue = false
@@ -1465,19 +1449,7 @@ struct ContentView: View {
     }
 
     private var tabConfiguration: AppTabConfiguration {
-        guard rootLayout == .standardTabs else { return AppTabConfiguration() }
-        return AppTabConfiguration(hiddenMask: hiddenTabsMask)
-            .applyingSpaceVisibility(showsMusic: showsMusic, libraryHasSections: libraryHasSections)
-    }
-
-    /// 资料库里还有没有开着的分类。只看设置(顺序、显隐与「音乐」开关),不看有没有内容:
-    /// 冷启动曲库还没就绪时标签栏不会先少一格再多出来,把恢复到资料库的人挤回首页。
-    private var libraryHasSections: Bool {
-        !LibraryDisplayConfiguration.visibleSections(
-            orderRawValue: librarySectionOrderRawValue,
-            hiddenRawValue: hiddenLibrarySectionsRawValue,
-            showsMusic: showsMusic
-        ).isEmpty
+        AppTabConfiguration(hiddenMask: rootLayout == .standardTabs ? hiddenTabsMask : 0)
     }
 
     private var hiddenSettingsAction: (@MainActor () -> Void)? {
@@ -1495,8 +1467,7 @@ struct ContentView: View {
     private var visibleLibrarySections: [LibrarySection] {
         LibraryDisplayConfiguration.visibleSections(
             orderRawValue: librarySectionOrderRawValue,
-            hiddenRawValue: hiddenLibrarySectionsRawValue,
-            showsMusic: showsMusic
+            hiddenRawValue: hiddenLibrarySectionsRawValue
         )
         // 没有有声内容时不摆这个入口。
         .filter { $0 != .spokenWord || LibraryStartupNavigationHint.showsSpokenWord(
@@ -1522,34 +1493,8 @@ struct ContentView: View {
         MinimalNavigationPolicy.topTabs(
             showsHome: minimalShowsHome,
             visibleSections: visibleLibrarySections,
-            spokenSections: minimalSpokenSections,
-            showsMusic: showsMusic
+            spokenSections: minimalSpokenSections
         )
-    }
-
-    /// 极简顶栏上实际有没有「首页」:音乐关着时不跟「显示首页」开关,一直有。
-    private var minimalHomeShown: Bool {
-        MusicSpaceVisibility.showsHomeTab(userChoice: minimalShowsHome, showsMusic: showsMusic)
-    }
-
-    /// 停着的那一页没了(分类收起、搜索取消、设置返回)时去哪儿:音乐开着去音乐上次的分类,关着回首页。
-    private var minimalFallbackPage: MinimalNavigationPage {
-        showsMusic ? .librarySection(minimalFallbackSection) : .home
-    }
-
-    /// 搜索「取消」与设置的返回键回到哪一页:进来之前那一页;它在这期间被收起了(比如在设置里关了音乐)
-    /// 就去 `minimalFallbackPage`。
-    private var minimalReturnTarget: MinimalNavigationPage {
-        switch minimalReturnPage {
-        case .librarySection(let section)? where !minimalSectionIsAvailable(section):
-            return minimalFallbackPage
-        case .home? where !minimalHomeShown:
-            return minimalFallbackPage
-        case let page?:
-            return page
-        case nil:
-            return minimalFallbackPage
-        }
     }
 
     /// 资料库槽位还没落定分类时（刚启动、刚换到极简）去的那一页。
@@ -1803,7 +1748,7 @@ struct ContentView: View {
     /// 设置页左上角回到进设置之前那一页。
     private var minimalSettingsReturn: MinimalReturnAction? {
         guard navigationMode == .minimal else { return nil }
-        let target = minimalReturnTarget
+        let target = minimalReturnPage ?? .librarySection(minimalFallbackSection)
         let title = target.topTab?.title ?? MinimalTopTab.music.title
         return MinimalReturnAction(title: title) {
             selectMinimalPage(target)
@@ -1860,18 +1805,15 @@ struct ContentView: View {
                 // 顶层 4 项 ── Home / 资料库 / 搜索 / 设置。资料库下面再开 section
                 // 列子项,让 iPad 用户少一层点击直达。
                 Section {
-                    // 资料库一类都没开着(音乐等都收起了)时不摆「资料库」，和 iPhone 标签栏一样。
-                    ForEach(SidebarItem.topLevel.filter { $0 != .library || libraryHasSections }) { item in
+                    ForEach(SidebarItem.topLevel) { item in
                         Label(String(localized: item.titleKey), systemImage: item.icon)
                             .tag(item as SidebarItem?)
                     }
                 }
-                if !librarySidebarItems.isEmpty {
-                    Section(String(localized: "library_title")) {
-                        ForEach(librarySidebarItems) { item in
-                            Label(String(localized: item.titleKey), systemImage: item.icon)
-                                .tag(item as SidebarItem?)
-                        }
+                Section(String(localized: "library_title")) {
+                    ForEach(librarySidebarItems) { item in
+                        Label(String(localized: item.titleKey), systemImage: item.icon)
+                            .tag(item as SidebarItem?)
                     }
                 }
             }
@@ -2223,7 +2165,11 @@ struct ContentView: View {
             if AppNavigationMode(rawValue: navigationModeRawValue) == nil {
                 navigationModeRawValue = AppNavigationMode.standard.rawValue
             }
-            restoreTabSelectionAtLaunch()
+            let restoredTab = tabConfiguration.selection(for: selectedTab)
+            if restoredTab != selectedTab {
+                selectedTab = restoredTab
+                synchronizeSidebarForCurrentSelection()
+            }
             await library.whenReady()
             guard !Task.isCancelled else { return }
             activateMinimalLandingPageIfNeeded()
@@ -2257,16 +2203,14 @@ struct ContentView: View {
             }
         }
         .onChange(of: visibleLibrarySections) { _, _ in
-            // 不另挂 onChange：这条修饰符链再长一节就类型检查超时。资料库一类都不剩时 iPad 侧栏回首页。
-            leaveEmptySidebarLibraryIfNeeded()
-            // 资料库设置里把正停着的分类藏了，或者有声内容都移走了：回到音乐（音乐也关了就回首页）。
+            // 资料库设置里把正停着的分类藏了，或者有声内容都移走了：回到音乐。
             guard library.isReady, navigationMode == .minimal, selectedTab == 1 else { return }
             if let section = minimalLibrarySection, minimalSectionIsAvailable(section) { return }
-            selectMinimalPage(minimalFallbackPage)
+            selectMinimalPage(.librarySection(minimalFallbackSection))
         }
-        .onChange(of: minimalHomeShown) { _, showsHome in
+        .onChange(of: minimalShowsHome) { _, showsHome in
             guard navigationMode == .minimal, !showsHome, selectedTab == 0 else { return }
-            selectMinimalPage(minimalFallbackPage)
+            selectMinimalPage(.librarySection(minimalFallbackSection))
         }
         .fullScreenCover(item: $autoYearlyReport) { item in
             YearlyReportScreen(year: item.year)
@@ -2351,30 +2295,11 @@ struct ContentView: View {
         )
     }
 
-    private func restoreTabSelectionAtLaunch() {
-        guard !didRestoreInitialTab else { return }
-        didRestoreInitialTab = true
-        let restoredTab = tabConfiguration.launchSelection(restoring: selectedTab, showsMusic: showsMusic)
-        if restoredTab != selectedTab {
-            selectedTab = restoredTab
-            synchronizeSidebarForCurrentSelection()
-        }
-        leaveEmptySidebarLibraryIfNeeded()
-    }
-
-    /// iPad 侧栏没有「资料库」可选了(资料库一类都没开着)还停在资料库:回首页。标签栏布局由
-    /// `tabConfiguration` 收起标签时自己换过去。
-    private func leaveEmptySidebarLibraryIfNeeded() {
-        guard rootLayout == .standardSidebar, !libraryHasSections, selectedTab == 1 else { return }
-        selectedTab = 0
-        synchronizeSidebarForCurrentSelection()
-    }
-
     /// 进极简模式、启动时落在哪一页：资料库槽位回到上次停的分类；首页那一格关掉了就去音乐。
     private func activateMinimalLandingPageIfNeeded() {
         guard navigationMode == .minimal else { return }
         let tab = AppTabSelectionPolicy.resolve(selectedTab)
-        if tab == 0, minimalHomeShown {
+        if tab == 0, minimalShowsHome {
             synchronizeSidebarForCurrentSelection()
             return
         }
@@ -2390,15 +2315,14 @@ struct ContentView: View {
         if tab == 1, let stored, minimalSectionIsAvailable(stored) {
             selectMinimalPage(.librarySection(stored))
         } else {
-            // 音乐关着时落在首页：打开 App 直接就是首页。
-            selectMinimalPage(minimalFallbackPage)
+            selectMinimalPage(.librarySection(minimalFallbackSection))
         }
     }
 
     /// 这个分类在顶栏上还够得着：音乐的分类要在资料库里开着，电台、有声要它们那一格还在。
     private func minimalSectionIsAvailable(_ section: LibrarySection) -> Bool {
         switch MinimalTopTab.tab(for: section) {
-        case .music: showsMusic && (minimalMusicSections.contains(section) || section == minimalFallbackSection)
+        case .music: minimalMusicSections.contains(section) || section == minimalFallbackSection
         case .radio: minimalTopTabs.contains(.radio)
         case .spoken: minimalSpokenSections.contains(section)
         case .home: false
@@ -2452,7 +2376,7 @@ struct ContentView: View {
     private func cancelMinimalSearch() {
         searchText = ""
         searchScope = nil
-        selectMinimalPage(minimalReturnTarget)
+        selectMinimalPage(minimalReturnPage ?? .librarySection(minimalFallbackSection))
     }
 
     private var searchAwareTabSelection: Binding<Int> {

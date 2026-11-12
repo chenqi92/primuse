@@ -741,7 +741,6 @@ private struct HomeFilterBarEditor: View {
     let sectionShown: (ListeningSpace) -> Bool
 
     @AppStorage(HomeFilterBarConfiguration.storageKey) private var rawValue = ""
-    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     @Environment(\.dismiss) private var dismiss
     @State private var showsStylePicker = false
 
@@ -776,15 +775,7 @@ private struct HomeFilterBarEditor: View {
                     ForEach(configuration.order, id: \.self) { space in
                         Toggle(isOn: shownBinding(for: space)) {
                             Label {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(space.titleKey)
-                                    // 资料库设置里关了音乐:这颗开着也不出现,写明为什么。
-                                    if !MusicSpaceVisibility.isSpaceShown(space, showsMusic: showsMusic) {
-                                        Text("home_filter_bar_music_off_hint")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+                                Text(space.titleKey)
                             } icon: {
                                 Image(systemName: space.systemImage)
                                     .foregroundStyle(configuration.monochrome ? Color.primary : space.tint)
@@ -1672,8 +1663,6 @@ struct HomeView: View {
     @AppStorage(HomeFilterBarConfiguration.showsLibrarySectionsKey) private var showsLibrarySections = false
     /// 资料库里收起了「环境音」,首页那颗胶囊跟着不出现(`AmbientSoundLibrarySection`)。
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey) private var hiddenLibrarySectionsRawValue = ""
-    /// 设置 › 资料库里关了「音乐」:顶部切换没有音乐那一颗(`MusicSpaceVisibility`)。首页的区块照首页编辑里的开关。
-    @AppStorage(MusicSpaceVisibility.storageKey) private var showsMusic = MusicSpaceVisibility.defaultValue
     @AppStorage(HomeSubtabPresentation.pullDownKey) private var subtabPullDown = false
     @AppStorage(HomeSubtabPresentation.doubleTapKey) private var subtabDoubleTap = false
     @State private var expandedSubtabSpaces: Set<String> = []
@@ -1702,8 +1691,6 @@ struct HomeView: View {
                     )
                 // 环境音:真有内容、资料库里没收起才有这颗;调过「顶部切换」也一样跟着资料库走。
                 case .ambient: isAmbientChipAvailable
-                // 音乐:设置里关了就没有这颗,调过「顶部切换」也一样。
-                case .music: MusicSpaceVisibility.isSpaceShown(.music, showsMusic: showsMusic)
                 default: true
                 }
             }
@@ -2685,10 +2672,7 @@ struct HomeView: View {
         #if os(iOS)
         if appNavigationMode != .minimal {
             let configuration = HomeFilterBarConfiguration.decode(homeFilterBarRawValue)
-            let shown = configuration.order.filter {
-                configuration.isShown($0, sectionShown: isFilterSectionShown)
-                    && MusicSpaceVisibility.isSpaceShown($0, showsMusic: showsMusic)
-            }
+            let shown = configuration.order.filter { configuration.isShown($0, sectionShown: isFilterSectionShown) }
             editorBlockFrame(visible: shown.count > 1) {
                 HStack(spacing: 10) {
                     Image(systemName: "pin.fill")
