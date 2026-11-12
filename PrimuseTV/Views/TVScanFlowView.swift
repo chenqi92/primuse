@@ -93,7 +93,7 @@ struct TVScanFlowView: View {
                 pickView
             }
         }
-        .fullScreenCover(isPresented: $showsOTP, onDismiss: {
+        .tvFullScreenCover(isPresented: $showsOTP, onDismiss: {
             // 验证码通过后凭据/设备令牌已更新,回到未开始状态让用户直接重试。
             store.scanner.phase = .idle
             started = false

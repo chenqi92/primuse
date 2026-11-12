@@ -72,11 +72,11 @@ struct TVAISettingsView: View {
         }
         .builtInAIConsentSheet($editor.pendingBuiltInConsent)
         .onExitCommand { dismiss() }
-        .fullScreenCover(item: $providerTarget) { target in
+        .tvFullScreenCover(item: $providerTarget) { target in
             TVAIProviderDetailView(editor: editor, providerID: target.id)
                 .environment(intelligence)
         }
-        .fullScreenCover(item: $routeTarget) { target in
+        .tvFullScreenCover(item: $routeTarget) { target in
             TVAIRoutePickerView(editor: editor, feature: target.feature)
                 .environment(intelligence)
         }

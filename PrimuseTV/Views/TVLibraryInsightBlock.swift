@@ -55,11 +55,11 @@ struct TVLibraryInsightBlock: View {
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                     )
                 }
-                .fullScreenCover(isPresented: $showsReader) {
+                .tvFullScreenCover(isPresented: $showsReader) {
                     TVLibraryInsightReader(subject: subject)
                         .environment(tvStore)
                 }
-                .fullScreenCover(isPresented: $showsEditor) {
+                .tvFullScreenCover(isPresented: $showsEditor) {
                     TVLibraryInsightEditor(
                         subject: subject,
                         record: store.record(for: subject, in: tvStore.library),
@@ -503,7 +503,7 @@ private struct TVLibraryInsightReader: View {
                 .padding(.horizontal, 90)
                 .padding(.vertical, 60)
         }
-        .fullScreenCover(isPresented: $showsEditor) {
+        .tvFullScreenCover(isPresented: $showsEditor) {
             TVLibraryInsightEditor(
                 subject: subject,
                 record: store.record(for: subject, in: tvStore.library),

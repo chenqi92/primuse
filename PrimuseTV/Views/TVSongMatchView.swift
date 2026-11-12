@@ -574,7 +574,7 @@ struct TVSongMatchView: View {
 
 /// 为一张专辑补全缺失的标签、封面和歌词的面板。专辑详情页这样打开:
 ///
-///     .fullScreenCover(isPresented: $showsAlbumScrape) {
+///     .tvFullScreenCover(isPresented: $showsAlbumScrape) {
 ///         TVAlbumScrapeView(albumID: album.id).environment(store)
 ///     }
 ///

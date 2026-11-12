@@ -235,7 +235,7 @@ struct TVSearchView: View {
         .onChange(of: inputActive) { _, active in
             if active { focusZone = .field }
         }
-        .fullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
+        .tvFullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
             TVArtistDetailView(
                 artist: artist,
                 openPlayer: {

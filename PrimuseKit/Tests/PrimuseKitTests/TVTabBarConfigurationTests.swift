@@ -97,3 +97,51 @@ import Testing
         #expect(config.isDefault)
     }
 }
+
+@Suite("Apple TV 换页过渡")
+struct TVPageTransitionPolicyTests {
+    private let order: [TVTabBarItem] = [.home, .library, .nowPlaying, .playlists, .search]
+
+    private func transition(
+        _ from: TVTabBarItem,
+        _ to: TVTabBarItem,
+        fromFull: Bool = false,
+        toFull: Bool = false,
+        reduceMotion: Bool = false,
+        order: [TVTabBarItem]? = nil
+    ) -> TVPageTransition {
+        TVPageTransitionPolicy.transition(
+            from: from, to: to, order: order ?? self.order,
+            fromIsFullScreen: fromFull, toIsFullScreen: toFull, reduceMotion: reduceMotion
+        )
+    }
+
+    @Test("顶栏往右换页时新页从右边进来,往左换从左边进来")
+    func slideFollowsTabOrder() {
+        #expect(transition(.home, .library) == .slide(forward: true))
+        #expect(transition(.search, .library) == .slide(forward: false))
+        // 没在放东西时播放页是顶栏上普通的一页。
+        #expect(transition(.library, .nowPlaying) == .slide(forward: true))
+    }
+
+    @Test("进出全屏播放页是往里走一层、退回一层")
+    func fullScreenPlayerChangesDepth() {
+        #expect(transition(.library, .nowPlaying, toFull: true) == .deeper)
+        #expect(transition(.search, .nowPlaying, toFull: true) == .deeper)
+        #expect(transition(.nowPlaying, .home, fromFull: true) == .shallower)
+    }
+
+    @Test("减弱动态效果或没换页时直接换")
+    func reduceMotionAndSamePageDoNotAnimate() {
+        #expect(transition(.home, .library, reduceMotion: true) == .none)
+        #expect(transition(.library, .nowPlaying, toFull: true, reduceMotion: true) == .none)
+        #expect(transition(.home, .home) == .none)
+    }
+
+    @Test("不在顶栏上的页按默认顺序比前后")
+    func pagesMissingFromTheBarUseTheDefaultOrder() {
+        // 电台刚被删空、从顶栏消失:回首页是往左。
+        #expect(transition(.radio, .home) == .slide(forward: false))
+        #expect(transition(.home, .radio) == .slide(forward: true))
+    }
+}

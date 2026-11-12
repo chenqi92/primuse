@@ -118,7 +118,7 @@ struct TVPodcastsView: View {
             }
         }
         .background(TVColor.bg)
-        .fullScreenCover(item: $presented, onDismiss: finishDismissal) { presentation in
+        .tvFullScreenCover(item: $presented, onDismiss: finishDismissal) { presentation in
             Group {
                 switch presentation {
                 case .show(let source):
@@ -1240,7 +1240,7 @@ struct TVPodcastDiscoverView: View {
                 .focusSection()
             }
         }
-        .fullScreenCover(item: $presentedShow, onDismiss: finishDismissal) { show in
+        .tvFullScreenCover(item: $presentedShow, onDismiss: finishDismissal) { show in
             TVPodcastShowDetailView(source: .directory(show)) { playedShow = show }
                 .environment(store)
         }

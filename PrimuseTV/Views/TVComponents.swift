@@ -185,7 +185,7 @@ struct TVLibraryReviewControl: View {
                         .frame(maxWidth: 560, alignment: .leading)
                 }
             }
-            .fullScreenCover(isPresented: $showsCommentEditor) {
+            .tvFullScreenCover(isPresented: $showsCommentEditor) {
                 TVLibraryReviewCommentEditor(subject: subject)
                     .environment(store)
             }
@@ -736,7 +736,7 @@ struct TVRadioStationCard: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showsRename) {
+        .tvFullScreenCover(isPresented: $showsRename) {
             TVRadioRenameView(station: station)
                 .environment(store)
         }

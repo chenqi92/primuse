@@ -126,7 +126,7 @@ struct TVTransferReceiveView: View {
             Text(String(format: TVTransferText.string("requestSummary"), invitation.sender, invitation.fileCount,
                         ByteCountFormatter.string(fromByteCount: invitation.byteCount, countStyle: .file)))
         }
-        .fullScreenCover(isPresented: $showMusic) { TVReceivedMusicView().environment(store) }
+        .tvFullScreenCover(isPresented: $showMusic) { TVReceivedMusicView().environment(store) }
         .onDisappear { stop() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { receiver.stop(reason: "backgroundStopped"); restoreIdleTimer() }

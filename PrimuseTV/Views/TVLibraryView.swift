@@ -145,6 +145,7 @@ enum TVLibraryBackgroundWorkPolicy {
 struct TVLibraryView: View {
     @Environment(TVStore.self) private var store
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var openPlayer: () -> Void = {}
     var onReturnToTabs: () -> Void = {}
     var onModalActivityChanged: (Bool) -> Void = { _ in }
@@ -233,6 +234,12 @@ struct TVLibraryView: View {
                         .overlay { TVLetterIndexWatermark(bucket: focusedIndexBucket) }
                         .onAppear { revealBrowseAnchor(with: proxy) }
                         .id(filter)
+                        // 换筛选时新的一面墙淡入、轻轻升上来;旧的那面直接拿掉,不和新的叠着
+                        // 一起画。焦点这时停在筛选胶囊上,两面墙里都没有焦点。
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 24)),
+                            removal: .identity
+                        ))
                         if !indexSections.isEmpty {
                             TVLetterIndexBar(
                                 availableBuckets: Set(indexSections.map(\.bucket)),
@@ -243,6 +250,7 @@ struct TVLibraryView: View {
                             .frame(maxHeight: .infinity, alignment: .center)
                         }
                     }
+                    .animation(reduceMotion ? nil : TVPageMotion.animation, value: filter)
                 }
             }
             .padding(.horizontal, TVSpace.pageH)
@@ -315,7 +323,7 @@ struct TVLibraryView: View {
                 reuseSurface: .tvLibrary
             )
         }
-        .fullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
+        .tvFullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in
             TVArtistDetailView(
                 artist: artist,
                 openPlayer: {
@@ -336,7 +344,7 @@ struct TVLibraryView: View {
                 onModalActivityChanged(false)
             }
         }
-        .fullScreenCover(item: $selectedCollection, onDismiss: finishCollectionDismissal) { destination in
+        .tvFullScreenCover(item: $selectedCollection, onDismiss: finishCollectionDismissal) { destination in
             TVSongCollectionView(
                 destination: destination,
                 openPlayer: {
@@ -908,6 +916,7 @@ struct TVLibraryView: View {
                 // 重建时记住的那张卡片由 `revealingIndex` 放回,窗口按新列数整行对齐。
                 .id("\(wallOrder.rawValue)#\(columns.count)")
                 .onAppear { revealBrowseAnchor(with: proxy) }
+                .transition(TVPageMotion.contentReveal)
             } else {
                 browseLayoutPlaceholder
             }
@@ -1018,6 +1027,7 @@ struct TVLibraryView: View {
                 // 同专辑墙:每行张数变了整面重建,窗口按新列数整行对齐。
                 .id(columns.count)
                 .onAppear { revealBrowseAnchor(with: proxy) }
+                .transition(TVPageMotion.contentReveal)
             } else {
                 browseLayoutPlaceholder
             }
@@ -1054,6 +1064,7 @@ struct TVLibraryView: View {
                     }
                 }
                 .onAppear { revealBrowseAnchor(with: proxy) }
+                .transition(TVPageMotion.contentReveal)
             } else {
                 browseLayoutPlaceholder
             }
@@ -1434,7 +1445,7 @@ struct TVAlbumDetailPresenter: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .fullScreenCover(item: $album, onDismiss: finishDismissal) { album in
+            .tvFullScreenCover(item: $album, onDismiss: finishDismissal) { album in
                 TVAlbumDetailView(
                     albumID: album.id,
                     fallback: album,
@@ -1753,10 +1764,10 @@ struct TVAlbumDetailView: View {
                  + " albumArtist=\(after?.albumArtistName ?? "-") disc=\(after?.discNumber.map(String.init) ?? "-")")
         }
         #endif
-        .fullScreenCover(isPresented: $showsAlbumScrape, onDismiss: albumScrapeDismissed) {
+        .tvFullScreenCover(isPresented: $showsAlbumScrape, onDismiss: albumScrapeDismissed) {
             TVAlbumScrapeView(albumID: albumID).environment(store)
         }
-        .fullScreenCover(isPresented: $showsCoverPicker) {
+        .tvFullScreenCover(isPresented: $showsCoverPicker) {
             TVAlbumCoverPicker(albumID: albumID).environment(store)
         }
         .task(id: songIDs) { await refreshLocallyScrapedSongs(songIDs) }

@@ -187,6 +187,7 @@ struct TVRoot: View {
     typealias Tab = TVTabBarItem
 
     @Environment(TVStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab: Tab
     @AppStorage(TVTabBarConfiguration.storageKey) private var tabBarConfigurationRawValue = ""
     /// 被用户关掉的页也可能被带过去:设置里的「资料库 / 歌单 / 音乐源」、开始播放后切到
@@ -359,47 +360,50 @@ struct TVRoot: View {
 
     private var rootContent: some View {
         GeometryReader { _ in
-            ZStack {
+            ZStack(alignment: .top) {
                 TVColor.bg.ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    TVTabBar(
-                        active: tab,
-                        tabs: visibleTabs,
-                        onSelect: { selectTab($0) },
-                        // 焦点停在「正在播放」上往下走时,下面仍是当前那一页。
-                        onContentDown: { item in
-                            let destination = TVTabFocusSelectionPolicy.contentDestination(focused: item, active: tab)
-                            selectTab(destination)
-                            requestContentFocus(from: destination)
-                        },
-                        focusRequest: tabFocusRequest,
-                        allowsFocusDrivenSelection: !hidesTabBar && !suppressesFocusDrivenTabSelection && !isRoutingToScrubber,
-                        onFocusChanged: tabBarFocusChanged,
-                        onSettings: { showSettings = true }
-                    )
-                    // 播放页全屏:顶栏让出高度并退出焦点,上键不会再误切到别的页。
-                    // 不从层级里拿掉,离开播放页时它的焦点回调还要接得住。
-                    .frame(height: hidesTabBar ? 0 : nil, alignment: .top)
-                    .opacity(hidesTabBar ? 0 : 1)
-                    .disabled(hidesTabBar)
-                    .accessibilityHidden(hidesTabBar)
-                    .zIndex(1)
-                    TVTabContent(
-                        selection: tab,
-                        allowsAnimation: isTabBarFocused,
-                        onDisplayed: { item in
-                            guard item == tab, item != .nowPlaying,
-                                  let request = contentFocusRouting.contentDidAppear(
-                                    in: focusRoutingTab(item), nowPlayingMode: nowPlayingFocusMode
-                                  ) else { return }
-                            applyContentFocusRequest(request)
-                        }
-                    ) { item in
-                        content(for: item)
+                // 顶栏叠在页面上面,每一页自己让出顶栏的高度(全屏播放页不让):进出播放页时
+                // 新旧两页各按自己的版面交叠过渡,不会因为顶栏收放整块上下跳。
+                TVTabContent(
+                    selection: tab,
+                    order: visibleTabs,
+                    isFullScreen: isFullScreenPage,
+                    onDisplayed: { item in
+                        guard item == tab, item != .nowPlaying,
+                              let request = contentFocusRouting.contentDidAppear(
+                                in: focusRoutingTab(item), nowPlayingMode: nowPlayingFocusMode
+                              ) else { return }
+                        applyContentFocusRequest(request)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ) { item in
+                    content(for: item)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                TVTabBar(
+                    active: tab,
+                    tabs: visibleTabs,
+                    onSelect: { selectTab($0) },
+                    // 焦点停在「正在播放」上往下走时,下面仍是当前那一页。
+                    onContentDown: { item in
+                        let destination = TVTabFocusSelectionPolicy.contentDestination(focused: item, active: tab)
+                        selectTab(destination)
+                        requestContentFocus(from: destination)
+                    },
+                    focusRequest: tabFocusRequest,
+                    allowsFocusDrivenSelection: !hidesTabBar && !suppressesFocusDrivenTabSelection && !isRoutingToScrubber,
+                    onFocusChanged: tabBarFocusChanged,
+                    onSettings: { showSettings = true }
+                )
+                // 播放页全屏:顶栏淡出并退出焦点,上键不会再误切到别的页。
+                // 不从层级里拿掉,离开播放页时它的焦点回调还要接得住。
+                .opacity(hidesTabBar ? 0 : 1)
+                .offset(y: hidesTabBar ? -TVPageMotion.tabBarLift : 0)
+                .animation(reduceMotion ? nil : TVPageMotion.animation, value: hidesTabBar)
+                .disabled(hidesTabBar)
+                .accessibilityHidden(hidesTabBar)
+                .zIndex(1)
             }
         }
         // 第一次有了资料库里自己下载的播客:默认收着的播客页亮出来一次。这些文件原先在有声页,
@@ -443,16 +447,16 @@ struct TVRoot: View {
         .onAppear {
             if !tabBarConfiguration.isShown(tab) { transientTab = tab }
         }
-        .fullScreenCover(isPresented: $showSettings) {
+        .tvFullScreenCover(isPresented: $showSettings) {
             TVSettingsView(onNavigate: { tab = $0 }).environment(store)
         }
-        .fullScreenCover(isPresented: $showQueue) {
+        .tvFullScreenCover(isPresented: $showQueue) {
             TVQueueView().environment(store)
         }
-        .fullScreenCover(isPresented: $showOptions) {
+        .tvFullScreenCover(isPresented: $showOptions) {
             TVOptionsView().environment(store)
         }
-        .fullScreenCover(item: Binding(
+        .tvFullScreenCover(item: Binding(
             get: {
                 guard !showSettings, !showQueue, !showOptions, !hasChildModalPresentation,
                       certificateTrustStore.pendingRequest == nil,
@@ -793,7 +797,11 @@ struct TVRoot: View {
 
     /// 正在播放时播放页占满全屏;没在播放时还是普通一页(空状态),顶栏照常。
     private var hidesTabBar: Bool {
-        tab == .nowPlaying && store.hasNowPlaying
+        isFullScreenPage(tab)
+    }
+
+    private func isFullScreenPage(_ item: Tab) -> Bool {
+        item == .nowPlaying && store.hasNowPlaying
     }
 
     private func selectTab(_ item: Tab, playerOrigin: Tab? = nil, requestsPlayerFocus: Bool = true) {
@@ -998,42 +1006,67 @@ struct TVRoot: View {
     }
 }
 
-/// 顶栏切页时旧页先退出交互，再与新页交叠淡出；全屏播放页立即卸载，避免保留旧焦点。
+/// 一级页之间的换页:顶栏上横着换时新页从换过去的那一侧滑进来;进出全屏播放页时往里走一层 / 退回一层
+/// (缩放加淡入淡出)。
+///
+/// 旧页在换页那一刻就 `.disabled` 交出焦点、退出交互,只是在原地淡出,放完以后不带动画地拿掉。
+/// 不能让停着焦点的页带着移除过渡退场:电视主线程忙时,异步渲染线程放完移出动画、等主线程拆视图,
+/// 焦点更新量位置时顺手执行了这次移除,UIKit 会断言闪退(见 10-17 那次焦点断言)。
 struct TVTabContent<Content: View>: View {
     let selection: TVRoot.Tab
-    let allowsAnimation: Bool
+    /// 顶栏上此刻的顺序,决定往哪边滑。
+    let order: [TVRoot.Tab]
+    /// 占满全屏、不让出顶栏的页(在放东西时的播放页)。
+    var isFullScreen: (TVRoot.Tab) -> Bool
     var onDisplayed: (TVRoot.Tab) -> Void
     @ViewBuilder var content: (TVRoot.Tab) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
     @State private var displayed: TVRoot.Tab
     @State private var retiring: TVRoot.Tab?
+    @State private var transition: TVPageTransition = .none
 
     init(
         selection: TVRoot.Tab,
-        allowsAnimation: Bool,
+        order: [TVRoot.Tab],
+        isFullScreen: @escaping (TVRoot.Tab) -> Bool,
         onDisplayed: @escaping (TVRoot.Tab) -> Void = { _ in },
         @ViewBuilder content: @escaping (TVRoot.Tab) -> Content
     ) {
         self.selection = selection
-        self.allowsAnimation = allowsAnimation
+        self.order = order
+        self.isFullScreen = isFullScreen
         self.onDisplayed = onDisplayed
         self.content = content
         _displayed = State(initialValue: selection)
     }
 
     var body: some View {
+        let mirrored = layoutDirection == .rightToLeft
         ZStack {
             ForEach(retiring.map { [$0, displayed] } ?? [displayed], id: \.self) { item in
                 content(item)
-                    // 淡入淡出只作用于页面外壳，不把首次布局与内部内容更新一起插值。
+                    // 过渡只作用于页面外壳，不把首次布局与内部内容更新一起插值。
                     .transaction { $0.animation = nil }
+                    .padding(.top, isFullScreen(item) ? 0 : TVTabBar.height)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .opacity(item == displayed ? 1 : 0)
+                    .modifier(TVPageMotion(
+                        phase: item == displayed ? .shown : .leaving,
+                        transition: transition,
+                        mirrored: mirrored
+                    ))
                     .disabled(item != displayed)
                     .allowsHitTesting(item == displayed)
                     .accessibilityHidden(item != displayed)
                     .zIndex(item == displayed ? 1 : 0)
-                    .transition(.opacity)
+                    .transition(.asymmetric(
+                        insertion: .modifier(
+                            active: TVPageMotion(phase: .arriving, transition: transition, mirrored: mirrored),
+                            identity: TVPageMotion(phase: .shown, transition: transition, mirrored: mirrored)
+                        ),
+                        // 退场的页已经在原地淡没了,拿掉时不再放过渡(见上面的焦点断言)。
+                        removal: .identity
+                    ))
                     // 反向切回仍在淡出的页不会再触发 onAppear；恢复交互时也必须重发焦点。
                     .onChange(of: item == displayed, initial: true) { _, isDisplayed in
                         if isDisplayed { onDisplayed(item) }
@@ -1042,21 +1075,137 @@ struct TVTabContent<Content: View>: View {
         }
         .onChange(of: selection) { _, next in
             guard next != displayed else { return }
-            let crossfade = allowsAnimation && !reduceMotion
-                && displayed != .nowPlaying && next != .nowPlaying
-            var transaction = Transaction(animation: crossfade ? .easeInOut(duration: 0.24) : nil)
-            transaction.disablesAnimations = !crossfade
+            let kind = TVPageTransitionPolicy.transition(
+                from: displayed,
+                to: next,
+                order: order,
+                fromIsFullScreen: isFullScreen(displayed),
+                toIsFullScreen: isFullScreen(next),
+                reduceMotion: reduceMotion
+            )
+            let animates = kind != .none
+            var transaction = Transaction(animation: animates ? TVPageMotion.animation : nil)
+            transaction.disablesAnimations = !animates
             withTransaction(transaction) {
-                retiring = crossfade ? displayed : nil
+                transition = kind
+                retiring = animates ? displayed : nil
                 displayed = next
             }
         }
         .task(id: displayed) {
             guard retiring != nil else { return }
-            do { try await Task.sleep(for: .milliseconds(240)) } catch { return }
+            do { try await Task.sleep(for: TVPageMotion.retireAfter) } catch { return }
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) { retiring = nil }
+        }
+    }
+}
+
+/// 一页在换页过渡里的位置与大小。
+struct TVPageMotion: ViewModifier {
+    enum Phase {
+        /// 新页刚插进来时的起点。
+        case arriving
+        case shown
+        /// 旧页退到的终点。
+        case leaving
+    }
+
+    let phase: Phase
+    let transition: TVPageTransition
+    /// 从右往左排的语言里顶栏也是反的,滑动方向跟着反过来。
+    let mirrored: Bool
+
+    /// 先快后慢,新页很快就到位、最后轻轻停住。
+    static let animation = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 0.42)
+    /// 旧页淡没以后再拿掉。
+    static let retireAfter: Duration = .milliseconds(460)
+    /// 顶栏上横着换页时新页滑进来的距离、旧页退开的距离。
+    static let arrivingSlide: CGFloat = 72
+    static let leavingSlide: CGFloat = 40
+    /// 进出全屏播放页时的远近。
+    static let depthScale: CGFloat = 0.045
+    /// 进全屏播放页时顶栏往上收的距离。
+    static let tabBarLift: CGFloat = 28
+
+    /// 页面里后到的整块内容(后台排好的专辑墙)出现时淡入、轻轻升起,不是一帧之内从空白跳出来。
+    /// 动画跟着过渡走:内容由数据到位触发,不在任何动画事务里。拿掉时不放过渡。
+    static var contentReveal: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 18)).animation(.easeOut(duration: 0.32)),
+            removal: .identity
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale)
+            .offset(x: offsetX)
+            .opacity(phase == .shown ? 1 : 0)
+    }
+
+    private var offsetX: CGFloat {
+        guard case let .slide(forward) = transition else { return 0 }
+        let sign: CGFloat = (forward ? 1 : -1) * (mirrored ? -1 : 1)
+        switch phase {
+        case .arriving: return Self.arrivingSlide * sign
+        case .shown: return 0
+        case .leaving: return -Self.leavingSlide * sign
+        }
+    }
+
+    private var scale: CGFloat {
+        switch (transition, phase) {
+        // 往里走:原来那页往前推开,播放页从稍远处落到眼前。
+        case (.deeper, .arriving): 1 - Self.depthScale
+        case (.deeper, .leaving): 1 + Self.depthScale
+        // 退回:播放页往后退开,回到的那页从稍近处落回。
+        case (.shallower, .arriving): 1 + Self.depthScale
+        case (.shallower, .leaving): 1 - Self.depthScale
+        default: 1
+        }
+    }
+}
+
+/// 弹出的整页(专辑页、艺人页、设置的下一层、弹框……)出现时从稍近处轻轻落回原位。
+///
+/// tvOS 给全屏覆盖层的只是四五帧的平直溶解,页面看着像直接闪出来。这里只缩放、不动透明度:
+/// 淡入仍交给系统那一下溶解,页面里的焦点落点不受影响;从大往小落,四周也不会露出底下的边。
+private struct TVModalPageEntrance: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var settled = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(settled || reduceMotion ? 1 : 1 + TVPageMotion.depthScale)
+            .onAppear {
+                guard !settled else { return }
+                withAnimation(reduceMotion ? nil : TVPageMotion.animation) { settled = true }
+            }
+    }
+}
+
+extension View {
+    /// 和 `fullScreenCover` 一样,弹出的那一页带上 `TVModalPageEntrance`。全屏展示(沉浸播放页)
+    /// 自己有进出动画、底是透明的,照旧用 `fullScreenCover`。
+    func tvFullScreenCover<Content: View>(
+        isPresented: Binding<Bool>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        fullScreenCover(isPresented: isPresented, onDismiss: onDismiss) {
+            content().modifier(TVModalPageEntrance())
+        }
+    }
+
+    func tvFullScreenCover<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        fullScreenCover(item: item, onDismiss: onDismiss) { value in
+            content(value).modifier(TVModalPageEntrance())
         }
     }
 }
@@ -1167,6 +1316,9 @@ private struct TVTabSelectionIntent: Equatable {
 }
 
 struct TVTabBar: View {
+    /// 顶栏的高度。顶栏叠在页面上面,一般的页按它让出顶部(`TVTabContent`)。
+    static let height: CGFloat = 110
+
     @AppStorage(AppIconService.storageKey) private var iconID = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let active: TVRoot.Tab
@@ -1303,7 +1455,7 @@ struct TVTabBar: View {
             #endif
         }
         .padding(.horizontal, TVSpace.pageH)
-        .frame(height: 110)
+        .frame(height: Self.height)
         .frame(maxWidth: .infinity)
         .background(
             LinearGradient(colors: [TVColor.chrome, TVColor.chrome.opacity(0.45), .clear],

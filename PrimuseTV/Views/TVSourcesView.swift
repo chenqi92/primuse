@@ -298,23 +298,23 @@ struct TVSourcesView: View {
         } message: { r in
             Text(PMString("ext.tv.test.resultBody", r.sourceName, r.message))
         }
-        .fullScreenCover(isPresented: $showTransfer, onDismiss: restorePrimaryFocus) {
+        .tvFullScreenCover(isPresented: $showTransfer, onDismiss: restorePrimaryFocus) {
             TVTransferReceiveView().environment(store)
         }
-        .fullScreenCover(isPresented: $showsMetadata, onDismiss: restorePrimaryFocus) {
+        .tvFullScreenCover(isPresented: $showsMetadata, onDismiss: restorePrimaryFocus) {
             TVMetadataMaintenanceView().environment(store)
         }
         // 不用 .sheet:tvOS 的 sheet 自带一层系统卡片底,和弹框自己的面板叠成双层背景。
-        .fullScreenCover(item: $credentialEditor, onDismiss: restorePrimaryFocus) { src in
+        .tvFullScreenCover(item: $credentialEditor, onDismiss: restorePrimaryFocus) { src in
             TVCredentialEditorView(source: src).environment(store)
         }
-        .fullScreenCover(item: $hiddenPlaylistSource, onDismiss: restorePrimaryFocus) { source in
+        .tvFullScreenCover(item: $hiddenPlaylistSource, onDismiss: restorePrimaryFocus) { source in
             TVHiddenSourcePlaylistsView(source: source).environment(store)
         }
-        .fullScreenCover(item: $localRemovalsSource, onDismiss: restorePrimaryFocus) { source in
+        .tvFullScreenCover(item: $localRemovalsSource, onDismiss: restorePrimaryFocus) { source in
             TVLocalRemovalsView(source: source).environment(store)
         }
-        .fullScreenCover(isPresented: $typePicker, onDismiss: finishTypePickerDismissal) {
+        .tvFullScreenCover(isPresented: $typePicker, onDismiss: finishTypePickerDismissal) {
             TVSourceTypePicker { type, prefill in
                 pendingSourceForm = TVSourceForm(
                     editing: nil,
@@ -328,7 +328,7 @@ struct TVSourcesView: View {
             }
             .environment(store)
         }
-        .fullScreenCover(item: $sourceForm, onDismiss: finishSourceFormDismissal) { form in
+        .tvFullScreenCover(item: $sourceForm, onDismiss: finishSourceFormDismissal) { form in
             TVSourceFormView(editing: form.editing, type: form.type,
                              prefillHost: form.prefillHost, prefillPort: form.prefillPort,
                              prefillName: form.prefillName,
@@ -342,26 +342,26 @@ struct TVSourcesView: View {
             }
             .environment(store)
         }
-        .fullScreenCover(isPresented: $recycleBin, onDismiss: restorePrimaryFocus) {
+        .tvFullScreenCover(isPresented: $recycleBin, onDismiss: restorePrimaryFocus) {
             TVRecycleBinView().environment(store)
         }
-        .fullScreenCover(item: $otpSource, onDismiss: restorePrimaryFocus) { src in
+        .tvFullScreenCover(item: $otpSource, onDismiss: restorePrimaryFocus) { src in
             TVOTPEntryView(source: src, onVerified: { runTest(src) }).environment(store)
         }
-        .fullScreenCover(item: $rereadSource, onDismiss: restorePrimaryFocus) { src in
+        .tvFullScreenCover(item: $rereadSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src, rereadMetadata: true).environment(store)
         }
-        .fullScreenCover(item: $scanSource, onDismiss: restorePrimaryFocus) { src in
+        .tvFullScreenCover(item: $scanSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src).environment(store)
         }
-        .fullScreenCover(item: $incrementalScanSource, onDismiss: restorePrimaryFocus) { src in
+        .tvFullScreenCover(item: $incrementalScanSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src, mode: .incremental).environment(store)
         }
-        .fullScreenCover(isPresented: $showsGoogleDriveAccessChange, onDismiss: restorePrimaryFocus) {
+        .tvFullScreenCover(isPresented: $showsGoogleDriveAccessChange, onDismiss: restorePrimaryFocus) {
             TVGoogleDriveAccessChangeView()
         }
         #if DEBUG
-        .fullScreenCover(item: $debugCompanionAuthSource) { source in
+        .tvFullScreenCover(item: $debugCompanionAuthSource) { source in
             TVCloudCompanionAuthView(source: source, onAuthorized: { debugCompanionAuthSource = nil })
         }
         .task {

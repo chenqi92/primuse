@@ -309,7 +309,7 @@ struct TVSpokenWordView: View {
             }
         }
         .background(TVColor.bg)
-        .fullScreenCover(item: $selectedBook, onDismiss: finishDetailDismissal) { book in
+        .tvFullScreenCover(item: $selectedBook, onDismiss: finishDetailDismissal) { book in
             TVSpokenWordBookDetailView(
                 bookID: book.id,
                 fallback: book,
@@ -714,7 +714,7 @@ struct TVSpokenWordBookDetailView: View {
                         TVPillButton(title: String(localized: "spoken_word_skip_title"), systemImage: "forward.end") {
                             showsIntroOutro = true
                         }
-                        .fullScreenCover(isPresented: $showsIntroOutro) {
+                        .tvFullScreenCover(isPresented: $showsIntroOutro) {
                             if let song = book.items.first.flatMap({ store.library.song(id: $0.id) }) {
                                 TVSpokenWordIntroOutroPicker(bookID: book.id, song: song)
                             }

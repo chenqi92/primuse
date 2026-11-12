@@ -156,3 +156,40 @@ public struct TVTabBarConfiguration: Equatable, Sendable {
         hidden.remove(first)
     }
 }
+
+/// Apple TV 一级页之间换页时怎么过渡。
+public enum TVPageTransition: Equatable, Sendable {
+    /// 直接换(减弱动态效果)。
+    case none
+    /// 顶栏上横着换:往后(顶栏右边)换时新页从后面那一侧滑进来、旧页往前面那一侧退。
+    case slide(forward: Bool)
+    /// 进全屏播放页:往里走一层,原来那页往前推开、播放页从稍远处落到眼前。
+    case deeper
+    /// 从全屏播放页出来:退回一层,播放页往后退开、回到的那页从稍近处落回。
+    case shallower
+}
+
+public enum TVPageTransitionPolicy {
+    /// - Parameters:
+    ///   - order: 顶栏上此刻的顺序;不在里面的页(刚被收起的电台、有声)按默认顺序比前后。
+    ///   - fromIsFullScreen / toIsFullScreen: 那一页是不是占满全屏、顶栏收起(在放东西时的播放页)。
+    public static func transition(
+        from: TVTabBarItem,
+        to: TVTabBarItem,
+        order: [TVTabBarItem],
+        fromIsFullScreen: Bool,
+        toIsFullScreen: Bool,
+        reduceMotion: Bool
+    ) -> TVPageTransition {
+        guard from != to, !reduceMotion else { return .none }
+        if toIsFullScreen, !fromIsFullScreen { return .deeper }
+        if fromIsFullScreen, !toIsFullScreen { return .shallower }
+        if let fromIndex = order.firstIndex(of: from), let toIndex = order.firstIndex(of: to) {
+            return .slide(forward: toIndex > fromIndex)
+        }
+        let fallback = TVTabBarConfiguration.defaultOrder
+        let fromIndex = fallback.firstIndex(of: from) ?? 0
+        let toIndex = fallback.firstIndex(of: to) ?? 0
+        return .slide(forward: toIndex >= fromIndex)
+    }
+}

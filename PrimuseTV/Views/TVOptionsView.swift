@@ -323,17 +323,17 @@ struct TVOptionsView: View {
             }
             #endif
         }
-        .fullScreenCover(isPresented: $showKaraoke) {
+        .tvFullScreenCover(isPresented: $showKaraoke) {
             TVKaraokeStageView()
         }
-        .fullScreenCover(isPresented: $showMedleySettings) { TVMedleySettingsView() }
-        .fullScreenCover(item: $matchTarget) { target in
+        .tvFullScreenCover(isPresented: $showMedleySettings) { TVMedleySettingsView() }
+        .tvFullScreenCover(item: $matchTarget) { target in
             TVSongMatchView(songID: target.id).environment(store)
         }
-        .fullScreenCover(item: $albumScrapeTarget) { target in
+        .tvFullScreenCover(item: $albumScrapeTarget) { target in
             TVAlbumScrapeView(albumID: target.id).environment(store)
         }
-        .fullScreenCover(item: $playbackRangeTarget) { target in
+        .tvFullScreenCover(item: $playbackRangeTarget) { target in
             TVPlaybackRangeEditorView(songID: target.id).environment(store)
         }
     }
@@ -1219,15 +1219,15 @@ struct TVLyricsTranslationPanel: View {
         }
         .task { await local.refreshAvailability() }
         .builtInAIConsentSheet($builtInConsent)
-        .fullScreenCover(isPresented: $showsLanguagePicker) {
+        .tvFullScreenCover(isPresented: $showsLanguagePicker) {
             TVLyricsTranslationLanguagePicker(codes: targetCodes, selected: target) { code in
                 settings.targetLanguageCode = code
             }
         }
-        .fullScreenCover(isPresented: $showsSkippedLanguagePicker) {
+        .tvFullScreenCover(isPresented: $showsSkippedLanguagePicker) {
             TVLyricsTranslationSkippedLanguagesPicker(target: target)
         }
-        .fullScreenCover(isPresented: $showsAISettings, onDismiss: {
+        .tvFullScreenCover(isPresented: $showsAISettings, onDismiss: {
             // 在智能功能里换了服务、开了内置 AI 或允许了发送:这首歌按新的设置重翻。
             if intelligence.settingsStore.revision != aiSettingsRevision {
                 controller.retranslateCurrentLyrics()

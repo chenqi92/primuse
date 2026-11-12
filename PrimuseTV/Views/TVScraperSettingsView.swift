@@ -39,7 +39,7 @@ struct TVScraperSettingsView: View {
         // 扫码直传可能刚写过同一个键:打开时从 UserDefaults 重读一遍再显示。
         .onAppear { settings.reloadFromDefaults() }
         .onExitCommand { dismiss() }
-        .fullScreenCover(isPresented: $showImport) {
+        .tvFullScreenCover(isPresented: $showImport) {
             TVScraperImportView().environment(store)
         }
         .onAppear {

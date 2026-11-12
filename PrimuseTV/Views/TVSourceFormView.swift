@@ -466,7 +466,7 @@ struct TVSourceFormView: View {
                   newValue == .fnConnect else { return }
             useSsl = true
         }
-        .fullScreenCover(item: $cloudAuthRequest) { request in
+        .tvFullScreenCover(item: $cloudAuthRequest) { request in
             // Google Drive 的设备码拿不到读整个云端硬盘的授权,改由手机上的 Primuse 代为登录。
             if LANCloudAuthorizationLink.supportedProviders.contains(request.source.type) {
                 TVCloudCompanionAuthView(
@@ -488,12 +488,12 @@ struct TVSourceFormView: View {
                 )
             }
         }
-        .fullScreenCover(isPresented: $showsPlexSignIn, onDismiss: applyPendingPlexSelection) {
+        .tvFullScreenCover(isPresented: $showsPlexSignIn, onDismiss: applyPendingPlexSelection) {
             TVPlexSignInView { selection in
                 pendingPlexSelection = selection
             }
         }
-        .fullScreenCover(item: $otpDraft) { source in
+        .tvFullScreenCover(item: $otpDraft) { source in
             TVOTPEntryView(source: store.map(source), verify: { code in
                 await verifyDraft(source, code: code)
             }).environment(store)

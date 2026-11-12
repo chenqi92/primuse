@@ -524,7 +524,7 @@ struct TVRadioDeleteConfirmationHost: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .fullScreenCover(item: $request, onDismiss: restoreFocus) { request in
+            .tvFullScreenCover(item: $request, onDismiss: restoreFocus) { request in
                 TVRadioDeleteConfirmation(station: request.station)
                     .environment(store)
             }
@@ -991,7 +991,7 @@ struct TVRadioLibrarySection: View {
             reveal: { if let pendingRadioFocus { revealStation(pendingRadioFocus) } },
             onSettled: { pendingRadioFocus = nil }
         )
-        .fullScreenCover(isPresented: $showsAdd) {
+        .tvFullScreenCover(isPresented: $showsAdd) {
             TVRadioAddView().environment(store)
         }
         .onChange(of: showsAdd) { _, shows in onModalActivityChanged(shows) }

@@ -223,7 +223,7 @@ struct TVSpokenWordContentsColumn: View {
                 bookmarksList(entries)
             }
         }
-        .fullScreenCover(item: $chapterSong) { song in
+        .tvFullScreenCover(item: $chapterSong) { song in
             SpokenChapterGenerationSheet(song: song,
                 bookSongs: store.currentSpokenWordBook?.items.compactMap { store.library.song(id: $0.id) } ?? [],
                 library: store.library, loadTranscript: { await store.chapterTranscript(for: $0) })

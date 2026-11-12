@@ -117,7 +117,7 @@ final class TVTabTransitionTests: XCTestCase {
             probe.selection = .sources
             try await Task.sleep(for: .milliseconds(40))
             probe.selection = .search
-            try await Task.sleep(for: .milliseconds(400))
+            try await Task.sleep(for: .milliseconds(600))
             XCTAssertEqual(probe.visible, [.search])
             XCTAssertEqual(probe.enabled[.search], true)
         }
@@ -133,25 +133,30 @@ final class TVTabTransitionTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(70))
             XCTAssertEqual(probe.displayed.last, .home,
                            "Returning to a retained page must restore its content focus without another onAppear")
-            try await Task.sleep(for: .milliseconds(300))
+            try await Task.sleep(for: .milliseconds(520))
             XCTAssertEqual(probe.visible, [.home])
             XCTAssertEqual(probe.enabled[.home], true)
         }
     }
 
-    func testPlayerAndContentFocusChangesDoNotKeepOutgoingPage() async throws {
+    func testFullScreenPlayerTransitionsDisableTheOutgoingPageAtOnce() async throws {
         let probe = TabProbe()
+        probe.playerIsFullScreen = true
         try await withHost(probe) {
             probe.selection = .nowPlaying
             try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.visible, [.home, .nowPlaying])
+            XCTAssertEqual(probe.enabled[.home], false,
+                           "The page that held the remote's focus must give it up as soon as the player starts arriving")
+            XCTAssertEqual(probe.enabled[.nowPlaying], true)
+            try await Task.sleep(for: .milliseconds(560))
             XCTAssertEqual(probe.visible, [.nowPlaying])
             probe.selection = .home
             try await Task.sleep(for: .milliseconds(70))
+            XCTAssertEqual(probe.enabled[.nowPlaying], false)
+            XCTAssertEqual(probe.enabled[.home], true)
+            try await Task.sleep(for: .milliseconds(560))
             XCTAssertEqual(probe.visible, [.home])
-            probe.allowsAnimation = false
-            probe.selection = .library
-            try await Task.sleep(for: .milliseconds(70))
-            XCTAssertEqual(probe.visible, [.library])
         }
     }
 
@@ -162,8 +167,8 @@ final class TVTabTransitionTests: XCTestCase {
                 probe.selection = destination
                 try await Task.sleep(for: .milliseconds(70))
                 XCTAssertEqual(probe.receivedAnimations[destination], false,
-                               "The page may fade, but its layout must not inherit the crossfade animation")
-                try await Task.sleep(for: .milliseconds(260))
+                               "The page may slide in, but its layout must not inherit the page transition")
+                try await Task.sleep(for: .milliseconds(420))
             }
         }
     }
@@ -209,7 +214,7 @@ final class TVTabTransitionTests: XCTestCase {
 
     @Observable final class TabProbe {
         var selection = TVRoot.Tab.home
-        var allowsAnimation = true
+        var playerIsFullScreen = false
         var allowsFocusDrivenSelection = true
         var visible: Set<TVRoot.Tab> = []
         var displayed: [TVRoot.Tab] = []
@@ -240,7 +245,9 @@ final class TVTabTransitionTests: XCTestCase {
     private struct TabHarness: View {
         let probe: TabProbe
         var body: some View {
-            TVTabContent(selection: probe.selection, allowsAnimation: probe.allowsAnimation,
+            TVTabContent(selection: probe.selection,
+                         order: TVTabBarConfiguration.defaultOrder,
+                         isFullScreen: { $0 == .nowPlaying && probe.playerIsFullScreen },
                          onDisplayed: { probe.displayed.append($0) }) { item in
                 TabPage(item: item, probe: probe)
             }

@@ -204,7 +204,7 @@ struct TVHomeView: View {
             }
             }
         }
-        .fullScreenCover(isPresented: $showsRadioAdd, onDismiss: focusRadioRowAfterAdd) {
+        .tvFullScreenCover(isPresented: $showsRadioAdd, onDismiss: focusRadioRowAfterAdd) {
             TVRadioAddView().environment(store)
         }
         .onChange(of: showsRadioAdd) { _, shows in onModalPresentationChanged(shows) }

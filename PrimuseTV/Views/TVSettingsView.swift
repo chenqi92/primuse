@@ -538,37 +538,37 @@ struct TVSettingsView: View {
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
-        .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
-        .fullScreenCover(isPresented: $showsAppIconPicker) { TVAppIconSettingsView() }
-        .fullScreenCover(isPresented: $showsHiddenAppIcons) { TVAppIconSettingsView(hiddenOnly: true) }
+        .tvFullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
+        .tvFullScreenCover(isPresented: $showsAppIconPicker) { TVAppIconSettingsView() }
+        .tvFullScreenCover(isPresented: $showsHiddenAppIcons) { TVAppIconSettingsView(hiddenOnly: true) }
         .onDisappear { iconEasterEgg = AppIconEasterEggTrigger() }
-        .fullScreenCover(isPresented: $showsTabBarSettings) { TVTabBarSettingsView() }
-        .fullScreenCover(isPresented: $showsHomeSectionsSettings) {
+        .tvFullScreenCover(isPresented: $showsTabBarSettings) { TVTabBarSettingsView() }
+        .tvFullScreenCover(isPresented: $showsHomeSectionsSettings) {
             TVHomeSectionsSettingsView().environment(intelligence)
         }
-        .fullScreenCover(isPresented: $showsBackdropSettings) { TVPlayerBackdropSettingsView() }
-        .fullScreenCover(isPresented: $showsAISettings) {
+        .tvFullScreenCover(isPresented: $showsBackdropSettings) { TVPlayerBackdropSettingsView() }
+        .tvFullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsView()
                 .environment(intelligence)
         }
-        .fullScreenCover(isPresented: $showsDiagnostics, onDismiss: {
+        .tvFullScreenCover(isPresented: $showsDiagnostics, onDismiss: {
             diagnosticModeActive = FileLogger.isDiagnosticModeActive
         }) {
             TVDiagnosticsView()
                 .environment(intelligence)
         }
-        .fullScreenCover(isPresented: $showsTranslationPanel) {
+        .tvFullScreenCover(isPresented: $showsTranslationPanel) {
             TVLyricsTranslationPanel(showsCurrentSong: false)
                 .environment(store)
                 .environment(intelligence)
         }
-        .fullScreenCover(isPresented: $showsMetadata) {
+        .tvFullScreenCover(isPresented: $showsMetadata) {
             TVMetadataMaintenanceView().environment(store)
         }
-        .fullScreenCover(isPresented: $showsScraperSettings) {
+        .tvFullScreenCover(isPresented: $showsScraperSettings) {
             TVScraperSettingsView().environment(store)
         }
-        .fullScreenCover(isPresented: $showsScrobbleSettings) { TVScrobbleSettingsView() }
+        .tvFullScreenCover(isPresented: $showsScrobbleSettings) { TVScrobbleSettingsView() }
         .preferredColorScheme(appearance.colorScheme)
         .confirmationDialog(PMString("default_artwork_title"), isPresented: $showsDefaultArtworkPicker, titleVisibility: .visible) {
             ForEach(MissingArtworkStyle.allCases, id: \.self) { style in
@@ -1336,7 +1336,7 @@ struct TVLyricsColorSettings: View {
         }
         .foregroundStyle(TVColor.text)
         .padding(22)
-        .fullScreenCover(item: $editingColor) { slot in
+        .tvFullScreenCover(item: $editingColor) { slot in
             TVLyricsColorPicker(titleKey: slot.titleKey, selection: binding(for: slot), fallback: slot.fallback) {
                 editingColor = nil
             }

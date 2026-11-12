@@ -97,7 +97,7 @@ struct TVPlaylistsView: View {
             focusedFilter = filter
         }
         .task { await appleMusic.loadPlaylists() }
-        .fullScreenCover(isPresented: $showsCreate) {
+        .tvFullScreenCover(isPresented: $showsCreate) {
             TVPlaylistNameView(mode: .create)
                 .environment(store)
         }
@@ -340,11 +340,11 @@ struct TVPlaylistCard: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showsRename) {
+        .tvFullScreenCover(isPresented: $showsRename) {
             TVPlaylistNameView(mode: .rename(playlist))
                 .environment(store)
         }
-        .fullScreenCover(isPresented: $showsDescription) {
+        .tvFullScreenCover(isPresented: $showsDescription) {
             TVPlaylistDescriptionView(playlist: playlist)
                 .environment(store)
         }

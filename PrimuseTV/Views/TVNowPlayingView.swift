@@ -38,6 +38,8 @@ struct TVNowPlayingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 离开播放页时这一页还要原地淡出一会儿(`TVTabContent`),这期间被禁用,不再自己进沉浸展示。
+    @Environment(\.isEnabled) private var isEnabled
     /// 歌词字体(#332),和 iPhone、Mac 同一份设置。
     @Environment(\.lyricsTypeface) private var lyricsTypeface
     private var lyricsColors = PlayerLyricsColors()
@@ -220,20 +222,20 @@ struct TVNowPlayingView: View {
         .onChange(of: focusMode) { _, mode in
             onContentModeChanged(mode)
         }
-        .fullScreenCover(isPresented: $showOptions, onDismiss: {
+        .tvFullScreenCover(isPresented: $showOptions, onDismiss: {
             guard let tab = pendingShelfTab else { return }
             pendingShelfTab = nil
             openShelf(tab)
         }) {
             TVOptionsView(onGoTo: { pendingShelfTab = $0 }).environment(store)
         }
-        .fullScreenCover(item: $artistLink) { link in
+        .tvFullScreenCover(item: $artistLink) { link in
             TVArtistLinkView(artists: link.artists).environment(store)
         }
-        .fullScreenCover(isPresented: $showTranslation) {
+        .tvFullScreenCover(isPresented: $showTranslation) {
             TVLyricsTranslationPanel().environment(store).environment(intelligence)
         }
-        .fullScreenCover(isPresented: $showsAudioDetails, onDismiss: registerInteraction) {
+        .tvFullScreenCover(isPresented: $showsAudioDetails, onDismiss: registerInteraction) {
             VStack(alignment: .leading, spacing: 28) {
                 Text(store.nowPlaying.title).font(.title2).lineLimit(2)
                 Text(metadataLine(store.nowPlaying)).foregroundStyle(.secondary)
@@ -257,8 +259,9 @@ struct TVNowPlayingView: View {
             if !artists.isEmpty { artistLink = TVArtistLinkPresentation(artists: artists) }
         }
         #endif
-        .fullScreenCover(isPresented: $showSpokenWordRate) { TVSpokenWordRatePicker().environment(store) }
-        .fullScreenCover(isPresented: $showSpokenWordSleep) { TVSpokenWordSleepPicker().environment(store) }
+        .tvFullScreenCover(isPresented: $showSpokenWordRate) { TVSpokenWordRatePicker().environment(store) }
+        .tvFullScreenCover(isPresented: $showSpokenWordSleep) { TVSpokenWordSleepPicker().environment(store) }
+        // 全屏展示有自己的进出动画,不加 `tvFullScreenCover` 的落位。
         .fullScreenCover(isPresented: $showImmersive) {
             TVImmersivePlayerView(
                 presentsModePickerOnAppear: immersiveStartsWithEffectPicker
@@ -296,12 +299,15 @@ struct TVNowPlayingView: View {
                 onModalActivityChanged(false)
             }
         }
-        .task(id: store.hasNowPlaying) {
+        // 换页淡出期间这一页被禁用:换一个 id 停掉空闲检测(任务里读到的环境值停在开始那一刻,
+        // 只能靠重启任务换成新值)。
+        .task(id: store.hasNowPlaying && isEnabled) {
+            guard isEnabled else { return }
             // 仅普通歌曲播放态跑空闲检测:直播 / MV 有自己的画面,不进入沉浸展示。
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
                 // 听书不进沉浸展示:那是给音乐的画面,书的播放页本身就是要看的。
-                guard store.hasNowPlaying, store.isPlaying,
+                guard !Task.isCancelled, store.hasNowPlaying, store.isPlaying,
                       !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
                       !store.currentItemIsSpokenWord,
                       fullscreenPlayerEffect != .native,

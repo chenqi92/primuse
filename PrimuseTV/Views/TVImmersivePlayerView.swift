@@ -435,7 +435,7 @@ struct TVImmersivePlayerView: View {
                 revealChrome(preferScrubber: true)
             }
         })
-        .fullScreenCover(isPresented: $showsQueue, onDismiss: {
+        .tvFullScreenCover(isPresented: $showsQueue, onDismiss: {
             resumePresentation(after: .queueDismissed)
         }) {
             TVQueueView().environment(store)
