@@ -1465,6 +1465,9 @@ private final class State: @unchecked Sendable {
     /// asks repeatedly while a prefetch is still in flight.
     private var prefetchInFlight: Set<Int64> = []
     private var prefetchTasks: [Int64: Task<Void, Never>] = [:]
+    /// What each running prefetch has received, so a read that joined it and
+    /// timed out can tell a slow network from no connection.
+    private var prefetchProgress: [Int64: FetchProgress] = [:]
     /// Set after a fetch failure (auth-revoked dlink, network down) to
     /// stop the prefetch path from hammering the connector. Without
     /// this, a single 403 spawns dozens of parallel retries in seconds
@@ -1688,6 +1691,7 @@ private final class State: @unchecked Sendable {
             lock.lock()
             let prefetchActive = prefetchInFlight.contains(chunkStart)
             let prefetchTask = prefetchTasks[chunkStart]
+            let joinedProgress = prefetchProgress[chunkStart]
             lock.unlock()
             if prefetchActive {
                 let waitStart = Date()
@@ -1736,14 +1740,22 @@ private final class State: @unchecked Sendable {
                     }
                     // The prefetch reports its chunks as transfers from this
                     // source, so a slow one that is still arriving is waited for.
-                    if readDeadline.verdict(
+                    let verdict = readDeadline.verdict(
                         startedAt: serveStartedUptime,
                         lastActivityAt: CloudPlaybackSource.lastTransferUptime(sourceID: sourceID),
                         now: ProcessInfo.processInfo.systemUptime
-                    ) != .waiting {
+                    )
+                    if verdict != .waiting {
                         prefetchTask?.cancel()
                         markFetchDisabled()
-                        errorOut?.pointee = NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
+                        errorOut?.pointee = deadlineError(
+                            chunkStart: chunkStart,
+                            length: want,
+                            elapsed: Date().timeIntervalSince(waitStart),
+                            progress: joinedProgress,
+                            verdict: verdict,
+                            joinedPrefetch: true
+                        )
                         return nil
                     }
                     Thread.sleep(forTimeInterval: 0.03)
@@ -1855,30 +1867,14 @@ private final class State: @unchecked Sendable {
             if deadlineVerdict != .waiting {
                 fetchTask.cancel()
                 lock.lock(); fetchDisabled = true; lock.unlock()
-                let received = progress.receivedBytes
-                let quietFor = progress.lastActivityAt.map {
-                    ProcessInfo.processInfo.systemUptime - $0
-                } ?? -1
-                if received > 0 {
-                    // Audio was arriving, only too slowly: the network works,
-                    // and telling the listener it cannot connect would be wrong.
-                    plog(String(format: "⚠️ Cloud stream '%@' fetch too slow chunkStart=%lld len=%lld after %.1fs received=%lld lastData=%.1fs ago reason=%@",
-                                label, chunkStart, want, elapsed, received, quietFor,
-                                deadlineVerdict == .stalled ? "stalled" : "total-limit"))
-                    let slowError = CloudPlaybackSource.slowTransferError()
-                    CloudPlaybackSource.noteSlowStall(sourceID: sourceID)
-                    errorOut?.pointee = slowError
-                    return nil
-                }
-                plog(String(format: "⚠️ Cloud stream '%@' fetch timeout chunkStart=%lld len=%lld after %.1fs (no audio received, lastResponse=%.1fs ago)",
-                            label, chunkStart, want, elapsed, quietFor))
-                let timeoutError = NSError(
-                    domain: NSPOSIXErrorDomain,
-                    code: Int(ETIMEDOUT),
-                    userInfo: [NSLocalizedDescriptionKey: "Cloud fetch received nothing in time"]
+                errorOut?.pointee = deadlineError(
+                    chunkStart: chunkStart,
+                    length: want,
+                    elapsed: elapsed,
+                    progress: progress,
+                    verdict: deadlineVerdict,
+                    joinedPrefetch: false
                 )
-                CloudPlaybackSource.noteFetchFailure(sourceID: sourceID, error: timeoutError)
-                errorOut?.pointee = timeoutError
                 return nil
             }
 
@@ -1995,6 +1991,44 @@ private final class State: @unchecked Sendable {
         return served
     }
 
+    /// A read ran out of time. Audio was arriving, only too slowly: the
+    /// network works, and telling the listener it cannot connect would be
+    /// wrong. Nothing arrived: count it as a connection failure of this
+    /// source. Either way it is noted, so starting, seeking and the
+    /// complete-download fallback can say why and need not try the same
+    /// network again. Reads that joined a running prefetch go through here
+    /// too, judged by what that prefetch received.
+    private func deadlineError(
+        chunkStart: Int64,
+        length: Int64,
+        elapsed: TimeInterval,
+        progress: FetchProgress?,
+        verdict: RangeFetchDeadline.Verdict,
+        joinedPrefetch: Bool
+    ) -> NSError {
+        let received = progress?.receivedBytes ?? 0
+        let quietFor = progress?.lastActivityAt.map {
+            ProcessInfo.processInfo.systemUptime - $0
+        } ?? -1
+        let via = joinedPrefetch ? " (joined prefetch)" : ""
+        if received > 0 {
+            plog(String(format: "⚠️ Cloud stream '%@' fetch too slow chunkStart=%lld len=%lld after %.1fs received=%lld lastData=%.1fs ago reason=%@%@",
+                        label, chunkStart, length, elapsed, received, quietFor,
+                        verdict == .stalled ? "stalled" : "total-limit", via))
+            CloudPlaybackSource.noteSlowStall(sourceID: sourceID)
+            return CloudPlaybackSource.slowTransferError()
+        }
+        plog(String(format: "⚠️ Cloud stream '%@' fetch timeout chunkStart=%lld len=%lld after %.1fs (no audio received, lastResponse=%.1fs ago)%@",
+                    label, chunkStart, length, elapsed, quietFor, via))
+        let timeoutError = NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(ETIMEDOUT),
+            userInfo: [NSLocalizedDescriptionKey: "Cloud fetch received nothing in time"]
+        )
+        CloudPlaybackSource.noteFetchFailure(sourceID: sourceID, error: timeoutError)
+        return timeoutError
+    }
+
     /// Best-effort: kick off background fetches for the NEXT N chunks after
     /// `startOffset`, aligned to the `chunkSize` grid. Without alignment,
     /// every per-frame `serve` (SFB asks for ~1KB at a time) fired its own
@@ -2026,6 +2060,7 @@ private final class State: @unchecked Sendable {
             guard tryClaimPrefetch(offset: nextChunkStart, endOffset: endOffset) else { continue }
 
             let startGate = StreamingTaskStartGate()
+            let progress = FetchProgress()
             let task = Task { [weak self, connectorFetch] in
                 startGate.wait()
                 guard let self else { return }
@@ -2035,7 +2070,8 @@ private final class State: @unchecked Sendable {
                     // A user read waiting on this prefetch judges it by these
                     // transfer notes, so report chunks as they arrive.
                     let sourceID = self.sourceID
-                    let data = try await TrustedHTTPTransport.DownloadProgress.$observer.withValue({ _ in
+                    let data = try await TrustedHTTPTransport.DownloadProgress.$observer.withValue({ bytes in
+                        progress.record(bytes: bytes)
                         CloudPlaybackSource.noteTransferSucceeded(sourceID: sourceID)
                     }) {
                         try await connectorFetch(
@@ -2056,7 +2092,7 @@ private final class State: @unchecked Sendable {
                     self.markFetchDisabled()
                 }
             }
-            if !registerPrefetchTask(task, offset: nextChunkStart) {
+            if !registerPrefetchTask(task, offset: nextChunkStart, progress: progress) {
                 task.cancel()
             }
             startGate.open()
@@ -2086,12 +2122,14 @@ private final class State: @unchecked Sendable {
         lock.lock()
         prefetchInFlight.remove(offset)
         prefetchTasks[offset] = nil
+        prefetchProgress[offset] = nil
         lock.unlock()
     }
 
     private func registerPrefetchTask(
         _ task: Task<Void, Never>,
-        offset: Int64
+        offset: Int64,
+        progress: FetchProgress
     ) -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -2100,6 +2138,7 @@ private final class State: @unchecked Sendable {
             return false
         }
         prefetchTasks[offset] = task
+        prefetchProgress[offset] = progress
         return true
     }
 
@@ -2176,6 +2215,7 @@ private final class State: @unchecked Sendable {
             + [sequentialFillTask].compactMap { $0 }
         foregroundFetchTasks.removeAll()
         prefetchTasks.removeAll()
+        prefetchProgress.removeAll()
         prefetchInFlight.removeAll()
         sequentialFillTask = nil
         sequentialFillID = nil
