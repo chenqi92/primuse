@@ -3940,6 +3940,8 @@ struct NowPlayingView: View {
                                         toolColumnEdge: toolColumnEdge
                                     )
                                 }
+                                // 常驻歌词先挂、大封面后挂:封面⇄歌词切换途中飞行的封面要盖住正在淡入淡出的歌词。
+                                .modifier(persistentPhoneLyricsOverlay(isActive: usesPersistentPhoneLyrics))
                                 .overlayPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
                                     playerArtworkOverlays(anchors: anchors)
                                 }
@@ -3973,13 +3975,15 @@ struct NowPlayingView: View {
                         )
                         #endif
                     }
+                    // 常驻歌词要在大封面下面:原先挂在封面层之后,切换途中淡出的歌词(尤其是
+                    // 不透明的高亮句)压在飞行的封面上(#417)。转轮打开时两层都画在转轮正中那一面里。
+                    .modifier(persistentPhoneLyricsOverlay(isActive: usesPersistentPhoneLyrics && !usesPlayerCarousel))
                     .overlayPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
                         // 转轮打开时这一层画在转轮正中那一面里(见上),这里不再画第二份。
                         if !usesPlayerCarousel {
                             playerArtworkOverlays(anchors: anchors)
                         }
                     }
-                    .modifier(persistentPhoneLyricsOverlay)
                     .onChange(of: canSplit, initial: true) { _, split in
                         isPlayerSplit = split
                     }
@@ -9398,8 +9402,8 @@ struct NowPlayingView: View {
             && !isLyricsImmersive && !usesSpokenWordTransport && !player.isLiveRadio
     }
 
-    private var persistentPhoneLyricsOverlay: some ViewModifier {
-        PlayerLyricsViewportOverlay(isActive: usesPersistentPhoneLyrics, isVisible: showLyrics) { collapsesChrome in
+    private func persistentPhoneLyricsOverlay(isActive: Bool) -> some ViewModifier {
+        PlayerLyricsViewportOverlay(isActive: isActive, isVisible: showLyrics) { collapsesChrome in
             lyricsScrollView(collapsesChromeOnScroll: collapsesChrome, isVisible: showLyrics)
         }
     }
