@@ -186,13 +186,75 @@ struct NativeAudioStreamParsersTests {
         #expect(parsed.channelCount == 2)
     }
 
+    /// Packs AudioSpecificConfig fields (value, bit width) into bytes.
+    private func asc(_ fields: [(Int, Int)]) -> [UInt8] {
+        var bits: [Int] = []
+        for (value, width) in fields {
+            for shift in stride(from: width - 1, through: 0, by: -1) { bits.append((value >> shift) & 1) }
+        }
+        while bits.count % 8 != 0 { bits.append(0) }
+        return stride(from: 0, to: bits.count, by: 8).map { start in
+            UInt8(bits[start..<start + 8].reduce(0) { $0 << 1 | $1 })
+        }
+    }
+
+    private func parsedAAC(_ config: [UInt8], declaredRate: UInt32) -> ISOBaseMediaNativeMetadata? {
+        let entry = audioSampleEntry("mp4a", rate: declaredRate, child: esds(audioSpecificConfig: config))
+        return ISOBaseMediaNativeMetadataParser.parse(movie(sampleEntry: entry))
+    }
+
+    /// HE-AAC reports the AAC core's rate, as AVFoundation does (checked
+    /// against it on files from afconvert and FFmpeg's AudioToolbox encoder).
+    @Test func heAACThatDeclaresSBRReportsTheCoreRateAndDecodedChannels() throws {
+        // Hierarchical: AOT 5, core 22.05 kHz stereo, SBR to 44.1 kHz, core LC.
+        let explicit = try #require(parsedAAC([0x2B, 0x92, 0x08, 0x00], declaredRate: 22_050))
+        #expect(explicit.sampleRate == 22_050)
+        #expect(explicit.channelCount == 2)
+        #expect(explicit.codecFourCC == "mp4a")
+        // HE-AAC v2: AOT 29, mono 24 kHz core, SBR to 48 kHz, PS makes it stereo.
+        let v2 = try #require(parsedAAC(asc([(29, 5), (6, 4), (1, 4), (3, 4), (2, 5), (0, 3)]), declaredRate: 48_000))
+        #expect(v2.sampleRate == 24_000)
+        #expect(v2.channelCount == 2)
+        // Backward compatible: an LC config, then sync extension 0x2B7 with SBR present.
+        let compatible = try #require(parsedAAC(
+            asc([(2, 5), (6, 4), (2, 4), (0, 3), (0x2B7, 11), (5, 5), (1, 1), (3, 4)]), declaredRate: 24_000))
+        #expect(compatible.sampleRate == 24_000)
+        #expect(compatible.channelCount == 2)
+        // ...and 0x548 with PS present on a mono core.
+        let compatiblePS = try #require(parsedAAC(
+            asc([(2, 5), (6, 4), (1, 4), (0, 3), (0x2B7, 11), (5, 5), (1, 1), (3, 4), (0x548, 11), (1, 1)]),
+            declaredRate: 48_000))
+        #expect(compatiblePS.sampleRate == 24_000)
+        #expect(compatiblePS.channelCount == 2)
+        // A sync extension that says SBR is absent makes a low-rate LC plain LC
+        // (FFmpeg's own encoder writes this).
+        let plain = try #require(parsedAAC(
+            asc([(2, 5), (7, 4), (2, 4), (0, 3), (0x2B7, 11), (5, 5), (0, 1)]), declaredRate: 22_050))
+        #expect(plain.sampleRate == 22_050)
+        #expect(plain.channelCount == 2)
+        // Apple's encoders: 22.05 kHz stereo core, SBR to 44.1 kHz (afconvert -d aach) ...
+        let apple = try #require(parsedAAC([0x13, 0x90, 0x56, 0xE5, 0xA0], declaredRate: 44_100))
+        #expect(apple.sampleRate == 22_050)
+        #expect(apple.channelCount == 2)
+        // ... and HE-AAC v2, mono core plus PS (afconvert -d aacp).
+        let appleV2 = try #require(parsedAAC([0x13, 0x88, 0x56, 0xE5, 0xA5, 0x48, 0x80], declaredRate: 44_100))
+        #expect(appleV2.sampleRate == 22_050)
+        #expect(appleV2.channelCount == 2)
+        // A sample entry rate that matches neither the core nor the output rate.
+        #expect(parsedAAC([0x2B, 0x92, 0x08, 0x00], declaredRate: 32_000) == nil)
+    }
+
+    @Test func aacChannelConfigurationSevenIsSevenPointOne() throws {
+        let surround = try #require(parsedAAC(asc([(2, 5), (3, 4), (7, 4), (0, 3)]), declaredRate: 48_000))
+        #expect(surround.channelCount == 8)
+        // A program config element (configuration 0) is left to AVFoundation.
+        #expect(parsedAAC(asc([(2, 5), (3, 4), (0, 4), (0, 3)]), declaredRate: 48_000) == nil)
+    }
+
     @Test func structuresAVFoundationInterpretsDifferentlyAreLeftToIt() {
         let lc = audioSampleEntry("mp4a", rate: 44_100, child: esds(audioSpecificConfig: aacLC441))
         #expect(ISOBaseMediaNativeMetadataParser.parse(movie(sampleEntry: lc)) != nil)
-        // HE-AAC(显式 SBR, AOT 5)。
-        let heAAC = audioSampleEntry("mp4a", rate: 22_050, child: esds(audioSpecificConfig: [0x2B, 0x92, 0x08, 0x00]))
-        #expect(ISOBaseMediaNativeMetadataParser.parse(movie(sampleEntry: heAAC)) == nil)
-        // 22.05 kHz 的 LC 可能是隐式 SBR。
+        // 22.05 kHz 又没明说 SBR 的 LC 可能是隐式 SBR。
         let lowRate = audioSampleEntry("mp4a", rate: 22_050, child: esds(audioSpecificConfig: [0x13, 0x90]))
         #expect(ISOBaseMediaNativeMetadataParser.parse(movie(sampleEntry: lowRate)) == nil)
         // 两条音轨。

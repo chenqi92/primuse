@@ -509,7 +509,8 @@ enum FileMetadataReader {
     }
 
     /// 完整 `moov` 的 M4A/M4B/ALAC: 时长、编码、采样率、位深、码率与 iTunes 标签都从
-    /// 原子里读。认不准的结构(HE-AAC、多条音轨、QuickTime 键表等)返回 nil 交回 AVFoundation。
+    /// 原子里读。明说了 SBR 的 HE-AAC 也在这里读(采样率与 AVFoundation 一样报 AAC 核心的);
+    /// 认不准的结构(没明说的低采样率 AAC、多条音轨、QuickTime 键表等)返回 nil 交回 AVFoundation。
     /// 歌词与 ReplayGain、版权、章节数仍由 applyingRangeFallbacks 里的现有解析补齐。
     static func completeISOBaseMediaMetadata(from data: Data, fileExtension: String) -> Metadata? {
         guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),

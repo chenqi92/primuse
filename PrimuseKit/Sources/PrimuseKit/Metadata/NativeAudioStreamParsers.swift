@@ -342,13 +342,26 @@ public enum ISOBaseMediaNativeMetadataParser {
         case "mp4a":
             guard let esds = boxes.first(where: { $0.type == "esds" }),
                   let config = aacConfig(in: data, esds: esds),
-                  config.audioObjectType == 2,
-                  // 低于 32 kHz 的 LC 多半是隐式 SBR 的 HE-AAC, AVFoundation 报的是解出来的采样率。
-                  config.sampleRate >= 32_000,
-                  declaredRate == 0 || declaredRate == config.sampleRate else { return nil }
-            let channelCount = config.channelConfiguration > 0
-                ? min(Int(config.channelConfiguration), 8) : Int(channels)
-            return SampleEntry(codec: "mp4a", sampleRate: config.sampleRate,
+                  config.coreObjectType == 2,
+                  let coreChannels = aacChannelCount(configuration: config.channelConfiguration) else { return nil }
+            // 采样率报 AAC 核心的, 与 AVFoundation 一致(HE-AAC 也是 22.05/24 kHz 这一档,
+            // 不是 SBR 解出来的), 曲库里已有的行和重读的行才对得上。
+            let sampleRate = config.sampleRate
+            let channelCount: Int
+            if config.signalsSBR {
+                // HE-AAC 明说了 SBR; 带 PS 的单声道核心解成立体声, AVFoundation 也报 2。
+                channelCount = config.signalsPS ? 2 : coreChannels
+            } else {
+                // 低于 32 kHz 又没明说有没有 SBR 的 LC 可能是隐式 SBR 的 HE-AAC: 不解码认不出来,
+                // AVFoundation 报的是解出来的采样率, 交给它。明说了没有 SBR 的就是普通 LC。
+                guard config.sampleRate >= 32_000 || config.declaresNoSBR else { return nil }
+                channelCount = coreChannels
+            }
+            let decodedRate = config.signalsSBR ? (config.extensionSampleRate ?? sampleRate * 2) : sampleRate
+            guard declaredRate == 0 || declaredRate == sampleRate || declaredRate == decodedRate else {
+                return nil
+            }
+            return SampleEntry(codec: "mp4a", sampleRate: sampleRate,
                                channelCount: channelCount, bitDepth: nil)
         case "alac":
             // alac 子盒: FullBox(4) + ALACSpecificConfig(24)。
@@ -368,9 +381,18 @@ public enum ISOBaseMediaNativeMetadataParser {
     }
 
     private struct AACConfig {
-        let audioObjectType: Int
+        /// The AAC core: 2 for LC, including the core of HE-AAC.
+        let coreObjectType: Int
+        /// The core's sampling rate.
         let sampleRate: Int
         let channelConfiguration: Int
+        /// SBR is declared, hierarchically (object type 5 or 29) or by the
+        /// backward-compatible sync extension after the core config.
+        let signalsSBR: Bool
+        let signalsPS: Bool
+        let extensionSampleRate: Int?
+        /// The sync extension says SBR is absent, which rules out implicit SBR.
+        var declaresNoSBR = false
     }
 
     private static let aacSampleRates = [
@@ -397,23 +419,71 @@ public enum ISOBaseMediaNativeMetadataParser {
         cursor = decoderConfig.body.lowerBound + 13
         guard let specific = descriptor(in: data, at: &cursor, end: decoderConfig.body.upperBound),
               specific.tag == 0x05, specific.body.count >= 2 else { return nil }
+        // AudioSpecificConfig (ISO/IEC 14496-3 1.6.2.1).
         var reader = BitReader(data: data, range: specific.body)
-        guard var objectType = reader.read(5) else { return nil }
-        if objectType == 31 {
-            guard let extended = reader.read(6) else { return nil }
-            objectType = 32 + extended
+        guard var objectType = audioObjectType(&reader),
+              let sampleRate = samplingFrequency(&reader),
+              let channels = reader.read(4) else { return nil }
+        var signalsSBR = false
+        var signalsPS = false
+        var extensionRate: Int?
+        if objectType == 5 || objectType == 29 {
+            signalsSBR = true
+            signalsPS = objectType == 29
+            guard let rate = samplingFrequency(&reader), let core = audioObjectType(&reader) else { return nil }
+            extensionRate = rate
+            objectType = core
         }
-        guard let rateIndex = reader.read(4) else { return nil }
-        let sampleRate: Int
-        if rateIndex == 0x0F {
-            guard let explicit = reader.read(24) else { return nil }
-            sampleRate = explicit
-        } else {
-            guard rateIndex < aacSampleRates.count else { return nil }
-            sampleRate = aacSampleRates[rateIndex]
+        guard objectType == 2 else {
+            return AACConfig(coreObjectType: objectType, sampleRate: sampleRate, channelConfiguration: channels,
+                             signalsSBR: signalsSBR, signalsPS: signalsPS, extensionSampleRate: extensionRate)
         }
-        guard let channels = reader.read(4) else { return nil }
-        return AACConfig(audioObjectType: objectType, sampleRate: sampleRate, channelConfiguration: channels)
+        // GASpecificConfig: frameLengthFlag, dependsOnCoreCoder(+14), extensionFlag (0 for LC).
+        // channelConfiguration 0 would carry a program_config_element here; that layout is left out above.
+        guard reader.read(1) != nil, let dependsOnCore = reader.read(1) else { return nil }
+        if dependsOnCore == 1 { guard reader.read(14) != nil else { return nil } }
+        guard reader.read(1) == 0 else { return nil }
+        // Backward-compatible explicit signaling: an LC config followed by
+        // sync extension 0x2B7 that declares SBR (and 0x548 for PS), or
+        // declares it absent.
+        var declaresNoSBR = false
+        if !signalsSBR, reader.remainingBits >= 16, reader.read(11) == 0x2B7 {
+            guard audioObjectType(&reader) == 5, let present = reader.read(1) else { return nil }
+            declaresNoSBR = present == 0
+            if present == 1 {
+                guard let rate = samplingFrequency(&reader) else { return nil }
+                signalsSBR = true
+                extensionRate = rate
+                if reader.remainingBits >= 12, reader.read(11) == 0x548 {
+                    signalsPS = reader.read(1) == 1
+                }
+            }
+        }
+        return AACConfig(coreObjectType: objectType, sampleRate: sampleRate, channelConfiguration: channels,
+                         signalsSBR: signalsSBR, signalsPS: signalsPS, extensionSampleRate: extensionRate,
+                         declaresNoSBR: declaresNoSBR)
+    }
+
+    /// Channels of an AAC channelConfiguration: 1–6 as numbered, 7 is 7.1.
+    /// 0 (a program config element) and the newer layouts are left out.
+    private static func aacChannelCount(configuration: Int) -> Int? {
+        switch configuration {
+        case 1...6: return configuration
+        case 7: return 8
+        default: return nil
+        }
+    }
+
+    private static func audioObjectType(_ reader: inout BitReader) -> Int? {
+        guard let objectType = reader.read(5) else { return nil }
+        guard objectType == 31 else { return objectType }
+        return reader.read(6).map { 32 + $0 }
+    }
+
+    private static func samplingFrequency(_ reader: inout BitReader) -> Int? {
+        guard let index = reader.read(4) else { return nil }
+        if index == 0x0F { return reader.read(24) }
+        return index < aacSampleRates.count ? aacSampleRates[index] : nil
     }
 
     private struct Descriptor {
@@ -446,6 +516,8 @@ public enum ISOBaseMediaNativeMetadataParser {
             self.data = data
             self.range = range
         }
+
+        var remainingBits: Int { range.count * 8 - bitOffset }
 
         mutating func read(_ count: Int) -> Int? {
             var value = 0
