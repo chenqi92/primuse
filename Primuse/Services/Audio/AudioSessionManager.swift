@@ -158,6 +158,11 @@ final class AudioSessionManager {
         } catch {
             plog("Failed to configure audio session: \(error)")
         }
+        // 偏好在这之前就交过来了, setMixingPreference 那行日志不会出现。混音时系统不把
+        // Primuse 当正在播放的 App, 控制中心显示「未在播放」, 诊断时要看得到是不是这个原因。
+        if mixesWithOthers {
+            plog("🔊 Audio session prepared mixWithOthers=true (no system Now Playing controls)")
+        }
 
         // Observe interruptions (phone calls, other apps playing audio, Siri, alarms)
         NotificationCenter.default.addObserver(
