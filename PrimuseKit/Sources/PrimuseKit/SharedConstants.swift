@@ -4543,7 +4543,13 @@ public enum MetadataBackfillExecutionPolicy {
             snapshot = playing ? 8 : 24
             delay = max(delay, preference == .fast ? 0 : (playing ? 1.5 : 0.75))
         }
-        if mode != .userInitiated, preference != .fast,
+        // 刚扫完一个源、App 在前台时, 用户正等着这批歌的标签: 自动档在系统报热
+        // 之前不预先歇, 和用户点「读取标签」一样。一旦报热(fair 起)、低电量、
+        // 放歌, 下面各自的降速照常生效; 节能档与平时的维护补读仍预留 CPU 余量。
+        let userAwaitsScanResults = preference == .automatic
+            && (mode == .foregroundAfterSourceScan || mode == .foregroundDeviceLocal)
+            && environment.thermalState == .nominal
+        if mode != .userInitiated, preference != .fast, !userAwaitsScanResults,
            environment.thermalState == .nominal || environment.thermalState == .fair {
             let warm = environment.thermalState == .fair
             // 每个读取位独立等待, 预算须计入并发数, 否则本地文件多开几个位

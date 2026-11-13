@@ -193,11 +193,18 @@ struct MetadataReadSchedulerTests {
     @Test func foregroundEntrypointsShareTheSelectedBudget() {
         for preference in MetadataReadingMode.automaticCases {
             let scan = MetadataBackfillExecutionPolicy.limits(for: .foregroundAfterSourceScan, preference: preference)
-            #expect(scan == MetadataBackfillExecutionPolicy.limits(for: .standard, preference: preference))
+            let standard = MetadataBackfillExecutionPolicy.limits(for: .standard, preference: preference)
+            #expect(scan.workerCount == standard.workerCount)
+            #expect(scan.snapshotLimit == standard.snapshotLimit)
+            #expect(scan.interRequestDelay <= standard.interRequestDelay)
             let explicit = MetadataBackfillExecutionPolicy.limits(for: .userInitiated, preference: preference)
             #expect(scan.workerCount == explicit.workerCount)
             #expect(scan.snapshotLimit == explicit.snapshotLimit)
             #expect(scan.interRequestDelay >= explicit.interRequestDelay)
+            // 自动档刚扫完源时和用户点「读取标签」一样不预先歇。
+            if preference == .automatic {
+                #expect(scan.interRequestDelay == explicit.interRequestDelay)
+            }
             #expect(scan.flushInterval == explicit.flushInterval)
             #expect(scan.flushBatchSize == explicit.flushBatchSize)
         }
@@ -691,12 +698,12 @@ struct MetadataReadSchedulerTests {
         let environment = MetadataReadingEnvironment(pooledHTTPRemoteSource: true, device: profile)
         func delay(_ cost: TimeInterval) -> TimeInterval {
             MetadataBackfillExecutionPolicy.limits(
-                for: .foregroundAfterSourceScan, preference: .automatic,
+                for: .standard, preference: .automatic,
                 environment: environment, recentProcessingDuration: cost
             ).interRequestDelay
         }
         let workers = MetadataBackfillExecutionPolicy.limits(
-            for: .foregroundAfterSourceScan, preference: .automatic, environment: environment
+            for: .standard, preference: .automatic, environment: environment
         ).workerCount
         #expect(workers == 3)
         let processWide = MetadataBackfillExecutionPolicy.processingDuration(

@@ -78,11 +78,12 @@ struct MetadataBackfillExecutionPolicyTests {
         #expect(userInitiated.snapshotPassLimit == nil)
         #expect(deviceLocal.workerCount == 3)
         #expect(deviceLocal.snapshotLimit == foreground.snapshotLimit)
-        #expect(deviceLocal.interRequestDelay > 0)
+        #expect(deviceLocal.interRequestDelay == 0)
         #expect(deviceLocal.snapshotPassLimit == nil)
         #expect(foreground.workerCount == 2)
         #expect(foreground.snapshotLimit > background.snapshotLimit)
-        #expect(foreground.interRequestDelay > 0)
+        #expect(foreground.interRequestDelay == 0)
+        #expect(standard.interRequestDelay > 0)
         #expect(foreground.snapshotPassLimit == nil)
         #expect(background.workerCount == 1)
         #expect(background.snapshotPassLimit == nil)
@@ -103,7 +104,7 @@ struct MetadataBackfillExecutionPolicyTests {
         var observedWorkers: Set<Int> = []
         for device in devices {
             for offline in [false, true] {
-                for mode in [MetadataBackfillExecutionMode.standard, .foregroundAfterSourceScan, .foregroundDeviceLocal] {
+                for mode in [MetadataBackfillExecutionMode.standard] {
                     for cost in [0.0, 0.02, 0.1, 0.2] {
                         let limits = MetadataBackfillExecutionPolicy.limits(
                             for: mode, preference: .automatic,
@@ -121,6 +122,41 @@ struct MetadataBackfillExecutionPolicyTests {
         }
         #expect(observedWorkers.contains(1))
         #expect(observedWorkers.contains(4))
+    }
+
+    @Test("Reads right after a foreground scan skip the pre-emptive rest until the device warms")
+    func foregroundScanResultsReadWithoutPreemptiveRest() {
+        let device = MetadataReadingDeviceProfile(
+            platform: .mobile, activeProcessorCount: 6, physicalMemory: 8 * 1_024 * 1_024 * 1_024
+        )
+        for offline in [false, true] {
+            for mode in [MetadataBackfillExecutionMode.foregroundAfterSourceScan, .foregroundDeviceLocal] {
+                for cost: Double? in [nil, 0, 0.05, 0.5] {
+                    func limits(
+                        _ preference: MetadataReadingMode,
+                        _ environment: MetadataReadingEnvironment
+                    ) -> MetadataBackfillExecutionLimits {
+                        MetadataBackfillExecutionPolicy.limits(
+                            for: mode, preference: preference,
+                            environment: environment, recentProcessingDuration: cost
+                        )
+                    }
+                    let cool = limits(.automatic, .init(offlineSource: offline, device: device))
+                    #expect(cool.interRequestDelay == 0)
+                    #expect(cool.workerCount >= 2)
+                    // 一报热、低电量、放歌, 仍然按原来的规则降速。
+                    let warm = limits(.automatic, .init(thermalState: .fair, offlineSource: offline, device: device))
+                    #expect(warm.workerCount == 1)
+                    #expect(warm.interRequestDelay >= 0.35)
+                    let lowPower = limits(.automatic, .init(lowPowerMode: true, offlineSource: offline, device: device))
+                    #expect(lowPower.workerCount == 1)
+                    #expect(lowPower.interRequestDelay > 0)
+                    // 节能档始终预留余量。
+                    let gentle = limits(.energySaving, .init(offlineSource: offline, device: device))
+                    #expect(gentle.interRequestDelay > 0)
+                }
+            }
+        }
     }
 
     @Test("Sustained automatic work adapts to CPU cost and bounds invalid samples")
