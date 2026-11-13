@@ -4546,9 +4546,14 @@ final class AudioPlayerService {
         showPlaybackError(message, automaticallyDismiss: false)
     }
 
+    /// - Parameter stallSourceID: For a stream read from this source, time out
+    ///   only after the source has delivered nothing for `timeoutSeconds`. A
+    ///   slow connection that keeps sending is still starting playback, and
+    ///   giving up on it for a complete download only restarts the wait.
     func awaitFirstBuffer(
         from iteratorBox: BufferIteratorBox,
-        timeoutSeconds: Int
+        timeoutSeconds: Int,
+        stallSourceID: String? = nil
     ) async throws -> AVAudioPCMBuffer? {
         let box: PCMBufferBox = try await withThrowingTaskGroup(of: PCMBufferBox.self) { group in
             group.addTask {
@@ -4556,18 +4561,48 @@ final class AudioPlayerService {
                 return PCMBufferBox(value: buffer)
             }
             group.addTask {
-                do {
-                    try await Task.sleep(for: .seconds(timeoutSeconds))
-                } catch {
-                    return PCMBufferBox(value: nil)
+                guard let stallSourceID else {
+                    do {
+                        try await Task.sleep(for: .seconds(timeoutSeconds))
+                    } catch {
+                        return PCMBufferBox(value: nil)
+                    }
+                    throw CancellationError()
                 }
-                throw CancellationError()
+                let startedAt = ProcessInfo.processInfo.systemUptime
+                while true {
+                    do {
+                        try await Task.sleep(for: .seconds(1))
+                    } catch {
+                        return PCMBufferBox(value: nil)
+                    }
+                    if SeekFirstBufferStallPolicy.hasStalled(
+                        startedAt: startedAt,
+                        lastTransferAt: CloudPlaybackSource.lastTransferUptime(sourceID: stallSourceID),
+                        now: ProcessInfo.processInfo.systemUptime,
+                        timeout: TimeInterval(timeoutSeconds)
+                    ) {
+                        throw CancellationError()
+                    }
+                }
             }
             let first = try await group.next() ?? PCMBufferBox(value: nil)
             group.cancelAll()
             return first
         }
         return box.value
+    }
+
+    /// A start whose stream could not reach its source. A complete download
+    /// needs the same network, and moving on to the next item would only fail
+    /// the same way (and, in a book, lose the chapter). Stop here; Play tries
+    /// this item again.
+    private func stopStartForMissingConnection(song: Song) {
+        plog("⚠️ '\(song.title)' could not reach its source; stopping instead of a complete-download fallback")
+        isLoading = false
+        isPlaying = false
+        showPlaybackError(String(localized: "playback_error_connection"))
+        republishNowPlayingSurfaces()
     }
 
     private func isNetworkTimeout(_ error: Error) -> Bool {
@@ -5930,10 +5965,12 @@ final class AudioPlayerService {
             // CloudPlaybackSource serve has its own 30s per-chunk timeout
             // — this one is the outer safety net.
             let firstBuffer: AVAudioPCMBuffer
+            let firstBufferStartedAt = ProcessInfo.processInfo.systemUptime
             do {
                 guard let buffer = try await awaitFirstBuffer(
                     from: iteratorBox,
-                    timeoutSeconds: Self.firstBufferTimeoutSeconds
+                    timeoutSeconds: Self.firstBufferTimeoutSeconds,
+                    stallSourceID: isCloudStream || isRemoteURL ? song.sourceID : nil
                 ) else {
                     // Empty stream — skip to next
                     guard playID == id else { return }
@@ -5946,6 +5983,11 @@ final class AudioPlayerService {
                 firstBuffer = buffer
             } catch is CancellationError {
                 guard !Task.isCancelled, playID == id else { return }
+                if (isCloudStream || isRemoteURL),
+                   remoteReadFailedForConnectivity(sourceID: song.sourceID, since: firstBufferStartedAt) {
+                    stopStartForMissingConnection(song: song)
+                    return
+                }
                 // 云盘大文件逐 chunk 流式卡死(连接饥饿 / 冷文件 hydration)时,
                 // 退回整文件渐进下载再试一次, 而不是直接报错跳过。
                 if isCloudStream, await cloudFullDownloadFallback(
@@ -5975,7 +6017,10 @@ final class AudioPlayerService {
                     return
                 }
                 plog("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
-                if activeDecoderKind == .httpStream {
+                if activeDecoderKind == .httpStream,
+                   remoteReadFailedForConnectivity(sourceID: song.sourceID, since: firstBufferStartedAt) {
+                    stopStartForMissingConnection(song: song)
+                } else if activeDecoderKind == .httpStream {
                     if isExternalURLItem(song), assetReaderDecoder.canDecode(url: url) {
                         plog("↳ HTTP range decode failed before first buffer; trying DLNA progressive AssetReader fallback")
                         await playWithFallbackDecoder(
@@ -6018,6 +6063,8 @@ final class AudioPlayerService {
                         playID: id,
                         shouldRecordPlaybackStart: shouldRecordPlaybackStart
                     )
+                } else if remoteReadFailedForConnectivity(sourceID: song.sourceID, since: firstBufferStartedAt) {
+                    stopStartForMissingConnection(song: song)
                 } else if let quotaMessage = CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: song.sourceID) {
                     // 云盘这个月的下载流量用完了:整首下载一样会被拒,不再兜底,
                     // 直接说清原因,别让人以为是文件坏了。

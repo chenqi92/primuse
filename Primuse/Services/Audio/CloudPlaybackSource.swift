@@ -870,7 +870,9 @@ enum CloudPlaybackSource {
         registryLock.lock()
         let states = Array(activeStates.values)
         registryLock.unlock()
-        states.forEach { $0.keepFetchedBytesAsSeed() }
+        guard !states.isEmpty else { return }
+        let kept = states.filter { $0.keepFetchedBytesAsSeed() }.count
+        plog("☁️ Checkpointed stream seeds kept=\(kept) of \(states.count) (temporary or headless streams are not kept)")
     }
 
     static func isStandbySession(partialPath: String) -> Bool {
@@ -923,6 +925,63 @@ enum CloudPlaybackSource {
         transferObserver = observer
         lastTransferNoticeBySourceID.removeAll()
         transferNoticeLock.unlock()
+    }
+
+    nonisolated(unsafe) private static var lastConnectivityFailureBySourceID: [String: TimeInterval] = [:]
+
+    /// A read that failed because the network is gone or not answering, as
+    /// opposed to the server refusing the request. Falling back to a complete
+    /// download cannot help the first kind: it needs the same network.
+    static func isConnectivityFailure(_ error: Error) -> Bool {
+        if error is RemoteMediaHTTPError || error is HTTPResponseFailure
+            || SourceManager.isMissingFileError(error) {
+            return false
+        }
+        if let sourceError = error as? SourceError {
+            switch sourceError {
+            case .connectionFailed, .timeout: return true
+            default: return false
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost,
+                 NSURLErrorTimedOut, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
+                 NSURLErrorDNSLookupFailed, NSURLErrorDataNotAllowed,
+                 NSURLErrorInternationalRoamingOff, NSURLErrorCannotLoadFromNetwork,
+                 NSURLErrorSecureConnectionFailed:
+                return true
+            default:
+                break
+            }
+        }
+        if nsError.domain == NSPOSIXErrorDomain {
+            switch Int32(nsError.code) {
+            case ETIMEDOUT, ENETDOWN, ENETUNREACH, EHOSTUNREACH, ECONNRESET, ECONNREFUSED, ENOTCONN:
+                return true
+            default:
+                break
+            }
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isConnectivityFailure(underlying)
+        }
+        return false
+    }
+
+    fileprivate static func noteFetchFailure(sourceID: String, error: Error) {
+        guard isConnectivityFailure(error) else { return }
+        transferNoticeLock.lock()
+        lastConnectivityFailureBySourceID[sourceID] = ProcessInfo.processInfo.systemUptime
+        transferNoticeLock.unlock()
+    }
+
+    /// When a read from this source last failed for lack of a connection.
+    static func lastConnectivityFailureUptime(sourceID: String) -> TimeInterval? {
+        transferNoticeLock.lock()
+        defer { transferNoticeLock.unlock() }
+        return lastConnectivityFailureBySourceID[sourceID]
     }
 
     /// When a source last delivered audio bytes (system uptime), to tell a slow
@@ -1673,11 +1732,13 @@ private final class State: @unchecked Sendable {
                 lock.lock(); fetchDisabled = true; lock.unlock()
                 plog(String(format: "⚠️ Cloud stream '%@' fetch timeout chunkStart=%lld len=%lld after %.1fs",
                             label, chunkStart, want, elapsed))
-                errorOut?.pointee = NSError(
+                let timeoutError = NSError(
                     domain: NSPOSIXErrorDomain,
                     code: Int(ETIMEDOUT),
                     userInfo: [NSLocalizedDescriptionKey: "Cloud fetch timed out after 30s"]
                 )
+                CloudPlaybackSource.noteFetchFailure(sourceID: sourceID, error: timeoutError)
+                errorOut?.pointee = timeoutError
                 return nil
             }
 
@@ -1720,6 +1781,7 @@ private final class State: @unchecked Sendable {
                 lock.unlock()
                 plog(String(format: "⚠️ Cloud stream '%@' fetch failed chunkStart=%lld len=%lld after %.2fs: %@",
                             label, chunkStart, want, elapsed, error.localizedDescription))
+                CloudPlaybackSource.noteFetchFailure(sourceID: sourceID, error: error)
                 errorOut?.pointee = error as NSError
                 return nil
             }
@@ -2713,13 +2775,14 @@ private final class State: @unchecked Sendable {
     /// to the song (Previous, the queue coming round again) starts from those
     /// bytes instead of downloading them again. Without the marker the next
     /// session would treat the partial file as untrusted and delete it.
-    fileprivate func keepFetchedBytesAsSeed() {
+    @discardableResult
+    fileprivate func keepFetchedBytesAsSeed() -> Bool {
         lock.lock()
         let ranges = cachedRanges
         let ownsPartial = persistOnComplete && detachedURL == nil && activeURL == partialURL
         lock.unlock()
-        guard ownsPartial else { return }
-        _ = CloudPlaybackSource.withCurrentWriteOwnership(
+        guard ownsPartial else { return false }
+        let wrote = CloudPlaybackSource.withCurrentWriteOwnership(
             sourceID: sourceID,
             epoch: streamEpoch,
             partialPath: partialURL.path,
@@ -2731,7 +2794,9 @@ private final class State: @unchecked Sendable {
                 sourceID: sourceID,
                 streamEpoch: streamEpoch
             )
-        }
+        } != nil
+        // A seed must start at the file head; without it the marker is removed.
+        return wrote && ranges.first?.lowerBound == 0
     }
 
     /// Called with the path coordinator held, after the registry no longer

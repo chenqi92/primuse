@@ -1270,6 +1270,7 @@ extension AudioPlayerService {
         duration = savedDuration
 
         let previousDecoderKind = activeDecoderKind
+        let seekStartedAt = ProcessInfo.processInfo.systemUptime
         seekTask = Task {
             defer {
                 if playID == id {
@@ -1599,6 +1600,13 @@ extension AudioPlayerService {
                         // either startup buffer from the new Range. Recover both
                         // cases once through a complete file at the same position.
                         rangeSeekRejected = true
+                        // No connection: a complete download needs the same
+                        // network, and waiting out its stall timer only kept
+                        // the spinner up before a misleading decode error.
+                        if remoteReadFailedForConnectivity(sourceID: song.sourceID, since: seekStartedAt) {
+                            plog("⚠️ Seek: range read failed without a connection; not falling back to a complete download")
+                            throw PlaybackConnectivityFailure()
+                        }
                         // The complete-file download watches its own progress.
                         firstBufferWatchdog.cancel()
                         guard RemoteSeekPreparationPolicy.afterRangeSeekRejected(
@@ -1834,8 +1842,16 @@ extension AudioPlayerService {
                     )
                     return
                 }
+                let failedForConnectivity = error is PlaybackConnectivityFailure
+                    || remoteReadFailedForConnectivity(sourceID: song.sourceID, since: seekStartedAt)
+                let failureMessage = failedForConnectivity
+                    ? String(localized: "playback_error_connection")
+                    : String(localized: "playback_error_decode")
+                // Without a connection the restart from the beginning fails the
+                // same way and loses the saved place on top of it.
                 let canRestartColdRemoteStream = isRecovery
                     && isColdSessionRestore
+                    && !failedForConnectivity
                     && sourceManager?.cachedURL(for: song) == nil
                     && (activeDecoderKind == .streaming
                         || activeDecoderKind == .cloudStream
@@ -1858,7 +1874,7 @@ extension AudioPlayerService {
                         reason: "seek-failed",
                         resumeTime: targetTime
                     )
-                    showPlaybackError(String(localized: "playback_error_decode"))
+                    showPlaybackError(failureMessage)
                     return
                 }
                 isLoading = false
@@ -1867,10 +1883,21 @@ extension AudioPlayerService {
                 pendingRecoveryTime = targetTime
                 needsPlaybackRecovery = true
                 invalidateAutomaticAdvance(reason: "same-position-recovery-failed")
-                showPlaybackError(String(localized: "playback_error_decode"))
+                showPlaybackError(failureMessage)
                 republishNowPlayingSurfaces()
             }
         }
+    }
+
+    /// A remote read since `start` failed for lack of a connection, and the
+    /// source delivered nothing in that time; or the device has no network.
+    func remoteReadFailedForConnectivity(sourceID: String, since start: TimeInterval) -> Bool {
+        let network = NetworkMonitor.shared
+        if network.hasDeterminedPath, network.isUnsatisfied { return true }
+        guard let failure = CloudPlaybackSource.lastConnectivityFailureUptime(sourceID: sourceID),
+              failure >= start else { return false }
+        let delivered = CloudPlaybackSource.lastTransferUptime(sourceID: sourceID).map { $0 > start } ?? false
+        return !delivered
     }
 
     /// Like `makeStreamingInputSource`, but says why it failed in the log
@@ -2830,3 +2857,6 @@ extension AudioPlayerService {
         updatePlaybackState()
     }
 }
+
+/// A remote read failed because the network is gone or not answering.
+struct PlaybackConnectivityFailure: Error {}

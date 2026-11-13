@@ -2046,6 +2046,9 @@ private actor AlwaysDownloadWorker {
     /// again only after conditions have held for a while (see the gate).
     private var transferSettleGate = TransferConditionSettleGate(allowed: false)
     private var settleRetryTask: Task<Void, Never>?
+    /// Last reason logged for not starting a job, so a waiting queue says why
+    /// once instead of every 30 seconds.
+    private var lastLoggedWaitReason: String?
     private var didLoadJournal = false
     private var runner: Task<Void, Never>?
     private var runnerGeneration = UUID()
@@ -2516,6 +2519,7 @@ private actor AlwaysDownloadWorker {
 
     private func scheduleRunnerAfterSettle(now: TimeInterval) {
         guard let remaining = transferSettleGate.remainingSettle(now: now) else { return }
+        logWaitReason("conditions settling \(Int(remaining.rounded(.up)))s")
         settleRetryTask?.cancel()
         settleRetryTask = Task { [weak self] in
             do {
@@ -2525,6 +2529,12 @@ private actor AlwaysDownloadWorker {
             }
             await self?.settleWindowElapsed()
         }
+    }
+
+    private func logWaitReason(_ reason: String) {
+        guard reason != lastLoggedWaitReason else { return }
+        lastLoggedWaitReason = reason
+        plog("⏳ Always-download queue waiting: \(reason)")
     }
 
     private func settleWindowElapsed() {
@@ -2546,7 +2556,10 @@ private actor AlwaysDownloadWorker {
               !playbackIsBuffering,
               resourceConditionsAllowTransfers {
             // 播放中只挑有声书的章节(#313);一首都没有就先收工,播放停下时会再排起来。
-            guard let next = nextJob(duringPlayback: playbackIsActive) else { return }
+            guard let next = nextJob(duringPlayback: playbackIsActive) else {
+                if playbackIsActive { logWaitReason("playback active, no chapter job to fetch alongside it") }
+                return
+            }
             let (job, isHeapRoot) = next
             let downloadsDuringPlayback = AudiobookOfflinePolicy.downloadsDuringPlayback(
                 ownerIDs: job.playlistIDs
@@ -2554,6 +2567,7 @@ private actor AlwaysDownloadWorker {
             let now = Date()
             if job.nextAttemptAt > now {
                 let seconds = max(1, min(30, Int(job.nextAttemptAt.timeIntervalSince(now).rounded(.up))))
+                logWaitReason("next job retries in \(Int(job.nextAttemptAt.timeIntervalSince(now).rounded(.up)))s")
                 try? await Task.sleep(for: .seconds(seconds))
                 continue
             }
@@ -2589,6 +2603,7 @@ private actor AlwaysDownloadWorker {
                 isPlaybackBuffering: resources.isPlaybackBuffering
             )
             guard eligibility == .allowed else {
+                logWaitReason("\(eligibility) streamingFromNetwork=\(resources.isPlaybackStreamingFromNetwork) chapterDuringPlayback=\(downloadsDuringPlayback)")
                 try? await Task.sleep(for: .seconds(30))
                 continue
             }
@@ -2597,6 +2612,7 @@ private actor AlwaysDownloadWorker {
             // 失败、推迟会带着新的时间重新入堆,旧那一条到时候校验对不上自然作废。
             if isHeapRoot { removeJobHeapRoot() }
             runningJobDownloadsDuringPlayback = downloadsDuringPlayback
+            lastLoggedWaitReason = nil
 
             let needsRefreshPreparation = refreshDisposition != .none
                 && job.refreshPrepared != true
