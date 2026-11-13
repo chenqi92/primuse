@@ -1014,7 +1014,8 @@ private struct LyricsArtworkAnchorKey: PreferenceKey {
 /// 外框和图片是同一层，不会出现外框先缩、图片后追上的情况。布局尺寸固定为绘制尺寸，
 /// 移动途中只变换不重新排版。
 ///
-/// 非方形槽位中的方封面仍按长边铺满；长方形封面通过 artworkContentViewport 完整放入未遮挡区域。
+/// 非方形槽位(铺满)里方封面和长方形封面都按长边盖满、居中裁；方槽位里长方形封面通过
+/// artworkContentViewport 完整放入未遮挡区域，飞行途中按槽位形状在两者间连续过渡。
 /// 下沿与尾侧渐隐也在同一层里随位置一起插值，飞向歌词小封面途中渐隐慢慢收掉。
 struct LyricsArtworkFlight: ViewModifier, Animatable {
     var rect: CGRect
@@ -1061,8 +1062,18 @@ struct LyricsArtworkFlight: ViewModifier, Animatable {
             width: max(0, visible.width * (1 - trailingFade)),
             height: max(0, visible.height * (1 - bottomFade) - topContentInset / scale)
         )
+        let visibleRect = CGRect(
+            x: (renderSize - visible.width) / 2,
+            y: (renderSize - visible.height) / 2,
+            width: visible.width,
+            height: visible.height
+        )
         content
             .environment(\.artworkContentViewport, artworkViewport)
+            .environment(\.artworkContentFill, ArtworkContentFill(
+                visibleRect: visibleRect,
+                amount: ArtworkContentLayout.slotFillAmount(slotSize: visible)
+            ))
             .frame(width: renderSize, height: renderSize)
             .clipShape(LyricsArtworkClipShape(size: visible, cornerRadius: max(0, cornerRadius) / scale))
             .mask {

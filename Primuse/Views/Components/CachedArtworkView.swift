@@ -2497,10 +2497,25 @@ private struct ArtworkContentViewportKey: EnvironmentKey {
     static let defaultValue: CGRect? = nil
 }
 
+/// 播放页封面槽位露出来的那一块,以及长方形封面要盖满它的程度(0 整张放进去,1 盖满)。
+struct ArtworkContentFill: Equatable {
+    var visibleRect: CGRect
+    var amount: CGFloat
+}
+
+private struct ArtworkContentFillKey: EnvironmentKey {
+    static let defaultValue: ArtworkContentFill? = nil
+}
+
 extension EnvironmentValues {
     var artworkContentViewport: CGRect? {
         get { self[ArtworkContentViewportKey.self] }
         set { self[ArtworkContentViewportKey.self] = newValue }
+    }
+
+    var artworkContentFill: ArtworkContentFill? {
+        get { self[ArtworkContentFillKey.self] }
+        set { self[ArtworkContentFillKey.self] = newValue }
     }
 }
 
@@ -2510,13 +2525,23 @@ struct UncroppedArtwork<Content: View>: View {
     let image: PlatformImage
     @ViewBuilder var content: () -> Content
     @Environment(\.artworkContentViewport) private var viewport
+    @Environment(\.artworkContentFill) private var fill
 
     var body: some View {
         GeometryReader { geometry in
             let bounds = CGRect(origin: .zero, size: geometry.size)
-            // 播放页铺满时给的视口夹在顶部控件和渐隐之间,只能整张放进去;方框里的封面短边太窄时放大一些。
-            let fitted = viewport.map { ArtworkContentLayout.fittedRect(imageSize: image.size, in: $0) }
+            // 播放页方框里给的视口避开顶部控件和渐隐,整张放进去;别处方框里短边太窄时放大一些。
+            let whole = viewport.map { ArtworkContentLayout.fittedRect(imageSize: image.size, in: $0) }
                 ?? ArtworkContentLayout.displayRect(imageSize: image.size, in: bounds)
+            // 「铺满」的槽位不是方的:长方形封面和方封面一样盖满整块、两头裁,
+            // 不然铺满时正中间只剩一个小长方形,四周全是模糊底。
+            let fitted = fill.map {
+                ArtworkContentLayout.interpolate(
+                    from: whole,
+                    to: ArtworkContentLayout.filledRect(imageSize: image.size, in: $0.visibleRect),
+                    fraction: $0.amount
+                )
+            } ?? whole
             Color.clear
                 .overlay {
                     Image(platformImage: image).resizable().scaledToFill()

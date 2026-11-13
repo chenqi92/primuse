@@ -23,6 +23,37 @@ struct ArtworkContentLayoutTests {
     }
 }
 
+struct ArtworkSlotFillTests {
+    @Test("铺满的长槽位里长方形封面盖满整个槽位,方槽位里整张放进去")
+    func slotShapeDecidesFill() {
+        #expect(ArtworkContentLayout.slotFillAmount(slotSize: CGSize(width: 300, height: 300)) == 0)
+        #expect(ArtworkContentLayout.slotFillAmount(slotSize: CGSize(width: 302, height: 300)) == 0)
+        // 竖屏铺满:393 宽、600 高的槽位完全铺满,横屏的扁槽位也一样。
+        #expect(ArtworkContentLayout.slotFillAmount(slotSize: CGSize(width: 393, height: 600)) == 1)
+        #expect(ArtworkContentLayout.slotFillAmount(slotSize: CGSize(width: 500, height: 300)) == 1)
+        // 飞向小方框途中按形状连续收回。
+        let midway = ArtworkContentLayout.slotFillAmount(slotSize: CGSize(width: 100, height: 109))
+        #expect(midway > 0 && midway < 1)
+        #expect(ArtworkContentLayout.slotFillAmount(slotSize: .zero) == 0)
+    }
+
+    @Test("盖满时等比放大、居中裁两头")
+    func filledRectCoversBounds() {
+        let slot = CGRect(x: 0, y: 0, width: 400, height: 600)
+        let wide = ArtworkContentLayout.filledRect(imageSize: CGSize(width: 1600, height: 900), in: slot)
+        #expect(abs(wide.height - 600) < 0.001)
+        #expect(abs(wide.width - 1066.6667) < 0.001)
+        #expect(abs(wide.midX - 200) < 0.001 && abs(wide.midY - 300) < 0.001)
+        #expect(ArtworkContentLayout.filledRect(imageSize: .zero, in: slot) == .zero)
+
+        let fitted = ArtworkContentLayout.fittedRect(imageSize: CGSize(width: 1600, height: 900), in: slot)
+        #expect(ArtworkContentLayout.interpolate(from: fitted, to: wide, fraction: 0) == fitted)
+        #expect(ArtworkContentLayout.interpolate(from: fitted, to: wide, fraction: 1) == wide)
+        let half = ArtworkContentLayout.interpolate(from: fitted, to: wide, fraction: 0.5)
+        #expect(abs(half.width - (fitted.width + wide.width) / 2) < 0.001)
+    }
+}
+
 struct VolumeScrubSessionTests {
     @Test func tapsJitterAndVerticalDismissalNeverChangeVolume() {
         var session = VolumeScrubSession(initialValue: 0.65, trackWidth: 200)
