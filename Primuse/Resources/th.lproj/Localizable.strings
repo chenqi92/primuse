@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "คัดลอกรายการ";
 "batch_writeback_copied" = "คัดลอกแล้ว";
 "batch_writeback_retry_written_format" = "เขียนลงไฟล์ได้เมื่อลองอีกครั้ง: %lld เพลง";
+"batch_writeback_skipped_after_refusal" = "แหล่งที่มาเพิ่งปฏิเสธการเขียนเพลงอื่นในโฟลเดอร์เดียวกัน Primuse จึงไม่ได้ลองเขียนไฟล์นี้";
+"writeback_preflight_unsupported_format" = "มี %lld เพลงในนี้ที่แหล่งที่มาหรือรูปแบบไฟล์ไม่รองรับการเขียนแท็กลงไฟล์ การเปลี่ยนแปลงของเพลงเหล่านี้จะบันทึกไว้เฉพาะใน Primuse";
+"writeback_preflight_refused_format" = "%@ ปฏิเสธการเขียนไฟล์เมื่อครั้งก่อน (อ่านอย่างเดียวหรือไม่มีสิทธิ์เขียน) การเปลี่ยนแปลงครั้งนี้จึงอาจบันทึกไว้เฉพาะใน Primuse เช่นกัน";

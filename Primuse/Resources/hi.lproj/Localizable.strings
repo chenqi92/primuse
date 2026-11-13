@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "सूची कॉपी करें";
 "batch_writeback_copied" = "कॉपी हो गया";
 "batch_writeback_retry_written_format" = "दोबारा कोशिश में फ़ाइलों में लिखे गए: %lld";
+"batch_writeback_skipped_after_refusal" = "स्रोत ने अभी इसी फ़ोल्डर के एक और गाने के लिए लिखने से मना कर दिया, इसलिए Primuse ने इस फ़ाइल में लिखने की कोशिश नहीं की।";
+"writeback_preflight_unsupported_format" = "इनमें से %lld गानों का स्रोत या फ़ाइल प्रारूप फ़ाइल में टैग लिखने का समर्थन नहीं करता, इसलिए उनके बदलाव केवल Primuse में सहेजे जाएँगे।";
+"writeback_preflight_refused_format" = "%@ ने पिछली बार फ़ाइलों में लिखने से मना कर दिया था (केवल-पढ़ने योग्य या लिखने की अनुमति नहीं), इसलिए हो सकता है कि ये बदलाव भी केवल Primuse में सहेजे जाएँ।";

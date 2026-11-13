@@ -113,6 +113,8 @@ enum BatchTagEditService {
         let previousFileTags: EmbeddedMetadataVerification?
         var isLocalOnly = false
         var canRetry = false
+        /// The source refused this embedded write; its folder stops.
+        var wasRefused = false
     }
 
     struct Failure: Identifiable, Error, Sendable {
@@ -148,37 +150,56 @@ enum BatchTagEditService {
             outcome.wasCancelled = shouldCancel() || Task.isCancelled
             return outcome
         }
+        // Once a folder's first answer is a refusal, its songs not yet
+        // started stay in Primuse instead of each downloading, rewriting and
+        // uploading a whole file only to be refused too.
+        let modes = await sourceManager.tagMetadataPersistenceModes(for: pending.map(\.original))
+        var scheduler = TagWritebackRefusalScheduler(keys: pending.map { change in
+            modes[change.original.id] == .embedded
+                ? TagWritebackFolderKey.key(sourceID: change.original.sourceID, filePath: change.original.filePath)
+                : nil
+        })
         onProgress(0, pending.count)
 
         // A stop request drains the writes already in flight. Cancelling a
         // replacement halfway through could leave its remote state uncertain.
         await withTaskGroup(of: (Int, Result<Written, Failure>).self) { group in
-            var nextIndex = 0
+            var running = 0
             var done = 0
+            var skipped = 0
             var results: [Int: Result<Written, Failure>] = [:]
             var lastPublish = ContinuousClock.now
 
-            while nextIndex < min(concurrency, pending.count), !shouldCancel(), !Task.isCancelled {
-                let index = nextIndex
-                let change = pending[index]
-                group.addTask {
-                    (index, await write(change, coverData: coverData, sourceManager: sourceManager,
-                                        keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure))
+            while true {
+                while running < concurrency, !shouldCancel(), !Task.isCancelled, let step = scheduler.next() {
+                    switch step {
+                    case .write(let index):
+                        let change = pending[index]
+                        group.addTask {
+                            (index, await write(change, coverData: coverData, sourceManager: sourceManager,
+                                                keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure))
+                        }
+                        running += 1
+                    case .skip(let index):
+                        // Its folder refused: keep it in Primuse, no transfer.
+                        results[index] = .success(skippedAfterRefusal(pending[index], coverData: coverData))
+                        skipped += 1
+                        done += 1
+                        onProgress(done, pending.count)
+                    }
                 }
-                nextIndex += 1
-            }
-            while let (index, result) = await group.next() {
+                guard let (index, result) = await group.next() else { break }
+                running -= 1
                 results[index] = result
                 done += 1
                 onProgress(done, pending.count)
-                if nextIndex < pending.count, !shouldCancel(), !Task.isCancelled {
-                    let index = nextIndex
-                    let change = pending[index]
-                    group.addTask {
-                        (index, await write(change, coverData: coverData, sourceManager: sourceManager,
-                                            keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure))
-                    }
-                    nextIndex += 1
+                switch result {
+                case .success(let written) where written.wasRefused:
+                    scheduler.finished(index, .refused)
+                case .success(let written) where !written.isLocalOnly:
+                    scheduler.finished(index, .written)
+                case .success, .failure:
+                    scheduler.finished(index, .other)
                 }
                 if publishesIncrementally,
                    results.count >= 24 || lastPublish.duration(to: .now) >= .seconds(3) {
@@ -192,7 +213,10 @@ enum BatchTagEditService {
             await publish(results, pending: pending, coverData: coverData,
                           keepsLocalEditsOnWriteFailure: keepsLocalEditsOnWriteFailure,
                           library: library, player: player, maintenance: .immediate, outcome: &outcome)
-            outcome.wasCancelled = nextIndex < pending.count || shouldCancel() || Task.isCancelled
+            outcome.wasCancelled = scheduler.hasUnstarted || shouldCancel() || Task.isCancelled
+            if skipped > 0 {
+                plog("Batch tag write skipped after a refusal in the same folder songs=\(skipped)")
+            }
         }
         if publishesIncrementally { library.flushDeferredLibraryMaintenance(force: true) }
         return outcome
@@ -285,7 +309,7 @@ enum BatchTagEditService {
                 }
                 published.append(song)
                 if written.isLocalOnly {
-                    outcome.localOnlyWrites.append(LocalOnlyWrite(
+                    let entry = LocalOnlyWrite(
                         songID: song.id,
                         title: song.title,
                         artist: song.artistName,
@@ -294,7 +318,8 @@ enum BatchTagEditService {
                         reason: written.notice,
                         canRetry: written.canRetry,
                         original: pending[index].original
-                    ))
+                    )
+                    outcome.localOnlyWrites.append(entry)
                     // One line per file, so a diagnostic report says which
                     // files still carry the old tags and why.
                     let reason = written.notice.map {
@@ -402,7 +427,8 @@ enum BatchTagEditService {
                 notice: report.issueMessage,
                 previousFileTags: report.previousFileTags,
                 isLocalOnly: onlyLocal,
-                canRetry: canRetry
+                canRetry: canRetry,
+                wasRefused: deniedThisTime && report.mode == .embedded
             ))
         } catch {
             if keepsLocalEditsOnWriteFailure {
@@ -411,6 +437,25 @@ enum BatchTagEditService {
             }
             return .failure(Failure(title: change.original.title, message: error.localizedDescription))
         }
+    }
+
+    /// A song whose folder just refused the write: kept in Primuse as the
+    /// refusal would have kept it, without downloading and uploading it.
+    @MainActor
+    private static func skippedAfterRefusal(
+        _ change: (original: Song, updated: Song),
+        coverData: Data?
+    ) -> Written {
+        var updated = change.updated
+        updated.userMetadataEditedAt = Date()
+        return Written(
+            song: updated,
+            notice: String(localized: "batch_writeback_skipped_after_refusal"),
+            previousFileTags: nil,
+            isLocalOnly: true,
+            canRetry: coverData == nil,
+            wasRefused: true
+        )
     }
 
     /// What undo writes back for one song: the library row before the edit,

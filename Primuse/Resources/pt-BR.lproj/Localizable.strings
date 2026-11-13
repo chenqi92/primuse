@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "Copiar lista";
 "batch_writeback_copied" = "Copiado";
 "batch_writeback_retry_written_format" = "Gravadas nos arquivos ao tentar de novo: %lld";
+"batch_writeback_skipped_after_refusal" = "A origem acabou de recusar a gravação de outra música desta pasta, então o Primuse não tentou gravar este arquivo.";
+"writeback_preflight_unsupported_format" = "Em %lld destas músicas, a origem ou o formato do arquivo não permite gravar tags no arquivo; as alterações delas ficam salvas só no Primuse.";
+"writeback_preflight_refused_format" = "%@: a gravação de arquivos foi recusada da última vez (somente leitura ou sem permissão de gravação), então estas alterações também podem ficar salvas só no Primuse.";

@@ -7478,3 +7478,6 @@
 "batch_writeback_copy_list" = "목록 복사";
 "batch_writeback_copied" = "복사됨";
 "batch_writeback_retry_written_format" = "다시 시도해 파일에 기록한 곡: %lld";
+"batch_writeback_skipped_after_refusal" = "같은 폴더의 곡이 방금 소스에서 쓰기를 거부당해, 이 곡은 파일에 쓰기를 시도하지 않았습니다.";
+"writeback_preflight_unsupported_format" = "이 중 %lld곡은 소스나 파일 형식이 파일에 태그 쓰기를 지원하지 않아 변경 사항이 Primuse에만 저장됩니다.";
+"writeback_preflight_refused_format" = "%@에서 지난번에 파일 쓰기를 거부했으므로(읽기 전용이거나 쓰기 권한 없음) 이번 변경 사항도 Primuse에만 저장될 수 있습니다.";

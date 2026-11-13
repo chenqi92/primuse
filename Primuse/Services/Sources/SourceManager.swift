@@ -15800,8 +15800,29 @@ final class SourceManager {
               let source = sources.first(where: { $0.id == song.sourceID }) else {
             return .localOnly
         }
+        return Self.tagMetadataPersistenceMode(for: song, sourceType: source.type)
+    }
+
+    /// The same answer for many songs, with the sources read once.
+    func tagMetadataPersistenceModes(for songs: [Song]) async -> [String: TagMetadataPersistenceMode] {
+        let types = Dictionary(
+            ((try? await sourcesProvider()) ?? []).map { ($0.id, $0.type) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var modes: [String: TagMetadataPersistenceMode] = [:]
+        for song in songs {
+            modes[song.id] = types[song.sourceID].map { Self.tagMetadataPersistenceMode(for: song, sourceType: $0) }
+                ?? .localOnly
+        }
+        return modes
+    }
+
+    nonisolated static func tagMetadataPersistenceMode(
+        for song: Song,
+        sourceType: MusicSourceType
+    ) -> TagMetadataPersistenceMode {
         switch AudioMetadataWritebackPolicy.capability(
-            sourceType: source.type,
+            sourceType: sourceType,
             format: song.fileFormat
         ) {
         case .embedded:
@@ -15846,6 +15867,15 @@ final class SourceManager {
         let relocated = report.replacementAfterFailedVerification ?? report.updatedSong
         if relocated.filePath != original.filePath {
             try await metadataFileReplacementHandler?(original, relocated)
+        }
+        if mode == .embedded {
+            // The next batch edit on this source says beforehand that the
+            // source refused last time; a write that goes through forgets it.
+            if report.localSaveNotice != nil {
+                SourceWriteRefusalMemory.recordRefusal(sourceID: original.sourceID)
+            } else if report.remoteMutationOccurred {
+                SourceWriteRefusalMemory.recordWrite(sourceID: original.sourceID)
+            }
         }
         if report.remoteMutationOccurred {
             let writtenFields = report.fields.compactMap { result -> String? in

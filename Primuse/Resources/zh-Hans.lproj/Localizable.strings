@@ -7571,3 +7571,6 @@
 "batch_writeback_copy_list" = "拷贝清单";
 "batch_writeback_copied" = "已拷贝";
 "batch_writeback_retry_written_format" = "重试后已写进文件：%lld 首";
+"batch_writeback_skipped_after_refusal" = "同一文件夹里的歌刚被音乐源拒绝写入，这首没有再尝试写进文件。";
+"writeback_preflight_unsupported_format" = "其中 %lld 首所在的音乐源或文件格式不支持把标签写进文件，修改只会保存在 Primuse。";
+"writeback_preflight_refused_format" = "%@ 上次拒绝写入文件（只读或没有写入权限），这次的修改可能也只会保存在 Primuse。";

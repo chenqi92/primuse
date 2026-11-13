@@ -113,6 +113,41 @@ enum MetadataWriteFailurePolicy {
     }
 }
 
+/// Sources that refused to have a file rewritten, and when. A batch edit says
+/// before it starts that these changes may stay in Primuse again; the next
+/// write that goes through forgets the refusal.
+@MainActor
+enum SourceWriteRefusalMemory {
+    private static let defaultsKey = "metadataWriteback.refusedSources.v1"
+    /// Older refusals say little about the source today.
+    static let relevance: TimeInterval = 30 * 24 * 60 * 60
+
+    static func recordRefusal(sourceID: String, at date: Date = Date()) {
+        var stored = load()
+        stored[sourceID] = date.timeIntervalSince1970
+        UserDefaults.standard.set(stored, forKey: defaultsKey)
+    }
+
+    static func recordWrite(sourceID: String) {
+        var stored = load()
+        guard stored.removeValue(forKey: sourceID) != nil else { return }
+        UserDefaults.standard.set(stored, forKey: defaultsKey)
+    }
+
+    /// The sources among these that refused a write recently.
+    static func recentlyRefused(among sourceIDs: Set<String>, now: Date = Date()) -> Set<String> {
+        let stored = load()
+        return sourceIDs.filter { id in
+            guard let seconds = stored[id] else { return false }
+            return now.timeIntervalSince1970 - seconds < relevance
+        }
+    }
+
+    private static func load() -> [String: Double] {
+        UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Double] ?? [:]
+    }
+}
+
 enum SourceError: Error, LocalizedError, Sendable {
     case pathNotFound(String)
     case fileNotFound(String)

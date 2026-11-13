@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "Copiar lista";
 "batch_writeback_copied" = "Copiado";
 "batch_writeback_retry_written_format" = "Escritas en los archivos al reintentar: %lld";
+"batch_writeback_skipped_after_refusal" = "El origen acaba de rechazar la escritura de otra canción de esta carpeta, así que Primuse no intentó escribir este archivo.";
+"writeback_preflight_unsupported_format" = "En %lld de estas canciones, el origen o el formato de archivo no permite escribir etiquetas en el archivo; sus cambios se guardan solo en Primuse.";
+"writeback_preflight_refused_format" = "%@: la escritura de archivos se rechazó la última vez (solo lectura o sin permiso de escritura), así que estos cambios también podrían guardarse solo en Primuse.";

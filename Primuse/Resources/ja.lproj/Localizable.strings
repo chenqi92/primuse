@@ -7479,3 +7479,6 @@
 "batch_writeback_copy_list" = "リストをコピー";
 "batch_writeback_copied" = "コピーしました";
 "batch_writeback_retry_written_format" = "再試行でファイルに書き込んだ曲：%lld";
+"batch_writeback_skipped_after_refusal" = "同じフォルダの曲への書き込みがソースに拒否されたばかりのため、この曲はファイルへの書き込みを試みませんでした。";
+"writeback_preflight_unsupported_format" = "このうち %lld 曲は、ソースまたはファイル形式がタグのファイルへの書き込みに対応していないため、変更は Primuse にのみ保存されます。";
+"writeback_preflight_refused_format" = "%@ は前回ファイルへの書き込みを拒否したため（読み取り専用または書き込み権限なし）、今回の変更も Primuse にのみ保存される可能性があります。";

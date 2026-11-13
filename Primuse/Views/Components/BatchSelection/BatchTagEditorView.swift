@@ -637,9 +637,13 @@ struct TagChangeReviewView: View {
                         .font(.subheadline)
                     }
                 }
-                Text("tag_review_footer")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // One row, so an empty note leaves no blank row behind.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("tag_review_footer")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TagWritebackPreflightNote(songIDs: input.songs.map(\.id))
+                }
             }
 
             if let coverData = input.coverData {
@@ -1142,5 +1146,69 @@ enum BatchCoverImage {
                   kCGImageSourceThumbnailMaxPixelSize: 160,
               ] as CFDictionary) else { return nil }
         return Image(decorative: cgImage, scale: 1)
+    }
+}
+
+/// Says before a batch edit starts which of its songs will keep the change
+/// only in Primuse: songs whose source or format takes no tags in the file,
+/// and sources that refused to write last time. Shows nothing otherwise.
+struct TagWritebackPreflightNote: View {
+    let songIDs: [String]
+
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
+    @State private var unsupportedCount = 0
+    @State private var refusedSourceNames: [String] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if unsupportedCount > 0 {
+                line(String(format: String(localized: "writeback_preflight_unsupported_format"), unsupportedCount))
+            }
+            if !refusedSourceNames.isEmpty {
+                line(String(
+                    format: String(localized: "writeback_preflight_refused_format"),
+                    ListFormatter.localizedString(byJoining: refusedSourceNames)
+                ))
+            }
+        }
+        .task(id: songIDs) { evaluate() }
+    }
+
+    private func line(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            Text(text)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption)
+    }
+
+    private func evaluate() {
+        guard let sourcesStore else { return }
+        var unsupported = 0
+        var sourceIDs: Set<String> = []
+        for id in songIDs {
+            guard let song = library.storedSong(id: id) ?? library.song(id: id),
+                  let source = sourcesStore.source(id: song.sourceID) else { continue }
+            if AudioMetadataWritebackPolicy.textTagsLeaveLibrary(
+                sourceType: source.type,
+                format: song.fileFormat,
+                isCueTrack: song.isCueTrack,
+                isStreamDescriptor: song.isStreamDescriptor
+            ) {
+                sourceIDs.insert(song.sourceID)
+            } else {
+                unsupported += 1
+            }
+        }
+        unsupportedCount = unsupported
+        refusedSourceNames = SourceWriteRefusalMemory.recentlyRefused(among: sourceIDs)
+            .compactMap { sourcesStore.source(id: $0)?.name }
+            .filter { !$0.isEmpty }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 }

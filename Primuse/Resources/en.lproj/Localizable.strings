@@ -7239,3 +7239,6 @@
 "batch_writeback_copy_list" = "Copy List";
 "batch_writeback_copied" = "Copied";
 "batch_writeback_retry_written_format" = "Written to files on retry: %lld";
+"batch_writeback_skipped_after_refusal" = "The source just refused to write another song in this folder, so Primuse didn’t try to write this file.";
+"writeback_preflight_unsupported_format" = "%lld of these songs are on a source or in a format that can’t store tags in the file; their changes are saved only in Primuse.";
+"writeback_preflight_refused_format" = "%@ refused to write files last time (read-only or no write permission), so these changes may also be saved only in Primuse.";

@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "Listeyi kopyala";
 "batch_writeback_copied" = "Kopyalandı";
 "batch_writeback_retry_written_format" = "Yeniden denemede dosyalara yazılan: %lld";
+"batch_writeback_skipped_after_refusal" = "Kaynak bu klasördeki başka bir şarkının yazılmasını az önce reddetti, bu yüzden Primuse bu dosyaya yazmayı denemedi.";
+"writeback_preflight_unsupported_format" = "Bu şarkılardan %lld tanesinin bulunduğu kaynak veya dosya biçimi etiketlerin dosyaya yazılmasını desteklemiyor; bunların değişiklikleri yalnızca Primuse'ta kaydedilir.";
+"writeback_preflight_refused_format" = "%@ geçen sefer dosyalara yazmayı reddetti (salt okunur veya yazma izni yok), bu yüzden bu değişiklikler de yalnızca Primuse'ta kaydedilebilir.";

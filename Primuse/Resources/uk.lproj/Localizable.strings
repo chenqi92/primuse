@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "Скопіювати список";
 "batch_writeback_copied" = "Скопійовано";
 "batch_writeback_retry_written_format" = "Записано у файли під час повтору: %lld";
+"batch_writeback_skipped_after_refusal" = "Джерело щойно відхилило запис іншої пісні з цієї папки, тому Primuse не намагався записати цей файл.";
+"writeback_preflight_unsupported_format" = "Для %lld із цих пісень джерело або формат файлу не підтримує запис тегів у файл, тому їхні зміни збережуться лише в Primuse.";
+"writeback_preflight_refused_format" = "%@: минулого разу запис у файли було відхилено (лише читання або немає дозволу на запис), тому ці зміни теж можуть зберегтися лише в Primuse.";

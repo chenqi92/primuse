@@ -185,7 +185,12 @@ struct ArtistMergeView: View {
                         if isPreparing { ProgressView() }
                         else { Text(String(format: String(localized: "artist_merge_song_count_format"), reviewedSongIDs.count)) }
                     } footer: {
-                        Text("artist_merge_write_notice")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("artist_merge_write_notice")
+                            if !isPreparing {
+                                TagWritebackPreflightNote(songIDs: reviewedSongIDs)
+                            }
+                        }
                     }
                 } else {
                     Section {

@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "نسخ القائمة";
 "batch_writeback_copied" = "تم النسخ";
 "batch_writeback_retry_written_format" = "كُتبت في الملفات عند إعادة المحاولة: %lld";
+"batch_writeback_skipped_after_refusal" = "رفض المصدر للتو الكتابة لأغنية أخرى في هذا المجلد، لذا لم يحاول Primuse الكتابة في هذا الملف.";
+"writeback_preflight_unsupported_format" = "في %lld من هذه الأغاني، لا يدعم المصدر أو تنسيق الملف كتابة الوسوم في الملف، لذا تُحفظ تغييراتها في Primuse فقط.";
+"writeback_preflight_refused_format" = "رفض %@ الكتابة في الملفات في المرة السابقة (للقراءة فقط أو لا يوجد إذن بالكتابة)، لذا قد تُحفظ هذه التغييرات أيضًا في Primuse فقط.";

@@ -7478,3 +7478,6 @@
 "batch_writeback_copy_list" = "Liste kopieren";
 "batch_writeback_copied" = "Kopiert";
 "batch_writeback_retry_written_format" = "Beim erneuten Versuch in Dateien geschrieben: %lld";
+"batch_writeback_skipped_after_refusal" = "Die Quelle hat gerade das Schreiben eines anderen Songs in diesem Ordner verweigert, deshalb hat Primuse nicht versucht, diese Datei zu schreiben.";
+"writeback_preflight_unsupported_format" = "Bei %lld dieser Songs unterstützt die Quelle oder das Dateiformat nicht, Tags in die Datei zu schreiben; ihre Änderungen werden nur in Primuse gespeichert.";
+"writeback_preflight_refused_format" = "%@: Das Schreiben von Dateien wurde beim letzten Mal verweigert (schreibgeschützt oder keine Schreibberechtigung), daher werden diese Änderungen möglicherweise ebenfalls nur in Primuse gespeichert.";

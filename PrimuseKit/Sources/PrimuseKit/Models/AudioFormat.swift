@@ -452,6 +452,100 @@ public enum AudioMetadataWritebackPolicy {
         }
         return .localOnly
     }
+
+    /// Whether an edit of the text tags (title, artist, album…) leaves this
+    /// song's library row: written into the file or sent to the server. A
+    /// sidecar takes only the cover, and a CUE track or stream descriptor
+    /// has no tag container of its own, so their text edits stay in Primuse.
+    public static func textTagsLeaveLibrary(
+        sourceType: MusicSourceType,
+        format: AudioFormat,
+        isCueTrack: Bool,
+        isStreamDescriptor: Bool
+    ) -> Bool {
+        switch capability(sourceType: sourceType, format: format) {
+        case .serverAPI: return true
+        case .embedded: return !isCueTrack && !isStreamDescriptor
+        case .sidecarOnly, .localOnly: return false
+        }
+    }
+}
+
+/// Hands out a batch of embedded tag writes in order, and stops sending
+/// files to a folder once the source has refused one there.
+///
+/// Each file write downloads, rewrites and uploads the whole song before the
+/// source can refuse the replacement, so on a read-only share every song
+/// costs a full transfer for nothing. Writes still run side by side — a slow
+/// first file holds nothing back — but when the first answer from a folder
+/// (`TagWritebackFolderKey`) is a refusal, the songs of that folder not yet
+/// started are skipped (`skip`) and kept in Primuse without a transfer. Once
+/// a write in a folder went through, a later refusal there is that one
+/// file's own and stops nothing. A timeout or other failure decides nothing.
+/// Songs without a key (not an embedded write) are always written.
+public struct TagWritebackRefusalScheduler: Sendable {
+    public enum Step: Equatable, Sendable {
+        /// Write this song.
+        case write(Int)
+        /// Its folder refused: keep this song in Primuse.
+        case skip(Int)
+    }
+
+    public enum Answer: Sendable {
+        case written
+        case refused
+        /// Failed some other way, or kept locally for another reason.
+        case other
+    }
+
+    private enum FolderState: Sendable {
+        case writable
+        case refused
+    }
+
+    private let keys: [String?]
+    private var nextIndex = 0
+    private var folders: [String: FolderState] = [:]
+
+    public init(keys: [String?]) {
+        self.keys = keys
+    }
+
+    /// Some song has not started yet.
+    public var hasUnstarted: Bool { nextIndex < keys.count }
+
+    /// The next song, in order, or nil when all have started.
+    public mutating func next() -> Step? {
+        guard nextIndex < keys.count else { return nil }
+        let index = nextIndex
+        nextIndex += 1
+        if let key = keys[index], folders[key] == .refused { return .skip(index) }
+        return .write(index)
+    }
+
+    /// A write finished. The first written or refused answer decides its folder.
+    public mutating func finished(_ index: Int, _ answer: Answer) {
+        guard keys.indices.contains(index), let key = keys[index], folders[key] == nil else { return }
+        switch answer {
+        case .written: folders[key] = .writable
+        case .refused: folders[key] = .refused
+        case .other: break
+        }
+    }
+}
+
+/// Which songs `TagWritebackRefusalScheduler` treats as one folder: the same
+/// source and the same top-level folder. NAS permissions are set per shared
+/// folder, so one refusal speaks for the folder, not for the whole source.
+public enum TagWritebackFolderKey {
+    public static func key(sourceID: String, filePath: String) -> String {
+        let folder = filePath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .dropLast()
+            .first
+            .map(String.init) ?? ""
+        return sourceID + "\u{1F}" + folder
+    }
 }
 
 /// Where saved lyrics go for songs whose audio file can take them.

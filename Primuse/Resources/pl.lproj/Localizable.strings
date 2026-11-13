@@ -7384,3 +7384,6 @@
 "batch_writeback_copy_list" = "Kopiuj listę";
 "batch_writeback_copied" = "Skopiowano";
 "batch_writeback_retry_written_format" = "Zapisano do plików przy ponowieniu: %lld";
+"batch_writeback_skipped_after_refusal" = "Źródło przed chwilą odmówiło zapisu innego utworu z tego folderu, więc Primuse nie próbował zapisać tego pliku.";
+"writeback_preflight_unsupported_format" = "W przypadku %lld z tych utworów źródło lub format pliku nie obsługuje zapisu tagów do pliku; ich zmiany zostaną zapisane tylko w Primuse.";
+"writeback_preflight_refused_format" = "%@: ostatnio odmówiono zapisu plików (tylko do odczytu lub brak uprawnień do zapisu), więc te zmiany też mogą zostać zapisane tylko w Primuse.";
