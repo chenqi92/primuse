@@ -352,7 +352,7 @@
 "Select an item to view the full license text" = "पूर्ण लाइसेंस पाठ देखने के लिए एक आइटम का चयन करें";
 "Set Custom Timer" = "कस्टम टाइमर सेट करें";
 "Set Playback Speed" = "प्लेबैक स्पीड सेट करें";
-"Set Playing" = "सेट बज रहा है";
+"Set Playing" = "प्लेबैक सेट करें";
 "Set Primuse playback speed from 0.5 to 2 times." = "प्लेबैक गति Primuse को 0.5 से 2 गुना पर सेट करें।";
 "Set Repeat Mode" = "रिपीट मोड सेट करें";
 "Share collaborative library content via CloudKit" = "CloudKit के माध्यम से सहयोगी लाइब्रेरी सामग्री साझा करें";
@@ -843,7 +843,7 @@
 "artist_appears_on" = "प्रकट होता है";
 "artist_changed" = "कलाकार अद्यतन";
 "artist_label" = "कलाकार";
-"artist_monthly_plays_format" = "इस महीने %d नाटक";
+"artist_monthly_plays_format" = "इस महीने %d प्ले";
 "artist_most_played_albums" = "सर्वाधिक बजाए गए एल्बम";
 "artist_name_settings_display_footer" = "केवल एकाधिक कलाकारों को प्रदर्शित करते समय उपयोग किया जाता है; स्रोत मेटाडेटा अपरिवर्तित रहता है.";
 "artist_name_settings_display_separator" = "डिस्प्ले सेपरेटर";
@@ -1524,7 +1524,7 @@
 "home_pipeline_scan" = "स्कैन करें";
 "home_pipeline_sources" = "स्रोत";
 "home_playable" = "बजाने योग्य अनुपात";
-"home_playable_count_short" = "नाटक";
+"home_playable_count_short" = "प्ले";
 "home_radio_wall_badge" = "लाइव";
 "home_radio_wall_manage %lld" = "प्रबंधित करें · %lld";
 "home_radio_wall_stream_info" = "फ़ॉर्मैट और बिटरेट दिखाएँ";
@@ -1610,7 +1610,7 @@
 "home_similar_to_format" = "%@ के समान";
 "home_source_pipeline" = "स्रोत प्रसंस्करण";
 "home_sources_title" = "स्रोत";
-"home_stats_glimpse_format" = "इस सप्ताह %1$d नाटक · %2$@ · %3$d दिन";
+"home_stats_glimpse_format" = "इस सप्ताह %1$d प्ले · %2$@ · %3$d दिन";
 "home_title" = "होम";
 "home_todays_pick_title" = "आज की पसंद";
 "home_top_artists_title" = "बार-बार सुना गया";
@@ -1914,7 +1914,7 @@
 "library_sections_settings_footer" = "पुन: व्यवस्थित करने के लिए खींचें। किसी श्रेणी को लाइब्रेरी और साइडबार से छिपाने के लिए उसे बंद करें।";
 "library_sections_settings_label" = "लाइब्रेरी श्रेणियाँ";
 "library_stats_header" = "इस सप्ताह";
-"library_stats_plays_suffix" = "नाटक";
+"library_stats_plays_suffix" = "प्ले";
 "library_stats_top_artists_label" = "शीर्ष";
 "library_title" = "लाइब्रेरी";
 "licenses" = "ओपन सोर्स लाइसेंस";
@@ -1934,7 +1934,7 @@
 "local_import_failure_reason_format" = "मुख्य कारण: %@";
 "local_import_files_subtitle" = "चयनित ऑडियो को उसके मूल स्थान से चलाएं";
 "local_import_files_title" = "संदर्भ फ़ाइलें";
-"local_import_folder_subtitle" = "सबफ़ोल्डर्स सहित, इसके मूल स्थान से खेलें";
+"local_import_folder_subtitle" = "सबफ़ोल्डर्स सहित, इसके मूल स्थान से चलाएँ";
 "local_import_folder_title" = "एक फ़ोल्डर का संदर्भ लें";
 "local_import_none_added" = "कोई ऑडियो फ़ाइलें आयात नहीं की गईं।";
 "local_import_none_added_message_format" = "संसाधित %1$d आइटम, लेकिन कोई ऑडियो आयात नहीं किया गया। विफल: %2$d.";
@@ -2295,7 +2295,7 @@
 "material_macos_14_or_later" = "macOS 14 या बाद का";
 "material_macos_26_or_later" = "macOS 26 या बाद का";
 "max" = "मैक्स";
-"media_share_action" = "खेलने योग्य लिंक बनाएं";
+"media_share_action" = "चलाने योग्य लिंक बनाएं";
 "menu_bar_show_title" = "मेनू बार में Primuse दिखाएं";
 "metadata" = "मेटाडेटा";
 "metadata_backfill_fast_mode" = "उच्च-प्रदर्शन टैग रीडिंग";
@@ -2615,7 +2615,7 @@
 "source_card_unreachable_add_route_hint" = "इस स्रोत के लिए केवल लोकल नेटवर्क का पता सेट है। इसे संपादित करके सार्वजनिक पता जोड़ें, ताकि उस नेटवर्क से बाहर भी गाने चल सकें।";
 "playlist_unreachable_notice" = "कुछ गाने ऐसे स्रोत के हैं जिससे मौजूदा नेटवर्क पर कनेक्ट नहीं हो पा रहा। जो इस डिवाइस पर डाउनलोड नहीं हैं, वे फ़िलहाल नहीं चल सकते।";
 "playlist_unreachable_offline_hint_format" = "“%@” चालू करें। स्रोत उपलब्ध होते ही गाने अपने-आप डाउनलोड हो जाएँगे और किसी भी नेटवर्क पर चलेंगे।";
-"playback_history_note" = "उन नाटकों की गणना करता है जिनकी प्लेबैक प्रगति नवीनतम %2$d बनाए गए रिकॉर्ड से %1$d सेकंड तक पहुंच गई।";
+"playback_history_note" = "उन प्ले की गणना करता है जिनकी प्लेबैक प्रगति नवीनतम %2$d बनाए गए रिकॉर्ड से %1$d सेकंड तक पहुंच गई।";
 "playback_info" = "प्लेबैक";
 "playback_menu" = "प्लेबैक";
 "playback_rate" = "प्लेबैक स्पीड";
@@ -2947,7 +2947,7 @@
 "relay_share_code_password_separate" = "कोड शेयर का पता लगाता है। पासवर्ड-सुरक्षित शेयरों को अभी भी एक अलग पासवर्ड की आवश्यकता होती है।";
 "relay_share_configuration" = "शेयर सेवा";
 "relay_share_configuration_footer" = "अपनी सेवा URL और व्यवस्थापक कुंजी दर्ज करें। URL इस डिवाइस पर रहता है और कुंजी किचेन में सुरक्षित रूप से संग्रहीत होती है।";
-"relay_share_create" = "खेलने योग्य लिंक बनाएं";
+"relay_share_create" = "चलाने योग्य लिंक बनाएं";
 "relay_share_create_hint" = "अपने स्वयं के कनेक्टर के माध्यम से गीत पढ़ता है और बंधे हुए हिस्सों को अपलोड करता है।";
 "relay_share_created_message" = "रिले ने मीडिया को संग्रहीत किया और लिंक को सक्रिय किया।";
 "relay_share_endpoint" = "रिले API URL";
@@ -3377,7 +3377,7 @@
 "share_choose_primuse_relay_hint" = "केवल विधि बदलता है; यह अभी तक अनुमतियाँ अपलोड या परिवर्तित नहीं करता है";
 "share_continue_music_server" = "म्यूजिक सर्वर के साथ जारी रखें";
 "share_continue_primuse_relay" = "सेट अप Primuse शेयर सेवा";
-"share_create_playable_link" = "खेलने योग्य लिंक बनाएं";
+"share_create_playable_link" = "चलाने योग्य लिंक बनाएं";
 "share_create_playable_link_hint" = "समाप्ति, पहुंच और प्लेबैक अनुमतियों की समीक्षा करना जारी रखें";
 "share_link_method" = "विधि";
 "share_link_permissions_footer" = "स्वचालित संगीत सर्वर को प्राथमिकता देता है। Primuse कुछ भी अपलोड करने से पहले आपसे अनुमतियों की समीक्षा करने के लिए कहता है।";
@@ -3782,7 +3782,7 @@
 "stats_empty_desc" = "जो गाने आप 30 सेकंड या उससे अधिक समय तक सुनते हैं उन्हें यहां गिना जाएगा। थोड़ा सुन कर वापस आ जाओ.";
 "stats_empty_title" = "अभी तक कोई इतिहास नहीं";
 "stats_heatmap_dimensions_format" = "7×%1$d · %2$d दिन";
-"stats_heatmap_footer" = "प्रत्येक कोशिका एक दिन है। गहरा = उस दिन अधिक खेल।";
+"stats_heatmap_footer" = "प्रत्येक कोशिका एक दिन है। गहरा = उस दिन अधिक प्ले।";
 "stats_heatmap_less" = "कम";
 "stats_heatmap_more" = "और";
 "stats_heatmap_style_title" = "गिटहब-शैली हीटमैप";
@@ -3795,7 +3795,7 @@
 "stats_minutes_format" = "%d मि";
 "stats_no_previous_comparison" = "तुलना के लिए कोई पिछली अवधि नहीं";
 "stats_play_count" = "चलाने की संख्या";
-"stats_play_count_format" = "%d नाटक";
+"stats_play_count_format" = "%d प्ले";
 "stats_privacy_footer" = "सुनने का इतिहास केवल इस डिवाइस पर संग्रहीत है। इसे कभी भी क्लाउड पर अपलोड नहीं किया जाता या अन्य डिवाइस से सिंक नहीं किया जाता।";
 "stats_range" = "रेंज";
 "stats_range_all" = "सभी";
@@ -3809,7 +3809,7 @@
 "stats_rank_songs" = "गाने";
 "stats_seconds_format" = "%d से";
 "stats_section_label" = "सांख्यिकी";
-"stats_server_aggregate_boundary" = "यह सर्वर केवल ऑल-टाइम प्लेकाउंट और सबसे हाल ही में खेले गए समय को उजागर करता है। साप्ताहिक, मासिक और वार्षिक योग, हीटमैप और सुनने की अवधि जानबूझकर नहीं दिखाई जाती है।";
+"stats_server_aggregate_boundary" = "यह सर्वर केवल ऑल-टाइम प्लेकाउंट और सबसे हाल में चलाए जाने के समय को उजागर करता है। साप्ताहिक, मासिक और वार्षिक योग, हीटमैप और सुनने की अवधि जानबूझकर नहीं दिखाई जाती है।";
 "stats_server_authoritative" = "सर्वर आधिकारिक";
 "stats_server_error_account_ambiguous" = "सर्वर इतिहास में एकाधिक खाते हैं और उन्हें सुरक्षित रूप से नहीं दिखाया जा सकता है।";
 "stats_server_error_connector_unavailable" = "इस स्रोत कॉन्फ़िगरेशन के लिए सर्वर सांख्यिकी कनेक्टर उपलब्ध नहीं है।";
@@ -3838,7 +3838,7 @@
 "stats_top_artists" = "शीर्ष कलाकार";
 "stats_top_songs" = "शीर्ष गीत";
 "stats_total_duration" = "कुल अवधि";
-"stats_total_plays" = "नाटक";
+"stats_total_plays" = "प्ले";
 "stats_total_time" = "कुल समय";
 "stats_unique_songs" = "अनोखे गाने";
 "stats_unique_songs_format" = "%d अनोखे गाने";
@@ -4111,14 +4111,14 @@
 "year_label" = "वर्ष";
 "yearly_card_closing_next_format" = "%@, चलो चलते रहें";
 "yearly_card_closing_thanks" = "Primuse के साथ हर मुलाकात के लिए धन्यवाद";
-"yearly_card_genres_plays_format" = "%d नाटक";
+"yearly_card_genres_plays_format" = "%d प्ले";
 "yearly_card_growth_less_format" = "%d%% पिछले वर्ष से कम - जारी रखें";
 "yearly_card_growth_more_format" = "पिछले वर्ष की तुलना में %d%% अधिक";
 "yearly_card_growth_same" = "पिछले वर्ष की तरह ही सुनने को मिला";
 "yearly_card_peak_month_top_format" = "उस महीने आपका सबसे ज्यादा सुना गया: %@";
 "yearly_card_time_detail_format" = "%@ वह समय है जब आप सबसे अधिक सुनते हैं";
 "yearly_card_top_artist_detail_format" = "%d बार सुना गया, कुल %@";
-"yearly_meta_top_songs_sub_format" = "%@ · %d नाटक";
+"yearly_meta_top_songs_sub_format" = "%@ · %d प्ले";
 "yearly_month_1" = "जनवरी";
 "yearly_month_10" = "अक्टूबर";
 "yearly_month_11" = "नवंबर";

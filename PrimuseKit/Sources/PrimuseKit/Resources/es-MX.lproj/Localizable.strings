@@ -115,7 +115,7 @@
 "ext.control.previous.description" = "Regresar a la pista anterior.";
 "ext.control.previous.displayName" = "Primuse Anterior";
 "ext.control.shuffle" = "Aleatorio";
-"ext.control.shuffle.description" = "Mezcla toda tu biblioteca y comienza a jugar.";
+"ext.control.shuffle.description" = "Mezcla toda tu biblioteca y comienza a escuchar.";
 "ext.control.shuffle.displayName" = "Primuse aleatorio";
 "ext.synology.quickconnect.error.invalidID" = "La ID de QuickConnect no es válida.";
 "ext.synology.quickconnect.error.invalidResponse" = "QuickConnect devolvió una respuesta no reconocida.";
@@ -499,7 +499,7 @@
 "ext.widget.nowPlaying.empty.openLarge" = "Conecte una fuente de música y su canción actual y su progreso se mostrarán aquí.";
 "ext.widget.nowPlaying.empty.openMedium" = "Abre Primuse para continuar donde lo dejaste";
 "ext.widget.nowPlaying.empty.openShort" = "Abra Primuse para continuar";
-"ext.widget.nowPlaying.empty.tapToPlay" = "Toca para empezar a jugar";
+"ext.widget.nowPlaying.empty.tapToPlay" = "Toca para empezar a escuchar";
 "ext.widget.nowPlaying.empty.title" = "No se reproduce nada";
 "ext.widget.nowPlaying.eyebrowFormat" = "Reproduciendo ahora · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "En pausa · %@";
@@ -509,7 +509,7 @@
 "ext.widget.recent.displayName" = "Reproducido recientemente";
 "ext.widget.recent.empty.large" = "Los álbumes que has reproducido recientemente se sincronizan automáticamente con tu pantalla de inicio";
 "ext.widget.recent.empty.medium" = "Tus álbumes recientes aparecerán aquí una vez que comiences a reproducir";
-"ext.widget.recent.empty.short" = "Aparece una vez que comienzas a jugar";
+"ext.widget.recent.empty.short" = "Aparece una vez que comienzas a escuchar";
 "ext.widget.recent.empty.title" = "Nada reciente";
 "ext.widget.recent.eyebrow" = "Reproducido recientemente";
 "ext.widget.sources.description" = "Estado de indexación y recuentos indexados para cada fuente.";
@@ -521,7 +521,7 @@
 "ext.widget.stats.eyebrow" = "Este mes";
 "ext.widget.stats.hoursFormat" = "%dh";
 "ext.widget.stats.last30Days" = "Últimos 30 días";
-"ext.widget.stats.plays" = "reproduce";
+"ext.widget.stats.plays" = "reproducciones";
 "ext.widget.stats.topThisMonth" = "Top este mes";
 "ext.widget.stats.totalTime" = "tiempo total";
 "ext.widget.unknownAlbum" = "Álbum desconocido";

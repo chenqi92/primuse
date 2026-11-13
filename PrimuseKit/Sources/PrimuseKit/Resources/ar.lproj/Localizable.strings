@@ -521,7 +521,7 @@
 "ext.widget.stats.eyebrow" = "هذا الشهر";
 "ext.widget.stats.hoursFormat" = "%d ح";
 "ext.widget.stats.last30Days" = "آخر 30 يومًا";
-"ext.widget.stats.plays" = "مسرحيات";
+"ext.widget.stats.plays" = "مرة تشغيل";
 "ext.widget.stats.topThisMonth" = "الأعلى لهذا الشهر";
 "ext.widget.stats.totalTime" = "الوقت الإجمالي";
 "ext.widget.unknownAlbum" = "البوم غير معروف";
@@ -590,7 +590,7 @@
 "fullscreen_effect_kinetic_lyrics_motion" = "كلمات تقفز وتتوهّج مع الغناء · انتقال ناعم بين الأسطر · لا يحتاج إلى طيف مباشر";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";
-"fullscreen_effect_native_subtitle" = "تخطيط اللاعب وعناصر التحكم المألوفة";
+"fullscreen_effect_native_subtitle" = "تخطيط المشغّل وعناصر التحكم المألوفة";
 "fullscreen_effect_radial_pulse" = "النبض الشعاعي";
 "fullscreen_effect_radial_pulse_motion" = "الطيف المباشر مدفوع · سجل متناوب";
 "fullscreen_effect_radial_pulse_subtitle" = "حلقة التسجيل الدوارة تستجيب للصوت الفعلي";

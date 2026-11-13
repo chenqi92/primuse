@@ -218,7 +218,7 @@
 "Minimal Data Look" = "Visualização mínima de dados";
 "Minimum OS" = "SO mínimo";
 "Mode" = "Modo";
-"Most Played This Month" = "Mais jogados este mês";
+"Most Played This Month" = "Mais tocados este mês";
 "Music Sources" = "Origens de música";
 "Music Sources · Small" = "Fontes musicais · Pequenas";
 "MusicKit Connected" = "MusicKit conectado";
@@ -244,7 +244,7 @@
 "No need to open the app" = "Não há necessidade de abrir o aplicativo";
 "No updates available." = "Nenhuma atualização disponível.";
 "Not Enabled" = "Não Habilitado";
-"Not Playing" = "Não estou jogando";
+"Not Playing" = "Nada tocando";
 "Not checked yet" = "Ainda não verificado";
 "Now Playing" = "Reproduzindo";
 "Now Playing · 3 Sizes" = "Em reprodução · 3 tamanhos";
@@ -268,7 +268,7 @@
 "Play / Pause" = "Reproduzir/Pausar";
 "Play Album" = "Reproduzir álbum";
 "Play Artist" = "Reproduzir Artista";
-"Play Genre" = "Gênero de jogo";
+"Play Genre" = "Reproduzir gênero";
 "Play Playlist" = "Reproduzir lista de reprodução";
 "Play Radio" = "Tocar rádio";
 "Play Radio Station" = "Tocar estação de rádio";
@@ -283,7 +283,7 @@
 "Playback Rate & Quality" = "Taxa e qualidade de reprodução";
 "Playback speed set to %1$@ times." = "Velocidade de reprodução definida em tempos %1$@.";
 "Playback speed can't be changed in High Fidelity Direct mode." = "Não é possível alterar a velocidade de reprodução no modo Alta fidelidade direta.";
-"Playing" = "Jogando";
+"Playing" = "Reproduzindo";
 "Playlist" = "Playlist";
 "Please specify a playlist name." = "Especifique um nome para a lista de reprodução.";
 "Points to scraper.json manifest · downloads manifest and referenced JS scripts" = "Aponta para o manifesto scraper.json; baixa o manifesto e os scripts JS referenciados";
@@ -305,8 +305,8 @@
 "Reading tags" = "Lendo tags";
 "Recent Playback Errors" = "Erros recentes de reprodução";
 "Recently Deleted" = "Apagados recentemente";
-"Recently Played" = "Jogado recentemente";
-"Recently Played · Small" = "Jogado recentemente · Pequeno";
+"Recently Played" = "Tocados recentemente";
+"Recently Played · Small" = "Tocados recentemente · Pequeno";
 "Refresh Frequency" = "Frequência de atualização";
 "Refresh Now" = "Atualizar agora";
 "Release Date" = "Data de lançamento";
@@ -361,7 +361,7 @@
 "Shown when the player window goes full screen" = "Exibido quando a janela do player fica em tela cheia";
 "Shuffle" = "Aleatório";
 "Shuffle Library" = "Reproduzir biblioteca aleatoriamente";
-"Shuffle the entire library and start playing." = "Embaralhe toda a biblioteca e comece a jogar.";
+"Shuffle the entire library and start playing." = "Embaralhe toda a biblioteca e comece a ouvir.";
 "Shui Diao Ge Tou" = "Shui Diao Ge Tou";
 "Shui Diao Ge Tou · FLAC 988 kbps" = "Shui Diao Ge Tou · FLAC 988 kbps";
 "Sidebar Widget" = "Widget da barra lateral";
@@ -843,7 +843,7 @@
 "artist_appears_on" = "Aparece em";
 "artist_changed" = "Artista atualizado";
 "artist_label" = "Artista";
-"artist_monthly_plays_format" = "%d é reproduzido este mês";
+"artist_monthly_plays_format" = "%d reproduções este mês";
 "artist_most_played_albums" = "Álbuns mais tocados";
 "artist_name_settings_display_footer" = "Usado somente ao exibir vários artistas; os metadados de origem permanecem inalterados.";
 "artist_name_settings_display_separator" = "Separador de Display";
@@ -1014,7 +1014,7 @@
 "cast_error_track_change_rejected" = "O dispositivo recusou trocar de faixa. Transmita novamente ou reinicie o dispositivo.";
 "cast_lan_devices" = "Dispositivos de rede local";
 "cast_local_device" = "Este iPhone";
-"cast_local_subtitle" = "Jogue neste dispositivo";
+"cast_local_subtitle" = "Reproduzir neste dispositivo";
 "cast_picker_title" = "Dispositivo de reprodução";
 "cast_scanning" = "Procurando dispositivos…";
 "cast_to_device" = "Transmitir para dispositivo";
@@ -1356,7 +1356,7 @@
 "ext.tv.search.aiFailed" = "Falha na busca inteligente; resultados regulares permanecem disponíveis";
 "ext.tv.search.aiNoMatch" = "%@ não encontrou nenhuma correspondência de biblioteca";
 "ext.tv.search.aiSuccess" = "%@ está ativo";
-"external_display_idle" = "Comece a jogar na tela principal";
+"external_display_idle" = "Comece a reproduzir pela tela principal";
 "external_display_label" = "Display Externo · Segunda Tela";
 "failed" = "falhou";
 "failed_count" = "falhou";
@@ -1523,8 +1523,8 @@
 "home_pipeline_metadata_done" = "Concluído";
 "home_pipeline_scan" = "Digitalizar";
 "home_pipeline_sources" = "Origens";
-"home_playable" = "Proporção jogável";
-"home_playable_count_short" = "Peças";
+"home_playable" = "Proporção reproduzível";
+"home_playable_count_short" = "Reproduções";
 "home_radio_wall_badge" = "AO VIVO";
 "home_radio_wall_manage %lld" = "Gerenciar · %lld";
 "home_radio_wall_stream_info" = "Mostrar formato e taxa de bits";
@@ -1610,7 +1610,7 @@
 "home_similar_to_format" = "Semelhante a %@";
 "home_source_pipeline" = "Processamento de fontes";
 "home_sources_title" = "Origens";
-"home_stats_glimpse_format" = "Esta semana %1$d reproduz · %2$@ · %3$d dias";
+"home_stats_glimpse_format" = "Esta semana %1$d reproduções · %2$@ · %3$d dias";
 "home_title" = "Início";
 "home_todays_pick_title" = "Escolha de hoje";
 "home_top_artists_title" = "Ouvido com frequência";
@@ -1695,7 +1695,7 @@
 "immersive_effect_rotation_scope_title" = "Trocar entre";
 "immersive_effect_rotation_scope_all" = "Todos os efeitos";
 "immersive_lyrics_motion_title" = "Animação da letra";
-"immersive_now_playing" = "AGORA JOGANDO";
+"immersive_now_playing" = "TOCANDO AGORA";
 "immersive_track_position_format" = "FAIXA %02d";
 "immersive_track_position_total_format" = "FAIXA %02d/%02d";
 "immersive_unlock_controls" = "Desbloquear controles imersivos";
@@ -1752,7 +1752,7 @@
 "insecure_http_trust_title" = "Permitir uma conexão HTTP insegura?";
 "insecure_http_warning_message %@" = "O host “%@” usa HTTP não criptografado. Alguém na rede pode ler ou alterar as credenciais da sua conta, sessão e dados de música. Permitir mesmo assim?";
 "insecure_http_warning_title" = "Permitir uma conexão HTTP insegura?";
-"insert_next" = "Jogar a seguir";
+"insert_next" = "Tocar a seguir";
 "intent_playing_album_format" = "Reproduzindo o álbum %@.";
 "intent_playing_artist_format" = "Reproduzindo %@.";
 "intent_playing_genre_format" = "Reproduzindo música %@.";
@@ -1846,7 +1846,7 @@
 "lang_zh_hans" = "Chinês (simplificado)";
 "lang_zh_hant" = "Chinês (tradicional)";
 "last_modified_label" = "Data de origem";
-"last_played_label" = "Jogado pela última vez";
+"last_played_label" = "Última reprodução";
 "last_synced" = "Última sincronização";
 "later" = "Mais tarde";
 "library" = "Biblioteca";
@@ -1914,7 +1914,7 @@
 "library_sections_settings_footer" = "Arraste para reordenar. Desative uma categoria para ocultá-la da Biblioteca e da barra lateral.";
 "library_sections_settings_label" = "Categorias de biblioteca";
 "library_stats_header" = "Esta semana";
-"library_stats_plays_suffix" = "toca";
+"library_stats_plays_suffix" = "reproduções";
 "library_stats_top_artists_label" = "Superior";
 "library_title" = "Biblioteca";
 "licenses" = "Licenças de código aberto";
@@ -2295,7 +2295,7 @@
 "material_macos_14_or_later" = "macOS 14 ou posterior";
 "material_macos_26_or_later" = "macOS 26 ou posterior";
 "max" = "Máx.";
-"media_share_action" = "Criar link jogável";
+"media_share_action" = "Criar link reproduzível";
 "menu_bar_show_title" = "Mostrar Primuse na barra de menu";
 "metadata" = "Metadados";
 "metadata_backfill_fast_mode" = "Leitura de tags de alto desempenho";
@@ -2325,7 +2325,7 @@
 "metadata_status_filter_unreadable" = "Ilegível e incompleto";
 "metadata_status_health_clear" = "Atualmente, nenhuma música precisa de inspeção ou atenção.";
 "metadata_status_health_summary_format" = "%d pendente de inspeção · %d precisa de atenção";
-"metadata_status_incomplete" = "Jogável, mas incompleto";
+"metadata_status_incomplete" = "Reproduzível, mas incompleto";
 "metadata_status_incomplete_unverified_reason" = "Este registro não concluiu uma leitura completa do mesmo arquivo e, portanto, ainda não consegue distinguir tags de origem ausentes de uma leitura ou análise incompleta. Releia esta música para confirmar.";
 "metadata_status_list_count_format" = "Músicas afetadas pelo %d";
 "metadata_status_location_unknown" = "Local desconhecido";
@@ -2625,7 +2625,7 @@
 "playback_rate_section" = "Velocidade de reprodução";
 "playback_settings" = "Configurações de reprodução";
 "playback_settings_title" = "Configurações de reprodução";
-"played" = "Jogado";
+"played" = "Reproduzidas";
 "default_artwork_title" = "Capa padrão";
 "default_artwork_standard" = "Estilo original";
 "default_artwork_app_icon" = "Ícone atual do app";
@@ -2912,7 +2912,7 @@
 "recently_deleted_scraper_configs" = "Configurações de metadados";
 "recently_deleted_smart_playlists" = "Playlists inteligentes";
 "recently_deleted_sources" = "Origens de música";
-"recently_played" = "Jogado recentemente";
+"recently_played" = "Tocados recentemente";
 "reconnect_browse" = "Reconectar e navegar";
 "refresh" = "Atualizar";
 "relay_import_action" = "Baixar e importar";
@@ -2947,7 +2947,7 @@
 "relay_share_code_password_separate" = "O código localiza o compartilhamento. Os compartilhamentos protegidos por senha ainda exigem uma senha separada.";
 "relay_share_configuration" = "Compartilhar serviço";
 "relay_share_configuration_footer" = "Insira seu URL de serviço e chave de administrador. O URL permanece neste dispositivo e a chave é armazenada com segurança no Keychain.";
-"relay_share_create" = "Criar link jogável";
+"relay_share_create" = "Criar link reproduzível";
 "relay_share_create_hint" = "Lê a música por meio de seu conector proprietário e carrega pedaços limitados.";
 "relay_share_created_message" = "O relé armazenou a mídia e ativou o link.";
 "relay_share_endpoint" = "URL do Relé API";
@@ -3219,7 +3219,7 @@
 "scrobble_mac_queue_subtitle" = "Scrobbles com falha são mantidos até o próximo envio";
 "scrobble_mac_recent_reports_subtitle" = "Enviado recentemente para Last.fm/ListenBrainz";
 "scrobble_mac_recent_reports_title" = "Envios recentes";
-"scrobble_mac_rules_subtitle" = "Enviar após 50% or 4 minutos jogados; áudio curto é tratado proporcionalmente";
+"scrobble_mac_rules_subtitle" = "Enviar após 50% or 4 minutos reproduzidos; áudio curto é tratado proporcionalmente";
 "scrobble_mac_rules_title" = "Regras de Submissão";
 "scrobble_mac_rules_value" = "50% · 4 min";
 "scrobble_mac_session_saved" = "Sessão salva";
@@ -3229,7 +3229,7 @@
 "scrobble_mac_validating" = "Validando";
 "scrobble_mac_waiting_authorization" = "Aguardando autorização";
 "scrobble_mac_waiting_browser_auth" = "Aguardando autorização do navegador";
-"scrobble_overall_footer" = "Enviar histórico de escuta para Last.fm/ListenBrainz. Conta após 50% or 4 minutos jogados.";
+"scrobble_overall_footer" = "Enviar histórico de escuta para Last.fm/ListenBrainz. Conta após 50% or 4 minutos reproduzidos.";
 "scrobble_pending_count" = "Nova tentativa pendente";
 "scrobble_provider_section" = "Serviço";
 "scrobble_queue_section" = "Falha na fila";
@@ -3308,7 +3308,7 @@
 "server_favorite_unsupported" = "Esta fonte não suporta favoritos de servidor.";
 "server_favorite_update_failed_message" = "Não foi possível atualizar o favorito do servidor. Primuse ressincronizou ou restaurou o estado anterior.\n%@";
 "server_favorite_update_failed_title" = "Não foi possível atualizar o favorito";
-"server_play_count_label" = "Contagem de jogos do servidor";
+"server_play_count_label" = "Contagem de reproduções no servidor";
 "server_share_action" = "Criar link público";
 "server_share_checking" = "Verificando suporte ao compartilhamento do servidor…";
 "server_share_create" = "Criar link público";
@@ -3377,7 +3377,7 @@
 "share_choose_primuse_relay_hint" = "Altera apenas o método; ainda não carrega nem altera permissões";
 "share_continue_music_server" = "Continuar com o Servidor de Música";
 "share_continue_primuse_relay" = "Configurar serviço de compartilhamento Primuse";
-"share_create_playable_link" = "Criar link jogável";
+"share_create_playable_link" = "Criar link reproduzível";
 "share_create_playable_link_hint" = "Continue revisando expiração, acesso e permissões de reprodução";
 "share_link_method" = "Método";
 "share_link_permissions_footer" = "Automático prefere o servidor de música. Primuse pede que você revise as permissões antes de fazer upload de qualquer coisa.";
@@ -3482,7 +3482,7 @@
 "smart_field_fileSize" = "Tamanho do arquivo";
 "smart_field_genre" = "Gênero";
 "smart_field_isInPlaylist" = "Na lista de reprodução";
-"smart_field_lastPlayedAt" = "Jogado pela última vez";
+"smart_field_lastPlayedAt" = "Última reprodução";
 "smart_field_playCount" = "Contagem de Reproduções";
 "smart_field_sourceID" = "Origem";
 "smart_field_title" = "Título";
@@ -3539,7 +3539,7 @@
 "smart_sort_field_artistName" = "Artista";
 "smart_sort_field_dateAdded" = "Data adicionada";
 "smart_sort_field_duration" = "Duração";
-"smart_sort_field_lastPlayedAt" = "Jogado pela última vez";
+"smart_sort_field_lastPlayedAt" = "Última reprodução";
 "smart_sort_field_playCount" = "Contagem de Reproduções";
 "smart_sort_field_random" = "Aleatório";
 "smart_sort_field_title" = "Título";
@@ -3556,7 +3556,7 @@
 "smb_error_timeout" = "SMB: Tempo limite de conexão esgotado";
 "smb_error_unreachable" = "SMB: Servidor inacessível (verificar rede)";
 "song_details_check_source" = "Verificar fonte";
-"song_details_incomplete" = "Jogável com detalhes incompletos";
+"song_details_incomplete" = "Reproduzível com detalhes incompletos";
 "song_details_incomplete_message" = "Esta música continua reproduzível, mas os detalhes completos ainda não podem ser confirmados nos campos brutos disponíveis. A reprodução pode resolver sua duração.";
 "song_details_loading" = "Lendo informações da faixa";
 "song_details_loading_message" = "Baixar o cabeçalho da tag desta música (~256 KB) da nuvem para extrair duração, capa e artista. Uma vez feito isso, você pode adicioná-lo à fila de reprodução.";
@@ -3782,7 +3782,7 @@
 "stats_empty_desc" = "As músicas que você ouvir por 30 segundos ou mais serão contadas aqui. Volte depois de ouvir um pouco.";
 "stats_empty_title" = "Ainda não há histórico";
 "stats_heatmap_dimensions_format" = "7×%1$d · %2$d dias";
-"stats_heatmap_footer" = "Cada célula equivale a um dia. Mais escuro = mais jogadas naquele dia.";
+"stats_heatmap_footer" = "Cada célula equivale a um dia. Mais escuro = mais reproduções naquele dia.";
 "stats_heatmap_less" = "Menos";
 "stats_heatmap_more" = "Mais";
 "stats_heatmap_style_title" = "Mapa de calor estilo GitHub";
@@ -3795,7 +3795,7 @@
 "stats_minutes_format" = "%d mín.";
 "stats_no_previous_comparison" = "Nenhum período anterior para comparar";
 "stats_play_count" = "Contagem de Reproduções";
-"stats_play_count_format" = "%d reproduz";
+"stats_play_count_format" = "%d reproduções";
 "stats_privacy_footer" = "O histórico de escuta é armazenado apenas neste dispositivo. Ele nunca é carregado na nuvem ou sincronizado com outros dispositivos.";
 "stats_range" = "Faixa";
 "stats_range_all" = "Todos";
@@ -3817,9 +3817,9 @@
 "stats_server_error_invalid_payload" = "O servidor retornou uma carga útil de estatísticas não suportada.";
 "stats_server_error_invalid_snapshot" = "O servidor retornou um instantâneo de estatísticas de escuta incompleto.";
 "stats_server_error_unsupported" = "Esta fonte não expõe estatísticas legíveis de escuta do servidor.";
-"stats_server_event_boundary" = "Este servidor expõe carimbos de data/hora de jogo individuais, portanto, intervalos e atividades diárias usam o histórico do servidor. Ele não expõe a duração real ouvida, portanto a duração total não é mostrada.";
+"stats_server_event_boundary" = "Este servidor expõe carimbos de data/hora de cada reprodução, portanto, intervalos e atividades diárias usam o histórico do servidor. Ele não expõe a duração real ouvida, portanto a duração total não é mostrada.";
 "stats_server_heatmap_footer" = "Cada célula é derivada de um evento individual do histórico do servidor; a história local não é adicionada.";
-"stats_server_last_played" = "Jogado pela última vez";
+"stats_server_last_played" = "Última reprodução";
 "stats_server_last_updated" = "Última atualização";
 "stats_server_loading" = "Carregando estatísticas do servidor…";
 "stats_server_never_played" = "Nunca";
@@ -3838,7 +3838,7 @@
 "stats_top_artists" = "Principais Artistas";
 "stats_top_songs" = "Melhores músicas";
 "stats_total_duration" = "Duração Total";
-"stats_total_plays" = "Peças";
+"stats_total_plays" = "Reproduções";
 "stats_total_time" = "Tempo Total";
 "stats_unique_songs" = "Músicas únicas";
 "stats_unique_songs_format" = "Músicas exclusivas %d";
@@ -4111,14 +4111,14 @@
 "year_label" = "Ano";
 "yearly_card_closing_next_format" = "%@, vamos continuar";
 "yearly_card_closing_thanks" = "Obrigado por cada encontro com Primuse";
-"yearly_card_genres_plays_format" = "%d reproduz";
+"yearly_card_genres_plays_format" = "%d reproduções";
 "yearly_card_growth_less_format" = "%d%% menos que no ano passado — continue";
 "yearly_card_growth_more_format" = "%d%% mais que no ano passado";
 "yearly_card_growth_same" = "Quase a mesma audição do ano passado";
-"yearly_card_peak_month_top_format" = "Seu jogo mais jogado naquele mês: %@";
+"yearly_card_peak_month_top_format" = "O que você mais ouviu naquele mês: %@";
 "yearly_card_time_detail_format" = "%@ é quando você mais ouve";
-"yearly_card_top_artist_detail_format" = "Jogado %d vezes, %@ total";
-"yearly_meta_top_songs_sub_format" = "%@ · %d reproduz";
+"yearly_card_top_artist_detail_format" = "Tocado %d vezes, %@ no total";
+"yearly_meta_top_songs_sub_format" = "%@ · %d reproduções";
 "yearly_month_1" = "Janeiro";
 "yearly_month_10" = "Outubro";
 "yearly_month_11" = "Novembro";

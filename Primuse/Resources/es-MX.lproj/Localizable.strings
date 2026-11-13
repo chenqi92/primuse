@@ -218,7 +218,7 @@
 "Minimal Data Look" = "Vista mínima de datos";
 "Minimum OS" = "SO mínimo";
 "Mode" = "Modo";
-"Most Played This Month" = "Más jugado este mes";
+"Most Played This Month" = "Lo más reproducido este mes";
 "Music Sources" = "Orígenes de música";
 "Music Sources · Small" = "Fuentes de música · Pequeño";
 "MusicKit Connected" = "MusicKit conectado";
@@ -283,7 +283,7 @@
 "Playback Rate & Quality" = "Velocidad y calidad de reproducción";
 "Playback speed set to %1$@ times." = "Velocidad de reproducción establecida en %1$@ veces.";
 "Playback speed can't be changed in High Fidelity Direct mode." = "No se puede cambiar la velocidad de reproducción en el modo Alta fidelidad directa.";
-"Playing" = "Jugando";
+"Playing" = "Reproduciendo";
 "Playlist" = "Lista de reproducción";
 "Please specify a playlist name." = "Especifique un nombre de lista de reproducción.";
 "Points to scraper.json manifest · downloads manifest and referenced JS scripts" = "Apunta al manifiesto scraper.json; descarga el manifiesto y los scripts JS referenciados";
@@ -361,7 +361,7 @@
 "Shown when the player window goes full screen" = "Se muestra cuando la ventana del reproductor pasa a pantalla completa";
 "Shuffle" = "Aleatorio";
 "Shuffle Library" = "Reproducir biblioteca en orden aleatorio";
-"Shuffle the entire library and start playing." = "Mezcla toda la biblioteca y comienza a jugar.";
+"Shuffle the entire library and start playing." = "Mezcla toda la biblioteca y comienza a escuchar.";
 "Shui Diao Ge Tou" = "Shui Diao Ge Tou";
 "Shui Diao Ge Tou · FLAC 988 kbps" = "Shui Diao Ge Tou · FLAC 988 kbps";
 "Sidebar Widget" = "Widget de la barra lateral";
@@ -843,7 +843,7 @@
 "artist_appears_on" = "Aparece en";
 "artist_changed" = "Artista actualizado";
 "artist_label" = "Artista";
-"artist_monthly_plays_format" = "%d juega este mes";
+"artist_monthly_plays_format" = "%d reproducciones este mes";
 "artist_most_played_albums" = "Álbumes más reproducidos";
 "artist_name_settings_display_footer" = "Se usa solo cuando se muestran varios artistas; Los metadatos de origen permanecen sin cambios.";
 "artist_name_settings_display_separator" = "Separador de Pantalla";
@@ -864,7 +864,7 @@
 "artist_name_settings_title" = "Nombres de artistas";
 "artist_name_settings_tv_read_only" = "Editar en iPhone, iPad o Mac";
 "artist_name_settings_tv_summary" = "Separadores %1$d · %2$d protegidos";
-"artist_popular" = "Más jugado";
+"artist_popular" = "Lo más reproducido";
 "artist_releases" = "Lanzamientos";
 "artists_count" = "artistas";
 "artwork_choose_file" = "Subir";
@@ -1356,7 +1356,7 @@
 "ext.tv.search.aiFailed" = "La búsqueda inteligente falló; Los resultados regulares permanecen disponibles.";
 "ext.tv.search.aiNoMatch" = "%@ no encontró coincidencias de biblioteca";
 "ext.tv.search.aiSuccess" = "%@ está activo";
-"external_display_idle" = "Comienza a jugar desde la pantalla principal";
+"external_display_idle" = "Comienza a reproducir desde la pantalla principal";
 "external_display_label" = "Pantalla Externa · Segunda Pantalla";
 "failed" = "falló";
 "failed_count" = "falló";
@@ -1610,7 +1610,7 @@
 "home_similar_to_format" = "Similar a %@";
 "home_source_pipeline" = "Procesamiento de fuentes";
 "home_sources_title" = "Orígenes";
-"home_stats_glimpse_format" = "Esta semana juega %1$d · %2$@ · %3$d días";
+"home_stats_glimpse_format" = "Esta semana %1$d reproducciones · %2$@ · %3$d días";
 "home_title" = "Inicio";
 "home_todays_pick_title" = "La elección de hoy";
 "home_top_artists_title" = "Escuchado frecuentemente";
@@ -1695,7 +1695,7 @@
 "immersive_effect_rotation_scope_title" = "Cambiar entre";
 "immersive_effect_rotation_scope_all" = "Todos los efectos";
 "immersive_lyrics_motion_title" = "Animación de la letra";
-"immersive_now_playing" = "AHORA JUGANDO";
+"immersive_now_playing" = "EN REPRODUCCIÓN";
 "immersive_track_position_format" = "PISTA %02d";
 "immersive_track_position_total_format" = "PISTA %02d / %02d";
 "immersive_unlock_controls" = "Desbloquear controles inmersivos";
@@ -1914,7 +1914,7 @@
 "library_sections_settings_footer" = "Arrastre para reordenar. Desactive una categoría para ocultarla de la Biblioteca y de la barra lateral.";
 "library_sections_settings_label" = "Categorías de biblioteca";
 "library_stats_header" = "Esta semana";
-"library_stats_plays_suffix" = "reproduce";
+"library_stats_plays_suffix" = "reproducciones";
 "library_stats_top_artists_label" = "Arriba";
 "library_title" = "Biblioteca";
 "licenses" = "Licencias de código abierto";
@@ -3219,7 +3219,7 @@
 "scrobble_mac_queue_subtitle" = "Los scrobbles fallidos se conservan hasta el siguiente envío";
 "scrobble_mac_recent_reports_subtitle" = "Enviado recientemente a Last.fm / ListenBrainz";
 "scrobble_mac_recent_reports_title" = "Envíos recientes";
-"scrobble_mac_rules_subtitle" = "Enviar después de 50% or 4 minutos jugados; El audio corto se maneja proporcionalmente.";
+"scrobble_mac_rules_subtitle" = "Enviar después de 50% or 4 minutos reproducidos; El audio corto se maneja proporcionalmente.";
 "scrobble_mac_rules_title" = "Reglas de envío";
 "scrobble_mac_rules_value" = "50% · 4 minutos";
 "scrobble_mac_session_saved" = "Sesión guardada";
@@ -3229,7 +3229,7 @@
 "scrobble_mac_validating" = "Validando";
 "scrobble_mac_waiting_authorization" = "Esperando autorización";
 "scrobble_mac_waiting_browser_auth" = "Esperando autorización del navegador";
-"scrobble_overall_footer" = "Enviar historial de escucha a Last.fm / ListenBrainz. Cuenta después de 50% or 4 minutos jugados.";
+"scrobble_overall_footer" = "Enviar historial de escucha a Last.fm / ListenBrainz. Cuenta después de 50% or 4 minutos reproducidos.";
 "scrobble_pending_count" = "Reintento pendiente";
 "scrobble_provider_section" = "Servicio";
 "scrobble_queue_section" = "Cola fallida";
@@ -3782,7 +3782,7 @@
 "stats_empty_desc" = "Las canciones que escuche durante 30 segundos o más se contarán aquí. Vuelve después de escuchar un rato.";
 "stats_empty_title" = "Aún no hay historial";
 "stats_heatmap_dimensions_format" = "7×%1$d · %2$d días";
-"stats_heatmap_footer" = "Cada celda es un día. Más oscuro = más jugadas ese día.";
+"stats_heatmap_footer" = "Cada celda es un día. Más oscuro = más reproducciones ese día.";
 "stats_heatmap_less" = "Menos";
 "stats_heatmap_more" = "Más";
 "stats_heatmap_style_title" = "Mapa de calor estilo GitHub";
@@ -3795,7 +3795,7 @@
 "stats_minutes_format" = "%d mín.";
 "stats_no_previous_comparison" = "No hay período anterior para comparar";
 "stats_play_count" = "Conteo de reproducciones";
-"stats_play_count_format" = "%d reproduce";
+"stats_play_count_format" = "%d reproducciones";
 "stats_privacy_footer" = "El historial de escucha se almacena solo en este dispositivo. Nunca se carga en la nube ni se sincroniza con otros dispositivos.";
 "stats_range" = "Rango";
 "stats_range_all" = "Todos";
@@ -3817,7 +3817,7 @@
 "stats_server_error_invalid_payload" = "El servidor devolvió una carga útil de estadísticas no compatible.";
 "stats_server_error_invalid_snapshot" = "El servidor devolvió una instantánea de estadísticas de escucha incompleta.";
 "stats_server_error_unsupported" = "Esta fuente no expone estadísticas legibles de escucha del servidor.";
-"stats_server_event_boundary" = "Este servidor expone marcas de tiempo de juego individuales, por lo que los rangos y la actividad diaria utilizan el historial del servidor. No expone la duración real escuchada, por lo que no se muestra la duración total.";
+"stats_server_event_boundary" = "Este servidor expone marcas de tiempo de cada reproducción, por lo que los rangos y la actividad diaria utilizan el historial del servidor. No expone la duración real escuchada, por lo que no se muestra la duración total.";
 "stats_server_heatmap_footer" = "Cada celda se deriva de un evento del historial del servidor individual; La historia local no se agrega.";
 "stats_server_last_played" = "Última reproducción";
 "stats_server_last_updated" = "Última actualización";
@@ -4111,14 +4111,14 @@
 "year_label" = "Año";
 "yearly_card_closing_next_format" = "%@, sigamos";
 "yearly_card_closing_thanks" = "Gracias por cada encuentro con Primuse";
-"yearly_card_genres_plays_format" = "%d reproduce";
+"yearly_card_genres_plays_format" = "%d reproducciones";
 "yearly_card_growth_less_format" = "%d%% menos que el año pasado — continúa";
 "yearly_card_growth_more_format" = "%d%% más que el año pasado";
 "yearly_card_growth_same" = "Casi la misma escucha que el año pasado";
-"yearly_card_peak_month_top_format" = "Tu juego más jugado ese mes: %@";
+"yearly_card_peak_month_top_format" = "Lo que más escuchaste ese mes: %@";
 "yearly_card_time_detail_format" = "%@ es cuando más escuchas";
 "yearly_card_top_artist_detail_format" = "Reproducido %d veces, %@ en total";
-"yearly_meta_top_songs_sub_format" = "%@ · %d reproduce";
+"yearly_meta_top_songs_sub_format" = "%@ · %d reproducciones";
 "yearly_month_1" = "enero";
 "yearly_month_10" = "Octubre";
 "yearly_month_11" = "noviembre";

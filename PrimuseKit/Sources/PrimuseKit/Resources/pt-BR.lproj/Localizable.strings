@@ -115,7 +115,7 @@
 "ext.control.previous.description" = "Volta para a faixa anterior.";
 "ext.control.previous.displayName" = "Primuse Anterior";
 "ext.control.shuffle" = "Aleatório";
-"ext.control.shuffle.description" = "Embaralhe todo o seu grimório e comece a jogar.";
+"ext.control.shuffle.description" = "Embaralhe toda a sua biblioteca e comece a ouvir.";
 "ext.control.shuffle.displayName" = "Primuse Embaralhamento";
 "ext.synology.quickconnect.error.invalidID" = "O ID do QuickConnect é inválido.";
 "ext.synology.quickconnect.error.invalidResponse" = "O QuickConnect retornou uma resposta não reconhecida.";
@@ -156,7 +156,7 @@
 "ext.tv.home.madeForYou" = "Feito para você";
 "ext.tv.home.playAll" = "Reproduzir tudo";
 "ext.tv.home.recentlyAdded" = "Adicionado recentemente";
-"ext.tv.home.recentlyPlayed" = "Jogado recentemente";
+"ext.tv.home.recentlyPlayed" = "Tocados recentemente";
 "ext.tv.home.shuffle" = "Aleatório";
 "ext.tv.home.tonightsPick" = "Escolha desta noite";
 "ext.tv.http.allow" = "Permitir e continuar";
@@ -188,7 +188,7 @@
 "ext.tv.nav.sources" = "Origens";
 "ext.tv.nowPlaying.eyebrow" = "Reproduzindo";
 "ext.tv.nowPlaying.noLyrics" = "Sem letras";
-"ext.tv.nowPlaying.notPlaying" = "Não estou jogando";
+"ext.tv.nowPlaying.notPlaying" = "Nada tocando";
 "ext.tv.nowPlaying.pickASong" = "Escolha uma música da sua biblioteca para começar";
 "ext.tv.options.eyebrow" = "Opções";
 "ext.tv.options.love" = "Amor";
@@ -287,7 +287,7 @@
 "ext.tv.scan.noSubfolders" = "Esta pasta não possui subpastas. Selecione a pasta atual para digitalizá-la diretamente.";
 "ext.tv.scan.open" = "Abrir ▸";
 "ext.tv.scan.openFolder" = "Abra esta pasta";
-"ext.tv.scan.playable" = "Jogável";
+"ext.tv.scan.playable" = "Reproduzível";
 "ext.tv.scan.retry" = "Tente novamente";
 "ext.tv.scan.scanningSource" = "Digitalizando %@";
 "ext.tv.scan.selected" = "Pastas Selecionadas";
@@ -457,7 +457,7 @@
 "ext.tv.test.sourceNotFound" = "Fonte não encontrada";
 "ext.tv.test.unsupported" = "“%@” não pode ser reproduzido diretamente no Apple TV";
 "ext.tv.topShelf.library" = "Biblioteca";
-"ext.tv.topShelf.recent" = "Jogado recentemente";
+"ext.tv.topShelf.recent" = "Tocados recentemente";
 "ext.tv.unknownArtist" = "Artista Desconhecido";
 "ext.watch.appName" = "Primuse";
 "ext.watch.complication.description" = "Dê uma olhada no que está tocando agora.";
@@ -499,19 +499,19 @@
 "ext.widget.nowPlaying.empty.openLarge" = "Conecte uma fonte de música e sua música atual e seu progresso serão exibidos aqui.";
 "ext.widget.nowPlaying.empty.openMedium" = "Abra o Primuse para continuar de onde parou";
 "ext.widget.nowPlaying.empty.openShort" = "Abra Primuse para continuar";
-"ext.widget.nowPlaying.empty.tapToPlay" = "Toque para começar a jogar";
+"ext.widget.nowPlaying.empty.tapToPlay" = "Toque para começar a ouvir";
 "ext.widget.nowPlaying.empty.title" = "Nada tocando";
 "ext.widget.nowPlaying.eyebrowFormat" = "Em reprodução · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "Pausado · %@";
 "ext.widget.nowPlaying.paused" = "Pausado";
 "ext.widget.nowPlaying.playing" = "Reproduzindo";
 "ext.widget.recent.description" = "Coloque seus álbuns reproduzidos recentemente diretamente na tela inicial.";
-"ext.widget.recent.displayName" = "Jogado recentemente";
+"ext.widget.recent.displayName" = "Tocados recentemente";
 "ext.widget.recent.empty.large" = "Os álbuns que você reproduziu recentemente são sincronizados automaticamente com sua tela inicial";
 "ext.widget.recent.empty.medium" = "Seus álbuns recentes aparecerão aqui assim que você começar a tocar";
-"ext.widget.recent.empty.short" = "Aparece quando você começa a jogar";
+"ext.widget.recent.empty.short" = "Aparece quando você começa a ouvir";
 "ext.widget.recent.empty.title" = "Nada recente";
-"ext.widget.recent.eyebrow" = "Jogado recentemente";
+"ext.widget.recent.eyebrow" = "Tocados recentemente";
 "ext.widget.sources.description" = "Status de indexação e contagens indexadas para cada fonte.";
 "ext.widget.sources.displayName" = "Origens de música";
 "ext.widget.sources.eyebrow" = "Origens";
@@ -521,7 +521,7 @@
 "ext.widget.stats.eyebrow" = "Este mês";
 "ext.widget.stats.hoursFormat" = "%d h";
 "ext.widget.stats.last30Days" = "Últimos 30 dias";
-"ext.widget.stats.plays" = "toca";
+"ext.widget.stats.plays" = "reproduções";
 "ext.widget.stats.topThisMonth" = "Top deste mês";
 "ext.widget.stats.totalTime" = "tempo total";
 "ext.widget.unknownAlbum" = "Álbum desconhecido";

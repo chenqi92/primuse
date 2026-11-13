@@ -1449,7 +1449,7 @@
 "fullscreen_effect_kinetic_lyrics_motion" = "كلمات تقفز وتتوهّج مع الغناء · انتقال ناعم بين الأسطر · لا يحتاج إلى طيف مباشر";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";
-"fullscreen_effect_native_subtitle" = "تخطيط اللاعب وعناصر التحكم المألوفة";
+"fullscreen_effect_native_subtitle" = "تخطيط المشغّل وعناصر التحكم المألوفة";
 "fullscreen_effect_radial_pulse" = "النبض الشعاعي";
 "fullscreen_effect_radial_pulse_motion" = "الطيف المباشر مدفوع · سجل متناوب";
 "fullscreen_effect_radial_pulse_subtitle" = "حلقة التسجيل الدوارة تستجيب للصوت الفعلي";
@@ -1524,7 +1524,7 @@
 "home_pipeline_scan" = "المسح";
 "home_pipeline_sources" = "المصادر";
 "home_playable" = "نسبة اللتشغيل";
-"home_playable_count_short" = "المسرحيات";
+"home_playable_count_short" = "مرات التشغيل";
 "home_radio_wall_badge" = "مباشر";
 "home_radio_wall_manage %lld" = "الإدارة · %lld";
 "home_radio_wall_stream_info" = "إظهار التنسيق ومعدل البت";
@@ -1914,7 +1914,7 @@
 "library_sections_settings_footer" = "اسحب لإعادة الترتيب. قم بإيقاف تشغيل فئة لإخفائها من المكتبة والشريط الجانبي.";
 "library_sections_settings_label" = "فئات المكتبة";
 "library_stats_header" = "هذا الاسبوع";
-"library_stats_plays_suffix" = "مسرحيات";
+"library_stats_plays_suffix" = "مرة تشغيل";
 "library_stats_top_artists_label" = "الأعلى";
 "library_title" = "المكتبة";
 "licenses" = "تراخيص مفتوحة المصدر";
@@ -3782,7 +3782,7 @@
 "stats_empty_desc" = "سيتم احتساب الأغاني التي تستمع إليها لمدة 30 ثانية أو أكثر هنا. أعود بعد الاستماع قليلا.";
 "stats_empty_title" = "لا يوجد تاريخ بعد";
 "stats_heatmap_dimensions_format" = "7×%1$d · %2$d يوم";
-"stats_heatmap_footer" = "كل خلية يوم واحد. أغمق = المزيد من المسرحيات في ذلك اليوم.";
+"stats_heatmap_footer" = "كل خلية يوم واحد. أغمق = تشغيلات أكثر في ذلك اليوم.";
 "stats_heatmap_less" = "أقل";
 "stats_heatmap_more" = "المزيد";
 "stats_heatmap_style_title" = "خريطة الحرارة على نمط جيثب";
@@ -3795,7 +3795,7 @@
 "stats_minutes_format" = "%d د";
 "stats_no_previous_comparison" = "لا توجد فترة سابقة للمقارنة";
 "stats_play_count" = "عدد مرات التشغيل";
-"stats_play_count_format" = "%d مسرحيات";
+"stats_play_count_format" = "%d مرة تشغيل";
 "stats_privacy_footer" = "يتم تخزين سجل الاستماع على هذا الجهاز فقط. ولا يتم تحميله مطلقًا على السحابة أو مزامنته مع الأجهزة الأخرى.";
 "stats_range" = "المدى";
 "stats_range_all" = "الكل";
@@ -3838,7 +3838,7 @@
 "stats_top_artists" = "كبار الفنانين";
 "stats_top_songs" = "أفضل الأغاني";
 "stats_total_duration" = "المدة الإجمالية";
-"stats_total_plays" = "المسرحيات";
+"stats_total_plays" = "مرات التشغيل";
 "stats_total_time" = "إجمالي الوقت";
 "stats_unique_songs" = "الأغاني الفريدة";
 "stats_unique_songs_format" = "%d أغاني مميزة";
@@ -4115,10 +4115,10 @@
 "yearly_card_growth_less_format" = "%d%% أقل من العام الماضي – استمر";
 "yearly_card_growth_more_format" = "%d%% أكثر من العام الماضي";
 "yearly_card_growth_same" = "نفس الاستماع تقريبا كما في العام الماضي";
-"yearly_card_peak_month_top_format" = "الأكثر لعبًا لديك في ذلك الشهر: %@";
+"yearly_card_peak_month_top_format" = "الأكثر تشغيلًا لديك في ذلك الشهر: %@";
 "yearly_card_time_detail_format" = "%@ عندما تستمع أكثر";
 "yearly_card_top_artist_detail_format" = "تم اللتشغيل %d مرات، %@ الإجمالي";
-"yearly_meta_top_songs_sub_format" = "%@ · %d مسرحيات";
+"yearly_meta_top_songs_sub_format" = "%@ · %d مرة تشغيل";
 "yearly_month_1" = "يناير";
 "yearly_month_10" = "أكتوبر";
 "yearly_month_11" = "نوفمبر";

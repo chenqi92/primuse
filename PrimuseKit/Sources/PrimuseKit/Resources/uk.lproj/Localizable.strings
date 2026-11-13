@@ -64,7 +64,7 @@
 "ext.tv.library.filter.artists" = "Виконавці";
 "send_to_tv_error_credential_read" = "“%@” %@ не вдалося прочитати з Keychain (OSStatus %@).";
 "ext.widget.nowPlaying.empty.openShort" = "Відкрийте Primuse, щоб продовжити";
-"ext.widget.nowPlaying.empty.tapToPlay" = "Натисніть, щоб почати гру";
+"ext.widget.nowPlaying.empty.tapToPlay" = "Натисніть, щоб почати відтворення";
 "error.baidu.missingPaths" = "Файловий менеджер Baidu пропустив шлях(и) %@.";
 "theme_color_rose" = "Роза";
 "error.catalog.pageTotalMismatch" = "Сторінка треку не відповідає заявленій сумі.";
@@ -98,7 +98,7 @@
 "send_to_tv_error_source_data" = "Не вдалося прочитати конфігурацію музичного джерела: %@";
 "ext.tv.scan.uncheck" = "Скасувати вибір";
 "src.displayName.local" = "Локальні файли";
-"ext.widget.recent.empty.short" = "З’являється, коли ви починаєте грати";
+"ext.widget.recent.empty.short" = "З’являється, коли ви починаєте слухати";
 "ext.tv.settings.about" = "Про Primuse";
 "drime_connect_button" = "Підключитися до Drime";
 "theme_color_mode_auto" = "З обкладинки";
@@ -159,7 +159,7 @@
 "ext.tv.home.emptyWithRadio" = "Синхронізуйте медіатеку з iPhone або Mac, щоб бачити тут музику, або додайте інтернет-радіостанції напряму.";
 "ext.tv.settings.notSynced" = "Ще не синхронізовано";
 "error.catalog.missingHTTPResponse" = "Сервер не повернув відповідь HTTP.";
-"fullscreen_effect_native_subtitle" = "Звичне розташування та елементи керування гравцем";
+"fullscreen_effect_native_subtitle" = "Звичне розташування та елементи керування плеєра";
 "ext.tv.library.title.albums" = "Альбоми · %d";
 "ext.tv.sources.saveFailedBody" = "Джерело або його облікові дані не вдалося зберегти повністю. Спробуйте знову.";
 "ext.tv.scan.depthExceeded" = "Вкладеність папки перевищує ліміт сканування (рівні %d).";
@@ -208,7 +208,7 @@
 "error.catalog.responseNotJSON" = "Відповідь не JSON.";
 "ext.tv.options.sleepTimer" = "Таймер сну";
 "error.catalog.missingItemsOrTotal" = "У списку треків відсутні елементи або загальна кількість.";
-"ext.tv.scan.playable" = "Можна грати";
+"ext.tv.scan.playable" = "Відтворювані";
 "error.catalog.incompletePage" = "Пагінація треку неповна.";
 "ext.tv.error.range.bodyTooLarge" = "Тіло відповіді перевищило байти %@, оголошені Content-Range.";
 "ext.tv.sources.scanFolders" = "Виберіть папки для сканування";
@@ -240,7 +240,7 @@
 "ext.tv.sources.form.serverAddress" = "Адреса сервера";
 "fullscreen_effect_radial_pulse_motion" = "На основі живого спектру · Змінний запис";
 "ext.tv.test.noSongs" = "Це джерело не має пісень у бібліотеці для перевірки";
-"ext.control.shuffle.description" = "Перемішайте всю свою медіатеку та починайте грати.";
+"ext.control.shuffle.description" = "Перемішайте всю свою медіатеку та починайте слухати.";
 "ext.tv.sources.hint.sftp" = "Передача файлів SSH";
 "src.subtitle.jellyfin" = "Відкритий код";
 "ext.tv.library.title.playlists" = "Списки відтворення · %d";
@@ -532,7 +532,7 @@
 "src.subtitle.upnp" = "Автоматичне виявлення";
 "ext.tv.queue.upNext" = "Далі · Пісні %d";
 "ext.widget.lyricsPreview.empty1" = "Без попереднього перегляду тексту";
-"ext.widget.recent.empty.medium" = "Ваші останні альбоми з’являться тут, коли ви почнете грати";
+"ext.widget.recent.empty.medium" = "Ваші останні альбоми з’являться тут, коли ви почнете слухати";
 "ext.control.playPause.description" = "Керуйте відтворенням Primuse одним дотиком.";
 "synology_connection_quickconnect" = "QuickConnect";
 "ext.tv.sources.discovered" = "Виявлено в локальній мережі";
@@ -709,7 +709,7 @@
 "ext.tv.sources.hint.mediaServer" = "Медіасервер";
 "ext.tv.immersive.holdForQueue" = "Зачекайте для черги";
 "ext.tv.unknownArtist" = "Невідомий виконавець";
-"ext.widget.stats.plays" = "грає";
+"ext.widget.stats.plays" = "прослуховувань";
 "source_connection_intro" = "Введіть адресу локальної мережі, віддалену адресу або обидві. Якщо обидва збережені, Primuse використовує будь-який доступний і швидший.";
 "ext.tv.sources.hint.webdav" = "Synology · Nextcloud";
 "ext.tv.radio.stop" = "Стоп";

@@ -98,7 +98,7 @@
 "send_to_tv_error_source_data" = "Müzik kaynağı yapılandırması okunamadı: %@";
 "ext.tv.scan.uncheck" = "Seçimi kaldır";
 "src.displayName.local" = "Yerel";
-"ext.widget.recent.empty.short" = "Oynamaya başladığınızda görünür";
+"ext.widget.recent.empty.short" = "Dinlemeye başladığınızda görünür";
 "ext.tv.settings.about" = "Primuse Hakkında";
 "drime_connect_button" = "Drime'a bağlan";
 "theme_color_mode_auto" = "Kapak Resminden";
@@ -208,7 +208,7 @@
 "error.catalog.responseNotJSON" = "Yanıt JSON değil.";
 "ext.tv.options.sleepTimer" = "Uyku Zamanlayıcısı";
 "error.catalog.missingItemsOrTotal" = "Parça listesinde eksik öğeler veya toplam sayı var.";
-"ext.tv.scan.playable" = "Oynanabilir";
+"ext.tv.scan.playable" = "Çalınabilir";
 "error.catalog.incompletePage" = "Parça sayfalandırması eksik.";
 "ext.tv.error.range.bodyTooLarge" = "Yanıt gövdesi, Content-Range tarafından bildirilen %@ bayt sayısını aştı.";
 "ext.tv.sources.scanFolders" = "Taranacak Klasörleri Seçin";
@@ -240,7 +240,7 @@
 "ext.tv.sources.form.serverAddress" = "Sunucu Adresi";
 "fullscreen_effect_radial_pulse_motion" = "Canlı spektrum odaklı · Dönen kayıt";
 "ext.tv.test.noSongs" = "Bu kaynağın arşivinde test edilecek şarkı yok";
-"ext.control.shuffle.description" = "Tüm arşivinizi karıştırın ve oynamaya başlayın.";
+"ext.control.shuffle.description" = "Tüm arşivinizi karıştırın ve dinlemeye başlayın.";
 "ext.tv.sources.hint.sftp" = "SSH dosya aktarımı";
 "src.subtitle.jellyfin" = "Açık kaynak";
 "ext.tv.library.title.playlists" = "Çalma listeleri · %d";
@@ -509,7 +509,7 @@
 "ext.tv.search.aiSupplement" = "Akıllı tamamlayıcı sonuçlar";
 "ext.tv.settings.general" = "Genel";
 "src.subtitle.fnMusic" = "Doğrudan katalog · Yerel API";
-"ext.watch.complication.description" = "Şu anda oynanan şeye bir göz atın.";
+"ext.watch.complication.description" = "Şu anda çalan şeye bir göz atın.";
 "artist_name_settings_tv_summary" = "%1$d ayırıcı · %2$d korumalı";
 "ext.tv.options.sleepActive" = "Uyku %d dk.";
 "ext.tv.search.topResult" = "En İyi Sonuç";
@@ -709,7 +709,7 @@
 "ext.tv.sources.hint.mediaServer" = "Medya sunucusu";
 "ext.tv.immersive.holdForQueue" = "Sıra için basılı tutun";
 "ext.tv.unknownArtist" = "Bilinmeyen Sanatçı";
-"ext.widget.stats.plays" = "çalış";
+"ext.widget.stats.plays" = "çalma";
 "source_connection_intro" = "Bir LAN adresi, uzak bir adres veya her ikisini birden girin. Her ikisi de kaydedildiğinde, Primuse hangisine daha hızlı ve ulaşılabilirse onu kullanır.";
 "ext.tv.sources.hint.webdav" = "Synology · Nextcloud";
 "ext.tv.radio.stop" = "Durdur";
