@@ -207,6 +207,8 @@
 "ext.tv.playback.authFailed" = "Falha na autenticação — faça login novamente nesta fonte em seu telefone";
 "ext.tv.playback.cannotBuildURL" = "Não foi possível criar um URL de reprodução";
 "ext.tv.playback.failed" = "Falha na reprodução";
+"ext.tv.playback.noConnection" = "Não é possível conectar à fonte";
+"ext.tv.playback.tooSlow" = "A rede está lenta demais para carregar o áudio";
 "ext.tv.playback.httpError" = "Servidor retornou HTTP %d";
 "ext.tv.playback.missingCredential" = "Credenciais ausentes para “%@” — faça login em seu telefone com iCloud Keychain ativado";
 "ext.tv.playback.relayUnavailable" = "Esta fonte precisa do relé iPhone — mantenha o Primuse aberto no seu telefone, no mesmo Wi-Fi que o Apple TV";

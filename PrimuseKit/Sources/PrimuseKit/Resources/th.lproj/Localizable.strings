@@ -207,6 +207,8 @@
 "ext.tv.playback.authFailed" = "การตรวจสอบสิทธิ์ล้มเหลว — ลงชื่อเข้าใช้แหล่งที่มานี้อีกครั้งบนโทรศัพท์ของคุณ";
 "ext.tv.playback.cannotBuildURL" = "ไม่สามารถสร้างการเล่น URL";
 "ext.tv.playback.failed" = "การเล่นล้มเหลว";
+"ext.tv.playback.noConnection" = "ไม่สามารถเชื่อมต่อกับแหล่งสัญญาณได้";
+"ext.tv.playback.tooSlow" = "เครือข่ายช้าเกินไปจนโหลดเสียงไม่ได้";
 "ext.tv.playback.httpError" = "เซิร์ฟเวอร์ส่งคืน HTTP %d";
 "ext.tv.playback.missingCredential" = "ข้อมูลประจำตัวหายไปสำหรับ “%@” — ลงชื่อเข้าใช้บนโทรศัพท์ของคุณโดยเปิดพวงกุญแจ iCloud";
 "ext.tv.playback.relayUnavailable" = "แหล่งที่มานี้ต้องการรีเลย์ iPhone — เปิด Primuse ไว้บนโทรศัพท์ของคุณ บน Wi-Fi เดียวกันกับ Apple TV";

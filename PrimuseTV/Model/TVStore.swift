@@ -8574,6 +8574,14 @@ final class TVStore {
         }
         finishListeningSession()
         persistPlaybackSession()
+        // Offline, or a source too slow to keep up: re-resolving the session
+        // fails the same way and only replaces the message. Stay here; Play
+        // tries again from this position.
+        if let remoteFailure = engine.lastRemoteFailure,
+           remoteFailure == .tooSlow || NetworkPathState.isUnavailable {
+            plog("📺 TV playback stopped for the network (\(remoteFailure)); not retrying automatically")
+            return
+        }
         guard playbackRecoveryAttempt == 0,
               let id = currentSongID, let selected = song(id),
               let raw = library.song(id: id),

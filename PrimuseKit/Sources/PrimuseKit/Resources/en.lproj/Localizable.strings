@@ -296,6 +296,8 @@
 "ext.tv.playback.cannotBuildURL"           = "Couldn’t build a playback URL";
 "ext.tv.playback.relayUnavailable"         = "This source needs iPhone relay — keep Primuse open on your phone, on the same Wi-Fi as the Apple TV";
 "ext.tv.playback.failed"                   = "Playback failed";
+"ext.tv.playback.noConnection"             = "Cannot connect to source";
+"ext.tv.playback.tooSlow"                  = "Network too slow to load audio";
 
 // tvOS — Test connection results
 "ext.tv.test.sourceNotFound"               = "Source not found";

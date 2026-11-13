@@ -207,6 +207,8 @@
 "ext.tv.playback.authFailed" = "प्रमाणीकरण विफल - अपने फ़ोन पर इस स्रोत पर पुनः साइन इन करें";
 "ext.tv.playback.cannotBuildURL" = "प्लेबैक नहीं बनाया जा सका URL";
 "ext.tv.playback.failed" = "प्लेबैक विफल रहा";
+"ext.tv.playback.noConnection" = "स्रोत से कनेक्ट नहीं हो सकता";
+"ext.tv.playback.tooSlow" = "ऑडियो लोड करने के लिए नेटवर्क बहुत धीमा है";
 "ext.tv.playback.httpError" = "सर्वर लौटा HTTP %d";
 "ext.tv.playback.missingCredential" = "\"%@\" के लिए क्रेडेंशियल गुम हैं - अपने फ़ोन पर iCloud कीचेन चालू करके साइन इन करें";
 "ext.tv.playback.relayUnavailable" = "इस स्रोत को iPhone रिले की आवश्यकता है - अपने फोन पर Primuse को Apple TV के समान Wi-Fi पर खुला रखें।";

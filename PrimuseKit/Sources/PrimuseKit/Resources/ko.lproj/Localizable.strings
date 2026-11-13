@@ -298,6 +298,8 @@
 "ext.tv.playback.cannotBuildURL"           = "재생 주소를 만들 수 없습니다";
 "ext.tv.playback.relayUnavailable"         = "이 소스는 iPhone 중계가 필요합니다 — 휴대폰에서 Primuse를 열어 둔 채 Apple TV와 같은 Wi-Fi에 연결하세요";
 "ext.tv.playback.failed"                   = "재생 실패";
+"ext.tv.playback.noConnection"             = "소스에 연결할 수 없습니다";
+"ext.tv.playback.tooSlow"                  = "네트워크가 너무 느려 오디오를 불러오지 못했습니다";
 
 // tvOS — Test connection results
 "ext.tv.test.sourceNotFound"               = "음악 소스를 찾을 수 없습니다";

@@ -5,6 +5,7 @@ import Foundation
 import MediaPlayer
 import MediaToolbox
 import Observation
+import Network
 import os.lock
 import PrimuseKit
 
@@ -363,6 +364,13 @@ final class TVAudioEngine {
     private var pendingStartID: UUID?
     private var failureReportedForSelection = false
     @ObservationIgnored private var liveStallTask: Task<Void, Never>?
+    /// Watches a requested song that is not producing audio: ends the wait
+    /// once the device has been offline a few seconds, or the buffer has not
+    /// grown for a while (see `startWaitWatchdog`).
+    @ObservationIgnored private var waitWatchdogTask: Task<Void, Never>?
+    /// Why the current selection failed, when the network was the reason.
+    /// The store does not retry such a failure on its own: Play retries it.
+    private(set) var lastRemoteFailure: RemoteReadFailure?
     @ObservationIgnored private var audioSessionObservers: [NSObjectProtocol] = []
     private var shouldResumeAfterInterruption = false
     private var liveMetadataOutput: AVPlayerItemMetadataOutput?
@@ -471,6 +479,7 @@ final class TVAudioEngine {
         self.player = makePlayer()
         player.automaticallyWaitsToMinimizeStalling = true
         if managesSystemPlayback {
+            TVNetworkPathRecorder.start()
             setupAudioSessionObservers()
             setupRemoteCommands()
         }
@@ -664,6 +673,7 @@ final class TVAudioEngine {
         )
         segmentEndHandled = false
         failureReportedForSelection = false
+        lastRemoteFailure = nil
         status = .loading
         if managesSystemPlayback {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -720,6 +730,7 @@ final class TVAudioEngine {
         currentTime = 0
         status = .loading
         failureReportedForSelection = false
+        lastRemoteFailure = nil
         let item: AVPlayerItem
         // 所有 http(s) 流都走 resource loader:它能接受自签证书(个人 NAS)、带自定义头
         // (UA/Bearer)、按 Range 取数支持 seek。裸 AVPlayerItem(url:) 对自签证书会
@@ -815,6 +826,7 @@ final class TVAudioEngine {
         status = .loading
         liveStartedAt = nil
         failureReportedForSelection = false
+        lastRemoteFailure = nil
         playbackSegment = TVPlaybackSegment(
             cueStartTime: nil,
             cueEndTime: nil,
@@ -1021,6 +1033,7 @@ final class TVAudioEngine {
         currentTime = 0
         status = .loading
         failureReportedForSelection = false
+        lastRemoteFailure = nil
         guard let url = TVProtocolResourceLoader.makeURL() else {
             reportFailure(PMString("ext.tv.playback.cannotBuildURL"))
             return
@@ -1058,6 +1071,7 @@ final class TVAudioEngine {
             // 故显式跳主线程,不能用 assumeIsolated 假设隔离。
             let status = item.status
             let errorMessage = item.error?.localizedDescription
+            let remoteFailure = TVRemoteFailureText.failure(for: item.error)
             let itemDuration = item.duration.seconds
             Task { @MainActor [weak self, weak item] in
                 guard let self, let item, self.player.currentItem === item,
@@ -1071,7 +1085,11 @@ final class TVAudioEngine {
                     if self.beginDecodedLiveRadioFallbackIfNeeded() {
                         return
                     }
-                    self.reportFailure(msg)
+                    if let remoteFailure, !self.isLiveStream {
+                        self.reportRemoteFailure(remoteFailure)
+                    } else {
+                        self.reportFailure(msg)
+                    }
                 default: break
                 }
             }
@@ -1080,14 +1098,20 @@ final class TVAudioEngine {
         playerStatusObs = player.observe(\.status, options: [.initial, .new]) { [weak self, weak item] observedPlayer, _ in
             guard observedPlayer.status == .failed else { return }
             let message = observedPlayer.error?.localizedDescription ?? PMString("ext.tv.playback.failed")
+            let remoteFailure = TVRemoteFailureText.failure(for: observedPlayer.error)
             Task { @MainActor [weak self, weak observedPlayer, weak item] in
                 guard let self, let observedPlayer, let item,
                       self.player === observedPlayer, self.player.currentItem === item,
                       self.activeItemID == observedItemID else { return }
-                self.reportFailure(message)
+                if let remoteFailure, !self.isLiveStream {
+                    self.reportRemoteFailure(remoteFailure)
+                } else {
+                    self.reportFailure(message)
+                }
             }
         }
         addPeriodicObserver(expectedItemID: observedItemID)
+        if !isLiveStream { startWaitWatchdog(expectedItemID: observedItemID) }
         loadChapters(from: item.asset, expectedItemID: observedItemID)
         playerTimeControlObs?.invalidate()
         playerTimeControlObs = player.observe(\.timeControlStatus, options: [.new]) {
@@ -1174,6 +1198,7 @@ final class TVAudioEngine {
         currentTime = 0
         status = .loading
         failureReportedForSelection = false
+        lastRemoteFailure = nil
         decodedTemporaryFileURL = fileURL
         selectionStartRoute = "decoded"
         usingSFB = true
@@ -1917,10 +1942,14 @@ final class TVAudioEngine {
                     }
                 }
                 if item.status == .failed {
-                    self.reportFailure(
-                        item.error?.localizedDescription
-                            ?? PMString("ext.tv.playback.failed")
-                    )
+                    if !self.isLiveStream, let remoteFailure = TVRemoteFailureText.failure(for: item.error) {
+                        self.reportRemoteFailure(remoteFailure)
+                    } else {
+                        self.reportFailure(
+                            item.error?.localizedDescription
+                                ?? PMString("ext.tv.playback.failed")
+                        )
+                    }
                 }
             }
         }
@@ -2008,6 +2037,91 @@ final class TVAudioEngine {
         segmentEndHandled = false
     }
 
+    /// A requested song whose audio is not arriving. AVPlayer itself waits as
+    /// long as it takes, so without this a dropped network left an endless
+    /// spinner. Ends the wait, keeping the position, once the device has been
+    /// offline for a few seconds, or nothing new has buffered for
+    /// `RangeFetchDeadline.defaultStallLimit`. A slow network whose buffer is
+    /// still growing is left to finish.
+    private func startWaitWatchdog(expectedItemID: ObjectIdentifier) {
+        waitWatchdogTask?.cancel()
+        let deadline = RangeFetchDeadline(stallLimit: RangeFetchDeadline.defaultStallLimit, totalLimit: 24 * 3600)
+        waitWatchdogTask = Task { @MainActor [weak self] in
+            var waitStartedAt: TimeInterval?
+            var lastProgressAt: TimeInterval = 0
+            var bufferedAtLastProgress: Double = 0
+            var sawProgress = false
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                guard let self,
+                      self.activeItemID == expectedItemID,
+                      let item = self.player.currentItem,
+                      ObjectIdentifier(item) == expectedItemID,
+                      !self.isLiveStream,
+                      !self.usingSFB else { return }
+                // Waiting only counts once Play was asked for: a paused restore
+                // that has not started yet is not a stalled playback.
+                let wantsAudio = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                    || (self.selectionRequestedAt != nil
+                        && (self.pendingStartID != nil || self.status == .loading))
+                guard wantsAudio else {
+                    waitStartedAt = nil
+                    continue
+                }
+                let now = ProcessInfo.processInfo.systemUptime
+                let buffered = Self.bufferedSeconds(of: item)
+                guard let startedAt = waitStartedAt else {
+                    waitStartedAt = now
+                    lastProgressAt = now
+                    bufferedAtLastProgress = buffered
+                    sawProgress = false
+                    continue
+                }
+                if buffered > bufferedAtLastProgress + 0.05 {
+                    bufferedAtLastProgress = buffered
+                    lastProgressAt = now
+                    sawProgress = true
+                }
+                if RemoteReadFailurePolicy.classify(
+                    now: now,
+                    startedAt: startedAt,
+                    offlineSince: NetworkPathState.unavailableSince,
+                    lastConnectivityFailureAt: nil,
+                    lastSlowStallAt: nil,
+                    lastTransferAt: sawProgress ? lastProgressAt : nil,
+                    minimumOfflineDuration: RemoteReadFailurePolicy.sustainedOfflineInterval
+                ) == .noConnection {
+                    plog("📺 TV engine: no network for \(Int(RemoteReadFailurePolicy.sustainedOfflineInterval))s while waiting for audio; stopping at \(String(format: "%.1f", self.currentTime))s")
+                    self.reportRemoteFailure(.noConnection)
+                    return
+                }
+                if deadline.verdict(startedAt: startedAt, lastActivityAt: lastProgressAt, now: now) != .waiting {
+                    let failure: RemoteReadFailure = sawProgress ? .tooSlow : .noConnection
+                    plog("📺 TV engine: nothing buffered for \(Int(deadline.stallLimit))s while waiting (\(failure)); stopping at \(String(format: "%.1f", self.currentTime))s")
+                    self.reportRemoteFailure(failure)
+                    return
+                }
+            }
+        }
+    }
+
+    private static func bufferedSeconds(of item: AVPlayerItem) -> Double {
+        item.loadedTimeRanges.reduce(0) { total, value in
+            let duration = value.timeRangeValue.duration.seconds
+            return duration.isFinite ? total + max(0, duration) : total
+        }
+    }
+
+    /// Stops the selection for a network reason with the matching message.
+    private func reportRemoteFailure(_ failure: RemoteReadFailure) {
+        lastRemoteFailure = failure
+        reportFailure(TVRemoteFailureText.message(for: failure))
+    }
+
     private func reportFailure(_ message: String) {
         guard !failureReportedForSelection else { return }
         failureReportedForSelection = true
@@ -2077,6 +2191,8 @@ final class TVAudioEngine {
     private func removeStalledObserver() {
         liveStallTask?.cancel()
         liveStallTask = nil
+        waitWatchdogTask?.cancel()
+        waitWatchdogTask = nil
         playerTimeControlObs?.invalidate()
         playerTimeControlObs = nil
         playerStatusObs?.invalidate()
@@ -2812,6 +2928,58 @@ private final class TVSpectrumFFTAnalyzer: @unchecked Sendable {
         // Force one tiny 32-float output copy. Every FFT work buffer above is
         // retained and reused; the audio callback never participates in COW.
         return temporallySmoothed.withUnsafeBufferPointer { Array($0) }
+    }
+}
+/// How a network failure reads on the TV, shared by the engine and the
+/// playback coordinator so both say the same thing.
+enum TVRemoteFailureText {
+    static func message(for failure: RemoteReadFailure) -> String {
+        switch failure {
+        case .noConnection: PMString("ext.tv.playback.noConnection")
+        case .tooSlow: PMString("ext.tv.playback.tooSlow")
+        }
+    }
+
+    /// A transport error that means the source could not be reached: no
+    /// network, a dropped or refused connection, or a request that never got
+    /// an answer. Looks through AVFoundation's wrapping to the URL error.
+    static func failure(for error: Error?) -> RemoteReadFailure? {
+        guard let error else { return nil }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost,
+                 NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
+                 NSURLErrorDNSLookupFailed, NSURLErrorDataNotAllowed,
+                 NSURLErrorTimedOut, NSURLErrorInternationalRoamingOff:
+                return .noConnection
+            default:
+                break
+            }
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return failure(for: underlying)
+        }
+        return nil
+    }
+}
+
+/// Feeds `NetworkPathState` on the TV, so waits on remote audio can tell
+/// that the device has no network at all.
+enum TVNetworkPathRecorder {
+    nonisolated(unsafe) private static var monitor: NWPathMonitor?
+    private static let lock = NSLock()
+
+    static func start() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard monitor == nil else { return }
+        let pathMonitor = NWPathMonitor()
+        pathMonitor.pathUpdateHandler = { path in
+            NetworkPathState.record(unsatisfied: path.status == .unsatisfied)
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.welape.primuse.tv.network-path"))
+        monitor = pathMonitor
     }
 }
 #endif

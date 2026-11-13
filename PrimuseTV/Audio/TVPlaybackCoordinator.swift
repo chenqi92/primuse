@@ -2015,7 +2015,51 @@ final class TVPlaybackCoordinator {
         return tmp
     }
 
+    /// The whole-file download a non-native format needs before it can play.
+    /// It runs on the request timeout, so a network that drops mid-download
+    /// used to leave the spinner up for a minute; stop it once the device has
+    /// been offline for a few seconds and report that.
     private func downloadDecodedRequest(
+        _ request: URLRequest, source: MusicSource, budget: Int64, requestID: UUID?
+    ) async throws -> (URL, URLResponse) {
+        let wentOffline = TVOfflineFlag()
+        let download = Task { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            let (url, response) = try await self.performDecodedDownload(
+                request, source: source, budget: budget, requestID: requestID
+            )
+            return TVDecodedDownloadResult(url: url, response: response)
+        }
+        let watcher = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if let since = NetworkPathState.unavailableSince,
+                   ProcessInfo.processInfo.systemUptime - since
+                    >= RemoteReadFailurePolicy.sustainedOfflineInterval {
+                    wentOffline.set()
+                    download.cancel()
+                    return
+                }
+            }
+        }
+        defer { watcher.cancel() }
+        do {
+            let result = try await withTaskCancellationHandler {
+                try await download.value
+            } onCancel: {
+                download.cancel()
+            }
+            return (result.url, result.response)
+        } catch {
+            if wentOffline.isSet {
+                plog("📺 TV play: whole-file download stopped, no network")
+                throw URLError(.notConnectedToInternet)
+            }
+            throw error
+        }
+    }
+
+    private func performDecodedDownload(
         _ request: URLRequest, source: MusicSource, budget: Int64, requestID: UUID?
     ) async throws -> (URL, URLResponse) {
         guard store != nil else { throw CancellationError() }
@@ -3570,6 +3614,11 @@ final class TVPlaybackCoordinator {
         if (error as? URLError)?.code == .userAuthenticationRequired {
             return PMString("ext.tv.playback.authFailed")
         }
+        // Say plainly that the source could not be reached instead of the
+        // system's wording for each transport error.
+        if let failure = TVRemoteFailureText.failure(for: error) {
+            return TVRemoteFailureText.message(for: failure)
+        }
         return error.localizedDescription
     }
 
@@ -3589,6 +3638,27 @@ final class TVPlaybackCoordinator {
         case .relayUnavailable:
             return .failed(PMString("ext.tv.playback.relayUnavailable"))
         }
+    }
+}
+private struct TVDecodedDownloadResult: @unchecked Sendable {
+    let url: URL
+    let response: URLResponse
+}
+
+private final class TVOfflineFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }
 #endif

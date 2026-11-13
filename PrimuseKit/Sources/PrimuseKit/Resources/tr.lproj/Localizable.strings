@@ -464,6 +464,8 @@
 "local_import_insufficient_space" = "Yeterli boş alan yok (gerekli %lld bayt, kullanılabilir %lld bayt).";
 "ext.tv.nav.playlists" = "Çalma listeleri";
 "ext.tv.playback.failed" = "Oynatma başarısız oldu";
+"ext.tv.playback.noConnection" = "Kaynağa bağlanılamıyor";
+"ext.tv.playback.tooSlow" = "Ağ, sesi yüklemek için çok yavaş";
 "icloud_cloud_schema_missing" = "iCloud Üretim şemasında “%@” eksik. Yeniden denemek bunu düzeltemez; geliştiricinin CloudKit şemasını dağıtması gerekir.";
 "ext.tv.scan.chooseFolders" = "Taranacak Klasörleri Seçin";
 "ext.tv.scan.incremental" = "Artımlı tarama";

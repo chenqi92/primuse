@@ -298,6 +298,8 @@
 "ext.tv.playback.cannotBuildURL"           = "再生用のURLを作成できませんでした";
 "ext.tv.playback.relayUnavailable"         = "このソースはiPhone中継が必要です — スマートフォンでPrimuseを開いたまま、Apple TVと同じWi-Fiに接続してください";
 "ext.tv.playback.failed"                   = "再生に失敗しました";
+"ext.tv.playback.noConnection"             = "ソースに接続できません";
+"ext.tv.playback.tooSlow"                  = "ネットワークが遅く、オーディオを読み込めません";
 
 // tvOS — Test connection results
 "ext.tv.test.sourceNotFound"               = "音楽ソースが見つかりません";

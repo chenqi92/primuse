@@ -464,6 +464,8 @@
 "local_import_insufficient_space" = "Недостаточно свободного места (необходимые байты %lld, доступные байты %lld).";
 "ext.tv.nav.playlists" = "Плейлисты";
 "ext.tv.playback.failed" = "Ошибка воспроизведения.";
+"ext.tv.playback.noConnection" = "Невозможно подключиться к источнику";
+"ext.tv.playback.tooSlow" = "Сеть слишком медленная для загрузки аудио";
 "icloud_cloud_schema_missing" = "В производственной схеме iCloud отсутствует «%@». Повторная попытка не может это исправить; разработчик должен развернуть схему CloudKit.";
 "ext.tv.scan.chooseFolders" = "Выберите папки для сканирования.";
 "ext.tv.scan.incremental" = "Добавочное сканирование";

@@ -207,6 +207,8 @@
 "ext.tv.playback.authFailed" = "Uwierzytelnienie nie powiodło się — zaloguj się ponownie do tego źródła na swoim telefonie";
 "ext.tv.playback.cannotBuildURL" = "Nie można utworzyć adresu URL odtwarzania";
 "ext.tv.playback.failed" = "Odtwarzanie nie powiodło się";
+"ext.tv.playback.noConnection" = "Nie można połączyć się ze źródłem";
+"ext.tv.playback.tooSlow" = "Sieć jest zbyt wolna, by wczytać dźwięk";
 "ext.tv.playback.httpError" = "Serwer zwrócił HTTP %d";
 "ext.tv.playback.missingCredential" = "Brak danych uwierzytelniających dla „%@” — zaloguj się na telefonie przy włączonym iCloud Keychain";
 "ext.tv.playback.relayUnavailable" = "To źródło potrzebuje przekaźnika iPhone — pozostaw Primuse otwarte w telefonie, na tym samym Wi-Fi co Apple TV";

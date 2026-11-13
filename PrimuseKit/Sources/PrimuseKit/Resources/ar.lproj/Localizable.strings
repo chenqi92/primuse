@@ -207,6 +207,8 @@
 "ext.tv.playback.authFailed" = "فشلت المصادقة — قم بإعادة تسجيل الدخول إلى هذا المصدر على هاتفك";
 "ext.tv.playback.cannotBuildURL" = "تعذر بناء التشغيل URL";
 "ext.tv.playback.failed" = "فشل التشغيل";
+"ext.tv.playback.noConnection" = "لا يمكن الاتصال بالمصدر";
+"ext.tv.playback.tooSlow" = "الشبكة بطيئة جدًا لتحميل الصوت";
 "ext.tv.playback.httpError" = "عاد السيرفر HTTP %d";
 "ext.tv.playback.missingCredential" = "بيانات الاعتماد المفقودة لـ \"%@\" - قم بتسجيل الدخول على هاتفك باستخدام iCloud Keychain قيد التشغيل";
 "ext.tv.playback.relayUnavailable" = "يحتاج هذا المصدر إلى iPhone تتابع - احتفظ بـ Primuse مفتوحًا على هاتفك، على نفس Wi-Fi مثل Apple TV";

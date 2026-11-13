@@ -298,6 +298,8 @@
 "ext.tv.playback.cannotBuildURL"           = "Impossible de créer une URL de lecture";
 "ext.tv.playback.relayUnavailable"         = "Cette source nécessite le relais iPhone — gardez Primuse ouvert sur votre téléphone, sur le même Wi-Fi que l’Apple TV";
 "ext.tv.playback.failed"                   = "Échec de la lecture";
+"ext.tv.playback.noConnection"             = "Connexion à la source impossible";
+"ext.tv.playback.tooSlow"                  = "Réseau trop lent pour charger l’audio";
 
 // tvOS — Test connection results
 "ext.tv.test.sourceNotFound"               = "Source introuvable";

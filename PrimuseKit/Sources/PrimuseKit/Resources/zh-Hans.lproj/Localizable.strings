@@ -295,6 +295,8 @@
 "ext.tv.playback.cannotBuildURL"           = "无法构造播放地址";
 "ext.tv.playback.relayUnavailable"         = "此来源需经 iPhone 中继播放——请在手机上保持 Primuse 打开、与 Apple TV 同一局域网";
 "ext.tv.playback.failed"                   = "播放失败";
+"ext.tv.playback.noConnection"             = "无法连接到来源";
+"ext.tv.playback.tooSlow"                  = "网络太慢，没能及时取到音频";
 
 // tvOS — Test connection results
 "ext.tv.test.sourceNotFound"               = "找不到该音乐源";

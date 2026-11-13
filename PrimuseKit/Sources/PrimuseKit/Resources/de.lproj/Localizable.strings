@@ -298,6 +298,8 @@
 "ext.tv.playback.cannotBuildURL"           = "Wiedergabe-URL konnte nicht erstellt werden";
 "ext.tv.playback.relayUnavailable"         = "Diese Quelle benötigt iPhone-Relay – halte Primuse am Handy geöffnet, im selben WLAN wie das Apple TV";
 "ext.tv.playback.failed"                   = "Wiedergabe fehlgeschlagen";
+"ext.tv.playback.noConnection"             = "Keine Verbindung zur Quelle möglich";
+"ext.tv.playback.tooSlow"                  = "Netzwerk zu langsam, um Audio zu laden";
 
 // tvOS — Test connection results
 "ext.tv.test.sourceNotFound"               = "Quelle nicht gefunden";
