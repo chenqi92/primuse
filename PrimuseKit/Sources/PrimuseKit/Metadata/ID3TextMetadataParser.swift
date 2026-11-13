@@ -368,6 +368,9 @@ public enum ID3TextMetadataParser {
             }
             return
         }
+        // 只解码要用的文本帧。封面(APIC)、歌词等帧动辄几十上百 KB, 拿去按多种编码
+        // 打分解码一遍, 每首带封面的歌都白花几十毫秒。
+        guard isParsedTextFrame(frameID) || frameID == "TCOP" || frameID == "TCR" else { return }
         let values = decodedTextValues(payload)
         guard let value = values.first else { return }
         switch frameID {
