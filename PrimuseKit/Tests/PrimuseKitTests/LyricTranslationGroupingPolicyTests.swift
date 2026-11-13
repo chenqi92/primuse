@@ -1576,6 +1576,39 @@ struct LyricBilingualWordLevelPairingTests {
         #expect(lines.allSatisfy { $0.manualTranslation == nil })
     }
 
+    /// 逐字歌词工具常把译文整句写成一个时间块，解析出来是一个音节盖住整行，
+    /// 它只是带了结束时间的整行译文。
+    private let lineTimedTranslationLRC = """
+    [00:17.12]<00:17.12>疼<00:17.50>く <00:17.80>指<00:18.20>先<00:19.00>
+    [00:17.12]<00:17.12>指尖刺痛<00:19.00>
+    [00:20.00]<00:20.00>脳<00:20.30>内 <00:20.60>熱<00:21.00>く<00:21.80>
+    [00:20.00]<00:20.00>颅内滚烫<00:21.80>
+    [00:22.00]<00:22.00>め<00:22.20>ぐ<00:22.40>る <00:22.80>想<00:23.20>像<00:24.00>
+    [00:22.00]<00:22.00>旋转的想象<00:24.00>
+    """
+
+    @Test("整句一个时间块的译文并入逐字原文")
+    func mergesLineTimedTranslationIntoWordLevelSource() {
+        let lines = LyricsContentParser.parse(lineTimedTranslationLRC)
+
+        #expect(lines.count == 3)
+        #expect(lines.map { $0.manualTranslation?.text } == ["指尖刺痛", "颅内滚烫", "旋转的想象"])
+        #expect(lines.allSatisfy { ($0.syllables?.count ?? 0) > 1 })
+        #expect(Set(lines.map(\.timestamp)).count == lines.count)
+    }
+
+    /// 旧版本把这种文件解析成独立行存进了缓存，读缓存时要能补配上。
+    @Test("缓存里没配上的整句时间块译文读出时补配")
+    func repairsCachedLineTimedTranslations() {
+        let unpaired = LyricsContentParser.parse(lineTimedTranslationLRC, options: .literal)
+        #expect(unpaired.count == 6)
+
+        let lines = LyricBilingualPairingPolicy.normalizingCachedLines(unpaired)
+
+        #expect(lines.count == 3)
+        #expect(lines.map { $0.manualTranslation?.text } == ["指尖刺痛", "颅内滚烫", "旋转的想象"])
+    }
+
     /// 纯行级的双语 LRC 是既有能力，放宽原文侧不能把它弄坏。
     @Test("纯行级双语仍然照常配对")
     func stillPairsPlainBilingualLines() {

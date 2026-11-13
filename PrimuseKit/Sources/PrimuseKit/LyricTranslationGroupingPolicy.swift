@@ -1761,7 +1761,9 @@ public enum LyricBilingualPairingPolicy {
         }
         // Literal source edits deliberately keep independent rows and carry no
         // inferred pairs. Reinterpreting them would also change save fingerprints.
-        guard !evidence.isEmpty else { return lines }
+        // 例外：旧版本把整句一个时间块的译文当成逐字行、没有配对就存进了缓存，
+        // 这种形态只能来自那次误判，照常重新配对。
+        guard !evidence.isEmpty || containsLineTimedCompanion(lines) else { return lines }
         return pair(lines, enabled: true, timestampTolerance: 0.002, storedEvidence: evidence)
     }
 
@@ -2076,6 +2078,12 @@ public enum LyricBilingualPairingPolicy {
         case mongolian
     }
 
+    private static func containsLineTimedCompanion(_ lines: [LyricLine]) -> Bool {
+        adjacentTimestampClusters(in: lines, tolerance: 0.002).contains { cluster in
+            cluster.count >= 2 && cluster.dropFirst().contains { carriesOnlyLineTiming(lines[$0]) }
+        }
+    }
+
     private static func adjacentTimestampClusters(
         in lines: [LyricLine],
         tolerance: TimeInterval
@@ -2098,16 +2106,25 @@ public enum LyricBilingualPairingPolicy {
         return result
     }
 
-    /// 可以充当译文的行：必须是纯行级歌词。
+    /// 可以充当译文的行：必须是纯行级歌词（整句一个时间块也算行级）。
     ///
     /// 译文侧不放宽到逐字 —— 两行都带音节时更可能是双声部或对唱，
     /// 把其中一行吞成翻译会真的丢内容。
     private static func isOrdinarySynchronizedLine(_ line: LyricLine) -> Bool {
         line.isSynchronized
             && line.voice == .primary
-            && line.syllables?.isEmpty != false
+            && (line.syllables?.isEmpty != false || carriesOnlyLineTiming(line))
             && line.background?.isEmpty != false
             && !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 逐字歌词工具导出译文时常把整句写成一个时间块（`[t]<t>译文<t2>`），
+    /// 解析出来是「一个音节盖住整行」。它只有起止时间、没有逐字信息，
+    /// 和普通整行译文是一回事；按逐字行处理会让译文和原文配不上，
+    /// 在播放页上单独占一行。
+    private static func carriesOnlyLineTiming(_ line: LyricLine) -> Bool {
+        guard let syllables = line.syllables, syllables.count == 1 else { return false }
+        return normalizedText(syllables[0].text) == normalizedText(line.text)
     }
 
     /// 可以充当原文的行：与译文侧的唯一区别是允许携带逐字时间轴，
