@@ -1445,7 +1445,10 @@ final class AppServices {
             sourceFileName: { [weak scanService] song in
                 scanService?.sourceFileName(for: song)
             },
-            playbackIsActive: { player.isPlaybackActive }
+            playbackIsActive: { player.isPlaybackActive },
+            playbackIsLoadingFromSource: { sourceID in
+                player.isLoading && player.currentSong?.sourceID == sourceID
+            }
         )
         player.configurePlaybackMetadataBackfill(metadataBackfill) { sourceID in
             store.source(id: sourceID)?.type

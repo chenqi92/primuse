@@ -861,6 +861,18 @@ enum CloudPlaybackSource {
         return ownsPath
     }
 
+    /// Marks what every live session has fetched so far as trusted seed bytes.
+    /// iOS may end a paused app at any time; without a marker the next launch
+    /// finds an untrusted partial file, deletes it and downloads the same
+    /// bytes again before playback can resume. Later writes only fill ranges
+    /// that are still missing, so the marker stays true while the session runs.
+    static func checkpointActiveSessionsAsSeeds() {
+        registryLock.lock()
+        let states = Array(activeStates.values)
+        registryLock.unlock()
+        states.forEach { $0.keepFetchedBytesAsSeed() }
+    }
+
     static func isStandbySession(partialPath: String) -> Bool {
         activeState(key: partialPath)?.isStandby() == true
     }
@@ -911,6 +923,15 @@ enum CloudPlaybackSource {
         transferObserver = observer
         lastTransferNoticeBySourceID.removeAll()
         transferNoticeLock.unlock()
+    }
+
+    /// When a source last delivered audio bytes (system uptime), to tell a slow
+    /// source from one that has stopped answering. Recorded at most every
+    /// `transferNoticeInterval`, so it can be that much behind.
+    static func lastTransferUptime(sourceID: String) -> TimeInterval? {
+        transferNoticeLock.lock()
+        defer { transferNoticeLock.unlock() }
+        return lastTransferNoticeBySourceID[sourceID]
     }
 
     fileprivate static func noteTransferSucceeded(sourceID: String) {
@@ -2692,7 +2713,7 @@ private final class State: @unchecked Sendable {
     /// to the song (Previous, the queue coming round again) starts from those
     /// bytes instead of downloading them again. Without the marker the next
     /// session would treat the partial file as untrusted and delete it.
-    private func keepFetchedBytesAsSeed() {
+    fileprivate func keepFetchedBytesAsSeed() {
         lock.lock()
         let ranges = cachedRanges
         let ownsPartial = persistOnComplete && detachedURL == nil && activeURL == partialURL

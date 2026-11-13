@@ -335,6 +335,11 @@ final class AudioEngine {
     nonisolated let nodeRegistry = PlayerNodeRegistry()
     private var directSourceFormat: AVAudioFormat?
     private var hardwareConfigurationRecoveryState = AudioHardwareConfigurationRecoveryState()
+    /// A hardware change was reported and the graph has not been rebuilt for
+    /// it yet: what the nodes hold was prepared for the old output.
+    var hardwareConfigurationRequiresGraphRebuild: Bool {
+        hardwareConfigurationRecoveryState.requiresGraphRebuild
+    }
     #if os(macOS)
     /// A pinned route must be applied to AUHAL before graph formats are read.
     private var pendingGraphOutputDeviceID: AudioDeviceID?

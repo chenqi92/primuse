@@ -577,6 +577,9 @@ final class MetadataBackfillService {
     @ObservationIgnored private var batchSchedulers: [String: MetadataReadScheduler<String, MetadataTagRereadBatch.Outcome>] = [:]
     @ObservationIgnored nonisolated(unsafe) private var configurationObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var playbackIsActive: () -> Bool
+    /// Playback is starting or resuming a song from this source and is still
+    /// waiting for its first audio.
+    @ObservationIgnored private var playbackIsLoadingFromSource: (String) -> Bool
     private(set) var readingMode: MetadataReadingMode = .automatic
     private(set) var readingConfigurationRevision = 0
     private(set) var readingProgress: [String: MetadataReadingRate] = [:]
@@ -969,11 +972,13 @@ final class MetadataBackfillService {
         pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
         sourceFileName: @escaping (Song) -> String? = { _ in nil },
         playbackIsActive: @escaping () -> Bool = { false },
+        playbackIsLoadingFromSource: @escaping (String) -> Bool = { _ in false },
         storageDirectory: URL? = nil,
         artworkStore: MetadataAssetStore = .shared
     ) {
         self.artworkStore = artworkStore
         self.playbackIsActive = playbackIsActive
+        self.playbackIsLoadingFromSource = playbackIsLoadingFromSource
         self.library = library
         self.sourceManager = sourceManager
         self.backfillableSourceIDs = backfillableSourceIDs
@@ -4205,7 +4210,10 @@ final class MetadataBackfillService {
                     && canDispatchUnderCurrentNetworkPolicy(song)
             },
             priority: executionMode == .backgroundDuringPlayback && !hasContinuedProcessingTime ? .background : .utility,
-            read: { [self] song in await processOne(song) }
+            read: { [self] song in
+                await yieldWhilePlaybackLoads(from: song.sourceID)
+                return await processOne(song)
+            }
         ) { [self] song, outcome in
                 let result = (song: song, outcome: outcome)
                 if !outcome.cancelled {
@@ -4601,6 +4609,20 @@ final class MetadataBackfillService {
         if networkRestricted { return await UbiquitousPlaybackFile.readingNeedsNetwork(url) }
         // 旧书只缺章数时等文件落地再补，避免升级后为计数取回整本书。
         return await UbiquitousPlaybackFile.needsDownload(url)
+    }
+
+    /// A slow source answers one request at a time well enough: a tag read
+    /// sent while playback waits for its first audio from the same source
+    /// lengthens that wait. Hold the read until playback has its audio, up to a
+    /// minute; playback that takes longer is failing for its own reasons.
+    private func yieldWhilePlaybackLoads(from sourceID: String) async {
+        guard playbackIsLoadingFromSource(sourceID) else { return }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+        while !Task.isCancelled,
+              ContinuousClock.now < deadline,
+              playbackIsLoadingFromSource(sourceID) {
+            try? await Task.sleep(for: .milliseconds(500))
+        }
     }
 
     private func canDispatchUnderCurrentNetworkPolicy(_ song: Song) -> Bool {

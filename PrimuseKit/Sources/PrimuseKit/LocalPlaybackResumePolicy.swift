@@ -220,3 +220,130 @@ public struct PlaybackRecoveryMaterializationStallMonitor: Equatable, Sendable {
         lastActivityAt = now
     }
 }
+
+/// A pause only stops the player node: the decoder, the buffers it already
+/// scheduled and the output graph stay where they were. Playing them again is
+/// instant, while rebuilding means resolving the address again and, for a
+/// network source, waiting for the stream to answer. Anything that may have
+/// disturbed that pipeline since the pause sends Play back to the rebuild.
+public enum PausedPipelineResumePolicy {
+    /// After this long a network address or session may have expired, and the
+    /// rebuild costs little next to how long playback was stopped.
+    public static let maximumPauseDuration: TimeInterval = 10 * 60
+
+    public struct Evidence: Equatable, Sendable {
+        /// Same play generation and item as at the pause, with no
+        /// interruption or hardware change reported since.
+        public var pipelineIsUnchanged: Bool
+        /// Recovery was already needed before this pause (an interruption, a
+        /// failed start); the pause did not create that need.
+        public var recoveryWasArmedBeforePause: Bool
+        public var pausedFor: TimeInterval
+        public var hasPreparedAudio: Bool
+        public var isAtTrackEnd: Bool
+        public var isLoading: Bool
+        public var isTransitioning: Bool
+        public var outputGraphNeedsRebuild: Bool
+        /// The last buffer was handed to the node before the pause. Its
+        /// end-of-track callback carries the ticket the pause retired, so the
+        /// song would end without moving on.
+        public var finalBufferAlreadyScheduled: Bool
+        public var decoderIsAlive: Bool
+
+        public init(
+            pipelineIsUnchanged: Bool,
+            recoveryWasArmedBeforePause: Bool,
+            pausedFor: TimeInterval,
+            hasPreparedAudio: Bool,
+            isAtTrackEnd: Bool,
+            isLoading: Bool,
+            isTransitioning: Bool,
+            outputGraphNeedsRebuild: Bool,
+            finalBufferAlreadyScheduled: Bool,
+            decoderIsAlive: Bool
+        ) {
+            self.pipelineIsUnchanged = pipelineIsUnchanged
+            self.recoveryWasArmedBeforePause = recoveryWasArmedBeforePause
+            self.pausedFor = pausedFor
+            self.hasPreparedAudio = hasPreparedAudio
+            self.isAtTrackEnd = isAtTrackEnd
+            self.isLoading = isLoading
+            self.isTransitioning = isTransitioning
+            self.outputGraphNeedsRebuild = outputGraphNeedsRebuild
+            self.finalBufferAlreadyScheduled = finalBufferAlreadyScheduled
+            self.decoderIsAlive = decoderIsAlive
+        }
+    }
+
+    public static func canResumeInPlace(_ evidence: Evidence) -> Bool {
+        evidence.pipelineIsUnchanged
+            && !evidence.recoveryWasArmedBeforePause
+            && evidence.pausedFor >= 0
+            && evidence.pausedFor <= maximumPauseDuration
+            && evidence.hasPreparedAudio
+            && !evidence.isAtTrackEnd
+            && !evidence.isLoading
+            && !evidence.isTransitioning
+            && !evidence.outputGraphNeedsRebuild
+            && !evidence.finalBufferAlreadyScheduled
+            && evidence.decoderIsAlive
+    }
+}
+
+/// A start, seek or resume waits for its first decoded buffer with the
+/// transport controls showing a spinner. A source that keeps delivering bytes,
+/// however slowly, is still working; one that has delivered nothing for
+/// `stallTimeout` will not, and holding the spinner longer only hides that.
+public enum SeekFirstBufferStallPolicy {
+    public static let stallTimeout: TimeInterval = 35
+
+    public static func hasStalled(
+        startedAt: TimeInterval,
+        lastTransferAt: TimeInterval?,
+        now: TimeInterval,
+        timeout: TimeInterval = stallTimeout
+    ) -> Bool {
+        let lastActivity = max(startedAt, lastTransferAt ?? startedAt)
+        return now - lastActivity >= max(1, timeout)
+    }
+}
+
+/// Background transfers stop as soon as conditions turn against them but start
+/// again only once conditions have stayed good for a while. A Wi-Fi path that
+/// keeps flipping between metered and unmetered, or playback that buffers at
+/// every start, otherwise cancels each transfer before its first chunk lands
+/// and starts it again seconds later, over and over.
+public struct TransferConditionSettleGate: Equatable, Sendable {
+    public static let defaultSettleInterval: TimeInterval = 20
+
+    public let settleInterval: TimeInterval
+    public private(set) var isAllowed: Bool
+    public private(set) var settledAt: TimeInterval?
+
+    /// Conditions already good at launch need no settling.
+    public init(allowed: Bool, settleInterval: TimeInterval = Self.defaultSettleInterval) {
+        self.settleInterval = max(0, settleInterval)
+        isAllowed = allowed
+        settledAt = nil
+    }
+
+    public mutating func observe(allowed: Bool, now: TimeInterval) {
+        if allowed, !isAllowed {
+            settledAt = now + settleInterval
+        } else if !allowed {
+            settledAt = nil
+        }
+        isAllowed = allowed
+    }
+
+    public func allowsStart(now: TimeInterval) -> Bool {
+        isAllowed && (settledAt.map { now >= $0 } ?? true)
+    }
+
+    /// How long until transfers may start, or nil when they may start now or
+    /// are blocked by the conditions themselves.
+    public func remainingSettle(now: TimeInterval) -> TimeInterval? {
+        guard isAllowed, let settledAt, now < settledAt else { return nil }
+        return settledAt - now
+    }
+}

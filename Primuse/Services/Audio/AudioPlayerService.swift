@@ -1198,6 +1198,18 @@ final class AudioPlayerService {
     /// Buffering retains the user's play intent, so Pause remains available
     /// while the audio node and the system playback clock are stopped.
     var isPlaybackActive: Bool { isPlaybackActuallyActive || isRemotePlaybackBuffering }
+    /// The current item is read from its source over the network, not from a
+    /// file already on this device. Background transfers yield to it.
+    var currentItemStreamsFromNetwork: Bool {
+        guard let song = currentSong,
+              !isLiveRadio, !isAppleMusicMode, !isCastingMode else { return false }
+        switch activeDecoderKind {
+        case .cloudStream, .httpStream, .streaming:
+            return sourceManager?.cachedURL(for: song) == nil
+        default:
+            return false
+        }
+    }
     var appleMusicPlaybackTask: Task<Void, Never>?
     var appleMusicTimeoutTask: Task<Void, Never>?
     var activeAppleMusicRequestID: UUID?
@@ -2526,6 +2538,7 @@ final class AudioPlayerService {
 
         manager.onInterruptionBegan = { [weak self] interruptionTime in
             guard let self else { return }
+            self.transportDisturbanceGeneration &+= 1
             self.cancelAppActivationInterruptionRecovery()
             let hadPendingMusicVideo = self.pendingMusicVideoPlayID != nil
             self.pendingMusicVideoPlayID = nil
@@ -2712,6 +2725,7 @@ final class AudioPlayerService {
 
         manager.onConfigurationChange = { [weak self] configurationChangeTime, engineGraph in
             guard let self, self.currentSong != nil else { return }
+            self.transportDisturbanceGeneration &+= 1
             #if os(macOS)
             guard self.audioEngine.ownsConfigurationChange(from: engineGraph) else { return }
             if let configuration = self.outputPipelineConfiguration,
@@ -2758,6 +2772,19 @@ final class AudioPlayerService {
                 return
             }
             #endif
+            // Putting headphones back on often changes the output while the
+            // resume is still waiting for the network. Restarting the rebuild
+            // here would cancel that fetch and begin the wait again; let it
+            // finish and rebuild for the new output once its audio is on disk.
+            if let waiting = self.seekAwaitingFirstBufferPlayID,
+               waiting == self.playID,
+               self.isLoading,
+               !AudioSessionManager.shared.outputRouteIsBluetoothHFP {
+                self.audioEngine.markHardwareConfigurationChanged()
+                self.seekOutputRebuildPendingPlayID = waiting
+                plog("🔧 Hardware change while the rebuild waits for its first buffer; output is rebuilt once it arrives")
+                return
+            }
             self.audioEngine.markHardwareConfigurationChanged()
             let carriedConfigurationActivity = self.hasConfigurationRecoveryActivityEvidence
             let shouldAutoResume = (
@@ -7776,6 +7803,7 @@ final class AudioPlayerService {
     }
 
     func scheduleDecodedFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) async {
+        finalBufferScheduledPlayID = id
         guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
             plog("🛡️ final buffer scheduled without auto-advance eligibility")
             audioEngine.scheduleBuffer(buffer)
@@ -7814,6 +7842,7 @@ final class AudioPlayerService {
     /// because the logical play ID is assigned when the fade begins.
     func scheduleCrossfadeFinalBuffer(_ buffer: AVAudioPCMBuffer, playID id: UUID) {
         guard playID == id else { return }
+        finalBufferScheduledPlayID = id
         guard let advanceTicket = playbackAdvancePolicy.activeTicket else {
             scheduleCrossfadeDecodedBuffer(buffer, playID: id)
             return
@@ -8144,6 +8173,12 @@ final class AudioPlayerService {
             updatePlaybackState()
             return
         }
+        if abandonInFlightLocalStartForPause() {
+            checkpointStreamedBytesForPossibleTermination()
+            updateNowPlayingInfo()
+            updatePlaybackState()
+            return
+        }
         // Align the engine's primary node with currentSong before capturing
         // the pause position during an already-committed fade.
         stopTimeUpdater()
@@ -8152,13 +8187,100 @@ final class AudioPlayerService {
             finishingCommittedTransition: true,
             completionMode: .preserveCachedProgress
         )
+        // Paused while waiting on the network for more audio: the node holds
+        // nothing to resume, so that pause also goes back through a rebuild.
+        let recoveryWasArmed = needsPlaybackRecovery || wasConfiguringOutput
+            || remotePlaybackBufferingStartedAt != nil
         pendingRecoveryTime = currentTime
         needsPlaybackRecovery = (needsPlaybackRecovery || hasPreparedLocalPlayback || wasConfiguringOutput)
             && currentSong != nil && !isAtTrackEnd
+        if needsPlaybackRecovery, hasPreparedLocalPlayback,
+           let song = currentSong, let id = playID {
+            pausedLocalPipeline = PausedLocalPipeline(
+                playID: id,
+                itemID: song.id,
+                pausedAt: ProcessInfo.processInfo.systemUptime,
+                recoveryWasArmed: recoveryWasArmed,
+                disturbanceGeneration: transportDisturbanceGeneration
+            )
+        } else {
+            pausedLocalPipeline = nil
+        }
         audioEngine.pauseWithFade()
         isPlaying = false
+        checkpointStreamedBytesForPossibleTermination()
         updateNowPlayingInfo()
         updatePlaybackState()
+    }
+
+    private func canResumePausedPipelineInPlace(song: Song) -> Bool {
+        guard let paused = pausedLocalPipeline else { return false }
+        let pausedFor = ProcessInfo.processInfo.systemUptime - paused.pausedAt
+        return PausedPipelineResumePolicy.canResumeInPlace(.init(
+            pipelineIsUnchanged: paused.playID == playID
+                && paused.itemID == song.id
+                && paused.disturbanceGeneration == transportDisturbanceGeneration
+                && !interruptionResumePolicy.isAwaitingInterruptionEnd
+                && !pendingRecoveryIsColdSessionRestore,
+            recoveryWasArmedBeforePause: paused.recoveryWasArmed,
+            pausedFor: pausedFor,
+            hasPreparedAudio: hasPreparedLocalPlayback,
+            isAtTrackEnd: isAtTrackEnd,
+            isLoading: isLoading,
+            isTransitioning: isCrossfading,
+            outputGraphNeedsRebuild: audioEngine.hardwareConfigurationRequiresGraphRebuild,
+            finalBufferAlreadyScheduled: finalBufferScheduledPlayID == playID,
+            decoderIsAlive: decodingTask != nil
+                && activeDecodedBufferGatePlayID == playID
+        ))
+    }
+
+    /// Pause pressed while a local start or rebuild is still loading. The pause
+    /// retired the ticket that start needs, so letting it run on only spends
+    /// the wait on audio that is then refused, with the spinner up and Play
+    /// doing nothing until it finishes. Stop it here; Play starts again from
+    /// the same place, reusing whatever bytes it already fetched.
+    private func abandonInFlightLocalStartForPause() -> Bool {
+        guard isLoading,
+              let song = currentSong,
+              !isAtTrackEnd,
+              // A bounded full-download start owns its own transfer and
+              // retirement; seeking is refused until it settles.
+              activeStreamingDownloadPreparation == nil else { return false }
+        let wasRebuilding = seekTask != nil
+        let resumeTime = currentTime
+        playID = UUID()
+        seekTask?.cancel()
+        seekTask = nil
+        decodingTask?.cancel()
+        decodingTask = nil
+        pendingLocalSeek = nil
+        seekAwaitingFirstBufferPlayID = nil
+        seekOutputRebuildPendingPlayID = nil
+        pausedLocalPipeline = nil
+        cancelGaplessTasks()
+        cancelCrossfadeAttempt()
+        stopTimeUpdater()
+        audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
+        isLoading = false
+        isPlaying = false
+        currentTime = resumeTime
+        pendingRecoveryTime = resumeTime
+        // A rebuild resumes from its target. A start stopped halfway begins
+        // again as a start, which also restores an audiobook's saved place.
+        needsPlaybackRecovery = wasRebuilding
+        plog("⏸️ Pause stopped the loading \(wasRebuilding ? "rebuild" : "start") of '\(song.title)' at \(String(format: "%.1f", resumeTime))s")
+        return true
+    }
+
+    /// iOS may end the app while it sits paused or in the background. Record the
+    /// stream bytes already on disk as trusted, so a relaunch resumes from them
+    /// instead of downloading them again.
+    func checkpointStreamedBytesForPossibleTermination() {
+        Task.detached(priority: .utility) {
+            CloudPlaybackSource.checkpointActiveSessionsAsSeeds()
+        }
     }
 
     func resume() {
@@ -8217,6 +8339,20 @@ final class AudioPlayerService {
         }
         if isCastingMode {
             setCastingPlayback(shouldPlay: true)
+            return
+        }
+        // 停着时拖了进度、新位置还在加载:这时按播放,让这次加载载完直接接着放。
+        // 否则它载完仍是停着的,这一下播放等于没按。
+        if isLoading,
+           seekTask != nil,
+           let pending = pendingLocalSeek,
+           pending.playID == playID,
+           !pending.startsPlayback {
+            seek(
+                to: currentTime,
+                startPlaying: true,
+                isRecovery: pending.isRecovery || needsPlaybackRecovery
+            )
             return
         }
         guard !isLoading, let song = currentSong else { return }
@@ -8295,11 +8431,20 @@ final class AudioPlayerService {
             updatePlaybackState()
             return
         }
-        let resumeAction = LocalPlaybackResumePolicy.action(
+        var resumeAction = LocalPlaybackResumePolicy.action(
             isAtTrackEnd: isAtTrackEnd,
             needsRecovery: needsPlaybackRecovery,
             hasPreparedAudio: hasPreparedLocalPlayback
         )
+        // 只是暂停过、管线原样还在(取下耳机又戴上前没换输出、没被打断):直接接着放,
+        // 不再整套重建 —— 网盘那种源重建要重新取地址、等首块,转圈就出在这里。
+        var resumesPausedPipelineInPlace = false
+        if resumeAction == .recoverFromInterruption,
+           canResumePausedPipelineInPlace(song: song) {
+            resumeAction = .resumePreparedAudio
+            resumesPausedPipelineInPlace = true
+        }
+        pausedLocalPipeline = nil
         // 智能回退(#363):有声内容停得久,从往回退一点的地方接着放。先定下落点,
         // 服务端进度的锚点记的是退过之后的位置。
         // 从头重建这一首的(播完重放、出错重试)按续播位置开,不在这里退。
@@ -8338,6 +8483,14 @@ final class AudioPlayerService {
             )
             return
         case .resumePreparedAudio:
+            if resumesPausedPipelineInPlace {
+                // The pause retired this pipeline's ticket. Its last buffer has
+                // not been scheduled yet, and that scheduling reads the active
+                // ticket, so a fresh one covers how this song ends.
+                _ = beginAutomaticAdvanceTransport(itemID: song.id, reason: "resume-paused-pipeline")
+                clearPendingPlaybackRecovery()
+                plog("▶️ Resuming the paused pipeline in place playID=\(playID?.uuidString.prefix(8) ?? "nil") at \(String(format: "%.1f", currentTime))s")
+            }
             let preparedTicket = playbackAdvancePolicy.activeTicket
             guard preparedTicket?.itemID == song.id,
                   preparedTicket == localPipelineAdvanceTicket else {
@@ -8355,6 +8508,13 @@ final class AudioPlayerService {
         }
         _ = AudioSessionManager.shared.activatePlaybackSession()
         let didResume = audioEngine.resumeWithFade()
+        if !didResume, resumesPausedPipelineInPlace {
+            // The graph would not restart as it was; rebuild like any other
+            // recovery instead of reporting a decode error.
+            plog("⚠️ Paused pipeline did not restart; rebuilding at \(String(format: "%.1f", currentTime))s")
+            seek(to: currentTime, startPlaying: true, isRecovery: true)
+            return
+        }
         isPlaying = didResume
         if didResume {
             syncPlaybackProgressFromEngine()
@@ -8369,6 +8529,29 @@ final class AudioPlayerService {
 
     private var seekTimeOffset: TimeInterval = 0
     @ObservationIgnored var seekTask: Task<Void, Never>?
+
+    /// What a local pause left in place, so a quick Play can start the same
+    /// pipeline again instead of rebuilding it (`PausedPipelineResumePolicy`).
+    struct PausedLocalPipeline {
+        let playID: UUID
+        let itemID: String
+        let pausedAt: TimeInterval
+        let recoveryWasArmed: Bool
+        let disturbanceGeneration: UInt64
+    }
+    @ObservationIgnored var pausedLocalPipeline: PausedLocalPipeline?
+    /// Advanced by every interruption and hardware change: either may have
+    /// stopped or replaced what a paused pipeline holds.
+    @ObservationIgnored var transportDisturbanceGeneration: UInt64 = 0
+    /// The play generation whose last buffer has already gone to the node.
+    @ObservationIgnored var finalBufferScheduledPlayID: UUID?
+    /// The local seek or rebuild in flight and whether it starts playback.
+    @ObservationIgnored var pendingLocalSeek: (playID: UUID, startsPlayback: Bool, isRecovery: Bool)?
+    /// A rebuild still waiting for its first decoded buffer. A hardware change
+    /// in that window rebuilds only the output before the first buffer plays,
+    /// instead of cancelling the fetch and starting the whole rebuild over.
+    @ObservationIgnored var seekAwaitingFirstBufferPlayID: UUID?
+    @ObservationIgnored var seekOutputRebuildPendingPlayID: UUID?
 
     /// 进度 timer 间隔 (秒)。同时作为 scrobble 的真实收听增量 —— 见下方 handleProgressTick。
     static let timeUpdateInterval: TimeInterval = 0.5

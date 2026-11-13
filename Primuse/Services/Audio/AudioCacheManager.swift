@@ -2017,6 +2017,9 @@ private actor AlwaysDownloadWorker {
         let isConstrained: Bool
         let isPlaybackActive: Bool
         let isPlaybackBuffering: Bool
+        /// What is playing is still being read from its source over the
+        /// network, so a chapter download would share that bandwidth.
+        let isPlaybackStreamingFromNetwork: Bool
         let isLowPowerModeEnabled: Bool
         let hasSeriousThermalPressure: Bool
     }
@@ -2039,6 +2042,10 @@ private actor AlwaysDownloadWorker {
     private var resourceConditionsAllowTransfers = false
     /// 正在下的这一首是不是播放中也能下的(有声书的章节,#313)。播放开始时只停下歌单的那种。
     private var runningJobDownloadsDuringPlayback = false
+    /// Transfers stop at once when conditions turn against them, but start
+    /// again only after conditions have held for a while (see the gate).
+    private var transferSettleGate = TransferConditionSettleGate(allowed: false)
+    private var settleRetryTask: Task<Void, Never>?
     private var didLoadJournal = false
     private var runner: Task<Void, Never>?
     private var runnerGeneration = UUID()
@@ -2073,6 +2080,9 @@ private actor AlwaysDownloadWorker {
         self.playbackIsActive = playbackIsActive
         self.playbackIsBuffering = playbackIsBuffering
         self.resourceConditionsAllowTransfers = resourceConditionsAllowTransfers
+        transferSettleGate = TransferConditionSettleGate(
+            allowed: resourceConditionsAllowTransfers && !playbackIsBuffering
+        )
     }
 
     func setApplicationActive(_ active: Bool) async {
@@ -2092,6 +2102,14 @@ private actor AlwaysDownloadWorker {
         self.playbackIsActive = playbackIsActive
         self.playbackIsBuffering = playbackIsBuffering
         resourceConditionsAllowTransfers = allowTransfers
+        // A path that flips between metered and unmetered every few seconds, or
+        // a start that buffers, used to cancel the chapter download before its
+        // first chunk landed and start it again moments later, hundreds of
+        // times. Stop at once; come back only once conditions have held.
+        transferSettleGate.observe(
+            allowed: allowTransfers && !playbackIsBuffering,
+            now: ProcessInfo.processInfo.systemUptime
+        )
         if playbackIsBuffering || !allowTransfers {
             await cancelRunner()
         } else if playbackIsActive, runner != nil, !runningJobDownloadsDuringPlayback {
@@ -2481,12 +2499,37 @@ private actor AlwaysDownloadWorker {
               resourceConditionsAllowTransfers,
               !journal.jobs.isEmpty,
               !playbackIsActive || hasJobsDownloadingDuringPlayback else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard transferSettleGate.allowsStart(now: now) else {
+            scheduleRunnerAfterSettle(now: now)
+            return
+        }
+        settleRetryTask?.cancel()
+        settleRetryTask = nil
         let generation = UUID()
         runnerGeneration = generation
         runner = Task { [weak self] in
             guard let self else { return }
             await self.runLoop(generation: generation)
         }
+    }
+
+    private func scheduleRunnerAfterSettle(now: TimeInterval) {
+        guard let remaining = transferSettleGate.remainingSettle(now: now) else { return }
+        settleRetryTask?.cancel()
+        settleRetryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(remaining + 0.1))
+            } catch {
+                return
+            }
+            await self?.settleWindowElapsed()
+        }
+    }
+
+    private func settleWindowElapsed() {
+        settleRetryTask = nil
+        scheduleRunner()
     }
 
     private func runLoop(generation: UUID) async {
@@ -2538,7 +2581,11 @@ private actor AlwaysDownloadWorker {
                     recoverableArtifactBytes: recoverableArtifactBytes
                 ),
                 expectedDownloadBytes: job.song.fileSize,
-                isPlaybackActive: downloadsDuringPlayback ? false : resources.isPlaybackActive,
+                // 书的章节播放时也下(#313),但正在放的这一章还在走网络时先让它:
+                // 网盘那种慢源上两路抢一条带宽,播放就要停下来等。
+                isPlaybackActive: downloadsDuringPlayback
+                    ? resources.isPlaybackStreamingFromNetwork
+                    : resources.isPlaybackActive,
                 isPlaybackBuffering: resources.isPlaybackBuffering
             )
             guard eligibility == .allowed else {
@@ -2803,6 +2850,8 @@ private actor AlwaysDownloadWorker {
                 isConstrained: network.isConstrained,
                 isPlaybackActive: player.isPlaybackActive,
                 isPlaybackBuffering: player.isLoading,
+                isPlaybackStreamingFromNetwork: player.isPlaybackActive
+                    && player.currentItemStreamsFromNetwork,
                 isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
                 hasSeriousThermalPressure: thermal == .serious || thermal == .critical
             )

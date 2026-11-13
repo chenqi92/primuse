@@ -1228,6 +1228,10 @@ extension AudioPlayerService {
         // their guard check and won't trigger handleTrackEnd() → next().
         let id = UUID()
         playID = id
+        pendingLocalSeek = (playID: id, startsPlayback: shouldStartPlaying, isRecovery: isRecovery)
+        pausedLocalPipeline = nil
+        seekAwaitingFirstBufferPlayID = nil
+        seekOutputRebuildPendingPlayID = nil
         if isConfigurationRecovery {
             configurationRecoveryOwnerPlayID = id
             if configurationRecoveryActivityEvidence?.itemID == song.id {
@@ -1270,6 +1274,15 @@ extension AudioPlayerService {
             defer {
                 if playID == id {
                     seekTask = nil
+                }
+                if pendingLocalSeek?.playID == id {
+                    pendingLocalSeek = nil
+                }
+                if seekAwaitingFirstBufferPlayID == id {
+                    seekAwaitingFirstBufferPlayID = nil
+                }
+                if seekOutputRebuildPendingPlayID == id {
+                    seekOutputRebuildPendingPlayID = nil
                 }
                 if isConfigurationRecovery,
                    configurationRecoveryOwnerPlayID == id {
@@ -1453,6 +1466,7 @@ extension AudioPlayerService {
                             lengthCanWait: savedDuration > 0
                         )
                     } else {
+                        guard !Task.isCancelled, playID == id else { return }
                         if isColdSessionRestore {
                             throw AudioDecoderError.seekUnavailable
                         }
@@ -1462,6 +1476,8 @@ extension AudioPlayerService {
                         pendingRecoveryTime = targetTime
                         needsPlaybackRecovery = isRecovery
                         invalidateAutomaticAdvance(reason: "http-seek-input-source-failed")
+                        // 停在这里要让人看得出来, 不然只是转圈消失、按钮回到播放。
+                        showPlaybackError(String(localized: "playback_error_connection"))
                         republishNowPlayingSurfaces()
                         return
                     }
@@ -1483,10 +1499,10 @@ extension AudioPlayerService {
                             onResolveSourceLength: onResolveLength
                         )
                     } else if let manager = sourceManager,
-                              let inputSource = try? await manager.makeStreamingInputSource(
-                                  for: song,
-                                  cacheEnabled: playbackSettings.audioCacheEnabled,
-                                  expectedStreamEpoch: sourceStreamEpoch
+                              let inputSource = await makeSeekStreamingInputSource(
+                                  manager: manager,
+                                  song: song,
+                                  sourceStreamEpoch: sourceStreamEpoch
                               ) {
                         guard !Task.isCancelled, playID == id else { return }
                         decoderPerformedSeek = true
@@ -1499,6 +1515,7 @@ extension AudioPlayerService {
                             lengthCanWait: savedDuration > 0
                         )
                     } else {
+                        guard !Task.isCancelled, playID == id else { return }
                         if isColdSessionRestore {
                             throw AudioDecoderError.seekUnavailable
                         }
@@ -1508,6 +1525,7 @@ extension AudioPlayerService {
                         pendingRecoveryTime = targetTime
                         needsPlaybackRecovery = isRecovery
                         invalidateAutomaticAdvance(reason: "cloud-seek-input-source-failed")
+                        showPlaybackError(String(localized: "playback_error_connection"))
                         republishNowPlayingSurfaces()
                         return
                     }
@@ -1545,6 +1563,15 @@ extension AudioPlayerService {
                 var firstPlayableBuffer: AVAudioPCMBuffer?
                 var secondPlayableBuffer: AVAudioPCMBuffer?
                 var rangeSeekRejected = false
+                // The spinner stays up until this first buffer arrives. A source
+                // that stops answering must end that wait with a message.
+                seekAwaitingFirstBufferPlayID = id
+                let firstBufferWatchdog = armSeekFirstBufferWatchdog(
+                    playID: id,
+                    song: song,
+                    targetTime: targetTime
+                )
+                defer { firstBufferWatchdog.cancel() }
 
                 firstBufferSearch: while true {
                     do {
@@ -1572,6 +1599,8 @@ extension AudioPlayerService {
                         // either startup buffer from the new Range. Recover both
                         // cases once through a complete file at the same position.
                         rangeSeekRejected = true
+                        // The complete-file download watches its own progress.
+                        firstBufferWatchdog.cancel()
                         guard RemoteSeekPreparationPolicy.afterRangeSeekRejected(
                                   cacheEnabled: playbackSettings.audioCacheEnabled,
                                   isColdSessionRestore: isColdSessionRestore
@@ -1617,8 +1646,30 @@ extension AudioPlayerService {
                     }
                 }
 
+                firstBufferWatchdog.cancel()
+                if seekAwaitingFirstBufferPlayID == id {
+                    seekAwaitingFirstBufferPlayID = nil
+                }
                 // 被新恢复请求取消的流也会以 nil 结束，不能把它当成当前曲目播完。
                 guard !Task.isCancelled, playID == id else { return }
+                if seekOutputRebuildPendingPlayID == id {
+                    // The output changed while this rebuild waited for audio.
+                    // What it decoded was made for the old graph, but the bytes
+                    // it waited for are now on disk: building again for the new
+                    // output is quick, where cancelling at the change would have
+                    // thrown away the fetch and started the wait over.
+                    seekOutputRebuildPendingPlayID = nil
+                    plog("🔧 First buffer arrived after a hardware change; rebuilding for the new output")
+                    seekTask = nil
+                    seek(
+                        to: targetTime,
+                        startPlaying: shouldStartPlaying,
+                        isRecovery: isRecovery,
+                        isConfigurationRecovery: true,
+                        isColdSessionRestore: isColdSessionRestore
+                    )
+                    return
+                }
                 guard let firstBuffer = firstPlayableBuffer else {
                     isLoading = false
                     isPlaying = false
@@ -1822,6 +1873,84 @@ extension AudioPlayerService {
         }
     }
 
+    /// Like `makeStreamingInputSource`, but says why it failed in the log
+    /// instead of swallowing the error.
+    func makeSeekStreamingInputSource(
+        manager: SourceManager,
+        song: Song,
+        sourceStreamEpoch: UInt64
+    ) async -> InputSource? {
+        do {
+            return try await manager.makeStreamingInputSource(
+                for: song,
+                cacheEnabled: playbackSettings.audioCacheEnabled,
+                expectedStreamEpoch: sourceStreamEpoch
+            )
+        } catch {
+            if !OperationCancellationPolicy.isCancellation(error) {
+                plog("⚠️ Seek: cloud streaming InputSource failed: \(error)")
+            }
+            return nil
+        }
+    }
+
+    /// Ends a rebuild whose source has delivered nothing for
+    /// `SeekFirstBufferStallPolicy.stallTimeout`. A slow source that keeps
+    /// sending bytes is left alone however long it takes.
+    func armSeekFirstBufferWatchdog(
+        playID id: UUID,
+        song: Song,
+        targetTime: TimeInterval
+    ) -> Task<Void, Never> {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let sourceID = song.sourceID
+        return Task { @MainActor [weak self] in
+            while true {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                guard let self,
+                      self.playID == id,
+                      self.isLoading,
+                      self.seekAwaitingFirstBufferPlayID == id else { return }
+                guard SeekFirstBufferStallPolicy.hasStalled(
+                    startedAt: startedAt,
+                    lastTransferAt: CloudPlaybackSource.lastTransferUptime(sourceID: sourceID),
+                    now: ProcessInfo.processInfo.systemUptime
+                ) else { continue }
+                self.abandonStalledSeek(playID: id, song: song, targetTime: targetTime)
+                return
+            }
+        }
+    }
+
+    private func abandonStalledSeek(playID id: UUID, song: Song, targetTime: TimeInterval) {
+        guard playID == id else { return }
+        plog("⚠️ Rebuild of '\(song.title)' got no audio for \(Int(SeekFirstBufferStallPolicy.stallTimeout))s; stopped at \(String(format: "%.1f", targetTime))s")
+        playID = UUID()
+        seekTask?.cancel()
+        seekTask = nil
+        decodingTask?.cancel()
+        decodingTask = nil
+        pendingLocalSeek = nil
+        seekAwaitingFirstBufferPlayID = nil
+        seekOutputRebuildPendingPlayID = nil
+        pausedLocalPipeline = nil
+        audioEngine.stopPlayback()
+        hasPreparedLocalPlayback = false
+        isLoading = false
+        isPlaying = false
+        currentTime = targetTime
+        pendingRecoveryTime = targetTime
+        // Play tries again from here, keeping the bytes already fetched.
+        needsPlaybackRecovery = true
+        invalidateAutomaticAdvance(reason: "seek-first-buffer-stalled")
+        showPlaybackError(String(localized: "playback_error_connection"))
+        republishNowPlayingSurfaces()
+    }
+
     func handleAppWillResignActive() {
         cancelAppActivationInterruptionRecovery()
         let activeEvidence = lastPublishedPlaybackWasActive
@@ -1834,6 +1963,8 @@ extension AudioPlayerService {
         // 有声书的位置同理 —— 它是按条目记的, 挂起时丢掉就要从上次自动保存
         // 的地方重听。
         flushSpokenWordPosition()
+        // 挂起后进程可能被系统结束: 已经下到盘上的流先记成可信, 再开时接着用。
+        checkpointStreamedBytesForPossibleTermination()
         // AVFAudio can stop the graph before delivering its interruption
         // notification. Preserve the last backend-validated active publication
         // across that ordering window. Explicit Pause/Stop has already cleared
