@@ -61,6 +61,21 @@ struct TagWritebackSchedulingTests {
             == TagWritebackFolderKey.key(sourceID: "s1", filePath: "b.mp3"))
     }
 
+    @Test func refusalsWaitADayAndDroppedConnectionsTenMinutes() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        #expect(PendingTagWritebackSchedule.isDue(lastAttemptAt: nil, refused: true, sourceJustReachable: false, now: now))
+        let fiveMinutes = now.addingTimeInterval(-5 * 60)
+        #expect(!PendingTagWritebackSchedule.isDue(lastAttemptAt: fiveMinutes, refused: false, sourceJustReachable: false, now: now))
+        #expect(PendingTagWritebackSchedule.isDue(lastAttemptAt: fiveMinutes, refused: false, sourceJustReachable: true, now: now))
+        #expect(!PendingTagWritebackSchedule.isDue(lastAttemptAt: now.addingTimeInterval(-20), refused: false, sourceJustReachable: true, now: now))
+        #expect(PendingTagWritebackSchedule.isDue(lastAttemptAt: now.addingTimeInterval(-11 * 60), refused: false, sourceJustReachable: false, now: now))
+        // A source that scanned fine can still refuse writes.
+        let hours = now.addingTimeInterval(-3 * 3600)
+        #expect(!PendingTagWritebackSchedule.isDue(lastAttemptAt: hours, refused: true, sourceJustReachable: true, now: now))
+        #expect(PendingTagWritebackSchedule.isDue(lastAttemptAt: now.addingTimeInterval(-25 * 3600), refused: true, sourceJustReachable: false, now: now))
+        #expect(PendingTagWritebackSchedule.isDue(lastAttemptAt: now.addingTimeInterval(3600), refused: true, sourceJustReachable: false, now: now))
+    }
+
     @Test func textTagsStayLocalOnSidecarCueAndUnsupportedSongs() {
         #expect(AudioMetadataWritebackPolicy.textTagsLeaveLibrary(sourceType: .smb, format: .flac, isCueTrack: false, isStreamDescriptor: false))
         #expect(!AudioMetadataWritebackPolicy.textTagsLeaveLibrary(sourceType: .smb, format: .flac, isCueTrack: true, isStreamDescriptor: false))

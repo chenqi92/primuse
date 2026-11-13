@@ -920,6 +920,7 @@ struct BatchWritebackIssuesSection: View {
     var isRetrying = false
     /// Something else is writing the same songs (undo, the batch itself).
     var isDisabled = false
+    var footer: LocalizedStringKey = "batch_writeback_local_only_footer"
     let onRetry: () -> Void
 
     @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
@@ -956,7 +957,7 @@ struct BatchWritebackIssuesSection: View {
             } header: {
                 Text(String(format: String(localized: "batch_writeback_local_only_header_format"), entries.count))
             } footer: {
-                Text("batch_writeback_local_only_footer")
+                Text(footer)
             }
         } else if rewrittenCount > 0 {
             // Every song went through on a retry; say so rather than let
@@ -1146,6 +1147,76 @@ enum BatchCoverImage {
                   kCGImageSourceThumbnailMaxPixelSize: 160,
               ] as CFDictionary) else { return nil }
         return Image(decorative: cgImage, scale: 1)
+    }
+}
+
+
+// MARK: - Pending write-back list
+
+/// Every tag edit still kept only in Primuse that could reach its file:
+/// from batch edits, artist merges and refused single edits, across
+/// launches. Written again on its own once the source is reachable; here the
+/// listener can see which files, retry now, or stop writing them.
+struct PendingTagWritebackView: View {
+    /// Shown in a sheet (Mac settings), which needs its own Done button.
+    var showsDoneButton = false
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MusicLibrary.self) private var library
+    @State private var showsClearConfirmation = false
+    private var store: PendingTagWritebackStore { .shared }
+
+    var body: some View {
+        let writes = store.localOnlyWrites(in: library)
+        List {
+            BatchWritebackIssuesSection(
+                entries: writes,
+                rewrittenCount: store.rewrittenCount,
+                isRetrying: store.isRetrying,
+                isDisabled: ArtistMergeService.shared.isRunning,
+                footer: "pending_writeback_footer"
+            ) {
+                Task { await store.retry() }
+            }
+            if writes.isEmpty {
+                Section {
+                    Text("pending_writeback_empty")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Section {
+                    Button(role: .destructive) {
+                        showsClearConfirmation = true
+                    } label: {
+                        Label(String(localized: "pending_writeback_clear"), systemImage: "trash")
+                    }
+                    .disabled(store.isRetrying)
+                    .confirmationDialog(
+                        "pending_writeback_clear",
+                        isPresented: $showsClearConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("pending_writeback_clear", role: .destructive) { store.removeAll() }
+                        Button("cancel", role: .cancel) {}
+                    } message: {
+                        Text("pending_writeback_clear_message")
+                    }
+                }
+            }
+        }
+        .navigationTitle("pending_writeback_title")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            if showsDoneButton {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+        }
+        // Drops what no longer needs writing (an undo, a song removed).
+        .task { store.dropFinished() }
     }
 }
 

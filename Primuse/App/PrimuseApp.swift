@@ -1319,6 +1319,7 @@ private struct NetworkPathChangeObserver: View {
                 metadataBackfill.networkPathChanged(
                     startImmediately: scenePhase == .background
                 )
+                PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(10))
                 Task {
                     for source in sourcesStore.sources where source.type == .synology {
                         scanService.removeSynologyAPI(for: source.id)

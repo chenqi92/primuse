@@ -4322,6 +4322,7 @@ private struct MacSTScrapingView: View {
     @State private var pendingCoverEmbeddingMode: CoverEmbeddingMode?
     @State private var showLyricsServersSheet = false
     @State private var libraryTidySongs: BatchSongSelection?
+    @State private var showsPendingWritebacks = false
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
@@ -4505,10 +4506,29 @@ private struct MacSTScrapingView: View {
                     }
                 }
                 .settingsAnchor("scraping.tidyLibrary")
+                // Only while some edit still waits to reach its file.
+                let pendingWritebacks = PendingTagWritebackStore.shared.entries.count
+                if pendingWritebacks > 0 {
+                    MacSTRow(
+                        "\(String(localized: "pending_writeback_title")) (\(pendingWritebacks))",
+                        hint: String(localized: "pending_writeback_footer")
+                    ) {
+                        MacSTButton(title: String(localized: "open"), systemImage: "list.bullet") {
+                            showsPendingWritebacks = true
+                        }
+                    }
+                    .settingsAnchor("scraping.pendingWriteback")
+                }
             }
         }
         .sheet(item: $libraryTidySongs) { batch in
             TagTidyView(songs: batch.songs, isLibraryWide: true)
+        }
+        .sheet(isPresented: $showsPendingWritebacks) {
+            NavigationStack {
+                PendingTagWritebackView(showsDoneButton: true)
+            }
+            .frame(minWidth: 520, idealWidth: 600, minHeight: 420)
         }
         .sheet(isPresented: $showImportSheet) {
             importScraperSheet

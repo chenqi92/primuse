@@ -908,3 +908,56 @@ final class TransientTagWriteRetryTests: XCTestCase {
     }
 }
 
+@MainActor
+final class PendingTagWritebackStoreTests: XCTestCase {
+    private func song(_ id: String, title: String, artist: String?) -> Song {
+        var song = Song(id: id, title: title, fileFormat: .flac, filePath: "/Music/\(id).flac", sourceID: "source")
+        song.artistName = artist
+        return song
+    }
+
+    private func entry(_ original: Song, now: Song, reason: String?, canRetry: Bool = true,
+                       refused: Bool = false) -> BatchTagEditService.LocalOnlyWrite {
+        BatchTagEditService.LocalOnlyWrite(songID: now.id, title: now.title, artist: now.artistName,
+            sourceID: now.sourceID, filePath: now.filePath, reason: reason, canRetry: canRetry,
+            refused: refused, original: original)
+    }
+
+    func testKeepsTheFilesTagsFromTheFirstMissedEditAcrossRelaunch() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("pending-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = PendingTagWritebackStore(fileURL: url)
+        let file = song("a", title: "File Title", artist: "File Artist")
+        let merged = song("a", title: "File Title", artist: "Merged")
+        let renamed = song("a", title: "Renamed", artist: "Merged")
+        store.record(entry(file, now: merged, reason: "timed out"))
+        // A second edit that also missed the file: the file still holds the first tags.
+        store.record(entry(merged, now: renamed, reason: "refused", refused: true))
+        // A change a retry cannot bring to the file is not kept.
+        let cover = song("b", title: "B", artist: nil)
+        store.record(entry(cover, now: cover, reason: nil, canRetry: false))
+
+        XCTAssertEqual(store.entries.map(\.songID), ["a"])
+        XCTAssertEqual(store.entries.first?.fileTags, PendingTagWritebackStore.FileTags(file))
+        XCTAssertEqual(store.entries.first?.title, "Renamed")
+        XCTAssertEqual(store.entries.first?.reason, "refused")
+        XCTAssertEqual(store.entries.first?.refused, true)
+
+        store.flushPendingWrite()
+        XCTAssertEqual(PendingTagWritebackStore(fileURL: url).entries, store.entries)
+
+        store.removeAll()
+        store.flushPendingWrite()
+        XCTAssertTrue(PendingTagWritebackStore(fileURL: url).entries.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testRetryBaseWritesEveryFieldTheFileStillLacks() {
+        let file = song("a", title: "File Title", artist: "File Artist")
+        let current = song("a", title: "Renamed", artist: "Merged")
+        let base = BatchTagEditService.retryBase(
+            before: PendingTagWritebackStore.FileTags(file).applied(to: current), current: current)
+        let changed = TagMetadataWritebackField.changedFields(from: base, to: current, includesCover: false)
+        XCTAssertEqual(changed, [.title, .artist])
+    }
+}

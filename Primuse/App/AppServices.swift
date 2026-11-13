@@ -1524,6 +1524,8 @@ final class AppServices {
         // 手改的标签与别的 iPhone / iPad / Mac 互相同步;别处改的要等本机读完这首歌再套。
         let tagEdits = SongTagEditStore.shared
         tagEdits.attach(library: library)
+        // 没写进文件的标签修改:留着清单,音乐源能连上时自动再写一次。
+        PendingTagWritebackStore.shared.attach(library: library, sourceManager: manager, player: player)
         tagEdits.readinessProvider = { [weak metadataBackfill, weak store] song, includesCover in
             // 读标签的源(停用的也算):这类源上还没读的行要等;服务端曲库的标签来自目录,照套。
             let readsTags = store?.source(id: song.sourceID).map {
@@ -1561,6 +1563,7 @@ final class AppServices {
             metadataBackfill?.sourceScanSucceeded(forSourceID: sourceID)
             peerScanSeeds?.sourceScanSucceeded(sourceID: sourceID)
             SongTagEditStore.shared.libraryRowsMayHaveChanged()
+            PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(3), reachableSourceID: sourceID)
             if completion == .committedSnapshot {
                 library?.sourceSyncDidComplete()
             }
@@ -1989,6 +1992,7 @@ final class AppServices {
         LaunchDiagnostics.mark(.deferredStartup)
         #endif
         serverRatingSync.resume()
+        PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(45))
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         #if os(iOS)
@@ -2747,6 +2751,9 @@ final class AppServices {
                     await AudioCacheManager.shared.restoreOfflineEntriesIfCacheCleared()
                     self?.alwaysDownload.setApplicationActive(true)
                     self?.serverRatingSync.resume()
+                    if self?.didCompleteDeferredStartup == true {
+                        PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(8))
+                    }
                     #if os(iOS) || os(macOS)
                     // 每次回到前台查一次到期的清单订阅(启动后的等待结束前不算数)。
                     RadioSubscriptionService.shared.refreshDueSubscriptions()

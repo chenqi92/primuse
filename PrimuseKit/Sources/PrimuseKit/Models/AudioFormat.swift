@@ -548,6 +548,36 @@ public enum TagWritebackFolderKey {
     }
 }
 
+/// When a song whose edit is kept only in Primuse is written to its file
+/// again on its own.
+///
+/// A dropped connection or a timeout usually clears up, so it is tried again
+/// once the source looks reachable and at most every ten minutes otherwise.
+/// A refusal (read-only source, no write permission) only changes when
+/// someone changes the permission, so it is tried once a day; the listener
+/// can always retry by hand.
+public enum PendingTagWritebackSchedule {
+    public static let unreachableInterval: TimeInterval = 10 * 60
+    public static let refusedInterval: TimeInterval = 24 * 60 * 60
+    /// A source that just scanned is reachable, but not twice a minute.
+    public static let reachableInterval: TimeInterval = 60
+
+    public static func isDue(
+        lastAttemptAt: Date?,
+        refused: Bool,
+        sourceJustReachable: Bool,
+        now: Date
+    ) -> Bool {
+        guard let lastAttemptAt else { return true }
+        let elapsed = now.timeIntervalSince(lastAttemptAt)
+        // A clock set back must not hold an entry forever.
+        if elapsed < 0 { return true }
+        if refused { return elapsed >= refusedInterval }
+        if sourceJustReachable { return elapsed >= reachableInterval }
+        return elapsed >= unreachableInterval
+    }
+}
+
 /// Where saved lyrics go for songs whose audio file can take them.
 ///
 /// The sidecar is the lossless copy: a few kilobytes, word timing and

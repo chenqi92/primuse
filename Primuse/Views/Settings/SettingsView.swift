@@ -1857,6 +1857,24 @@ struct MetadataScrapingView: View {
                 }
                 .settingsAnchor("scraping.tidyLibrary")
             }
+
+            // Only while some edit still waits to reach its file.
+            let pendingWritebacks = PendingTagWritebackStore.shared.entries.count
+            if pendingWritebacks > 0 {
+                Section {
+                    NavigationLink {
+                        PendingTagWritebackView()
+                    } label: {
+                        LabeledContent {
+                            Text(verbatim: "\(pendingWritebacks)")
+                                .monospacedDigit()
+                        } label: {
+                            Label("pending_writeback_title", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .settingsAnchor("scraping.pendingWriteback")
+                }
+            }
         }
         .sheet(item: $libraryTidySongs) { batch in
             TagTidyView(songs: batch.songs, isLibraryWide: true)

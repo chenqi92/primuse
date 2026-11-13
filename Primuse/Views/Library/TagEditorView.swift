@@ -1693,6 +1693,22 @@ struct TagEditorView: View {
                 sourceMutationOccurred = report.remoteMutationOccurred
                 metadataSavedLocally = report.localSaveNotice != nil
                 metadataWritebackNotice = report.issueMessage
+                if metadataSavedLocally, report.mode == .embedded,
+                   SongUserMetadataPolicy.editableFieldsChanged(from: original, to: updated) {
+                    // Written again on its own once the source takes writes,
+                    // like a batch edit the source refused.
+                    PendingTagWritebackStore.shared.record(BatchTagEditService.LocalOnlyWrite(
+                        songID: updated.id,
+                        title: updated.title,
+                        artist: updated.artistName,
+                        sourceID: updated.sourceID,
+                        filePath: updated.filePath,
+                        reason: report.localSaveNotice,
+                        canRetry: true,
+                        refused: true,
+                        original: original
+                    ))
+                }
             } catch {
                 writebackErrorMessage = error.localizedDescription
                 return false

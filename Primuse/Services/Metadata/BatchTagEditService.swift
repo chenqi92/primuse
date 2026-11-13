@@ -1,6 +1,9 @@
 import Foundation
 import Observation
 import PrimuseKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Applies a reviewed set of tag changes to many songs at once.
 ///
@@ -99,6 +102,9 @@ enum BatchTagEditService {
         /// time. A field the source never takes, or a cover (a retry does
         /// not send it again), would come back the same.
         let canRetry: Bool
+        /// The source refused the write (read-only, no permission), rather
+        /// than the connection failing.
+        var refused = false
         /// The library row before the edit; a retry writes from its tags.
         var original: Song
 
@@ -254,6 +260,11 @@ enum BatchTagEditService {
         )
         let reached = Set(outcome.applied.map(\.id))
         let stillLocal = outcome.localOnlySongIDs
+        // Written songs leave the pending list; so do songs a retry cannot
+        // help (they came back not retryable). The rest were re-recorded
+        // when they were published.
+        let notRetryable = Set(outcome.localOnlyWrites.filter { !$0.canRetry }.map(\.songID))
+        PendingTagWritebackStore.shared.remove(songIDs: reached.subtracting(stillLocal).union(notRetryable))
         plog("Batch tag write retry songs=\(entries.count) written=\(reached.subtracting(stillLocal).count) stillLocalOnly=\(stillLocal.count) cancelled=\(outcome.wasCancelled)")
         return outcome
     }
@@ -317,9 +328,13 @@ enum BatchTagEditService {
                         filePath: song.filePath,
                         reason: written.notice,
                         canRetry: written.canRetry,
+                        refused: written.wasRefused,
                         original: pending[index].original
                     )
                     outcome.localOnlyWrites.append(entry)
+                    // Kept across launches and written again once the source
+                    // is reachable, whether or not this screen stays open.
+                    PendingTagWritebackStore.shared.record(entry)
                     // One line per file, so a diagnostic report says which
                     // files still carry the old tags and why.
                     let reason = written.notice.map {
@@ -633,5 +648,385 @@ final class ArtistMergeService {
         guard !isRunning else { return }
         outcome = nil
         rewrittenCount = 0
+    }
+}
+
+// MARK: - Pending write-back
+
+/// Tag edits kept only in Primuse that may still reach their files: kept
+/// across launches, written again on their own once the source looks
+/// reachable, and listed in Settings until they are.
+///
+/// Every batch write and every retry goes through `BatchTagEditService`,
+/// which records the retryable local-only songs here and removes the ones a
+/// retry wrote. The single-song editor records a refused save the same way.
+/// An entry keeps the tags the file still holds, so a later edit of the same
+/// song goes along when it is written.
+@MainActor
+@Observable
+final class PendingTagWritebackStore {
+    static let shared = PendingTagWritebackStore()
+
+    /// The text tags as the file holds them.
+    struct FileTags: Codable, Sendable, Equatable {
+        var title: String
+        var artistName: String?
+        var sourceArtistNames: [String]?
+        var albumTitle: String?
+        var albumArtistName: String?
+        var genre: String?
+        var year: Int?
+        var trackNumber: Int?
+        var discNumber: Int?
+
+        init(_ song: Song) {
+            title = song.title
+            artistName = song.artistName
+            sourceArtistNames = song.sourceArtistNames
+            albumTitle = song.albumTitle
+            albumArtistName = song.albumArtistName
+            genre = song.genre
+            year = song.year
+            trackNumber = song.trackNumber
+            discNumber = song.discNumber
+        }
+
+        func applied(to song: Song) -> Song {
+            var song = song
+            song.title = title
+            song.artistName = artistName
+            song.sourceArtistNames = sourceArtistNames
+            song.albumTitle = albumTitle
+            song.albumArtistName = albumArtistName
+            song.genre = genre
+            song.year = year
+            song.trackNumber = trackNumber
+            song.discNumber = discNumber
+            return song
+        }
+    }
+
+    struct Entry: Codable, Sendable, Identifiable, Equatable {
+        let songID: String
+        var sourceID: String
+        var filePath: String
+        var title: String
+        var artist: String?
+        var reason: String?
+        var refused: Bool
+        var fileTags: FileTags
+        var recordedAt: Date
+        var lastAttemptAt: Date?
+
+        var id: String { songID }
+    }
+
+    private struct Storage: Codable {
+        var entries: [Entry]
+    }
+
+    private struct Context {
+        let library: MusicLibrary
+        let sourceManager: SourceManager
+        let player: AudioPlayerService
+    }
+
+    private(set) var entries: [Entry] = []
+    private(set) var isRetrying = false
+    /// Songs written to their files by retries from the list since launch.
+    private(set) var rewrittenCount = 0
+
+    @ObservationIgnored private let fileURL: URL?
+    @ObservationIgnored private var context: Context?
+    @ObservationIgnored private var persistTask: Task<Void, Never>?
+    @ObservationIgnored private var automaticTask: Task<Void, Never>?
+    @ObservationIgnored private var automaticFollowUp = false
+    @ObservationIgnored private var reachableSourceIDs: Set<String> = []
+    private static let writeQueue = DispatchQueue(label: "primuse.pendingTagWritebacks.write", qos: .utility)
+
+    init(fileURL: URL? = PendingTagWritebackStore.defaultFileURL()) {
+        self.fileURL = fileURL
+        // A few hundred bytes per song; read once, before anything records.
+        if let fileURL, let data = try? Data(contentsOf: fileURL),
+           let storage = try? JSONDecoder().decode(Storage.self, from: data) {
+            entries = storage.entries
+        }
+    }
+
+    nonisolated static func defaultFileURL() -> URL {
+        FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+            .appendingPathComponent("pending-tag-writebacks.json")
+    }
+
+    func attach(library: MusicLibrary, sourceManager: SourceManager, player: AudioPlayerService) {
+        context = Context(library: library, sourceManager: sourceManager, player: player)
+    }
+
+    // MARK: Recording
+
+    /// A song kept only in Primuse. Only retryable ones are kept: a field
+    /// the source never takes, or a cover, comes back the same.
+    func record(_ write: BatchTagEditService.LocalOnlyWrite, at date: Date = Date()) {
+        guard write.canRetry else { return }
+        if let index = entries.firstIndex(where: { $0.songID == write.songID }) {
+            // The file still holds the tags of the first edit that missed it.
+            entries[index].sourceID = write.sourceID
+            entries[index].filePath = write.filePath
+            entries[index].title = write.title
+            entries[index].artist = write.artist
+            entries[index].reason = write.reason
+            entries[index].refused = write.refused
+            entries[index].lastAttemptAt = date
+        } else {
+            entries.append(Entry(
+                songID: write.songID,
+                sourceID: write.sourceID,
+                filePath: write.filePath,
+                title: write.title,
+                artist: write.artist,
+                reason: write.reason,
+                refused: write.refused,
+                fileTags: FileTags(write.original),
+                recordedAt: date,
+                lastAttemptAt: date
+            ))
+        }
+        schedulePersist()
+    }
+
+    func remove(songIDs: Set<String>) {
+        guard !songIDs.isEmpty else { return }
+        let before = entries.count
+        entries.removeAll { songIDs.contains($0.songID) }
+        if entries.count != before { schedulePersist() }
+    }
+
+    /// Stops writing these songs to their files. Their edits stay in Primuse.
+    func removeAll() {
+        guard !entries.isEmpty else { return }
+        plog("Pending tag write-back list cleared songs=\(entries.count)")
+        entries.removeAll()
+        schedulePersist()
+    }
+
+    /// The entries as rows of the write-back list, from the library rows as
+    /// they are now. Songs not in the library right now are left out.
+    func localOnlyWrites(in library: MusicLibrary) -> [BatchTagEditService.LocalOnlyWrite] {
+        entries.compactMap { entry in
+            guard let current = library.storedSong(id: entry.songID) ?? library.song(id: entry.songID) else {
+                return nil
+            }
+            return Self.localOnlyWrite(entry, current: current)
+        }
+    }
+
+    /// Drops the entries that have nothing left to write.
+    func dropFinished() {
+        guard let context, !isRetrying else { return }
+        _ = currentWrites(in: context.library)
+    }
+
+    // MARK: Retrying
+
+    /// Writes the listed songs (all when nil) to their files again, as the
+    /// listener asked. Returns how many reached their files.
+    @discardableResult
+    func retry(songIDs: Set<String>? = nil) async -> Int {
+        guard let context, !isRetrying, !ArtistMergeService.shared.isRunning else { return 0 }
+        var writes = currentWrites(in: context.library)
+        if let songIDs { writes = writes.filter { songIDs.contains($0.songID) } }
+        guard !writes.isEmpty else { return 0 }
+        isRetrying = true
+        defer { finishRun() }
+        let written = await write(writes, context: context)
+        plog("Pending tag write-back retry songs=\(writes.count) written=\(written)")
+        return written
+    }
+
+    /// Something suggests a source may be reachable again: launch, back in
+    /// the foreground, a network change, or a scan of `reachableSourceID`
+    /// that went through.
+    func scheduleAutomaticRetry(after delay: Duration, reachableSourceID: String? = nil) {
+        if let reachableSourceID { reachableSourceIDs.insert(reachableSourceID) }
+        guard !entries.isEmpty else { return }
+        guard !isRetrying else {
+            automaticFollowUp = true
+            return
+        }
+        automaticTask?.cancel()
+        automaticTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await self?.runAutomaticRetry()
+        }
+    }
+
+    private func runAutomaticRetry() async {
+        automaticTask = nil
+        guard let context, !isRetrying, context.library.isReady,
+              !ArtistMergeService.shared.isRunning, Self.automaticWorkIsAllowed() else { return }
+        let now = Date()
+        let reachable = reachableSourceIDs
+        reachableSourceIDs.removeAll()
+        let byID = Dictionary(entries.map { ($0.songID, $0) }, uniquingKeysWith: { first, _ in first })
+        let due = currentWrites(in: context.library).filter { write in
+            guard let entry = byID[write.songID] else { return false }
+            return PendingTagWritebackSchedule.isDue(
+                lastAttemptAt: entry.lastAttemptAt,
+                refused: entry.refused,
+                sourceJustReachable: reachable.contains(entry.sourceID),
+                now: now
+            )
+        }
+        guard !due.isEmpty else { return }
+        isRetrying = true
+        defer { finishRun() }
+        var written = 0
+        let bySource = Dictionary(grouping: due, by: \.sourceID)
+        for sourceID in bySource.keys.sorted() {
+            guard let writes = bySource[sourceID], let first = writes.first else { continue }
+            guard Self.automaticWorkIsAllowed() else { break }
+            // One song first: a source that is still away, or refuses, costs
+            // one try instead of one per song.
+            let firstWritten = await write([first], context: context)
+            written += firstWritten
+            if firstWritten == 0 {
+                let sameSource = Set(writes.map(\.songID))
+                for index in entries.indices where sameSource.contains(entries[index].songID) {
+                    entries[index].lastAttemptAt = now
+                }
+                schedulePersist()
+                continue
+            }
+            if writes.count > 1 {
+                written += await write(Array(writes.dropFirst()), context: context)
+            }
+        }
+        plog("Pending tag write-back automatic retry due=\(due.count) written=\(written) remaining=\(entries.count)")
+    }
+
+    private func finishRun() {
+        isRetrying = false
+        if automaticFollowUp {
+            automaticFollowUp = false
+            scheduleAutomaticRetry(after: .seconds(5))
+        }
+    }
+
+    /// Writes these songs again. `BatchTagEditService` drops the written ones
+    /// from the list and records the rest with this attempt.
+    private func write(_ writes: [BatchTagEditService.LocalOnlyWrite], context: Context) async -> Int {
+        let attemptAt = Date()
+        let outcome = await BatchTagEditService.retryLocalOnlyWrites(
+            writes,
+            sourceManager: context.sourceManager,
+            library: context.library,
+            player: context.player
+        ) { _, _ in }
+        let reached = Set(outcome.applied.map(\.id))
+        let written = reached.subtracting(outcome.localOnlySongIDs).count
+        // A song the retry did not reach still counts this attempt.
+        let unreached = Set(writes.map(\.songID)).subtracting(reached)
+        if !unreached.isEmpty {
+            for index in entries.indices where unreached.contains(entries[index].songID) {
+                entries[index].lastAttemptAt = attemptAt
+            }
+            schedulePersist()
+        }
+        rewrittenCount += written
+        return written
+    }
+
+    /// The entries that still have something to write, as retry input.
+    /// Entries of songs that left the library, or whose file already holds
+    /// what the library holds (an undo, a restore of the file's tags), are
+    /// dropped. Songs of a switched-off source wait.
+    private func currentWrites(in library: MusicLibrary) -> [BatchTagEditService.LocalOnlyWrite] {
+        guard library.isReady else { return [] }
+        var finished: Set<String> = []
+        var writes: [BatchTagEditService.LocalOnlyWrite] = []
+        for entry in entries {
+            if library.disabledSourceIDs.contains(entry.sourceID) { continue }
+            guard let current = library.storedSong(id: entry.songID) ?? library.song(id: entry.songID) else {
+                finished.insert(entry.songID)
+                continue
+            }
+            let base = BatchTagEditService.retryBase(before: entry.fileTags.applied(to: current), current: current)
+            guard SongUserMetadataPolicy.editableFieldsChanged(from: base, to: current) else {
+                finished.insert(entry.songID)
+                continue
+            }
+            writes.append(Self.localOnlyWrite(entry, current: current))
+        }
+        remove(songIDs: finished)
+        return writes
+    }
+
+    private static func localOnlyWrite(_ entry: Entry, current: Song) -> BatchTagEditService.LocalOnlyWrite {
+        BatchTagEditService.LocalOnlyWrite(
+            songID: entry.songID,
+            title: current.title,
+            artist: current.artistName,
+            sourceID: current.sourceID,
+            filePath: current.filePath,
+            reason: entry.reason,
+            canRetry: true,
+            refused: entry.refused,
+            original: entry.fileTags.applied(to: current)
+        )
+    }
+
+    /// Automatic retries stay out of the way like other automatic work: in
+    /// the foreground, off cellular and Low Data Mode, not on low power or a
+    /// hot device. Playing music does not hold them back; it is a file or two.
+    private static func automaticWorkIsAllowed() -> Bool {
+        #if os(iOS)
+        guard UIApplication.shared.applicationState == .active else { return false }
+        #endif
+        let network = NetworkMonitor.shared
+        guard network.hasDeterminedPath, network.isReachable, network.isOnUnmeteredNetwork else { return false }
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return false }
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical: return false
+        default: return true
+        }
+    }
+
+    // MARK: Persistence
+
+    private func schedulePersist() {
+        guard persistTask == nil else { return }
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.persistTask = nil
+            self?.writeNow()
+        }
+    }
+
+    private func writeNow() {
+        guard let fileURL else { return }
+        let storage = Storage(entries: entries)
+        Self.writeQueue.async {
+            if storage.entries.isEmpty {
+                try? FileManager.default.removeItem(at: fileURL)
+                return
+            }
+            guard let data = try? JSONEncoder().encode(storage) else { return }
+            try? FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    /// Writes what is pending now, for tests and before the app goes away.
+    func flushPendingWrite() {
+        persistTask?.cancel()
+        persistTask = nil
+        writeNow()
+        Self.writeQueue.sync {}
     }
 }
