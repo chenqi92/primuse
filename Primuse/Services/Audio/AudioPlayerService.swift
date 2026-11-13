@@ -4576,6 +4576,15 @@ final class AudioPlayerService {
                     } catch {
                         return PCMBufferBox(value: nil)
                     }
+                    // Offline for a few seconds: nothing will arrive, so end the
+                    // wait now and let the caller say why.
+                    if CloudPlaybackSource.remoteReadFailure(
+                        sourceID: stallSourceID,
+                        since: startedAt,
+                        minimumOfflineDuration: RemoteReadFailurePolicy.sustainedOfflineInterval
+                    ) == .noConnection {
+                        throw CancellationError()
+                    }
                     if SeekFirstBufferStallPolicy.hasStalled(
                         startedAt: startedAt,
                         lastTransferAt: CloudPlaybackSource.lastTransferUptime(sourceID: stallSourceID),
@@ -4593,15 +4602,20 @@ final class AudioPlayerService {
         return box.value
     }
 
-    /// A start whose stream could not reach its source. A complete download
-    /// needs the same network, and moving on to the next item would only fail
-    /// the same way (and, in a book, lose the chapter). Stop here; Play tries
-    /// this item again.
-    private func stopStartForMissingConnection(song: Song) {
-        plog("⚠️ '\(song.title)' could not reach its source; stopping instead of a complete-download fallback")
+    /// A start whose stream could not reach its source, or got audio too
+    /// slowly to begin. A complete download needs the same network, and moving
+    /// on to the next item would only fail the same way (and, in a book, lose
+    /// the chapter). Stop here and say which it was; Play tries this item again.
+    private func stopStartForRemoteFailure(song: Song, failure: RemoteReadFailure) {
+        switch failure {
+        case .noConnection:
+            plog("⚠️ '\(song.title)' could not reach its source; stopping instead of a complete-download fallback")
+        case .tooSlow:
+            plog("⚠️ '\(song.title)' source too slow to start; stopping instead of a complete-download fallback")
+        }
         isLoading = false
         isPlaying = false
-        showPlaybackError(String(localized: "playback_error_connection"))
+        showPlaybackError(Self.remoteFailureMessage(failure))
         republishNowPlayingSurfaces()
     }
 
@@ -5984,8 +5998,8 @@ final class AudioPlayerService {
             } catch is CancellationError {
                 guard !Task.isCancelled, playID == id else { return }
                 if (isCloudStream || isRemoteURL),
-                   remoteReadFailedForConnectivity(sourceID: song.sourceID, since: firstBufferStartedAt) {
-                    stopStartForMissingConnection(song: song)
+                   let remoteFailure = remoteReadFailure(sourceID: song.sourceID, since: firstBufferStartedAt) {
+                    stopStartForRemoteFailure(song: song, failure: remoteFailure)
                     return
                 }
                 // 云盘大文件逐 chunk 流式卡死(连接饥饿 / 冷文件 hydration)时,
@@ -6018,8 +6032,8 @@ final class AudioPlayerService {
                 }
                 plog("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
                 if activeDecoderKind == .httpStream,
-                   remoteReadFailedForConnectivity(sourceID: song.sourceID, since: firstBufferStartedAt) {
-                    stopStartForMissingConnection(song: song)
+                   let remoteFailure = remoteReadFailure(sourceID: song.sourceID, since: firstBufferStartedAt) {
+                    stopStartForRemoteFailure(song: song, failure: remoteFailure)
                 } else if activeDecoderKind == .httpStream {
                     if isExternalURLItem(song), assetReaderDecoder.canDecode(url: url) {
                         plog("↳ HTTP range decode failed before first buffer; trying DLNA progressive AssetReader fallback")
@@ -6063,8 +6077,8 @@ final class AudioPlayerService {
                         playID: id,
                         shouldRecordPlaybackStart: shouldRecordPlaybackStart
                     )
-                } else if remoteReadFailedForConnectivity(sourceID: song.sourceID, since: firstBufferStartedAt) {
-                    stopStartForMissingConnection(song: song)
+                } else if let remoteFailure = remoteReadFailure(sourceID: song.sourceID, since: firstBufferStartedAt) {
+                    stopStartForRemoteFailure(song: song, failure: remoteFailure)
                 } else if let quotaMessage = CloudDownloadQuotaState.shared.exhaustedMessage(sourceID: song.sourceID) {
                     // 云盘这个月的下载流量用完了:整首下载一样会被拒,不再兜底,
                     // 直接说清原因,别让人以为是文件坏了。
@@ -6716,6 +6730,7 @@ final class AudioPlayerService {
         )
         let stream = segmented(rawStream, for: song)
         let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
+        let downloadStartedAt = ProcessInfo.processInfo.systemUptime
 
         do {
             // A server that transcodes on the fly can take minutes to send a
@@ -6883,11 +6898,24 @@ final class AudioPlayerService {
             await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
             guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ StreamingDownload first-buffer timeout for '\(song.title)': source sent nothing for \(Self.remoteFallbackFirstBufferTimeoutSeconds)s")
+            // Offline: a lower bit rate or the next item fails the same way.
+            if let failure = remoteReadFailure(sourceID: song.sourceID, since: downloadStartedAt),
+               failure == .noConnection {
+                stopStartForRemoteFailure(song: song, failure: failure)
+                return
+            }
             if await retryAdaptiveTranscodeAfterStartupFailure(
                 song: song, failedPlan: adaptiveTranscodePlan, playID: id,
                 sourceStreamEpoch: sourceStreamEpoch,
                 shouldRecordPlaybackStart: shouldRecordPlaybackStart
             ) { return }
+            // The download had been receiving audio and then went quiet: the
+            // network works but cannot keep up. Stay on this item.
+            if let delivered = CloudPlaybackSource.lastTransferUptime(sourceID: song.sourceID),
+               delivered > downloadStartedAt {
+                stopStartForRemoteFailure(song: song, failure: .tooSlow)
+                return
+            }
             showPlaybackError(String(localized: "playback_error_connection"))
             isLoading = false
             await autoAdvanceAfterFailure()
@@ -6895,6 +6923,10 @@ final class AudioPlayerService {
             await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
             guard !Task.isCancelled, playID == id else { return }
             plog("⚠️ StreamingDownload failed for '\(song.title)': \(error.localizedDescription)")
+            if NetworkPathState.isUnavailable, CloudPlaybackSource.isConnectivityFailure(error) {
+                stopStartForRemoteFailure(song: song, failure: .noConnection)
+                return
+            }
             if await retryAdaptiveTranscodeAfterStartupFailure(
                 song: song, failedPlan: adaptiveTranscodePlan, playID: id,
                 sourceStreamEpoch: sourceStreamEpoch,

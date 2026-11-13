@@ -22,12 +22,17 @@ public enum PlaybackChunkRetryPolicy {
     ///
     /// `isTransportFailure` 由调用方判定：只有连接层的失败（断开、重置、超时、
     /// 连不上）值得重试。登录过期、服务端拒绝、内容不对重试没有意义。
+    ///
+    /// `networkUnavailable`：设备确定没有网络、这次又是连不上。再等半秒重取
+    /// 只会再失败一次，断网时一块读取因此要拖几十秒才把错误交上去。
     public static func delay(
         isTransportFailure: Bool,
         failedAttempts: Int,
-        elapsed: TimeInterval
+        elapsed: TimeInterval,
+        networkUnavailable: Bool = false
     ) -> TimeInterval? {
         guard isTransportFailure,
+              !networkUnavailable,
               failedAttempts >= 1,
               failedAttempts < maximumAttempts else { return nil }
         let delay: TimeInterval = failedAttempts == 1 ? 0.5 : 1.5

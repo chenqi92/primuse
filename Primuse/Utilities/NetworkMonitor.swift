@@ -37,6 +37,8 @@ final class NetworkMonitor {
             let constrained = path.isConstrained
             let condition = SourceRoutePathCondition(path: path)
             let fingerprint = SourceNetworkPathFingerprint(path: path)
+            // 取数线程不等主线程转一圈就要知道「没网了」，在回调线程上直接记下。
+            NetworkPathState.record(unsatisfied: unsatisfied)
             Task { @MainActor [weak self] in
                 self?.apply(
                     reachable: reachable,

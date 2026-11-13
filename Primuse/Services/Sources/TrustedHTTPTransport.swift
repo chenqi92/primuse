@@ -242,17 +242,26 @@ enum TrustedHTTPTransport {
         try Task.checkCancellation()
         guard maxBytes >= 0 else { throw URLError(.dataLengthExceedsMaximum) }
         let (bytes, response) = try await session.bytes(for: request)
+        let progress = DownloadProgress.observer
+        progress?(0)
         var data = Data()
         if response.expectedContentLength > 0,
            response.expectedContentLength <= Int64(maxBytes) {
             data.reserveCapacity(Int(response.expectedContentLength))
         }
+        var unreported = 0
         for try await byte in bytes {
             guard data.count < maxBytes else {
                 throw URLError(.dataLengthExceedsMaximum)
             }
             data.append(byte)
+            unreported += 1
+            if unreported == 16 * 1_024 {
+                progress?(unreported)
+                unreported = 0
+            }
         }
+        if unreported > 0 { progress?(unreported) }
         return (data, response)
     }
 
@@ -336,9 +345,10 @@ enum TrustedHTTPTransport {
         )
     }
 
-    /// Told how many bytes arrived, chunk by chunk, while a media download
-    /// runs in this task. A caller that waits for a whole download uses it to
-    /// tell a slow transfer that keeps sending from one that has stopped.
+    /// Told how many bytes arrived, chunk by chunk, while a media download or
+    /// range read runs in this task; 0 means a response arrived with no body
+    /// yet. A caller that waits on the transfer uses it to tell a slow source
+    /// that keeps answering from one that has stopped.
     enum DownloadProgress {
         @TaskLocal static var observer: (@Sendable (Int) -> Void)?
     }
@@ -383,6 +393,7 @@ enum TrustedHTTPTransport {
         }
 
         let (bytes, response) = try await session.bytes(for: request)
+        DownloadProgress.observer?(0)
         let isWholeResponsePrefix = (response as? HTTPURLResponse)?.statusCode == 200
             && wholeResponsePrefixLimit != nil
         let bodyLimit = isWholeResponsePrefix

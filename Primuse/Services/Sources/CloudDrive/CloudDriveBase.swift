@@ -437,6 +437,8 @@ struct CloudDriveHelper: Sendable {
         }
         request.timeoutInterval = timeoutSeconds
         let (bytes, response) = try await session.bytes(for: request)
+        let progress = TrustedHTTPTransport.DownloadProgress.observer
+        progress?(0)
         guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
         defer { bytes.task.cancel() }
         try Self.checkHTTPFailure(data: Data(), response: http)
@@ -444,10 +446,21 @@ struct CloudDriveHelper: Sendable {
         case 206:
             var data = Data()
             data.reserveCapacity(Int(min(length, 4 * 1024 * 1024)))
+            // Report arriving bytes as they come: a slow source that keeps
+            // sending is still starting playback, and the reader's deadline
+            // can only tell that apart from a dead one if it hears about them.
+            let reportEvery = 16 * 1024
+            var unreported = 0
             for try await byte in bytes {
                 if Int64(data.count) >= length { break }
                 data.append(byte)
+                unreported += 1
+                if unreported == reportEvery {
+                    progress?(unreported)
+                    unreported = 0
+                }
             }
+            if unreported > 0 { progress?(unreported) }
             return data
         case 200:
             throw CloudDriveError.apiError(200, "Server ignored byte-range request")
@@ -531,6 +544,9 @@ struct CloudDriveHelper: Sendable {
             }, operation: {
                 let req = try await request(authorization?.token)
                 let (data, response) = try await session.data(for: req)
+                // A provider answering (link lookups, metadata) also shows a
+                // waiting read that the source is still reachable.
+                TrustedHTTPTransport.DownloadProgress.observer?(0)
                 guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
                 try self.validateResponse(data, http)
                 try Self.checkHTTPFailure(data: data, response: http)

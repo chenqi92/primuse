@@ -255,6 +255,7 @@
 		193463D65D5D8855FB50984D /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 449E8C72C7990DCAAE0C289F /* Localizable.strings */; };
 		19483BE566AE65F1BB981D7E /* PlaybackPitchPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 557641A3CA3DE27CE579FDB7 /* PlaybackPitchPolicy.swift */; };
 		DC1DC02C34DEEAE7D305BED9 /* NowPlayingCarouselSoundFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */; };
+		E3C90FEE1E30C7DC8DCC3B99 /* RemoteTransferProgressPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6904511379BB45DCF7239315 /* RemoteTransferProgressPolicy.swift */; };
 		EA2A6DE880C4B2551AD437A3 /* NowPlayingCarouselExploreFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09C0B9A17A59CE43F6EAB17 /* NowPlayingCarouselExploreFace.swift */; };
 		EF1D6614A7975DB05D15E5B8 /* NowPlayingCarouselUpNextFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F584CC469247A34048416F9E /* NowPlayingCarouselUpNextFace.swift */; };
 		F36600020000000000000001 /* PlaybackTimePitchProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36600010000000000000001 /* PlaybackTimePitchProcessor.swift */; };
@@ -2621,6 +2622,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		6904511379BB45DCF7239315 /* RemoteTransferProgressPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTransferProgressPolicy.swift; sourceTree = "<group>"; };
 		A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingCarouselSoundFace.swift; sourceTree = "<group>"; };
 		C09C0B9A17A59CE43F6EAB17 /* NowPlayingCarouselExploreFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingCarouselExploreFace.swift; sourceTree = "<group>"; };
 		C8B12E340F9123456A6B0002 /* LyricLineCommentsExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricLineCommentsExport.swift; sourceTree = "<group>"; };
@@ -4791,6 +4793,7 @@
 				6B4555C595F754161FB68F73 /* Models */,
 				F102477EA2B1BAD4063986D1 /* Podcast */,
 				AE8026A8E49A84C9F273845F /* Radio */,
+				6904511379BB45DCF7239315 /* RemoteTransferProgressPolicy.swift */,
 				D7B9A30E7467B10B25922382 /* Resources */,
 				0CDF376A886EA798FB63A718 /* Settings */,
 				1FA61E5EA3526337A1F7518F /* Sharing */,
@@ -7579,6 +7582,7 @@
 				E9C0117118EAB7120E8D1465 /* LockScreenMotionArtworkPolicy.swift in Sources */,
 				4B032738CFBC427AA82478EC /* MotionCoverPolicy.swift in Sources */,
 				BFEFA059A5CF112C3BA07BD3 /* LRCWordTimingCompanion.swift in Sources */,
+				E3C90FEE1E30C7DC8DCC3B99 /* RemoteTransferProgressPolicy.swift in Sources */,
 				B29FEDB2CE45C72E5E82BB18 /* WikipediaInsight.swift in Sources */,
 				3A447F9292183A2E25B9F7D5 /* LegacyAudioCacheMigrationPolicy.swift in Sources */,
 				0117BCF5A8E19A2E8916DBF2 /* LibraryBrowseIndex.swift in Sources */,

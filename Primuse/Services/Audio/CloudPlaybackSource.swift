@@ -984,18 +984,72 @@ enum CloudPlaybackSource {
         return lastConnectivityFailureBySourceID[sourceID]
     }
 
-    /// When a source last delivered audio bytes (system uptime), to tell a slow
-    /// source from one that has stopped answering. Recorded at most every
-    /// `transferNoticeInterval`, so it can be that much behind.
+    nonisolated(unsafe) private static var lastSlowStallBySourceID: [String: TimeInterval] = [:]
+    static let slowTransferErrorKey = "PrimuseSlowTransfer"
+
+    /// A read that was receiving audio, only too slowly to finish in time.
+    static func slowTransferError() -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(ETIMEDOUT),
+            userInfo: [
+                NSLocalizedDescriptionKey: "Cloud fetch too slow to finish",
+                slowTransferErrorKey: true,
+            ]
+        )
+    }
+
+    static func isSlowTransferError(_ error: Error) -> Bool {
+        (error as NSError).userInfo[slowTransferErrorKey] as? Bool == true
+    }
+
+    fileprivate static func noteSlowStall(sourceID: String) {
+        transferNoticeLock.lock()
+        lastSlowStallBySourceID[sourceID] = ProcessInfo.processInfo.systemUptime
+        transferNoticeLock.unlock()
+    }
+
+    /// Why remote reads from `sourceID` since `start` have produced no audio,
+    /// when that can be said: no network / no connection, or a source too
+    /// slow to keep up. `minimumOfflineDuration` is how long the device must
+    /// have been offline before that alone decides it (0 once a read failed).
+    static func remoteReadFailure(
+        sourceID: String,
+        since start: TimeInterval,
+        minimumOfflineDuration: TimeInterval = 0
+    ) -> RemoteReadFailure? {
+        transferNoticeLock.lock()
+        let connectivityFailure = lastConnectivityFailureBySourceID[sourceID]
+        let slowStall = lastSlowStallBySourceID[sourceID]
+        let transfer = lastTransferBySourceID[sourceID]
+        transferNoticeLock.unlock()
+        return RemoteReadFailurePolicy.classify(
+            now: ProcessInfo.processInfo.systemUptime,
+            startedAt: start,
+            offlineSince: NetworkPathState.unavailableSince,
+            lastConnectivityFailureAt: connectivityFailure,
+            lastSlowStallAt: slowStall,
+            lastTransferAt: transfer,
+            minimumOfflineDuration: minimumOfflineDuration
+        )
+    }
+
+    nonisolated(unsafe) private static var lastTransferBySourceID: [String: TimeInterval] = [:]
+
+    /// When a source last delivered audio bytes or answered a request (system
+    /// uptime), to tell a slow source from one that has stopped answering.
     static func lastTransferUptime(sourceID: String) -> TimeInterval? {
         transferNoticeLock.lock()
         defer { transferNoticeLock.unlock() }
-        return lastTransferNoticeBySourceID[sourceID]
+        return lastTransferBySourceID[sourceID]
     }
 
+    /// Called for every arriving chunk. The time is always kept; the observer
+    /// (source reachability) hears about it at most every few seconds.
     static func noteTransferSucceeded(sourceID: String) {
         let now = ProcessInfo.processInfo.systemUptime
         transferNoticeLock.lock()
+        lastTransferBySourceID[sourceID] = now
         if let last = lastTransferNoticeBySourceID[sourceID],
            now - last < transferNoticeInterval {
             transferNoticeLock.unlock()
@@ -1205,6 +1259,34 @@ private final class FetchResultBox: @unchecked Sendable {
     var error: Error?
 }
 
+/// What one foreground range read has heard from its source: when it last
+/// got a response or bytes, and how many audio bytes arrived.
+private final class FetchProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastActivity: TimeInterval?
+    private var bytes: Int64 = 0
+
+    func record(bytes count: Int) {
+        let now = ProcessInfo.processInfo.systemUptime
+        lock.lock()
+        lastActivity = now
+        bytes += Int64(max(0, count))
+        lock.unlock()
+    }
+
+    var lastActivityAt: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastActivity
+    }
+
+    var receivedBytes: Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return bytes
+    }
+}
+
 final class HTTPRangeFetcher: @unchecked Sendable {
     private let url: URL
     private let totalLength: Int64
@@ -1245,7 +1327,12 @@ final class HTTPRangeFetcher: @unchecked Sendable {
         request.httpMethod = "GET"
         request.setValue(rangeHeader, forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        request.timeoutInterval = 60
+        // The cleartext socket client treats this as the limit for the whole
+        // read, so a slow but steady source would be cut off at a minute. The
+        // reader's own deadline (`RangeFetchDeadline`) ends a stalled read.
+        request.timeoutInterval = TrustedHTTPTransport.requiresPlainSocket(for: url)
+            ? RangeFetchDeadline.defaultTotalLimit
+            : 60
 
         let wholeResourceLimit = Int(clamping: totalLength)
         let maxBytes = wholeResourceLimit > Int.max - 64 * 1_024
@@ -1570,7 +1657,12 @@ private final class State: @unchecked Sendable {
             // 时, SFB read 跨 256KB 边界后 cache miss → chunk align 回到 0
             // → 重新拉整个 1MB (重复拉前 256KB), 浪费带宽和时间。
             // 推 fetchStart 到 cache 末尾后, 只拉缺失的 [256KB..1MB]。
-            let fetchDeadline = DispatchTime.now() + .seconds(30)
+            // How long this read may wait: until the source has gone quiet
+            // for `stallLimit`, or the overall limit. Resolving a download
+            // link counts against it too, but every response and arriving
+            // chunk resets the quiet period.
+            let readDeadline = RangeFetchDeadline()
+            let serveStartedUptime = ProcessInfo.processInfo.systemUptime
             let serveStartedAt = Date()
             let chunkSize = chunkBytes
             let chunkAlign = (offset / chunkSize) * chunkSize
@@ -1642,7 +1734,13 @@ private final class State: @unchecked Sendable {
                                     label, chunkStart, elapsed * 1000))
                         break
                     }
-                    if DispatchTime.now() >= fetchDeadline {
+                    // The prefetch reports its chunks as transfers from this
+                    // source, so a slow one that is still arriving is waited for.
+                    if readDeadline.verdict(
+                        startedAt: serveStartedUptime,
+                        lastActivityAt: CloudPlaybackSource.lastTransferUptime(sourceID: sourceID),
+                        now: ProcessInfo.processInfo.systemUptime
+                    ) != .waiting {
                         prefetchTask?.cancel()
                         markFetchDisabled()
                         errorOut?.pointee = NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
@@ -1667,14 +1765,21 @@ private final class State: @unchecked Sendable {
             // Bridge async → sync. SFBAudioEngine's decode thread isn't
             // an actor or main, so a semaphore wait is safe. The `Box`
             // keeps result/error storage Sendable across the Task
-            // boundary. Hard timeout because the fetch Task can hang
-            // indefinitely (revoked dlink mid-handshake, network
-            // never settling) and SFB has no way to surface that —
-            // the user sees a forever-spinning play button. 30s is
-            // longer than any legitimate single-chunk fetch.
+            // boundary. The wait still ends on its own because the fetch Task
+            // can hang indefinitely (revoked dlink mid-handshake, network
+            // never settling) and SFB has no way to surface that — the user
+            // would see a forever-spinning play button. It ends when the
+            // source has sent nothing for a while, not at a fixed time: a
+            // slow network that keeps sending is still starting playback.
             let result = FetchResultBox()
+            let progress = FetchProgress()
             let semaphore = DispatchSemaphore(value: 0)
             let startedAt = Date()
+            let progressSourceID = sourceID
+            let progressObserver: @Sendable (Int) -> Void = { bytes in
+                progress.record(bytes: bytes)
+                CloudPlaybackSource.noteTransferSucceeded(sourceID: progressSourceID)
+            }
             let fetchTask = Task<Void, Never> { [connectorFetch, label] in
                 defer { semaphore.signal() }
                 // One dropped keep-alive connection (-1005, ECONNRESET) used to
@@ -1687,20 +1792,32 @@ private final class State: @unchecked Sendable {
                         return
                     }
                     do {
-                        result.data = try await connectorFetch(
-                            chunkStart,
-                            want,
-                            .userInitiated
-                        )
+                        result.data = try await TrustedHTTPTransport.DownloadProgress.$observer.withValue(
+                            progressObserver
+                        ) {
+                            try await connectorFetch(
+                                chunkStart,
+                                want,
+                                .userInitiated
+                            )
+                        }
                         return
                     } catch {
                         failedAttempts += 1
+                        // With no network at all another try fails the same
+                        // way; hand the error up so playback can say so now.
+                        let offline = NetworkPathState.isUnavailable
+                            && CloudPlaybackSource.isConnectivityFailure(error)
                         guard !Task.isCancelled,
                               let delay = PlaybackChunkRetryPolicy.delay(
                                   isTransportFailure: SourceTransportFailure.isTransportFailure(error),
                                   failedAttempts: failedAttempts,
-                                  elapsed: Date().timeIntervalSince(serveStartedAt)
+                                  elapsed: Date().timeIntervalSince(serveStartedAt),
+                                  networkUnavailable: offline
                               ) else {
+                            if offline {
+                                plog("⚠️ Cloud stream '\(label)' chunkStart=\(chunkStart) no network; not retrying")
+                            }
                             result.error = error
                             return
                         }
@@ -1724,18 +1841,41 @@ private final class State: @unchecked Sendable {
                 )
                 return nil
             }
-            let timeoutResult = semaphore.wait(timeout: fetchDeadline)
+            var deadlineVerdict = RangeFetchDeadline.Verdict.waiting
+            while semaphore.wait(timeout: .now() + .milliseconds(250)) == .timedOut {
+                deadlineVerdict = readDeadline.verdict(
+                    startedAt: serveStartedUptime,
+                    lastActivityAt: progress.lastActivityAt,
+                    now: ProcessInfo.processInfo.systemUptime
+                )
+                if deadlineVerdict != .waiting { break }
+            }
             releaseForegroundFetch(id: fetchID)
             let elapsed = Date().timeIntervalSince(startedAt)
-            if timeoutResult == .timedOut {
+            if deadlineVerdict != .waiting {
                 fetchTask.cancel()
                 lock.lock(); fetchDisabled = true; lock.unlock()
-                plog(String(format: "⚠️ Cloud stream '%@' fetch timeout chunkStart=%lld len=%lld after %.1fs",
-                            label, chunkStart, want, elapsed))
+                let received = progress.receivedBytes
+                let quietFor = progress.lastActivityAt.map {
+                    ProcessInfo.processInfo.systemUptime - $0
+                } ?? -1
+                if received > 0 {
+                    // Audio was arriving, only too slowly: the network works,
+                    // and telling the listener it cannot connect would be wrong.
+                    plog(String(format: "⚠️ Cloud stream '%@' fetch too slow chunkStart=%lld len=%lld after %.1fs received=%lld lastData=%.1fs ago reason=%@",
+                                label, chunkStart, want, elapsed, received, quietFor,
+                                deadlineVerdict == .stalled ? "stalled" : "total-limit"))
+                    let slowError = CloudPlaybackSource.slowTransferError()
+                    CloudPlaybackSource.noteSlowStall(sourceID: sourceID)
+                    errorOut?.pointee = slowError
+                    return nil
+                }
+                plog(String(format: "⚠️ Cloud stream '%@' fetch timeout chunkStart=%lld len=%lld after %.1fs (no audio received, lastResponse=%.1fs ago)",
+                            label, chunkStart, want, elapsed, quietFor))
                 let timeoutError = NSError(
                     domain: NSPOSIXErrorDomain,
                     code: Int(ETIMEDOUT),
-                    userInfo: [NSLocalizedDescriptionKey: "Cloud fetch timed out after 30s"]
+                    userInfo: [NSLocalizedDescriptionKey: "Cloud fetch received nothing in time"]
                 )
                 CloudPlaybackSource.noteFetchFailure(sourceID: sourceID, error: timeoutError)
                 errorOut?.pointee = timeoutError
@@ -1892,11 +2032,18 @@ private final class State: @unchecked Sendable {
                 defer { self.releasePrefetch(offset: nextChunkStart) }
                 guard !Task.isCancelled else { return }
                 do {
-                    let data = try await connectorFetch(
-                        nextChunkStart,
-                        want,
-                        .background
-                    )
+                    // A user read waiting on this prefetch judges it by these
+                    // transfer notes, so report chunks as they arrive.
+                    let sourceID = self.sourceID
+                    let data = try await TrustedHTTPTransport.DownloadProgress.$observer.withValue({ _ in
+                        CloudPlaybackSource.noteTransferSucceeded(sourceID: sourceID)
+                    }) {
+                        try await connectorFetch(
+                            nextChunkStart,
+                            want,
+                            .background
+                        )
+                    }
                     guard !Task.isCancelled else { return }
                     guard !data.isEmpty else { return }
                     guard !self.isClosed() else { return }
@@ -2079,7 +2226,12 @@ private final class State: @unchecked Sendable {
             lock.unlock()
         }
         let waitStart = Date()
-        let deadline = DispatchTime.now() + .seconds(Self.sequentialFillStallSeconds)
+        // Give up on the fill once the source has gone quiet, not at a fixed
+        // time: on a slow network the fill is still the fastest way in.
+        let fillDeadline = RangeFetchDeadline(
+            stallLimit: TimeInterval(Self.sequentialFillStallSeconds)
+        )
+        let waitStartedUptime = ProcessInfo.processInfo.systemUptime
         while true {
             guard !isClosed(), CloudPlaybackSource.isCurrentStreamEpoch(
                 sourceID: sourceID, epoch: streamEpoch
@@ -2099,7 +2251,11 @@ private final class State: @unchecked Sendable {
             // The fill may have stopped short (it reached bytes already cached
             // further on, or failed); start another one here.
             guard fillWillServe() else { return nil }
-            if DispatchTime.now() >= deadline {
+            if fillDeadline.verdict(
+                startedAt: waitStartedUptime,
+                lastActivityAt: CloudPlaybackSource.lastTransferUptime(sourceID: sourceID),
+                now: ProcessInfo.processInfo.systemUptime
+            ) != .waiting {
                 plog("⚠️ Cloud stream '\(label)' sequential fill stalled at \(offset); falling back to range requests")
                 noteSequentialFillFailure(cancelRunning: true)
                 return nil

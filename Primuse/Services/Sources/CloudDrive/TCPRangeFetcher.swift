@@ -417,7 +417,10 @@ private final class PooledConnection: @unchecked Sendable {
 
         while true {
             let (chunk, isComplete) = try await receiveOnce()
-            if let chunk, !chunk.isEmpty { raw.append(chunk) }
+            if let chunk, !chunk.isEmpty {
+                raw.append(chunk)
+                TrustedHTTPTransport.DownloadProgress.observer?(chunk.count)
+            }
 
             if headerEnd == nil, let r = raw.range(of: headerSep) {
                 headerEnd = r.upperBound

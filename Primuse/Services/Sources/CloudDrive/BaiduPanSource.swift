@@ -866,7 +866,18 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     /// the Location to the client, range GET it directly with the UA.
     private func rangeRequestUsingCachedCdnURL(path: String, offset: Int64, length: Int64) async throws -> Data {
         plog("☁️ Baidu fetchRange entry path=\(path) offset=\(offset) length=\(length)")
-        let cdnURL = try await getCdnURL(for: path)
+        let resolveStartedAt = Date()
+        let cdnURL: URL
+        do {
+            cdnURL = try await getCdnURL(for: path)
+        } catch {
+            // How long a failed link lookup took tells a dead network (fails
+            // at once) from one that stalls inside the lookup's own retries.
+            let failure = error as NSError
+            plog(String(format: "⚠️ Baidu fetchRange link lookup failed after %.2fs path=%@ error=%@/%ld",
+                        Date().timeIntervalSince(resolveStartedAt), path, failure.domain, failure.code))
+            throw error
+        }
         plog("☁️ Baidu fetchRange got CDN URL for \(path) → \(cdnURL.host ?? "?")\(cdnURL.path.prefix(80))")
         let data = try await helper.rangeRequest(
             url: cdnURL,
@@ -937,7 +948,16 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
 
     private func resolveCdnURL(for path: String) async throws -> URL {
         plog("☁️ Baidu resolveCdnURL start path=\(path)")
-        let dlink = try await getDlink(for: path)
+        let dlinkStartedAt = Date()
+        let dlink: String
+        do {
+            dlink = try await getDlink(for: path)
+        } catch {
+            let failure = error as NSError
+            plog(String(format: "⚠️ Baidu resolveCdnURL dlink lookup failed after %.2fs error=%@/%ld",
+                        Date().timeIntervalSince(dlinkStartedAt), failure.domain, failure.code))
+            throw error
+        }
         let token = try await getToken()
         guard let dlinkURL = Self.appendingAccessToken(to: dlink, token: token) else {
             throw CloudDriveError.invalidResponse

@@ -811,6 +811,7 @@
 
 // MARK: - Playback Errors
 "playback_error_connection" = "Cannot connect to source";
+"playback_error_slow_network" = "Network too slow to load audio";
 "playback_icloud_downloading" = "Downloading from iCloud…";
 "playback_icloud_error_offline" = "This song is still in iCloud and can’t be downloaded without a network connection.";
 "playback_icloud_error_download" = "Couldn’t download this song from iCloud. Try again later, or download it from iCloud Drive first.";

@@ -1034,6 +1034,7 @@
 "add" = "추가";
 "security" = "보안";
 "playback_error_connection" = "소스에 연결할 수 없습니다";
+"playback_error_slow_network" = "네트워크가 너무 느려 오디오를 불러오지 못했습니다";
 "playback_icloud_downloading" = "iCloud에서 다운로드 중…";
 "playback_icloud_error_offline" = "이 곡은 아직 iCloud에 있으며 네트워크에 연결되어 있지 않아 다운로드할 수 없습니다.";
 "playback_icloud_error_download" = "iCloud에서 이 곡을 다운로드할 수 없습니다. 나중에 다시 시도하거나 먼저 iCloud Drive에서 다운로드하세요.";

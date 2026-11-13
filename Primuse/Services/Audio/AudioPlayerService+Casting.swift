@@ -1603,9 +1603,10 @@ extension AudioPlayerService {
                         // No connection: a complete download needs the same
                         // network, and waiting out its stall timer only kept
                         // the spinner up before a misleading decode error.
-                        if remoteReadFailedForConnectivity(sourceID: song.sourceID, since: seekStartedAt) {
-                            plog("⚠️ Seek: range read failed without a connection; not falling back to a complete download")
-                            throw PlaybackConnectivityFailure()
+                        // A slow network makes a complete download slower still.
+                        if let failure = remoteReadFailure(sourceID: song.sourceID, since: seekStartedAt) {
+                            plog("⚠️ Seek: range read failed (\(failure)); not falling back to a complete download")
+                            throw PlaybackConnectivityFailure(failure: failure)
                         }
                         // The complete-file download watches its own progress.
                         firstBufferWatchdog.cancel()
@@ -1842,11 +1843,11 @@ extension AudioPlayerService {
                     )
                     return
                 }
-                let failedForConnectivity = error is PlaybackConnectivityFailure
-                    || remoteReadFailedForConnectivity(sourceID: song.sourceID, since: seekStartedAt)
-                let failureMessage = failedForConnectivity
-                    ? String(localized: "playback_error_connection")
-                    : String(localized: "playback_error_decode")
+                let remoteFailure = (error as? PlaybackConnectivityFailure)?.failure
+                    ?? remoteReadFailure(sourceID: song.sourceID, since: seekStartedAt)
+                let failedForConnectivity = remoteFailure != nil
+                let failureMessage = remoteFailure.map(Self.remoteFailureMessage)
+                    ?? String(localized: "playback_error_decode")
                 // Without a connection the restart from the beginning fails the
                 // same way and loses the saved place on top of it.
                 let canRestartColdRemoteStream = isRecovery
@@ -1889,15 +1890,27 @@ extension AudioPlayerService {
         }
     }
 
-    /// A remote read since `start` failed for lack of a connection, and the
-    /// source delivered nothing in that time; or the device has no network.
-    func remoteReadFailedForConnectivity(sourceID: String, since start: TimeInterval) -> Bool {
-        let network = NetworkMonitor.shared
-        if network.hasDeterminedPath, network.isUnsatisfied { return true }
-        guard let failure = CloudPlaybackSource.lastConnectivityFailureUptime(sourceID: sourceID),
-              failure >= start else { return false }
-        let delivered = CloudPlaybackSource.lastTransferUptime(sourceID: sourceID).map { $0 > start } ?? false
-        return !delivered
+    /// Why remote reads since `start` produced no audio, when that is known:
+    /// no network / no connection to the source, or a source too slow to keep
+    /// up. Pass `minimumOfflineDuration` when nothing has failed yet and the
+    /// network state alone would decide (see `RemoteReadFailurePolicy`).
+    nonisolated func remoteReadFailure(
+        sourceID: String,
+        since start: TimeInterval,
+        minimumOfflineDuration: TimeInterval = 0
+    ) -> RemoteReadFailure? {
+        CloudPlaybackSource.remoteReadFailure(
+            sourceID: sourceID,
+            since: start,
+            minimumOfflineDuration: minimumOfflineDuration
+        )
+    }
+
+    static func remoteFailureMessage(_ failure: RemoteReadFailure) -> String {
+        switch failure {
+        case .noConnection: String(localized: "playback_error_connection")
+        case .tooSlow: String(localized: "playback_error_slow_network")
+        }
     }
 
     /// Like `makeStreamingInputSource`, but says why it failed in the log
@@ -1922,8 +1935,9 @@ extension AudioPlayerService {
     }
 
     /// Ends a rebuild whose source has delivered nothing for
-    /// `SeekFirstBufferStallPolicy.stallTimeout`. A slow source that keeps
-    /// sending bytes is left alone however long it takes.
+    /// `SeekFirstBufferStallPolicy.stallTimeout`, or at once when the device
+    /// has been offline for a few seconds or the source proved too slow. A
+    /// slow source that keeps sending bytes is left alone.
     func armSeekFirstBufferWatchdog(
         playID id: UUID,
         song: Song,
@@ -1934,7 +1948,7 @@ extension AudioPlayerService {
         return Task { @MainActor [weak self] in
             while true {
                 do {
-                    try await Task.sleep(for: .seconds(2))
+                    try await Task.sleep(for: .seconds(1))
                 } catch {
                     return
                 }
@@ -1942,20 +1956,37 @@ extension AudioPlayerService {
                       self.playID == id,
                       self.isLoading,
                       self.seekAwaitingFirstBufferPlayID == id else { return }
+                if let failure = self.remoteReadFailure(
+                    sourceID: sourceID,
+                    since: startedAt,
+                    minimumOfflineDuration: RemoteReadFailurePolicy.sustainedOfflineInterval
+                ) {
+                    self.abandonStalledSeek(playID: id, song: song, targetTime: targetTime, failure: failure)
+                    return
+                }
                 guard SeekFirstBufferStallPolicy.hasStalled(
                     startedAt: startedAt,
                     lastTransferAt: CloudPlaybackSource.lastTransferUptime(sourceID: sourceID),
                     now: ProcessInfo.processInfo.systemUptime
                 ) else { continue }
-                self.abandonStalledSeek(playID: id, song: song, targetTime: targetTime)
+                self.abandonStalledSeek(playID: id, song: song, targetTime: targetTime, failure: nil)
                 return
             }
         }
     }
 
-    private func abandonStalledSeek(playID id: UUID, song: Song, targetTime: TimeInterval) {
+    private func abandonStalledSeek(
+        playID id: UUID,
+        song: Song,
+        targetTime: TimeInterval,
+        failure: RemoteReadFailure?
+    ) {
         guard playID == id else { return }
-        plog("⚠️ Rebuild of '\(song.title)' got no audio for \(Int(SeekFirstBufferStallPolicy.stallTimeout))s; stopped at \(String(format: "%.1f", targetTime))s")
+        if let failure {
+            plog("⚠️ Rebuild of '\(song.title)' stopped early: \(failure); stopped at \(String(format: "%.1f", targetTime))s")
+        } else {
+            plog("⚠️ Rebuild of '\(song.title)' got no audio for \(Int(SeekFirstBufferStallPolicy.stallTimeout))s; stopped at \(String(format: "%.1f", targetTime))s")
+        }
         playID = UUID()
         seekTask?.cancel()
         seekTask = nil
@@ -1974,7 +2005,7 @@ extension AudioPlayerService {
         // Play tries again from here, keeping the bytes already fetched.
         needsPlaybackRecovery = true
         invalidateAutomaticAdvance(reason: "seek-first-buffer-stalled")
-        showPlaybackError(String(localized: "playback_error_connection"))
+        showPlaybackError(Self.remoteFailureMessage(failure ?? .noConnection))
         republishNowPlayingSurfaces()
     }
 
@@ -2858,5 +2889,8 @@ extension AudioPlayerService {
     }
 }
 
-/// A remote read failed because the network is gone or not answering.
-struct PlaybackConnectivityFailure: Error {}
+/// A remote read failed because the network is gone, the source is not
+/// answering, or it answers too slowly to keep up.
+struct PlaybackConnectivityFailure: Error {
+    var failure: RemoteReadFailure = .noConnection
+}

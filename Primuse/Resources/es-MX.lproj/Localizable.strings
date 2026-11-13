@@ -2600,6 +2600,7 @@
 "playback_error_apple_music_authentication" = "Apple Music no pudo autenticar la sesión de reproducción. Comprueba que tu cuenta pueda reproducir música en la app Música y luego cierra Primuse por completo y vuelve a abrirla.";
 "playback_error_apple_music_start_after_access_check" = "Se verificó el acceso a la reproducción de Apple Music, pero el reproductor del sistema no pudo iniciarse. Inténtalo de nuevo. Si cambiaste de cuenta de la tienda recientemente, cierra Primuse por completo y vuelve a abrirla.";
 "playback_error_connection" = "No se puede conectar a la fuente";
+"playback_error_slow_network" = "La red es demasiado lenta para cargar el audio";
 "playback_icloud_downloading" = "Descargando de iCloud…";
 "playback_icloud_error_offline" = "Esta canción todavía está en iCloud y no se puede descargar sin conexión a la red.";
 "playback_icloud_error_download" = "No se pudo descargar esta canción de iCloud. Inténtalo más tarde o descárgala primero desde iCloud Drive.";

@@ -1035,6 +1035,7 @@
 "add" = "追加";
 "security" = "セキュリティ";
 "playback_error_connection" = "ソースに接続できません";
+"playback_error_slow_network" = "ネットワークが遅く、オーディオを読み込めません";
 "playback_icloud_downloading" = "iCloud からダウンロード中…";
 "playback_icloud_error_offline" = "この曲はまだ iCloud 上にあり、ネットワークに接続していないためダウンロードできません。";
 "playback_icloud_error_download" = "この曲を iCloud からダウンロードできませんでした。しばらくしてからもう一度試すか、先に iCloud Drive でダウンロードしてください。";

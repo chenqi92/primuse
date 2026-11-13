@@ -141,16 +141,20 @@ public actor RequestExecutor {
         public var now: @Sendable () -> TimeInterval
         public var date: @Sendable () -> Date
         public var sleep: @Sendable (TimeInterval) async throws -> Void
+        /// 设备确定没有网络。这时「连不上互联网」不再按暂时失败重试。
+        public var networkUnavailable: @Sendable () -> Bool
         public init(
             now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
             date: @escaping @Sendable () -> Date = { Date() },
             sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
                 try await Task.sleep(for: .seconds($0))
-            }
+            },
+            networkUnavailable: @escaping @Sendable () -> Bool = { NetworkPathState.isUnavailable }
         ) {
             self.now = now
             self.date = date
             self.sleep = sleep
+            self.networkUnavailable = networkUnavailable
         }
     }
 
@@ -259,6 +263,10 @@ public actor RequestExecutor {
                 [408, 429, 500, 502, 503, 504].contains(failure.statusCode))
         }
         guard policy.retriesTransportFailures, let error = error as? URLError else { return false }
+        // 没网时重试只会原样失败，还把错误往上交的时间拖长了好几秒。
+        if [.notConnectedToInternet, .dataNotAllowed].contains(error.code), timing.networkUnavailable() {
+            return false
+        }
         return [.timedOut, .networkConnectionLost, .cannotConnectToHost,
                 .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet,
                 .resourceUnavailable].contains(error.code)

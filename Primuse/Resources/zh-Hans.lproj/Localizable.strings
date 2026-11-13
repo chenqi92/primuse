@@ -826,6 +826,7 @@
 
 // MARK: - Playback Errors
 "playback_error_connection" = "无法连接到来源";
+"playback_error_slow_network" = "网络太慢，没能及时取到音频";
 "playback_icloud_downloading" = "正在从 iCloud 下载…";
 "playback_icloud_error_offline" = "这首歌还在 iCloud 上，当前没有网络，无法下载。";
 "playback_icloud_error_download" = "无法从 iCloud 下载这首歌，请稍后再试，或先在 iCloud 云盘里把它下载到本机。";

@@ -1160,6 +1160,8 @@ enum PlainHTTPClient {
         // URLRequest 默认 timeoutInterval 为 60s; 未显式设置(<= 0)时退回 15s,
         // 与 ScraperSessionManager 的 URLSession timeoutIntervalForRequest 一致。
         let timeout = request.timeoutInterval > 0 ? request.timeoutInterval : 15
+        // Read here: the receive callbacks run on the socket queue, outside the task.
+        let progress = TrustedHTTPTransport.DownloadProgress.observer
 
         let stateBox = StateBox()
         return try await withTaskCancellationHandler {
@@ -1185,6 +1187,7 @@ enum PlainHTTPClient {
                         }
 
                         if let data, !data.isEmpty {
+                            progress?(data.count)
                             guard stateBox.append(data, maxBytes: maxBytes) else {
                                 finish(.failure(ScraperError.networkError("HTTP response too large")))
                                 return

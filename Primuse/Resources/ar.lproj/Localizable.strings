@@ -2600,6 +2600,7 @@
 "playback_error_apple_music_authentication" = "تعذّرت مصادقة جلسة تشغيل Apple Music. تأكد من أن حسابك يستطيع تشغيل الموسيقى في تطبيق الموسيقى، ثم أغلق Primuse بالكامل وأعد فتحه.";
 "playback_error_apple_music_start_after_access_check" = "تم التحقق من صلاحية تشغيل Apple Music، لكن مشغّل النظام لم يتمكن من البدء. حاول مجددًا. إذا بدّلت حساب المتجر مؤخرًا، فأغلق Primuse بالكامل وأعد فتحه.";
 "playback_error_connection" = "لا يمكن الاتصال بالمصدر";
+"playback_error_slow_network" = "الشبكة بطيئة جدًا لتحميل الصوت";
 "playback_icloud_downloading" = "جارٍ التنزيل من iCloud…";
 "playback_icloud_error_offline" = "هذه الأغنية ما زالت في iCloud ولا يمكن تنزيلها دون اتصال بالشبكة.";
 "playback_icloud_error_download" = "تعذّر تنزيل هذه الأغنية من iCloud. حاول مرة أخرى لاحقًا أو نزّلها أولًا من iCloud Drive.";

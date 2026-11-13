@@ -2738,6 +2738,7 @@
 "immersive_demo_lyric_05" = "Dinlemenin tam bir performansa dönüşmesine izin verin";
 "dup_mac_delete_footer_format" = "%d dosya silinecek · %@ alan açılacak";
 "playback_error_connection" = "Kaynağa bağlanılamıyor";
+"playback_error_slow_network" = "Ağ, sesi yüklemek için çok yavaş";
 "playback_icloud_downloading" = "iCloud’dan indiriliyor…";
 "playback_icloud_error_offline" = "Bu şarkı hâlâ iCloud’da ve ağ bağlantısı olmadan indirilemiyor.";
 "playback_icloud_error_download" = "Bu şarkı iCloud’dan indirilemedi. Daha sonra tekrar deneyin veya önce iCloud Drive’dan indirin.";
