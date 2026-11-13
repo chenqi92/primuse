@@ -36,7 +36,14 @@ final class CarPlayEditorCatalog {
 
         func blocks(for configuration: CarPlayLayoutConfiguration, folders: LibraryFolderIndex? = nil,
                     nowPlaying: CarPlayHomeItem? = nil) -> [CarPlayHomeBlock] {
-            configuration.blocks.map { block in
+            blocks(configuration.blocks, in: configuration, folders: folders, nowPlaying: nowPlaying)
+        }
+
+        /// 同一套取法，块由调用方给（不经过布局的规整，个数不封顶）：首页每块多取一个判断后面还有没有，
+        /// 「查看全部」只受车机列表上限。返回的块与传入的一一对应、顺序不变。
+        func blocks(_ blocks: [CarPlayLayoutBlock], in configuration: CarPlayLayoutConfiguration,
+                    folders: LibraryFolderIndex? = nil, nowPlaying: CarPlayHomeItem? = nil) -> [CarPlayHomeBlock] {
+            blocks.map { block in
                 var items: [CarPlayHomeItem]
                 if (block.usesCustomContent && !block.kind.keepsLiveContent) || block.kind == .custom {
                     items = block.items.prefix(block.itemLimit).map { item in

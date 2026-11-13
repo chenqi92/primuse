@@ -135,4 +135,17 @@ struct CarPlayLayoutConfigurationTests {
         config.folderIDs = [.init(sourceID: "drive", kind: .folder, normalizedRelativePath: "opaque-id")]
         #expect(!config.canAddShortcut)
     }
+
+    @Test func homeBlockOffersSeeAllOnlyWhenSomethingIsLeftOut() {
+        #expect(CarPlayHomeMorePolicy.probeLimit(for: 6) == 7)
+        #expect(CarPlayHomeMorePolicy.probeLimit(for: -3) == 1)
+        // 取到第 7 个：这一块后面还有。
+        #expect(CarPlayHomeMorePolicy.hasMore(fetchedCount: 7, itemLimit: 6, shownCount: 6))
+        // 刚好 6 个、全放下了：没有更多。
+        #expect(!CarPlayHomeMorePolicy.hasMore(fetchedCount: 6, itemLimit: 6, shownCount: 6))
+        #expect(!CarPlayHomeMorePolicy.hasMore(fetchedCount: 3, itemLimit: 6, shownCount: 3))
+        // 首页总行数不够，只放下一部分。
+        #expect(CarPlayHomeMorePolicy.hasMore(fetchedCount: 5, itemLimit: 6, shownCount: 2))
+        #expect(!CarPlayHomeMorePolicy.hasMore(fetchedCount: 0, itemLimit: 6, shownCount: 0))
+    }
 }

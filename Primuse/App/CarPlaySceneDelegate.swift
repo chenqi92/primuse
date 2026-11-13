@@ -1061,24 +1061,20 @@ extension CarPlaySceneDelegate {
 
     private func homeSections() -> [CPListSection] {
         var remainingArtworkBudget = CarPlayArtworkLoadPolicy.maximumEagerArtworkCount
-        let sections = CarPlayHomeContent.resolve(layout).flatMap { block in
-            var songOrdinal = 0
-            let entries = block.items.map { item in
-                let ordinal: Int?
-                if case .song = item.target {
-                    songOrdinal += 1
-                    ordinal = songOrdinal
-                } else {
-                    ordinal = nil
-                }
-                return homeEntry(item, ordinal: ordinal)
-            }
+        let sections = CarPlayHomeContent.resolve(layout).flatMap { block -> [CPListSection] in
+            let entries = homeEntries(block.items)
             let artworkBudget = min(remainingArtworkBudget, entries.count)
             remainingArtworkBudget -= artworkBudget
+            var seeAll: (@MainActor @Sendable () -> Void)?
+            if block.hasMore {
+                let blockID = block.id
+                seeAll = { [weak self] in self?.pushHomeBlockMore(id: blockID) }
+            }
             return collectionSections(entries,
                                       title: block.configuration.showsTitle ? block.title : nil,
                                       style: block.configuration.style,
-                                      artworkBudget: artworkBudget)
+                                      artworkBudget: artworkBudget,
+                                      seeAll: seeAll)
         }
         let navigation = [
             CollectionEntry(title: String(localized: "library_browse_folder"), symbol: "folder") { [weak self] in
@@ -1097,6 +1093,35 @@ extension CarPlaySceneDelegate {
             }
         ]
         return sections + collectionSections(navigation, style: .list)
+    }
+
+    /// 首页一块的条目：歌按在这块里的先后编号。
+    private func homeEntries(_ items: [CarPlayHomeItem]) -> [CollectionEntry] {
+        var songOrdinal = 0
+        return items.map { item in
+            let ordinal: Int?
+            if case .song = item.target {
+                songOrdinal += 1
+                ordinal = songOrdinal
+            } else {
+                ordinal = nil
+            }
+            return homeEntry(item, ordinal: ordinal)
+        }
+    }
+
+    /// 首页一块标题右侧的「查看全部」：这块的完整内容排成列表，点条目和首页点卡片一样。
+    private func pushHomeBlockMore(id: String) {
+        guard let block = CarPlayHomeContent.fullBlock(id: id, in: layout) else { return }
+        let template = CPListTemplate(title: block.title, sections: collectionSections(homeEntries(block.items), style: .list))
+        template.userInfo = DetailContext.homeBlock(id)
+        template.emptyViewTitleVariants = [String(localized: "carplay_empty_library_title")]
+        safePush(template, label: "HomeBlockMore")
+    }
+
+    fileprivate func homeBlockMoreSections(id: String) -> [CPListSection] {
+        guard let block = CarPlayHomeContent.fullBlock(id: id, in: layout) else { return [] }
+        return collectionSections(homeEntries(block.items), style: .list)
     }
 
     private func homeEntry(_ item: CarPlayHomeItem, ordinal: Int?) -> CollectionEntry {
@@ -1225,14 +1250,15 @@ extension CarPlaySceneDelegate {
 
     private func collectionSections(_ entries: [CollectionEntry], title: String? = nil,
                                     style: CarPlayBrowseStyle? = nil,
-                                    artworkBudget: Int = CarPlayArtworkLoadPolicy.maximumEagerArtworkCount) -> [CPListSection] {
+                                    artworkBudget: Int = CarPlayArtworkLoadPolicy.maximumEagerArtworkCount,
+                                    seeAll: (@MainActor @Sendable () -> Void)? = nil) -> [CPListSection] {
         guard !entries.isEmpty else { return [] }
         let entries = Array(entries.prefix(CPListTemplate.maximumItemCount))
         let style = style ?? layout.browseStyle
         if style == .list {
-            return [CPListSection(items: entries.enumerated().map { index, entry in
+            return [section(entries.enumerated().map { index, entry in
                 collectionItem(entry, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index, budget: artworkBudget))
-            }, header: title, sectionIndexTitle: nil)]
+            }, header: title, seeAll: seeAll)]
         }
         let rowSize = CarPlayHomeContent.imageRowCapacity
         let rows = stride(from: 0, to: entries.count, by: rowSize).map { offset in
@@ -1242,7 +1268,21 @@ extension CarPlaySceneDelegate {
                 artworkBudget: max(0, artworkBudget - offset)
             )
         }
-        return [CPListSection(items: rows, header: title, sectionIndexTitle: nil)]
+        return [section(rows, header: title, seeAll: seeAll)]
+    }
+
+    /// 有标题又有「查看全部」时，按钮放在标题行右侧（系统只在有标题的分区上画这颗按钮）。
+    private func section(_ items: [any CPListTemplateItem], header: String?,
+                         seeAll: (@MainActor @Sendable () -> Void)?) -> CPListSection {
+        guard let header, let seeAll else {
+            return CPListSection(items: items, header: header, sectionIndexTitle: nil)
+        }
+        let button = CPButton(image: CarPlayTemplateImages.headerButtonGlyph("chevron.forward", scale: artworkScale)) { _ in
+            Task { @MainActor in seeAll() }
+        }
+        button.title = String(localized: "see_all")
+        return CPListSection(items: items, header: header, headerSubtitle: nil, headerImage: nil,
+                             headerButton: button, sectionIndexTitle: nil)
     }
 
     func collectionItem(_ entry: CollectionEntry, loadsArtwork: Bool = true) -> CPListItem {
@@ -1615,6 +1655,8 @@ extension CarPlaySceneDelegate {
         case playlist(String) // playlist.id
         case browse(BrowseContext)
         case folder(LibraryFolderNodeID?)
+        /// 首页一块的「查看全部」(block.id)。
+        case homeBlock(String)
     }
 
     private func radioStationsSection() -> CPListSection {
@@ -1735,6 +1777,8 @@ extension CarPlaySceneDelegate {
             listTemplate.updateSections(browseSections(context))
         case .folder(let id):
             updateFolderTemplate(listTemplate, nodeID: id)
+        case .homeBlock(let id):
+            listTemplate.updateSections(homeBlockMoreSections(id: id))
         }
     }
 }

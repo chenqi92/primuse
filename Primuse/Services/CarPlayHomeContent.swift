@@ -204,6 +204,32 @@ enum CarPlayTemplateImages {
         return image
     }
 
+    /// 分区标题右侧按钮的图标：透明底，深浅色各画一份系统符号，撑满按钮图的大部分。
+    static func headerButtonGlyph(_ symbol: String, scale: CGFloat = 2) -> UIImage {
+        let side = max(1, min(CPButtonMaximumImageSize.width, CPButtonMaximumImageSize.height))
+        let key = "button:\(symbol):\(side):\(scale)" as NSString
+        if let cached = placeholders.object(forKey: key) { return cached }
+        let asset = UIImageAsset()
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let traits = UITraitCollection(userInterfaceStyle: style)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = scale
+            format.opaque = false
+            let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+                let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: side * 0.6, weight: .semibold))?
+                    .withTintColor(UIColor.label.resolvedColor(with: traits), renderingMode: .alwaysOriginal)
+                guard let glyph else { return }
+                let ratio = min(side * 0.72 / glyph.size.width, side * 0.72 / glyph.size.height)
+                let size = CGSize(width: glyph.size.width * ratio, height: glyph.size.height * ratio)
+                glyph.draw(in: CGRect(x: (side - size.width) / 2, y: (side - size.height) / 2, width: size.width, height: size.height))
+            }
+            asset.register(image.withRenderingMode(.alwaysOriginal), with: traits)
+        }
+        let image = asset.image(with: .current)
+        placeholders.setObject(image, forKey: key, cost: Int(side * scale * side * scale * 8))
+        return image
+    }
+
     static func square(_ image: UIImage, side: CGFloat = listSide, scale: CGFloat = 2) -> UIImage {
         guard image.size.width > 0, image.size.height > 0 else { return placeholder("music.note", side: side, scale: scale) }
         let format = UIGraphicsImageRendererFormat()
@@ -294,6 +320,8 @@ struct CarPlayHomeItem: Identifiable, Sendable {
 struct CarPlayHomeBlock: Identifiable {
     let configuration: CarPlayLayoutBlock
     var items: [CarPlayHomeItem]
+    /// 首页没放完：这块按设置的个数之外还有，或被首页总行数截掉了。标题右侧给「查看全部」。
+    var hasMore = false
     var id: String { configuration.id }
     var title: String {
         configuration.title.isEmpty ? NSLocalizedString(configuration.kind.titleKey, comment: "") : configuration.title
@@ -305,26 +333,52 @@ struct CarPlayHomeBlock: Identifiable {
 @MainActor
 enum CarPlayHomeContent {
     static func resolve(_ configuration: CarPlayLayoutConfiguration) -> [CarPlayHomeBlock] {
-        let player = AppServices.shared.playerService
-        let nowPlaying: CarPlayHomeItem? = player.currentSong != nil || player.currentRadioStation != nil
-            ? CarPlayHomeItem(id: "nowPlaying", title: String(localized: "carplay_now_playing"),
-                subtitle: player.currentSong?.title ?? player.currentRadioStation?.name,
-                symbol: "play.circle", artwork: player.currentSong.map(CarPlayContentArtwork.song), target: .nowPlaying) : nil
-        let resolved = CarPlayEditorCatalog.shared.snapshot.blocks(for: configuration,
-            folders: CarPlayFolderLibrary.shared.index, nowPlaying: nowPlaying)
+        let configured = configuration.blocks
+        // 每块多取一个，用来判断这块后面还有没有（见 CarPlayHomeMorePolicy）。
+        let probes = configured.map { block -> CarPlayLayoutBlock in
+            var probe = block
+            probe.itemLimit = CarPlayHomeMorePolicy.probeLimit(for: block.itemLimit)
+            return probe
+        }
+        let resolved = CarPlayEditorCatalog.shared.snapshot.blocks(probes, in: configuration,
+            folders: CarPlayFolderLibrary.shared.index, nowPlaying: nowPlayingItem())
         var remainingRows = max(1, CPListTemplate.maximumItemCount - 4)
         var remainingSections = max(1, CPListTemplate.maximumSectionCount - 1)
-        return resolved.filter { $0.configuration.isVisible && $0.configuration.kind != .siri }.map { source in
-            var block = source
-            let columns = block.configuration.style == .list ? 1 : imageRowCapacity
-            let available = remainingSections > 0 ? remainingRows * columns : 0
-            block.items = Array(block.items.prefix(available))
-            if !block.items.isEmpty {
-                remainingRows -= (block.items.count + columns - 1) / columns
-                remainingSections -= 1
+        return zip(configured, resolved)
+            .filter { block, _ in block.isVisible && block.kind != .siri }
+            .map { (block, source) -> CarPlayHomeBlock in
+                let fetchedCount = source.items.count
+                let columns = block.style == .list ? 1 : imageRowCapacity
+                let available = remainingSections > 0 ? remainingRows * columns : 0
+                let items = Array(source.items.prefix(min(block.itemLimit, available)))
+                if !items.isEmpty {
+                    remainingRows -= (items.count + columns - 1) / columns
+                    remainingSections -= 1
+                }
+                return CarPlayHomeBlock(
+                    configuration: block,
+                    items: items,
+                    hasMore: CarPlayHomeMorePolicy.hasMore(
+                        fetchedCount: fetchedCount, itemLimit: block.itemLimit, shownCount: items.count
+                    )
+                )
             }
-            return block
-        }
+    }
+
+    /// 「查看全部」：首页这一块的完整内容，取法同首页，只受车机列表上限。块已经不在布局里时是 nil。
+    static func fullBlock(id: String, in configuration: CarPlayLayoutConfiguration) -> CarPlayHomeBlock? {
+        guard var block = configuration.blocks.first(where: { $0.id == id }) else { return nil }
+        block.itemLimit = max(block.itemLimit, CPListTemplate.maximumItemCount)
+        return CarPlayEditorCatalog.shared.snapshot.blocks([block], in: configuration,
+            folders: CarPlayFolderLibrary.shared.index, nowPlaying: nowPlayingItem()).first
+    }
+
+    private static func nowPlayingItem() -> CarPlayHomeItem? {
+        let player = AppServices.shared.playerService
+        guard player.currentSong != nil || player.currentRadioStation != nil else { return nil }
+        return CarPlayHomeItem(id: "nowPlaying", title: String(localized: "carplay_now_playing"),
+            subtitle: player.currentSong?.title ?? player.currentRadioStation?.name,
+            symbol: "play.circle", artwork: player.currentSong.map(CarPlayContentArtwork.song), target: .nowPlaying)
     }
 
     /// 车机上封面的尺寸由系统决定，一行放几个只取决于车机屏幕宽度，

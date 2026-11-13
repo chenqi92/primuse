@@ -80,6 +80,19 @@ public struct CarPlayLayoutItem: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// 车机首页一块标题右侧的「查看全部」。每块按设置只放前几个，车机首页还有总行数上限；
+/// 取内容时多取一个，取到了就说明后面还有，被首页行数截掉的也算。
+public enum CarPlayHomeMorePolicy {
+    /// 判断「后面还有」时这一块要取几个。
+    public static func probeLimit(for itemLimit: Int) -> Int { max(0, itemLimit) + 1 }
+
+    /// `fetchedCount` 按 `probeLimit` 取到的个数，`shownCount` 首页最后实际放下的个数。
+    public static func hasMore(fetchedCount: Int, itemLimit: Int, shownCount: Int) -> Bool {
+        let limit = max(0, itemLimit)
+        return fetchedCount > limit || shownCount < min(fetchedCount, limit)
+    }
+}
+
 public enum CarPlayRecentlyAddedGrouping: String, Codable, CaseIterable, Sendable {
     case albums, songs
 
