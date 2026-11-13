@@ -8273,28 +8273,43 @@ final class SourceManager {
     /// populated missing states. Only explicitly retained downloads belong in
     /// this filter; incidental playback cache has a separate lifetime.
     func downloadedSongIDs(in songs: [Song]) async -> Set<String> {
+        await songIDs(in: songs) { $0.isDownloaded }
+    }
+
+    /// 本机有完整音频的歌: 下载的和播放留下的缓存都算。缓存同步按这个出清单,
+    /// 只认下载会把听过的歌全漏掉。
+    func locallyAvailableSongIDs(in songs: [Song]) async -> Set<String> {
+        await songIDs(in: songs) { $0.isAvailableLocally }
+    }
+
+    private func songIDs(
+        in songs: [Song],
+        matching predicate: @escaping @Sendable (OfflineAudioCacheSnapshot) -> Bool
+    ) async -> Set<String> {
         // 歌曲页每次打开都要问一遍整库: 几万首各查两遍状态表(长字符串哈希)放在
         // 主线程上就是一顿。已知状态的在后台按快照分拣, 只有还没探测过的回来探测。
         let snapshots = offlineAudioSnapshots
         let (known, unknown) = await Task.detached(priority: .userInitiated) {
-            var downloaded = Set<String>()
+            var matched = Set<String>()
             var pending: [Song] = []
             for song in songs {
                 if let snapshot = snapshots[song.id] {
-                    if snapshot.isDownloaded { downloaded.insert(song.id) }
+                    if predicate(snapshot) { matched.insert(song.id) }
                 } else {
                     pending.append(song)
                 }
             }
-            return (downloaded, pending)
+            return (matched, pending)
         }.value
         guard !unknown.isEmpty else { return known }
         await prepareOfflineAudioSnapshots(for: unknown)
-        var downloaded = known
-        for song in unknown where offlineAudioSnapshots[song.id]?.isDownloaded == true {
-            downloaded.insert(song.id)
+        var matched = known
+        for song in unknown {
+            if let snapshot = offlineAudioSnapshots[song.id], predicate(snapshot) {
+                matched.insert(song.id)
+            }
         }
-        return downloaded
+        return matched
     }
 
     private nonisolated static func isUsableCacheFile(

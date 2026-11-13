@@ -223,6 +223,27 @@ final class OfflineAudioSnapshotTests: XCTestCase {
         XCTAssertEqual(ids, [fixture.song.id])
     }
 
+    /// 缓存同步出清单用的集合: 播放留下的缓存也要算, 不只下载。
+    func testLocallyAvailableSongsIncludePlaybackCacheAndDownloads() async throws {
+        let cached = try await fixture()
+        let pinned = try await fixture()
+        defer {
+            cached.manager.deleteLocalCaches(for: [cached.song])
+            pinned.manager.deleteLocalCaches(for: [pinned.song])
+        }
+        try Data(repeating: 7, count: 128).write(to: cached.url)
+        await AudioCacheManager.shared.recordAccess(path: cached.path)
+        try Data(repeating: 9, count: 128).write(to: pinned.url)
+        await AudioCacheManager.shared.pin(path: pinned.path, byteCount: 128)
+
+        let cachedIDs = await cached.manager.locallyAvailableSongIDs(in: [cached.song])
+        XCTAssertEqual(cachedIDs, [cached.song.id])
+        let cachedDownloads = await cached.manager.downloadedSongIDs(in: [cached.song])
+        XCTAssertTrue(cachedDownloads.isEmpty)
+        let pinnedIDs = await pinned.manager.locallyAvailableSongIDs(in: [pinned.song])
+        XCTAssertEqual(pinnedIDs, [pinned.song.id])
+    }
+
     func testCacheRemovalUpdatesAvailabilityWithoutReloadingLibrary() async throws {
         let fixture = try await fixture()
         defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }

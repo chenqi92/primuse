@@ -969,20 +969,24 @@ final class AudioCacheSyncService {
         let allSongs = library.songs
         let sourceIDs = Set(sourceByID.keys)
         let songs = await Task.detached(priority: .utility) {
-            allSongs.filter { sourceIDs.contains($0.sourceID) && !$0.isStreamDescriptor }
+            allSongs.filter {
+                sourceIDs.contains($0.sourceID) && !$0.isStreamDescriptor && !$0.isDiscImageTrack
+            }
         }.value
         guard !Task.isCancelled, !songs.isEmpty else { return AudioCacheSyncLocalManifest(files: []) }
 
-        let downloadedIDs = await sourceManager.downloadedSongIDs(in: songs)
+        // 播放留下的缓存和手动下载都发: 下载和缓存分开存放以后, 只认下载会让
+        // 听过但没点下载的歌全不在清单里, 对端看起来一直「已是最新」。
+        let availableIDs = await sourceManager.locallyAvailableSongIDs(in: songs)
         guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }
 
-        // 逐首算缓存文件名、目标路径和源指纹也放到后台: 已下载的歌一多, 在主线程上
+        // 逐首算缓存文件名、目标路径和源指纹也放到后台: 已缓存的歌一多, 在主线程上
         // 算完才能打开同步页。
         let drafts = await Task.detached(priority: .utility) {
             var fingerprintsBySourceID: [String: String] = [:]
             var draftsByID: [String: LocalDraft] = [:]
-            draftsByID.reserveCapacity(downloadedIDs.count)
-            for song in songs where downloadedIDs.contains(song.id) {
+            draftsByID.reserveCapacity(availableIDs.count)
+            for song in songs where availableIDs.contains(song.id) {
                 guard let source = sourceByID[song.sourceID] else { continue }
                 let cacheFileName = CacheFileNamePolicy.make(
                     path: song.filePath,
@@ -1018,15 +1022,29 @@ final class AudioCacheSyncService {
         }.value
         guard !Task.isCancelled else { return AudioCacheSyncLocalManifest(files: []) }
 
+        let downloads = AudioCacheManager.shared.downloadStore
         let files = await Task.detached(priority: .utility) {
             drafts.compactMap { id, draft -> AudioCacheSyncLocalFile? in
-                guard let attributes = try? FileManager.default.attributesOfItem(
-                    atPath: draft.url.path
-                ),
-                      (attributes[.type] as? FileAttributeType) == .typeRegular,
-                      let number = attributes[.size] as? NSNumber,
-                      number.int64Value > 0 else { return nil }
-                let byteCount = number.int64Value
+                // 下载的歌平时在缓存目录里有一个同文件的链接; 链接被系统清掉、还没
+                // 补回来时, 直接发「下载」文件夹里的那份。
+                func regularFileSize(at url: URL) -> Int64? {
+                    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                          (attributes[.type] as? FileAttributeType) == .typeRegular,
+                          let number = attributes[.size] as? NSNumber,
+                          number.int64Value > 0 else { return nil }
+                    return number.int64Value
+                }
+                let relativePath = "\(draft.sourceID)/\(draft.cacheFileName)"
+                let resolved: (url: URL, byteCount: Int64)
+                if let size = regularFileSize(at: draft.url) {
+                    resolved = (draft.url, size)
+                } else if let downloaded = downloads.fileURL(for: relativePath, kind: .original),
+                          let size = regularFileSize(at: downloaded) {
+                    resolved = (downloaded, size)
+                } else {
+                    return nil
+                }
+                let byteCount = resolved.byteCount
                 guard AudioCacheSyncPolicy.byteCountIsCompatible(
                     transferredByteCount: byteCount,
                     catalogByteCount: draft.catalogByteCount
@@ -1041,12 +1059,15 @@ final class AudioCacheSyncService {
                         byteCount: byteCount,
                         catalogByteCount: draft.catalogByteCount
                     ),
-                    url: draft.url,
+                    url: resolved.url,
                     title: draft.title
                 )
             }.sorted { $0.item.id < $1.item.id }
         }.value
-        return AudioCacheSyncLocalManifest(files: files)
+        // 对端超过上限会整份拒收; 缓存也算进来以后大缓存的 Mac 可能超, 截到上限内。
+        return AudioCacheSyncLocalManifest(
+            files: Array(files.prefix(AudioCacheSyncPolicy.maximumManifestItems))
+        )
     }
 
     private func prepareIncomingPlan(
