@@ -51,7 +51,14 @@ final class PlayerBackdropResolver {
     private(set) var rotation = PlayerBackdropRotationState()
 
     @ObservationIgnored private var loadTask: Task<Void, Never>?
-    @ObservationIgnored private var loadingKey: String?
+    @ObservationIgnored private var loadingKey: String? {
+        didSet {
+            guard loadingKey != oldValue else { return }
+            loadingSince = loadingKey == nil ? nil : ProcessInfo.processInfo.systemUptime
+        }
+    }
+    /// 这次准备是什么时候开始的，定时轮播据此决定要不要等它（`PlayerBackdropTimerPolicy`）。
+    @ObservationIgnored private var loadingSince: TimeInterval?
     /// 准备失败的图（取不到、解不开）一分钟内不再重试。
     @ObservationIgnored private var failedKeys: [String: Date] = [:]
     @ObservationIgnored private var albumBackListings: [String: [AlbumBackFile]] = [:]
@@ -81,7 +88,11 @@ final class PlayerBackdropResolver {
         if next != rotation { rotation = next }
     }
 
+    /// 定时轮播到点。下一张还在准备（列封底目录、读原图）就先不换：换了会把正在取的那张作废，
+    /// 间隔短、音乐源慢时每张都取不完，画面一直停在旧图上。
     func advanceTimer(rotation mode: PlayerBackdropRotation) {
+        let preparing = loadingSince.map { ProcessInfo.processInfo.systemUptime - $0 }
+        guard PlayerBackdropTimerPolicy.shouldAdvance(preparingFor: preparing) else { return }
         _ = rotation.timerFired(rotation: mode)
     }
 

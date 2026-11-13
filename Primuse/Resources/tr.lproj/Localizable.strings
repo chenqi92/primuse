@@ -5621,6 +5621,7 @@
 "search_placeholder_library" = "Arşivde ara";
 
 "tv_lyrics_font_size_format" = "Söz boyutu: %@";
+"tv_player_backdrop_interval_format" = "Arka plan slayt aralığı: %@";
 "tv_lyrics_font_small" = "Küçük";
 "tv_lyrics_font_standard" = "Standart";
 "tv_lyrics_font_large" = "Büyük";

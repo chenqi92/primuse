@@ -136,11 +136,31 @@ struct PlayerBackdropTests {
     @Test("Intervals snap to the nearest offered choice")
     func intervalNormalization() {
         #expect(PlayerBackdropSettings.normalizedInterval(60) == 60)
-        #expect(PlayerBackdropSettings.normalizedInterval(1) == 15)
+        #expect(PlayerBackdropSettings.normalizedInterval(1) == 5)
         #expect(PlayerBackdropSettings.normalizedInterval(45) == 30)
         #expect(PlayerBackdropSettings.normalizedInterval(200) == 300)
         #expect(PlayerBackdropSettings.normalizedInterval(100_000) == 600)
-        #expect(PlayerBackdropSettings.normalizedInterval(-5) == 15)
+        #expect(PlayerBackdropSettings.normalizedInterval(-5) == 5)
+        // 短档位:原样保留;夹在中间的取近的,一样近取短的。
+        for seconds in [5, 8, 10] {
+            #expect(PlayerBackdropSettings.normalizedInterval(seconds) == seconds)
+            #expect(PlayerBackdropSettings.decode(
+                PlayerBackdropSettings(rotation: .timed, intervalSeconds: seconds).encodedData()
+            ).intervalSeconds == seconds)
+        }
+        #expect(PlayerBackdropSettings.normalizedInterval(9) == 8)
+        #expect(PlayerBackdropSettings.normalizedInterval(12) == 10)
+        #expect(PlayerBackdropSettings.normalizedInterval(13) == 15)
+    }
+
+    @Test("Timed rotation waits for the image being prepared, but not forever")
+    func timerHoldsWhilePreparing() {
+        #expect(PlayerBackdropTimerPolicy.shouldAdvance(preparingFor: nil))
+        #expect(!PlayerBackdropTimerPolicy.shouldAdvance(preparingFor: 0))
+        #expect(!PlayerBackdropTimerPolicy.shouldAdvance(preparingFor: 9))
+        #expect(PlayerBackdropTimerPolicy.shouldAdvance(
+            preparingFor: PlayerBackdropTimerPolicy.maximumHoldSeconds
+        ))
     }
 
     @Test("Custom image ids keep order, drop duplicates and malformed ids, and are capped")

@@ -5716,6 +5716,7 @@
 "search_placeholder_library" = "ライブラリを検索";
 
 "tv_lyrics_font_size_format" = "歌詞のサイズ：%@";
+"tv_player_backdrop_interval_format" = "背景スライドショーの間隔：%@";
 "tv_lyrics_font_small" = "小";
 "tv_lyrics_font_standard" = "標準";
 "tv_lyrics_font_large" = "大";

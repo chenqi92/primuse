@@ -16,6 +16,8 @@ struct TVPlayerBackdrop: View {
     private struct TimerKey: Equatable {
         let isActive: Bool
         let interval: Int
+        /// 换上新图就从头计时：上一张取得慢时，新图照样停够一个间隔。
+        let frameID: String?
     }
 
     var body: some View {
@@ -53,7 +55,8 @@ struct TVPlayerBackdrop: View {
             }
             .task(id: TimerKey(
                 isActive: scenePhase == .active && settings.rotation == .timed && source.supportsRotation,
-                interval: settings.intervalSeconds
+                interval: settings.intervalSeconds,
+                frameID: frame?.id
             )) {
                 guard scenePhase == .active, settings.rotation == .timed, source.supportsRotation else { return }
                 let interval = max(PlayerBackdropSettings.intervalChoices.first ?? 15, settings.intervalSeconds)
@@ -70,6 +73,7 @@ struct TVPlayerBackdrop: View {
 struct TVPlayerBackdropSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var store = PlayerBackdropSettingsStore.shared
+    @State private var choosingInterval = false
 
     static let sourceRows: [[PlayerBackdropSource]] = [
         [.coverAmbient, .liquid],
@@ -135,19 +139,15 @@ struct TVPlayerBackdropSettingsView: View {
                             }
                         }
                         if settings.rotation == .timed {
+                            // 档位多，横排放不下：一颗按钮显示当前间隔，按下弹出列表选。
                             Text("player_backdrop_interval").tvFont(.rowTitle).padding(.top, 12)
-                            HStack(spacing: 22) {
-                                ForEach(PlayerBackdropSettings.intervalChoices, id: \.self) { seconds in
-                                    choice(
-                                        title: Duration.seconds(seconds)
-                                            .formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)),
-                                        isSelected: settings.intervalSeconds == seconds,
-                                        identifier: "tv.playerBackdrop.interval.\(seconds)"
-                                    ) {
-                                        store.update { $0.intervalSeconds = seconds }
-                                    }
-                                }
-                            }
+                            TVPillButton(
+                                title: Self.intervalTitle(settings.intervalSeconds),
+                                systemImage: "timer",
+                                style: .glass,
+                                action: { choosingInterval = true }
+                            )
+                            .accessibilityIdentifier("tv.playerBackdrop.interval")
                         }
                     }
 
@@ -163,6 +163,11 @@ struct TVPlayerBackdropSettingsView: View {
         }
         .onAppear { store.pruneMissingCustomImages() }
         .onExitCommand { dismiss() }
+        .tvFullScreenCover(isPresented: $choosingInterval) { TVPlayerBackdropIntervalPicker() }
+    }
+
+    static func intervalTitle(_ seconds: Int) -> String {
+        Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated))
     }
 
     static func title(_ source: PlayerBackdropSource) -> String {
@@ -212,6 +217,64 @@ struct TVPlayerBackdropSettingsView: View {
             action: action
         )
         .accessibilityIdentifier(identifier)
+    }
+}
+
+/// 轮播间隔的选单：居中面板竖排全部档位，焦点先落在当前那一档，选了就关。
+struct TVPlayerBackdropIntervalPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var store = PlayerBackdropSettingsStore.shared
+    @FocusState private var focusedID: String?
+
+    var body: some View {
+        let selected = store.settings.intervalSeconds
+        ZStack {
+            TVAmbientBackdrop(strength: 0.5)
+            TVColor.bg.opacity(0.52).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 22) {
+                Text("player_backdrop_interval").tvFont(.sectionTitle).foregroundStyle(TVColor.text)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(PlayerBackdropSettings.intervalChoices, id: \.self) { seconds in
+                        row(seconds: seconds, isSelected: seconds == selected)
+                    }
+                }
+                .focusSection()
+            }
+            .padding(40)
+            .frame(width: 720, alignment: .leading)
+            .tvPanel(radius: 24)
+        }
+        .defaultFocus($focusedID, Self.focusID(selected))
+        .onExitCommand { dismiss() }
+    }
+
+    private static func focusID(_ seconds: Int) -> String { "interval.\(seconds)" }
+
+    private func row(seconds: Int, isSelected: Bool) -> some View {
+        TVFocusButton(
+            radius: 14, scale: 1.03, lift: 0, ring: false,
+            action: {
+                store.update { $0.intervalSeconds = seconds }
+                dismiss()
+            },
+            focusBinding: $focusedID,
+            focusID: Self.focusID(seconds)
+        ) { focused in
+            HStack {
+                Text(TVPlayerBackdropSettingsView.intervalTitle(seconds)).tvFont(.rowTitle)
+                Spacer()
+                Image(systemName: "checkmark")
+                    .font(.system(size: 24, weight: .bold))
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
+            .padding(.horizontal, 26)
+            .frame(height: 72)
+            .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .accessibilityIdentifier("tv.playerBackdrop.interval.\(seconds)")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 #endif

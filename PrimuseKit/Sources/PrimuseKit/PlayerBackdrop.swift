@@ -74,7 +74,9 @@ public struct PlayerBackdropSettings: Codable, Equatable, Sendable {
     public static let storageKey = "primuse.player.backdrop.v1"
     /// 本机自选图片的 id 列表（不进 iCloud）。
     public static let customImagesStorageKey = "primuse.player.backdrop.customImages.v1"
-    public static let intervalChoices = [15, 30, 60, 300, 600]
+    /// 定时轮播的间隔档位。5/8/10 秒是后加的：旧版本读到这几档按 `normalizedInterval` 落到 15 秒，
+    /// 只在它自己内存里，不回写。
+    public static let intervalChoices = [5, 8, 10, 15, 30, 60, 300, 600]
     public static let defaultIntervalSeconds = 60
     public static let maximumCustomImages = 20
 
@@ -216,6 +218,20 @@ public struct PlayerBackdropRotationState: Equatable, Sendable {
         guard rotation != .fixed else { return 0 }
         let wrapped = step % count
         return wrapped < 0 ? wrapped + count : wrapped
+    }
+}
+
+/// 定时轮播到点时换不换。下一张还在准备（列封底目录、读原图、缩放解码）就先不换：换了会把
+/// 正在取的那张作废，间隔调短以后，慢的音乐源上每张都取不完，画面一直停在旧图上。准备卡住
+/// 太久（读取挂住）就不再等，照常往下换。计时本身从新图换上那一刻重新算（视图把当前图的
+/// 编号放进计时任务的 id），每张图都能完整停够一个间隔。
+public enum PlayerBackdropTimerPolicy {
+    public static let maximumHoldSeconds: TimeInterval = 60
+
+    /// `elapsed` 是当前这次准备已经用了多久，没有在准备时是 nil。
+    public static func shouldAdvance(preparingFor elapsed: TimeInterval?) -> Bool {
+        guard let elapsed else { return true }
+        return elapsed >= maximumHoldSeconds
     }
 }
 

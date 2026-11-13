@@ -5621,6 +5621,7 @@
 "search_placeholder_library" = "लाइब्रेरी में खोजें";
 
 "tv_lyrics_font_size_format" = "बोल का आकार: %@";
+"tv_player_backdrop_interval_format" = "बैकग्राउंड स्लाइडशो अंतराल: %@";
 "tv_lyrics_font_small" = "छोटा";
 "tv_lyrics_font_standard" = "मानक";
 "tv_lyrics_font_large" = "बड़ा";

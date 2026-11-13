@@ -27,6 +27,8 @@ struct PlayerBackdropImageHost: View {
     private struct TimerKey: Equatable {
         let isActive: Bool
         let interval: Int
+        /// 换上新图就从头计时：上一张取得慢时，新图照样停够一个间隔。
+        let frameID: String?
     }
 
     var body: some View {
@@ -58,7 +60,8 @@ struct PlayerBackdropImageHost: View {
         }
         .task(id: TimerKey(
             isActive: isSurfaceVisible && settings.rotation == .timed && source.supportsRotation,
-            interval: settings.intervalSeconds
+            interval: settings.intervalSeconds,
+            frameID: resolver.frame?.id
         )) {
             guard isSurfaceVisible, settings.rotation == .timed, source.supportsRotation else { return }
             let interval = max(PlayerBackdropSettings.intervalChoices.first ?? 15, settings.intervalSeconds)

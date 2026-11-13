@@ -25,6 +25,7 @@ struct TVOptionsView: View {
     private var lyricsWeightRawValue = PlayerLyricsWeight.automatic.rawValue
     @AppStorage(PlayerAppearancePreferences.progressThicknessKey)
     private var progressThicknessRawValue = PlayerTrackThickness.standard.rawValue
+    @State private var backdropSettings = PlayerBackdropSettingsStore.shared
     @State private var albumScrapeTarget: TVSongMatchTarget?
     @State private var playbackRangeTarget: TVSongMatchTarget?
 
@@ -157,6 +158,23 @@ struct TVOptionsView: View {
                 run: {
                     progressThicknessRawValue = thickness.next.rawValue
                     CloudKVSSync.shared.markChanged(key: PlayerAppearancePreferences.progressThicknessKey)
+                }
+            ))
+        }
+        // 背景在定时轮播封底 / 我的图片时，就地按一下换下一档间隔，边看边调。
+        let backdropSource = backdropSettings.effectiveSource
+        if backdropSettings.settings.rotation == .timed, backdropSource.supportsRotation,
+           backdropSource == .customImages || !store.isLiveRadio {
+            let interval = backdropSettings.settings.intervalSeconds
+            playback.append(.init(
+                id: "backdropInterval", icon: "photo.on.rectangle",
+                label: String(format: String(localized: "tv_player_backdrop_interval_format"),
+                              TVPlayerBackdropSettingsView.intervalTitle(interval)),
+                run: {
+                    let choices = PlayerBackdropSettings.intervalChoices
+                    let index = choices.firstIndex(of: interval) ?? 0
+                    let next = choices[(index + 1) % choices.count]
+                    backdropSettings.update { $0.intervalSeconds = next }
                 }
             ))
         }

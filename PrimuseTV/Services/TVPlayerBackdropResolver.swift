@@ -32,7 +32,14 @@ final class TVPlayerBackdropResolver {
     private(set) var rotation = PlayerBackdropRotationState()
 
     @ObservationIgnored private var loadTask: Task<Void, Never>?
-    @ObservationIgnored private var loadingKey: String?
+    @ObservationIgnored private var loadingKey: String? {
+        didSet {
+            guard loadingKey != oldValue else { return }
+            loadingSince = loadingKey == nil ? nil : ProcessInfo.processInfo.systemUptime
+        }
+    }
+    /// 这次准备是什么时候开始的，定时轮播据此决定要不要等它（`PlayerBackdropTimerPolicy`）。
+    @ObservationIgnored private var loadingSince: TimeInterval?
     @ObservationIgnored private var failedKeys: [String: Date] = [:]
 
     private nonisolated static let maxPixel = PlayerBackdropPixelPolicy.televisionPixel
@@ -44,7 +51,10 @@ final class TVPlayerBackdropResolver {
         if next != rotation { rotation = next }
     }
 
+    /// 定时轮播到点。下一张还在准备就先不换，免得把正在取的那张作废（同 iOS）。
     func advanceTimer(rotation mode: PlayerBackdropRotation) {
+        let preparing = loadingSince.map { ProcessInfo.processInfo.systemUptime - $0 }
+        guard PlayerBackdropTimerPolicy.shouldAdvance(preparingFor: preparing) else { return }
         _ = rotation.timerFired(rotation: mode)
     }
 

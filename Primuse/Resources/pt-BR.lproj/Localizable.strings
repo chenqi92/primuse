@@ -5621,6 +5621,7 @@
 "search_placeholder_library" = "Pesquisar na biblioteca";
 
 "tv_lyrics_font_size_format" = "Tamanho da letra: %@";
+"tv_player_backdrop_interval_format" = "Apresentação do fundo: %@";
 "tv_lyrics_font_small" = "Pequeno";
 "tv_lyrics_font_standard" = "Padrão";
 "tv_lyrics_font_large" = "Grande";

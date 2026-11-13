@@ -5621,6 +5621,7 @@
 "search_placeholder_library" = "البحث في المكتبة";
 
 "tv_lyrics_font_size_format" = "حجم الكلمات: %@";
+"tv_player_backdrop_interval_format" = "فاصل عرض الخلفية: %@";
 "tv_lyrics_font_small" = "صغير";
 "tv_lyrics_font_standard" = "قياسي";
 "tv_lyrics_font_large" = "كبير";

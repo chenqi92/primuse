@@ -5715,6 +5715,7 @@
 "search_placeholder_library" = "보관함 검색";
 
 "tv_lyrics_font_size_format" = "가사 크기: %@";
+"tv_player_backdrop_interval_format" = "배경 슬라이드쇼 간격: %@";
 "tv_lyrics_font_small" = "작게";
 "tv_lyrics_font_standard" = "표준";
 "tv_lyrics_font_large" = "크게";

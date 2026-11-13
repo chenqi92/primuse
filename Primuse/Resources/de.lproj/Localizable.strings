@@ -5715,6 +5715,7 @@
 "search_placeholder_library" = "Mediathek durchsuchen";
 
 "tv_lyrics_font_size_format" = "Liedtextgröße: %@";
+"tv_player_backdrop_interval_format" = "Hintergrund-Diashow: %@";
 "tv_lyrics_font_small" = "Klein";
 "tv_lyrics_font_standard" = "Standard";
 "tv_lyrics_font_large" = "Groß";

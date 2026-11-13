@@ -5621,6 +5621,7 @@
 "search_placeholder_library" = "Пошук у медіатеці";
 
 "tv_lyrics_font_size_format" = "Розмір тексту: %@";
+"tv_player_backdrop_interval_format" = "Інтервал фонового слайд-шоу: %@";
 "tv_lyrics_font_small" = "Малий";
 "tv_lyrics_font_standard" = "Стандартний";
 "tv_lyrics_font_large" = "Великий";

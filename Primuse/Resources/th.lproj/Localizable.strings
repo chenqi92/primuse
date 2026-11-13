@@ -5621,6 +5621,7 @@
 "search_placeholder_library" = "ค้นหาในคลัง";
 
 "tv_lyrics_font_size_format" = "ขนาดเนื้อเพลง: %@";
+"tv_player_backdrop_interval_format" = "ระยะเวลาสไลด์โชว์พื้นหลัง: %@";
 "tv_lyrics_font_small" = "เล็ก";
 "tv_lyrics_font_standard" = "มาตรฐาน";
 "tv_lyrics_font_large" = "ใหญ่";

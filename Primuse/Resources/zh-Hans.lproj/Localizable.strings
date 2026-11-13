@@ -5808,6 +5808,7 @@
 "search_placeholder_library" = "检索已入库曲库";
 
 "tv_lyrics_font_size_format" = "歌词字号：%@";
+"tv_player_backdrop_interval_format" = "背景轮播间隔：%@";
 "tv_lyrics_font_small" = "小";
 "tv_lyrics_font_standard" = "标准";
 "tv_lyrics_font_large" = "大";
