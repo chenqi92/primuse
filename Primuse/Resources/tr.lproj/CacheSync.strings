@@ -37,7 +37,7 @@
 "cache_sync_open_app_hint" = "Hedef cihazda Primuse'yi açın ve ön planda tutun.";
 "cache_sync_progress_count_format" = "%d / %d dosyaları";
 "cache_sync_share_code" = "Bağlantı kodunu paylaş";
-"cache_sync_nearby_devices" = "YAKIN CİHAZLAR";
+"cache_sync_nearby_devices" = "Yakın Cihazlar";
 "cache_sync_local_cache" = "Bu cihazda önbellek mevcut";
 "cache_sync_copy_code" = "Bağlantı kodunu kopyala";
 "cache_sync_test_three_footer" = "Bağlantıyı doğrulamak için en fazla üç eksik dosyayla başlayın, ardından geri kalanını senkronize edin.";

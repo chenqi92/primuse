@@ -3307,7 +3307,7 @@ struct StorageManagementView: View {
             }
         }
         .sheet(isPresented: $showsCacheSync) {
-            NavigationStack { IOSAudioCacheSyncView(isPresentedAsSheet: true) }
+            NavigationStack { AudioCacheSyncView(isPresentedAsSheet: true) }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }

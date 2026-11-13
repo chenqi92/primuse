@@ -7,7 +7,7 @@
 "cache_sync_preparing_inventory" = "Vérification des fichiers complets…";
 "cache_sync_receiver_ready" = "Détectable";
 "cache_sync_receiver_starting" = "Démarrage";
-"cache_sync_nearby_devices" = "APPAREILS À PROXIMITÉ";
+"cache_sync_nearby_devices" = "Appareils à proximité";
 "cache_sync_same_wifi_hint" = "Même Wi-Fi ou Ethernet";
 "cache_sync_searching_devices" = "Détection des appareils Primuse…";
 "cache_sync_no_devices" = "Aucun appareil disponible";

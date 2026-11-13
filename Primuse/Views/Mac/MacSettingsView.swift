@@ -216,7 +216,7 @@ struct MacSettingsView: View {
         .sheet(isPresented: Binding(
             get: { navigation.showsCacheSync },
             set: { navigation.showsCacheSync = $0 }
-        )) { MacAudioCacheSyncView() }
+        )) { AudioCacheSyncView() }
     }
 
     private var settingsTitleBar: some View {

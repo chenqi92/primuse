@@ -2668,6 +2668,7 @@ private struct DebugEvidenceOrientation: ViewModifier {
 /// - `PRIMUSE_DEBUG_FAVORITES_SNAPSHOT=<目录>`（Mac）：把收藏弹框、选择播放设备弹框离屏渲染成浅色、深色 PNG。
 /// - `PRIMUSE_DEBUG_MAC_PANEL=recommendations|stats`（Mac）：启动后打开智能推荐面板或听歌统计弹框。
 /// - `PRIMUSE_DEBUG_PODCAST_MAC_SNAPSHOT=<目录>`（Mac）：把播客页放进屏幕外窗口截成 PNG，见 `MacPodcastDebugSnapshot`。
+/// - `PRIMUSE_DEBUG_CACHE_SYNC_MAC_SNAPSHOT=<目录>`（Mac）：缓存同步页与 WiFi 传输页的屏幕外 PNG，见 `MacCacheSyncDebugSnapshot`。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
 ///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照；
 ///   `PRIMUSE_AUTOPLAY_SEEK=<秒>` 时开播后跳到这个位置（配 `PAUSE=1` 就停在这里，看前奏、间奏里歌词那一行的样子）；
@@ -2763,6 +2764,7 @@ private struct DebugLaunchAutomation: ViewModifier {
             #if os(macOS)
             .task { await MacSettingsDebugSnapshot.writeIfRequested() }
             .task { await MacPodcastDebugSnapshot.writeIfRequested() }
+            .task { await MacCacheSyncDebugSnapshot.writeIfRequested() }
             .task { await MacFavoritesPopoverDebugSnapshot.writeIfRequested() }
             #endif
             .modifier(DebugListeningFeatureAutomation())

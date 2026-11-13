@@ -7,7 +7,7 @@
 "cache_sync_preparing_inventory" = "Checking complete cache files…";
 "cache_sync_receiver_ready" = "Discoverable";
 "cache_sync_receiver_starting" = "Starting";
-"cache_sync_nearby_devices" = "NEARBY DEVICES";
+"cache_sync_nearby_devices" = "Nearby Devices";
 "cache_sync_same_wifi_hint" = "Same Wi-Fi or Ethernet";
 "cache_sync_searching_devices" = "Detecting Primuse devices…";
 "cache_sync_no_devices" = "No available devices found";

@@ -37,7 +37,7 @@
 "cache_sync_open_app_hint" = "Відкрийте Primuse на цільовому пристрої та залиште його на передньому плані.";
 "cache_sync_progress_count_format" = "%d / %d";
 "cache_sync_share_code" = "Поділіться кодом підключення";
-"cache_sync_nearby_devices" = "ПРИСТРОЇ ПОРУЧ";
+"cache_sync_nearby_devices" = "Пристрої поруч";
 "cache_sync_local_cache" = "Кеш доступний на цьому пристрої";
 "cache_sync_copy_code" = "Скопіюйте код підключення";
 "cache_sync_test_three_footer" = "Почніть із трьох відсутніх файлів, щоб перевірити з’єднання, а потім синхронізуйте решту.";

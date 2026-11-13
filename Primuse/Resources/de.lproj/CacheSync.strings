@@ -7,7 +7,7 @@
 "cache_sync_preparing_inventory" = "Vollständige Cache-Dateien werden geprüft…";
 "cache_sync_receiver_ready" = "Sichtbar";
 "cache_sync_receiver_starting" = "Wird gestartet";
-"cache_sync_nearby_devices" = "GERÄTE IN DER NÄHE";
+"cache_sync_nearby_devices" = "Geräte in der Nähe";
 "cache_sync_same_wifi_hint" = "Gleiches WLAN oder Ethernet";
 "cache_sync_searching_devices" = "Primuse-Geräte werden gesucht…";
 "cache_sync_no_devices" = "Keine verfügbaren Geräte gefunden";

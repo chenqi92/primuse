@@ -31,7 +31,7 @@
 "cache_sync_missing_on_target" = "Ausentes no destino";
 "cache_sync_mode_receive" = "Receber cache";
 "cache_sync_mode_send" = "Enviar cache";
-"cache_sync_nearby_devices" = "DISPOSITIVOS PRÓXIMOS";
+"cache_sync_nearby_devices" = "Dispositivos próximos";
 "cache_sync_no_devices" = "Nenhum dispositivo disponível encontrado";
 "cache_sync_no_local_address" = "Nenhum endereço IPv4 local está disponível para uma conexão direta. Conecte-se ao Wi-Fi ou Ethernet.";
 "cache_sync_open_app_hint" = "Abra o Primuse no dispositivo de destino e mantenha-o em primeiro plano.";

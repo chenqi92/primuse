@@ -628,7 +628,7 @@ struct MacContentView: View {
         case .duplicates:
             DuplicateSongsView()
         case .cacheSync:
-            MacAudioCacheSyncView()
+            AudioCacheSyncView()
         case .deviceTransfer:
             WiFiTransferView()
         }
