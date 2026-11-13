@@ -7471,3 +7471,10 @@
 "lyrics_timing_earlier_step" = "0,1 s früher";
 "lyrics_timing_later_step" = "0,1 s später";
 "lyrics_timing_reset" = "Zurücksetzen";
+"batch_writeback_local_only_header_format" = "Nur in Primuse gespeichert, nicht in der Datei (%lld)";
+"batch_writeback_local_only_footer" = "Diese Änderungen sind in Primuse gespeichert und werden auch durch einen neuen Scan nicht rückgängig gemacht, aber die Dateien in der Quelle haben noch die alten Tags. Häufige Ursachen: Die Quelle ist schreibgeschützt, die Verbindung wurde unterbrochen oder es fehlt die Berechtigung, die Datei zu schreiben.";
+"batch_writeback_retry" = "Erneut in Dateien schreiben";
+"batch_writeback_retrying" = "Wird erneut in Dateien geschrieben …";
+"batch_writeback_copy_list" = "Liste kopieren";
+"batch_writeback_copied" = "Kopiert";
+"batch_writeback_retry_written_format" = "Beim erneuten Versuch in Dateien geschrieben: %lld";

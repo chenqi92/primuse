@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "0,1 s wcześniej";
 "lyrics_timing_later_step" = "0,1 s później";
 "lyrics_timing_reset" = "Resetuj";
+"batch_writeback_local_only_header_format" = "Zapisane tylko w Primuse, nie w pliku (%lld)";
+"batch_writeback_local_only_footer" = "Te zmiany są zapisane w Primuse i ponowne skanowanie ich nie cofnie, ale pliki w źródle nadal mają stare tagi. Częste przyczyny: źródło jest tylko do odczytu, połączenie zostało przerwane lub brak uprawnień do zapisu pliku.";
+"batch_writeback_retry" = "Ponów zapis do plików";
+"batch_writeback_retrying" = "Ponowny zapis do plików…";
+"batch_writeback_copy_list" = "Kopiuj listę";
+"batch_writeback_copied" = "Skopiowano";
+"batch_writeback_retry_written_format" = "Zapisano do plików przy ponowieniu: %lld";

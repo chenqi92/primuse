@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "เร็วขึ้น 0.1 วิ";
 "lyrics_timing_later_step" = "ช้าลง 0.1 วิ";
 "lyrics_timing_reset" = "รีเซ็ต";
+"batch_writeback_local_only_header_format" = "บันทึกไว้เฉพาะใน Primuse ไม่ได้เขียนลงไฟล์ (%lld)";
+"batch_writeback_local_only_footer" = "การเปลี่ยนแปลงเหล่านี้บันทึกไว้ใน Primuse แล้ว และการสแกนใหม่จะไม่ย้อนกลับ แต่ไฟล์ในแหล่งที่มายังมีแท็กเดิมอยู่ สาเหตุที่พบบ่อยคือแหล่งที่มาเป็นแบบอ่านอย่างเดียว การเชื่อมต่อขาดหาย หรือไม่มีสิทธิ์เขียนไฟล์";
+"batch_writeback_retry" = "ลองเขียนลงไฟล์อีกครั้ง";
+"batch_writeback_retrying" = "กำลังเขียนลงไฟล์อีกครั้ง…";
+"batch_writeback_copy_list" = "คัดลอกรายการ";
+"batch_writeback_copied" = "คัดลอกแล้ว";
+"batch_writeback_retry_written_format" = "เขียนลงไฟล์ได้เมื่อลองอีกครั้ง: %lld เพลง";

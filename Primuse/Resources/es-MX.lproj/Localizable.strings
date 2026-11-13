@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "0.1 s antes";
 "lyrics_timing_later_step" = "0.1 s después";
 "lyrics_timing_reset" = "Restablecer";
+"batch_writeback_local_only_header_format" = "Guardado solo en Primuse, no en el archivo (%lld)";
+"batch_writeback_local_only_footer" = "Estos cambios están guardados en Primuse y volver a escanear no los deshará, pero los archivos en el origen aún tienen las etiquetas anteriores. Causas comunes: el origen es de solo lectura, se perdió la conexión o no hay permiso para escribir el archivo.";
+"batch_writeback_retry" = "Reintentar escritura en archivos";
+"batch_writeback_retrying" = "Escribiendo de nuevo en los archivos…";
+"batch_writeback_copy_list" = "Copiar lista";
+"batch_writeback_copied" = "Copiado";
+"batch_writeback_retry_written_format" = "Escritas en los archivos al reintentar: %lld";

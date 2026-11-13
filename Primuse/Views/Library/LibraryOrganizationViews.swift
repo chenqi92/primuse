@@ -141,6 +141,10 @@ struct ArtistMergeView: View {
                 if mergeService.isRunning {
                     Section {
                         Text(mergeService.canonicalName)
+                        if mergeService.isRetryingWrites {
+                            Text("batch_writeback_retrying")
+                                .foregroundStyle(.secondary)
+                        }
                         ProgressView(value: Double(mergeService.progress.done), total: Double(max(1, mergeService.progress.total)))
                         Text("\(mergeService.progress.done)/\(mergeService.progress.total)").monospacedDigit()
                         if mergeService.cancellationRequested {
@@ -156,6 +160,14 @@ struct ArtistMergeView: View {
                         if outcome.wasCancelled { Text("source_address_probe_cancelled") }
 
                         Text(String(format: String(localized: "artist_merge_result_format"), outcome.applied.count, outcome.localOnlySongIDs.count))
+                    }
+                    // Which songs those are, the file each one is, and why.
+                    BatchWritebackIssuesSection(
+                        entries: outcome.localOnlyWrites,
+                        rewrittenCount: mergeService.rewrittenCount,
+                        isRetrying: mergeService.isRetryingWrites
+                    ) {
+                        _ = mergeService.retryLocalOnlyWrites(library: library, sourceManager: sourceManager, player: player)
                     }
                 } else if isReviewing {
                     Section("artist_merge_same_artist") {

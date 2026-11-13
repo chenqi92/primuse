@@ -7232,3 +7232,10 @@
 "lyrics_timing_earlier_step" = "0.1 s Earlier";
 "lyrics_timing_later_step" = "0.1 s Later";
 "lyrics_timing_reset" = "Reset";
+"batch_writeback_local_only_header_format" = "Saved Only in Primuse, Not in Files (%lld)";
+"batch_writeback_local_only_footer" = "These changes are saved in Primuse and a rescan won’t undo them, but the files on the source still have the old tags. Common causes: the source is read-only, the connection dropped, or there is no permission to write the file.";
+"batch_writeback_retry" = "Retry Writing to Files";
+"batch_writeback_retrying" = "Writing to files again…";
+"batch_writeback_copy_list" = "Copy List";
+"batch_writeback_copied" = "Copied";
+"batch_writeback_retry_written_format" = "Written to files on retry: %lld";

@@ -3,6 +3,11 @@ import PhotosUI
 import PrimuseKit
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// The songs a batch sheet works on. Identifiable so a page can present the
 /// sheet with `.sheet(item:)` and the list is fixed for its lifetime.
@@ -565,6 +570,9 @@ struct TagChangeReviewView: View {
     @State private var outcome: BatchTagEditService.Outcome?
     @State private var isUndoing = false
     @State private var didUndo = false
+    @State private var isRetrying = false
+    /// Songs the retries on this screen have written to their files.
+    @State private var rewrittenCount = 0
 
     private struct SongGroup: Identifiable {
         let song: Song
@@ -765,9 +773,23 @@ struct TagChangeReviewView: View {
                     }
                 }
             }
-            if !outcome.notices.isEmpty {
+            // After an undo the library and the files agree on the old
+            // values again; there is nothing left to write.
+            if !didUndo {
+                BatchWritebackIssuesSection(
+                    entries: outcome.localOnlyWrites,
+                    rewrittenCount: rewrittenCount,
+                    isRetrying: isRetrying,
+                    isDisabled: isUndoing || progress != nil
+                ) {
+                    Task { await retryWrites() }
+                }
+            }
+            // Notes for songs listed above are shown there as the reason.
+            let otherNotices = outcome.noticesOutsideLocalOnly
+            if !otherNotices.isEmpty {
                 Section("tag_editor_writeback_notice_title") {
-                    ForEach(Array(outcome.notices.enumerated()), id: \.offset) { _, notice in
+                    ForEach(Array(otherNotices.enumerated()), id: \.offset) { _, notice in
                         Text(notice).font(.caption)
                     }
                 }
@@ -779,7 +801,7 @@ struct TagChangeReviewView: View {
                     } label: {
                         Label(String(localized: "tag_review_undo"), systemImage: "arrow.uturn.backward")
                     }
-                    .disabled(isUndoing || progress != nil)
+                    .disabled(isUndoing || isRetrying || progress != nil)
                 } footer: {
                     Text("tag_review_undo_footer")
                 }
@@ -855,6 +877,174 @@ struct TagChangeReviewView: View {
         var merged = outcome
         merged.failures += result.failures
         self.outcome = merged
+    }
+
+    /// Writes the songs kept only in Primuse to their files again. Undo
+    /// still restores what this batch changed: the retry adds no undo
+    /// targets and does not count the songs a second time.
+    private func retryWrites() async {
+        guard !isRetrying, !isUndoing, progress == nil,
+              let entries = outcome?.localOnlyWrites.filter(\.canRetry), !entries.isEmpty else { return }
+        isRetrying = true
+        defer { isRetrying = false }
+        progress = (0, entries.count)
+        let result = await BatchTagEditService.retryLocalOnlyWrites(
+            entries,
+            sourceManager: sourceManager,
+            library: library,
+            player: player
+        ) { done, total in
+            progress = (done, total)
+        }
+        progress = nil
+        guard var merged = outcome else { return }
+        rewrittenCount += merged.mergeRetry(result)
+        outcome = merged
+    }
+}
+
+// MARK: - Write-back issues
+
+/// The songs of a batch whose change was kept only in Primuse because the
+/// file could not be written: which song, which source and file, and why.
+/// Shared by the batch editor's result and the artist merge result; place
+/// it inside a Form or List.
+struct BatchWritebackIssuesSection: View {
+    let entries: [BatchTagEditService.LocalOnlyWrite]
+    /// Songs written to their files by retries on this screen so far.
+    var rewrittenCount = 0
+    var isRetrying = false
+    /// Something else is writing the same songs (undo, the batch itself).
+    var isDisabled = false
+    let onRetry: () -> Void
+
+    @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
+    @State private var copied = false
+    @State private var copiedResetTask: Task<Void, Never>?
+
+    var body: some View {
+        if !entries.isEmpty {
+            Section {
+                if rewrittenCount > 0 { rewrittenRow }
+                ForEach(entries) { entry in
+                    row(entry)
+                }
+                if entries.contains(where: \.canRetry) {
+                    Button(action: onRetry) {
+                        if isRetrying {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("batch_writeback_retrying")
+                            }
+                        } else {
+                            Label(String(localized: "batch_writeback_retry"), systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(isRetrying || isDisabled)
+                }
+                Button(action: copyList) {
+                    if copied {
+                        Label(String(localized: "batch_writeback_copied"), systemImage: "checkmark")
+                    } else {
+                        Label(String(localized: "batch_writeback_copy_list"), systemImage: "doc.on.doc")
+                    }
+                }
+            } header: {
+                Text(String(format: String(localized: "batch_writeback_local_only_header_format"), entries.count))
+            } footer: {
+                Text("batch_writeback_local_only_footer")
+            }
+        } else if rewrittenCount > 0 {
+            // Every song went through on a retry; say so rather than let
+            // the list vanish without a word.
+            Section { rewrittenRow }
+        }
+    }
+
+    private var rewrittenRow: some View {
+        Label(
+            String(format: String(localized: "batch_writeback_retry_written_format"), rewrittenCount),
+            systemImage: "checkmark.circle.fill"
+        )
+        .foregroundStyle(.green)
+    }
+
+    private func row(_ entry: BatchTagEditService.LocalOnlyWrite) -> some View {
+        let place = location(of: entry)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(entry.title)
+                .lineLimit(1)
+            Text(place)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .writebackIssueTextSelection()
+                .help(place)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                Text(reason(of: entry))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            .font(.caption)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func sourceName(of entry: BatchTagEditService.LocalOnlyWrite) -> String? {
+        guard let name = sourcesStore?.source(id: entry.sourceID)?.name, !name.isEmpty else { return nil }
+        return name
+    }
+
+    private func location(of entry: BatchTagEditService.LocalOnlyWrite) -> String {
+        [sourceName(of: entry), entry.filePath.isEmpty ? nil : entry.filePath]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
+    private func reason(of entry: BatchTagEditService.LocalOnlyWrite) -> String {
+        if let reason = entry.reason, !reason.isEmpty { return reason }
+        return String(localized: "metadata_writeback_error_unsupported")
+    }
+
+    /// One line per song, tab-separated: title, source, path, reason.
+    private func copyList() {
+        let text = entries.map { entry -> String in
+            let columns: [String] = [entry.title, sourceName(of: entry) ?? "", entry.filePath, reason(of: entry)]
+            return columns
+                .map { $0.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ") }
+                .joined(separator: "\t")
+        }
+        .joined(separator: "\n")
+        #if os(iOS)
+        UIPasteboard.general.string = text
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
+        copied = true
+        copiedResetTask?.cancel()
+        copiedResetTask = Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            copied = false
+        }
+    }
+}
+
+private extension View {
+    /// On the Mac the path can be selected and copied. On iPhone a long press
+    /// would fight the row; the Copy List button covers it there.
+    @ViewBuilder
+    func writebackIssueTextSelection() -> some View {
+        #if os(macOS)
+        textSelection(.enabled)
+        #else
+        self
+        #endif
     }
 }
 

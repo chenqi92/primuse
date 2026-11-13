@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "0,1 sn öne al";
 "lyrics_timing_later_step" = "0,1 sn geciktir";
 "lyrics_timing_reset" = "Sıfırla";
+"batch_writeback_local_only_header_format" = "Yalnızca Primuse'ta kaydedildi, dosyaya yazılmadı (%lld)";
+"batch_writeback_local_only_footer" = "Bu değişiklikler Primuse'ta kayıtlı ve yeniden tarama bunları geri almaz, ancak kaynaktaki dosyalarda hâlâ eski etiketler var. Yaygın nedenler: kaynak salt okunur, bağlantı koptu veya dosyaya yazma izni yok.";
+"batch_writeback_retry" = "Dosyalara yazmayı yeniden dene";
+"batch_writeback_retrying" = "Dosyalara yeniden yazılıyor…";
+"batch_writeback_copy_list" = "Listeyi kopyala";
+"batch_writeback_copied" = "Kopyalandı";
+"batch_writeback_retry_written_format" = "Yeniden denemede dosyalara yazılan: %lld";

@@ -7471,3 +7471,10 @@
 "lyrics_timing_earlier_step" = "0.1초 앞당기기";
 "lyrics_timing_later_step" = "0.1초 늦추기";
 "lyrics_timing_reset" = "재설정";
+"batch_writeback_local_only_header_format" = "Primuse에만 저장되고 파일에는 반영되지 않음 (%lld)";
+"batch_writeback_local_only_footer" = "이 변경 사항은 Primuse에 저장되어 있어 다시 스캔해도 되돌아가지 않지만, 소스의 파일에는 여전히 이전 태그가 남아 있습니다. 흔한 원인은 소스가 읽기 전용이거나, 연결이 끊겼거나, 파일 쓰기 권한이 없는 경우입니다.";
+"batch_writeback_retry" = "파일에 다시 쓰기";
+"batch_writeback_retrying" = "파일에 다시 쓰는 중…";
+"batch_writeback_copy_list" = "목록 복사";
+"batch_writeback_copied" = "복사됨";
+"batch_writeback_retry_written_format" = "다시 시도해 파일에 기록한 곡: %lld";

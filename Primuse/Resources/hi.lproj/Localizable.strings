@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "0.1 से. पहले";
 "lyrics_timing_later_step" = "0.1 से. बाद में";
 "lyrics_timing_reset" = "रीसेट करें";
+"batch_writeback_local_only_header_format" = "केवल Primuse में सहेजे गए, फ़ाइल में नहीं (%lld)";
+"batch_writeback_local_only_footer" = "ये बदलाव Primuse में सहेजे गए हैं और दोबारा स्कैन करने पर भी वापस नहीं होंगे, लेकिन स्रोत की फ़ाइलों में अब भी पुराने टैग हैं। आम कारण: स्रोत केवल-पढ़ने योग्य है, कनेक्शन टूट गया, या फ़ाइल में लिखने की अनुमति नहीं है।";
+"batch_writeback_retry" = "फ़ाइलों में फिर से लिखें";
+"batch_writeback_retrying" = "फ़ाइलों में फिर से लिखा जा रहा है…";
+"batch_writeback_copy_list" = "सूची कॉपी करें";
+"batch_writeback_copied" = "कॉपी हो गया";
+"batch_writeback_retry_written_format" = "दोबारा कोशिश में फ़ाइलों में लिखे गए: %lld";

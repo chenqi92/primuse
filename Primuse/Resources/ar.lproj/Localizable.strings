@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "تقديم 0.1 ث";
 "lyrics_timing_later_step" = "تأخير 0.1 ث";
 "lyrics_timing_reset" = "إعادة تعيين";
+"batch_writeback_local_only_header_format" = "محفوظة في Primuse فقط، وليست في الملف (%lld)";
+"batch_writeback_local_only_footer" = "هذه التغييرات محفوظة في Primuse ولن تتراجع عنها إعادة الفحص، لكن الملفات في المصدر ما زالت تحمل الوسوم القديمة. من الأسباب الشائعة: المصدر للقراءة فقط، أو انقطع الاتصال، أو لا يوجد إذن بالكتابة في الملف.";
+"batch_writeback_retry" = "إعادة محاولة الكتابة في الملفات";
+"batch_writeback_retrying" = "تجري الكتابة في الملفات مجددًا…";
+"batch_writeback_copy_list" = "نسخ القائمة";
+"batch_writeback_copied" = "تم النسخ";
+"batch_writeback_retry_written_format" = "كُتبت في الملفات عند إعادة المحاولة: %lld";

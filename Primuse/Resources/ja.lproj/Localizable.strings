@@ -7472,3 +7472,10 @@
 "lyrics_timing_earlier_step" = "0.1秒早める";
 "lyrics_timing_later_step" = "0.1秒遅らせる";
 "lyrics_timing_reset" = "リセット";
+"batch_writeback_local_only_header_format" = "Primuse にのみ保存、ファイルには未反映（%lld）";
+"batch_writeback_local_only_footer" = "これらの変更は Primuse に保存されており、再スキャンしても元に戻りませんが、ソース上のファイルには古いタグが残っています。主な原因は、ソースが読み取り専用、接続の切断、ファイルへの書き込み権限がないことです。";
+"batch_writeback_retry" = "ファイルへの書き込みを再試行";
+"batch_writeback_retrying" = "ファイルに再度書き込み中…";
+"batch_writeback_copy_list" = "リストをコピー";
+"batch_writeback_copied" = "コピーしました";
+"batch_writeback_retry_written_format" = "再試行でファイルに書き込んだ曲：%lld";

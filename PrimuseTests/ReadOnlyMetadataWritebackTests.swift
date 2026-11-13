@@ -282,14 +282,78 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
         XCTAssertEqual(outcome.applied.count, 1)
         XCTAssertEqual(outcome.localOnlySongIDs, [original.id])
         XCTAssertTrue(outcome.failures.isEmpty)
+        let localOnly = try XCTUnwrap(outcome.localOnlyWrites.first)
+        XCTAssertEqual(localOnly.filePath, original.filePath)
+        XCTAssertEqual(localOnly.sourceID, original.sourceID)
+        XCTAssertEqual(localOnly.original.artistName, "English B; Guest")
+        XCTAssertNotNil(localOnly.reason)
+        XCTAssertTrue(localOnly.canRetry)
+        XCTAssertTrue(outcome.noticesOutsideLocalOnly.isEmpty)
         let stored = try XCTUnwrap(library.song(id: original.id))
         XCTAssertEqual(stored.sourceArtistNames, ["中文A", "Guest"])
         XCTAssertEqual(stored.albumArtistName, "中文A")
         XCTAssertNotNil(stored.userMetadataEditedAt)
+
+        // The source still fails: the song stays listed, the merged values
+        // stay in the library, and undo still has exactly one target.
+        let retry = await BatchTagEditService.retryLocalOnlyWrites(outcome.localOnlyWrites,
+            sourceManager: manager, library: library, player: player) { _, _ in }
+        var merged = outcome
+        let rewritten = merged.mergeRetry(retry)
+        XCTAssertEqual(rewritten, 0)
+        XCTAssertEqual(merged.localOnlySongIDs, [original.id])
+        XCTAssertEqual(merged.localOnlyWrites.first?.original.artistName, "English B; Guest")
+        XCTAssertEqual(merged.applied.count, 1)
+        XCTAssertEqual(merged.originals.map(\.artistName), outcome.originals.map(\.artistName))
+        XCTAssertEqual(library.song(id: original.id)?.sourceArtistNames, ["中文A", "Guest"])
         guard case .success = await library.persistNowAndWait() else { return XCTFail("Persistence failed") }
         let restored = MusicLibrary(storageDirectory: directory)
         XCTAssertEqual(restored.song(id: original.id)?.artistName, "中文A; Guest")
         XCTAssertEqual(SongUserMetadataPolicy.preservingUserEdits(from: stored, in: original).albumArtistName, "中文A")
+    }
+
+    func testRetryMergeDropsWrittenSongsAndKeepsUndoTargets() {
+        typealias Service = BatchTagEditService
+        func row(_ id: String, title: String? = nil) -> Song {
+            Song(id: id, title: title ?? id, fileFormat: .flac, filePath: "/Music/\(id).flac", sourceID: "source")
+        }
+        func entry(_ id: String, reason: String, canRetry: Bool = true, original: Song) -> Service.LocalOnlyWrite {
+            Service.LocalOnlyWrite(songID: id, title: id, artist: nil, sourceID: "source", filePath: "/Music/\(id).flac",
+                                   reason: reason, canRetry: canRetry, original: original)
+        }
+        var outcome = Service.Outcome()
+        outcome.applied = ["a", "b", "c", "d"].map { row($0) }
+        outcome.originals = ["a", "b", "c", "d"].map { row($0, title: "Before \($0)") }
+        outcome.localOnlyWrites = ["a", "b", "c"].map { entry($0, reason: "Timed out", original: row($0, title: "Before \($0)")) }
+        outcome.noticeEntries = [
+            Service.Notice(songID: "a", text: "a: Timed out"),
+            Service.Notice(songID: "b", text: "b: Timed out"),
+            Service.Notice(songID: "c", text: "c: Timed out"),
+            Service.Notice(songID: "d", text: "d: Genre unsupported"),
+        ]
+        XCTAssertEqual(outcome.noticesOutsideLocalOnly, ["d: Genre unsupported"])
+
+        // "a" went through, "b" failed again for another reason, "c" was
+        // not reached (stopped before it).
+        var retry = Service.Outcome()
+        var written = row("a")
+        written.revision = "after-retry"
+        retry.applied = [written, row("b")]
+        retry.originals = retry.applied
+        retry.localOnlyWrites = [entry("b", reason: "Permission denied", canRetry: false, original: row("b"))]
+        retry.noticeEntries = [Service.Notice(songID: "b", text: "b: Permission denied")]
+
+        let rewritten = outcome.mergeRetry(retry)
+        XCTAssertEqual(rewritten, 1)
+        XCTAssertEqual(outcome.localOnlyWrites.map(\.songID), ["b", "c"])
+        XCTAssertEqual(outcome.localOnlyWrites.map(\.reason), ["Permission denied", "Timed out"])
+        XCTAssertEqual(outcome.localOnlyWrites.map(\.canRetry), [false, true])
+        XCTAssertEqual(outcome.localOnlyWrites.map(\.original.title), ["Before b", "Before c"])
+        XCTAssertEqual(outcome.applied.map(\.id), ["a", "b", "c", "d"])
+        XCTAssertEqual(outcome.applied.first?.revision, "after-retry")
+        XCTAssertEqual(outcome.originals.map(\.title), ["Before a", "Before b", "Before c", "Before d"])
+        XCTAssertEqual(outcome.notices, ["c: Timed out", "d: Genre unsupported", "b: Permission denied"])
+        XCTAssertEqual(outcome.noticesOutsideLocalOnly, ["d: Genre unsupported"])
     }
 
     @MainActor

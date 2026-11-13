@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "На 0,1 с раньше";
 "lyrics_timing_later_step" = "На 0,1 с позже";
 "lyrics_timing_reset" = "Сбросить";
+"batch_writeback_local_only_header_format" = "Сохранено только в Primuse, не в файле (%lld)";
+"batch_writeback_local_only_footer" = "Эти изменения сохранены в Primuse, и повторное сканирование их не отменит, но файлы в источнике по-прежнему содержат старые теги. Частые причины: источник доступен только для чтения, соединение прервалось или нет прав на запись файла.";
+"batch_writeback_retry" = "Повторить запись в файлы";
+"batch_writeback_retrying" = "Повторная запись в файлы…";
+"batch_writeback_copy_list" = "Скопировать список";
+"batch_writeback_copied" = "Скопировано";
+"batch_writeback_retry_written_format" = "Записано в файлы при повторе: %lld";

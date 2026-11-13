@@ -7448,3 +7448,10 @@
 "lyrics_timing_earlier_step" = "提前 0.1 秒";
 "lyrics_timing_later_step" = "延後 0.1 秒";
 "lyrics_timing_reset" = "重設";
+"batch_writeback_local_only_header_format" = "只儲存在 Primuse、沒寫進檔案的歌曲（%lld）";
+"batch_writeback_local_only_footer" = "這些修改已儲存在 Primuse 裡，重新掃描也不會被還原，但音樂來源上的檔案仍是原來的標籤。常見原因是音樂來源唯讀、連線中斷或沒有寫入檔案的權限。";
+"batch_writeback_retry" = "重試寫回";
+"batch_writeback_retrying" = "正在重新寫入檔案…";
+"batch_writeback_copy_list" = "拷貝清單";
+"batch_writeback_copied" = "已拷貝";
+"batch_writeback_retry_written_format" = "重試後已寫進檔案：%lld 首";

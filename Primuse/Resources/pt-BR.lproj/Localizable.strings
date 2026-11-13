@@ -7377,3 +7377,10 @@
 "lyrics_timing_earlier_step" = "Adiantar 0,1 s";
 "lyrics_timing_later_step" = "Atrasar 0,1 s";
 "lyrics_timing_reset" = "Redefinir";
+"batch_writeback_local_only_header_format" = "Salvas só no Primuse, não no arquivo (%lld)";
+"batch_writeback_local_only_footer" = "Essas alterações estão salvas no Primuse e uma nova varredura não vai desfazê-las, mas os arquivos na origem ainda têm as tags antigas. Causas comuns: a origem é somente leitura, a conexão caiu ou não há permissão para gravar o arquivo.";
+"batch_writeback_retry" = "Tentar gravar nos arquivos de novo";
+"batch_writeback_retrying" = "Gravando nos arquivos de novo…";
+"batch_writeback_copy_list" = "Copiar lista";
+"batch_writeback_copied" = "Copiado";
+"batch_writeback_retry_written_format" = "Gravadas nos arquivos ao tentar de novo: %lld";

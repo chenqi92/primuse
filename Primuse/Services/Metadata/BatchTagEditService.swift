@@ -18,10 +18,91 @@ enum BatchTagEditService {
         var failures: [Failure] = []
         /// Per-song notes from the write-back (a field the source cannot
         /// store, a partial media-server write).
-        var notices: [String] = []
+        var noticeEntries: [Notice] = []
         var coverChanged = false
-        var localOnlySongIDs: Set<String> = []
+        /// Songs whose change is in the library but not in the file: the
+        /// source refused it, the connection dropped, or the source never
+        /// takes these tags. Listed so the listener can see which files
+        /// still carry the old tags and write them again.
+        var localOnlyWrites: [LocalOnlyWrite] = []
         var wasCancelled = false
+
+        /// The notes as "title: note" lines.
+        var notices: [String] { noticeEntries.map(\.text) }
+
+        var localOnlySongIDs: Set<String> { Set(localOnlyWrites.map(\.songID)) }
+
+        /// The notes of songs that are not already listed in
+        /// `localOnlyWrites`, where the same note is shown as the reason.
+        var noticesOutsideLocalOnly: [String] {
+            let listed = localOnlySongIDs
+            return noticeEntries.filter { !listed.contains($0.songID) }.map(\.text)
+        }
+
+        /// Folds a retry of the local-only songs back in. Songs the retry
+        /// wrote leave the list; songs still kept only in Primuse stay with
+        /// the new reason; songs the retry did not reach (stopped, removed
+        /// from the library, nothing left to write) stay as they were.
+        /// Undo targets stay this run's, and `applied` is only refreshed in
+        /// place, so nothing is counted twice. A retry keeps local edits on
+        /// failure, so it has no failures to add.
+        /// Returns how many songs the retry wrote to their files.
+        @discardableResult
+        mutating func mergeRetry(_ retry: Outcome) -> Int {
+            var stillLocal: [String: LocalOnlyWrite] = [:]
+            for entry in retry.localOnlyWrites { stillLocal[entry.songID] = entry }
+            let reached = Set(retry.applied.map(\.id))
+            var remaining: [LocalOnlyWrite] = []
+            var written = 0
+            for entry in localOnlyWrites {
+                if var again = stillLocal[entry.songID] {
+                    again.original = entry.original
+                    remaining.append(again)
+                } else if reached.contains(entry.songID) {
+                    written += 1
+                } else {
+                    remaining.append(entry)
+                }
+            }
+            localOnlyWrites = remaining
+
+            noticeEntries.removeAll { reached.contains($0.songID) }
+            noticeEntries.append(contentsOf: retry.noticeEntries)
+
+            var refreshed: [String: Song] = [:]
+            for song in retry.applied { refreshed[song.id] = song }
+            if !refreshed.isEmpty {
+                applied = applied.map { refreshed[$0.id] ?? $0 }
+            }
+            return written
+        }
+    }
+
+    /// A note from the write-back for one song.
+    struct Notice: Sendable {
+        let songID: String
+        /// "title: note", as shown in the write-back report.
+        let text: String
+    }
+
+    /// A song whose change was saved in Primuse but not written to its file.
+    struct LocalOnlyWrite: Identifiable, Sendable {
+        let songID: String
+        let title: String
+        let artist: String?
+        let sourceID: String
+        let filePath: String
+        /// What the source or the write reported; nil when the source never
+        /// takes these tags and said nothing more.
+        let reason: String?
+        /// Writing again could succeed: the source refused or failed this
+        /// time. A field the source never takes, or a cover (a retry does
+        /// not send it again), would come back the same.
+        let canRetry: Bool
+        /// The library row before the edit; a retry writes from its tags.
+        var original: Song
+
+        var id: String { songID }
     }
 
     /// One successful write: the row as it is now, a note from the source,
@@ -31,6 +112,7 @@ enum BatchTagEditService {
         let notice: String?
         let previousFileTags: EmbeddedMetadataVerification?
         var isLocalOnly = false
+        var canRetry = false
     }
 
     struct Failure: Identifiable, Error, Sendable {
@@ -116,6 +198,59 @@ enum BatchTagEditService {
         return outcome
     }
 
+    /// Writes songs whose change was kept only in Primuse to their files
+    /// again: from the tags they had before the edit to the row the library
+    /// holds now, so a later edit of the same song goes along. A failure
+    /// leaves the library row as it is. Merge the result into the run it
+    /// came from with `Outcome.mergeRetry`.
+    @MainActor
+    static func retryLocalOnlyWrites(
+        _ entries: [LocalOnlyWrite],
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        player: AudioPlayerService,
+        shouldCancel: @escaping @MainActor () -> Bool = { false },
+        onProgress: @escaping @MainActor (Int, Int) -> Void
+    ) async -> Outcome {
+        let changes = entries.compactMap { entry -> (original: Song, updated: Song)? in
+            guard let current = library.storedSong(id: entry.songID) ?? library.song(id: entry.songID) else {
+                return nil
+            }
+            return (original: retryBase(before: entry.original, current: current), updated: current)
+        }
+        let outcome = await apply(
+            changes,
+            coverData: nil,
+            sourceManager: sourceManager,
+            library: library,
+            player: player,
+            keepsLocalEditsOnWriteFailure: true,
+            shouldCancel: shouldCancel,
+            onProgress: onProgress
+        )
+        let reached = Set(outcome.applied.map(\.id))
+        let stillLocal = outcome.localOnlySongIDs
+        plog("Batch tag write retry songs=\(entries.count) written=\(reached.subtracting(stillLocal).count) stillLocalOnly=\(stillLocal.count) cancelled=\(outcome.wasCancelled)")
+        return outcome
+    }
+
+    /// The row a retry writes from: the tags before the edit, on the file
+    /// the library knows now. A failed write can still have moved or
+    /// re-versioned the file, and the write checks against this identity.
+    static func retryBase(before: Song, current: Song) -> Song {
+        var base = current
+        base.title = before.title
+        base.artistName = before.artistName
+        base.sourceArtistNames = before.sourceArtistNames
+        base.albumTitle = before.albumTitle
+        base.albumArtistName = before.albumArtistName
+        base.genre = before.genre
+        base.year = before.year
+        base.trackNumber = before.trackNumber
+        base.discNumber = before.discNumber
+        return base
+    }
+
     @MainActor
     private static func publish(
         _ results: [Int: Result<Written, Failure>],
@@ -149,13 +284,32 @@ enum BatchTagEditService {
                     song = current
                 }
                 published.append(song)
-                if written.isLocalOnly { outcome.localOnlySongIDs.insert(song.id) }
+                if written.isLocalOnly {
+                    outcome.localOnlyWrites.append(LocalOnlyWrite(
+                        songID: song.id,
+                        title: song.title,
+                        artist: song.artistName,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        reason: written.notice,
+                        canRetry: written.canRetry,
+                        original: pending[index].original
+                    ))
+                    // One line per file, so a diagnostic report says which
+                    // files still carry the old tags and why.
+                    let reason = written.notice.map {
+                        $0.replacingOccurrences(of: "\n", with: " | ")
+                    } ?? "source does not take these tags"
+                    plog("Batch tag write kept only in Primuse songID=\(song.id) sourceID=\(song.sourceID) retryable=\(written.canRetry) reason=\(reason)")
+                }
                 outcome.originals.append(Self.undoTarget(
                     original: pending[index].original,
                     updated: pending[index].updated,
                     fileBefore: written.previousFileTags
                 ))
-                if let notice = written.notice { outcome.notices.append("\(written.song.title): \(notice)") }
+                if let notice = written.notice {
+                    outcome.noticeEntries.append(Notice(songID: song.id, text: "\(written.song.title): \(notice)"))
+                }
             case .failure(let failure)?:
                 outcome.failures.append(failure)
             case nil:
@@ -225,21 +379,35 @@ enum BatchTagEditService {
                 saved.revision = relocated.revision
                 saved.lastModified = relocated.lastModified
             }
-            let onlyLocal = report.fields.contains {
+            let keptLocal = report.fields.filter {
                 switch $0.disposition {
                 case .localOnly, .failed, .unsupported: true
                 case .unchanged, .written: false
+                }
+            }
+            let onlyLocal = !keptLocal.isEmpty
+            // A refused or failed tag may go through next time (permission
+            // fixed, connection back). A tag the source never takes comes
+            // back the same, and a retry does not send the cover again.
+            let deniedThisTime = report.localSaveNotice != nil
+            let canRetry = !keptLocal.contains { $0.field == .cover } && keptLocal.contains {
+                switch $0.disposition {
+                case .failed: true
+                case .localOnly: deniedThisTime
+                case .unsupported, .unchanged, .written: false
                 }
             }
             return .success(Written(
                 song: saved,
                 notice: report.issueMessage,
                 previousFileTags: report.previousFileTags,
-                isLocalOnly: onlyLocal
+                isLocalOnly: onlyLocal,
+                canRetry: canRetry
             ))
         } catch {
             if keepsLocalEditsOnWriteFailure {
-                return .success(Written(song: updated, notice: error.localizedDescription, previousFileTags: nil, isLocalOnly: true))
+                return .success(Written(song: updated, notice: error.localizedDescription, previousFileTags: nil,
+                                        isLocalOnly: true, canRetry: coverData == nil))
             }
             return .failure(Failure(title: change.original.title, message: error.localizedDescription))
         }
@@ -331,6 +499,10 @@ final class ArtistMergeService {
     private(set) var canonicalName = ""
     private(set) var progress = (done: 0, total: 0)
     private(set) var outcome: BatchTagEditService.Outcome?
+    /// The run is writing the local-only songs of `outcome` again.
+    private(set) var isRetryingWrites = false
+    /// Songs the retries of this merge have written to their files.
+    private(set) var rewrittenCount = 0
     @ObservationIgnored private var task: Task<Void, Never>?
 
     @discardableResult
@@ -342,6 +514,7 @@ final class ArtistMergeService {
         isRunning = true
         cancellationRequested = false
         outcome = nil
+        rewrittenCount = 0
         self.canonicalName = canonicalName
         progress = (0, songIDs.count)
         let songs = songIDs.compactMap { library.song(id: $0) }
@@ -368,6 +541,43 @@ final class ArtistMergeService {
         return true
     }
 
+    /// Writes the songs the merge kept only in Primuse to their files again.
+    /// Runs here rather than in the sheet, so closing it does not stop the
+    /// retry; the result is folded into `outcome`.
+    @discardableResult
+    func retryLocalOnlyWrites(
+        library: MusicLibrary, sourceManager: SourceManager, player: AudioPlayerService
+    ) -> Bool {
+        guard !isRunning, let entries = outcome?.localOnlyWrites.filter(\.canRetry), !entries.isEmpty else {
+            return false
+        }
+        isRunning = true
+        isRetryingWrites = true
+        cancellationRequested = false
+        // The banner keeps showing how far the merge itself got.
+        let mergeProgress = progress
+        progress = (0, entries.count)
+        plog("Artist merge retry started songs=\(entries.count)")
+        task = Task {
+            let retry = await BatchTagEditService.retryLocalOnlyWrites(
+                entries, sourceManager: sourceManager, library: library, player: player,
+                shouldCancel: { self.cancellationRequested }
+            ) { done, total in
+                self.progress = (done, total)
+            }
+            if var merged = outcome {
+                rewrittenCount += merged.mergeRetry(retry)
+                outcome = merged
+            }
+            plog("Artist merge retry finished localOnly=\(outcome?.localOnlyWrites.count ?? 0) rewritten=\(rewrittenCount)")
+            progress = mergeProgress
+            isRetryingWrites = false
+            isRunning = false
+            task = nil
+        }
+        return true
+    }
+
     func cancel() {
         guard isRunning else { return }
         cancellationRequested = true
@@ -377,5 +587,6 @@ final class ArtistMergeService {
     func clearResult() {
         guard !isRunning else { return }
         outcome = nil
+        rewrittenCount = 0
     }
 }
