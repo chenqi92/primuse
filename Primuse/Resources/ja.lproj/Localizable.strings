@@ -3452,6 +3452,12 @@
 "server_favorite_update_failed_message" = "サーバー側のお気に入りを更新できませんでした。Primuse は再同期するか、以前の状態に戻しました。\n%@";
 "lock_screen_lyrics" = "ロック画面の歌詞";
 "lock_screen_lyrics_desc" = "現在の同期歌詞をシステムの「再生中」パネルのタイトルとして表示します。コントロールセンター、Bluetooth、車載ディスプレイにも歌詞が表示される場合があります。 Primuse の再生画面に表示される同期歌詞のみ表示されます。Apple Music は他のアプリに歌詞を提供しないため、これらの曲は先に歌詞を追加してください。";
+"lock_screen_controls_section" = "ロック画面とコントロールセンター";
+"lock_screen_music_controls" = "音楽のロック画面操作";
+"lock_screen_music_track_controls" = "前の曲 / 次の曲";
+"lock_screen_music_controls_desc" = "ロック画面とコントロールセンターの両側のボタンです。「巻き戻し / 早送り」にすると、秒数はオーディオブックの「戻る秒数」「進む秒数」の設定と同じになります。イヤホンや車の対応するボタンも変わることがあります。";
+"lock_screen_show_like" = "お気に入りボタンを表示";
+"lock_screen_show_like_desc" = "ロック画面とコントロールセンターにお気に入りボタンを表示します。オフにすると表示されません。横の再生先（AirPlay）ボタンはシステムが表示するため、隠したり別のボタンに変えたりはできません。";
 
 "ai_settings_title" = "インテリジェンス";
 "ai_region_checking" = "App Store の地域を確認しています…";

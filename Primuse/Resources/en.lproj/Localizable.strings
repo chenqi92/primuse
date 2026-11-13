@@ -3222,6 +3222,12 @@
 "server_favorite_update_failed_message" = "The server favorite could not be updated. Primuse resynced or restored the previous state.\n%@";
 "lock_screen_lyrics" = "Lock Screen Lyrics";
 "lock_screen_lyrics_desc" = "Use the current synchronized lyric as the title in the system Now Playing panel. Control Center, Bluetooth and in-car displays may also show the lyric. Only lyrics you can see on the Primuse player are shown. Apple Music doesn't share its lyrics with other apps, so add lyrics for those songs first.";
+"lock_screen_controls_section" = "Lock Screen & Control Center";
+"lock_screen_music_controls" = "Music Lock Screen Controls";
+"lock_screen_music_track_controls" = "Previous / Next Track";
+"lock_screen_music_controls_desc" = "The buttons on both sides in the Lock Screen and Control Center. With “Skip Back / Forward”, the seconds follow the audiobook “Skip Back” and “Skip Forward” settings; the matching buttons on headphones and in the car may change too.";
+"lock_screen_show_like" = "Show Favorite Button";
+"lock_screen_show_like_desc" = "Shows the favorite button in the Lock Screen and Control Center; turn it off to hide it. The playback destination (AirPlay) button next to it is shown by the system and can’t be hidden or replaced.";
 
 "ai_settings_title" = "Intelligence";
 "ai_region_checking" = "Checking App Store region…";

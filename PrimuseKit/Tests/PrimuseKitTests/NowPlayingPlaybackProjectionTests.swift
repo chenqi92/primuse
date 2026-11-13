@@ -448,4 +448,19 @@ struct RemotePlayCommandPolicyTests {
             playbackIsIntended: false
         ) == .noActionableItem)
     }
+
+    @Test("Lock screen side buttons follow each kind of content and its setting")
+    func skipControlsByContent() {
+        typealias Policy = NowPlayingSkipControlsPolicy
+        #expect(Policy.offersSkipIntervals(content: .podcast, audiobookUsesChapters: true, musicUsesSkip: false))
+        #expect(!Policy.offersSkipIntervals(content: .audiobook, audiobookUsesChapters: true, musicUsesSkip: true))
+        #expect(Policy.offersSkipIntervals(content: .audiobook, audiobookUsesChapters: false, musicUsesSkip: false))
+        #expect(!Policy.offersSkipIntervals(content: .music, audiobookUsesChapters: false, musicUsesSkip: false))
+        #expect(Policy.offersSkipIntervals(content: .music, audiobookUsesChapters: true, musicUsesSkip: true))
+        #expect(!Policy.offersSkipIntervals(content: .liveRadio, audiobookUsesChapters: false, musicUsesSkip: true))
+        #expect(!Policy.offersSkipIntervals(content: .other, audiobookUsesChapters: false, musicUsesSkip: true))
+        #expect(Policy.showsLike(canLike: true, likeVisible: true))
+        #expect(!Policy.showsLike(canLike: true, likeVisible: false))
+        #expect(!Policy.showsLike(canLike: false, likeVisible: true))
+    }
 }

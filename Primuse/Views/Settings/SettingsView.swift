@@ -2730,6 +2730,24 @@ struct PlaybackSettingsView: View {
                     }
                 }
                 .settingsAnchor("lyrics.lockScreen")
+                // 锁屏两侧只有一对按钮的位置：上一首/下一首和快退/快进二选一。
+                Picker(selection: $settings.musicLockScreenUsesSkip) {
+                    Text("lock_screen_music_track_controls").tag(false)
+                    Text("spoken_word_lock_screen_skip").tag(true)
+                } label: {
+                    SettingsInfoLabel("lock_screen_music_controls") {
+                        Text("lock_screen_music_controls_desc")
+                    }
+                }
+                .settingsAnchor("playback.musicLockScreen")
+                Toggle(isOn: $settings.lockScreenShowsLike) {
+                    SettingsInfoLabel("lock_screen_show_like") {
+                        Text("lock_screen_show_like_desc")
+                    }
+                }
+                .settingsAnchor("playback.lockScreenLike")
+            } header: {
+                Text("lock_screen_controls_section")
             }
 
             Section {

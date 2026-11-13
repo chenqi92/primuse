@@ -36,6 +36,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.headTracking", titleKey: "spatial_head_tracking", iosPage: .playback, macPage: nil, anchor: "playback.spatialAudio"),
         SettingDefinition(id: "playback.mixWithOthers", titleKey: "playback_mix_with_others", iosPage: .playback, macPage: nil, keywords: ["混音", "同时播放", "不打断", "游戏", "mix with others", "play alongside"]),
         SettingDefinition(id: "lyrics.lockScreen", titleKey: "lock_screen_lyrics", iosPage: .playback, macPage: nil, keywords: ["lock screen lyrics", "锁屏没歌词", "锁屏歌词", "控制中心歌词", "蓝牙歌词", "车载歌词"]),
+        SettingDefinition(id: "playback.musicLockScreen", titleKey: "lock_screen_music_controls", iosPage: .playback, macPage: nil, keywords: ["锁屏", "锁屏按钮", "控制中心", "上一首", "下一首", "快进", "快退", "lock screen", "control center", "skip"]),
+        SettingDefinition(id: "playback.lockScreenLike", titleKey: "lock_screen_show_like", iosPage: .playback, macPage: nil, keywords: ["锁屏", "收藏", "喜欢", "红心", "锁屏收藏", "控制中心", "lock screen", "favorite", "like"]),
         SettingDefinition(id: "playback.prewarmQueue", titleKey: "Prewarm queue head", iosPage: nil, macPage: .playback),
         SettingDefinition(id: "equalizer.enabled", titleKey: "eq_enabled", iosPage: .equalizer, macPage: .equalizer, keywords: ["EQ", "equalizer", "均衡器", "低音", "bass", "treble", "高音", "Enable EQ"]),
         SettingDefinition(id: "equalizer.preset", titleKey: "eq_preset", iosPage: .equalizer, macPage: .equalizer, keywords: ["Current Preset"]),

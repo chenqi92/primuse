@@ -1972,6 +1972,12 @@
 "lock_desktop_lyrics" = "Bloquear letras del escritorio";
 "lock_screen_lyrics" = "Letras en pantalla bloqueada";
 "lock_screen_lyrics_desc" = "Usa la línea sincronizada actual como título en el panel de reproducción del sistema. El Centro de control, Bluetooth y las pantallas del auto también pueden mostrarla. Solo se muestra la letra sincronizada que ves en el reproductor de Primuse. Apple Music no comparte sus letras con otras apps, así que primero agrega la letra a esas canciones.";
+"lock_screen_controls_section" = "Pantalla bloqueada y Centro de control";
+"lock_screen_music_controls" = "Controles de música en pantalla bloqueada";
+"lock_screen_music_track_controls" = "Canción anterior / siguiente";
+"lock_screen_music_controls_desc" = "Los botones a ambos lados en la pantalla bloqueada y el Centro de control. Con “Retroceder / Avanzar”, los segundos siguen los ajustes de audiolibro “Retroceder” y “Adelantar”; los botones correspondientes de los audífonos y del auto también pueden cambiar.";
+"lock_screen_show_like" = "Mostrar botón de favorito";
+"lock_screen_show_like_desc" = "Muestra el botón de favorito en la pantalla bloqueada y el Centro de control; desactívalo para ocultarlo. El botón de destino de reproducción (AirPlay) de al lado lo muestra el sistema y no se puede ocultar ni reemplazar.";
 "log_filter_error" = "Errores";
 "log_filter_warning" = "Advertencias";
 "lyrics_audio_tools_footer" = "La transcripción de canciones crea un borrador editable de letras sincronizadas. No se guarda nada hasta que lo revises y confirmes.";

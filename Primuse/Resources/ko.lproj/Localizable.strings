@@ -3451,6 +3451,12 @@
 "server_favorite_update_failed_message" = "서버 즐겨찾기를 업데이트하지 못했습니다. Primuse가 상태를 다시 동기화하거나 이전 상태로 복원했습니다.\n%@";
 "lock_screen_lyrics" = "잠금 화면 가사";
 "lock_screen_lyrics_desc" = "현재 동기화된 가사를 시스템 재생 화면의 제목으로 표시합니다. 제어 센터, Bluetooth 및 차량 화면에도 가사가 표시될 수 있습니다. Primuse 재생 화면에 보이는 동기화 가사만 표시됩니다. Apple Music은 다른 앱에 가사를 제공하지 않으므로 해당 노래는 먼저 가사를 추가하세요.";
+"lock_screen_controls_section" = "잠금 화면 및 제어 센터";
+"lock_screen_music_controls" = "음악 잠금 화면 버튼";
+"lock_screen_music_track_controls" = "이전 / 다음 곡";
+"lock_screen_music_controls_desc" = "잠금 화면과 제어 센터 양쪽의 버튼입니다. ‘뒤로 / 앞으로 건너뛰기’를 선택하면 초 단위는 오디오북의 ‘뒤로 건너뛰기’, ‘앞으로 건너뛰기’ 설정을 따릅니다. 이어폰과 차량의 해당 버튼도 함께 바뀔 수 있습니다.";
+"lock_screen_show_like" = "즐겨찾기 버튼 표시";
+"lock_screen_show_like_desc" = "잠금 화면과 제어 센터에 즐겨찾기 버튼을 표시합니다. 끄면 표시되지 않습니다. 옆의 재생 대상(AirPlay) 버튼은 시스템이 표시하므로 숨기거나 다른 버튼으로 바꿀 수 없습니다.";
 
 "ai_settings_title" = "지능형 기능";
 "ai_region_checking" = "App Store 지역 확인 중…";

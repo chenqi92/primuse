@@ -1972,6 +1972,12 @@
 "lock_desktop_lyrics" = "Bloquear letras na mesa";
 "lock_screen_lyrics" = "Letras na tela bloqueada";
 "lock_screen_lyrics_desc" = "Use a linha sincronizada atual como título no painel de reprodução do sistema. A Central de Controle, o Bluetooth e as telas do carro também podem exibi-la. Só aparece a letra sincronizada que você vê no player do Primuse. O Apple Music não compartilha letras com outros apps, então adicione a letra dessas músicas primeiro.";
+"lock_screen_controls_section" = "Tela Bloqueada e Central de Controle";
+"lock_screen_music_controls" = "Controles de música na tela bloqueada";
+"lock_screen_music_track_controls" = "Faixa anterior / seguinte";
+"lock_screen_music_controls_desc" = "Os botões dos dois lados na Tela Bloqueada e na Central de Controle. Com “Retroceder / Avançar”, os segundos seguem os ajustes de audiolivro “Voltar” e “Avançar”; os botões correspondentes dos fones e do carro também podem mudar.";
+"lock_screen_show_like" = "Mostrar botão de favorito";
+"lock_screen_show_like_desc" = "Mostra o botão de favorito na Tela Bloqueada e na Central de Controle; desative para ocultá-lo. O botão de destino da reprodução (AirPlay) ao lado é exibido pelo sistema e não pode ser ocultado nem substituído.";
 "log_filter_error" = "Erros";
 "log_filter_warning" = "Avisos";
 "lyrics_audio_tools_footer" = "A transcrição de músicas cria um rascunho editável de letras sincronizadas. Nada é salvo até você revisar e confirmar.";

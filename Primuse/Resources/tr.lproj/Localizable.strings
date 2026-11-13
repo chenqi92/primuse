@@ -2695,6 +2695,12 @@
 "Not Enabled" = "Etkin Değil";
 "Toggle" = "Aç/Kapat";
 "lock_screen_lyrics_desc" = "Sistemin Şu An Çalınan panelinde başlık olarak geçerli senkronize şarkı sözünü kullanın. Kontrol Merkezi, Bluetooth ve araç içi ekranlar da şarkı sözlerini gösterebilir. Yalnızca Primuse oynatıcısında görünen senkronize şarkı sözleri gösterilir. Apple Music şarkı sözlerini diğer uygulamalarla paylaşmaz; bu şarkılar için önce şarkı sözü ekleyin.";
+"lock_screen_controls_section" = "Kilit Ekranı ve Denetim Merkezi";
+"lock_screen_music_controls" = "Müzik Kilit Ekranı Denetimleri";
+"lock_screen_music_track_controls" = "Önceki / Sonraki Parça";
+"lock_screen_music_controls_desc" = "Kilit ekranında ve Denetim Merkezi’nde iki yandaki düğmeler. “Geri / İleri Sar” seçildiğinde saniyeler sesli kitabın “Geri atla” ve “İleri atla” ayarlarını izler; kulaklık ve araçtaki ilgili düğmeler de değişebilir.";
+"lock_screen_show_like" = "Favori Düğmesini Göster";
+"lock_screen_show_like_desc" = "Kilit ekranında ve Denetim Merkezi’nde favori düğmesini gösterir; gizlemek için kapatın. Yanındaki oynatma hedefi (AirPlay) düğmesini sistem gösterir; gizlenemez veya başka bir düğmeyle değiştirilemez.";
 "onboarding_experience_title" = "Telefonunuzda dinlemekten daha fazlası";
 "tv_remote_back" = "Geri";
 "synology_quickconnect_hint" = "DSM'den QuickConnect Kimliğini girin. Primuse otomatik olarak doğrudan erişimi, Akıllı DNS'yi veya röleyi seçer.";

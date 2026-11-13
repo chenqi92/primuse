@@ -3553,6 +3553,12 @@
 "server_favorite_update_failed_message" = "未能更新服务端收藏，已重新同步或恢复先前状态。\n%@";
 "lock_screen_lyrics" = "锁屏歌词";
 "lock_screen_lyrics_desc" = "在系统正在播放面板中用当前同步歌词替代标题；控制中心、蓝牙和车载界面也可能显示歌词。只显示 Primuse 播放页里能看到的同步歌词；Apple Music 不向其他 App 提供歌词，这类歌曲需要先补上歌词。";
+"lock_screen_controls_section" = "锁屏与控制中心";
+"lock_screen_music_controls" = "音乐锁屏按钮";
+"lock_screen_music_track_controls" = "上一首 / 下一首";
+"lock_screen_music_controls_desc" = "锁屏和控制中心两侧的按钮。选「快退 / 快进」时，秒数跟有声书的「快退」「快进」设置一样；耳机和车机上的对应按键也可能跟着变。";
+"lock_screen_show_like" = "显示收藏按钮";
+"lock_screen_show_like_desc" = "在锁屏和控制中心显示收藏按钮，关掉后就不再显示。旁边的播放出口（AirPlay）按钮由系统显示，不能隐藏或换成别的按钮。";
 
 "ai_settings_title" = "智能功能";
 "ai_region_checking" = "正在确认 App Store 地区…";

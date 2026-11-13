@@ -456,3 +456,29 @@ public enum RemotePlayCommandPolicy {
         return .resume
     }
 }
+
+/// 锁屏、控制中心两侧的按钮：「上一首 / 下一首」和「快退 / 快进」系统只给同两个位置，只能放一对。
+/// 播客固定快退快进；有声书和音乐按各自的设置；直播电台没法快进快退。
+public enum NowPlayingSkipControlsPolicy {
+    public enum Content: Sendable, Equatable {
+        case music, podcast, audiobook, liveRadio, other
+    }
+
+    public static func offersSkipIntervals(
+        content: Content,
+        audiobookUsesChapters: Bool,
+        musicUsesSkip: Bool
+    ) -> Bool {
+        switch content {
+        case .podcast: return true
+        case .audiobook: return !audiobookUsesChapters
+        case .music: return musicUsesSkip
+        case .liveRadio, .other: return false
+        }
+    }
+
+    /// 锁屏上的收藏按钮：这一首能收藏、而且设置里没关掉才出现。
+    public static func showsLike(canLike: Bool, likeVisible: Bool) -> Bool {
+        canLike && likeVisible
+    }
+}

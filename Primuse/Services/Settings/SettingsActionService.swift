@@ -145,6 +145,7 @@ struct SettingsActionService {
         case "playback.spatialAudio": playback.spatialAudioEnabled
         case "playback.headTracking": playback.spatialHeadTrackingEnabled
         case "lyrics.lockScreen": playback.lockScreenLyricsEnabled
+        case "playback.lockScreenLike": playback.lockScreenShowsLike
         case "storage.audioCacheEnabled": playback.audioCacheEnabled
         case "effects.chain": playback.effectChainEnabled
         case "effects.reverb": playback.reverbEnabled
@@ -194,6 +195,7 @@ struct SettingsActionService {
         case "playback.spatialAudio": playback.spatialAudioEnabled = enabled
         case "playback.headTracking": playback.spatialHeadTrackingEnabled = enabled
         case "lyrics.lockScreen": playback.lockScreenLyricsEnabled = enabled
+        case "playback.lockScreenLike": playback.lockScreenShowsLike = enabled
         case "storage.audioCacheEnabled": playback.audioCacheEnabled = enabled
         case "effects.chain", "effects.reverb", "effects.compressor":
             try setAudioEffect(enabled, for: id)

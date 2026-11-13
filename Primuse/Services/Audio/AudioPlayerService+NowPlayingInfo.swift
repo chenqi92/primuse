@@ -290,8 +290,22 @@ extension AudioPlayerService {
         let canLikeCurrentSong = false
         let likeIsActive = false
         #endif
-        let offersSkipIntervals = !isLiveRadio && (currentListeningSpace == .podcast
-            || (currentItemIsAudiobook && !playbackSettings.spokenWordLockScreenUsesChapters))
+        let skipContent: NowPlayingSkipControlsPolicy.Content = isLiveRadio ? .liveRadio
+            : currentListeningSpace == .podcast ? .podcast
+            : currentItemIsAudiobook ? .audiobook
+            : currentListeningSpace == .music ? .music
+            : .other
+        #if os(iOS)
+        // 设置随 iCloud 同步，Mac 的媒体键不跟着手机的锁屏选择变。
+        let musicUsesSkip = playbackSettings.musicLockScreenUsesSkip
+        #else
+        let musicUsesSkip = false
+        #endif
+        let offersSkipIntervals = NowPlayingSkipControlsPolicy.offersSkipIntervals(
+            content: skipContent,
+            audiobookUsesChapters: playbackSettings.spokenWordLockScreenUsesChapters,
+            musicUsesSkip: musicUsesSkip
+        )
         let offersTrackNavigation = currentSong != nil
             && (!isLiveRadio || radioStationOrder.count > 1) && !offersSkipIntervals
         let availability = RemoteCommandAvailability(
@@ -303,7 +317,10 @@ extension AudioPlayerService {
             previousTrack: offersTrackNavigation,
             skipForward: offersSkipIntervals,
             skipBackward: offersSkipIntervals,
-            like: canLikeCurrentSong,
+            like: NowPlayingSkipControlsPolicy.showsLike(
+                canLike: canLikeCurrentSong,
+                likeVisible: playbackSettings.lockScreenShowsLike
+            ),
             likeIsActive: likeIsActive
         )
         // 本进程是这些属性的唯一写者, 缓存值因此就是系统当前状态。切歌、

@@ -1972,6 +1972,12 @@
 "lock_desktop_lyrics" = "Zablokuj tekst na biurku";
 "lock_screen_lyrics" = "Tekst na ekranie blokady";
 "lock_screen_lyrics_desc" = "Używaj bieżącego zsynchronizowanego wersu jako tytułu w systemowym panelu Teraz odtwarzane. Może on być też widoczny w Centrum sterowania, przez Bluetooth i na ekranach samochodowych. Wyświetlany jest tylko zsynchronizowany tekst widoczny w odtwarzaczu Primuse. Apple Music nie udostępnia tekstów innym aplikacjom, więc najpierw dodaj tekst do tych utworów.";
+"lock_screen_controls_section" = "Ekran blokady i Centrum sterowania";
+"lock_screen_music_controls" = "Sterowanie muzyką na ekranie blokady";
+"lock_screen_music_track_controls" = "Poprzedni / następny utwór";
+"lock_screen_music_controls_desc" = "Przyciski po obu stronach na ekranie blokady i w Centrum sterowania. Przy „Przewiń wstecz / dalej” liczba sekund jest taka jak w ustawieniach audiobooka „Cofnij o” i „Przewiń o”; odpowiednie przyciski słuchawek i w samochodzie też mogą się zmienić.";
+"lock_screen_show_like" = "Pokazuj przycisk ulubionych";
+"lock_screen_show_like_desc" = "Pokazuje przycisk ulubionych na ekranie blokady i w Centrum sterowania; wyłącz, aby go ukryć. Przycisk miejsca odtwarzania (AirPlay) obok wyświetla system — nie można go ukryć ani zastąpić.";
 "log_filter_error" = "Błędy";
 "log_filter_warning" = "Ostrzeżenia";
 "lyrics_audio_tools_footer" = "Transkrypcja utworu tworzy edytowalny szkic tekstu ze znacznikami czasu. Nic nie zostanie zapisane, dopóki go nie sprawdzisz i nie zatwierdzisz.";

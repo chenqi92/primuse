@@ -3451,6 +3451,12 @@
 "server_favorite_update_failed_message" = "Der Serverfavorit konnte nicht aktualisiert werden. Primuse hat den Status neu synchronisiert oder wiederhergestellt.\n%@";
 "lock_screen_lyrics" = "Liedtext auf dem Sperrbildschirm";
 "lock_screen_lyrics_desc" = "Zeigt die aktuelle synchronisierte Liedzeile als Titel in der systemweiten Wiedergabeansicht. Auch Kontrollzentrum, Bluetooth- und Fahrzeuganzeigen können den Liedtext anzeigen. Es werden nur synchronisierte Liedtexte angezeigt, die auch im Primuse-Player zu sehen sind. Apple Music gibt seine Liedtexte nicht an andere Apps weiter – ergänze für diese Titel zuerst Liedtexte.";
+"lock_screen_controls_section" = "Sperrbildschirm & Kontrollzentrum";
+"lock_screen_music_controls" = "Musiksteuerung im Sperrbildschirm";
+"lock_screen_music_track_controls" = "Vorheriger / nächster Titel";
+"lock_screen_music_controls_desc" = "Die Tasten links und rechts auf dem Sperrbildschirm und im Kontrollzentrum. Bei „Zurück- / Vorspulen“ gelten die Sekunden aus den Hörbuch-Einstellungen „Zurückspringen“ und „Vorspringen“; die entsprechenden Tasten an Kopfhörern und im Auto können sich ebenfalls ändern.";
+"lock_screen_show_like" = "Favoritentaste anzeigen";
+"lock_screen_show_like_desc" = "Zeigt die Favoritentaste auf dem Sperrbildschirm und im Kontrollzentrum; ausgeschaltet wird sie ausgeblendet. Die Taste für das Wiedergabeziel (AirPlay) daneben zeigt das System an; sie lässt sich nicht ausblenden oder ersetzen.";
 
 "ai_settings_title" = "Intelligente Funktionen";
 "ai_region_checking" = "App-Store-Region wird geprüft…";

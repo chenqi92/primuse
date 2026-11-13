@@ -3451,6 +3451,12 @@
 "server_favorite_update_failed_message" = "Le favori du serveur n’a pas pu être mis à jour. Primuse a resynchronisé ou restauré l’état précédent.\n%@";
 "lock_screen_lyrics" = "Paroles sur l’écran verrouillé";
 "lock_screen_lyrics_desc" = "Utilise les paroles synchronisées actuelles comme titre dans le panneau de lecture du système. Le centre de contrôle, le Bluetooth et les écrans embarqués peuvent aussi afficher les paroles. Seules les paroles synchronisées visibles dans le lecteur Primuse s’affichent. Apple Music ne partage pas ses paroles avec d’autres apps : ajoutez d’abord des paroles à ces morceaux.";
+"lock_screen_controls_section" = "Écran verrouillé et Centre de contrôle";
+"lock_screen_music_controls" = "Commandes de musique sur écran verrouillé";
+"lock_screen_music_track_controls" = "Morceau précédent / suivant";
+"lock_screen_music_controls_desc" = "Les boutons de part et d’autre sur l’écran verrouillé et dans le Centre de contrôle. Avec « Reculer / Avancer », la durée suit les réglages du livre audio « Reculer de » et « Avancer de » ; les boutons correspondants des écouteurs et de la voiture peuvent aussi changer.";
+"lock_screen_show_like" = "Afficher le bouton Favori";
+"lock_screen_show_like_desc" = "Affiche le bouton Favori sur l’écran verrouillé et dans le Centre de contrôle ; désactivez l’option pour le masquer. Le bouton de destination de lecture (AirPlay) à côté est affiché par le système et ne peut être ni masqué ni remplacé.";
 
 "ai_settings_title" = "Fonctions intelligentes";
 "ai_region_checking" = "Vérification de la région App Store…";

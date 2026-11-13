@@ -146,6 +146,10 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// Users can still opt out because the remapped metadata is also visible
     /// to Control Center, Bluetooth receivers and in-car Now Playing surfaces.
     var lockScreenLyricsEnabled: Bool = true
+    /// 音乐在锁屏、控制中心上用快退 / 快进代替上一首 / 下一首，秒数与有声书的快退快进相同。只在 iPhone / iPad 上生效。
+    var musicLockScreenUsesSkip: Bool = false
+    /// 锁屏、控制中心上显示收藏按钮。播放出口(AirPlay)按钮由系统画，管不到。
+    var lockScreenShowsLike: Bool = true
     /// 是否让 AVAudioSession 把硬件输出 SR 切到当前歌曲采样率, 避免
     /// CoreAudio 自动重采样。仅 iOS 真机有效, 部分老款硬件无视该 hint。
     var matchOutputSampleRate: Bool = false
@@ -230,6 +234,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         // 新版本加的档位旧版本解不出来: 不认识的值按完全随机, 不让整包设置解码失败。
         shufflePreference = (try? c.decodeIfPresent(ShufflePreference.self, forKey: .shufflePreference)) ?? .defaultValue
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
+        musicLockScreenUsesSkip = try c.decodeIfPresent(Bool.self, forKey: .musicLockScreenUsesSkip) ?? false
+        lockScreenShowsLike = try c.decodeIfPresent(Bool.self, forKey: .lockScreenShowsLike) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         matchSampleRateWithinAlbum = try c.decodeIfPresent(Bool.self, forKey: .matchSampleRateWithinAlbum) ?? false
         exclusiveOutputEnabled = try c.decodeIfPresent(Bool.self, forKey: .exclusiveOutputEnabled) ?? false
@@ -285,6 +291,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         previousRestartsCurrentSong: Bool = true,
         shufflePreference: ShufflePreference = .defaultValue,
         lockScreenLyricsEnabled: Bool = true,
+        musicLockScreenUsesSkip: Bool = false,
+        lockScreenShowsLike: Bool = true,
         matchOutputSampleRate: Bool = false,
         matchSampleRateWithinAlbum: Bool = false,
         exclusiveOutputEnabled: Bool = false,
@@ -338,6 +346,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.previousRestartsCurrentSong = previousRestartsCurrentSong
         self.shufflePreference = shufflePreference
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
+        self.musicLockScreenUsesSkip = musicLockScreenUsesSkip
+        self.lockScreenShowsLike = lockScreenShowsLike
         self.matchOutputSampleRate = matchOutputSampleRate
         self.matchSampleRateWithinAlbum = matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = exclusiveOutputEnabled
@@ -617,6 +627,8 @@ final class PlaybackSettingsStore {
     var previousRestartsCurrentSong: Bool { didSet { persist() } }
     var shufflePreference: ShufflePreference { didSet { persist() } }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
+    var musicLockScreenUsesSkip: Bool { didSet { persist() } }
+    var lockScreenShowsLike: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
     var matchSampleRateWithinAlbum: Bool { didSet { persist() } }
     var exclusiveOutputEnabled: Bool { didSet { persist() } }
@@ -684,6 +696,8 @@ final class PlaybackSettingsStore {
         self.previousRestartsCurrentSong = s.previousRestartsCurrentSong
         self.shufflePreference = s.shufflePreference
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
+        self.musicLockScreenUsesSkip = s.musicLockScreenUsesSkip
+        self.lockScreenShowsLike = s.lockScreenShowsLike
         self.matchOutputSampleRate = s.matchOutputSampleRate
         self.matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = s.exclusiveOutputEnabled
@@ -775,6 +789,8 @@ final class PlaybackSettingsStore {
         previousRestartsCurrentSong = s.previousRestartsCurrentSong
         shufflePreference = s.shufflePreference
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
+        musicLockScreenUsesSkip = s.musicLockScreenUsesSkip
+        lockScreenShowsLike = s.lockScreenShowsLike
         matchOutputSampleRate = s.matchOutputSampleRate
         matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         exclusiveOutputEnabled = s.exclusiveOutputEnabled
@@ -839,6 +855,8 @@ final class PlaybackSettingsStore {
             previousRestartsCurrentSong: previousRestartsCurrentSong,
             shufflePreference: shufflePreference,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
+            musicLockScreenUsesSkip: musicLockScreenUsesSkip,
+            lockScreenShowsLike: lockScreenShowsLike,
             matchOutputSampleRate: matchOutputSampleRate,
             matchSampleRateWithinAlbum: matchSampleRateWithinAlbum,
             exclusiveOutputEnabled: exclusiveOutputEnabled,

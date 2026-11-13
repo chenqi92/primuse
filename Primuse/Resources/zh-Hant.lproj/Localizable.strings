@@ -3437,6 +3437,12 @@
 "server_favorite_update_failed_message" = "未能更新伺服器收藏，已重新同步或還原先前狀態。\n%@";
 "lock_screen_lyrics" = "鎖定畫面歌詞";
 "lock_screen_lyrics_desc" = "在系統播放面板中以目前同步歌詞取代標題；控制中心、藍牙與車載畫面也可能顯示歌詞。只顯示 Primuse 播放頁中看得到的同步歌詞；Apple Music 不向其他 App 提供歌詞，這類歌曲需要先補上歌詞。";
+"lock_screen_controls_section" = "鎖定畫面與控制中心";
+"lock_screen_music_controls" = "音樂鎖定畫面按鈕";
+"lock_screen_music_track_controls" = "上一首 / 下一首";
+"lock_screen_music_controls_desc" = "鎖定畫面和控制中心兩側的按鈕。選「快退 / 快進」時，秒數跟有聲書的「倒轉」「快轉」設定一樣；耳機和車機上的對應按鍵也可能跟著改變。";
+"lock_screen_show_like" = "顯示收藏按鈕";
+"lock_screen_show_like_desc" = "在鎖定畫面和控制中心顯示收藏按鈕，關掉後就不再顯示。旁邊的播放輸出（AirPlay）按鈕由系統顯示，無法隱藏或換成其他按鈕。";
 
 "ai_settings_title" = "智慧功能";
 "ai_region_checking" = "正在確認 App Store 地區…";

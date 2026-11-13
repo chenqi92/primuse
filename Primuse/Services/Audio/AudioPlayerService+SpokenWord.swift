@@ -1375,6 +1375,8 @@ extension AudioPlayerService {
     private func observeSpokenWordRemoteSettings() {
         withObservationTracking {
             _ = playbackSettings.spokenWordLockScreenUsesChapters
+            _ = playbackSettings.musicLockScreenUsesSkip
+            _ = playbackSettings.lockScreenShowsLike
             _ = playbackSettings.spokenWordSkipForwardSeconds
             _ = playbackSettings.spokenWordSkipBackwardSeconds
         } onChange: { [weak self] in
