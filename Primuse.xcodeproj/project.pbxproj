@@ -11,6 +11,7 @@
 		967513E316CADFC13E8D1FE1 /* NowPlayingCarouselExploreFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09C0B9A17A59CE43F6EAB17 /* NowPlayingCarouselExploreFace.swift */; };
 		AAEE8C361E5F15F21A9D0BD1 /* NowPlayingCarouselSoundFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */; };
 		B56041C890CD05D2586B3746 /* NowPlayingCarouselStageFace.swift in Sources */ = {isa = PBXBuildFile; fileRef = E143084138E5E62AD5C8F06A /* NowPlayingCarouselStageFace.swift */; };
+		B6BE87736FF28393610E2440 /* AutomaticOfflineRunningJobPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCB6BB061EEC67A448D0CAC1 /* AutomaticOfflineRunningJobPolicy.swift */; };
 		C8B12E340F9123456A6B0001 /* LyricLineCommentsExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B12E340F9123456A6B0002 /* LyricLineCommentsExport.swift */; };
 		A2763AE09B12004AE6C10009 /* MacLyricLineCommentsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2763AE09B12004AE6C1000A /* MacLyricLineCommentsViewTests.swift */; };
 		A2763AE09B12004AE6C10014 /* LyricsCloudAndCacheRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2763AE09B12004AE6C10015 /* LyricsCloudAndCacheRegressionTests.swift */; };
@@ -2624,6 +2625,7 @@
 /* Begin PBXFileReference section */
 		6904511379BB45DCF7239315 /* RemoteTransferProgressPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTransferProgressPolicy.swift; sourceTree = "<group>"; };
 		A95D907798CF463EF1BB5516 /* NowPlayingCarouselSoundFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingCarouselSoundFace.swift; sourceTree = "<group>"; };
+		BCB6BB061EEC67A448D0CAC1 /* AutomaticOfflineRunningJobPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomaticOfflineRunningJobPolicy.swift; sourceTree = "<group>"; };
 		C09C0B9A17A59CE43F6EAB17 /* NowPlayingCarouselExploreFace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingCarouselExploreFace.swift; sourceTree = "<group>"; };
 		C8B12E340F9123456A6B0002 /* LyricLineCommentsExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricLineCommentsExport.swift; sourceTree = "<group>"; };
 		A2763AE09B12004AE6C1000A /* MacLyricLineCommentsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLyricLineCommentsViewTests.swift; sourceTree = "<group>"; };
@@ -4786,6 +4788,7 @@
 			isa = PBXGroup;
 			children = (
 				B8201B4D10F3B60D364411E9 /* AI */,
+				BCB6BB061EEC67A448D0CAC1 /* AutomaticOfflineRunningJobPolicy.swift */,
 				C161382065B391D1C54B9209 /* Import */,
 				38CBDB962B370140AC75A17D /* Internal */,
 				CC568C1F987228DD17220D96 /* Library */,
@@ -7453,6 +7456,7 @@
 				F3407D118CF62CCDC2414766 /* AudiobookshelfAPIProtocol.swift in Sources */,
 				911887819F8002310F01EFA7 /* AudiobookshelfServiceClient.swift in Sources */,
 				E7A6692E9FB082EF60CEA49D /* AudiobookshelfStreamResolver.swift in Sources */,
+				B6BE87736FF28393610E2440 /* AutomaticOfflineRunningJobPolicy.swift in Sources */,
 				9129126C040F02F724CC2762 /* BaiduFileManagerBatchResponse.swift in Sources */,
 				1F47DB3FE4EE61F5E3D5C8B9 /* BaiduPanStreamResolver.swift in Sources */,
 				7906BF20227C3CB94FC5B0C2 /* BaiduTranslateAPI.swift in Sources */,

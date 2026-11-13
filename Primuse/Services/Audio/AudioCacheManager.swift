@@ -1760,6 +1760,7 @@ actor AudioCacheManager {
                 syncOfflineMirror(for: path)
             }
             if recoveredManifest || !changed.isEmpty {
+                plog("📂 Offline store changed paths=\(changed.count) recoveredManifest=\(recoveredManifest)")
                 persistManifestNow()
                 NotificationCenter.default.post(name: .primuseOfflineDownloadsDidChange, object: nil)
             }
@@ -2040,8 +2041,17 @@ private actor AlwaysDownloadWorker {
     private var playbackIsActive = false
     private var playbackIsBuffering = false
     private var resourceConditionsAllowTransfers = false
-    /// 正在下的这一首是不是播放中也能下的(有声书的章节,#313)。播放开始时只停下歌单的那种。
-    private var runningJobDownloadsDuringPlayback = false
+    /// 正在下的那一首：重新核对时用它判断要不要停（身份没变就让它下完）。
+    private struct RunningJob {
+        let songID: String
+        let title: String
+        let identity: AutomaticOfflineRunningJobPolicy.Identity
+        let refreshDisposition: AutomaticOfflineRefreshDisposition
+        let downloadsDuringPlayback: Bool
+    }
+    private var runningJob: RunningJob?
+    /// 核对进行中下完的歌。核对开头查到「文件缺失」的，下完后不该再被排回去。
+    private var songsCompletedDuringReplacement: Set<String> = []
     /// Transfers stop at once when conditions turn against them, but start
     /// again only after conditions have held for a while (see the gate).
     private var transferSettleGate = TransferConditionSettleGate(allowed: false)
@@ -2093,7 +2103,7 @@ private actor AlwaysDownloadWorker {
         if active {
             scheduleRunner()
         } else {
-            await cancelRunner()
+            await cancelRunner(reason: "app-inactive")
         }
     }
 
@@ -2102,6 +2112,7 @@ private actor AlwaysDownloadWorker {
         playbackIsBuffering: Bool,
         allowTransfers: Bool
     ) async {
+        let playbackStarted = playbackIsActive && !self.playbackIsActive
         self.playbackIsActive = playbackIsActive
         self.playbackIsBuffering = playbackIsBuffering
         resourceConditionsAllowTransfers = allowTransfers
@@ -2114,10 +2125,11 @@ private actor AlwaysDownloadWorker {
             now: ProcessInfo.processInfo.systemUptime
         )
         if playbackIsBuffering || !allowTransfers {
-            await cancelRunner()
-        } else if playbackIsActive, runner != nil, !runningJobDownloadsDuringPlayback {
+            await cancelRunner(reason: playbackIsBuffering ? "playback-buffering" : "conditions-disallow")
+        } else if playbackStarted, let runningJob, !runningJob.downloadsDuringPlayback {
             // 开始播放时正在下歌单里的歌:照旧停下;有开着保持离线的书,换成接着下书的章节。
-            await cancelRunner()
+            // 只在播放刚开始的这一下判断:播放中每次状态变化都停一次会把下载切成碎片。
+            await cancelRunner(reason: "playback-started")
             scheduleRunner()
         } else {
             scheduleRunner()
@@ -2131,9 +2143,7 @@ private actor AlwaysDownloadWorker {
         loadJournalIfNeeded()
         desiredReplacementGeneration += 1
         let replacementGeneration = desiredReplacementGeneration
-        await cancelRunner()
-        guard !Task.isCancelled,
-              desiredReplacementGeneration == replacementGeneration else { return }
+        songsCompletedDuringReplacement.removeAll()
 
         var nextDesired: [String: AlwaysDownloadDesiredSong] = [:]
         nextDesired.reserveCapacity(desiredSongs.count)
@@ -2144,6 +2154,19 @@ private actor AlwaysDownloadWorker {
                 nextDesired[desired.song.id] = desired
             }
         }
+        // The running download keeps going unless this pass changes what it is
+        // downloading or where it goes. Reconciliation runs whenever the
+        // library, a book's chapters or the offline folder change, including
+        // because of this download; stopping each time cut one song into pieces.
+        if let running = runningJob,
+           case .cancel(let reason) = AutomaticOfflineRunningJobPolicy.decide(
+               running: running.identity,
+               desired: nextDesired[running.songID].map(Self.runningIdentity)
+           ) {
+            await cancelRunner(reason: "reconcile:\(reason)")
+        }
+        guard !Task.isCancelled,
+              desiredReplacementGeneration == replacementGeneration else { return }
         let desiredValues = Array(nextDesired.values)
         let nextDesiredSongIDsByArtifact = AutomaticOfflineArtifactIndex.make(
             from: desiredValues
@@ -2199,6 +2222,9 @@ private actor AlwaysDownloadWorker {
             excludedArtifactPaths: excludedArtifactPaths
         ), !Task.isCancelled,
            desiredReplacementGeneration == replacementGeneration else { return }
+        // A download that finished while this pass waited above was still
+        // missing when the pins were checked; it is not missing any more.
+        let stillMissingSongIDs = missingSongIDs.subtracting(songsCompletedDuringReplacement)
         desiredBySongID = nextDesired
         desiredSongIDsByArtifact = nextDesiredSongIDsByArtifact
         var knownSignatures = journal.lastKnownSignatures ?? [:]
@@ -2225,7 +2251,7 @@ private actor AlwaysDownloadWorker {
             let adoptsUntrackedFile = untrackedArtifactPaths.contains(desired.artifactPath)
                 && verifiedSourceIDs.contains(desired.song.sourceID)
                 && existingJob?.refreshPrepared != true
-            guard !missingSongIDs.contains(desired.song.id),
+            guard !stillMissingSongIDs.contains(desired.song.id),
                   journal.completedSignatures[desired.song.id] == nil,
                   adoptsUntrackedFile
                     || (existingJob.map {
@@ -2257,7 +2283,7 @@ private actor AlwaysDownloadWorker {
         let requiredSongIDs = AutomaticOfflineDownloadPolicy.requiredSongIDs(
             desiredSignatures: desiredSignatures,
             completedSignatures: journal.completedSignatures,
-            missingSongIDs: missingSongIDs
+            missingSongIDs: stillMissingSongIDs
         )
         journal.jobs = journal.jobs.filter { requiredSongIDs.contains($0.key) }
         let now = Date()
@@ -2266,7 +2292,7 @@ private actor AlwaysDownloadWorker {
             let requestedDisposition = preflightDispositions[desired.artifactPath] == .discardUntrusted
                 ? .discardUntrusted
                 : AutomaticOfflineArtifactPolicy.refreshDisposition(
-                    fileExists: !missingSongIDs.contains(songID),
+                    fileExists: !stillMissingSongIDs.contains(songID),
                     recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
                     desiredArtifactSignature: desired.artifactSignature,
                     recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath],
@@ -2340,6 +2366,23 @@ private actor AlwaysDownloadWorker {
             generation: replacementGeneration
         ), !Task.isCancelled,
               desiredReplacementGeneration == replacementGeneration else { return }
+        if let running = runningJob {
+            let current = journal.jobs[running.songID].map { job -> String in
+                let disposition: AutomaticOfflineRefreshDisposition = job.refreshDisposition
+                    ?? (job.forceRedownload ? .discardUntrusted : AutomaticOfflineRefreshDisposition.none)
+                return disposition.rawValue
+            }
+            if case .cancel(let reason) = AutomaticOfflineRunningJobPolicy.decide(
+                runningDisposition: running.refreshDisposition.rawValue,
+                currentDisposition: current
+            ) {
+                await cancelRunner(reason: "reconcile:\(reason)")
+            } else {
+                // The kept runner picks its next job from the heap; let it see
+                // the jobs this pass added or rescheduled.
+                rebuildJobHeap()
+            }
+        }
         persistJournal(force: true)
         logReconciliationSummary(
             desiredCount: desiredValues.count,
@@ -2348,6 +2391,18 @@ private actor AlwaysDownloadWorker {
             migratedCount: migratedSongCount
         )
         scheduleRunner()
+    }
+
+    private static func runningIdentity(
+        _ desired: AlwaysDownloadDesiredSong
+    ) -> AutomaticOfflineRunningJobPolicy.Identity {
+        AutomaticOfflineRunningJobPolicy.Identity(
+            contentSignature: desired.contentSignature,
+            artifactPath: desired.artifactPath,
+            artifactSignature: desired.artifactSignature,
+            sourceIdentitySignature: desired.sourceIdentitySignature,
+            sourceEndpointSignature: desired.sourceEndpointSignature
+        )
     }
 
     /// 测试「始终保持离线」时看这一行：接手了多少已有文件、换算了多少旧记录、
@@ -2474,10 +2529,15 @@ private actor AlwaysDownloadWorker {
             refreshPrepared: false
         )
         persistJournal(force: true)
-        await restartRunner()
+        await restartRunner(reason: "completed-file-removed")
     }
 
-    private func cancelRunner() async {
+    private func cancelRunner(reason: String) async {
+        if runner != nil {
+            let job = runningJob.map { "'\($0.title)'" } ?? "none"
+            plog("⏹ Always-download runner stopped reason=\(reason) job=\(job) playbackActive=\(playbackIsActive) buffering=\(playbackIsBuffering) allowTransfers=\(resourceConditionsAllowTransfers)")
+        }
+        runningJob = nil
         let cancellationGeneration = UUID()
         runnerGeneration = cancellationGeneration
         let previousRunner = runner
@@ -2490,18 +2550,24 @@ private actor AlwaysDownloadWorker {
         persistJournal(force: true)
     }
 
-    private func restartRunner() async {
-        await cancelRunner()
+    private func restartRunner(reason: String) async {
+        await cancelRunner(reason: reason)
         scheduleRunner()
     }
 
     private func scheduleRunner() {
-        guard runner == nil,
-              applicationIsActive,
-              !playbackIsBuffering,
-              resourceConditionsAllowTransfers,
-              !journal.jobs.isEmpty,
-              !playbackIsActive || hasJobsDownloadingDuringPlayback else { return }
+        guard runner == nil, !journal.jobs.isEmpty else { return }
+        // Say why a waiting queue is not starting, once per reason.
+        guard applicationIsActive else { logWaitReason("app not active"); return }
+        guard !playbackIsBuffering else { logWaitReason("playback buffering"); return }
+        guard resourceConditionsAllowTransfers else {
+            logWaitReason("conditions disallow transfers (network, power or thermal)")
+            return
+        }
+        guard !playbackIsActive || hasJobsDownloadingDuringPlayback else {
+            logWaitReason("playback active, queued items wait for playback to stop")
+            return
+        }
         let now = ProcessInfo.processInfo.systemUptime
         guard transferSettleGate.allowsStart(now: now) else {
             scheduleRunnerAfterSettle(now: now)
@@ -2611,7 +2677,6 @@ private actor AlwaysDownloadWorker {
             // 播放中挑的书的章节不一定在堆顶。它在堆里的那一条不用拿掉:下完会从任务表里删掉,
             // 失败、推迟会带着新的时间重新入堆,旧那一条到时候校验对不上自然作废。
             if isHeapRoot { removeJobHeapRoot() }
-            runningJobDownloadsDuringPlayback = downloadsDuringPlayback
             lastLoggedWaitReason = nil
 
             let needsRefreshPreparation = refreshDisposition != .none
@@ -2645,6 +2710,13 @@ private actor AlwaysDownloadWorker {
                 persistJobDelta(preparedJob)
             }
 
+            runningJob = RunningJob(
+                songID: job.song.id,
+                title: job.song.materializedSong.title,
+                identity: Self.runningIdentity(currentDesired),
+                refreshDisposition: refreshDisposition,
+                downloadsDuringPlayback: downloadsDuringPlayback
+            )
             let result = await sourceManager.downloadAutomaticallyForOffline(
                 song: job.song.materializedSong,
                 playlistIDs: job.playlistIDs,
@@ -2652,6 +2724,7 @@ private actor AlwaysDownloadWorker {
                 artifactSignature: job.artifactSignature
                     ?? currentDesired.artifactSignature
             )
+            if runnerGeneration == generation { runningJob = nil }
             guard !Task.isCancelled,
                   runnerGeneration == generation,
                   let currentDesired = desiredBySongID[job.song.id],
@@ -2681,6 +2754,7 @@ private actor AlwaysDownloadWorker {
                     knownSignatures[songID] = sibling.contentSignature
                     journal.jobs.removeValue(forKey: songID)
                     completedSignatures[songID] = sibling.contentSignature
+                    songsCompletedDuringReplacement.insert(songID)
                 }
                 journal.lastKnownSignatures = knownSignatures
                 var artifactProvenance = journal.artifactProvenanceSignatures ?? [:]
@@ -3137,7 +3211,7 @@ final class AlwaysDownloadCoordinator {
             enabledPlaylistIDs.remove(playlistID)
         }
         persistPreferences()
-        scheduleReconciliation(delay: .zero)
+        scheduleReconciliation(delay: .zero, reason: "playlist-toggled")
     }
 
     func isEnabled(forBook bookID: String) -> Bool {
@@ -3178,7 +3252,7 @@ final class AlwaysDownloadCoordinator {
             guard enabledBooks.removeValue(forKey: bookID) != nil else { return }
         }
         persistBookPreferences()
-        scheduleReconciliation(delay: .zero)
+        scheduleReconciliation(delay: .zero, reason: "book-toggled")
     }
 
     /// 书架给书换了 id(old → new):开着的「保持离线」跟到新 id 上。只存本机,旧 id 不留。
@@ -3187,7 +3261,7 @@ final class AlwaysDownloadCoordinator {
         guard next != enabledBooks else { return }
         enabledBooks = next
         persistBookPreferences()
-        scheduleReconciliation(delay: .zero)
+        scheduleReconciliation(delay: .zero, reason: "books-renamed")
     }
 
     /// 离线下载清单里记的全部保持者:开着的歌单,和开着的书(`book:<id>`)。
@@ -3234,7 +3308,7 @@ final class AlwaysDownloadCoordinator {
         resourceObserverTokens.append(NotificationCenter.default.addObserver(
             forName: .primuseOfflineDownloadsDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.scheduleReconciliation() }
+            Task { @MainActor [weak self] in self?.scheduleReconciliation(reason: "offline-store-changed") }
         })
         Task { [weak self] in
             guard let self else { return }
@@ -3244,7 +3318,7 @@ final class AlwaysDownloadCoordinator {
                 playbackIsBuffering: self.player.isLoading,
                 resourceConditionsAllowTransfers: self.resourceConditionsAllowTransfers()
             )
-            await self.reconcileNow()
+            await self.reconcileNow(reasons: "start")
         }
     }
 
@@ -3252,7 +3326,7 @@ final class AlwaysDownloadCoordinator {
         applicationIsActive = active
         Task { [weak self] in
             await self?.worker.setApplicationActive(active)
-            if active { self?.scheduleReconciliation() }
+            if active { self?.scheduleReconciliation(reason: "app-active") }
         }
     }
 
@@ -3264,7 +3338,7 @@ final class AlwaysDownloadCoordinator {
     }
 
     func sourceScanDidComplete() {
-        scheduleReconciliation()
+        scheduleReconciliation(reason: "scan-completed")
     }
 
     func downloadedFileWasRemoved(songID: String) {
@@ -3272,6 +3346,9 @@ final class AlwaysDownloadCoordinator {
             await self?.worker.invalidateCompletedSong(songID)
         }
     }
+
+    /// 去抖期间攒下的触发原因，下一轮核对一起记进日志。
+    private var pendingReconciliationReasons: Set<String> = []
 
     private func observeLibraryAndSources() {
         withObservationTracking {
@@ -3285,7 +3362,7 @@ final class AlwaysDownloadCoordinator {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.observeLibraryAndSources()
-                self.scheduleReconciliation()
+                self.scheduleReconciliation(reason: "library-or-sources-changed")
             }
         }
     }
@@ -3347,17 +3424,26 @@ final class AlwaysDownloadCoordinator {
         }
     }
 
-    private func scheduleReconciliation(delay: Duration = .milliseconds(500)) {
+    private func scheduleReconciliation(delay: Duration = .milliseconds(500), reason: String) {
         guard didStart else { return }
+        pendingReconciliationReasons.insert(reason)
         reconciliationTask?.cancel()
         reconciliationTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
-            await self.reconcileNow()
+            let reasons = self.pendingReconciliationReasons.sorted().joined(separator: ",")
+            self.pendingReconciliationReasons.removeAll()
+            await self.reconcileNow(reasons: reasons)
         }
     }
 
-    private func reconcileNow() async {
+    /// 每一轮都记下是什么触发的、花了多久：队列在等什么，要能从日志里看出来。
+    private func reconcileNow(reasons: String) async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        defer {
+            plog(String(format: "📌 AlwaysDownload reconcile pass trigger=%@ took=%.0fms",
+                        reasons, (ProcessInfo.processInfo.systemUptime - startedAt) * 1000))
+        }
         let visiblePlaylistIDs = Set(library.playlists.map(\.id))
         let cleanedIDs = enabledPlaylistIDs.intersection(visiblePlaylistIDs)
         if cleanedIDs != enabledPlaylistIDs {
