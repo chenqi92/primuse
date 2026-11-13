@@ -27,6 +27,17 @@ struct SpokenWordLibrarySnapshot: Sendable {
     /// 同上。启动快照按这个先后存书。
     var activeEntries: [Entry] { active }
 
+    /// 书架页「书架」一节:在听、正在放的书也留在原来的位置,换一本书听时书架不重排(#418)。
+    /// 上面的「继续收听」照旧列出来,所以「全部」里这几本会出现两次。
+    var shelfInPlace: [Entry] { active.filter { !$0.book.isFinished } }
+
+    /// 同上,已听完的书,包括正在重听的那本。
+    var finishedInPlace: [Entry] {
+        active.filter { $0.book.isFinished }.sorted {
+            ($0.book.lastListenedAt ?? .distantPast) > ($1.book.lastListenedAt ?? .distantPast)
+        }
+    }
+
     var listeningEntries: [Entry] {
         // 从 `entriesByID` 取:启动快照里的书封面记在条目上,不在 `songs` 里。
         let recent = inProgress.map { entriesByID[$0.0.id] ?? Entry(book: $0.0, songs: $0.1) }.sorted {
@@ -727,8 +738,8 @@ struct SpokenWordShelfContent: View {
             guard let findQuery else { return true }
             return LibraryFindPolicy.matches(findQuery, fields: [entry.book.title, entry.book.author])
         }
-        let shelf = section.includes(.shelf) ? ordered(snapshot.shelf, preferred: preferred).filter(matches) : []
-        let finished = section.includes(.finished) ? ordered(snapshot.finished, preferred: preferred).filter(matches) : []
+        let shelf = section.includes(.shelf) ? ordered(snapshot.shelfInPlace, preferred: preferred).filter(matches) : []
+        let finished = section.includes(.finished) ? ordered(snapshot.finishedInPlace, preferred: preferred).filter(matches) : []
         let archived = showsArchived && section == .all ? ordered(snapshot.archived, preferred: preferred).filter(matches) : []
         let nowListening = section.includes(.listening) ? snapshot.nowListening.flatMap { matches($0) ? $0 : nil } : nil
         let listening = section.includes(.listening) ? snapshot.listeningEntries.filter(matches) : []
@@ -765,6 +776,7 @@ struct SpokenWordShelfContent: View {
                     entries: listening,
                     style: configuration.booksInProgressStyle,
                     limit: configuration.itemCount(for: .booksInProgress) ?? 12,
+                    titleKey: "spoken_word_continue_section",
                     contextMenu: menu
                 )
                 .environment(\.homeCoverCardWidth, HomeCoverCardMetrics.width(
@@ -1000,8 +1012,7 @@ struct SpokenWordShelfContent: View {
     private func moveBook(_ id: String, onto target: String, entries: [SpokenWordLibrarySnapshot.Entry]) -> Bool {
         // 启动快照只有前面一屏的书, 按它记下的顺序会把后面的书挤乱。
         guard !isStartupPreview else { return false }
-        let allIDs = snapshot.shelf.map(\.id) + snapshot.finished.map(\.id) + snapshot.archived.map(\.id)
-            + [snapshot.nowListening?.id].compactMap { $0 }
+        let allIDs = snapshot.shelfInPlace.map(\.id) + snapshot.finishedInPlace.map(\.id) + snapshot.archived.map(\.id)
         guard let moved = SpokenWordShelfOrder.moving(
             id, onto: target, visible: entries.map(\.id),
             preferred: SpokenWordShelfOrder.decode(savedOrder), allIDs: allIDs
@@ -2382,7 +2393,7 @@ private struct SpokenWordBookCoverCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SpokenWordBookCover(song: coverSong, cornerRadius: 10, decodeSize: 240)
+            SpokenWordBookCover(song: coverSong, cornerRadius: 10)
                 .overlay(alignment: .topLeading) {
                     if book.isFinished {
                         Image(systemName: "checkmark.circle.fill")
@@ -2394,14 +2405,25 @@ private struct SpokenWordBookCoverCell: View {
                             .accessibilityLabel(Text("spoken_word_finished"))
                     }
                 }
-                .overlay(alignment: .bottomLeading) {
+                .overlay {
+                    // 正在放的书留在书架原位,封面压暗并写上「正在播放」(#418)。
                     if isPlaying {
-                        Image(systemName: "waveform")
-                            .font(.caption.weight(.bold))
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(.black.opacity(0.5))
+                            VStack(spacing: 4) {
+                                Image(systemName: "waveform")
+                                    .font(.title3.weight(.semibold))
+                                Text("now_playing")
+                                    .font(.caption2.weight(.semibold))
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.8)
+                            }
                             .foregroundStyle(.white)
                             .padding(6)
-                            .background(Circle().fill(tint))
-                            .padding(6)
+                        }
+                        .allowsHitTesting(false)
                     }
                 }
 
@@ -2466,7 +2488,8 @@ struct SpokenWordBookCover: View {
     /// the container offers (a grid cell).
     var width: CGFloat? = nil
     var cornerRadius: CGFloat = 10
-    /// Decode bucket; defaults to the frame's longer side.
+    /// Decode bucket; defaults to the frame's longer side for a fixed width,
+    /// and to the measured cell width on the shelf grid.
     var decodeSize: CGFloat? = nil
 
     var body: some View {
@@ -2502,23 +2525,36 @@ struct SpokenWordBookCover: View {
                 view.frame(width: width!, height: SpokenWordCoverLayout.height(forWidth: width!))
             }
             .overlay {
-                CachedArtworkView(
-                    coverRef: song?.coverArtFileName,
-                    songID: song?.id,
-                    size: decodeSize ?? width.map { SpokenWordCoverLayout.height(forWidth: $0) } ?? 200,
-                    cornerRadius: 0,
-                    sourceID: song?.sourceID,
-                    filePath: song?.filePath,
-                    fileFormat: song?.fileFormat,
-                    placeholderIcon: "book.closed",
-                    fillsProposedSize: true
-                )
-                .bookCoverLayout(frameAspectRatio: SpokenWordCoverLayout.aspectRatio)
+                if let size = decodeSize ?? width.map({ SpokenWordCoverLayout.height(forWidth: $0) }) {
+                    artwork(size: size)
+                } else {
+                    // 书架格子的宽度由网格决定:按实际格宽解码。解码按短边取档,
+                    // 写死一个大尺寸会让每张封面占好几倍内存,共享缓存装不下几本书,
+                    // 滚回来、换个页面再回来就只能重新读盘、回源,封面一遍遍重新加载。
+                    GeometryReader { proxy in
+                        artwork(size: proxy.size.width > 0 ? proxy.size.width : 200)
+                    }
+                }
             }
             .clipShape(shape)
             .overlay {
                 shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
             }
+    }
+
+    private func artwork(size: CGFloat) -> some View {
+        CachedArtworkView(
+            coverRef: song?.coverArtFileName,
+            songID: song?.id,
+            size: size,
+            cornerRadius: 0,
+            sourceID: song?.sourceID,
+            filePath: song?.filePath,
+            fileFormat: song?.fileFormat,
+            placeholderIcon: "book.closed",
+            fillsProposedSize: true
+        )
+        .bookCoverLayout(frameAspectRatio: SpokenWordCoverLayout.aspectRatio)
     }
 }
 

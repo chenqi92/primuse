@@ -334,7 +334,8 @@ enum SpokenWordShelfStartupFile {
         let shown = snapshot.listening(to: playingBookID)
         let kept = SpokenWordShelfStartupPolicy.keptBookIDs(
             listening: shown.listeningEntries.map(\.id),
-            shelf: displayed(shown.shelf),
+            // 书架一节和书架页一样连在听的书一起按原位排。
+            shelf: displayed(snapshot.shelfInPlace),
             finished: displayed(shown.finished),
             archived: displayed(shown.archived)
         )
