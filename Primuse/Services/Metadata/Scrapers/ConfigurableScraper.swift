@@ -1269,6 +1269,8 @@ enum PlainHTTPClient {
             maximumRangedBodyBytes: maximumRangedBodyBytes,
             wholeResponsePrefixLimit: wholeResponsePrefixLimit
         )
+        // Read here: the receive callbacks run on the socket queue, outside the task.
+        let progress = TrustedHTTPTransport.DownloadProgress.observer
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -1297,6 +1299,7 @@ enum PlainHTTPClient {
                             finish(.failure(error))
                             return
                         }
+                        if let data, !data.isEmpty { progress?(data.count) }
                         do {
                             if let data, !data.isEmpty,
                                try stateBox.consume(data, responseURL: url) {

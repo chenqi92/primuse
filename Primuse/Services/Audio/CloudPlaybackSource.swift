@@ -993,7 +993,7 @@ enum CloudPlaybackSource {
         return lastTransferNoticeBySourceID[sourceID]
     }
 
-    fileprivate static func noteTransferSucceeded(sourceID: String) {
+    static func noteTransferSucceeded(sourceID: String) {
         let now = ProcessInfo.processInfo.systemUptime
         transferNoticeLock.lock()
         if let last = lastTransferNoticeBySourceID[sourceID],

@@ -6718,9 +6718,13 @@ final class AudioPlayerService {
         let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
 
         do {
+            // A server that transcodes on the fly can take minutes to send a
+            // long track; the download reports its chunks, so give up only once
+            // the source has sent nothing for the whole timeout.
             guard let firstBuffer = try await awaitFirstBuffer(
                 from: iteratorBox,
-                timeoutSeconds: Self.remoteFallbackFirstBufferTimeoutSeconds
+                timeoutSeconds: Self.remoteFallbackFirstBufferTimeoutSeconds,
+                stallSourceID: song.sourceID
             ) else {
                 await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
                 guard playID == id else { return }
@@ -6878,7 +6882,7 @@ final class AudioPlayerService {
         } catch is CancellationError {
             await cancelAndAwaitStreamingDownloadPreparation(id: preparationID)
             guard !Task.isCancelled, playID == id else { return }
-            plog("⚠️ StreamingDownload first-buffer timeout for '\(song.title)' after \(Self.remoteFallbackFirstBufferTimeoutSeconds)s")
+            plog("⚠️ StreamingDownload first-buffer timeout for '\(song.title)': source sent nothing for \(Self.remoteFallbackFirstBufferTimeoutSeconds)s")
             if await retryAdaptiveTranscodeAfterStartupFailure(
                 song: song, failedPlan: adaptiveTranscodePlan, playID: id,
                 sourceStreamEpoch: sourceStreamEpoch,

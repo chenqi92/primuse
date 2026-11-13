@@ -336,6 +336,13 @@ enum TrustedHTTPTransport {
         )
     }
 
+    /// Told how many bytes arrived, chunk by chunk, while a media download
+    /// runs in this task. A caller that waits for a whole download uses it to
+    /// tell a slow transfer that keeps sending from one that has stopped.
+    enum DownloadProgress {
+        @TaskLocal static var observer: (@Sendable (Int) -> Void)?
+    }
+
     /// Streams a URLSession response into a temporary file while preserving
     /// the same body limits used by the explicitly trusted cleartext path.
     /// This is also used after a cleartext endpoint redirects to HTTPS so a
@@ -390,6 +397,7 @@ enum TrustedHTTPTransport {
             throw URLError(.dataLengthExceedsMaximum)
         }
 
+        let progress = DownloadProgress.observer
         var iterator = bytes.makeAsyncIterator()
         var buffer = Data()
         buffer.reserveCapacity(min(64 * 1_024, bodyLimit))
@@ -399,6 +407,7 @@ enum TrustedHTTPTransport {
             writtenBytes += 1
             if buffer.count == 64 * 1_024 {
                 try handle.write(contentsOf: buffer)
+                progress?(buffer.count)
                 buffer.removeAll(keepingCapacity: true)
             }
         }

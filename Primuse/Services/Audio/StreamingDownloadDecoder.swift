@@ -93,6 +93,45 @@ final class StreamingDownloadDecoder: Sendable {
         url.scheme == "http" || url.scheme == "https"
     }
 
+    // MARK: - 整份下载
+
+    /// Downloads the whole response, noting each arriving chunk as a transfer
+    /// from `sourceID`. The player waits for the first buffer only until the
+    /// source stops sending, so a server that transcodes slower than a minute
+    /// per file still starts instead of being skipped as a timeout.
+    private static func downloadReportingTransfer(
+        from url: URL,
+        session: URLSession,
+        maximumDownloadBytes: Int?,
+        sourceID: String?
+    ) async throws -> (URL, URLResponse) {
+        // OneDrive 个人版 CDN(microsoftpersonalcontent.com)对非浏览器
+        // User-Agent 的整文件下载会限速到 ~1-2MB/s,大文件因此拖到几十秒
+        // 才下完(首缓冲超时)。带上浏览器 UA 后下载速度对齐网页端。
+        var request = URLRequest(url: url)
+        request.setValue(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            forHTTPHeaderField: "User-Agent"
+        )
+        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            // The plain socket client treats the request timeout as the limit
+            // for the whole transfer; match the session's resource limit.
+            // A stalled transfer is still cut short by the first-buffer wait.
+            request.timeoutInterval = 600
+        }
+        let observer: (@Sendable (Int) -> Void)? = sourceID.map { id in
+            { @Sendable (_: Int) in CloudPlaybackSource.noteTransferSucceeded(sourceID: id) }
+        }
+        return try await TrustedHTTPTransport.DownloadProgress.$observer.withValue(observer) {
+            try await TrustedHTTPTransport.mediaDownload(
+                for: request,
+                session: session,
+                maximumRangedBodyBytes: maximumDownloadBytes,
+                wholeResponsePrefixLimit: nil
+            )
+        }
+    }
+
     // MARK: - 整份物化(播放与预取共用)
 
     /// 把一条长度未知、不支持 Range 的远程流整份下载下来，校验它确实是音频，
@@ -133,17 +172,12 @@ final class StreamingDownloadDecoder: Sendable {
         defer { session.finishTasksAndInvalidate() }
 
         do {
-            var request = URLRequest(url: url)
-            request.setValue(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-                forHTTPHeaderField: "User-Agent"
-            )
             let startTime = CFAbsoluteTimeGetCurrent()
-            let (downloadedURL, response) = try await TrustedHTTPTransport.mediaDownload(
-                for: request,
+            let (downloadedURL, response) = try await downloadReportingTransfer(
+                from: url,
                 session: session,
-                maximumRangedBodyBytes: maximumDownloadBytes,
-                wholeResponsePrefixLimit: nil
+                maximumDownloadBytes: maximumDownloadBytes,
+                sourceID: sourceID
             )
             defer { try? FileManager.default.removeItem(at: downloadedURL) }
             let http = try Self.validatedDownloadResponse(response)
@@ -261,19 +295,11 @@ final class StreamingDownloadDecoder: Sendable {
                     plog("🌊 StreamingDecoder: downloading from \(url.host ?? "?")")
                     let startTime = CFAbsoluteTimeGetCurrent()
 
-                    // OneDrive 个人版 CDN(microsoftpersonalcontent.com)对非浏览器
-                    // User-Agent 的整文件下载会限速到 ~1-2MB/s,大文件因此拖到几十秒
-                    // 才下完(首缓冲超时)。带上浏览器 UA 后下载速度对齐网页端。
-                    var request = URLRequest(url: url)
-                    request.setValue(
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-                        forHTTPHeaderField: "User-Agent"
-                    )
-                    let (downloadedURL, response) = try await TrustedHTTPTransport.mediaDownload(
-                        for: request,
+                    let (downloadedURL, response) = try await Self.downloadReportingTransfer(
+                        from: url,
                         session: session,
-                        maximumRangedBodyBytes: maximumDownloadBytes,
-                        wholeResponsePrefixLimit: nil
+                        maximumDownloadBytes: maximumDownloadBytes,
+                        sourceID: sourceID
                     )
                     defer { try? FileManager.default.removeItem(at: downloadedURL) }
                     let http = try Self.validatedDownloadResponse(response)
