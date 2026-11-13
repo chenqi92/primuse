@@ -1085,7 +1085,7 @@
 "cloud_permission_file_write" = "El token actual de Drime es de solo lectura o no permite escribir y eliminar archivos.";
 "cloud_recheck" = "Vuelva a verificar";
 "cloud_retry_auth" = "Reintentar autorización";
-"cloud_scan_wifi_only" = "Wi-Fi solo para detalles de la nube";
+"cloud_scan_wifi_only" = "Cargar detalles de la nube solo con Wi-Fi";
 "cloud_scan_wifi_only_footer" = "Los análisis en la nube solo obtienen nombres de archivos por adelantado. Los detalles de la pista (artista, álbum, portada, duración) se cargan en segundo plano: aproximadamente 256 KB por canción. Con esto activado, la carga se detiene en el celular y se reanuda cuando te vuelves a conectar a Wi-Fi.";
 "cloud_setup_needs_creds_desc" = "Primero complete la ID del cliente en “Editar fuente”, luego regrese para autorizar la conexión.";
 "cloud_setup_needs_creds_title" = "Se requieren credenciales de desarrollador";
@@ -2005,7 +2005,7 @@
 "lyrics_converter_ttml_help" = "TTML compatible con Apple Music";
 "lyrics_converter_txt_help" = "Texto sin marcas de tiempo";
 "lyrics_converter_voice_notice" = "LRC mantiene todas las líneas, pero la alineación de voz de TTML se aplana.";
-"lyrics_display_section" = "Pantalla";
+"lyrics_display_section" = "Visualización";
 "lyrics_editor_add_line" = "Agregar línea";
 "lyrics_editor_all_stamped" = "Todas las líneas sincronizadas";
 "lyrics_editor_clear_all" = "Borrar todo";
@@ -2631,7 +2631,7 @@
 "default_artwork_app_icon" = "Ícono actual de la app";
 "player_animated_artwork" = "Portada animada";
 "player_animated_artwork_description" = "Reproduzca portadas GIF, APNG y WebP animadas proporcionadas por el origen en los detalles del álbum y las portadas del reproductor principal. Las listas siempre utilizan un primer fotograma estático y se respetan los ajustes de energía y movimiento del sistema.";
-"player_animated_artwork_unmetered_only" = "Wi-Fi solo para portadas originales";
+"player_animated_artwork_unmetered_only" = "Descargar portadas originales solo con Wi-Fi";
 "player_animated_artwork_unmetered_only_description" = "Descarga portadas animadas solo por Wi-Fi o Ethernet. Las animaciones en caché pueden reproducirse sin conexión.";
 "player_lock_screen_animated_artwork" = "Portada en movimiento en la pantalla bloqueada";
 "player_lock_screen_animated_artwork_description" = "Si la canción actual tiene portada en movimiento, la pantalla bloqueada y otras vistas de reproducción del sistema también se animan. Solo se usan videos y GIF que ya están en este dispositivo; no se descarga nada adicional. Con el modo de bajo consumo o Reducir movimiento, el sistema muestra la portada fija.";
@@ -3581,7 +3581,7 @@
 "songs_count" = "canciones";
 "songs_count_inline" = "canciones";
 "songs_display_columns" = "Columnas";
-"songs_display_mode" = "Pantalla";
+"songs_display_mode" = "Mostrar";
 "songs_export_failed" = "Exportación fallida";
 "songs_found" = "canciones encontradas";
 "songs_row_compact" = "Compacto";

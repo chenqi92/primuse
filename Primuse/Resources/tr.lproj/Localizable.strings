@@ -78,7 +78,7 @@
 "notify_scan_failed_body" = "“%@” taraması kesintiye uğradı: %@";
 "Credential storage" = "Kimlik bilgileri depolama";
 "album_sort_song_count" = "Parça Sayısı";
-"scrobble_mac_now_playing_subtitle" = "Çalma başladığında geçerli parçayı senkronize edin; tarih sayılmaz";
+"scrobble_mac_now_playing_subtitle" = "Çalma başladığında geçerli parçayı senkronize edin; geçmişe sayılmaz";
 "RG Mode" = "RG Modu";
 "Paste JSON…" = "JSON'yi yapıştırın…";
 "ai_provider_preset_openai" = "OpenAI API";
@@ -410,7 +410,7 @@
 "Add to the trust list during connection when you encounter a self-signed certificate source" = "Bağlantı sırasında kendinden imzalı bir sertifika kaynağıyla karşılaştığınızda güven listesine ekleyin";
 "hide_lyrics_background" = "Şarkı sözleri arka planını gizle";
 "Lyrics Translation" = "Şarkı sözü çevirisi";
-"songs_display_mode" = "Ekran";
+"songs_display_mode" = "Görünüm";
 "ai_audio_transcription_unavailable" = "Şarkının transkripsiyonu devre dışı, bu bölgede kullanılamıyor veya şarkı, transkripsiyon süresi sınırını aşıyor.";
 "lyrics_translation_cache_footer" = "Çevrilen satırlar bir dahaki sefere anında alınabilmesi için yerel olarak önbelleğe alınır.";
 "smart_op_greaterThan" = "büyüktür";
@@ -1927,7 +1927,7 @@
 "audio_output_section" = "Ses Çıkışı";
 "smart_combinator_any_or" = "Herhangi biri (VEYA)";
 "fnmusic_server_base_path_hint" = "Ters proxy URL alt yolu (isteğe bağlı)";
-"cloud_scan_wifi_only" = "Wi-Fi yalnızca bulut ayrıntıları için";
+"cloud_scan_wifi_only" = "Bulut ayrıntılarını yalnızca Wi-Fi üzerinden yükle";
 "ai_error_region_restricted" = "Bu özellik mevcut App Store bölgesi için mevcut değildir.";
 "radio_stream_ended" = "Canlı yayın sona erdi.";
 "server_share_system_share_hint" = "Sunucu tarafından döndürülen URL'nin tam olarak bulunduğu sistem paylaşım sayfasını açar.";
@@ -2316,7 +2316,7 @@
 "icloud_container_setup_hint" = "Apple Developer'da iCloud kapsayıcı iCloud.com.welape.yuanyin'i etkinleştirin ve bunu Xcode → İmzalama ve Yetenekler'de doğrulayın";
 "tab_playlists" = "Çalma listeleri";
 "playback_rate" = "Oynatma Hızı";
-"player_animated_artwork_unmetered_only" = "Wi-Fi Yalnızca Orijinal Sanat Eserleri için";
+"player_animated_artwork_unmetered_only" = "Orijinal kapakları yalnızca Wi-Fi üzerinden indir";
 "source_diag_advice_auth_suggestion" = "Şifreyi, API anahtarını veya jetonu tekrar girin. Kaynak 2FA kullanıyorsa önce yeniden bağlayın.";
 "lang_fr" = "Fransızca";
 "compressor_light" = "Açık";
@@ -2578,7 +2578,7 @@
 "smart_mac_between_groups" = "Kural grupları arasında";
 "add_to_queue" = "Sıraya Ekle";
 "smart_sort_direction" = "Yön";
-"scrobble_title" = "Skroplama";
+"scrobble_title" = "Scrobble";
 "add_insecure_http_domain" = "HTTP Ana Bilgisayarına izin ver";
 "metadata_status_result_title" = "Üst veri Okuma Sonucu";
 "home_dashboard_subtitle" = "Yerel dosyalarınız, NAS, bulut sürücüleriniz ve Apple Music — hepsi tek bir yerde.";
@@ -2601,7 +2601,7 @@
 "ai_embedding_model" = "Gömme modeli (isteğe bağlı)";
 "tag_editor_filename_label" = "Dosya adı";
 "status_quota_exceeded" = "iCloud depolama alanı dolu";
-"lyrics_display_section" = "Ekran";
+"lyrics_display_section" = "Görünüm";
 "lyrics_editor_save_anyway" = "Yine de kaydet";
 "relay_import_source" = "Kaynağı Paylaş";
 "cloud_oauth_config" = "Bulut yetkilendirmesi";
@@ -2685,7 +2685,7 @@
 "ai_authentication_style_automatic" = "Otomatik";
 "stats_server_aggregate_boundary" = "Bu sunucu yalnızca tüm zamanların oynatma sayısını ve en son çalınma zamanını gösterir. Haftalık, aylık ve yıllık toplamlar, ısı haritaları ve dinleme süresi kasıtlı olarak gösterilmiyor.";
 "Cross-Process Data Sharing" = "İşlemler Arası Veri Paylaşımı";
-"error_scrobble_network %@" = "Ağ tarama hatası: %@";
+"error_scrobble_network %@" = "Scrobbling ağ hatası: %@";
 "apple_music_lyrics_not_available" = "Apple Music'nin resmi senkronize şarkı sözleri üçüncü taraf uygulamalara açık değildir. Bunları görüntülemek için Apple Music'yi açın veya harici şarkı sözlerini eşleştirmek için şarkı menüsündeki üst verileri almayı kullanın.";
 "theme_color_mode_fixed_hint" = "Her zaman aşağıda seçtiğiniz rengi kullanın.";
 "yearly_personality_lovm_name" = "Mehtaplı Gözlemci";
@@ -2923,7 +2923,7 @@
 "metadata_writeback_plex_missing_artist" = "Bu Plex parçasında yazılabilir sanatçı öğesi yok.";
 "error_scraper_invalid_json %@" = "Geçersiz JSON: %@";
 "ai_recommendation_status_region_restricted_local" = "Bu bölgede akıllı servis mevcut değildir; mevcut öneriler korundu";
-"error_scrobble_invalid_response" = "Skroplama hizmeti geçersiz bir yanıt döndürdü.";
+"error_scrobble_invalid_response" = "Scrobbling hizmeti geçersiz bir yanıt döndürdü.";
 "Resume" = "Sürdür";
 "tag_editor_lyrics_edit" = "Şarkı sözlerini düzenle";
 "scrobble_mac_browser_oauth" = "Tarayıcı OAuth oturum açma";
@@ -3678,7 +3678,7 @@
 "intent_playing_radio_format" = "%@ radyo istasyonu çalınıyor.";
 "metadata_status_title" = "Üst veri Denetimi";
 "Optional, narrows albums with the same name." = "İsteğe bağlı, aynı isimli albümleri daraltır.";
-"scrobble_mac_queue_subtitle" = "Başarısız olan skroplamalar bir sonraki gönderime kadar saklanır";
+"scrobble_mac_queue_subtitle" = "Gönderilemeyen scrobble'lar bir sonraki gönderime kadar saklanır";
 "onboarding_sources_dlna" = "Ağınızdaki UPnP / DLNA medya sunucuları";
 "relay_share_password" = "Dinleyici şifresi";
 "immersive_demo_lyric_16" = "Ses birbirinden uzaklaşıp yeniden burada buluşuyor";

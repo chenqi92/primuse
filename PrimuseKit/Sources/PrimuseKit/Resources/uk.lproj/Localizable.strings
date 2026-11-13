@@ -479,7 +479,7 @@
 "error.catalog.invalidPagination" = "Недійсні параметри розбиття на сторінки треку.";
 "ext.widget.lyrics.displayName" = "Текст пісні";
 "error.appleMusic.invalidPaginationURL" = "Недійсна пагінація Apple Music URL: %@";
-"send_to_tv_error_cancelled" = "Переказ скасовано.";
+"send_to_tv_error_cancelled" = "Передачу скасовано.";
 "source_connection_path_prefix" = "Префікс шляху (необов’язково)";
 "fullscreen_effect_radial_pulse" = "Радіальний імпульс";
 "src.category.protocol" = "Протокол";

@@ -115,7 +115,7 @@
 "ext.control.previous.description" = "الرجوع إلى المسار السابق.";
 "ext.control.previous.displayName" = "Primuse السابق";
 "ext.control.shuffle" = "تشغيل عشوائي";
-"ext.control.shuffle.description" = "قم بتبديل مكتبتك بأكملها وابدأ اللتشغيل.";
+"ext.control.shuffle.description" = "اخلط مكتبتك بالكامل عشوائيًا وابدأ التشغيل.";
 "ext.control.shuffle.displayName" = "Primuse خلط";
 "ext.synology.quickconnect.error.invalidID" = "QuickConnect ID غير صالح.";
 "ext.synology.quickconnect.error.invalidResponse" = "أعاد QuickConnect استجابة غير معروفة.";
@@ -297,7 +297,7 @@
 "ext.tv.scan.status" = "الحالة";
 "ext.tv.scan.step3" = "أضف المصدر · الخطوة الثالثة";
 "ext.tv.scan.summary" = "جاهز للمسح";
-"ext.tv.scan.syncHint" = "Apple TV يقوم بمسح المجلدات والعلامات المدمجة والأعمال الفنية وكلمات الأغاني المحلية · إعادة المسح بعد تغيير الملفات";
+"ext.tv.scan.syncHint" = "Apple TV يقوم بمسح المجلدات والوسوم المضمّنة والأعمال الفنية وكلمات الأغاني المحلية · إعادة المسح بعد تغيير الملفات";
 "ext.tv.scan.totalIndexed" = "%d أغنية مفهرسة";
 "ext.tv.scan.uncheck" = "إلغاء التحديد";
 "ext.tv.scan.up" = "مستوى أعلى";
@@ -499,7 +499,7 @@
 "ext.widget.nowPlaying.empty.openLarge" = "قم بتوصيل مصدر الموسيقى وستظهر هنا أغنيتك الحالية وتقدمك.";
 "ext.widget.nowPlaying.empty.openMedium" = "افتح Primuse لتكمل من حيث توقفت";
 "ext.widget.nowPlaying.empty.openShort" = "افتح Primuse للمتابعة";
-"ext.widget.nowPlaying.empty.tapToPlay" = "اضغط لبدء اللتشغيل";
+"ext.widget.nowPlaying.empty.tapToPlay" = "اضغط لبدء التشغيل";
 "ext.widget.nowPlaying.empty.title" = "لا شيء يشغّل";
 "ext.widget.nowPlaying.eyebrowFormat" = "جاري التشغيل · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "متوقف · %@";
@@ -509,7 +509,7 @@
 "ext.widget.recent.displayName" = "المشغّلة مؤخرًا";
 "ext.widget.recent.empty.large" = "تتم مزامنة الألبومات التي قمت بتشغيلها مؤخرًا مع شاشتك الرئيسية تلقائيًا";
 "ext.widget.recent.empty.medium" = "ستظهر هنا ألبوماتك الأخيرة بمجرد بدء التشغيل";
-"ext.widget.recent.empty.short" = "يظهر بمجرد بدء اللتشغيل";
+"ext.widget.recent.empty.short" = "يظهر بمجرد بدء التشغيل";
 "ext.widget.recent.empty.title" = "لا يوجد شيء حديث";
 "ext.widget.recent.eyebrow" = "المشغّلة مؤخرًا";
 "ext.widget.sources.description" = "حالة الفهرسة والأعداد المفهرسة لكل مصدر.";
@@ -1024,4 +1024,4 @@
 "genre_split_slash" = "تقسيم الأنواع عند الشرطة المائلة";
 "genre_split_comma" = "تقسيم الأنواع عند الفواصل";
 "genre_split_bar" = "تقسيم الأنواع عند الخط العمودي والشرطة المائلة العكسية";
-"genre_split_tv_detail" = "يؤثر في التصفح فقط؛ ولا تتغير علامات الملفات";
+"genre_split_tv_detail" = "يؤثر في التصفح فقط؛ ولا تتغير وسوم الملفات";

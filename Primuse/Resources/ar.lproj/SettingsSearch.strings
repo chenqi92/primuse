@@ -39,7 +39,7 @@
 "Read the current value and any restrictions." = "قراءة القيمة الحالية وأية قيود.";
 "Recently used" = "مستعمل حديثا";
 "Refresh Frequency" = "تردد التحديث";
-"Retry paused tag reading" = "إعادة محاولة قراءة العلامة المتوقفة مؤقتًا";
+"Retry paused tag reading" = "إعادة محاولة قراءة الوسوم المتوقفة مؤقتًا";
 "Room Size" = "حجم الغرفة";
 "Search settings" = "إعدادات البحث";
 "Select a nearby device to view its available transfer actions." = "حدد جهازًا قريبًا لعرض إجراءات النقل المتاحة له.";

@@ -1337,7 +1337,7 @@
 "error_scrobble_http %@ %@" = "Servidor de scrobbling retornou HTTP %@: %@";
 "error_scrobble_invalid_credentials" = "As credenciais de scrobbling são inválidas. Faça login novamente.";
 "error_scrobble_invalid_response" = "O serviço de scrobbling retornou uma resposta inválida.";
-"error_scrobble_network %@" = "Erro de rede scrobble: %@";
+"error_scrobble_network %@" = "Erro de rede do scrobbling: %@";
 "error_scrobble_not_configured" = "Scrobbling não configurado.";
 "error_scrobble_rate_limited" = "Scrobbling tem taxa temporariamente limitada.";
 "error_token_expired" = "O token de acesso expirou.";
@@ -3215,7 +3215,7 @@
 "scrobble_mac_footer_success_format" = "Envios recentes · %d bem-sucedido";
 "scrobble_mac_i_authorized" = "Eu autorizei";
 "scrobble_mac_no_recent_reports" = "Nenhum envio recente";
-"scrobble_mac_now_playing_subtitle" = "Sincronize a faixa atual quando a reprodução iniciar; não contado como história";
+"scrobble_mac_now_playing_subtitle" = "Sincronize a faixa atual quando a reprodução iniciar; não conta no histórico";
 "scrobble_mac_queue_subtitle" = "Scrobbles com falha são mantidos até o próximo envio";
 "scrobble_mac_recent_reports_subtitle" = "Enviado recentemente para Last.fm/ListenBrainz";
 "scrobble_mac_recent_reports_title" = "Envios recentes";
@@ -3232,10 +3232,10 @@
 "scrobble_overall_footer" = "Enviar histórico de escuta para Last.fm/ListenBrainz. Conta após 50% or 4 minutos reproduzidos.";
 "scrobble_pending_count" = "Nova tentativa pendente";
 "scrobble_provider_section" = "Serviço";
-"scrobble_queue_section" = "Falha na fila";
+"scrobble_queue_section" = "Fila de envios com falha";
 "scrobble_retry_now" = "Tente novamente agora";
 "scrobble_send_now_playing" = "Enviar agora reproduzindo";
-"scrobble_title" = "Rabisco";
+"scrobble_title" = "Scrobble";
 "scrobble_token_invalid" = "Inválido";
 "scrobble_token_unconfirmed" = "Não é possível verificar agora";
 "scrobble_token_valid" = "Válido";

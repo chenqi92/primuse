@@ -913,9 +913,9 @@
 "scraper_lrclib_desc" = "개방형 동기화 가사 데이터베이스";
 "scraper_amll_desc" = "커뮤니티가 만든 단어 단위 싱크 가사, 번역이 함께 있는 경우가 많음";
 "scraper_itunes_desc" = "Apple iTunes Search API — 메타데이터 및 고해상도 커버";
-"custom_scraper_desc" = "사용자가 가져온 가져오기 소스";
-"import_scraper_source" = "가져오기 소스 가져오기";
-"import_scraper_footer" = "JSON 설정 또는 URL을 통해 사용자 지정 가져오기 소스를 가져옵니다. 가져온 소스가 관련 약관 및 저작권법을 준수하도록 하는 책임은 사용자에게 있습니다.";
+"custom_scraper_desc" = "사용자가 가져온 스크래퍼 소스";
+"import_scraper_source" = "스크래퍼 소스 가져오기";
+"import_scraper_footer" = "JSON 설정 또는 URL을 통해 사용자 지정 스크래퍼 소스를 가져옵니다. 가져온 소스가 관련 약관 및 저작권법을 준수하도록 하는 책임은 사용자에게 있습니다.";
 "scraper_lyrics_server_name" = "가사 API 서버";
 "scraper_lyrics_server_desc" = "직접 설정한 가사 API에 순서대로 가사를 요청합니다";
 "lyrics_server_count_format" = "주소 %d개";
@@ -959,8 +959,8 @@
 "paste_config" = "설정 붙여넣기";
 "from_url" = "URL에서 가져오기";
 "config_url_placeholder" = "https://example.com/scraper.json";
-"paste_config_footer" = "가져오기 소스의 JSON 설정을 붙여넣으세요.";
-"url_config_footer" = "JSON 가져오기 소스 설정 파일의 URL을 입력하세요.";
+"paste_config_footer" = "스크래퍼 소스의 JSON 설정을 붙여넣으세요.";
+"url_config_footer" = "JSON 스크래퍼 소스 설정 파일의 URL을 입력하세요.";
 "scraper_import_auto_footer" = "스크레이퍼 JSON 또는 HTTPS 설정 URL을 붙여넣으세요. 형식은 자동으로 감지됩니다.";
 "scraper_import_file_button" = "파일에서 가져오기";
 "scraper_import_file_too_large" = "파일이 2MB를 넘어서 소스 설정으로 가져올 수 없습니다.";
@@ -2234,7 +2234,7 @@
 "ST-10 · The SSL certificates for these domains aren't in the system Keychain — you've trusted them manually" = "ST-10 · 이 도메인의 SSL 인증서는 시스템 키체인에 없으며, 수동으로 신뢰했습니다";
 "ST-10 · Trust self-signed certificates for this domain only" = "ST-10 · 이 도메인의 자체 서명 인증서만 신뢰";
 "Scrape Entire Library" = "전체 라이브러리 가져오기";
-"Scraping Sources" = "가져오기 소스";
+"Scraping Sources" = "스크래퍼 소스";
 "Search…" = "검색…";
 "Set Custom Timer" = "사용자 지정 타이머 설정";
 "Share collaborative library content via CloudKit" = "CloudKit을 통해 공동 작업 라이브러리 콘텐츠 공유";

@@ -27,7 +27,7 @@
 "Ambient Intensity" = "ความเข้มของบรรยากาศ";
 "App Settings" = "การตั้งค่าแอป";
 "App Store does not provide release notes yet." = "App Store ยังไม่มีบันทึกประจำรุ่น";
-"Appearance" = "การปรากฏตัว";
+"Appearance" = "ลักษณะที่ปรากฏ";
 "Apple AirPods · Head Tracking" = "Apple AirPods · การติดตามศีรษะ";
 "Apple Music · Authorized" = "Apple Music · ได้รับอนุญาต";
 "Apple Music · Denied" = "Apple Music · ถูกปฏิเสธ";
@@ -806,7 +806,7 @@
 "app_icon_export_failed_title" = "ส่งออกไอคอนไม่สำเร็จ";
 "app_icon_export_failed_message" = "ไม่สามารถสร้างไอคอนได้ โปรดลองอีกครั้ง";
 "app_name" = "Primuse";
-"appearance" = "การปรากฏตัว";
+"appearance" = "ลักษณะที่ปรากฏ";
 "appearance_system_blue" = "ระบบสีน้ำเงิน";
 "apple_music_cloud_library_unavailable_format" = "Apple Music คลังเพลงคลาวด์ไม่พร้อมใช้งาน (Apple ข้อผิดพลาด %@) ตรวจสอบให้แน่ใจว่าเพลงใน Mac นี้ใช้บัญชี Apple และการสมัครรับข้อมูลเดียวกันกับ iPhone ของคุณ จากนั้นเปิดซิงค์คลังเพลง เพลงท้องถิ่น %d ของคุณได้รับการเก็บรักษาไว้";
 "apple_music_library_access_failed_format" = "ไม่สามารถเข้าถึงคลังเพลง Apple Music: %@";
@@ -1085,7 +1085,7 @@
 "cloud_permission_file_write" = "โทเค็น Drime ปัจจุบันเป็นแบบอ่านอย่างเดียวหรือไม่สามารถเขียนและลบไฟล์ได้";
 "cloud_recheck" = "ตรวจสอบอีกครั้ง";
 "cloud_retry_auth" = "ลองอนุญาตอีกครั้ง";
-"cloud_scan_wifi_only" = "Wi-Fi สำหรับรายละเอียดคลาวด์เท่านั้น";
+"cloud_scan_wifi_only" = "โหลดรายละเอียดจากคลาวด์ผ่าน Wi-Fi เท่านั้น";
 "cloud_scan_wifi_only_footer" = "คลาวด์สแกนดึงข้อมูลชื่อไฟล์ล่วงหน้าเท่านั้น รายละเอียดแทร็ก (ศิลปิน อัลบั้ม ปก ระยะเวลา) จะถูกโหลดในพื้นหลัง — ประมาณ 256KB ต่อเพลง เมื่อเปิดสิ่งนี้ การโหลดจะหยุดชั่วคราวบนมือถือและดำเนินการต่อเมื่อคุณเชื่อมต่อกับ Wi-Fi อีกครั้ง";
 "cloud_setup_needs_creds_desc" = "กรอก Client ID ใต้ \"แก้ไขแหล่งที่มา\" ก่อน จากนั้นกลับมาเพื่ออนุญาตการเชื่อมต่อ";
 "cloud_setup_needs_creds_title" = "ต้องมีข้อมูลรับรองนักพัฒนา";
@@ -2005,7 +2005,7 @@
 "lyrics_converter_ttml_help" = "TTML ที่เข้ากันได้กับ Apple Music";
 "lyrics_converter_txt_help" = "ข้อความธรรมดาที่ไม่มีกำหนดเวลา";
 "lyrics_converter_voice_notice" = "LRC เก็บทุกบรรทัด แต่การจัดตำแหน่งเสียง TTML เรียบลง";
-"lyrics_display_section" = "จอแสดงผล";
+"lyrics_display_section" = "การแสดงผล";
 "lyrics_editor_add_line" = "เพิ่มบรรทัด";
 "lyrics_editor_all_stamped" = "กำหนดเวลาครบทุกบรรทัดแล้ว";
 "lyrics_editor_clear_all" = "ล้างทั้งหมด";
@@ -2631,7 +2631,7 @@
 "default_artwork_app_icon" = "ไอคอนแอปปัจจุบัน";
 "player_animated_artwork" = "งานศิลปะแบบไดนามิก";
 "player_animated_artwork_description" = "เล่น GIF, APNG และอาร์ตเวิร์ก WebP แบบเคลื่อนไหวจากแหล่งที่มาในรายละเอียดอัลบั้มและอาร์ตเวิร์กของผู้เล่นหลัก รายการจะใช้เฟรมแรกแบบคงที่เสมอ และการเคลื่อนไหวของระบบและการตั้งค่าพลังงานจะเป็นไปตามนั้น";
-"player_animated_artwork_unmetered_only" = "Wi-Fi สำหรับอาร์ตเวิร์กต้นฉบับเท่านั้น";
+"player_animated_artwork_unmetered_only" = "ดาวน์โหลดปกต้นฉบับผ่าน Wi-Fi เท่านั้น";
 "player_animated_artwork_unmetered_only_description" = "ดาวน์โหลดปกเคลื่อนไหวผ่าน Wi-Fi หรืออีเทอร์เน็ตเท่านั้น ภาพเคลื่อนไหวที่แคชไว้เล่นแบบออฟไลน์ได้";
 "player_lock_screen_animated_artwork" = "ปกเคลื่อนไหวบนหน้าจอล็อก";
 "player_lock_screen_animated_artwork_description" = "เมื่อเพลงที่กำลังเล่นมีปกเคลื่อนไหว หน้าจอล็อกและหน้าการเล่นอื่นๆ ของระบบก็จะเคลื่อนไหวด้วย ใช้เฉพาะวิดีโอและ GIF ที่มีอยู่ในอุปกรณ์นี้แล้ว ไม่ดาวน์โหลดเพิ่ม ในโหมดประหยัดพลังงานหรือเมื่อเปิดลดการเคลื่อนไหว ระบบจะแสดงปกภาพนิ่ง";
@@ -3581,7 +3581,7 @@
 "songs_count" = "เพลง";
 "songs_count_inline" = "เพลง";
 "songs_display_columns" = "คอลัมน์";
-"songs_display_mode" = "จอแสดงผล";
+"songs_display_mode" = "รูปแบบการแสดง";
 "songs_export_failed" = "การส่งออกล้มเหลว";
 "songs_found" = "เพลงที่พบ";
 "songs_row_compact" = "กะทัดรัด";
@@ -3858,7 +3858,7 @@
 "status_up_to_date" = "อัปเดตแล้ว";
 "storage_export_log" = "บันทึกการส่งออก";
 "storage_export_log_footer" = "ส่งออก primuse_debug.log ผ่าน ShareSheet (AirDrop / เมล / บันทึกลงในไฟล์) ใช้สำหรับส่งบันทึกให้กับนักพัฒนา หมุนอัตโนมัติเกิน 10 MB";
-"storage_management" = "ที่เก็บของ";
+"storage_management" = "พื้นที่เก็บข้อมูล";
 "sync" = "ซิงค์";
 "sync_now" = "ซิงค์ทันที";
 "synced_credentials" = "รหัสผ่านต้นทางและการเข้าสู่ระบบคลาวด์ (พวงกุญแจ)";

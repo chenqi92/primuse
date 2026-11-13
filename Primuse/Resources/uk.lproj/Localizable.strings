@@ -410,7 +410,7 @@
 "Add to the trust list during connection when you encounter a self-signed certificate source" = "Додайте до списку довіри під час з’єднання, коли ви зустрічаєте джерело самопідписаного сертифіката";
 "hide_lyrics_background" = "Сховати фон тексту";
 "Lyrics Translation" = "Переклад тексту пісні";
-"songs_display_mode" = "Дисплей";
+"songs_display_mode" = "Вигляд";
 "ai_audio_transcription_unavailable" = "Транскрипцію пісні вимкнено, вона недоступна в цьому регіоні, або пісня перевищує обмеження тривалості транскрипції.";
 "lyrics_translation_cache_footer" = "Перекладені рядки зберігаються локально для миттєвого пошуку наступного разу.";
 "smart_op_greaterThan" = "більше ніж";
@@ -1927,7 +1927,7 @@
 "audio_output_section" = "Аудіовихід";
 "smart_combinator_any_or" = "Будь-який (АБО)";
 "fnmusic_server_base_path_hint" = "Підшлях зворотного проксі URL (необов’язково)";
-"cloud_scan_wifi_only" = "Wi-Fi лише для деталей хмари";
+"cloud_scan_wifi_only" = "Завантажувати відомості з хмари лише через Wi-Fi";
 "ai_error_region_restricted" = "Ця функція недоступна для поточного регіону App Store.";
 "radio_stream_ended" = "Пряма трансляція завершена.";
 "server_share_system_share_hint" = "Відкриває аркуш загального доступу до системи з точним URL, повернутим сервером.";
@@ -2316,7 +2316,7 @@
 "icloud_container_setup_hint" = "Увімкніть контейнер iCloud iCloud.com.welape.yuanyin в Apple Developer і перевірте його в Xcode → Підпис і можливості";
 "tab_playlists" = "Плейлісти";
 "playback_rate" = "Швидкість відтворення";
-"player_animated_artwork_unmetered_only" = "Wi-Fi Тільки для оригінальних творів мистецтва";
+"player_animated_artwork_unmetered_only" = "Завантажувати оригінальні обкладинки лише через Wi-Fi";
 "source_diag_advice_auth_suggestion" = "Повторно введіть пароль, ключ API або маркер. Якщо джерело використовує 2FA, спочатку підключіть його повторно.";
 "lang_fr" = "французька";
 "compressor_light" = "Світла";
@@ -2519,7 +2519,7 @@
 "Metadata scraping" = "Пошук метаданих";
 "credentials" = "Облікові дані";
 "source_cache_success_message_format" = "%@: завантажено %d/%d пісень. Додано %@ для прослуховування офлайн.";
-"scrobble_queue_section" = "Помилка черги";
+"scrobble_queue_section" = "Черга невдалих надсилань";
 "stats_clear_action" = "Очистити всю історію";
 "lyrics_editor_resplit" = "Розбити знову";
 "ai_audio_transcription_fallback_success_format" = "Основна служба була недоступна, тому %@ завершив стенограму. Перегляньте його перед збереженням.";
@@ -2601,7 +2601,7 @@
 "ai_embedding_model" = "Модель вбудовування (необов’язково)";
 "tag_editor_filename_label" = "Ім'я файлу";
 "status_quota_exceeded" = "Пам’ять iCloud заповнена";
-"lyrics_display_section" = "Дисплей";
+"lyrics_display_section" = "Відображення";
 "lyrics_editor_save_anyway" = "Усе одно зберегти";
 "relay_import_source" = "Поділитися джерелом";
 "cloud_oauth_config" = "Хмарна авторизація";

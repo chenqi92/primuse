@@ -114,9 +114,9 @@
 "ext.control.previous" = "पिछला";
 "ext.control.previous.description" = "पिछले ट्रैक पर वापस जाएँ।";
 "ext.control.previous.displayName" = "Primuse पिछला";
-"ext.control.shuffle" = "फेरबदल";
-"ext.control.shuffle.description" = "अपनी पूरी लाइब्रेरी में फेरबदल करें और सुनना शुरू करें।";
-"ext.control.shuffle.displayName" = "Primuse फेरबदल";
+"ext.control.shuffle" = "शफ़ल";
+"ext.control.shuffle.description" = "अपनी पूरी लाइब्रेरी शफ़ल करें और सुनना शुरू करें।";
+"ext.control.shuffle.displayName" = "Primuse शफ़ल";
 "ext.synology.quickconnect.error.invalidID" = "क्विककनेक्ट ID अमान्य है।";
 "ext.synology.quickconnect.error.invalidResponse" = "क्विककनेक्ट ने एक अपरिचित प्रतिक्रिया दी।";
 "ext.synology.quickconnect.error.serverNotFound" = "यह क्विककनेक्ट ID नहीं मिल सका।";
@@ -157,7 +157,7 @@
 "ext.tv.home.playAll" = "सभी चलाएं";
 "ext.tv.home.recentlyAdded" = "हाल ही में जोड़ा गया";
 "ext.tv.home.recentlyPlayed" = "हाल ही में सुने गए";
-"ext.tv.home.shuffle" = "फेरबदल";
+"ext.tv.home.shuffle" = "शफ़ल";
 "ext.tv.home.tonightsPick" = "आज रात की पसंद";
 "ext.tv.http.allow" = "अनुमति दें और जारी रखें";
 "ext.tv.http.message" = "%1$@ अनएन्क्रिप्टेड HTTP का उपयोग करता है। केवल तभी जारी रखें जब यह आपका सर्वर हो। प्राधिकरण केवल इस योजना, होस्ट और पोर्ट पर लागू होता है।";
@@ -319,8 +319,8 @@
 "ext.tv.search.typeToSearch" = "अपनी लाइब्रेरी खोजने के लिए टाइप करें";
 "ext.tv.settings.about" = "लगभग Primuse";
 "ext.tv.settings.ambientIntensity" = "परिवेश की तीव्रता";
-"ext.tv.settings.appearance" = "उपस्थिति";
-"ext.tv.settings.appearance.dark" = "अंधेरा";
+"ext.tv.settings.appearance" = "दिखावट";
+"ext.tv.settings.appearance.dark" = "गहरा";
 "ext.tv.settings.appearance.light" = "हल्का";
 "ext.tv.settings.appearance.system" = "अनुसरण करें";
 "ext.tv.settings.autoSync" = "लॉन्च पर ऑटो सिंक";
@@ -652,7 +652,7 @@
 "serverShare.error.permissionDenied" = "इस खाते के पास सार्वजनिक मीडिया लिंक बनाने की अनुमति नहीं है।";
 "serverShare.error.unsafeURL" = "सर्वर ने एक लिंक लौटाया जो स्ट्रीम URL जैसा दिखता है या जिसमें खाता क्रेडेंशियल शामिल हैं।";
 "serverShare.error.unsupported" = "यह सर्वर सार्वजनिक मीडिया लिंक का समर्थन नहीं करता है, या साझाकरण अक्षम है।";
-"shuffle" = "फेरबदल";
+"shuffle" = "शफ़ल";
 "source_connection_intro" = "एक LAN पता, एक रिमोट, या दोनों दर्ज करें। दोनों को सहेजने के साथ, Primuse जो भी पहुंच योग्य और तेज़ हो उसका उपयोग करता है।";
 "source_connection_local" = "लैन";
 "source_connection_local_address" = "LAN पता";

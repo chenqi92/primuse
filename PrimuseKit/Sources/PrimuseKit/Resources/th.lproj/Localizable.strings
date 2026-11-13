@@ -319,8 +319,8 @@
 "ext.tv.search.typeToSearch" = "พิมพ์เพื่อค้นหาคลังเพลงของคุณ";
 "ext.tv.settings.about" = "ประมาณ Primuse";
 "ext.tv.settings.ambientIntensity" = "ความเข้มของบรรยากาศ";
-"ext.tv.settings.appearance" = "การปรากฏตัว";
-"ext.tv.settings.appearance.dark" = "ความมืด";
+"ext.tv.settings.appearance" = "ลักษณะที่ปรากฏ";
+"ext.tv.settings.appearance.dark" = "มืด";
 "ext.tv.settings.appearance.light" = "สว่าง";
 "ext.tv.settings.appearance.system" = "ติดตาม";
 "ext.tv.settings.autoSync" = "ซิงค์อัตโนมัติเมื่อเปิดตัว";

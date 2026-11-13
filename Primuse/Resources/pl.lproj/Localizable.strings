@@ -1085,7 +1085,7 @@
 "cloud_permission_file_write" = "Bieżący token Drime jest tylko do odczytu lub nie pozwala zapisywać i usuwać plików.";
 "cloud_recheck" = "Sprawdź ponownie";
 "cloud_retry_auth" = "Ponów próbę autoryzacji";
-"cloud_scan_wifi_only" = "Wi-Fi tylko dla szczegółów chmury";
+"cloud_scan_wifi_only" = "Ładuj szczegóły z chmury tylko przez Wi-Fi";
 "cloud_scan_wifi_only_footer" = "Skanowanie w chmurze pobiera tylko nazwy plików z góry. Szczegóły utworu (wykonawca, album, okładka, czas trwania) są ładowane w tle — około 256 KB na utwór. Gdy ta opcja jest włączona, ładowanie zostanie wstrzymane w sieci komórkowej i wznowione po ponownym połączeniu z Wi-Fi.";
 "cloud_setup_needs_creds_desc" = "Najpierw wpisz identyfikator klienta w obszarze „Edytuj źródło”, a następnie wróć, aby autoryzować połączenie.";
 "cloud_setup_needs_creds_title" = "Wymagane poświadczenia programisty";
@@ -2005,7 +2005,7 @@
 "lyrics_converter_ttml_help" = "TTML kompatybilny z Apple Music";
 "lyrics_converter_txt_help" = "Tekst bez znaczników czasu";
 "lyrics_converter_voice_notice" = "LRC zachowuje każdą linię, ale wyrównanie głosu TTML jest spłaszczone.";
-"lyrics_display_section" = "Wyświetlacz";
+"lyrics_display_section" = "Wyświetlanie";
 "lyrics_editor_add_line" = "Dodaj wers";
 "lyrics_editor_all_stamped" = "Wszystkie wersy zsynchronizowane";
 "lyrics_editor_clear_all" = "Wyczyść wszystko";
@@ -2631,7 +2631,7 @@
 "default_artwork_app_icon" = "Bieżąca ikona aplikacji";
 "player_animated_artwork" = "Animowana okładka";
 "player_animated_artwork_description" = "Odtwarzaj dostarczone przez źródło pliki GIF, APNG i animowane grafiki WebP na szczegółach albumu i grafice głównego odtwarzacza. Na listach zawsze używana jest statyczna pierwsza klatka, przy czym przestrzegane są systemowe ustawienia ruchu i zasilania.";
-"player_animated_artwork_unmetered_only" = "Wi-Fi Tylko dla oryginalnej grafiki";
+"player_animated_artwork_unmetered_only" = "Pobieraj oryginalne okładki tylko przez Wi-Fi";
 "player_animated_artwork_unmetered_only_description" = "Pobieraj animowane okładki tylko przez Wi-Fi lub Ethernet. Zapisane animacje można odtwarzać offline.";
 "player_lock_screen_animated_artwork" = "Ruchoma okładka na ekranie blokady";
 "player_lock_screen_animated_artwork_description" = "Gdy bieżący utwór ma ruchomą okładkę, porusza się ona także na ekranie blokady i w innych systemowych widokach odtwarzania. Używane są tylko filmy i GIF-y, które już są na tym urządzeniu, nic nie jest dodatkowo pobierane. W trybie niskiego zużycia energii lub przy ograniczonym ruchu system pokazuje statyczną okładkę.";
@@ -3581,7 +3581,7 @@
 "songs_count" = "utw.";
 "songs_count_inline" = "utw.";
 "songs_display_columns" = "Kolumny";
-"songs_display_mode" = "Wyświetlacz";
+"songs_display_mode" = "Widok";
 "songs_export_failed" = "Eksport nie powiódł się";
 "songs_found" = "Znaleziono utwory";
 "songs_row_compact" = "Kompaktowy";
