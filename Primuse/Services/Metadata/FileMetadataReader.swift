@@ -1824,12 +1824,15 @@ enum FileMetadataReader {
         guard start <= data.count else { return nil }
         if encoding == 1 || encoding == 2 {
             guard start + 1 <= data.count else { return nil }
+            // UTF-16 的代码单元两字节一个、从 `start` 起算, 结束符只会落在偶数偏移上。
+            // 逐字节找会把「末字符的高位 0 + 结束符」认成结束(如 ASCII 描述的 TXXX),
+            // 值、封面、歌词就整体错开一个字节。
             var i = start
             while i + 1 < data.count {
                 if data[i] == 0, data[i + 1] == 0 {
                     return i + 2
                 }
-                i += 1
+                i += 2
             }
             return nil
         }

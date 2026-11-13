@@ -242,6 +242,34 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         }
     }
 
+    /// UTF-16 的 TXXX 与带描述的 APIC: 结束符要按两字节对齐找, 否则 ReplayGain 读不出、
+    /// 封面错开一个字节。不开 AVFoundation 的 MP3 快路径全靠这里。
+    func testNativeMP3ReadKeepsUTF16ReplayGainAndDescribedCover() async throws {
+        func uint32(_ value: Int) -> Data { Data([24, 16, 8, 0].map { UInt8((value >> $0) & 0xFF) }) }
+        func frame(_ id: String, _ payload: Data) -> Data {
+            Data(id.utf8) + uint32(payload.count) + Data([0, 0]) + payload
+        }
+        func utf16(_ text: String) -> Data { text.data(using: .utf16)! }
+        let png = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        var body = frame("TIT2", Data([1]) + utf16("Track"))
+        body += frame("TXXX", Data([1]) + utf16("replaygain_track_gain") + Data([0, 0]) + utf16("-6.50 dB"))
+        body += frame("APIC", Data([1]) + Data("image/png".utf8) + Data([0, 3]) + utf16("Front") + Data([0, 0]) + png)
+        let size = Data([21, 14, 7, 0].map { UInt8((body.count >> $0) & 0x7F) })
+        var file = Data([0x49, 0x44, 0x33, 3, 0, 0]) + size + body
+        // MPEG-1 Layer III, 128 kbps, 44.1 kHz: 417 字节一帧。
+        for _ in 0..<8 { file += Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0, count: 413) }
+
+        XCTAssertNotNil(FileMetadataReader.completeMP3Metadata(from: file, fileExtension: "mp3"))
+        let metadata = await FileMetadataReader.RangeReadSession().read(from: file, fileExtension: "mp3")
+        XCTAssertEqual(metadata.title, "Track")
+        XCTAssertEqual(metadata.replayGainTrackGain ?? 0, -6.5, accuracy: 0.001)
+        XCTAssertEqual(metadata.coverArtData, png)
+        XCTAssertEqual(metadata.sampleRate, 44_100)
+        XCTAssertGreaterThan(metadata.duration ?? 0, 0)
+    }
+
     func testRangeSessionReusesPrefixWithoutLosingTailOrExpandedTags() async {
         let session = FileMetadataReader.RangeReadSession()
         let head = tagFixture(format: "mp3", key: "TPE2", singer: "Head Artist")
