@@ -602,12 +602,21 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// Range 请求, 多开读取位只是多占几条 keep-alive 连接。
     ///
     /// 不含云盘 —— 同样是 HTTP, 但各家开放平台都按 QPS 限流, 多开读取位换来的
-    /// 是 429 和退让。也不含 SMB/FTP/SFTP/NFS: 它们的回填读取挤在一条后台会话
-    /// 上串行, 读取位加多少都只是在那条会话前面排队。
+    /// 是 429 和退让。SMB/FTP/SFTP/NFS 见 `supportsParallelMetadataRangeReads`。
     public var usesPooledHTTPMetadataRangeReads: Bool {
         switch self {
         case .webdav, .infiniCloud, .synology, .qnap, .ugreen, .fnos, .s3: return true
         default: return false
+        }
+    }
+
+    /// 标签读取能真正并行的源: HTTP 连接池型, 加上给标签读取开了专用会话/通道/连接
+    /// 的 SMB、FTP、SFTP、NFS(各两三条, 不和播放共用)。补读按它放宽读取位。
+    /// 云盘仍按 QPS 限流, 不在内。
+    public var supportsParallelMetadataRangeReads: Bool {
+        switch self {
+        case .smb, .ftp, .sftp, .nfs: return true
+        default: return usesPooledHTTPMetadataRangeReads
         }
     }
 

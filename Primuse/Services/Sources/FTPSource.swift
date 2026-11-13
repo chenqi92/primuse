@@ -32,6 +32,11 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private let encryption: FTPEncryption
     private let dataConnectionMode: FTPDataConnectionMode
     private var pool: FTPSessionPool?
+    /// 标签读取专用的小池: 补读几个读取位同时读, 不再占着播放用的那几条控制连接。
+    /// 服务器限连开不出来时, 本次连接期间改回主池。
+    private var metadataPool: FTPSessionPool?
+    private var metadataPoolUnavailable = false
+    private static let metadataSessionLimit = 2
     private let cacheDirectory: URL
     private let activeRequests = ConnectionScopedOperationRegistry()
     private var connectionGeneration: ConnectionScopedOperationRegistry.Generation?
@@ -200,14 +205,20 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
     private func invalidateConnectionState() {
         let disconnectedPool = pool
+        let disconnectedMetadataPool = metadataPool
         let disconnectedGeneration = connectionGeneration
         pool = nil
+        metadataPool = nil
+        metadataPoolUnavailable = false
         connectionGeneration = nil
         if let disconnectedGeneration {
             _ = activeRequests.close(disconnectedGeneration)
         }
         if let disconnectedPool {
             Task { await disconnectedPool.shutdown() }
+        }
+        if let disconnectedMetadataPool {
+            Task { await disconnectedMetadataPool.shutdown() }
         }
         fileSizeCache.removeAll(keepingCapacity: true)
     }
@@ -339,9 +350,59 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     /// REST + RETR 读一段, 让 CloudPlaybackSource 边下边播。读够就断开数据连接,
     /// 控制连接留在池里给下一段用, 不用每段都重新登录。
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
+        try await fetchRange(path: path, offset: offset, length: length, through: nil)
+    }
+
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        guard let metadataPool = try metadataSessionPool() else {
+            return try await fetchRange(path: path, offset: offset, length: length)
+        }
+        do {
+            return try await fetchRange(path: path, offset: offset, length: length, through: metadataPool)
+        } catch {
+            if OperationCancellationPolicy.isCancellation(error) { throw error }
+            if let sourceError = error as? SourceError {
+                switch sourceError {
+                case .fileNotFound, .pathNotFound: throw error
+                default: break
+                }
+            }
+            // 多半是服务器限连: 这一代连接里不再开专用池, 这次也用主池再读一遍。
+            if self.metadataPool === metadataPool {
+                self.metadataPool = nil
+                metadataPoolUnavailable = true
+                Task { await metadataPool.shutdown() }
+                plog("FTP \(host) metadata pool disabled detail=\(String(describing: error))")
+            }
+            return try await fetchRange(path: path, offset: offset, length: length)
+        }
+    }
+
+    private func metadataSessionPool() throws -> FTPSessionPool? {
+        guard pool != nil, !metadataPoolUnavailable else { return nil }
+        if let metadataPool { return metadataPool }
+        let created = FTPSessionPool(
+            configuration: try sessionConfiguration(),
+            maximumSessions: Self.metadataSessionLimit
+        )
+        metadataPool = created
+        return created
+    }
+
+    private func fetchRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        through dedicatedPool: FTPSessionPool?
+    ) async throws -> Data {
         let generation = try connectedGeneration()
 
-        let totalSize = try await ftpFileSize(path: path, generation: generation)
+        let totalSize = try await ftpFileSize(path: path, generation: generation, through: dedicatedPool)
         try ensureConnected(generation)
         let rangePlan = FTPTransferPolicy.rangePlan(
             fileSize: totalSize,
@@ -355,7 +416,7 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         while true {
             let data: Data
             do {
-                data = try await withPool(generation: generation) { session in
+                data = try await withPool(generation: generation, using: dedicatedPool) { session in
                     try await session.retrieve(
                         providerFilePath,
                         offset: rangePlan.offset,
@@ -483,7 +544,8 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     /// 先用缓存;没有就问 `SIZE`,服务器不支持再列一次所在目录。
     private func ftpFileSize(
         path: String,
-        generation: ConnectionScopedOperationRegistry.Generation
+        generation: ConnectionScopedOperationRegistry.Generation,
+        through dedicatedPool: FTPSessionPool? = nil
     ) async throws -> Int64 {
         try ensureConnected(generation)
         let cacheKey = fileSizeCacheKey(for: path)
@@ -496,7 +558,7 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         let providerDirectory = (providerFilePath as NSString).deletingLastPathComponent
         let size: Int64
         do {
-            size = try await withPool(generation: generation) { session -> Int64 in
+            size = try await withPool(generation: generation, using: dedicatedPool) { session -> Int64 in
                 if let reported = try await session.size(providerFilePath), reported >= 0 {
                     return reported
                 }
@@ -527,9 +589,10 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private func withPool<T: Sendable>(
         generation: ConnectionScopedOperationRegistry.Generation,
         retriesOnStaleConnection: Bool = true,
+        using dedicatedPool: FTPSessionPool? = nil,
         _ body: @escaping @Sendable (FTPSession) async throws -> T
     ) async throws -> T {
-        guard let pool else { throw SourceError.connectionFailed("Not connected") }
+        guard let pool = dedicatedPool ?? self.pool else { throw SourceError.connectionFailed("Not connected") }
         let operation = Task {
             try await pool.withSession(retriesOnStaleConnection: retriesOnStaleConnection, body)
         }

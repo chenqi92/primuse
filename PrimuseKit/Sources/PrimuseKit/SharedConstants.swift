@@ -4349,8 +4349,8 @@ public struct MetadataReadingDeviceProfile: Sendable, Equatable {
         // Remote reads also compete for one source's connection/rate budget.
         // 走 URLSession 连接池的源(WebDAV / NAS File Station / S3)例外: 每主机
         // 备了 8 条 keep-alive 连接, 而标签读取绝大部分时间在等网络, 4 个位留了
-        // 太多空连接。云盘与单会话协议不走这条, 见
-        // `MusicSourceType.usesPooledHTTPMetadataRangeReads`。
+        // 太多空连接。给标签读取开了专用会话的 SMB/FTP/SFTP/NFS 同样适用; 云盘不走
+        // 这条, 见 `MusicSourceType.supportsParallelMetadataRangeReads`。
         let remoteLimit = pooledHTTPRemoteSource ? 6 : 4
         return min(platformLimit, processors, memory, offlineSource ? platformLimit : remoteLimit)
     }

@@ -46,6 +46,28 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFil
     private var backgroundClient: SMB2Manager?
     private var backgroundConnectedShareName: String?
     private let backgroundOperationGate = SMBOperationGate()
+    /// 标签读取专用的 libsmb2 会话, 每条各自 TCP、登录、树连接和一把闸门。原来标签
+    /// 读取挤在后台那一条上, 补读开几个读取位都只在它前面排队, 还拖住播放预取。
+    /// 请求被放弃的会话照旧退役不关; 退役多了或服务器不肯多开会话, 本次连接期间
+    /// 改回后台那一条。
+    /// 只在 actor 里读写; `deinit` 时已没有别的引用, 只在那里给会话设一下超时。
+    private final class MetadataLane: @unchecked Sendable {
+        let index: Int
+        let gate = SMBOperationGate()
+        var client: SMB2Manager?
+        var shareName: String?
+        var hasSucceeded = false
+        init(index: Int) { self.index = index }
+    }
+    private var metadataLanes: [MetadataLane] = []
+    private var metadataLaneCursor = 0
+    private var metadataLanesDisabled = false
+    private var metadataRetirements = 0
+    private var lastMetadataReadAt: Date?
+    private var metadataIdleTask: Task<Void, Never>?
+    private static let metadataLaneLimit = 3
+    private static let metadataRetirementLimit = 2
+    private static let metadataIdleTimeout: TimeInterval = 60
     private let cacheDirectory: URL
 
     private enum ResolvedPath {
@@ -78,6 +100,9 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFil
         // that goodbye AMSMB2's old bounded wait instead of `libraryTimeout`.
         client?.timeout = RemoteRequestDeadline.standardStallTimeout
         backgroundClient?.timeout = RemoteRequestDeadline.standardStallTimeout
+        for lane in metadataLanes {
+            lane.client?.timeout = RemoteRequestDeadline.standardStallTimeout
+        }
     }
 
     func connect() async throws {
@@ -93,16 +118,30 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFil
     func disconnect() async {
         await operationGate.acquire()
         await backgroundOperationGate.acquire()
+        let lanes = metadataLanes
+        for lane in lanes { await lane.gate.acquire() }
         if let client, connectedShareName != nil {
             await Self.closeShare(on: client, lane: "foreground")
         }
         if let backgroundClient, backgroundConnectedShareName != nil {
             await Self.closeShare(on: backgroundClient, lane: "background")
         }
+        for lane in lanes {
+            if let laneClient = lane.client, lane.shareName != nil {
+                await Self.closeShare(on: laneClient, lane: "metadata\(lane.index)")
+            }
+            lane.client = nil
+            lane.shareName = nil
+        }
         connectedShareName = nil
         client = nil
         backgroundConnectedShareName = nil
         backgroundClient = nil
+        metadataLanesDisabled = false
+        metadataRetirements = 0
+        metadataIdleTask?.cancel()
+        metadataIdleTask = nil
+        for lane in lanes.reversed() { await lane.gate.release() }
         await backgroundOperationGate.release()
         await operationGate.release()
     }
@@ -248,6 +287,202 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter, PathFil
                 )
             }
         }
+    }
+
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        guard length > 0 else { return Data() }
+        let normalizedPath = Self.normalizeRemotePath(path)
+        guard case let .share(shareName, relativePath) = try resolve(path: normalizedPath) else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+        guard !metadataLanesDisabled else {
+            return try await fetchRange(path: path, offset: offset, length: length, priority: .background)
+        }
+        let lane = nextMetadataLane()
+        lastMetadataReadAt = Date()
+        scheduleMetadataIdleClose()
+        do {
+            let data = try await runMetadataWithRetry(on: lane) {
+                let client = try await self.ensureMetadataConnectedShare(lane, named: shareName)
+                return try await self.readRange(
+                    client: client,
+                    relativePath: relativePath,
+                    offset: offset,
+                    length: length
+                )
+            }
+            lane.hasSucceeded = true
+            return data
+        } catch {
+            if OperationCancellationPolicy.isCancellation(error) { throw error }
+            if let sourceError = error as? SourceError {
+                switch sourceError {
+                case .fileNotFound, .pathNotFound: throw error
+                default: break
+                }
+            }
+            // 这条会话从没读成过: 多半是服务器不肯给同一账号再开会话。本次连接
+            // 期间改回后台那一条, 这一段也用它再读一遍。
+            guard !lane.hasSucceeded else { throw error }
+            metadataLanesDisabled = true
+            plog("⚠️ SMB metadata lanes disabled after \((error as NSError).domain)(\((error as NSError).code))")
+            return try await fetchRange(path: path, offset: offset, length: length, priority: .background)
+        }
+    }
+
+    private func nextMetadataLane() -> MetadataLane {
+        if metadataLanes.count < Self.metadataLaneLimit {
+            let lane = MetadataLane(index: metadataLanes.count)
+            metadataLanes.append(lane)
+            return lane
+        }
+        let lane = metadataLanes[metadataLaneCursor % metadataLanes.count]
+        metadataLaneCursor &+= 1
+        return lane
+    }
+
+    private func ensureMetadataConnectedShare(
+        _ lane: MetadataLane,
+        named shareName: String
+    ) async throws -> SMB2Manager {
+        let normalizedShareName = Self.normalizeShareName(shareName)
+        guard normalizedShareName.isEmpty == false else {
+            throw SourceError.connectionFailed("SMB share not selected")
+        }
+        try Task.checkCancellation()
+        let client: SMB2Manager
+        if let existing = lane.client {
+            client = existing
+        } else {
+            client = try makeClient(lane: "metadata\(lane.index)")
+            lane.client = client
+        }
+        if lane.shareName == normalizedShareName {
+            return client
+        }
+        if lane.shareName != nil {
+            lane.shareName = nil
+            do {
+                try await Self.awaitRequest { _ in try await client.disconnectShare() }
+            } catch {
+                if Self.isAbandonedRequest(error) {
+                    retireMetadataClientIfRequestAbandoned(lane, error)
+                    throw error
+                }
+            }
+        }
+        do {
+            try await Self.awaitRequest { _ in
+                try await client.connectShare(name: normalizedShareName)
+            }
+            try Task.checkCancellation()
+        } catch {
+            retireMetadataClientIfRequestAbandoned(lane, error)
+            await invalidateMetadataConnection(lane)
+            throw error
+        }
+        lane.shareName = normalizedShareName
+        return client
+    }
+
+    private func invalidateMetadataConnection(_ lane: MetadataLane) async {
+        if let laneClient = lane.client, lane.shareName != nil {
+            await Self.closeShare(on: laneClient, lane: "metadata\(lane.index)")
+        }
+        lane.shareName = nil
+        lane.client = nil
+    }
+
+    private func retireMetadataClientIfRequestAbandoned(_ lane: MetadataLane, _ error: Error) {
+        guard let laneClient = lane.client, Self.isAbandonedRequest(error) else { return }
+        Self.retire(laneClient, lane: "metadata\(lane.index)")
+        lane.client = nil
+        lane.shareName = nil
+        metadataRetirements += 1
+        if metadataRetirements >= Self.metadataRetirementLimit {
+            // 退役的会话只能一直留着; 不让标签读取再多攒。
+            metadataLanesDisabled = true
+        }
+    }
+
+    private func runMetadataWithRetry<T: Sendable>(
+        on lane: MetadataLane,
+        _ block: () async throws -> T
+    ) async throws -> T {
+        await lane.gate.acquire()
+        do {
+            var completedReconnectAttempts = 0
+            while true {
+                do {
+                    try Task.checkCancellation()
+                    let result = try await block()
+                    await lane.gate.release()
+                    return result
+                } catch is CancellationError {
+                    await invalidateMetadataConnection(lane)
+                    throw CancellationError()
+                } catch {
+                    retireMetadataClientIfRequestAbandoned(lane, error)
+                    let nsError = error as NSError
+                    guard !metadataLanesDisabled,
+                          SMBConnectionRecoveryPolicy.shouldReconnect(
+                            errorDomain: nsError.domain,
+                            errorCode: nsError.code,
+                            completedReconnectAttempts: completedReconnectAttempts
+                          ) else {
+                        if completedReconnectAttempts > 0 {
+                            await invalidateMetadataConnection(lane)
+                        }
+                        throw mapSMBError(error)
+                    }
+                    completedReconnectAttempts += 1
+                    plog(
+                        "⚠️ SMB metadata\(lane.index) recoverable error "
+                            + "\(nsError.domain)(\(nsError.code)), reconnecting: "
+                            + nsError.localizedDescription
+                    )
+                    await invalidateMetadataConnection(lane)
+                }
+            }
+        } catch {
+            await lane.gate.release()
+            throw error
+        }
+    }
+
+    private func scheduleMetadataIdleClose() {
+        guard metadataIdleTask == nil else { return }
+        metadataIdleTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.metadataIdleTimeout))
+                // 连接器已经释放就收工, 不空转。
+                guard let self else { return }
+                if await self.closeIdleMetadataLanes() { return }
+            }
+        }
+    }
+
+    /// 一分钟没有标签读取就断开专用会话(会话对象留着, 下次用时重连), 不长期多占 NAS 的连接。
+    private func closeIdleMetadataLanes() async -> Bool {
+        guard let lastMetadataReadAt,
+              Date().timeIntervalSince(lastMetadataReadAt) >= Self.metadataIdleTimeout - 1 else {
+            return false
+        }
+        metadataIdleTask = nil
+        for lane in metadataLanes {
+            await lane.gate.acquire()
+            if let stillIdleSince = self.lastMetadataReadAt,
+               Date().timeIntervalSince(stillIdleSince) >= Self.metadataIdleTimeout - 1 {
+                await invalidateMetadataConnection(lane)
+            }
+            await lane.gate.release()
+        }
+        return true
     }
 
     private func readRange(

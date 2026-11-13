@@ -21,6 +21,16 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private var connectTask: Task<Void, Error>?
     private var rootPath: String = "/"
     private let cacheDirectory: URL
+    /// 标签读取专用的 SFTP 通道, 开在同一条已登录的 SSH 连接上(不用再认证)。
+    /// OpenSSH 的 sftp-server 在一个通道里按顺序处理请求, 多开两条才是真并行,
+    /// 也不再和播放读挤在主通道上。
+    private var metadataChannels: [SFTPClient] = []
+    private var metadataChannelCursor = 0
+    private var isOpeningMetadataChannel = false
+    private var lastMetadataReadAt: Date?
+    private var metadataIdleTask: Task<Void, Never>?
+    private static let metadataChannelLimit = 3
+    private static let metadataIdleTimeout: TimeInterval = 60
 
     init(
         sourceID: String,
@@ -261,9 +271,17 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private func closeCurrentConnection() async {
         let staleSFTP = sftp
         let staleClient = client
+        let staleChannels = metadataChannels
         sftp = nil
         client = nil
         rootPath = "/"
+        metadataChannels.removeAll()
+        metadataChannelCursor = 0
+        metadataIdleTask?.cancel()
+        metadataIdleTask = nil
+        for channel in staleChannels {
+            try? await channel.close()
+        }
         if let staleSFTP {
             try? await staleSFTP.close()
         }
@@ -513,6 +531,100 @@ actor SFTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         guard let sftp else {
             throw SourceError.connectionFailed("Not connected")
         }
+        return try await readRange(using: sftp, path: path, offset: offset, length: length)
+    }
+
+    /// 标签读取走专用通道; 开不出来(服务器限制会话数等)就退回主通道, 和原来一样。
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        guard length > 0 else { return Data() }
+        try await connect()
+        guard let channel = await metadataChannel() else {
+            return try await fetchRange(path: path, offset: offset, length: length)
+        }
+        lastMetadataReadAt = Date()
+        scheduleMetadataIdleClose()
+        do {
+            return try await readRange(using: channel, path: path, offset: offset, length: length)
+        } catch {
+            if !OperationCancellationPolicy.isCancellation(error) {
+                metadataChannels.removeAll { $0 === channel }
+                try? await channel.close()
+            }
+            throw error
+        }
+    }
+
+    private func metadataChannel() async -> SFTPClient? {
+        metadataChannels.removeAll { !$0.isActive }
+        if metadataChannels.count < Self.metadataChannelLimit, !isOpeningMetadataChannel, let client {
+            isOpeningMetadataChannel = true
+            defer { isOpeningMetadataChannel = false }
+            do {
+                let channel = try await client.openSFTP()
+                // 等通道期间连接可能被换掉了; 那就不留这条。
+                guard self.client === client else {
+                    try? await channel.close()
+                    return nil
+                }
+                metadataChannels.append(channel)
+                return channel
+            } catch {
+                plog("[SFTP] metadata channel unavailable detail=\(String(describing: error))")
+                return metadataChannels.isEmpty ? nil : nextMetadataChannel()
+            }
+        }
+        return metadataChannels.isEmpty ? nil : nextMetadataChannel()
+    }
+
+    private func nextMetadataChannel() -> SFTPClient {
+        let channel = metadataChannels[metadataChannelCursor % metadataChannels.count]
+        metadataChannelCursor &+= 1
+        return channel
+    }
+
+    private func scheduleMetadataIdleClose() {
+        guard metadataIdleTask == nil else { return }
+        metadataIdleTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.metadataIdleTimeout))
+                // 连接器已经释放就收工, 不空转。
+                guard let self else { return }
+                if await self.closeMetadataChannelsIfIdle() { return }
+            }
+        }
+    }
+
+    /// 一分钟没有标签读取就关掉专用通道。
+    private func closeMetadataChannelsIfIdle() async -> Bool {
+        if metadataChannels.isEmpty {
+            metadataIdleTask = nil
+            return true
+        }
+        guard let lastMetadataReadAt,
+              Date().timeIntervalSince(lastMetadataReadAt) >= Self.metadataIdleTimeout - 1 else {
+            return false
+        }
+        metadataIdleTask = nil
+        let channels = metadataChannels
+        metadataChannels.removeAll()
+        metadataChannelCursor = 0
+        for channel in channels {
+            try? await channel.close()
+        }
+        return true
+    }
+
+    private func readRange(
+        using sftp: SFTPClient,
+        path: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
         let remotePath = try resolvedRemotePath(for: path)
 
         // offset < 0 表示从末尾倒数 (suffix range), 先 stat 拿 size 转正

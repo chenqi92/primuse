@@ -1439,7 +1439,7 @@ final class AppServices {
             },
             pooledHTTPRangeSourceIDs: {
                 Set(store.sources.filter {
-                    $0.isEnabled && $0.type.usesPooledHTTPMetadataRangeReads
+                    $0.isEnabled && $0.type.supportsParallelMetadataRangeReads
                 }.map(\.id))
             },
             sourceFileName: { [weak scanService] song in

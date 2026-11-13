@@ -438,7 +438,7 @@ final class MetadataBackfillService {
     private let directFileSourceIDs: () -> Set<String>
     private let manuallyReadableSourceIDs: () -> Set<String>
     /// 标签读取走 URLSession 每主机连接池的源。只有一轮里的源全在这个集合里,
-    /// 读取位才放宽 —— 见 `MusicSourceType.usesPooledHTTPMetadataRangeReads`。
+    /// 读取位才放宽 —— 见 `MusicSourceType.supportsParallelMetadataRangeReads`。
     private let pooledHTTPRangeSourceIDs: () -> Set<String>
     private let sourceFileName: (Song) -> String?
     private let metadataService = MetadataService()

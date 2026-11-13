@@ -137,6 +137,25 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
     private var cachedExports: [String]?
     private let cacheDirectory: URL
     private var localFileTasks: [String: Task<URL, Error>] = [:]
+    /// 最近一次真的和服务器做成了一次读写的时间。补读每首歌都会先调 `connect()`,
+    /// 这段时间内连接显然是活的, 不必每首再列一次导出根目录。
+    private var lastSuccessfulIOAt: Date?
+    private static let connectionProbeInterval: TimeInterval = 30
+
+    /// 标签读取专用的连接: 各自一个 libnfs 上下文、各自挂载同一个导出。补读的几个
+    /// 读取位轮流用它们, 不再和播放、扫描挤在主连接那一条串行队列上。
+    private struct MetadataClientSlot {
+        let id = UUID()
+        let task: Task<any NFSClientBackend, Error>
+    }
+    private var metadataSlots: [MetadataClientSlot] = []
+    private var metadataSlotCursor = 0
+    private var metadataExportPath: String?
+    private var metadataVersion: NFSVersion?
+    private var lastMetadataReadAt: Date?
+    private var metadataIdleTask: Task<Void, Never>?
+    private static let metadataClientLimit = 3
+    private static let metadataIdleTimeout: TimeInterval = 60
 
     init(
         sourceID: String,
@@ -165,6 +184,11 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
 
     func connect() async throws {
         _ = try resolveClient()
+        if let lastSuccessfulIOAt,
+           Date().timeIntervalSince(lastSuccessfulIOAt) < Self.connectionProbeInterval,
+           configuredExportPath == nil ? cachedExports != nil : connectedExportPath != nil {
+            return
+        }
         if let configuredExportPath {
             // A cached export path is not a liveness signal after sleep or a
             // network handoff. Probe the mounted root through the same bounded
@@ -431,11 +455,162 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
             actualRange = offset..<end
         }
 
-        return try await client.read(
+        let data = try await client.read(
             path: selection.relativePath,
             offset: actualRange.lowerBound,
             length: actualRange.upperBound - actualRange.lowerBound
         )
+        lastSuccessfulIOAt = Date()
+        return data
+    }
+
+    /// 标签读取走专用连接; 开不出来(服务器限连、挂载失败)就退回主连接, 和原来一样。
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        guard length > 0 else { return Data() }
+        let selection = try await resolveSelectionPath(for: path)
+        // 主连接先定下协议版本(Auto 会在这里完成回退), 专用连接照着用。
+        _ = try await ensureConnected(to: selection.exportPath)
+        guard let version = activeVersion else {
+            return try await fetchRange(path: path, offset: offset, length: length)
+        }
+        let exportPath = NFSSelectionPathCodec.normalizedExportPath(selection.exportPath)
+        let slot = metadataSlot(exportPath: exportPath, version: version)
+        let metadataClient: any NFSClientBackend
+        do {
+            metadataClient = try await slot.task.value
+        } catch {
+            await dropMetadataSlot(slot.id)
+            if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+            return try await fetchRange(path: path, offset: offset, length: length)
+        }
+        lastMetadataReadAt = Date()
+        scheduleMetadataIdleTeardown()
+        do {
+            let data = try await Self.readRange(
+                client: metadataClient,
+                relativePath: selection.relativePath,
+                offset: offset,
+                length: length
+            )
+            lastSuccessfulIOAt = Date()
+            return data
+        } catch {
+            // 读坏的上下文不再复用; 下一首会重开一条。
+            if !OperationCancellationPolicy.isCancellation(error) {
+                await dropMetadataSlot(slot.id)
+            }
+            throw error
+        }
+    }
+
+    private static func readRange(
+        client: any NFSClientBackend,
+        relativePath: String,
+        offset: Int64,
+        length: Int64
+    ) async throws -> Data {
+        let actualRange: Range<Int64>
+        if offset < 0 {
+            let total = try await client.fileSize(path: relativePath)
+            let start = max(0, total + offset)
+            guard let requestedEnd = SafeByteRange.exclusiveEnd(offset: start, length: length) else {
+                return Data()
+            }
+            let end = min(total, requestedEnd)
+            guard start < end else { return Data() }
+            actualRange = start..<end
+        } else {
+            guard let end = SafeByteRange.exclusiveEnd(offset: offset, length: length) else {
+                return Data()
+            }
+            actualRange = offset..<end
+        }
+        return try await client.read(
+            path: relativePath,
+            offset: actualRange.lowerBound,
+            length: actualRange.upperBound - actualRange.lowerBound
+        )
+    }
+
+    /// 不到上限就新开一条(挂载在任务里做, 同时进来的几首各自等自己那条), 到了上限轮流分配。
+    private func metadataSlot(exportPath: String, version: NFSVersion) -> MetadataClientSlot {
+        if metadataExportPath != exportPath || metadataVersion != version {
+            tearDownMetadataClients()
+            metadataExportPath = exportPath
+            metadataVersion = version
+        }
+        if metadataSlots.count < Self.metadataClientLimit {
+            let host = host, port = port, sourceID = sourceID
+            let slot = MetadataClientSlot(task: Task {
+                let client: any NFSClientBackend = version == .v4
+                    ? NFSv4ClientBackend(host: host, port: port, sourceID: sourceID + ".meta")
+                    : NFSv3ClientBackend(host: host, sourceID: sourceID + ".meta")
+                do {
+                    try await client.connect(exportPath: exportPath)
+                } catch {
+                    await client.disconnect()
+                    throw error
+                }
+                return client
+            })
+            metadataSlots.append(slot)
+            return slot
+        }
+        let slot = metadataSlots[metadataSlotCursor % metadataSlots.count]
+        metadataSlotCursor &+= 1
+        return slot
+    }
+
+    private func dropMetadataSlot(_ id: UUID) async {
+        guard let index = metadataSlots.firstIndex(where: { $0.id == id }) else { return }
+        let slot = metadataSlots.remove(at: index)
+        if let client = try? await slot.task.value { await client.disconnect() }
+    }
+
+    private func scheduleMetadataIdleTeardown() {
+        guard metadataIdleTask == nil else { return }
+        metadataIdleTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.metadataIdleTimeout))
+                // 连接器已经释放就收工, 不空转。
+                guard let self else { return }
+                if await self.tearDownMetadataClientsIfIdle() { return }
+            }
+        }
+    }
+
+    /// 一分钟没有标签读取就卸载专用连接, 不在 NAS 上长期多占挂载。
+    private func tearDownMetadataClientsIfIdle() -> Bool {
+        if metadataSlots.isEmpty {
+            metadataIdleTask = nil
+            return true
+        }
+        guard let lastMetadataReadAt,
+              Date().timeIntervalSince(lastMetadataReadAt) >= Self.metadataIdleTimeout - 1 else {
+            return false
+        }
+        metadataIdleTask = nil
+        tearDownMetadataClients()
+        return true
+    }
+
+    private func tearDownMetadataClients() {
+        let slots = metadataSlots
+        metadataSlots.removeAll()
+        metadataSlotCursor = 0
+        metadataExportPath = nil
+        metadataVersion = nil
+        guard !slots.isEmpty else { return }
+        Task {
+            for slot in slots {
+                if let client = try? await slot.task.value { await client.disconnect() }
+            }
+        }
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -576,6 +751,7 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
         }
 
         cachedExports = normalizedExports
+        lastSuccessfulIOAt = Date()
         return normalizedExports
     }
 
@@ -707,6 +883,7 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
                 try Task.checkCancellation()
                 let entries = try await activeClient.listDirectory(path: relativePath)
                 try Task.checkCancellation()
+                lastSuccessfulIOAt = Date()
                 return entries
                     .compactMap { entry in
                         guard let normalizedPath = RemotePathScopePolicy(rootPath: "/")
@@ -863,6 +1040,8 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
         activeVersion = nil
         connectedExportPath = nil
         cachedExports = nil
+        lastSuccessfulIOAt = nil
+        tearDownMetadataClients()
         await staleClient?.disconnect()
 
         let replacement = try makeClient(version: version)
@@ -877,6 +1056,10 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
         activeVersion = nil
         connectedExportPath = nil
         cachedExports = nil
+        lastSuccessfulIOAt = nil
+        metadataIdleTask?.cancel()
+        metadataIdleTask = nil
+        tearDownMetadataClients()
         await staleClient?.disconnect()
     }
 
