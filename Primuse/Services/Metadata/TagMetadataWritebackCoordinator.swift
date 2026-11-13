@@ -104,12 +104,11 @@ enum TagMetadataWritebackCoordinator {
         switch mode {
         case .embedded:
             do {
-                let result = try await connector.writeEmbeddedMetadata(
+                let result = try await writeEmbeddedRetryingOnce(
+                    connector: connector,
                     original: original,
                     updated: updated,
-                    coverData: sourceCover,
-                    lyrics: .keep,
-                    writesTextTags: true
+                    coverData: sourceCover
                 )
                 report.updatedSong.fileSize = result.fileSize
                 report.updatedSong.lastModified = result.modifiedDate
@@ -203,6 +202,57 @@ enum TagMetadataWritebackCoordinator {
         }
 
         return report
+    }
+
+    /// The embedded rewrite, tried a second time after a timeout or a
+    /// dropped connection. Only failures before the replacement, or in it,
+    /// qualify: the second try starts by checking that the file is still the
+    /// one the library knows, so a replacement that did land is reported,
+    /// never written twice.
+    private static func writeEmbeddedRetryingOnce(
+        connector: any MusicSourceConnector,
+        original: Song,
+        updated: Song,
+        coverData: Data?
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        do {
+            return try await connector.writeEmbeddedMetadata(
+                original: original, updated: updated, coverData: coverData,
+                lyrics: .keep, writesTextTags: true
+            )
+        } catch {
+            guard EmbeddedMetadataWritebackRetryPolicy.retriesOnce(after: error) else { throw error }
+            plog("Metadata writeback retrying once songID=\(original.id) after: \(error.localizedDescription)")
+            try? await Task.sleep(for: EmbeddedMetadataWritebackRetryPolicy.delay)
+            guard !Task.isCancelled else { throw error }
+            do {
+                return try await connector.writeEmbeddedMetadata(
+                    original: original, updated: updated, coverData: coverData,
+                    lyrics: .keep, writesTextTags: true
+                )
+            } catch EmbeddedMetadataCoordinatedWritebackError.conflict {
+                // The first try may have replaced the file before it failed.
+                // The listener caused no conflict; say what went wrong first.
+                throw error
+            }
+        }
+    }
+}
+
+/// Which failed embedded writes are tried once more on their own.
+enum EmbeddedMetadataWritebackRetryPolicy {
+    static let delay: Duration = .seconds(2)
+
+    static func retriesOnce(after error: any Error) -> Bool {
+        guard case EmbeddedMetadataCoordinatedWritebackError.operationFailed(_, let stage, _, true) = error else {
+            return false
+        }
+        switch stage {
+        case .inspect, .download, .replace: return true
+        // A local edit fails the same way twice; after the readback the file
+        // has already changed.
+        case .edit, .readback: return false
+        }
     }
 }
 

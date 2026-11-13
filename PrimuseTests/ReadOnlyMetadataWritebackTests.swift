@@ -811,3 +811,100 @@ final class LibraryReleaseCategoryIndexTests: XCTestCase {
         XCTAssertEqual(index.categories(for: current, in: library, store: store), [.album, .live])
     }
 }
+
+/// Fails each embedded write with the next queued error, then succeeds.
+private actor FlakyMetadataConnector: MusicSourceConnector {
+    nonisolated let sourceID = "flaky-writeback"
+    private var failures: [any Error]
+    private(set) var attempts = 0
+    init(failures: [any Error]) { self.failures = failures }
+    func connect() async throws {}
+    func disconnect() async {}
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+    func writeEmbeddedMetadata(original: Song, updated: Song, coverData: Data?, lyrics: EmbeddedLyricsEdit,
+                               writesTextTags: Bool) async throws -> EmbeddedMetadataWritebackResult {
+        attempts += 1
+        if !failures.isEmpty { throw failures.removeFirst() }
+        return EmbeddedMetadataWritebackResult(
+            fileSize: 10, modifiedDate: Date(timeIntervalSince1970: 1), revision: "after", fileSHA256: "sha",
+            verification: EmbeddedMetadataVerification(title: updated.title, artist: updated.artistName,
+                albumTitle: nil, genre: nil, year: nil, trackNumber: nil, discNumber: nil, coverData: nil),
+            filePath: original.filePath
+        )
+    }
+}
+
+final class TransientTagWriteRetryTests: XCTestCase {
+    private func edit() -> (Song, Song) {
+        let original = Song(id: "song", title: "Old", fileFormat: .flac, filePath: "/Music/a.flac", sourceID: "flaky-writeback")
+        var edited = original
+        edited.title = "New"
+        return (original, edited)
+    }
+
+    func testTimeoutBeforeTheReplacementIsTriedOnceMore() async {
+        let (original, edited) = edit()
+        let connector = FlakyMetadataConnector(failures: [
+            EmbeddedMetadataCoordinatedWritebackError.operationFailed(
+                source: "SMB", stage: .download, detail: "timed out", isTransient: true),
+        ])
+        let report = await TagMetadataWritebackCoordinator.write(mode: .embedded, connector: connector,
+            original: original, updated: edited, coverData: nil)
+        let attempts = await connector.attempts
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(report.remoteMutationOccurred)
+        XCTAssertEqual(report.fields.first(where: { $0.field == .title })?.disposition, .written)
+    }
+
+    func testOnlyOneRetryAndTheFirstFailureWinsOverAConflict() async {
+        let (original, edited) = edit()
+        let first = EmbeddedMetadataCoordinatedWritebackError.operationFailed(
+            source: "SMB", stage: .replace, detail: "connection reset", isTransient: true)
+        let connector = FlakyMetadataConnector(failures: [first, EmbeddedMetadataCoordinatedWritebackError.conflict])
+        let report = await TagMetadataWritebackCoordinator.write(mode: .embedded, connector: connector,
+            original: original, updated: edited, coverData: nil)
+        let attempts = await connector.attempts
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(report.fields.first(where: { $0.field == .title })?.disposition,
+                       .failed(first.localizedDescription))
+    }
+
+    func testRefusalsLocalEditsAndReadbacksAreNotRetried() async {
+        let (original, edited) = edit()
+        for error: any Error in [
+            SourceFileMutationError.readOnly,
+            EmbeddedMetadataCoordinatedWritebackError.operationFailed(
+                source: "SMB", stage: .edit, detail: "bad file", isTransient: false),
+            EmbeddedMetadataCoordinatedWritebackError.operationFailed(
+                source: "SMB", stage: .readback, detail: "timed out", isTransient: true),
+            EmbeddedMetadataCoordinatedWritebackError.operationFailed(
+                source: "SMB", stage: .download, detail: "not found", isTransient: false),
+        ] {
+            let connector = FlakyMetadataConnector(failures: [error])
+            _ = await TagMetadataWritebackCoordinator.write(mode: .embedded, connector: connector,
+                original: original, updated: edited, coverData: nil)
+            let attempts = await connector.attempts
+            XCTAssertEqual(attempts, 1, "\(error)")
+        }
+    }
+
+    func testTransientClassification() {
+        XCTAssertTrue(MetadataWriteFailurePolicy.isTransient(URLError(.timedOut)))
+        XCTAssertTrue(MetadataWriteFailurePolicy.isTransient(NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))))
+        XCTAssertTrue(MetadataWriteFailurePolicy.isTransient(SourceError.timeout))
+        XCTAssertTrue(MetadataWriteFailurePolicy.isTransient(FTPClientError.timedOut("data")))
+        XCTAssertTrue(MetadataWriteFailurePolicy.isTransient(CloudDriveError.apiError(503, "busy")))
+        XCTAssertFalse(MetadataWriteFailurePolicy.isTransient(SourceFileMutationError.readOnly))
+        XCTAssertFalse(MetadataWriteFailurePolicy.isTransient(NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))))
+        XCTAssertFalse(MetadataWriteFailurePolicy.isTransient(SourceError.authenticationFailed))
+        XCTAssertFalse(MetadataWriteFailurePolicy.isTransient(SourceError.fileNotFound("/a")))
+        XCTAssertFalse(MetadataWriteFailurePolicy.isTransient(CancellationError()))
+        let wrapped = NSError(domain: "Wrapper", code: 1,
+                              userInfo: [NSUnderlyingErrorKey: URLError(.networkConnectionLost)])
+        XCTAssertTrue(MetadataWriteFailurePolicy.isTransient(wrapped))
+    }
+}
+

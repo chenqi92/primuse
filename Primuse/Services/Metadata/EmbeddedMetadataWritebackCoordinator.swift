@@ -84,10 +84,13 @@ enum EmbeddedMetadataCoordinatedWritebackError: LocalizedError, Equatable {
     case conflict
     case invalidRemoteState
     case accessDenied(source: String, stage: EmbeddedMetadataWritebackStage, reason: SourceFileMutationError)
+    /// `isTransient`: the underlying failure was a timeout, a dropped
+    /// connection or a server error, which may not happen again.
     case operationFailed(
         source: String,
         stage: EmbeddedMetadataWritebackStage,
-        detail: String
+        detail: String,
+        isTransient: Bool = false
     )
     case remoteVerificationFailed(source: String)
 
@@ -102,7 +105,7 @@ enum EmbeddedMetadataCoordinatedWritebackError: LocalizedError, Equatable {
         case .accessDenied(let source, let stage, let reason):
             return String(format: String(localized: "metadata_writeback_error_stage_format"),
                           source, stage.localizedName, reason.localizedDescription)
-        case .operationFailed(let source, let stage, let detail):
+        case .operationFailed(let source, let stage, let detail, _):
             return String(
                 format: String(localized: "metadata_writeback_error_stage_format"),
                 source,
@@ -389,7 +392,8 @@ enum EmbeddedMetadataWritebackCoordinator {
             throw EmbeddedMetadataCoordinatedWritebackError.operationFailed(
                 source: source,
                 stage: stage,
-                detail: error.localizedDescription
+                detail: error.localizedDescription,
+                isTransient: MetadataWriteFailurePolicy.isTransient(error)
             )
         }
     }

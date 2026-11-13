@@ -85,6 +85,32 @@ enum MetadataWriteFailurePolicy {
         String(localized: "metadata_writeback_local_only_notice",
                defaultValue: "The source refused write access. Your changes were saved only in Primuse; the source file was not updated.")
     }
+
+    /// A failure that may well not happen again a moment later: a timeout, a
+    /// dropped or refused connection, a server error. A refusal, a sign-in
+    /// problem, a missing file or a conflict is not one — trying again gives
+    /// the same answer.
+    static func isTransient(_ error: any Error, depth: Int = 0) -> Bool {
+        guard !OperationCancellationPolicy.isCancellation(error) else { return false }
+        if denial(error) != nil || stopsSourceWrites(error) { return false }
+        if RemoteDirectoryTransportErrorPolicy.isRetryable(error) { return true }
+        switch error {
+        case let ftp as FTPClientError:
+            switch ftp {
+            case .timedOut, .connectionClosed, .connectionFailed, .dataConnectionFailed: return true
+            case .replyFailure(_, let code, _): return code == 421 || code == 425 || code == 426
+            case .activeModeUnavailable, .invalidReply, .cancelled: return false
+            }
+        case CloudDriveError.apiError(let status, _):
+            return CloudHTTPRetryPolicy.shouldRetry(statusCode: status)
+        default:
+            break
+        }
+        if depth < 8, let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? any Error {
+            return isTransient(underlying, depth: depth + 1)
+        }
+        return false
+    }
 }
 
 enum SourceError: Error, LocalizedError, Sendable {
