@@ -586,6 +586,8 @@ final class MetadataBackfillService {
     @ObservationIgnored private var readProgressAccumulator: [String: MetadataReadingRate] = [:]
     @ObservationIgnored private var lastReadProgressPublishedAt = Date.distantPast
     @ObservationIgnored private var recentProcessingDuration: TimeInterval = 0.5
+    /// 此刻正在读标签的读取位数(自动与手动重读合计), CPU 样本按它分摊。
+    @ObservationIgnored private var activeTagReadCount = 0
     // 攒起来等发布的结果。这些必须活在 worker 这一层而不是单个快照里: 一次
     // 发布的代价与整库规模成正比, 与这一批有几首无关, 而低档位的快照只有
     // 8~48 行。按快照边界强制收尾, 等于把同一笔整库开销摊到更少的歌上 ——
@@ -5097,6 +5099,9 @@ final class MetadataBackfillService {
                 : Self.perSongTimeout
             let outcome: BackfillOutcome
             if let request = tagReadRequest(for: song, started: started, isExplicitReread: isExplicitReread) {
+                activeTagReadCount += 1
+                defer { activeTagReadCount -= 1 }
+                var concurrentReads = activeTagReadCount
                 let cpuStarted = Self.processCPUTime()
                 let sampleWindow = readCPUSampleWindow
                 // 连接器在时限里解析: 登录卡住和读取卡住一样要放手。之后的读取、解析、
@@ -5105,6 +5110,7 @@ final class MetadataBackfillService {
                     let reader = try await sourceManager.metadataRangeReader(for: request.song)
                     return await Self.readTags(request, reader: reader)
                 }
+                concurrentReads = max(concurrentReads, activeTagReadCount)
                 // 和资料库发布重叠的读取不是有效样本: rusage 是整个进程的 CPU, 会把
                 // 那一批发布的代价记到这一首头上, 而发布的代价按批摊销, 歇得更久
                 // 并不会让它变便宜 —— 只会让吞吐白掉一截。
@@ -5114,7 +5120,8 @@ final class MetadataBackfillService {
                    ) {
                     recordProcessingDuration(MetadataBackfillExecutionPolicy.processingDuration(
                         cpuTimeBefore: cpuStarted, cpuTimeAfter: Self.processCPUTime(),
-                        fallback: max(0, Date().timeIntervalSince(started) - attempt.rangeElapsed)
+                        fallback: max(0, Date().timeIntervalSince(started) - attempt.rangeElapsed),
+                        concurrentReads: concurrentReads
                     ))
                 }
                 outcome = try attempt.outcome.get()

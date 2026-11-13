@@ -4417,15 +4417,20 @@ public enum MetadataBackfillExecutionPolicy {
     /// Process CPU time includes parsing, playback, and UI work across executor
     /// hops, while disk/network waits do not inflate the thermal work budget.
     /// An unavailable or invalid counter keeps the conservative wall-time fallback.
+    ///
+    /// `concurrentReads` 是这一首读取期间同时在读的读取位数(含自己)。进程 CPU
+    /// 把同一时段里其他读取位的解析也算了进来, 而休息预算按「每位的代价 ×
+    /// (2×位数−1)」折算, 不分摊就等于把别人的活记到每一位头上, 歇息被放大
+    /// 位数倍 —— 自动档几乎一直顶在上限。只有一位在读时(发热降到单位)不变。
     public static func processingDuration(
         cpuTimeBefore: TimeInterval?, cpuTimeAfter: TimeInterval?,
-        fallback: TimeInterval
+        fallback: TimeInterval, concurrentReads: Int = 1
     ) -> TimeInterval {
         guard let before = cpuTimeBefore, let after = cpuTimeAfter,
               before.isFinite, after.isFinite, before >= 0, after >= before else {
             return fallback.isFinite && fallback >= 0 ? fallback : 0.5
         }
-        return after - before
+        return (after - before) / Double(max(1, concurrentReads))
     }
 
     public static let highPerformanceAfterScanDefaultsKey =

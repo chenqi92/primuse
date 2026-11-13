@@ -663,6 +663,52 @@ struct MetadataReadSchedulerTests {
         #expect(hot.interRequestDelay == 1.5)
     }
 
+    /// 多个读取位同时在读时, 进程 CPU 里有别的位的解析; 按位数分摊, 只有一位时不变。
+    @Test func concurrentReadsShareTheProcessCPUSample() {
+        let single = MetadataBackfillExecutionPolicy.processingDuration(
+            cpuTimeBefore: 10, cpuTimeAfter: 10.6, fallback: 0.4, concurrentReads: 1
+        )
+        #expect(abs(single - 0.6) < 0.000001)
+        let shared = MetadataBackfillExecutionPolicy.processingDuration(
+            cpuTimeBefore: 10, cpuTimeAfter: 10.6, fallback: 0.4, concurrentReads: 3
+        )
+        #expect(abs(shared - 0.2) < 0.000001)
+        #expect(MetadataBackfillExecutionPolicy.processingDuration(
+            cpuTimeBefore: 10, cpuTimeAfter: 10.6, fallback: 0.4, concurrentReads: 0
+        ) == single)
+        // 计数不可用时退回挂钟, 那本来就是这一位自己的时间, 不分摊。
+        #expect(MetadataBackfillExecutionPolicy.processingDuration(
+            cpuTimeBefore: nil, cpuTimeAfter: nil, fallback: 0.4, concurrentReads: 3
+        ) == 0.4)
+    }
+
+    /// iPhone 三个读取位读连接池型的源: 整个进程 0.24 秒 CPU 摊到三位后,
+    /// 自动档每首歇不到上限; 不分摊时顶在 1.5 秒。
+    @Test func automaticRestUsesPerReadShareOfProcessCPU() {
+        let profile = MetadataReadingDeviceProfile(
+            platform: .mobile, activeProcessorCount: 6, physicalMemory: 8 * 1_073_741_824
+        )
+        let environment = MetadataReadingEnvironment(pooledHTTPRemoteSource: true, device: profile)
+        func delay(_ cost: TimeInterval) -> TimeInterval {
+            MetadataBackfillExecutionPolicy.limits(
+                for: .foregroundAfterSourceScan, preference: .automatic,
+                environment: environment, recentProcessingDuration: cost
+            ).interRequestDelay
+        }
+        let workers = MetadataBackfillExecutionPolicy.limits(
+            for: .foregroundAfterSourceScan, preference: .automatic, environment: environment
+        ).workerCount
+        #expect(workers == 3)
+        let processWide = MetadataBackfillExecutionPolicy.processingDuration(
+            cpuTimeBefore: 0, cpuTimeAfter: 0.24, fallback: 0
+        )
+        let perRead = MetadataBackfillExecutionPolicy.processingDuration(
+            cpuTimeBefore: 0, cpuTimeAfter: 0.24, fallback: 0, concurrentReads: workers
+        )
+        #expect(abs(delay(processWide) - 1.2) < 0.000001)
+        #expect(abs(delay(perRead) - 0.45) < 0.000001)
+    }
+
     @Test func unavailableCPUCountersKeepConservativeCooldown() {
         let invalid: [(Double?, Double?)] = [(nil, 10), (10, nil), (10, 9), (-1, 10),
                                              (.nan, 10), (10, .infinity)]
