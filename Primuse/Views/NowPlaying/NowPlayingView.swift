@@ -11492,16 +11492,42 @@ struct NowPlayingView: View {
                 let documentName = listedFile?.fileName ?? (lyricsPath as NSString).lastPathComponent
 
                 let fetchStart = Date()
-                let lyricsData = try await connector.fetchRange(
+                let probeBytes: Int64 = 256 * 1024
+                var lyricsData = try await connector.fetchRange(
                     path: lyricsPath,
                     offset: 0,
-                    length: listedFile?.size ?? 256 * 1024,
+                    length: listedFile?.size ?? probeBytes,
                     priority: .background
                 )
                 guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+                if listedFile == nil, Int64(lyricsData.count) >= probeBytes {
+                    // 不知道大小时只读了前 256 KB,读满了说明文件可能更大(有声书整本的文字稿)。
+                    // 按目录里的实际大小把整份读回来;读不全就不动缓存,免得截掉一截的歌词
+                    // 盖掉完整的那份(#420)。
+                    let fileName = (lyricsPath as NSString).lastPathComponent
+                    let listed = try? await connector.listFiles(
+                        at: (lyricsPath as NSString).deletingLastPathComponent
+                    ).first { !$0.isDirectory && $0.name == fileName }
+                    guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+                    guard let size = listed?.size,
+                          size <= Int64(LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)) else {
+                        plog("📜 loadLyrics '\(songTitle)' Tier3 sidecar larger than the read limit or not listed; cache left as is")
+                        return
+                    }
+                    if size > Int64(lyricsData.count) {
+                        lyricsData = try await connector.fetchRange(
+                            path: lyricsPath,
+                            offset: 0,
+                            length: size,
+                            priority: .background
+                        )
+                        guard isCurrentLyricsLoad(loadRevision, songID: songID),
+                              Int64(lyricsData.count) == size else { return }
+                    }
+                }
                 let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
-                guard let lyricsContent = LyricsParser.decodeText(
-                    lyricsData, label: documentName
+                guard var parsed = await LyricsParser.decodeAndParseDocument(
+                    lyricsData, label: documentName, fileName: documentName
                 ) else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar undecodable (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
                     if !isRefresh {
@@ -11512,7 +11538,7 @@ struct NowPlayingView: View {
                     }
                     return
                 }
-                var parsed = LyricsParser.parseDocument(lyricsContent, fileName: documentName)
+                guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 guard !parsed.isEmpty else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lyricsData.count))
                     if !isRefresh {
@@ -11537,7 +11563,8 @@ struct NowPlayingView: View {
                     parsed = await LyricsLoader.mergingTranslationTrack(
                         into: parsed,
                         track: track,
-                        connector: connector
+                        connector: connector,
+                        maximumSize: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
                     )
                     guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 }

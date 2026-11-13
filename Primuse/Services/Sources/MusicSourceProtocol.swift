@@ -1112,7 +1112,18 @@ struct LyricsSidecarWriteReceipt: Sendable, Equatable {
 }
 
 enum LyricsSidecarTargetPolicy {
+    /// 写回、编辑器打开原文的上限。
     static let maximumContentByteCount = 4 * 1_024 * 1_024
+    /// 有声书、播客的文字稿只读来显示时的上限:一本几十小时的书,TTML 文字稿
+    /// 十几 MB 很常见(#420)。编辑和写回仍按上面的 4 MB。
+    static let maximumSpokenWordReadByteCount = 32 * 1_024 * 1_024
+
+    @MainActor
+    static func maximumReadByteCount(for song: Song) -> Int {
+        SpokenWordStore.shared.isSpokenWord(song)
+            ? maximumSpokenWordReadByteCount
+            : maximumContentByteCount
+    }
 
     static func resolve(
         for song: Song,

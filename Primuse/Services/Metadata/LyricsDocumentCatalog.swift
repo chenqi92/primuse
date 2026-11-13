@@ -253,12 +253,15 @@ enum LyricsDocumentCatalog {
         return Content(text: text, data: data, encoding: LyricsRawDocumentEncoding(original: data, decodedEncoding: .utf8))
     }
 
+    /// - Parameter maximumBytes: 编辑器用默认的 4 MB;只为换上去显示时,有声内容的文字稿
+    ///   可以更大(`maximumReadByteCount`)。
     static func read(
         _ document: LyricsSidecarDocument,
         for song: Song,
-        sourceManager: SourceManager
+        sourceManager: SourceManager,
+        maximumBytes: Int = LyricsSidecarTargetPolicy.maximumContentByteCount
     ) async throws -> Content {
-        guard document.size <= Int64(LyricsSidecarTargetPolicy.maximumContentByteCount) else {
+        guard document.size <= Int64(maximumBytes) else {
             throw CatalogError.tooLarge(document.name)
         }
         guard document.size > 0 else {
@@ -276,8 +279,13 @@ enum LyricsDocumentCatalog {
             priority: .background
         )
         try Task.checkCancellation()
-        guard data.count == Int(document.size),
-              let decoded = TextEncodingRepair.decodeTextFile(data) else {
+        guard data.count == Int(document.size) else {
+            throw CatalogError.undecodable(document.name)
+        }
+        // 认编码要把整份文件试好几遍,大文件放到后台。
+        guard let decoded = await Task.detached(priority: .userInitiated, operation: {
+            TextEncodingRepair.decodeTextFile(data)
+        }).value else {
             throw CatalogError.undecodable(document.name)
         }
         return Content(
@@ -335,8 +343,17 @@ enum LyricsDocumentCatalog {
             NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
             return
         }
-        let content = try await read(entry.document, for: song, sourceManager: sourceManager)
-        let lines = LyricsParser.parseDocument(content.text, fileName: entry.name)
+        let content = try await read(
+            entry.document,
+            for: song,
+            sourceManager: sourceManager,
+            maximumBytes: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
+        )
+        let text = content.text
+        let name = entry.name
+        let lines = await Task.detached(priority: .userInitiated) {
+            LyricsParser.parseDocument(text, fileName: name)
+        }.value
         guard !lines.isEmpty else { throw CatalogError.noLyrics(entry.name) }
         try await show(lines, from: entry, for: song, sourceManager: sourceManager)
         LyricsDocumentPinStore.shared.pin(entry.name, forSongID: song.id)
@@ -358,7 +375,8 @@ enum LyricsDocumentCatalog {
             lines = await LyricsLoader.mergingTranslationTrack(
                 into: lines,
                 track: (path: translation.path, fileName: translation.name, size: translation.size),
-                connector: connector
+                connector: connector,
+                maximumSize: LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
             )
         }
         for attempt in 0..<3 {

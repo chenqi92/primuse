@@ -507,9 +507,11 @@ enum LyricsLoader {
             let isPlainSource = allowsAutomaticOnlineLyrics && !(connector is ServerLyricsConnector)
             resolvedPlainSource = isPlainSource
 
+            let readLimit = LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
             guard let lyricsFile = try await authoritativeLyricsFile(
                 for: song,
-                connector: connector
+                connector: connector,
+                maximumSize: readLimit
             ) else {
                 if isPlainSource { return await automaticOnlineFallback(for: song) }
                 return []
@@ -523,11 +525,15 @@ enum LyricsLoader {
             )
             guard !Task.isCancelled,
                   lyricsData.count == Int(lyricsFile.size) else { return [] }
-            guard let lyricsContent = LyricsParser.decodeText(lyricsData, label: (lyricsFile.path as NSString).lastPathComponent) else {
+            guard var parsed = await LyricsParser.decodeAndParseDocument(
+                lyricsData,
+                label: (lyricsFile.path as NSString).lastPathComponent,
+                fileName: lyricsFile.fileName
+            ) else {
                 if isPlainSource { return await automaticOnlineFallback(for: song) }
                 return []
             }
-            var parsed = LyricsParser.parseDocument(lyricsContent, fileName: lyricsFile.fileName)
+            guard !Task.isCancelled else { return [] }
             if !parsed.isEmpty {
                 if let translation = lyricsFile.translation {
                     // The `-orig` track stays the sung line; its companion
@@ -535,7 +541,8 @@ enum LyricsLoader {
                     parsed = await mergingTranslationTrack(
                         into: parsed,
                         track: translation,
-                        connector: connector
+                        connector: connector,
+                        maximumSize: readLimit
                     )
                     guard !Task.isCancelled else { return [] }
                 }
@@ -680,10 +687,12 @@ enum LyricsLoader {
             }
             let replacement: [LyricLine]
             let forced: Bool
+            let readLimit = LyricsSidecarTargetPolicy.maximumReadByteCount(for: song)
             if let lyricsFile = try await authoritativeLyricsFile(
                 for: song,
                 connector: connector,
-                evaluatesTimingFirst: true
+                evaluatesTimingFirst: true,
+                maximumSize: readLimit
             ) {
                 guard rechecksCache else {
                     settled = true
@@ -697,11 +706,12 @@ enum LyricsLoader {
                 )
                 guard !Task.isCancelled,
                       data.count == Int(lyricsFile.size),
-                      let text = LyricsParser.decodeText(
+                      var parsed = await LyricsParser.decodeAndParseDocument(
                         data,
-                        label: (lyricsFile.path as NSString).lastPathComponent
-                      ) else { return nil }
-                var parsed = LyricsParser.parseDocument(text, fileName: lyricsFile.fileName)
+                        label: (lyricsFile.path as NSString).lastPathComponent,
+                        fileName: lyricsFile.fileName
+                      ),
+                      !Task.isCancelled else { return nil }
                 let link = EmbeddedLyricsPrecedencePolicy.sourceDocumentLink(
                     reference: song.lyricsFileName,
                     isPinned: LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
@@ -719,7 +729,8 @@ enum LyricsLoader {
                     parsed = await mergingTranslationTrack(
                         into: parsed,
                         track: translation,
-                        connector: connector
+                        connector: connector,
+                        maximumSize: readLimit
                     )
                 }
                 replacement = parsed
@@ -970,10 +981,13 @@ enum LyricsLoader {
     /// 歌词来源页标「使用中」的那份文件, 带列目录得到的实际大小。
     /// - Parameter evaluatesTimingFirst: 编辑器、后台核对这类不赶时间的读取先比完各份
     ///   歌词文件的时间轴再读; 播放不等, 先读当前那份, 比较放到后台。
+    /// - Parameter maximumSize: 只读来显示时有声内容可以放宽(`maximumReadByteCount`);
+    ///   编辑、写回核对用默认的 4 MB。
     static func authoritativeLyricsFile(
         for song: Song,
         connector: any MusicSourceConnector,
-        evaluatesTimingFirst: Bool = false
+        evaluatesTimingFirst: Bool = false,
+        maximumSize: Int = LyricsSidecarTargetPolicy.maximumContentByteCount
     ) async throws -> AuthoritativeLyricsFile? {
         if evaluatesTimingFirst {
             await refreshAutomaticDocumentPick(for: song, connector: connector)
@@ -991,7 +1005,7 @@ enum LyricsLoader {
         }
         guard target.exists, let existingPath = target.existingPath else { return nil }
         let translation = translationTrack(in: target)
-        let maximumSize = Int64(LyricsSidecarTargetPolicy.maximumContentByteCount)
+        let maximumSize = Int64(maximumSize)
         if let size = target.existingSize, size > 0, size <= maximumSize {
             return AuthoritativeLyricsFile(
                 path: existingPath,
@@ -1098,10 +1112,11 @@ enum LyricsLoader {
     static func mergingTranslationTrack(
         into primary: [LyricLine],
         track: TranslationTrack,
-        connector: any MusicSourceConnector
+        connector: any MusicSourceConnector,
+        maximumSize: Int = LyricsSidecarTargetPolicy.maximumContentByteCount
     ) async -> [LyricLine] {
         guard track.size > 0,
-              track.size <= Int64(LyricsSidecarTargetPolicy.maximumContentByteCount) else {
+              track.size <= Int64(maximumSize) else {
             return primary
         }
         let data: Data
@@ -1116,9 +1131,10 @@ enum LyricsLoader {
             return primary
         }
         guard data.count == Int(track.size),
-              let content = LyricsParser.decodeText(data, label: track.fileName) else { return primary }
-        let translation = LyricsParser.parse(content)
-        guard !translation.isEmpty else { return primary }
+              let translation = await Task.detached(priority: .userInitiated, operation: {
+                  LyricsParser.decodeText(data, label: track.fileName).map { LyricsParser.parse($0) }
+              }).value,
+              !translation.isEmpty else { return primary }
         let languageCode = LyricsSidecarSelectionPolicy
             .languageTaggedComponents(ofSidecarNamed: track.fileName)
             .flatMap { LyricsSidecarSelectionPolicy.translationLanguageCode(forTag: $0.tag) }

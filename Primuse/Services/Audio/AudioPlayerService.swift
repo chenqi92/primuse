@@ -8876,7 +8876,11 @@ final class AudioPlayerService {
         }
 
         let position = max(0, currentTime)
-        let widgetLines = systemLyrics.map {
+        // 有声书整本的文字稿上万行:小组件只看当前这句前后,只写这一段,
+        // 不然每次刷新都要把整份文稿编码进共享的 UserDefaults(#420)。
+        let window = Self.widgetLyricsWindow(in: systemLyrics, at: position)
+        let windowLines = window.count == systemLyrics.count ? systemLyrics : Array(systemLyrics[window])
+        let widgetLines = windowLines.map {
             WidgetLyricLine(time: $0.timestamp, text: $0.text)
         }
         let anchor = WidgetLyricsPresentationPolicy.anchorIndex(
@@ -8887,7 +8891,7 @@ final class AudioPlayerService {
         let resolvedCoverName = coverImageName
             ?? (playback?.currentSongID == song.id ? playback?.coverImageName : nil)
         let isActivelyPlaying = isPlaybackActuallyActive
-        let direction = LyricWritingDirectionPolicy.resolve(in: systemLyrics)
+        let direction = LyricWritingDirectionPolicy.resolve(in: windowLines)
         let signature = [
             song.id,
             song.title,
@@ -8917,6 +8921,22 @@ final class AudioPlayerService {
         WidgetCenter.shared.reloadTimelines(ofKind: "LyricsWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingWidget")
         WidgetCenter.shared.reloadTimelines(ofKind: "NowPlayingClassicWidget")
+    }
+
+    /// 写给小组件的那一段歌词:行数不多时整份;很长时从当前句往前 40 行、往后 200 行,
+    /// 够小组件一条时间线往后排的几句。
+    private nonisolated static func widgetLyricsWindow(in lines: [LyricLine], at position: TimeInterval) -> Range<Int> {
+        let limit = 600
+        guard lines.count > limit else { return lines.indices }
+        var low = 0
+        var high = lines.count
+        while low < high {
+            let mid = (low + high) / 2
+            if lines[mid].timestamp <= position { low = mid + 1 } else { high = mid }
+        }
+        let start = max(0, low - 1 - 40)
+        let end = min(lines.count, start + 240)
+        return start..<end
     }
 
     private func clearWidgetLyricsSnapshotIfNeeded() {

@@ -31,6 +31,14 @@ enum LyricsParser {
         return decoded.text
     }
 
+    /// 解码加解析放到后台:有声书整本的文字稿上万行,在主线程上解析会卡住界面(#420)。
+    static func decodeAndParseDocument(_ data: Data, label: String, fileName: String) async -> [LyricLine]? {
+        await Task.detached(priority: .userInitiated) {
+            guard let text = LyricsParser.decodeText(data, label: label) else { return nil }
+            return LyricsParser.parseDocument(text, fileName: fileName)
+        }.value
+    }
+
     static func parseText(_ text: String) -> [LyricLine] {
         LyricsContentParser.parseText(text)
     }
