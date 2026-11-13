@@ -295,6 +295,8 @@ struct CarPlaySettingsView: View {
                             Text("carplay_now_playing").tag(true)
                         }
                         .settingsAnchor("carplay.afterPlay")
+                    } footer: {
+                        Text("carplay_lyrics_source_note")
                     }
                     CarPlayNowPlayingButtonsEditor(model: model, isSpokenWord: $editingSpokenWordButtons)
                 }

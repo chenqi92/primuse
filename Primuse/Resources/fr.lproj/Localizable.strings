@@ -3449,7 +3449,7 @@
 "server_favorite_update_failed_title" = "Impossible de mettre à jour le favori";
 "server_favorite_update_failed_message" = "Le favori du serveur n’a pas pu être mis à jour. Primuse a resynchronisé ou restauré l’état précédent.\n%@";
 "lock_screen_lyrics" = "Paroles sur l’écran verrouillé";
-"lock_screen_lyrics_desc" = "Utilise les paroles synchronisées actuelles comme titre dans le panneau de lecture du système. Le centre de contrôle, le Bluetooth et les écrans embarqués peuvent aussi afficher les paroles.";
+"lock_screen_lyrics_desc" = "Utilise les paroles synchronisées actuelles comme titre dans le panneau de lecture du système. Le centre de contrôle, le Bluetooth et les écrans embarqués peuvent aussi afficher les paroles. Seules les paroles synchronisées visibles dans le lecteur Primuse s’affichent. Apple Music ne partage pas ses paroles avec d’autres apps : ajoutez d’abord des paroles à ces morceaux.";
 
 "ai_settings_title" = "Fonctions intelligentes";
 "ai_region_checking" = "Vérification de la région App Store…";
@@ -4359,6 +4359,7 @@
 "carplay_pin_folder" = "Épingler ce dossier";
 "carplay_unpin_folder" = "Détacher ce dossier";
 "carplay_lyrics_position" = "Position des paroles";
+"carplay_lyrics_source_note" = "Seules les paroles synchronisées visibles dans le lecteur Primuse s’affichent. Apple Music ne partage pas ses paroles avec d’autres apps : ajoutez d’abord des paroles à ces morceaux.";
 "carplay_lyrics_followPhone" = "Suivre l’écran verrouillé";
 "carplay_lyrics_off" = "Désactivées";
 "carplay_lyrics_subtitle" = "Sous-titre";

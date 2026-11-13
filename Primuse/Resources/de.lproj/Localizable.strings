@@ -3449,7 +3449,7 @@
 "server_favorite_update_failed_title" = "Favorit konnte nicht aktualisiert werden";
 "server_favorite_update_failed_message" = "Der Serverfavorit konnte nicht aktualisiert werden. Primuse hat den Status neu synchronisiert oder wiederhergestellt.\n%@";
 "lock_screen_lyrics" = "Liedtext auf dem Sperrbildschirm";
-"lock_screen_lyrics_desc" = "Zeigt die aktuelle synchronisierte Liedzeile als Titel in der systemweiten Wiedergabeansicht. Auch Kontrollzentrum, Bluetooth- und Fahrzeuganzeigen können den Liedtext anzeigen.";
+"lock_screen_lyrics_desc" = "Zeigt die aktuelle synchronisierte Liedzeile als Titel in der systemweiten Wiedergabeansicht. Auch Kontrollzentrum, Bluetooth- und Fahrzeuganzeigen können den Liedtext anzeigen. Es werden nur synchronisierte Liedtexte angezeigt, die auch im Primuse-Player zu sehen sind. Apple Music gibt seine Liedtexte nicht an andere Apps weiter – ergänze für diese Titel zuerst Liedtexte.";
 
 "ai_settings_title" = "Intelligente Funktionen";
 "ai_region_checking" = "App-Store-Region wird geprüft…";
@@ -4359,6 +4359,7 @@
 "carplay_pin_folder" = "Diesen Ordner anheften";
 "carplay_unpin_folder" = "Diesen Ordner lösen";
 "carplay_lyrics_position" = "Liedtextposition";
+"carplay_lyrics_source_note" = "Es werden nur synchronisierte Liedtexte angezeigt, die auch im Primuse-Player zu sehen sind. Apple Music gibt seine Liedtexte nicht an andere Apps weiter – ergänze für diese Titel zuerst Liedtexte.";
 "carplay_lyrics_followPhone" = "Sperrbildschirm folgen";
 "carplay_lyrics_off" = "Aus";
 "carplay_lyrics_subtitle" = "Untertitel";

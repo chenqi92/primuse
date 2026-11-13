@@ -3449,7 +3449,7 @@
 "server_favorite_update_failed_title" = "즐겨찾기를 업데이트할 수 없음";
 "server_favorite_update_failed_message" = "서버 즐겨찾기를 업데이트하지 못했습니다. Primuse가 상태를 다시 동기화하거나 이전 상태로 복원했습니다.\n%@";
 "lock_screen_lyrics" = "잠금 화면 가사";
-"lock_screen_lyrics_desc" = "현재 동기화된 가사를 시스템 재생 화면의 제목으로 표시합니다. 제어 센터, Bluetooth 및 차량 화면에도 가사가 표시될 수 있습니다.";
+"lock_screen_lyrics_desc" = "현재 동기화된 가사를 시스템 재생 화면의 제목으로 표시합니다. 제어 센터, Bluetooth 및 차량 화면에도 가사가 표시될 수 있습니다. Primuse 재생 화면에 보이는 동기화 가사만 표시됩니다. Apple Music은 다른 앱에 가사를 제공하지 않으므로 해당 노래는 먼저 가사를 추가하세요.";
 
 "ai_settings_title" = "지능형 기능";
 "ai_region_checking" = "App Store 지역 확인 중…";
@@ -4359,6 +4359,7 @@
 "carplay_pin_folder" = "이 폴더 고정";
 "carplay_unpin_folder" = "이 폴더 고정 해제";
 "carplay_lyrics_position" = "가사 위치";
+"carplay_lyrics_source_note" = "Primuse 재생 화면에 보이는 동기화 가사만 표시됩니다. Apple Music은 다른 앱에 가사를 제공하지 않으므로 해당 노래는 먼저 가사를 추가하세요.";
 "carplay_lyrics_followPhone" = "잠금 화면 설정 따르기";
 "carplay_lyrics_off" = "끔";
 "carplay_lyrics_subtitle" = "부제목";

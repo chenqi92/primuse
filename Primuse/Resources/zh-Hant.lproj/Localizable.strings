@@ -3435,7 +3435,7 @@
 "server_favorite_update_failed_title" = "無法更新收藏";
 "server_favorite_update_failed_message" = "未能更新伺服器收藏，已重新同步或還原先前狀態。\n%@";
 "lock_screen_lyrics" = "鎖定畫面歌詞";
-"lock_screen_lyrics_desc" = "在系統播放面板中以目前同步歌詞取代標題；控制中心、藍牙與車載畫面也可能顯示歌詞。";
+"lock_screen_lyrics_desc" = "在系統播放面板中以目前同步歌詞取代標題；控制中心、藍牙與車載畫面也可能顯示歌詞。只顯示 Primuse 播放頁中看得到的同步歌詞；Apple Music 不向其他 App 提供歌詞，這類歌曲需要先補上歌詞。";
 
 "ai_settings_title" = "智慧功能";
 "ai_region_checking" = "正在確認 App Store 地區…";
@@ -4345,6 +4345,7 @@
 "carplay_pin_folder" = "固定此目錄";
 "carplay_unpin_folder" = "取消固定此目錄";
 "carplay_lyrics_position" = "歌詞位置";
+"carplay_lyrics_source_note" = "只顯示 Primuse 播放頁中看得到的同步歌詞；Apple Music 不向其他 App 提供歌詞，這類歌曲需要先補上歌詞。";
 "carplay_lyrics_followPhone" = "跟隨鎖定畫面設定";
 "carplay_lyrics_off" = "關閉";
 "carplay_lyrics_subtitle" = "副標題";

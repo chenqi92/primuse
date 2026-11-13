@@ -1971,7 +1971,7 @@
 "local_reference_source_name_format" = "Referências Locais (%d)";
 "lock_desktop_lyrics" = "Bloquear letras na mesa";
 "lock_screen_lyrics" = "Letras na tela bloqueada";
-"lock_screen_lyrics_desc" = "Use a linha sincronizada atual como título no painel de reprodução do sistema. A Central de Controle, o Bluetooth e as telas do carro também podem exibi-la.";
+"lock_screen_lyrics_desc" = "Use a linha sincronizada atual como título no painel de reprodução do sistema. A Central de Controle, o Bluetooth e as telas do carro também podem exibi-la. Só aparece a letra sincronizada que você vê no player do Primuse. O Apple Music não compartilha letras com outros apps, então adicione a letra dessas músicas primeiro.";
 "log_filter_error" = "Erros";
 "log_filter_warning" = "Avisos";
 "lyrics_audio_tools_footer" = "A transcrição de músicas cria um rascunho editável de letras sincronizadas. Nada é salvo até você revisar e confirmar.";
@@ -4265,6 +4265,7 @@
 "carplay_pin_folder" = "Fixar esta pasta";
 "carplay_unpin_folder" = "Desafixar esta pasta";
 "carplay_lyrics_position" = "Posição da letra";
+"carplay_lyrics_source_note" = "Só aparece a letra sincronizada que você vê no player do Primuse. O Apple Music não compartilha letras com outros apps, então adicione a letra dessas músicas primeiro.";
 "carplay_lyrics_followPhone" = "Seguir tela bloqueada";
 "carplay_lyrics_off" = "Desativada";
 "carplay_lyrics_subtitle" = "Subtítulo";

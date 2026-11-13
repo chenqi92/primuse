@@ -3220,7 +3220,7 @@
 "server_favorite_update_failed_title" = "Couldn’t Update Favorite";
 "server_favorite_update_failed_message" = "The server favorite could not be updated. Primuse resynced or restored the previous state.\n%@";
 "lock_screen_lyrics" = "Lock Screen Lyrics";
-"lock_screen_lyrics_desc" = "Use the current synchronized lyric as the title in the system Now Playing panel. Control Center, Bluetooth and in-car displays may also show the lyric.";
+"lock_screen_lyrics_desc" = "Use the current synchronized lyric as the title in the system Now Playing panel. Control Center, Bluetooth and in-car displays may also show the lyric. Only lyrics you can see on the Primuse player are shown. Apple Music doesn't share its lyrics with other apps, so add lyrics for those songs first.";
 
 "ai_settings_title" = "Intelligence";
 "ai_region_checking" = "Checking App Store region…";
@@ -4132,6 +4132,7 @@
 "carplay_pin_folder" = "Pin This Folder";
 "carplay_unpin_folder" = "Unpin This Folder";
 "carplay_lyrics_position" = "Lyrics Position";
+"carplay_lyrics_source_note" = "Only lyrics you can see on the Primuse player are shown. Apple Music doesn't share its lyrics with other apps, so add lyrics for those songs first.";
 "carplay_lyrics_followPhone" = "Follow Lock Screen";
 "carplay_lyrics_off" = "Off";
 "carplay_lyrics_subtitle" = "Subtitle";

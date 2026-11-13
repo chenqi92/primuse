@@ -2694,7 +2694,7 @@
 "dup_keep_best_action_format" = "En iyi sürümü tut, diğer %d sürümü kaldır";
 "Not Enabled" = "Etkin Değil";
 "Toggle" = "Aç/Kapat";
-"lock_screen_lyrics_desc" = "Sistemin Şu An Çalınan panelinde başlık olarak geçerli senkronize şarkı sözünü kullanın. Kontrol Merkezi, Bluetooth ve araç içi ekranlar da şarkı sözlerini gösterebilir.";
+"lock_screen_lyrics_desc" = "Sistemin Şu An Çalınan panelinde başlık olarak geçerli senkronize şarkı sözünü kullanın. Kontrol Merkezi, Bluetooth ve araç içi ekranlar da şarkı sözlerini gösterebilir. Yalnızca Primuse oynatıcısında görünen senkronize şarkı sözleri gösterilir. Apple Music şarkı sözlerini diğer uygulamalarla paylaşmaz; bu şarkılar için önce şarkı sözü ekleyin.";
 "onboarding_experience_title" = "Telefonunuzda dinlemekten daha fazlası";
 "tv_remote_back" = "Geri";
 "synology_quickconnect_hint" = "DSM'den QuickConnect Kimliğini girin. Primuse otomatik olarak doğrudan erişimi, Akıllı DNS'yi veya röleyi seçer.";
@@ -4265,6 +4265,7 @@
 "carplay_pin_folder" = "Bu klasörü sabitle";
 "carplay_unpin_folder" = "Bu klasörün sabitlemesini kaldır";
 "carplay_lyrics_position" = "Şarkı Sözü Konumu";
+"carplay_lyrics_source_note" = "Yalnızca Primuse oynatıcısında görünen senkronize şarkı sözleri gösterilir. Apple Music şarkı sözlerini diğer uygulamalarla paylaşmaz; bu şarkılar için önce şarkı sözü ekleyin.";
 "carplay_lyrics_followPhone" = "Kilit Ekranını İzle";
 "carplay_lyrics_off" = "Kapalı";
 "carplay_lyrics_subtitle" = "Alt Başlık";

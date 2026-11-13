@@ -1971,7 +1971,7 @@
 "local_reference_source_name_format" = "المراجع المحلية (%d)";
 "lock_desktop_lyrics" = "قفل كلمات سطح المكتب";
 "lock_screen_lyrics" = "كلمات شاشة القفل";
-"lock_screen_lyrics_desc" = "استخدام سطر الكلمات المتزامن الحالي عنوانًا في لوحة «قيد التشغيل» بالنظام. قد يظهر السطر أيضًا في مركز التحكم وشاشات Bluetooth والسيارة.";
+"lock_screen_lyrics_desc" = "استخدام سطر الكلمات المتزامن الحالي عنوانًا في لوحة «قيد التشغيل» بالنظام. قد يظهر السطر أيضًا في مركز التحكم وشاشات Bluetooth والسيارة. تظهر فقط الكلمات المتزامنة الظاهرة في مشغّل Primuse. لا يشارك Apple Music كلماته مع التطبيقات الأخرى، لذا أضف كلمات هذه الأغاني أولًا.";
 "log_filter_error" = "أخطاء";
 "log_filter_warning" = "التحذيرات";
 "lyrics_audio_tools_footer" = "يقوم نسخ الأغنية بإنشاء مسودة غنائية قابلة للتحرير ومحددة التوقيت. ولا يتم حفظ أي شيء حتى تقوم بمراجعته وتأكيده.";
@@ -4265,6 +4265,7 @@
 "carplay_pin_folder" = "تثبيت هذا المجلد";
 "carplay_unpin_folder" = "إلغاء تثبيت هذا المجلد";
 "carplay_lyrics_position" = "موضع كلمات الأغنية";
+"carplay_lyrics_source_note" = "تظهر فقط الكلمات المتزامنة الظاهرة في مشغّل Primuse. لا يشارك Apple Music كلماته مع التطبيقات الأخرى، لذا أضف كلمات هذه الأغاني أولًا.";
 "carplay_lyrics_followPhone" = "اتباع شاشة القفل";
 "carplay_lyrics_off" = "إيقاف";
 "carplay_lyrics_subtitle" = "العنوان الفرعي";

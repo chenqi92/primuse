@@ -3450,7 +3450,7 @@
 "server_favorite_update_failed_title" = "お気に入りを更新できませんでした";
 "server_favorite_update_failed_message" = "サーバー側のお気に入りを更新できませんでした。Primuse は再同期するか、以前の状態に戻しました。\n%@";
 "lock_screen_lyrics" = "ロック画面の歌詞";
-"lock_screen_lyrics_desc" = "現在の同期歌詞をシステムの「再生中」パネルのタイトルとして表示します。コントロールセンター、Bluetooth、車載ディスプレイにも歌詞が表示される場合があります。";
+"lock_screen_lyrics_desc" = "現在の同期歌詞をシステムの「再生中」パネルのタイトルとして表示します。コントロールセンター、Bluetooth、車載ディスプレイにも歌詞が表示される場合があります。 Primuse の再生画面に表示される同期歌詞のみ表示されます。Apple Music は他のアプリに歌詞を提供しないため、これらの曲は先に歌詞を追加してください。";
 
 "ai_settings_title" = "インテリジェンス";
 "ai_region_checking" = "App Store の地域を確認しています…";
@@ -4360,6 +4360,7 @@
 "carplay_pin_folder" = "このフォルダを固定";
 "carplay_unpin_folder" = "このフォルダの固定を解除";
 "carplay_lyrics_position" = "歌詞の位置";
+"carplay_lyrics_source_note" = "Primuse の再生画面に表示される同期歌詞のみ表示されます。Apple Music は他のアプリに歌詞を提供しないため、これらの曲は先に歌詞を追加してください。";
 "carplay_lyrics_followPhone" = "ロック画面に従う";
 "carplay_lyrics_off" = "オフ";
 "carplay_lyrics_subtitle" = "サブタイトル";
