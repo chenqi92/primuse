@@ -16,6 +16,8 @@ public struct ID3TextMetadata: Equatable, Sendable {
     public var discNumber: Int?
     public var year: Int?
     public var genre: String?
+    /// TCOP。AVFoundation 读出来记进内容信息的版权; 不开 AVFoundation 时由这里补。
+    public var copyright: String?
 
     public init(
         title: String? = nil,
@@ -28,7 +30,8 @@ public struct ID3TextMetadata: Equatable, Sendable {
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
         year: Int? = nil,
-        genre: String? = nil
+        genre: String? = nil,
+        copyright: String? = nil
     ) {
         self.title = title
         self.artist = artist
@@ -41,6 +44,7 @@ public struct ID3TextMetadata: Equatable, Sendable {
         self.discNumber = discNumber
         self.year = year
         self.genre = genre
+        self.copyright = copyright
     }
 
     public var isEmpty: Bool {
@@ -53,6 +57,7 @@ public struct ID3TextMetadata: Equatable, Sendable {
             && discNumber == nil
             && year == nil
             && genre == nil
+            && copyright == nil
     }
 }
 
@@ -384,6 +389,8 @@ public enum ID3TextMetadataParser {
             result.year = result.year ?? year(value)
         case "TCON", "TCO":
             genres.append(contentsOf: values)
+        case "TCOP", "TCR":
+            result.copyright = result.copyright ?? value
         default:
             break
         }

@@ -384,6 +384,14 @@ enum FileMetadataReader {
                 cachedExtension = fileExtension
                 cachedMetadata = metadata
                 cachedCompleteFLAC = true
+            } else if let native = completeMP3Metadata(from: data, fileExtension: fileExtension)
+                        ?? completeISOBaseMediaMetadata(from: data, fileExtension: fileExtension) {
+                // 标签、封面、歌词由下面的 applyingRangeFallbacks 照常从字节里读。
+                metadata = native
+                cachedData = data
+                cachedExtension = fileExtension
+                cachedMetadata = metadata
+                cachedCompleteFLAC = false
             } else {
                 metadata = await readAssetMetadata(from: data, fileExtension: fileExtension)
                 cachedData = data
@@ -462,6 +470,88 @@ enum FileMetadataReader {
               let bitDepth = flac.bitDepth, (4...32).contains(bitDepth) else { return nil }
         var metadata = Metadata()
         applyFLACFallback(to: &metadata, parsed: flac)
+        metadata.repairAlbumTitle()
+        return metadata
+    }
+
+    /// MP3 的音频参数不开 AVFoundation: 帧头给采样率与码率, Xing/Info/VBRI 头给总帧数。
+    /// ID3v2 必须整段在手(截断的交回原路径, 补读会再扩大范围); v2.2、MPEG Layer I/II、
+    /// 自由码率、找不到能互相印证的帧都返回 nil。标签由调用方随后的 ID3 原生解析补上。
+    static func completeMP3Metadata(from data: Data, fileExtension: String) -> Metadata? {
+        guard fileExtension.lowercased() == "mp3", data.count >= 4 else { return nil }
+        var audioStart = 0
+        if let tagByteCount = id3TagByteCount(in: data) {
+            guard (3...4).contains(Int(data[data.startIndex + 3])), tagByteCount <= data.count else { return nil }
+            audioStart = tagByteCount
+        }
+        guard let stream = MPEGAudioStreamParser.parse(data, audioStart: audioStart) else { return nil }
+        var metadata = Metadata()
+        metadata.sampleRate = stream.sampleRate
+        // AVFoundation 对 MP3 报每声道 0 bit, 保持一致。
+        metadata.bitDepth = 0
+        metadata.audioCodec = .mp3
+        if let duration = stream.exactDuration {
+            metadata.duration = duration
+            metadata.bitRate = stream.headerAverageBitRateKbps ?? stream.bitRateKbps
+        } else {
+            // 没有时长头: 和 AVFoundation 只拿到一段前缀时一样, 先按手里的字节估;
+            // 远端读取会再用整个文件的大小折算(RemoteMetadataReadPolicy.correctedMP3Duration)。
+            let kbps = stream.scannedAverageBitRateKbps ?? Double(stream.bitRateKbps)
+            let trailingID3v1 = data.count >= 128
+                && data[data.endIndex - 128] == 0x54 && data[data.endIndex - 127] == 0x41
+                && data[data.endIndex - 126] == 0x47 ? 128 : 0
+            let audioBytes = data.count - stream.frameOffset - trailingID3v1
+            guard audioBytes > 0, kbps > 0 else { return nil }
+            metadata.duration = Double(audioBytes) / (kbps * 125)
+            metadata.bitRate = Int(kbps.rounded())
+        }
+        return metadata
+    }
+
+    /// 完整 `moov` 的 M4A/M4B/ALAC: 时长、编码、采样率、位深、码率与 iTunes 标签都从
+    /// 原子里读。认不准的结构(HE-AAC、多条音轨、QuickTime 键表等)返回 nil 交回 AVFoundation。
+    /// 歌词与 ReplayGain、版权、章节数仍由 applyingRangeFallbacks 里的现有解析补齐。
+    static func completeISOBaseMediaMetadata(from data: Data, fileExtension: String) -> Metadata? {
+        guard isoBaseMediaExtensions.contains(fileExtension.lowercased()),
+              let parsed = ISOBaseMediaNativeMetadataParser.parse(data) else { return nil }
+        var metadata = Metadata()
+        metadata.duration = parsed.duration
+        metadata.sampleRate = parsed.sampleRate
+        // AAC 每声道 0 bit, ALAC 取配置里的源位深, 都与 AVFoundation 报的一致。
+        metadata.bitDepth = parsed.bitDepth ?? 0
+        metadata.audioCodec = ContainerAudioCodecPolicy.codec(sampleEntry: parsed.codecFourCC)
+        if let bitsPerSecond = parsed.averageBitRate {
+            metadata.applyAudioProperties(bitRateKbps: Double(bitsPerSecond / 1_000))
+        }
+        func text(_ value: String?) -> String? { value.flatMap { decodedText($0) } }
+        let titles = parsed.titles.compactMap { text($0) }
+        metadata.title = MetadataTitleResolutionPolicy.preferredEmbeddedTitle(
+            from: titles.flatMap {
+                [EmbeddedTitleCandidate(value: $0, source: .common),
+                 EmbeddedTitleCandidate(value: $0, source: .iTunesSongName)]
+            }
+        )
+        var artists: [String] = []
+        for artist in parsed.artists.compactMap({ text($0) }) where !artists.contains(where: {
+            $0.compare(artist, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]) == .orderedSame
+        }) {
+            artists.append(artist)
+        }
+        if artists.count > 1 {
+            metadata.sourceArtistNames = artists
+            metadata.artist = artists.joined(separator: "; ")
+        } else {
+            metadata.artist = artists.first
+        }
+        metadata.albumTitle = text(parsed.albumTitle)
+        metadata.albumArtist = text(parsed.albumArtist)
+        metadata.trackNumber = parsed.trackNumber
+        metadata.discNumber = parsed.discNumber
+        metadata.year = parsedYear(text(parsed.releaseDate))
+        metadata.genre = text(parsed.userGenre)
+            ?? parsed.predefinedGenreCode.flatMap(ID3GenreNames.name(forMP4GenreCode:))
+        metadata.coverArtData = parsed.coverArtData
+        metadata.lyricsText = text(parsed.lyrics)
         metadata.repairAlbumTitle()
         return metadata
     }
@@ -1273,6 +1363,11 @@ enum FileMetadataReader {
         if let type = text?.releaseType {
             var content = metadata.contentMetadata ?? SongContentMetadata()
             content.releaseType = content.releaseType ?? type
+            metadata.contentMetadata = content
+        }
+        if let copyright = text?.copyright {
+            var content = metadata.contentMetadata ?? SongContentMetadata()
+            content.copyright = content.copyright ?? copyright
             metadata.contentMetadata = content
         }
         metadata.coverArtData = metadata.coverArtData ?? artwork?.coverArtData
@@ -2316,6 +2411,111 @@ enum FileMetadataReader {
         MediaMetadataTextRepair.repairedTagValue(text)
     }
 }
+
+#if DEBUG
+extension FileMetadataReader {
+    /// `PRIMUSE_DEBUG_METADATA_PARITY=<目录>`: 目录里每个 MP3/M4A 按补读时的输入(MP3 取前 256 KB,
+    /// M4A 取 ftyp+moov), 分别走不开 AVFoundation 的快路径与原来的 AVFoundation 路径, 逐项对比
+    /// 最终结果与耗时, 写进同目录的 `metadata-parity.txt`。改快路径时拿真实文件对照用。
+    static func writeNativeParityReportIfRequested() async {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_METADATA_PARITY"],
+              !path.isEmpty else { return }
+        try? await Task.sleep(for: .seconds(2))
+        let root = URL(fileURLWithPath: path)
+        let report = await Task.detached(priority: .utility) { await parityReport(root: root) }.value
+        try? report.write(to: root.appendingPathComponent("metadata-parity.txt"), atomically: true, encoding: .utf8)
+        plog("🧪 metadata parity report written to \(root.path)")
+    }
+
+    private static func parityReport(root: URL) async -> String {
+        let files = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? [])
+            .filter { ["mp3", "m4a", "m4b"].contains($0.pathExtension.lowercased()) }
+            .sorted { $0.path < $1.path }
+        var lines: [String] = []
+        var nativeSeconds = 0.0
+        var assetSeconds = 0.0
+        var matched = 0, differed = 0, fellBack = 0
+        for url in files {
+            guard let full = try? Data(contentsOf: url) else { continue }
+            let ext = url.pathExtension.lowercased()
+            let input = ext == "mp3"
+                ? Data(full.prefix(256 * 1024))
+                : (ISOBaseMediaMetadataSliceBuilder.makeMetadataFile(head: full, tail: Data()) ?? full)
+            let name = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            let nativeStart = Date()
+            let nativeBase = completeMP3Metadata(from: input, fileExtension: ext)
+                ?? completeISOBaseMediaMetadata(from: input, fileExtension: ext)
+            let native = nativeBase.map {
+                applyingRangeFallbacks(to: $0, data: input, fileExtension: ext, id3TailData: nil)
+            }
+            let nativeElapsed = Date().timeIntervalSince(nativeStart)
+            let assetStart = Date()
+            let asset = applyingRangeFallbacks(
+                to: await readAssetMetadata(from: input, fileExtension: ext),
+                data: input, fileExtension: ext, id3TailData: nil
+            )
+            let assetElapsed = Date().timeIntervalSince(assetStart)
+            guard let native else {
+                fellBack += 1
+                lines.append("FALLBACK \(name)")
+                continue
+            }
+            nativeSeconds += nativeElapsed
+            assetSeconds += assetElapsed
+            let differences = parityDifferences(native: native, asset: asset)
+            if differences.isEmpty {
+                matched += 1
+                lines.append(String(format: "OK %@ native=%.1fms asset=%.1fms", name,
+                                    nativeElapsed * 1_000, assetElapsed * 1_000))
+            } else {
+                differed += 1
+                lines.append("DIFF \(name)")
+                lines.append(contentsOf: differences.map { "    " + $0 })
+            }
+        }
+        lines.insert(String(
+            format: "files=%d matched=%d differed=%d fallback=%d native=%.1fms asset=%.1fms",
+            files.count, matched, differed, fellBack, nativeSeconds * 1_000, assetSeconds * 1_000
+        ), at: 0)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func parityDifferences(native: Metadata, asset: Metadata) -> [String] {
+        var result: [String] = []
+        func compare<T: Equatable>(_ label: String, _ lhs: T?, _ rhs: T?) {
+            if lhs != rhs { result.append("\(label): native=\(lhs.map { "\($0)" } ?? "nil") asset=\(rhs.map { "\($0)" } ?? "nil")") }
+        }
+        compare("title", native.title, asset.title)
+        compare("artist", native.artist, asset.artist)
+        compare("sourceArtistNames", native.sourceArtistNames, asset.sourceArtistNames)
+        compare("album", native.albumTitle, asset.albumTitle)
+        compare("albumArtist", native.albumArtist, asset.albumArtist)
+        compare("track", native.trackNumber, asset.trackNumber)
+        compare("disc", native.discNumber, asset.discNumber)
+        compare("year", native.year, asset.year)
+        compare("genre", native.genre, asset.genre)
+        compare("sampleRate", native.sampleRate, asset.sampleRate)
+        compare("bitDepth", native.bitDepth.flatMap { $0 > 0 ? $0 : nil }, asset.bitDepth.flatMap { $0 > 0 ? $0 : nil })
+        compare("codec", native.audioCodec, asset.audioCodec)
+        compare("coverBytes", native.coverArtData?.count, asset.coverArtData?.count)
+        compare("lyrics", native.lyricsText, asset.lyricsText)
+        compare("translation", native.translatedLyricsText, asset.translatedLyricsText)
+        compare("rgTrackGain", native.replayGainTrackGain, asset.replayGainTrackGain)
+        compare("rgAlbumGain", native.replayGainAlbumGain, asset.replayGainAlbumGain)
+        compare("content", native.contentMetadata, asset.contentMetadata)
+        let lhsDuration = native.duration ?? 0, rhsDuration = asset.duration ?? 0
+        if abs(lhsDuration - rhsDuration) > max(0.5, rhsDuration * 0.01) {
+            result.append(String(format: "duration: native=%.3f asset=%.3f", lhsDuration, rhsDuration))
+        }
+        let lhsRate = native.bitRate ?? 0, rhsRate = asset.bitRate ?? 0
+        if abs(lhsRate - rhsRate) > max(2, rhsRate / 50) {
+            result.append("bitRate: native=\(lhsRate) asset=\(rhsRate)")
+        }
+        return result
+    }
+}
+#endif
 
 /// Supplies one bounded remote metadata slice to AVFoundation without a
 /// temporary file. The delegate queue is deliberately shared and serial: the
