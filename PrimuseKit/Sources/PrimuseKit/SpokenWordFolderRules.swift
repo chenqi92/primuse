@@ -165,22 +165,28 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
     public let directoryParents: [String: String]
     /// 文件或目录 → 显示名。分书要按目录和文件名认书、排章节(`SpokenWordBookItemFolders`)。
     public let names: [String: String]
+    /// 扫描根(选择目录页勾的目录)→ 名字,不知道时为空串(用目录 ID 代替)。扫描索引里
+    /// 没有扫描根这一行;直接放在所选目录里的书要靠它成书(`scanRootNames`)。
+    public let rootNames: [String: String]
 
     public init(
         fileParents: [String: String],
         directoryParents: [String: String],
-        names: [String: String] = [:]
+        names: [String: String] = [:],
+        rootNames: [String: String] = [:]
     ) {
         self.fileParents = fileParents
         self.directoryParents = directoryParents
         self.names = names
+        self.rootNames = rootNames
     }
 
-    public init(syncIndex: [String: SourceSyncIndexedItem]) {
+    public init(syncIndex: [String: SourceSyncIndexedItem], rootNames: [String: String] = [:]) {
         self.init(
             fileParents: AlbumArtistFolderIndex.parents(fromSyncIndex: syncIndex),
             directoryParents: Self.directoryParents(fromSyncIndex: syncIndex),
-            names: Self.names(fromSyncIndex: syncIndex)
+            names: Self.names(fromSyncIndex: syncIndex),
+            rootNames: rootNames
         )
     }
 
@@ -188,7 +194,27 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
 
     /// 分书用的那一份:同样的上下级,加上名字。
     public var bookItemFolders: SpokenWordBookItemFolders {
-        SpokenWordBookItemFolders(fileParents: fileParents, directoryParents: directoryParents, names: names)
+        SpokenWordBookItemFolders(
+            fileParents: fileParents,
+            directoryParents: directoryParents,
+            names: names,
+            rootNames: rootNames
+        )
+    }
+
+    /// 一个源的扫描根交给 `rootNames` 的样子:每个扫描目录 → 随源存的名字,没有就是空串。
+    /// 整个音乐源("/")不是网盘里的某个目录,不算 —— 网盘根下的文件和任何源顶层的文件一样各自成书。
+    public static func scanRootNames(
+        scannedDirectories: [String],
+        displayNames: [String: String]
+    ) -> [String: String] {
+        var result: [String: String] = [:]
+        for directory in scannedDirectories where !SourceDirectorySelectionPolicy.isRootPath(directory) {
+            let name = displayNames[directory]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if name.isEmpty, result[directory] != nil { continue }
+            result[directory] = name
+        }
+        return result
     }
 
     /// 条目 → 显示名。同一条目被两行列出时取较小的那个名字,启动之间结论不变。

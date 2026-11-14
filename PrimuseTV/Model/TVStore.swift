@@ -1131,6 +1131,8 @@ final class TVStore {
     @ObservationIgnored private var folderDirectoryParents: [String: [String: String]] = [:]
     /// 同一批网盘里文件与目录的显示名。分书要按真实目录和文件名认书、排章节,歌曲路径只是文件 ID。
     @ObservationIgnored private var folderItemNames: [String: [String: String]] = [:]
+    /// 上一次交给分书的网盘扫描根名字(随源保存,扫描索引里没有扫描根这一行)。
+    @ObservationIgnored private var publishedScanRootNames: [String: [String: String]] = [:]
 
     // 浏览数据直接读曲库的可见数组,按需转换成界面值(见 `TVLibraryList`)。
     // 下面几份是按查找修订号懒建的小索引:第一次用到才建,修订号一变就作废。
@@ -4535,6 +4537,7 @@ final class TVStore {
                     // 源的路径写法变了(新加源、改地址)时目录标签要重新匹配;没变是空操作。
                     SpokenWordStore.shared.updateFolderTagSources(self.sourcesStore.allSources,
                                                                  pruningStaleTags: false)
+                    self.republishSpokenWordScanRootsIfChanged()
                     self.refreshVisibilityOffMain()
                     // 电台的可见性跟着音乐源的启用 / 删除走,源一变电台列表也要重算。
                     self.reloadRadioStations(fromDisk: false)
@@ -5044,6 +5047,7 @@ final class TVStore {
     }
 
     /// 走查选中目录扫描,落库(addSongs 按确定性 id 去重合并)+ 持久化 + 记录已扫目录 + 回传源。
+    /// `directoryNames`:选目录时看到的目录名(目录 → 名字),随扫描目录一起存进源。
     @discardableResult
     func runScan(
         source: MusicSource,
@@ -5051,7 +5055,8 @@ final class TVStore {
         dirs: [String],
         rereadMetadata: Bool = false,
         mode: TVScanMode = .full,
-        folder: String? = nil
+        folder: String? = nil,
+        directoryNames: [String: String] = [:]
     ) async -> Bool {
         guard await retryPendingSnapshotImport() else { return false }
         guard canMutateLibrary, !locallyRemovedSourceIDs.contains(source.id), TVScanAdmissionPolicy.canStart(
@@ -5069,7 +5074,7 @@ final class TVStore {
         let task = Task {
             await self.performScan(source: source, lister: lister, dirs: dirs,
                                    rereadMetadata: rereadMetadata, mode: mode, folder: folder,
-                                   generation: generation)
+                                   directoryNames: directoryNames, generation: generation)
         }
         scanTask = task
         let committed = await task.value
@@ -5301,15 +5306,39 @@ final class TVStore {
     }
 
     private func publishSpokenWordFolderTopologies() {
+        let rootNames = spokenWordScanRootNames()
+        publishedScanRootNames = rootNames
         var topologies: [String: SpokenWordFolderTopology] = [:]
         for (sourceID, files) in albumArtistFolderParents {
             topologies[sourceID] = SpokenWordFolderTopology(
                 fileParents: files,
                 directoryParents: folderDirectoryParents[sourceID] ?? [:],
-                names: folderItemNames[sourceID] ?? [:]
+                names: folderItemNames[sourceID] ?? [:],
+                rootNames: rootNames[sourceID] ?? [:]
             )
         }
         SpokenWordStore.shared.updateFolderTopologies(topologies)
+    }
+
+    /// 网盘每个扫描根的名字:源 ID → 扫描目录 → 名字,不知道为空串(分书用目录 ID 代替)。
+    /// 扫描索引里没有扫描根这一行,用户直接勾了书的目录时,分书只能靠它认出这本书。
+    /// 名字随源保存:电视选目录开始扫描时存下,或手机经 iCloud 同步来。
+    private func spokenWordScanRootNames() -> [String: [String: String]] {
+        var result: [String: [String: String]] = [:]
+        for source in sourcesStore.allSources where !source.isDeleted && source.type.usesOpaqueDirectoryIdentifiers {
+            let roots = SpokenWordFolderTopology.scanRootNames(
+                scannedDirectories: source.scannedDirectories,
+                displayNames: source.scannedDirectoryDisplayNames
+            )
+            if !roots.isEmpty { result[source.id] = roots }
+        }
+        return result
+    }
+
+    /// 源变了而扫描根的名字也变了(扫描保存了新目录、同步来了名字)才重送,其余源变更不动。
+    private func republishSpokenWordScanRootsIfChanged() {
+        guard spokenWordScanRootNames() != publishedScanRootNames else { return }
+        publishSpokenWordFolderTopologies()
     }
 
     /// 这一行和资料库里存着的完全一样(同一身份、同一文件位置):不必再提交。
@@ -5365,6 +5394,7 @@ final class TVStore {
     /// 断点、不改选中的目录和整源的上次扫描时间,只删这个目录里没再列到的歌。
     private func performScan(source: MusicSource, lister: TVDirectoryLister, dirs: [String],
                              rereadMetadata: Bool, mode: TVScanMode, folder: String? = nil,
+                             directoryNames: [String: String] = [:],
                              generation: UUID) async -> Bool {
         // 上一次扫描留下的后台提交先落完,不和这次的行交错。
         try? await awaitScanCommit()
@@ -5471,6 +5501,14 @@ final class TVStore {
                     $0.lastScannedAt = Date()
                     let savedDirs = mode.savedDirectories(previous: $0.scannedDirectories, scanned: dirs, sourceType: $0.type)
                     $0.extraConfig = MusicSource.encodeScannedDirectories(savedDirs, into: $0.extraConfig, type: $0.type)
+                    // 网盘目录的名字随源存:按文件 ID 寻址的网盘里扫描根自己没有索引行,
+                    // 直接放在所选目录里的有声书要靠这个名字成书。不再扫描的目录由 updateDurably 清掉。
+                    guard $0.type.isCloudDrive else { return }
+                    for directory in savedDirs {
+                        guard let name = directoryNames[directory]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              !name.isEmpty else { continue }
+                        $0.scannedDirectoryDisplayNames[directory] = name
+                    }
                 }
             } else {
                 try sourcesStore.updateLocalDurably(source.id) {

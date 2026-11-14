@@ -1168,6 +1168,8 @@ final class AppServices {
     let musicIntelligence: MusicIntelligenceService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
+    /// 上一次交给分书的网盘扫描根名字(见 `republishSpokenWordScanRootsIfChanged`)。
+    private var publishedSpokenWordScanRootNames: [String: [String: String]]?
     private var appearanceColorSyncObserver: NSObjectProtocol?
     private var appearanceColorSyncPending = false
     private var siriRadioCatalogSignature: [String]?
@@ -1662,7 +1664,11 @@ final class AppServices {
             let folders = scanService.albumArtistFolderIndex(for: sourceIDs)
             library.updateAlbumArtistFolders(folders)
             SpokenWordStore.shared.updateFolderTopologies(
-                scanService.spokenWordFolderTopologies(for: sourceIDs, fileParents: folders)
+                scanService.spokenWordFolderTopologies(
+                    for: sourceIDs,
+                    fileParents: folders,
+                    rootNames: AppServices.spokenWordScanRootNames(store.allSources)
+                )
             )
         }
         scanService.folderHierarchyChangeHandler = publishAlbumArtistFolders
@@ -2179,6 +2185,40 @@ final class AppServices {
         playerService.autoplayRestoredSessionIfEnabled()
     }
 
+    /// 网盘(按文件 ID 寻址)每个扫描根的名字:源 ID → 扫描目录 → 名字,不知道为空串。
+    /// 扫描索引里没有扫描根这一行,用户直接勾了书的目录时,分书只能靠它认出这本书
+    /// (`SpokenWordBookItemFolders.rootNames`)。和文件夹页一样,本机浏览时记下的名字优先,
+    /// 其次是随源保存、经 iCloud 同步的名字。
+    private static func spokenWordScanRootNames(_ sources: [MusicSource]) -> [String: [String: String]] {
+        var result: [String: [String: String]] = [:]
+        for source in sources where !source.isDeleted && source.type.usesOpaqueDirectoryIdentifiers {
+            let directories = source.scannedDirectories
+            guard !directories.isEmpty else { continue }
+            let browsed = CloudDirectoryNameStore.displayNames(for: source.id)
+            var names: [String: String] = [:]
+            for directory in directories {
+                let candidates = [browsed[directory], source.scannedDirectoryDisplayNames[directory]]
+                if let name = candidates.lazy
+                    .compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+                    .first(where: { !$0.isEmpty }) {
+                    names[directory] = name
+                }
+            }
+            let roots = SpokenWordFolderTopology.scanRootNames(scannedDirectories: directories, displayNames: names)
+            if !roots.isEmpty { result[source.id] = roots }
+        }
+        return result
+    }
+
+    /// 扫描根的名字只在源和本机目录名里,不在扫描索引里:名字变了(选择目录页存下、
+    /// iCloud 同步来)而索引没变时,重送一次网盘目录。没变就不动,不为每次源变更整份重建。
+    private func republishSpokenWordScanRootsIfChanged() {
+        let roots = Self.spokenWordScanRootNames(sourcesStore.allSources)
+        guard roots != publishedSpokenWordScanRootNames else { return }
+        publishedSpokenWordScanRootNames = roots
+        scanService.folderHierarchyChangeHandler?()
+    }
+
     private func migrateSourceDirectoryDisplayNames() {
         #if os(iOS) || os(macOS)
         for source in sourcesStore.sources where source.type.isCloudDrive {
@@ -2311,6 +2351,17 @@ final class AppServices {
                     }
                     self.serverRatingSync.resume()
                     SpokenWordStore.shared.updateFolderTagSources(self.sourcesStore.allSources)
+                    self.republishSpokenWordScanRootsIfChanged()
+                }
+            }
+        )
+        // 选择目录页浏览时本机记下的网盘目录名,也是扫描根名字的来源之一。
+        publishedSpokenWordScanRootNames = Self.spokenWordScanRootNames(sourcesStore.allSources)
+        sourceLifecycleObserverTokens.append(
+            nc.addObserver(forName: CloudDirectoryNameStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                MainActor.assumeIsolated {
+                    self.republishSpokenWordScanRootsIfChanged()
                 }
             }
         )

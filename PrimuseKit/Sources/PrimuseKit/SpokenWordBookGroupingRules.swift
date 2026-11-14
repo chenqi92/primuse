@@ -597,6 +597,14 @@ enum SpokenWordBookGroupingRules {
               start <= end else { return nil }
         return start
     }
+
+    /// A "CD 2" or "1-500" folder: it only splits a book, and the folder
+    /// above it is the book's.
+    static func isDiscOrRangeFolder(_ name: String) -> Bool {
+        guard mayHoldNumber(name) else { return false }
+        return discFolder.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
+            || rangeStart(of: name) != nil
+    }
 }
 
 /// Union–find over string keys, small and local to the grouping.
@@ -637,20 +645,67 @@ public struct SpokenWordBookItemFolders: Equatable, Sendable {
     public var directoryParents: [String: String]
     /// File or folder → its name.
     public var names: [String: String]
+    /// The folders the source is scanned from (the picks on its folder page)
+    /// → their names, "" when unknown, and the id then stands in. The scan
+    /// index has no row for a scan root, so only this names one. A drive's
+    /// own root is never listed: what lies there stands alone, as at the top
+    /// of any source.
+    public var rootNames: [String: String]
 
-    public init(fileParents: [String: String], directoryParents: [String: String], names: [String: String]) {
+    public init(
+        fileParents: [String: String],
+        directoryParents: [String: String],
+        names: [String: String],
+        rootNames: [String: String] = [:]
+    ) {
         self.fileParents = fileParents
         self.directoryParents = directoryParents
         self.names = names
+        self.rootNames = rootNames
     }
 
     /// The file spelled as a path of names ("有声书/三体/1-50/第1集.mp3"), or
     /// nil when the scan never placed it. `directoryPaths` memoises folders.
     func path(ofFile fileID: String, directoryPaths: inout [String: String]) -> String? {
         guard let parent = fileParents[fileID] else { return nil }
-        let folder = directoryPath(parent, cache: &directoryPaths)
+        let folder = bookFolderPath(parent, cache: &directoryPaths)
         let name = Self.component(names[fileID]) ?? fileID
         return folder.isEmpty ? name : folder + "/" + name
+    }
+
+    /// The folder's path, led by its scan root's name when the folders below
+    /// the root name no book of their own: the files lie in the root itself
+    /// (the user picked the book's folder), or in a "CD 2" / "1-500" folder
+    /// right under it. A path-addressed source names that root in every path;
+    /// here only `rootNames` does. Anywhere deeper the root stays out, so the
+    /// books subfolders already told apart keep the ids they had.
+    private func bookFolderPath(_ id: String, cache: inout [String: String]) -> String {
+        // Memoised next to `directoryPath`'s entries; no provider id starts with U+001F.
+        let key = "\u{1F}" + id
+        if let known = cache[key] { return known }
+        let path = directoryPath(id, cache: &cache)
+        var result = path
+        if !path.contains("/"),
+           path.isEmpty || SpokenWordBookGroupingRules.isDiscOrRangeFolder(path),
+           let root = scanRootName(above: id) {
+            result = path.isEmpty ? root : root + "/" + path
+        }
+        cache[key] = result
+        return result
+    }
+
+    /// The name of the scan root a folder's chain ends at, when the source is
+    /// scanned from that root and the root adds nothing to paths by itself.
+    private func scanRootName(above id: String) -> String? {
+        var top = id
+        var seen: Set<String> = [id]
+        while let parent = directoryParents[top] {
+            // A folder listed as its own ancestor has no root.
+            guard seen.insert(parent).inserted, seen.count <= 256 else { return nil }
+            top = parent
+        }
+        guard Self.component(names[top]) == nil, let name = rootNames[top] else { return nil }
+        return Self.component(name) ?? Self.component(top) ?? top
     }
 
     private func directoryPath(_ id: String, cache: inout [String: String]) -> String {
@@ -669,8 +724,9 @@ public struct SpokenWordBookItemFolders: Equatable, Sendable {
             current = directoryParents[folder]
         }
         for folder in chain.reversed() {
-            // The scan root has no row of its own and adds nothing; an
-            // unnamed folder below it keeps its id, so it stays told apart.
+            // The scan root has no row of its own and adds nothing here
+            // (`bookFolderPath` names it where it must); an unnamed folder
+            // below it keeps its id, so it stays told apart.
             let name = Self.component(names[folder])
                 ?? (directoryParents[folder] == nil ? nil : folder)
             if let name { path = path.isEmpty ? name : path + "/" + name }

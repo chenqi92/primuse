@@ -37,6 +37,9 @@ struct TVScanFlowView: View {
     /// 已勾选的目录,原样保存(顺序即勾选顺序)。上下级覆盖、同一目录的不同写法
     /// 都交给 `SourceDirectorySelectionPolicy`,与手机、Mac 的选择页同一套规则。
     @State private var selected: [String] = []
+    /// 勾选时看到的目录名(目录 → 名字),开始扫描时随扫描目录存进源。按文件 ID 寻址的
+    /// 网盘里扫描根没有自己的索引行,直接放在所选目录里的有声书要靠这个名字成书。
+    @State private var selectedNames: [String: String] = [:]
     @State private var loading = false
     @State private var started = false
     @State private var browseError: String?
@@ -230,7 +233,7 @@ struct TVScanFlowView: View {
                         TVPagedList(directories, spacing: 8) { _, e, onFocusChanged in
                             folderRow(name: e.name, isUp: false, selectable: true,
                                       state: selectionState(of: e.path, ancestors: parentPaths + [path]),
-                                      onSelect: { toggle(e.path) }, onOpen: { openFolder(e) },
+                                      onSelect: { toggle(e.path, name: e.name) }, onOpen: { openFolder(e) },
                                       onFocusChanged: onFocusChanged)
                         }
                         // 每一层目录一份新的懒加载列表:换目录时不在原地替换整批行
@@ -338,7 +341,8 @@ struct TVScanFlowView: View {
             ? String(localized: "folder_pick_whole_source")
             : String(format: String(localized: "folder_pick_whole_folder_format"), breadcrumbNames.last ?? path)
         let caption = includedCaption ?? String(localized: "folder_pick_includes_future")
-        return TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: { toggle(target) }) { focused in
+        let targetName = atRoot ? nil : breadcrumbNames.last
+        return TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: { toggle(target, name: targetName) }) { focused in
             HStack(spacing: 16) {
                 Image(systemName: atRoot ? "shippingbox.fill" : "folder.fill")
                     .font(.system(size: 22))
@@ -559,7 +563,8 @@ struct TVScanFlowView: View {
         return SourceDirectoryLabelPolicy.readableFallback(path: ancestor, sourceType: source.type)
     }
 
-    private func toggle(_ p: String) {
+    private func toggle(_ p: String, name: String? = nil) {
+        if let name, !name.isEmpty { selectedNames[p] = name }
         // 勾了上级就把它下面单独勾过的目录收起来(扫描本来就会整棵走下去),
         // 与手机、Mac 的选择页一致;被上级覆盖的行勾选框是禁用的。
         selected = SourceDirectorySelectionPolicy.normalizedSelections(
@@ -577,15 +582,29 @@ struct TVScanFlowView: View {
         // 没勾任何目录时按钮是禁用的;这里再挡一次,不再悄悄把当前目录当成扫描范围。
         guard !dirs.isEmpty else { return }
         let currentSource = store.source(id: source.id) ?? source
+        let names = directoryNames(for: dirs)
         loadTask?.cancel()
         started = true
         Task {
             let admitted = await store.runScan(source: currentSource, lister: lister, dirs: dirs,
-                                              rereadMetadata: rereadMetadata, mode: mode)
+                                              rereadMetadata: rereadMetadata, mode: mode,
+                                              directoryNames: names)
             guard !admitted, !Task.isCancelled else { return }
             browseError = PMString("ext.tv.scan.busy")
             started = false
         }
+    }
+
+    /// 要扫描的目录在选择页上看到的名字;目录写法被规整过时按同一目录认。
+    private func directoryNames(for dirs: [String]) -> [String: String] {
+        var names: [String: String] = [:]
+        for dir in dirs {
+            if let name = selectedNames[dir]
+                ?? selectedNames.first(where: { SourceDirectorySelectionPolicy.isSamePath($0.key, dir) })?.value {
+                names[dir] = name
+            }
+        }
+        return names
     }
 
     private func startFnMusicScan() {

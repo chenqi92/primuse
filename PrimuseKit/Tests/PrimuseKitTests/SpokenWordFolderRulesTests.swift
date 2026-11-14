@@ -329,6 +329,28 @@ struct SpokenWordFolderRulesTests {
         #expect(topology.files(inside: ["b"]) == ["f1"])
     }
 
+    @Test("Scanned folders reach book grouping by name; the whole source is no folder")
+    func cloudScanRootNames() {
+        let roots = SpokenWordFolderTopology.scanRootNames(
+            scannedDirectories: ["/", "", "d-santi", "d-gui"],
+            displayNames: ["d-santi": " 三体 ", "d-other": "别的"]
+        )
+        #expect(roots == ["d-santi": "三体", "d-gui": ""])
+
+        let topology = SpokenWordFolderTopology(
+            fileParents: ["f": "d-santi", "g": "d-gui"],
+            directoryParents: [:],
+            names: ["f": "01.mp3", "g": "01.mp3"],
+            rootNames: roots
+        )
+        #expect(topology.bookItemFolders.rootNames == roots)
+        var cache: [String: String] = [:]
+        #expect(topology.bookItemFolders.path(ofFile: "f", directoryPaths: &cache) == "三体/01.mp3")
+        #expect(topology.bookItemFolders.path(ofFile: "g", directoryPaths: &cache) == "d-gui/01.mp3")
+        // Classification never needed the roots' names.
+        #expect(topology.files(inside: ["d-santi"]) == ["f"])
+    }
+
     @Test("A server library tag matches by the library id stamped on the song, never by path")
     func libraryTag() {
         let path = SpokenWordFolderTag.libraryPath(libraryID: "lib-books")

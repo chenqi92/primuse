@@ -644,6 +644,133 @@ struct SpokenWordBookGroupingRulesTests {
         #expect(SpokenWordBookGrouping.books(from: unplaced).count == 1)
     }
 
+    // MARK: - Item-id drives scanned from the book's own folder
+
+    /// Books of untagged drive files, each item read through `folders` as the app does.
+    private func driveBooks(
+        _ entries: [(id: String, track: Int?)],
+        folders: SpokenWordBookItemFolders
+    ) -> [SpokenWordBook] {
+        var cache: [String: String] = [:]
+        return SpokenWordBookGrouping.books(from: entries.map { entry in
+            item(entry.id, track: entry.track,
+                 path: folders.path(ofFile: entry.id, directoryPaths: &cache) ?? entry.id, source: "drive")
+        })
+    }
+
+    @Test("Untagged files lying in the scanned folder itself are one book named after it")
+    func itemIDDriveFilesInScanRoot() {
+        // 三体 is what the user picked: the scan index has no row for it.
+        let folders = SpokenWordBookItemFolders(
+            fileParents: ["e2": "d-santi", "e1": "d-santi", "e3": "d-santi", "loose": "0"],
+            directoryParents: [:],
+            names: ["e1": "第1集.mp3", "e2": "第2集.mp3", "e3": "第3集.mp3", "loose": "readme.mp3"],
+            rootNames: ["d-santi": "三体"]
+        )
+        var cache: [String: String] = [:]
+        #expect(folders.path(ofFile: "e1", directoryPaths: &cache) == "三体/第1集.mp3")
+        // A drive's own root ("0" for the whole of 123) is no picked folder and names nothing.
+        #expect(folders.path(ofFile: "loose", directoryPaths: &cache) == "readme.mp3")
+
+        let books = driveBooks([("e2", nil), ("e1", nil), ("e3", nil)], folders: folders)
+        #expect(books.count == 1)
+        #expect(books.first?.title == "三体")
+        #expect(books.first?.items.map(\.id) == ["e1", "e2", "e3"])
+
+        // Without the root's name every file stood alone.
+        let unnamed = SpokenWordBookItemFolders(
+            fileParents: folders.fileParents, directoryParents: [:], names: folders.names
+        )
+        #expect(driveBooks([("e2", nil), ("e1", nil), ("e3", nil)], folders: unnamed).count == 3)
+    }
+
+    @Test("Disc folders right under the scanned folder are one book")
+    func itemIDDriveDiscFoldersInScanRoot() {
+        let folders = SpokenWordBookItemFolders(
+            fileParents: ["c1": "d-cd1", "c2": "d-cd1", "c3": "d-cd2", "c4": "d-cd2"],
+            directoryParents: ["d-cd1": "d-book", "d-cd2": "d-book"],
+            names: [
+                "d-cd1": "CD1", "d-cd2": "CD2",
+                "c1": "01.mp3", "c2": "02.mp3", "c3": "01.mp3", "c4": "02.mp3",
+            ],
+            rootNames: ["d-book": "白鹿原"]
+        )
+        var cache: [String: String] = [:]
+        #expect(folders.path(ofFile: "c3", directoryPaths: &cache) == "白鹿原/CD2/01.mp3")
+
+        let entries: [(id: String, track: Int?)] = [("c3", 1), ("c2", 2), ("c4", 2), ("c1", 1)]
+        let books = driveBooks(entries, folders: folders)
+        #expect(books.count == 1)
+        #expect(books.first?.title == "白鹿原")
+        #expect(books.first?.items.map(\.id) == ["c1", "c2", "c3", "c4"])
+
+        var unnamed = folders
+        unnamed.rootNames = [:]
+        #expect(driveBooks(entries, folders: unnamed).count == 4)
+    }
+
+    @Test("Range folders right under the scanned folder are one book, in range order")
+    func itemIDDriveRangeFoldersInScanRoot() {
+        let folders = SpokenWordBookItemFolders(
+            fileParents: ["a1": "d-1", "a2": "d-1", "b1": "d-51", "b2": "d-51"],
+            directoryParents: ["d-1": "d-book", "d-51": "d-book"],
+            names: [
+                "d-1": "1-50", "d-51": "51-100",
+                "a1": "001.mp3", "a2": "002.mp3", "b1": "051.mp3", "b2": "052.mp3",
+            ],
+            rootNames: ["d-book": "鬼吹灯"]
+        )
+        let entries: [(id: String, track: Int?)] = [("b1", 1), ("b2", 2), ("a1", 1), ("a2", 2)]
+        let books = driveBooks(entries, folders: folders)
+        #expect(books.count == 1)
+        #expect(books.first?.title == "鬼吹灯")
+        #expect(books.first?.items.map(\.id) == ["a1", "a2", "b1", "b2"])
+
+        var unnamed = folders
+        unnamed.rootNames = [:]
+        #expect(driveBooks(entries, folders: unnamed).count == 2)
+    }
+
+    @Test("Naming the scan root leaves the books its subfolders told apart as they were")
+    func itemIDDriveRootNameKeepsDeeperBooks() {
+        var named = driveFolders
+        named.rootNames = ["root": "我的网盘"]
+        var cache: [String: String] = [:]
+        var namedCache: [String: String] = [:]
+        for file in ["f1", "f2", "c1", "c2"] {
+            #expect(named.path(ofFile: file, directoryPaths: &namedCache)
+                == driveFolders.path(ofFile: file, directoryPaths: &cache))
+        }
+
+        func books(_ folders: SpokenWordBookItemFolders, tagged: Bool) -> [SpokenWordBook] {
+            var cache: [String: String] = [:]
+            return SpokenWordBookGrouping.books(from: ["f1", "f2", "c1", "c2"].enumerated().map { offset, id in
+                item(id, title: "第\(offset % 2 + 1)集", album: tagged ? "凡人修仙传" : nil, track: offset % 2 + 1,
+                     path: folders.path(ofFile: id, directoryPaths: &cache) ?? id, source: "drive")
+            })
+        }
+        for tagged in [true, false] {
+            let before = books(driveFolders, tagged: tagged)
+            let after = books(named, tagged: tagged)
+            #expect(after.map(\.id).sorted() == before.map(\.id).sorted())
+            #expect(after.map(\.title).sorted() == before.map(\.title).sorted())
+        }
+    }
+
+    @Test("Two scanned folders with no known name stay two books, told apart by their ids")
+    func itemIDDriveUnnamedRootsStayApart() {
+        let folders = SpokenWordBookItemFolders(
+            fileParents: ["a1": "r-1", "a2": "r-1", "b1": "r-2", "b2": "r-2"],
+            directoryParents: [:],
+            names: ["a1": "01.mp3", "a2": "02.mp3", "b1": "01.mp3", "b2": "02.mp3"],
+            rootNames: ["r-1": "", "r-2": " "]
+        )
+        let books = driveBooks([("a1", nil), ("a2", nil), ("b1", nil), ("b2", nil)], folders: folders)
+        #expect(books.count == 2)
+        #expect(Set(books.map { $0.items.map(\.id) }) == [["a1", "a2"], ["b1", "b2"]])
+        #expect(Set(books.map(\.title)) == ["r-1", "r-2"])
+    }
+
     @Test("A book tagged the plain way keeps the id it had before")
     func stableIDs() {
         let items = [
