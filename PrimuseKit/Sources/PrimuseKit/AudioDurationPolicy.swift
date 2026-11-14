@@ -765,6 +765,34 @@ public enum RemoteMetadataReadPolicy {
     }
 }
 
+/// HTTP 源读标签时一段读取实际怎么发。
+public enum MetadataRangeWindowPolicy {
+    /// 尾部读取(负 offset)在已经知道文件大小(首段 206 的 `Content-Range`)时换成正向区间,
+    /// 不依赖服务端认不认 `bytes=-N`; 长度裁到文件末尾。其余原样。nil 表示什么都不用读。
+    public static func resolvedWindow(
+        offset: Int64,
+        length: Int64,
+        knownFileSize: Int64?
+    ) -> (offset: Int64, length: Int64)? {
+        guard length > 0, offset != Int64.min else { return nil }
+        guard offset < 0, let size = knownFileSize, size > 0 else { return (offset, length) }
+        let start = max(0, size + offset)
+        let clipped = min(length, size - start)
+        return clipped > 0 ? (start, clipped) : nil
+    }
+
+    /// 回了 200 整个文件, 算不算「服务端不认 Range」。从头读、要的长度已经盖住整个文件时
+    /// 回 200 是正常的; 其余(不从头读、文件比要的长、不知道多长)都算。
+    public static func wholeResponseShowsRangeIgnored(
+        requestedOffset: Int64,
+        requestedLength: Int64,
+        contentLength: Int64?
+    ) -> Bool {
+        guard requestedOffset == 0, let contentLength, contentLength >= 0 else { return true }
+        return contentLength > requestedLength
+    }
+}
+
 public struct MPEGFrameAudioInfo: Equatable, Sendable {
     public let sampleRate: Int
     public let bitRateKbps: Int

@@ -19,6 +19,12 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     /// 60+ 次登录被 407 拒, 之后即便密码对也被回 400 用户名/密码错误)。
     private var loginTask: Task<Void, Error>?
     private var reconnectTask: Task<Void, Error>?
+    /// 读标签时从 206 的 `Content-Range` 记下的文件大小: 尾部读取据此换成正向区间,
+    /// 不依赖 DSM 认不认 `bytes=-N`。只在这个连接器存活期间有效。
+    private var metadataFileSizes: [String: Int64] = [:]
+    /// 这台服务器(或者中间的反向代理)读标签时回过 200 整个文件: 之后尾部与离开头太远的
+    /// 读取不再发请求。
+    private var metadataRangeIgnored = false
 
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接。
     /// 一首 5MB 歌按 256KB chunk 拉 20 次, 不复用就要 20 次 TLS 握手 ——
@@ -360,6 +366,193 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         default:
             throw SynologyError.httpError(http.statusCode)
         }
+    }
+
+    // MARK: - 读标签用的有界读取
+
+    /// 读标签走的有界读取, 播放用的 `fetchRange` 不变(稀疏缓存要它那套严格校验)。
+    /// File Station 的 Download 接口认正向 Range; 这里另外兜住两种情况:
+    /// - 服务器或中间的反向代理不认 Range、回 200 整个文件: 响应体只吃到要的那段前缀,
+    ///   尾部与离开头太远的读取一个字节都不读(`WholeResourceMetadataRangePolicy`)。
+    ///   以前同样的响应会先把整个文件(最多 20 MB)读进内存再报错, 一首歌读标签要几十秒。
+    /// - 尾部读取不依赖 DSM 认不认 `bytes=-N`: 首段的 206 已经报了文件多大, 换成正向区间。
+    /// 手动重读需要整首时, 和播放共用 `localURL(for:)` 那份完整缓存。
+    func fetchMetadataRange(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        do {
+            return try await fetchMetadataRangeOnce(path: path, offset: offset, length: length, intent: intent)
+        } catch SynologyError.notLoggedIn {
+            try await reconnect()
+            do {
+                return try await fetchMetadataRangeOnce(path: path, offset: offset, length: length, intent: intent)
+            } catch SynologyError.notLoggedIn {
+                throw SourceError.authenticationFailed
+            }
+        }
+    }
+
+    private func fetchMetadataRangeOnce(
+        path: String,
+        offset requestedOffset: Int64,
+        length requestedLength: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        guard let window = MetadataRangeWindowPolicy.resolvedWindow(
+            offset: requestedOffset,
+            length: requestedLength,
+            knownFileSize: metadataRangeIgnored ? nil : metadataFileSizes[path]
+        ) else { return Data() }
+        let offset = window.offset
+        let length = window.length
+        let consumesPrefix = WholeResourceMetadataRangePolicy.consumesWholeResponsePrefix(
+            requestedOffset: offset,
+            requestedLength: length
+        )
+        if metadataRangeIgnored, !consumesPrefix {
+            return try await metadataRangeWithoutRangeSupport(path: path, offset: offset, length: length, intent: intent)
+        }
+        guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
+            return Data()
+        }
+        let url = try await authenticatedDownloadURL(for: path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        request.timeoutInterval = 60
+        let requestedBodyBytes = Int(clamping: length)
+        let (temporaryURL, response) = try await TrustedHTTPTransport.download(
+            for: request,
+            session: rangeSession,
+            maximumRangedBodyBytes: requestedBodyBytes > Int.max - 64 * 1024
+                ? Int.max
+                : requestedBodyBytes + 64 * 1024,
+            wholeResponsePrefixLimit: WholeResourceMetadataRangePolicy.wholeResponsePrefixLimit(
+                requestedOffset: offset,
+                requestedLength: length
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        guard let http = response as? HTTPURLResponse else { throw SynologyError.httpError(0) }
+        switch http.statusCode {
+        case 206:
+            // 临时文件最多比要的多 64 KB, 整个读进来按实际长度校验。
+            let body = try Data(contentsOf: temporaryURL)
+            guard let total = HTTPByteRangeResponsePolicy.validatedTotalLength(
+                contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: http.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                bodyLength: body.count,
+                requestedOffset: offset,
+                requestedLength: length
+            ) else {
+                throw MetadataRangeReadError.invalidRangeResponse
+            }
+            if total > 0 {
+                if metadataFileSizes.count >= 512 { metadataFileSizes.removeAll() }
+                metadataFileSizes[path] = total
+            }
+            return body
+        case 200:
+            // 失败也是 200 + JSON 错误体(会话过期 119、路径不存在 408 …)。前缀限额可能
+            // 只收了几个字节甚至没收, 声明是 JSON 的另外完整取一次这个小响应体再认错误码。
+            let prefix = try Self.metadataSlice(of: temporaryURL, offset: 0, length: 4 * 1024, allowsEmpty: true)
+            let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+            if contentType.contains("json") || prefix.first == UInt8(ascii: "{") {
+                try await throwFileStationErrorIfPresent(request: request, path: path)
+            }
+            // 从头读、要的长度已经盖住整个文件时回 200 是正常的, 不算不认 Range。
+            if !metadataRangeIgnored, MetadataRangeWindowPolicy.wholeResponseShowsRangeIgnored(
+                requestedOffset: offset,
+                requestedLength: length,
+                contentLength: http.expectedContentLength >= 0 ? http.expectedContentLength : nil
+            ) {
+                metadataRangeIgnored = true
+                plog("⚠️ Synology '\(sourceID.prefix(8))' metadata read: server ignored Range; reading only bounded prefixes")
+            }
+            switch WholeResourceMetadataRangePolicy.responseDisposition(
+                requestedOffset: offset,
+                requestedLength: length,
+                intent: intent
+            ) {
+            case .consumeBoundedPrefix:
+                return try Self.metadataSlice(of: temporaryURL, offset: offset, length: length)
+            case .rejectSuffixWithoutConsuming, .useCompleteFileFallback:
+                return try await metadataRangeWithoutRangeSupport(
+                    path: path, offset: offset, length: length, intent: intent
+                )
+            }
+        case 401:
+            throw SynologyError.notLoggedIn
+        default:
+            throw SynologyError.httpError(http.statusCode)
+        }
+    }
+
+    /// 不认 Range 时首段以外的读取: 批量读取直接拒绝(回填按「尾部读不了」处理), 用户点的
+    /// 单曲重读下载整首一次再切。
+    private func metadataRangeWithoutRangeSupport(
+        path: String,
+        offset: Int64,
+        length: Int64,
+        intent: MetadataRangeReadIntent
+    ) async throws -> Data {
+        switch intent {
+        case .bulkBounded:
+            throw MetadataRangeReadError.suffixRangeUnsupported
+        case .explicitSingleFileCompleteFallback:
+            let file = try await localURL(for: path)
+            return try Self.metadataSlice(of: file, offset: offset, length: length)
+        }
+    }
+
+    /// 200 响应声明是 JSON 时, 取完整的小响应体认错误码; 不是错误包就当没事。
+    private func throwFileStationErrorIfPresent(request: URLRequest, path: String) async throws {
+        let result: (Data, URLResponse)
+        do {
+            result = try await TrustedHTTPTransport.data(
+                for: request,
+                session: rangeSession,
+                maxBytes: 64 * 1024
+            )
+        } catch let error as URLError where error.code == .dataLengthExceedsMaximum {
+            return // 比错误包大得多: 是音频本身。
+        }
+        let (body, response) = result
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let code = synologyErrorPacket(data: body, response: http) else { return }
+        switch SynologyFileStationDownloadErrorPolicy.disposition(code: code) {
+        case .reconnectSession:
+            throw SynologyError.notLoggedIn
+        case .missingFile:
+            throw SourceError.fileNotFound(path)
+        case .sourceUnavailable:
+            throw SourceError.authenticationFailed
+        case .fail:
+            throw SynologyError.apiError(synologyErrorMessage(code: code))
+        }
+    }
+
+    private static func metadataSlice(
+        of fileURL: URL,
+        offset: Int64,
+        length: Int64,
+        allowsEmpty: Bool = false
+    ) throws -> Data {
+        guard length > 0, offset != Int64.min else { return Data() }
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        let total = Int64(clamping: try handle.seekToEnd())
+        let start = offset < 0 ? max(0, total + offset) : offset
+        guard start < total else {
+            if allowsEmpty { return Data() }
+            throw SourceError.connectionFailed("Synology metadata response was empty")
+        }
+        try handle.seek(toOffset: UInt64(start))
+        return try handle.read(upToCount: Int(clamping: min(length, total - start))) ?? Data()
     }
 
     /// Returns the local cache URL if the file is already cached, nil otherwise.
