@@ -78,10 +78,18 @@ public extension Notification.Name {
 @MainActor
 @Observable
 public final class LyricLineCommentStore {
-    public static let shared = LyricLineCommentStore(directory:
+    public static let shared = LyricLineCommentStore(directory: defaultDirectory())
+    /// tvOS 只允许写 Caches / tmp: 电视端随 iCloud 收到的歌词批注以前写进 Application Support
+    /// 一直存不下。别的平台照旧放 Application Support。
+    private static func defaultDirectory() -> URL {
+        #if os(tvOS)
+        FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("Primuse/LyricComments", isDirectory: true)
+        #else
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
             .appendingPathComponent("Library/Application Support/Primuse/LyricComments", isDirectory: true)
-    )
+        #endif
+    }
     public static let maximumLength = 2_000
     public private(set) var revision: UInt = 0
     @ObservationIgnored private let directory: URL

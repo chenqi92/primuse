@@ -203,7 +203,13 @@ enum PlayHistoryArchiver {
     }
 
     nonisolated private static func archiveDirectory() -> URL {
-        FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        // tvOS 只允许写 Caches / tmp, 跟 `PlayHistoryStore` 放同一处; 别处 Application Support 不变。
+        #if os(tvOS)
+        let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        #else
+        let base = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
+        return base
             .appendingPathComponent("Primuse", isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
     }

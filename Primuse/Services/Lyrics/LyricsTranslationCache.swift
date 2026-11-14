@@ -53,8 +53,14 @@ final class LyricsTranslationCache {
     private var insertionOrder: [String] = []
 
     private init() {
+        // tvOS 只允许写 Caches / tmp: Application Support 建不出来, 译文缓存一直存不下
+        // (日志里是「cache.json 不存在」)。电视放 Caches, 被系统清掉也只是再译一次。
+        #if os(tvOS)
+        let appSupport = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        #else
         let appSupport = FileManager.default
             .primuseDirectoryURL(for: .applicationSupportDirectory)
+        #endif
         let dir = appSupport.appendingPathComponent("Primuse/LyricsTranslation", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         self.fileURL = dir.appendingPathComponent("cache.json")
