@@ -4319,11 +4319,21 @@ struct SearchView: View {
         QueueReceipt.announce(.last, systemImage: "text.line.last.and.arrowtriangle.forward")
     }
 
+    /// 喜欢还不在曲库的目录歌：Apple Music 收下就算数，同步进曲库后再记进「我喜欢」（同播放页的红心）。
     private func likeAppleMusicSong(_ song: MusicKit.Song) {
-        saveAppleMusicSong(song) { saved in
-            library.setLiked(songID: saved.id, isLiked: true, propagatesServerMutation: true)
-            PMHaptics.likeToggled(isLiked: true)
-            return String(localized: "apple_music_saved_and_liked")
+        guard savingAppleMusicSongID == nil else { return }
+        savingAppleMusicSongID = song.id
+        showAppleMusicFeedback(.progress(String(localized: "apple_music_saving")))
+        Task {
+            do {
+                try await AppServices.shared.appleMusicLibrary.likeCatalogSongOnceSynced(catalog: song)
+                savingAppleMusicSongID = nil
+                PMHaptics.likeToggled(isLiked: true)
+                showAppleMusicFeedback(.success(String(localized: "apple_music_saved_and_liked")))
+            } catch {
+                savingAppleMusicSongID = nil
+                showAppleMusicFeedback(.failure(error.localizedDescription))
+            }
         }
     }
 

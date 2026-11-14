@@ -993,7 +993,16 @@ final class AppleMusicLibraryService {
             try Task.checkCancellation()
             throw CatalogSaveError.unavailable
         }
-        let itemID = song.filePath
+        try await likeCatalogSongOnceSynced(catalog: catalog, itemID: song.filePath)
+    }
+
+    /// 同上，搜索结果里手上已经是目录歌。播放时这首歌的条目 ID 就是它的目录 ID，两边的红心对得上。
+    func likeCatalogSongOnceSynced(catalog: MusicKit.Song) async throws {
+        try Task.checkCancellation()
+        try await likeCatalogSongOnceSynced(catalog: catalog, itemID: catalog.id.rawValue)
+    }
+
+    private func likeCatalogSongOnceSynced(catalog: MusicKit.Song, itemID: String) async throws {
         pendingLikedItemIDs.insert(itemID)
         do {
             try await addCatalogSongToLibraryWithoutWaiting(catalog)
