@@ -13521,7 +13521,9 @@ struct SongInfoSheet: View {
     private var legacyBody: some View {
         NavigationStack {
             List {
+                // 歌名、艺术家、专辑能长按拷贝(#84), 跟版权那一行一样。
                 infoRow(String(localized: "title_label"), song.title)
+                    .textSelection(.enabled)
                 if contentMetadata?.isExplicit == true {
                     infoRow(String(localized: "content_rating"), String(localized: "content_explicit"))
                 }
@@ -13531,8 +13533,12 @@ struct SongInfoSheet: View {
                 }
                 if let artist = library.artistDisplayName(for: song) {
                     infoRow(String(localized: "artist_label"), artist)
+                        .textSelection(.enabled)
                 }
-                if let album = song.albumTitle { infoRow(String(localized: "album_label"), album) }
+                if let album = song.albumTitle {
+                    infoRow(String(localized: "album_label"), album)
+                        .textSelection(.enabled)
+                }
                 if let genre = song.genre { infoRow(String(localized: "genre_label"), genre) }
                 if let year = song.year { infoRow(String(localized: "year_label"), "\(year)") }
                 if let disc = song.discNumber { infoRow(String(localized: "disc_label"), "\(disc)") }
@@ -13641,14 +13647,17 @@ struct SongInfoSheet: View {
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(PMColor.text)
                         .lineLimit(2)
+                        .textSelection(.enabled)
                     Text(library.artistDisplayName(for: song) ?? String(localized: "unknown_artist"))
                         .font(.system(size: 13))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
+                        .textSelection(.enabled)
                     Text(song.albumTitle ?? "—")
                         .font(.system(size: 12.5))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
+                        .textSelection(.enabled)
                     Button {
                         showSimilarSongs = true
                     } label: {

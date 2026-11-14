@@ -2050,6 +2050,7 @@ struct PlaylistDetailView: View {
                 }
             }
 
+            SongCopyTitleButton(song: song)
 
             if allowsPlaylistRemoval {
                 Button(role: .destructive) {

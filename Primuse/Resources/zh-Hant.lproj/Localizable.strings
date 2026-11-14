@@ -625,6 +625,7 @@
 "playlist_unpin" = "取消置頂";
 "playlist_unpinned_one" = "已取消置頂";
 "playlist_song_pinned" = "已置頂";
+"song_copy_title" = "複製歌名";
 "metadata_scraping" = "中繼資料與刮削";
 "scraper_sources" = "刮削來源";
 "scraper_sources_footer" = "拖曳調整順序。刮削時按從上到下的順序依序嘗試，找到結果即停止。歌詞不是逐字時，會再問後面最多兩個來源，有更細的就用更細的。";

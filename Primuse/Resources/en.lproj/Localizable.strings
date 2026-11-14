@@ -645,6 +645,7 @@
 "playlist_unpin" = "Unpin";
 "playlist_unpinned_one" = "Unpinned";
 "playlist_song_pinned" = "Pinned";
+"song_copy_title" = "Copy Title";
 
 // MARK: - Scraping
 "metadata_scraping" = "Metadata & Scraping";

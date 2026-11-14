@@ -876,6 +876,7 @@
 "playlist_unpin" = "Fixierung aufheben";
 "playlist_unpinned_one" = "Fixierung aufgehoben";
 "playlist_song_pinned" = "Fixiert";
+"song_copy_title" = "Titel kopieren";
 "metadata_scraping" = "Metadaten & Abrufen";
 "scraper_sources" = "Abrufquellen";
 "scraper_sources_footer" = "Zum Umsortieren ziehen. Die Quellen werden von oben nach unten durchprobiert, bis ein Treffer gefunden wird. Sind die Liedtexte nicht wortgenau, werden bis zu zwei weitere Quellen nach einer genaueren Fassung gefragt.";

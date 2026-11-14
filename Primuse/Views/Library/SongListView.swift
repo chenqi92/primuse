@@ -2854,6 +2854,8 @@ struct SongListView: View {
                 Label(String(localized: "song_info"), systemImage: "info.circle")
             }
 
+            SongCopyTitleButton(song: latestSong(song))
+
             Button {
                 editTags(for: song)
             } label: {

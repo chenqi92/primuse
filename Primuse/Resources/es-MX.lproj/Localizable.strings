@@ -3003,6 +3003,7 @@
 "playlist_unpin" = "Dejar de fijar";
 "playlist_unpinned_one" = "Se dejó de fijar";
 "playlist_song_pinned" = "Fijada";
+"song_copy_title" = "Copiar título";
 "remove_from_queue" = "Quitar de la cola";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "Reordenar";

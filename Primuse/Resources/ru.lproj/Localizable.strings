@@ -2910,6 +2910,7 @@
 "playlist_unpin" = "Открепить";
 "playlist_unpinned_one" = "Откреплено";
 "playlist_song_pinned" = "Закреплено";
+"song_copy_title" = "Скопировать название";
 "local_import_progress_failed_format" = "Ошибка %d";
 "reverb_large_room" = "Большая комната";
 "playlist_import_mac_intro_title" = "Выберите файл списка воспроизведения, чтобы начать.";

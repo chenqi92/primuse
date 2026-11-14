@@ -645,6 +645,7 @@
 "playlist_unpin" = "取消置顶";
 "playlist_unpinned_one" = "已取消置顶";
 "playlist_song_pinned" = "已置顶";
+"song_copy_title" = "复制歌名";
 
 // MARK: - 刮削
 "metadata_scraping" = "元数据与刮削";

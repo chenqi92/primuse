@@ -2910,6 +2910,7 @@
 "playlist_unpin" = "Sabitlemeyi kaldır";
 "playlist_unpinned_one" = "Sabitleme kaldırıldı";
 "playlist_song_pinned" = "Sabitlendi";
+"song_copy_title" = "Şarkı adını kopyala";
 "local_import_progress_failed_format" = "Başarısız %d";
 "reverb_large_room" = "Büyük Oda";
 "playlist_import_mac_intro_title" = "Başlamak için bir çalma listesi dosyası seçin";

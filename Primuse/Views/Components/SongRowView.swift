@@ -897,6 +897,8 @@ struct SongRowView: View {
             } label: {
                 Label(String(localized: "song_info"), systemImage: "info.circle")
             }
+
+            SongCopyTitleButton(song: song)
         }
 
         Section {
@@ -2346,6 +2348,34 @@ extension SongRowView {
         self.sourceIconName = context.sourceIconName
         self.detailsState = context.detailsState
         self.canDeleteSourceFile = context.canDeleteSourceFile
+    }
+}
+
+/// 单曲菜单里的「复制歌名」(#84):iOS 的长按菜单与 Mac 的右键菜单共用。拷的是列表上
+/// 看到的那个歌名。电视没有剪贴板,这一项不进电视端。
+struct SongCopyTitleButton: View {
+    @Environment(MusicLibrary.self) private var library
+    let song: Song
+
+    var body: some View {
+        Button {
+            SongTextPasteboard.copy(library.displayTitle(for: song))
+        } label: {
+            Label(String(localized: "song_copy_title"), systemImage: "doc.on.doc")
+        }
+    }
+}
+
+enum SongTextPasteboard {
+    static func copy(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        #if os(iOS)
+        UIPasteboard.general.string = text
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
     }
 }
 

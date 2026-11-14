@@ -877,6 +877,7 @@
 "playlist_unpin" = "固定を解除";
 "playlist_unpinned_one" = "固定を解除しました";
 "playlist_song_pinned" = "固定済み";
+"song_copy_title" = "曲名をコピー";
 "metadata_scraping" = "メタデータとスクレイピング";
 "scraper_sources" = "スクレイピングソース";
 "scraper_sources_footer" = "ドラッグして並べ替えできます。一致が見つかるまで上から順に試されます。歌詞が単語単位で同期していない場合は、より細かい歌詞を求めて後ろの最大 2 つのソースにも問い合わせます。";

@@ -3003,6 +3003,7 @@
 "playlist_unpin" = "पिन हटाएँ";
 "playlist_unpinned_one" = "पिन हटाया गया";
 "playlist_song_pinned" = "पिन किया गया";
+"song_copy_title" = "गाने का नाम कॉपी करें";
 "remove_from_queue" = "कतार से हटाएँ";
 "renderer_friendly_name_format" = "%1$@ · %2$@";
 "reorder" = "पुन: व्यवस्थित करें";
