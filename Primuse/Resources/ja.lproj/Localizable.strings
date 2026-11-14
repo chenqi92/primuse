@@ -1220,7 +1220,8 @@
 "carplay_play_failed_format" = "%@ を再生できませんでした";
 "carplay_ok" = "OK";
 "scrobble_title" = "Scrobble";
-"scrobble_report_to_server" = "音楽サーバーに再生履歴を送信";
+"scrobble_report_to_server" = "サーバーに音楽の再生履歴を送信";
+"scrobble_report_to_server_footer" = "音楽のみが対象です。再生した曲を Navidrome、Jellyfin、Emby、Plex などのサーバーに送信し、サーバー側の再生回数と最近再生した項目に反映します。オーディオブックの再生位置はこの設定に関係なく常に同期されます。";
 "scrobble_enabled" = "Scrobble を有効にする";
 "scrobble_send_now_playing" = "再生中の曲を送信";
 "scrobble_overall_footer" = "再生履歴を Last.fm / ListenBrainz に送信します。50% または 4 分以上再生するとカウントされます。";

@@ -394,10 +394,12 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 }
 
 extension DaoLiYuSource: ServerScrobblingConnector {
-    /// 听满(50% 或 4 分钟)才记进服务器的播放记录;旧服务器没有这个接口,失败直接忽略。
-    func scrobble(songPath: String, submission: Bool) async {
-        guard submission, (try? await connect()) != nil else { return }
-        _ = try? await client.reportPlayback(trackPath: songPath)
+    /// 听满(50% 或 4 分钟)才记进服务器的播放记录,播放时间照听满那一刻记。旧服务器没有这个
+    /// 接口(回 404),调用方按不再补报处理。
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        guard submission else { return }
+        try await connect()
+        try await client.reportPlayback(trackPath: songPath, playedAt: playedAt)
     }
 }
 

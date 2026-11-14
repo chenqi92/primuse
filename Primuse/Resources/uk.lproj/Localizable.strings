@@ -2047,7 +2047,8 @@
 "Search Radio Stations" = "Пошук радіостанцій";
 "enable" = "Увімкнути";
 "cloud_guide_dropbox" = "Перейдіть на dropbox.com/developers/apps, щоб створити програму";
-"scrobble_report_to_server" = "Надсилати історію прослуховування на музичні сервери";
+"scrobble_report_to_server" = "Надсилати історію прослуховування музики на сервери";
+"scrobble_report_to_server_footer" = "Лише музика: прослухані треки надсилаються на сервери Navidrome, Jellyfin, Emby, Plex тощо, щоб оновлювати там кількість відтворень і нещодавно прослухані. Позиція прослуховування аудіокниг синхронізується завжди, незалежно від цього перемикача.";
 "scrobble_enabled" = "Увімкнути Scrobble";
 "ai_path_mode_append_v1" = "Додайте /v1";
 "ai_playlist_current_section" = "Поточний список відтворення";

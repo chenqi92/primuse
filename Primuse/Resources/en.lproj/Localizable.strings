@@ -1013,7 +1013,8 @@
 
 // MARK: - Scrobble (Listening history submission)
 "scrobble_title" = "Scrobble";
-"scrobble_report_to_server" = "Send playback history to music servers";
+"scrobble_report_to_server" = "Send Music Plays to Servers";
+"scrobble_report_to_server_footer" = "Music only: songs you’ve played are sent to servers such as Navidrome, Jellyfin, Emby and Plex, so their play counts and recently played stay current. Audiobook listening progress always syncs, whatever this switch is set to.";
 "scrobble_enabled" = "Enable Scrobble";
 "scrobble_send_now_playing" = "Send Now Playing";
 "scrobble_overall_footer" = "Submit listening history to Last.fm / ListenBrainz. Counts after 50% or 4 minutes played.";

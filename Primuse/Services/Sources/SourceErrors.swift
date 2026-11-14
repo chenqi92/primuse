@@ -113,6 +113,60 @@ enum MetadataWriteFailurePolicy {
     }
 }
 
+/// 一次「已播放」回报没送到:断网、连不上、超时、服务器一时出错的留着补报;认证被拒、
+/// 这首在服务器上对不上号、服务器不认这个请求的,再送也一样,丢掉。
+enum ServerPlaybackReportFailureClassifier {
+    static func disposition(of error: any Error, depth: Int = 0) -> ServerPlaybackReportFailureDisposition {
+        // 源改了配置、连接器被换下时请求会被取消:服务器没收到,下次再送。
+        if error is CancellationError { return .retryLater }
+        switch error {
+        case let report as ServerPlaybackReportError:
+            switch report {
+            case .invalidSongReference, .rejected:
+                return .drop
+            case .connectorUnavailable, .serverFailure:
+                return .retryLater
+            case .httpStatus(let status):
+                return ServerPlaybackReportFailurePolicy.disposition(httpStatus: status)
+            }
+        case let failure as HTTPResponseFailure:
+            return ServerPlaybackReportFailurePolicy.disposition(httpStatus: failure.statusCode)
+        case let songloft as SongloftServiceError:
+            if case .badServerResponse(let status) = songloft {
+                return ServerPlaybackReportFailurePolicy.disposition(httpStatus: status)
+            }
+            return .drop
+        case let daoliyu as DaoLiYuServiceError:
+            // 1.0.4 以前的道理鱼没有播放记录接口,回 404,照样丢掉。
+            if case .badServerResponse(let status) = daoliyu {
+                return ServerPlaybackReportFailurePolicy.disposition(httpStatus: status)
+            }
+            return .drop
+        case is SourceConnectionTerminalError:
+            return .drop
+        case let source as SourceError:
+            switch source {
+            case .authenticationFailed, .pathNotFound, .fileNotFound:
+                return .drop
+            case .credentialUnavailable, .connectionFailed, .timeout:
+                // 凭据一时读不出(设备锁着)、连不上、没有可用线路。
+                return .retryLater
+            }
+        default:
+            break
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return ServerPlaybackReportFailurePolicy.disposition(urlErrorCode: nsError.code)
+        }
+        if MetadataWriteFailurePolicy.isTransient(error) { return .retryLater }
+        if depth < 8, let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? any Error {
+            return disposition(of: underlying, depth: depth + 1)
+        }
+        return .drop
+    }
+}
+
 /// Sources that refused to have a file rewritten, and when. A batch edit says
 /// before it starts that these changes may stay in Primuse again; the next
 /// write that goes through forgets the refusal.

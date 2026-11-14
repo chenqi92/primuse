@@ -1320,6 +1320,7 @@ private struct NetworkPathChangeObserver: View {
                     startImmediately: scenePhase == .background
                 )
                 PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(10))
+                PendingServerPlaybackReportStore.shared.scheduleFlush(reason: "network changed", after: .seconds(5))
                 Task {
                     for source in sourcesStore.sources where source.type == .synology {
                         scanService.removeSynologyAPI(for: source.id)

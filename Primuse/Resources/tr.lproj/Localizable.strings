@@ -2047,7 +2047,8 @@
 "Search Radio Stations" = "Radyo İstasyonlarını Ara";
 "enable" = "Etkinleştir";
 "cloud_guide_dropbox" = "Bir uygulama oluşturmak için dropbox.com/developers/apps adresine gidin";
-"scrobble_report_to_server" = "Çalma geçmişini müzik sunucularına gönder";
+"scrobble_report_to_server" = "Müzik çalma geçmişini sunuculara gönder";
+"scrobble_report_to_server_footer" = "Yalnızca müzik: çalınmış parçalar Navidrome, Jellyfin, Emby, Plex gibi sunuculara gönderilir; böylece oradaki oynatma sayısı ve son çalınanlar güncel kalır. Sesli kitapların dinleme konumu bu anahtardan bağımsız olarak her zaman senkronize edilir.";
 "scrobble_enabled" = "Scrobble'ı Etkinleştir";
 "ai_path_mode_append_v1" = "Ekle /v1";
 "ai_playlist_current_section" = "Güncel Çalma Listesi";

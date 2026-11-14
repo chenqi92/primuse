@@ -7,12 +7,13 @@ enum TVServerFeedbackPolicy {
         ServerFavoriteWritebackPolicy.supports(type)
     }
 
+    /// 和手机同一套:Jellyfin / Emby / Plex 没有不计次数的「正在播放」,只报「已播放」。
     static func supportsNowPlaying(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily || type == .songloft
+        ServerPlaybackReportPolicy.supportsNowPlayingReport(type)
     }
 
     static func supportsScrobble(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily || type == .fnMusic || type == .songloft || type == .daoliyu
+        ServerPlaybackReportPolicy.supportsPlayedReport(type)
     }
 }
 
@@ -693,6 +694,10 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
             try await reportSubsonic(feedback, source: source, credential: credential)
             return
         }
+        if [.jellyfin, .emby, .plex].contains(source.type) {
+            try await reportConnectorPlayback(feedback, source: source, credential: credential)
+            return
+        }
         if source.type == .fnMusic, feedback.kind == .scrobble {
             try await reportFnMusic(feedback, source: source, credential: credential)
         }
@@ -720,6 +725,37 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
                     // 1.0.4 以前的道理鱼没有播放记录接口,回 404,不再重试。
                     throw TVServerFeedbackError.httpStatus(status)
                 }
+            }
+        }
+    }
+
+    /// Jellyfin / Emby / Plex 用手机端那份连接器回报(只报「已播放」,「正在播放」它直接返回)。
+    /// 服务器回的状态换成这边的错误,认证被拒、这首对不上号的不再重试。
+    private func reportConnectorPlayback(
+        _ feedback: TVServerPlaybackFeedback,
+        source: MusicSource,
+        credential: SourceCredential
+    ) async throws {
+        try await withRoutedSource(source) { routed in
+            guard let connector = TVServerCatalogConnectorFactory.make(
+                source: routed,
+                credential: credential
+            ) as? any ServerScrobblingConnector else {
+                throw TVServerFeedbackError.unsupported
+            }
+            defer { Task { await connector.disconnect() } }
+            do {
+                try await connector.scrobble(
+                    songPath: feedback.song.filePath,
+                    submission: feedback.kind == .scrobble,
+                    playedAt: feedback.occurredAt
+                )
+            } catch SourceError.authenticationFailed {
+                throw TVServerFeedbackError.authenticationFailed
+            } catch ServerPlaybackReportError.invalidSongReference {
+                throw TVServerFeedbackError.invalidSongReference
+            } catch ServerPlaybackReportError.httpStatus(let status) {
+                throw TVServerFeedbackError.httpStatus(status)
             }
         }
     }
@@ -800,23 +836,14 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
             source: source,
             credential: credential
         )
-        var query = [
-            URLQueryItem(name: "id", value: itemID),
-            URLQueryItem(
-                name: "submission",
-                value: feedback.kind == .scrobble ? "true" : "false"
-            ),
-        ]
-        if feedback.kind == .scrobble {
-            query.append(URLQueryItem(
-                name: "time",
-                value: String(Int64((feedback.occurredAt.timeIntervalSince1970 * 1_000).rounded(.down)))
-            ))
-        }
         let url = try Self.subsonicURL(
             from: resolved.url,
             method: "scrobble",
-            queryItems: query
+            queryItems: SubsonicScrobbleRequest.queryItems(
+                songID: itemID,
+                submission: feedback.kind == .scrobble,
+                playedAt: feedback.occurredAt
+            )
         )
         let data = try await perform(request: Self.request(url: url, headers: resolved.headers))
         if !data.isEmpty {

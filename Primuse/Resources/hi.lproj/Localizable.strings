@@ -3176,7 +3176,8 @@
 "scrobble_api_secret" = "API गुप्त";
 "scrobble_clear_queue" = "कतार साफ़ करें";
 "scrobble_clear_queue_confirm" = "सभी लंबित सुने साफ़ करें?";
-"scrobble_report_to_server" = "संगीत सर्वर को प्लेबैक इतिहास भेजें";
+"scrobble_report_to_server" = "सर्वर को संगीत का प्लेबैक इतिहास भेजें";
+"scrobble_report_to_server_footer" = "केवल संगीत: चलाए जा चुके गाने Navidrome, Jellyfin, Emby, Plex जैसे सर्वर को भेजे जाते हैं, ताकि वहाँ चलाने की संख्या और हाल ही में सुने गए अपडेट रहें। ऑडियोबुक की सुनने की स्थिति हमेशा सिंक होती है, इस स्विच का उस पर कोई असर नहीं पड़ता।";
 "scrobble_enabled" = "स्क्रोबल सक्षम करें";
 "scrobble_lastfm_advanced_hint" = "यदि आप अपने स्वयं के Last.fm एप्लिकेशन (अलग कोटा) का उपयोग करना चाहते हैं, तो यहां API कुंजी + साझा रहस्य पेस्ट करें। अंतर्निहित डिफ़ॉल्ट का उपयोग करने के लिए खाली छोड़ दें।";
 "scrobble_lastfm_advanced_title" = "मेरे अपने एप्लिकेशन का उपयोग करें";

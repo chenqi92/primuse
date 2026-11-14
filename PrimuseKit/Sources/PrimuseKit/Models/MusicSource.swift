@@ -2265,3 +2265,271 @@ private extension MusicSource {
 extension MusicSource: FetchableRecord, PersistableRecord {
     public static var databaseTableName: String { "sources" }
 }
+
+// MARK: - Server playback reports
+// (Kept in this file: a new Kit source file would also need an Xcode project entry.)
+
+/// 往服务端曲库源回报播放(「正在播放」与「已播放」)的公共规则,手机、Mac、电视共用。
+public enum ServerPlaybackReportPolicy {
+    /// 这类源能把一次「已播放」记进服务器(播放次数、最近播放、播放记录)。
+    public static func supportsPlayedReport(_ type: MusicSourceType) -> Bool {
+        if type.isSubsonicFamily { return true }
+        switch type {
+        case .songloft, .fnMusic, .daoliyu, .jellyfin, .emby, .plex:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// 这类源有不计次数的「正在播放」。
+    ///
+    /// Jellyfin / Emby 收到开始播放(`/Sessions/Playing`)时自己就把播放次数加一、改最近播放时间,
+    /// 再报「已播放」会算两次;Plex 的进度回报(`/:/timeline`)要一直报下去,只报开头会在
+    /// 服务器上留下一个停在 0 秒的播放会话。这三家只报「已播放」。
+    public static func supportsNowPlayingReport(_ type: MusicSourceType) -> Bool {
+        type.isSubsonicFamily || type == .songloft
+    }
+}
+
+// MARK: - 请求
+
+/// Subsonic `scrobble` 的参数。`time` 只跟「已播放」走:补报时服务器按它记播放时间,
+/// 「正在播放」不进播放记录,不带。
+public enum SubsonicScrobbleRequest {
+    public static func queryItems(songID: String, submission: Bool, playedAt: Date) -> [URLQueryItem] {
+        var items = [
+            URLQueryItem(name: "id", value: songID),
+            URLQueryItem(name: "submission", value: submission ? "true" : "false"),
+        ]
+        if submission {
+            items.append(URLQueryItem(
+                name: "time",
+                value: String(ServerPlaybackReportTime.millisecondsSince1970(playedAt))
+            ))
+        }
+        return items
+    }
+}
+
+/// Jellyfin / Emby / Plex 记一次「已播放」的请求(路径相对服务器根地址)。
+public struct MediaServerPlaybackReportRequest: Equatable, Sendable {
+    public let method: String
+    public let path: String
+    public let queryItems: [URLQueryItem]
+
+    public init(method: String, path: String, queryItems: [URLQueryItem]) {
+        self.method = method
+        self.path = path
+        self.queryItems = queryItems
+    }
+
+    /// Jellyfin:播放次数加一,最近播放时间记成 `playedAt`。不带播放时间时服务器只把歌标成
+    /// 已播放,次数不会往上加。旧路径 Jellyfin 10.9 起标成过时但一直留着,收藏也走同一组旧路径。
+    public static func jellyfinPlayed(userID: String, itemID: String, playedAt: Date) -> Self {
+        Self(
+            method: "POST",
+            path: "/Users/\(userID)/PlayedItems/\(itemID)",
+            queryItems: [URLQueryItem(name: "datePlayed", value: ServerPlaybackReportTime.iso8601(playedAt))]
+        )
+    }
+
+    /// Jellyfin 10.9 起的新路径。旧路径哪天被拿掉(回 404)时退到这里。
+    public static func jellyfinUserPlayedItem(userID: String, itemID: String, playedAt: Date) -> Self {
+        Self(
+            method: "POST",
+            path: "/UserPlayedItems/\(itemID)",
+            queryItems: [
+                URLQueryItem(name: "userId", value: userID),
+                URLQueryItem(name: "datePlayed", value: ServerPlaybackReportTime.iso8601(playedAt)),
+            ]
+        )
+    }
+
+    /// Emby:同 Jellyfin,但播放时间只认 `yyyyMMddHHmmss`(UTC),写成 ISO 8601 服务器解析报错。
+    public static func embyPlayed(userID: String, itemID: String, playedAt: Date) -> Self {
+        Self(
+            method: "POST",
+            path: "/Users/\(userID)/PlayedItems/\(itemID)",
+            queryItems: [URLQueryItem(name: "DatePlayed", value: ServerPlaybackReportTime.embyCompact(playedAt))]
+        )
+    }
+
+    /// Plex:标成已播放,播放次数加一、最近播放记成现在。没有带播放时间的写法。和 `/:/rate`
+    /// 不同,Plex 自己的客户端发这个用 GET。
+    public static func plexScrobble(ratingKey: String) -> Self {
+        Self(
+            method: "GET",
+            path: "/:/scrobble",
+            queryItems: [
+                URLQueryItem(name: "key", value: ratingKey),
+                URLQueryItem(name: "identifier", value: "com.plexapp.plugins.library"),
+            ]
+        )
+    }
+}
+
+/// 各家服务器认的播放时间写法,一律按 UTC。
+public enum ServerPlaybackReportTime {
+    public static func millisecondsSince1970(_ date: Date) -> Int64 {
+        let milliseconds = (date.timeIntervalSince1970 * 1_000).rounded(.down)
+        guard milliseconds.isFinite else { return 0 }
+        return Int64(max(0, min(milliseconds, Double(Int64.max / 2))))
+    }
+
+    /// `2026-11-14T08:30:00Z`。不带小数秒:每个版本都认这种。
+    public static func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
+    /// `20261114083000`。
+    public static func embyCompact(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMddHHmmss"
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - 没送到的回报
+
+/// 回报没送到以后怎么办。
+public enum ServerPlaybackReportFailureDisposition: String, Sendable, Equatable {
+    /// 断网、连不上、超时、服务器暂时出错:留着,过一会儿再送。
+    case retryLater
+    /// 认证被拒、这首对不上号、服务器不认这个请求:再送一次也一样,丢掉。
+    case drop
+}
+
+public enum ServerPlaybackReportFailurePolicy {
+    /// 服务器回了这个状态。401/403 是认证被拒,其余 4xx 除了 408(超时)和 429(太频繁)
+    /// 都是请求本身不对,丢掉;5xx 是服务器一时出错,留着。
+    public static func disposition(httpStatus status: Int) -> ServerPlaybackReportFailureDisposition {
+        if status == 408 || status == 429 || status >= 500 { return .retryLater }
+        return .drop
+    }
+
+    /// 请求没拿到回应。只有地址本身不对、要用户处理认证或系统禁止的才丢,
+    /// 其余(没网、连不上、超时、连接断了、证书一时验不过)都等下次。
+    public static func disposition(urlErrorCode code: Int) -> ServerPlaybackReportFailureDisposition {
+        switch URLError.Code(rawValue: code) {
+        case .badURL, .unsupportedURL, .userAuthenticationRequired,
+             .userCancelledAuthentication, .appTransportSecurityRequiresSecureConnection:
+            return .drop
+        default:
+            return .retryLater
+        }
+    }
+}
+
+/// 一次没送到的「已播放」。「正在播放」只表示当下,从来不留。
+public struct PendingServerPlaybackReport: Codable, Sendable, Equatable, Identifiable {
+    public let id: UUID
+    public let sourceID: String
+    /// 只用于日志。
+    public let songID: String
+    /// 连接器认的那条路径(`Song.filePath`)。
+    public let songPath: String
+    /// 听满的那一刻;补报时原样带给服务器。
+    public let playedAt: Date
+    /// 同一个源别的回报送得到、这一条却没送到的次数。
+    public var failedAttempts: Int
+
+    public init(
+        id: UUID = UUID(),
+        sourceID: String,
+        songID: String,
+        songPath: String,
+        playedAt: Date,
+        failedAttempts: Int = 0
+    ) {
+        self.id = id
+        self.sourceID = sourceID
+        self.songID = songID
+        self.songPath = songPath
+        self.playedAt = playedAt
+        self.failedAttempts = failedAttempts
+    }
+}
+
+/// 一个源要补报的那一批,最早听的在前。
+public struct PendingServerPlaybackReportBatch: Equatable, Sendable {
+    public let sourceID: String
+    public let reports: [PendingServerPlaybackReport]
+}
+
+/// 待补报队列的规则:留多久、留多少、按什么顺序送、什么时候放弃。
+public enum PendingServerPlaybackReportQueuePolicy {
+    /// 最多留这么多条,满了丢最早听的。
+    public static let maximumEntries = 500
+    /// 一个月前听的就不补了。
+    public static let retention: TimeInterval = 30 * 24 * 60 * 60
+    /// 播放时间比现在晚这么多的是改过系统时间留下的,不送。
+    public static let futureTolerance: TimeInterval = 24 * 60 * 60
+    /// 同一个源明明连得上,这一条却连着这么多次没送到(比如服务器只对这一首回 500),就放弃,
+    /// 不让它一直卡在这个源的队头。源本身连不上时不计数,只按 `retention` 过期。
+    public static let maximumFailedAttempts = 8
+
+    public static func isExpired(_ report: PendingServerPlaybackReport, now: Date) -> Bool {
+        let age = now.timeIntervalSince(report.playedAt)
+        return age > retention || age < -futureTolerance
+    }
+
+    /// 去掉过期的和重复的,按播放时间从早到晚排好,超出上限时只留最近的。
+    public static func retained(_ entries: [PendingServerPlaybackReport], now: Date) -> [PendingServerPlaybackReport] {
+        var seen = Set<UUID>()
+        let kept = entries.filter { report in
+            !isExpired(report, now: now) && seen.insert(report.id).inserted
+        }
+        let ordered = kept.enumerated().sorted { lhs, rhs in
+            if lhs.element.playedAt != rhs.element.playedAt {
+                return lhs.element.playedAt < rhs.element.playedAt
+            }
+            return lhs.offset < rhs.offset
+        }.map { $0.element }
+        return Array(ordered.suffix(maximumEntries))
+    }
+
+    public static func adding(
+        _ report: PendingServerPlaybackReport,
+        to entries: [PendingServerPlaybackReport],
+        now: Date
+    ) -> [PendingServerPlaybackReport] {
+        retained(entries + [report], now: now)
+    }
+
+    /// 一次没送到以后的这一条:丢掉时返回 nil。`sourceReachable` 表示同一个源刚有别的回报送到。
+    public static func afterFailure(
+        _ report: PendingServerPlaybackReport,
+        disposition: ServerPlaybackReportFailureDisposition,
+        sourceReachable: Bool
+    ) -> PendingServerPlaybackReport? {
+        guard disposition == .retryLater else { return nil }
+        guard sourceReachable else { return report }
+        var updated = report
+        updated.failedAttempts += 1
+        return updated.failedAttempts >= maximumFailedAttempts ? nil : updated
+    }
+
+    /// 按源分批:先送最早有记录的那个源,每个源里从最早听的开始送。
+    public static func deliveryPlan(_ entries: [PendingServerPlaybackReport]) -> [PendingServerPlaybackReportBatch] {
+        var order: [String] = []
+        var bySource: [String: [PendingServerPlaybackReport]] = [:]
+        let ordered = entries.enumerated().sorted { lhs, rhs in
+            if lhs.element.playedAt != rhs.element.playedAt {
+                return lhs.element.playedAt < rhs.element.playedAt
+            }
+            return lhs.offset < rhs.offset
+        }.map { $0.element }
+        for report in ordered {
+            if bySource[report.sourceID] == nil { order.append(report.sourceID) }
+            bySource[report.sourceID, default: []].append(report)
+        }
+        return order.map { PendingServerPlaybackReportBatch(sourceID: $0, reports: bySource[$0] ?? []) }
+    }
+}

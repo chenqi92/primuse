@@ -2356,14 +2356,30 @@ protocol MediaServerWritebackConnector: MusicSourceConnector {
     func removeLyrics(for song: Song) async -> MediaServerWritebackResult
 }
 
-/// 服务端曲库源(Subsonic / Navidrome 等)向服务器回报播放的能力。
+/// 服务端曲库源(Subsonic / Navidrome、Jellyfin / Emby / Plex 等)向服务器回报播放的能力。
 /// Navidrome 不把单纯的 stream 视为一次播放, 必须显式 scrobble 才会更新
 /// 播放次数 / "最近播放" / 转发到服务端配置的 Last.fm·ListenBrainz。
 /// - submission == false → "正在播放" (now playing, 不计入历史)
-/// - submission == true  → "已播放" (计入播放次数 / 历史)
-/// 失败不抛错 —— 回报是尽力而为, 失败不该影响播放。
+/// - submission == true  → "已播放" (计入播放次数 / 历史), `playedAt` 是听满的那一刻,
+///   服务器接受播放时间的就照它记(补报时不能记成补报的时间)。
+/// 没送到就抛错, 调用方据此决定「已播放」要不要留着补报; 这类源里没有某种回报的直接返回。
+/// 调用方从不在播放路径上等它。
 protocol ServerScrobblingConnector: MusicSourceConnector {
-    func scrobble(songPath: String, submission: Bool) async
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws
+}
+
+/// 播放回报没送到的原因(待补报队列靠它分辨要不要留着)。
+enum ServerPlaybackReportError: Error, Sendable, Equatable {
+    /// 路径里读不出服务器上的曲目 id。
+    case invalidSongReference
+    /// 这个源暂时拿不到能回报的连接器(凭据读不出、线路还没定、源正在改配置)。
+    case connectorUnavailable
+    /// 服务器回了这个 HTTP 状态。
+    case httpStatus(Int)
+    /// 服务器回应了, 但明确不收(应用层错误码)。
+    case rejected(String)
+    /// 服务器回应了, 说自己出错了(应用层的通用错误)。
+    case serverFailure(String)
 }
 
 enum ServerListeningStatsConnectorError: LocalizedError, Equatable, Sendable {

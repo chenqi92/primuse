@@ -1526,6 +1526,8 @@ final class AppServices {
         tagEdits.attach(library: library)
         // 没写进文件的标签修改:留着清单,音乐源能连上时自动再写一次。
         PendingTagWritebackStore.shared.attach(library: library, sourceManager: manager, player: player)
+        // 没送到服务器的「已播放」:回到前台、网络变了、同一个源又送得到时补报。
+        PendingServerPlaybackReportStore.shared.attach(sourceManager: manager)
         tagEdits.readinessProvider = { [weak metadataBackfill, weak store] song, includesCover in
             // 读标签的源(停用的也算):这类源上还没读的行要等;服务端曲库的标签来自目录,照套。
             let readsTags = store?.source(id: song.sourceID).map {
@@ -2759,6 +2761,11 @@ final class AppServices {
                     if self?.didCompleteDeferredStartup == true {
                         PendingTagWritebackStore.shared.scheduleAutomaticRetry(after: .seconds(8))
                     }
+                    PendingServerPlaybackReportStore.shared.scheduleFlush(
+                        reason: "became active",
+                        after: .seconds(5),
+                        minimumInterval: 60
+                    )
                     #if os(iOS) || os(macOS)
                     // 每次回到前台查一次到期的清单订阅(启动后的等待结束前不算数)。
                     RadioSubscriptionService.shared.refreshDueSubscriptions()

@@ -5937,3 +5937,73 @@ extension MediaServerSource: ServerPlaylistDescriptionConnector {
         return refreshed
     }
 }
+
+// MARK: - 回报播放 (ServerScrobblingConnector)
+
+/// Jellyfin / Emby / Plex 只报「已播放」:Jellyfin / Emby 的开始播放(`/Sessions/Playing`)
+/// 本身就会把播放次数加一,两样都报会算两次;Plex 的 `/:/timeline` 要一直报进度,
+/// 只报开头会在服务器上留下一个停在 0 秒的会话。
+extension MediaServerSource: ServerScrobblingConnector {
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        guard submission else { return }
+        guard let itemID = itemID(from: songPath), !itemID.isEmpty, itemID != ".", itemID != ".." else {
+            throw ServerPlaybackReportError.invalidSongReference
+        }
+        try await connect()
+        switch kind {
+        case .plex:
+            try await sendPlaybackReport { _ in
+                MediaServerPlaybackReportRequest.plexScrobble(ratingKey: itemID)
+            }
+        case .emby:
+            try await sendPlaybackReport { userID in
+                MediaServerPlaybackReportRequest.embyPlayed(userID: userID, itemID: itemID, playedAt: playedAt)
+            }
+        case .jellyfin:
+            do {
+                try await sendPlaybackReport { userID in
+                    MediaServerPlaybackReportRequest.jellyfinPlayed(userID: userID, itemID: itemID, playedAt: playedAt)
+                }
+            } catch ServerPlaybackReportError.httpStatus(404) {
+                // 旧路径哪天被拿掉时走 10.9 起的新路径;这首真不在了,新路径照样 404。
+                try await sendPlaybackReport { userID in
+                    MediaServerPlaybackReportRequest.jellyfinUserPlayedItem(
+                        userID: userID,
+                        itemID: itemID,
+                        playedAt: playedAt
+                    )
+                }
+            }
+        }
+    }
+
+    /// 发一次回报,服务器回的状态原样带出去(待补报队列靠它分辨要不要留着)。
+    /// 用户名密码登录的会话被拒(401/403)时服务器没记这一次,换个会话再发一次。
+    private func sendPlaybackReport(
+        _ makeRequest: (_ userID: String) -> MediaServerPlaybackReportRequest
+    ) async throws {
+        var reauthenticated = false
+        while true {
+            guard let userID else { throw SourceError.authenticationFailed }
+            let request = makeRequest(userID)
+            do {
+                _ = try await performUnscheduledRequest(
+                    path: request.path,
+                    method: request.method,
+                    queryItems: request.queryItems,
+                    preservesHTTPFailure: true
+                )
+                return
+            } catch let failure as HTTPResponseFailure {
+                if [401, 403].contains(failure.statusCode), !reauthenticated,
+                   kind != .plex, authType != .apiKey {
+                    reauthenticated = true
+                    discardRejectedSession()
+                    try await connect()
+                    continue
+                }
+                throw ServerPlaybackReportError.httpStatus(failure.statusCode)
+            }
+        }
+    }
+}

@@ -3176,7 +3176,8 @@
 "scrobble_api_secret" = "API سر";
 "scrobble_clear_queue" = "مسح قائمة الانتظار";
 "scrobble_clear_queue_confirm" = "مسح كافة عمليات الاستماع المعلقة؟";
-"scrobble_report_to_server" = "إرسال سجل التشغيل إلى خوادم الموسيقى";
+"scrobble_report_to_server" = "إرسال سجل تشغيل الموسيقى إلى الخوادم";
+"scrobble_report_to_server_footer" = "للموسيقى فقط: تُرسَل الأغاني التي تم تشغيلها إلى خوادم مثل Navidrome وJellyfin وEmby وPlex، لتُحدَّث فيها أعداد مرات التشغيل والمشغّلة مؤخرًا. يُزامَن موضع الاستماع في الكتب الصوتية دائمًا بغض النظر عن هذا المفتاح.";
 "scrobble_enabled" = "تفعيل تسجيل الاستماع";
 "scrobble_lastfm_advanced_hint" = "إذا كنت تريد استخدام تطبيق Last.fm الخاص بك (حصة منفصلة)، فالصق API المفتاح + السر المشترك هنا. اتركه فارغًا لاستخدام الإعدادات الافتراضية المضمنة.";
 "scrobble_lastfm_advanced_title" = "استخدم تطبيقي الخاص";

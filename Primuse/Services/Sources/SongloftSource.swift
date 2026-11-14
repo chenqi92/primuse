@@ -257,8 +257,9 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
         return ServerFavoriteSnapshot(itemIDs: confirmed.ids.map(String.init), isComplete: confirmed.unreadableCount == 0)
     }
 
-    func scrobble(songPath: String, submission: Bool) async {
-        try? await client.reportPlayback(trackPath: songPath, submission: submission)
+    /// 开始放记一次 play,听满记一次 finish。服务器不收播放时间,补报时记成补报那一刻。
+    func scrobble(songPath: String, submission: Bool, playedAt _: Date) async throws {
+        try await client.reportPlayback(trackPath: songPath, submission: submission)
     }
 
     func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {

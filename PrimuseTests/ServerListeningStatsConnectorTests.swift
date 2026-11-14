@@ -819,6 +819,172 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         XCTAssertTrue(payload.events.isEmpty)
     }
 
+    // MARK: - 回报播放
+
+    /// 「已播放」带上听满的时间:Jellyfin 认 ISO 8601,Emby 只认 yyyyMMddHHmmss。
+    /// 「正在播放」不发请求(这两家开始播放的回报自己就会计一次)。
+    func testJellyfinAndEmbyRecordPlayedTracksWithTheirDateFormats() async throws {
+        let playedAt = Date(timeIntervalSince1970: 1_794_645_005)
+        for kind in [MediaServerSource.Kind.jellyfin, .emby] {
+            let requests = LockedValues<String>()
+            let posted = LockedValues<String>()
+            let source = makeMediaSource(kind: kind) { request in
+                let url = try XCTUnwrap(request.url)
+                let method = request.httpMethod ?? "GET"
+                requests.append("\(method) \(url.path)")
+                switch (method, url.path) {
+                case ("GET", "/Users/Me"):
+                    return try Self.response(request, json: #"{"Id":"user-1"}"#)
+                case ("POST", "/Users/user-1/PlayedItems/item-9"):
+                    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                    posted.append(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&"))
+                    return try Self.response(request, json: #"{"PlayCount":3,"Played":true}"#)
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            try await source.scrobble(songPath: "/items/item-9.flac", submission: false, playedAt: playedAt)
+            XCTAssertTrue(requests.values.isEmpty)
+            try await source.scrobble(songPath: "/items/item-9.flac", submission: true, playedAt: playedAt)
+            XCTAssertEqual(posted.values, [
+                kind == .jellyfin ? "datePlayed=2026-11-14T08:30:05Z" : "DatePlayed=20261114083005"
+            ])
+            await source.disconnect()
+        }
+    }
+
+    /// 旧路径被拿掉的 Jellyfin 走 `/UserPlayedItems`;两条都 404 就是这首不在了,按不再补报处理。
+    func testJellyfinFallsBackToUserPlayedItemsAndReportsMissingItems() async throws {
+        let playedAt = Date(timeIntervalSince1970: 1_794_645_005)
+        for newRouteExists in [true, false] {
+            let fallbacks = LockedValues<String>()
+            let source = makeMediaSource(kind: .jellyfin) { request in
+                let url = try XCTUnwrap(request.url)
+                switch (request.httpMethod ?? "GET", url.path) {
+                case ("GET", "/Users/Me"):
+                    return try Self.response(request, json: #"{"Id":"user-1"}"#)
+                case ("POST", "/Users/user-1/PlayedItems/item-9"):
+                    return try Self.response(request, statusCode: 404, json: "")
+                case ("POST", "/UserPlayedItems/item-9"):
+                    let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                    fallbacks.append(query.first { $0.name == "userId" }?.value ?? "")
+                    return try Self.response(request, statusCode: newRouteExists ? 200 : 404, json: "{}")
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            do {
+                try await source.scrobble(songPath: "/items/item-9.mp3", submission: true, playedAt: playedAt)
+                XCTAssertTrue(newRouteExists)
+            } catch {
+                XCTAssertFalse(newRouteExists)
+                XCTAssertEqual(error as? ServerPlaybackReportError, .httpStatus(404))
+                XCTAssertEqual(ServerPlaybackReportFailureClassifier.disposition(of: error), .drop)
+            }
+            XCTAssertEqual(fallbacks.values, ["user-1"])
+            await source.disconnect()
+        }
+    }
+
+    func testMediaServerErrorKeepsThePlayForRetry() async throws {
+        let source = makeMediaSource(kind: .emby) { request in
+            switch (request.httpMethod ?? "GET", request.url?.path) {
+            case ("GET", "/Users/Me"):
+                return try Self.response(request, json: #"{"Id":"user-1"}"#)
+            case ("POST", "/Users/user-1/PlayedItems/item-9"):
+                return try Self.response(request, statusCode: 503, json: "")
+            default:
+                throw FixtureError.invalidRequest
+            }
+        }
+        do {
+            try await source.scrobble(songPath: "/items/item-9.flac", submission: true, playedAt: Date())
+            XCTFail("Expected the server error to surface")
+        } catch {
+            XCTAssertEqual(error as? ServerPlaybackReportError, .httpStatus(503))
+            XCTAssertEqual(ServerPlaybackReportFailureClassifier.disposition(of: error), .retryLater)
+        }
+        await source.disconnect()
+    }
+
+    func testPlexMarksPlayedTrackThroughScrobble() async throws {
+        let scrobbles = LockedValues<String>()
+        let source = makeMediaSource(kind: .plex) { request in
+            let url = try XCTUnwrap(request.url)
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("GET", ""), ("GET", "/"):
+                return try Self.response(request, json: #"{"MediaContainer":{"machineIdentifier":"machine-1"}}"#)
+            case ("GET", "/:/scrobble"):
+                let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                scrobbles.append(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&"))
+                return try Self.response(request, json: "")
+            default:
+                throw FixtureError.invalidRequest
+            }
+        }
+
+        try await source.scrobble(songPath: "/items/345.flac", submission: false, playedAt: Date())
+        XCTAssertTrue(scrobbles.values.isEmpty)
+        try await source.scrobble(songPath: "/items/345.flac", submission: true, playedAt: Date())
+        XCTAssertEqual(scrobbles.values, ["key=345&identifier=com.plexapp.plugins.library"])
+        await source.disconnect()
+    }
+
+    func testPlayedReportFailuresKeepOnlyWhatMayStillGoThrough() {
+        let retryLater: [any Error] = [
+            URLError(.notConnectedToInternet), URLError(.timedOut), URLError(.cannotConnectToHost),
+            SourceError.timeout, SourceError.connectionFailed("no route"),
+            SourceError.credentialUnavailable("locked"), CancellationError(),
+            ServerPlaybackReportError.connectorUnavailable, ServerPlaybackReportError.httpStatus(503),
+            ServerPlaybackReportError.httpStatus(429), ServerPlaybackReportError.serverFailure("busy"),
+            HTTPResponseFailure(statusCode: 502), SongloftServiceError.badServerResponse(500),
+            DaoLiYuServiceError.badServerResponse(504),
+        ]
+        let drop: [any Error] = [
+            SourceError.authenticationFailed, SourceError.fileNotFound("/items/1.flac"),
+            ServerPlaybackReportError.invalidSongReference, ServerPlaybackReportError.rejected("not found"),
+            ServerPlaybackReportError.httpStatus(401), ServerPlaybackReportError.httpStatus(404),
+            HTTPResponseFailure(statusCode: 403), SongloftServiceError.authenticationFailed,
+            DaoLiYuServiceError.badServerResponse(404), DaoLiYuServiceError.authenticationFailed,
+            SourceConnectionTerminalError(message: "password expired"), URLError(.badURL),
+        ]
+        for error in retryLater {
+            XCTAssertEqual(ServerPlaybackReportFailureClassifier.disposition(of: error), .retryLater, "\(error)")
+        }
+        for error in drop {
+            XCTAssertEqual(ServerPlaybackReportFailureClassifier.disposition(of: error), .drop, "\(error)")
+        }
+    }
+
+    /// 总开关关着时不记;记下的马上落盘,重启后还在。
+    func testPendingPlaybackReportsPersistOnlyWhileReportingIsOn() throws {
+        let settings = ScrobbleSettingsStore.shared
+        let previous = settings.reportPlaybackToServer
+        defer { settings.reportPlaybackToServer = previous }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pending-server-playback-reports-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let store = PendingServerPlaybackReportStore(fileURL: fileURL)
+        settings.reportPlaybackToServer = false
+        store.record(PendingServerPlaybackReport(
+            sourceID: "source-off", songID: "song-off", songPath: "/items/off.flac", playedAt: Date()
+        ))
+        XCTAssertTrue(store.entries.isEmpty)
+
+        settings.reportPlaybackToServer = true
+        let report = PendingServerPlaybackReport(
+            sourceID: "source-on", songID: "song-on", songPath: "/items/on.flac",
+            // 整秒:JSON 往返后能逐位比较。
+            playedAt: Date(timeIntervalSince1970: (Date().timeIntervalSince1970 - 60).rounded(.down))
+        )
+        store.record(report)
+        store.flushPendingWrite()
+        XCTAssertEqual(PendingServerPlaybackReportStore(fileURL: fileURL).entries, [report])
+    }
+
     private func makeMediaSource(
         kind: MediaServerSource.Kind,
         loader: @escaping MediaServerSource.RequestDataLoader

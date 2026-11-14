@@ -1517,17 +1517,42 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     // MARK: - Scrobble (ServerScrobblingConnector)
 
-    func scrobble(songPath: String, submission: Bool) async {
-        guard (try? await connect()) != nil, let songID = songID(from: songPath) else { return }
-        guard let url = buildRESTURL(
-            method: "scrobble",
-            query: [
-                URLQueryItem(name: "id", value: songID),
-                URLQueryItem(name: "submission", value: submission ? "true" : "false")
-            ]
-        ) else { return }
-        // 尽力而为: 失败不影响播放, 也不重试(回报不是关键路径)。
-        _ = try? await TrustedHTTPTransport.data(from: url, session: session)
+    /// 「已播放」带上听满的时间(毫秒):补报时服务器按它记,不记成补报那一刻。
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        guard let songID = songID(from: songPath), !songID.isEmpty else {
+            throw ServerPlaybackReportError.invalidSongReference
+        }
+        try await connect()
+        let container: EmptyContainer
+        do {
+            container = try await responseJSON(
+                "scrobble",
+                query: SubsonicScrobbleRequest.queryItems(
+                    songID: songID,
+                    submission: submission,
+                    playedAt: playedAt
+                )
+            )
+        } catch let statusError as SubsonicHTTPStatusError {
+            throw ServerPlaybackReportError.httpStatus(statusError.statusCode)
+        }
+        guard container.status == "ok" else {
+            throw Self.scrobbleError(from: container.error)
+        }
+    }
+
+    /// 应用层错误:40/41 认证不过,0 是服务器自己出错(一会儿再试),其余(缺参数、无权、
+    /// 找不到这首……)再报也一样。
+    private static func scrobbleError(from error: SubsonicError?) -> Error {
+        guard let error else { return ServerPlaybackReportError.serverFailure("Subsonic scrobble failed") }
+        switch error.code {
+        case 40, 41:
+            return SourceError.authenticationFailed
+        case 0:
+            return ServerPlaybackReportError.serverFailure(error.message ?? "Subsonic error 0")
+        default:
+            return ServerPlaybackReportError.rejected(error.message ?? "Subsonic error \(error.code)")
+        }
     }
 
     // MARK: - Lyrics (ServerLyricsConnector)

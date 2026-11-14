@@ -125,8 +125,12 @@ struct ScrobbleSettingsView: View {
     private var iosBody: some View {
         Form {
             Section {
-                Toggle("scrobble_report_to_server", isOn: $settings.reportPlaybackToServer)
-                    .settingsAnchor("scrobble.server")
+                Toggle(isOn: $settings.reportPlaybackToServer) {
+                    SettingsInfoLabel("scrobble_report_to_server") {
+                        Text("scrobble_report_to_server_footer")
+                    }
+                }
+                .settingsAnchor("scrobble.server")
             }
             Section {
                 Toggle(isOn: $settings.isEnabled.pmAnimated()) {

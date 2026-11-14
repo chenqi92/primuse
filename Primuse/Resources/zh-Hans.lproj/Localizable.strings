@@ -1027,7 +1027,8 @@
 
 // MARK: - Scrobble (听歌记录上报)
 "scrobble_title" = "听歌记录";
-"scrobble_report_to_server" = "向音乐服务器回传播放记录";
+"scrobble_report_to_server" = "向服务器回传音乐播放记录";
+"scrobble_report_to_server_footer" = "只管音乐：把听过的歌回传给 Navidrome、Jellyfin、Emby、Plex 等服务器，记进它们的播放次数和最近播放。有声书的收听进度一直同步，不受这个开关影响。";
 "scrobble_enabled" = "启用听歌记录";
 "scrobble_send_now_playing" = "上报正在播放";
 "scrobble_overall_footer" = "把听歌历史同步到 Last.fm / ListenBrainz 等服务,听够 50% 或 4 分钟才计入。";

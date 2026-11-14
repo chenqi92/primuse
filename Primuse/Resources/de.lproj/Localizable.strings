@@ -1219,7 +1219,8 @@
 "carplay_play_failed_format" = "%@ konnte nicht wiedergegeben werden";
 "carplay_ok" = "OK";
 "scrobble_title" = "Scrobbeln";
-"scrobble_report_to_server" = "Wiedergabeverlauf an Musikserver senden";
+"scrobble_report_to_server" = "Musik-Wiedergabeverlauf an Server senden";
+"scrobble_report_to_server_footer" = "Nur für Musik: Songs, die du gehört hast, werden an Server wie Navidrome, Jellyfin, Emby und Plex gesendet, damit deren Wiedergaben und „Zuletzt gespielt“ aktuell bleiben. Die Hörposition von Hörbüchern wird unabhängig von diesem Schalter immer synchronisiert.";
 "scrobble_enabled" = "Scrobbeln aktivieren";
 "scrobble_send_now_playing" = "„Aktuelle Wiedergabe“ senden";
 "scrobble_overall_footer" = "Wiedergabeverlauf an Last.fm / ListenBrainz übermitteln. Zählt erst nach 50 % oder 4 Minuten Wiedergabe.";

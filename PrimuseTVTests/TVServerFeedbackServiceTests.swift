@@ -203,7 +203,15 @@ final class TVServerFeedbackServiceTests: XCTestCase {
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.fnMusic))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.songloft))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.daoliyu))
-        XCTAssertFalse(TVServerFeedbackPolicy.supportsScrobble(.emby))
+        // Jellyfin / Emby / Plex 只报「已播放」:它们开始播放的回报本身就计一次。
+        XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.emby))
+        XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.jellyfin))
+        XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.plex))
+        XCTAssertFalse(TVServerFeedbackPolicy.supportsNowPlaying(.emby))
+        XCTAssertFalse(TVServerFeedbackPolicy.supportsNowPlaying(.jellyfin))
+        XCTAssertFalse(TVServerFeedbackPolicy.supportsNowPlaying(.plex))
+        XCTAssertFalse(TVServerFeedbackPolicy.supportsScrobble(.synologyAudioStation))
+        XCTAssertFalse(TVServerFeedbackPolicy.supportsScrobble(.webdav))
     }
 
     func testTransientFavoriteFailureRetriesThenKeepsOptimisticState() async {

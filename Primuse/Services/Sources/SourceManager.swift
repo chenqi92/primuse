@@ -2627,10 +2627,12 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, NetworkAdaptiveTra
         return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
-    func scrobble(songPath: String, submission: Bool) async {
-        _ = try? await routing.withMutation { connector in
-            guard let reporter = connector as? any ServerScrobblingConnector else { return }
-            await reporter.scrobble(songPath: songPath, submission: submission)
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        try await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else {
+                throw ServerPlaybackReportError.connectorUnavailable
+            }
+            try await reporter.scrobble(songPath: songPath, submission: submission, playedAt: playedAt)
         }
     }
 
@@ -2714,10 +2716,12 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
         return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
     }
 
-    func scrobble(songPath: String, submission: Bool) async {
-        _ = try? await routing.withMutation { connector in
-            guard let reporter = connector as? any ServerScrobblingConnector else { return }
-            await reporter.scrobble(songPath: songPath, submission: submission)
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        try await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else {
+                throw ServerPlaybackReportError.connectorUnavailable
+            }
+            try await reporter.scrobble(songPath: songPath, submission: submission, playedAt: playedAt)
         }
     }
 
@@ -2772,10 +2776,12 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
         }) ?? .unavailable
     }
 
-    func scrobble(songPath: String, submission: Bool) async {
-        _ = try? await routing.withMutation { connector in
-            guard let reporter = connector as? any ServerScrobblingConnector else { return }
-            await reporter.scrobble(songPath: songPath, submission: submission)
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        try await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else {
+                throw ServerPlaybackReportError.connectorUnavailable
+            }
+            try await reporter.scrobble(songPath: songPath, submission: submission, playedAt: playedAt)
         }
     }
 
@@ -3042,10 +3048,12 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
         }
     }
 
-    func scrobble(songPath: String, submission: Bool) async {
-        _ = try? await routing.withMutation { connector in
-            guard let provider = connector as? any ServerScrobblingConnector else { return }
-            await provider.scrobble(songPath: songPath, submission: submission)
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        try await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else {
+                throw ServerPlaybackReportError.connectorUnavailable
+            }
+            try await reporter.scrobble(songPath: songPath, submission: submission, playedAt: playedAt)
         }
     }
 
@@ -3149,12 +3157,21 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
-    ServerCollectionFavoriteConnector, ServerLibraryListingConnector {
+    ServerCollectionFavoriteConnector, ServerLibraryListingConnector, ServerScrobblingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
     let serverLyricsCapabilities: ServerLyricsCapabilities
+
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        try await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else {
+                throw ServerPlaybackReportError.connectorUnavailable
+            }
+            try await reporter.scrobble(songPath: songPath, submission: submission, playedAt: playedAt)
+        }
+    }
 
     func fetchServerLibraries() async throws -> [ServerLibraryDescriptor] {
         try await routing.withRead { connector in
@@ -15303,15 +15320,84 @@ final class SourceManager {
         }
     }
 
-    /// 把一次播放回报给"服务端曲库源"(Subsonic/Navidrome 等)。
-    /// submission=false → nowPlaying, true → 计入播放次数/历史。
-    /// 非服务端源(NAS/云盘/本地)直接 no-op。尽力而为, 不抛错。
-    func reportServerScrobble(for song: Song, submission: Bool) async {
-        guard let sources = try? await sourcesProvider(),
-              let source = sources.first(where: { $0.id == song.sourceID }) else { return }
-        guard ScrobbleSettingsStore.shared.reportPlaybackToServer,
-              let conn = connector(for: source) as? ServerScrobblingConnector else { return }
-        await conn.scrobble(songPath: song.filePath, submission: submission)
+    /// 把一次播放回报给"服务端曲库源"(Subsonic/Navidrome、Jellyfin/Emby/Plex 等)。
+    /// submission=false → nowPlaying, true → 计入播放次数/历史, `playedAt` 是听满的那一刻。
+    /// 非服务端源(NAS/云盘/本地)直接 no-op。不抛错: 没送到的「已播放」留进
+    /// `PendingServerPlaybackReportStore` 以后补报, 「正在播放」不补。
+    func reportServerScrobble(for song: Song, submission: Bool, playedAt: Date = Date()) async {
+        guard ScrobbleSettingsStore.shared.reportPlaybackToServer else { return }
+        let outcome = await sendServerPlaybackReport(
+            sourceID: song.sourceID,
+            songPath: song.filePath,
+            submission: submission,
+            playedAt: playedAt
+        )
+        let pending = PendingServerPlaybackReportStore.shared
+        switch outcome {
+        case .delivered:
+            // 这个源连得上: 之前没送到的跟着补。
+            pending.scheduleFlush(reason: "report delivered", reachableSourceID: song.sourceID)
+        case .waiting, .failed(.retryLater):
+            guard submission else { return }
+            let report = PendingServerPlaybackReport(
+                sourceID: song.sourceID,
+                songID: song.id,
+                songPath: song.filePath,
+                playedAt: playedAt
+            )
+            pending.record(report)
+        case .notReported, .failed(.drop):
+            return
+        }
+    }
+
+    /// 补报队列里的一条。
+    func deliverPendingServerPlaybackReport(
+        _ report: PendingServerPlaybackReport
+    ) async -> ServerPlaybackReportOutcome {
+        await sendServerPlaybackReport(
+            sourceID: report.sourceID,
+            songPath: report.songPath,
+            submission: true,
+            playedAt: report.playedAt
+        )
+    }
+
+    /// 送一次回报, 不记队列。
+    private func sendServerPlaybackReport(
+        sourceID: String,
+        songPath: String,
+        submission: Bool,
+        playedAt: Date
+    ) async -> ServerPlaybackReportOutcome {
+        let sources: [MusicSource]
+        do {
+            sources = try await sourcesProvider()
+        } catch {
+            return .failed(.retryLater)
+        }
+        // 源删掉了: 不报, 队列里的也丢。
+        guard let source = sources.first(where: { $0.id == sourceID }), !source.isDeleted else {
+            return .notReported
+        }
+        let supported = submission
+            ? ServerPlaybackReportPolicy.supportsPlayedReport(source.type)
+            : ServerPlaybackReportPolicy.supportsNowPlayingReport(source.type)
+        guard supported else { return .notReported }
+        // 停用的源不去连它, 「已播放」等它重新启用。
+        guard source.isEnabled else { return .waiting }
+        guard let reporter = connector(for: source) as? any ServerScrobblingConnector else {
+            // 能回报的源暂时拿不到连接器(凭据读不出、线路没定、源正在改配置)。
+            return .failed(.retryLater)
+        }
+        do {
+            try await reporter.scrobble(songPath: songPath, submission: submission, playedAt: playedAt)
+            return .delivered
+        } catch {
+            let disposition = ServerPlaybackReportFailureClassifier.disposition(of: error)
+            plog("Server playback report failed source=\(sourceID.prefix(8)) type=\(source.type.rawValue) played=\(submission) next=\(disposition.rawValue) error=\(String(describing: error).prefix(160))")
+            return .failed(disposition)
+        }
     }
 
     /// 拉取服务端曲库源上的用户歌单。源不支持(NAS / 云盘 / 本地)返回 nil,
@@ -16445,5 +16531,201 @@ enum SourceAuthAlert {
     /// 用户成功重连后调用,解除节流让下次失败立刻能弹。
     static func clear(sourceID: String) {
         lastReport[sourceID] = nil
+    }
+}
+
+// MARK: - 没送到的「已播放」
+
+/// 一次播放回报的结果。
+enum ServerPlaybackReportOutcome: Sendable, Equatable {
+    /// 服务器收到了。
+    case delivered
+    /// 这个源不报这种回报, 或者源已经删了。
+    case notReported
+    /// 源停用着, 先不连它。
+    case waiting
+    /// 没送到。
+    case failed(ServerPlaybackReportFailureDisposition)
+}
+
+/// 没送到服务器的「已播放」: 断网、服务器暂时连不上或一时出错时记在这里, 回到前台、网络变了、
+/// 同一个源下一次回报送到时按原来的播放时间补报, 每个源从最早听的那首开始。规则(留多久、
+/// 留多少、什么时候放弃)在 `PendingServerPlaybackReportQueuePolicy`。「正在播放」从来不留。
+/// 回报总开关关着时既不记也不补, 已经记下的留着。
+@MainActor
+final class PendingServerPlaybackReportStore {
+    static let shared = PendingServerPlaybackReportStore()
+
+    private struct Storage: Codable {
+        var entries: [PendingServerPlaybackReport]
+    }
+
+    private(set) var entries: [PendingServerPlaybackReport] = []
+
+    private let fileURL: URL?
+    private weak var sourceManager: SourceManager?
+    private var flushTask: Task<Void, Never>?
+    private var isFlushing = false
+    private var flushFollowUp = false
+    /// 刚有回报送到的源。这些源上的条目还送不到, 才算这一条自己的问题(计次)。
+    private var reachableSourceIDs: Set<String> = []
+    /// 上一轮真正去送的时间。Mac 上切一下窗口就算回到前台, 不能每次都去撞一遍连不上的源。
+    private var lastAttemptAt: Date?
+    private static let writeQueue = DispatchQueue(
+        label: "primuse.pendingServerPlaybackReports.write",
+        qos: .utility
+    )
+
+    init(fileURL: URL? = PendingServerPlaybackReportStore.defaultFileURL(), now: Date = Date()) {
+        self.fileURL = fileURL
+        // 最多几百条, 读一次。
+        if let fileURL, let data = try? Data(contentsOf: fileURL),
+           let storage = try? JSONDecoder().decode(Storage.self, from: data) {
+            entries = PendingServerPlaybackReportQueuePolicy.retained(storage.entries, now: now)
+        }
+    }
+
+    nonisolated static func defaultFileURL() -> URL {
+        FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+            .appendingPathComponent("Primuse", isDirectory: true)
+            .appendingPathComponent("pending-server-playback-reports.json")
+    }
+
+    /// 启动时接上; 上次没补完的等启动忙完再送。
+    func attach(sourceManager: SourceManager) {
+        self.sourceManager = sourceManager
+        scheduleFlush(reason: "launch", after: .seconds(20))
+    }
+
+    func record(_ report: PendingServerPlaybackReport, now: Date = Date()) {
+        guard ScrobbleSettingsStore.shared.reportPlaybackToServer else { return }
+        entries = PendingServerPlaybackReportQueuePolicy.adding(report, to: entries, now: now)
+        // 马上落盘: 这一条可能是进程被系统收掉前最后一件事。
+        writeNow()
+        plog("Server playback report kept for retry source=\(report.sourceID.prefix(8)) song=\(report.songID.prefix(8)) pending=\(entries.count)")
+    }
+
+    /// 回到前台、网络变了、`reachableSourceID` 刚有一次回报送到时调用。`minimumInterval`:
+    /// 上一轮在这么久以内送过就不再来(只给回到前台这种弱信号用)。
+    func scheduleFlush(
+        reason: String,
+        reachableSourceID: String? = nil,
+        after delay: Duration = .seconds(2),
+        minimumInterval: TimeInterval = 0
+    ) {
+        if let reachableSourceID { reachableSourceIDs.insert(reachableSourceID) }
+        guard !entries.isEmpty else {
+            reachableSourceIDs.removeAll()
+            return
+        }
+        if minimumInterval > 0, let lastAttemptAt,
+           Date().timeIntervalSince(lastAttemptAt) < minimumInterval {
+            return
+        }
+        guard !isFlushing else {
+            flushFollowUp = true
+            return
+        }
+        // 已经排着的那一次照常跑, 不往后推: 连着来的触发不能让它一直等。
+        guard flushTask == nil else { return }
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await self?.flush(reason: reason)
+        }
+    }
+
+    private func flush(reason: String) async {
+        flushTask = nil
+        guard !isFlushing, let sourceManager else { return }
+        // 总开关关着时不补, 条目留着。
+        guard ScrobbleSettingsStore.shared.reportPlaybackToServer else { return }
+        // 确定没有网时不白跑一趟; 网络一变还会再来。
+        guard NetworkMonitor.shared.allowsAutomaticInternetRequests else { return }
+        let retained = PendingServerPlaybackReportQueuePolicy.retained(entries, now: Date())
+        if retained != entries {
+            entries = retained
+            writeNow()
+        }
+        guard !entries.isEmpty else {
+            reachableSourceIDs.removeAll()
+            return
+        }
+        isFlushing = true
+        lastAttemptAt = Date()
+        var reachable = reachableSourceIDs
+        reachableSourceIDs.removeAll()
+        var delivered = 0
+        var dropped = 0
+        sourceLoop: for batch in PendingServerPlaybackReportQueuePolicy.deliveryPlan(entries) {
+            for report in batch.reports {
+                guard ScrobbleSettingsStore.shared.reportPlaybackToServer else { break sourceLoop }
+                guard entries.contains(where: { $0.id == report.id }) else { continue }
+                let outcome = await sourceManager.deliverPendingServerPlaybackReport(report)
+                switch outcome {
+                case .delivered:
+                    remove(report.id)
+                    delivered += 1
+                    reachable.insert(batch.sourceID)
+                case .notReported, .failed(.drop):
+                    // 源删了, 或者服务器明确不收这一条: 丢掉, 接着送这个源的下一条。
+                    remove(report.id)
+                    dropped += 1
+                case .waiting:
+                    continue sourceLoop
+                case .failed(.retryLater):
+                    if let updated = PendingServerPlaybackReportQueuePolicy.afterFailure(
+                        report,
+                        disposition: .retryLater,
+                        sourceReachable: reachable.contains(batch.sourceID)
+                    ) {
+                        replace(updated)
+                    } else {
+                        remove(report.id)
+                        dropped += 1
+                    }
+                    // 这个源这会儿送不到: 剩下的等下次, 不一条条去撞。
+                    continue sourceLoop
+                }
+            }
+        }
+        writeNow()
+        isFlushing = false
+        plog("Server playback report retry reason=\(reason) delivered=\(delivered) dropped=\(dropped) remaining=\(entries.count)")
+        if flushFollowUp {
+            flushFollowUp = false
+            scheduleFlush(reason: "follow-up", after: .seconds(5))
+        }
+    }
+
+    private func remove(_ id: UUID) {
+        entries.removeAll { $0.id == id }
+    }
+
+    private func replace(_ report: PendingServerPlaybackReport) {
+        guard let index = entries.firstIndex(where: { $0.id == report.id }) else { return }
+        entries[index] = report
+    }
+
+    private func writeNow() {
+        guard let fileURL else { return }
+        let storage = Storage(entries: entries)
+        Self.writeQueue.async {
+            if storage.entries.isEmpty {
+                try? FileManager.default.removeItem(at: fileURL)
+                return
+            }
+            guard let data = try? JSONEncoder().encode(storage) else { return }
+            try? FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    /// 等排队的写盘做完, 给测试用。
+    func flushPendingWrite() {
+        Self.writeQueue.sync {}
     }
 }

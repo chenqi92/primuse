@@ -708,17 +708,19 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         }
     }
 
-    func scrobble(songPath: String, submission: Bool) async {
-        guard submission,
-              let trackGUID = FnMusicAPIProtocol.trackGUID(from: songPath),
-              (try? await connect()) != nil else { return }
+    /// 飞牛只记「已播放」,事件时间照听满那一刻记。
+    func scrobble(songPath: String, submission: Bool, playedAt: Date) async throws {
+        guard submission else { return }
+        guard let trackGUID = FnMusicAPIProtocol.trackGUID(from: songPath) else {
+            throw ServerPlaybackReportError.invalidSongReference
+        }
+        try await connect()
         do {
-            try await api.reportPlayback(trackGUID: trackGUID)
+            try await api.reportPlayback(trackGUID: trackGUID, occurredAt: playedAt)
         } catch SourceError.authenticationFailed {
-            guard (try? await connect()) != nil else { return }
-            _ = try? await api.reportPlayback(trackGUID: trackGUID)
-        } catch {
-            return
+            // 会话过期:重新登录后再报一次。
+            try await connect()
+            try await api.reportPlayback(trackGUID: trackGUID, occurredAt: playedAt)
         }
     }
 

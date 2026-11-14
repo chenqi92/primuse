@@ -1219,7 +1219,8 @@
 "carplay_play_failed_format" = "%@을(를) 재생할 수 없습니다";
 "carplay_ok" = "확인";
 "scrobble_title" = "Scrobble";
-"scrobble_report_to_server" = "음악 서버에 재생 기록 보내기";
+"scrobble_report_to_server" = "서버에 음악 재생 기록 보내기";
+"scrobble_report_to_server_footer" = "음악에만 적용됩니다. 재생한 곡을 Navidrome, Jellyfin, Emby, Plex 등의 서버로 보내 서버의 재생 횟수와 최근 재생 기록에 반영합니다. 오디오북의 재생 위치는 이 설정과 관계없이 항상 동기화됩니다.";
 "scrobble_enabled" = "Scrobble 사용";
 "scrobble_send_now_playing" = "현재 재생 중 전송";
 "scrobble_overall_footer" = "청취 기록을 Last.fm / ListenBrainz로 전송합니다. 50% 또는 4분 이상 재생하면 집계됩니다.";

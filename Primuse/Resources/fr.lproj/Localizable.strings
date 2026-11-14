@@ -1219,7 +1219,8 @@
 "carplay_play_failed_format" = "Impossible de lire %@";
 "carplay_ok" = "OK";
 "scrobble_title" = "Scrobble";
-"scrobble_report_to_server" = "Envoyer l’historique d’écoute aux serveurs de musique";
+"scrobble_report_to_server" = "Envoyer l’historique d’écoute musicale aux serveurs";
+"scrobble_report_to_server_footer" = "Musique uniquement : les morceaux déjà écoutés sont envoyés aux serveurs comme Navidrome, Jellyfin, Emby et Plex, pour mettre à jour leurs nombres de lectures et leurs « Écoutés récemment ». La position d’écoute des livres audio est toujours synchronisée, quel que soit ce réglage.";
 "scrobble_enabled" = "Activer le scrobble";
 "scrobble_send_now_playing" = "Envoyer le morceau en cours";
 "scrobble_overall_footer" = "Envoyez votre historique d'écoute vers Last.fm / ListenBrainz. Comptabilisé après 50 % ou 4 minutes de lecture.";

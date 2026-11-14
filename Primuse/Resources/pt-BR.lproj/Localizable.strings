@@ -3176,7 +3176,8 @@
 "scrobble_api_secret" = "Segredo API";
 "scrobble_clear_queue" = "Limpar fila";
 "scrobble_clear_queue_confirm" = "Limpar todas as escutas pendentes?";
-"scrobble_report_to_server" = "Enviar histórico de reprodução aos servidores de música";
+"scrobble_report_to_server" = "Enviar histórico de reprodução de músicas aos servidores";
+"scrobble_report_to_server_footer" = "Somente música: as músicas já tocadas são enviadas a servidores como Navidrome, Jellyfin, Emby e Plex, atualizando a contagem de reproduções e os tocados recentemente. A posição de escuta dos audiolivros é sempre sincronizada, independentemente desta opção.";
 "scrobble_enabled" = "Habilitar Scrobble";
 "scrobble_lastfm_advanced_hint" = "Se desejar usar seu próprio aplicativo Last.fm (cota separada), cole aqui a Chave API + Segredo Compartilhado. Deixe em branco para usar os padrões integrados.";
 "scrobble_lastfm_advanced_title" = "Usar meu próprio aplicativo";

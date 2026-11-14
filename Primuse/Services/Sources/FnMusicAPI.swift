@@ -293,14 +293,14 @@ actor FnMusicAPI {
         return try SafeJSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed])
     }
 
-    func reportPlayback(trackGUID: String) async throws {
+    func reportPlayback(trackGUID: String, occurredAt: Date = Date()) async throws {
         _ = try await requestJSON(
             method: "POST",
             path: "/event/report",
             body: [
                 "events": [[
                     "eventType": "track_play",
-                    "occurredAt": Int64((Date().timeIntervalSince1970 * 1_000).rounded(.down)),
+                    "occurredAt": ServerPlaybackReportTime.millisecondsSince1970(occurredAt),
                     "payload": ["trackGUID": trackGUID],
                 ]],
             ]
