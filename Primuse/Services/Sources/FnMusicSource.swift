@@ -762,6 +762,30 @@ extension FnMusicSource {
     }
 }
 
+extension FnMusicSource {
+    /// 删歌：飞牛音乐网页端「文件夹」页的删除，连同 NAS 上的音频文件一起删（`FnMusicAPI.deleteTrack`）。
+    /// 只认曲库扫描建的音频曲目路径；删完按名字猜的歌词、封面 sidecar（同一个 GUID 换了扩展名）
+    /// 一律当作不存在，绝不为它们再发一次删除。
+    func deleteFile(at path: String) async throws {
+        guard let trackGUID = FnMusicAPIProtocol.deletableTrackGUID(from: path) else {
+            throw SourceError.fileNotFound(path)
+        }
+        try await connect()
+        do {
+            try await api.deleteTrack(trackGUID: trackGUID)
+        } catch SourceError.authenticationFailed {
+            // 会话失效时服务端没有执行这次删除，重新登录后再发一次。
+            try await connect()
+            try await api.deleteTrack(trackGUID: trackGUID)
+        }
+        let suffix = (path as NSString).pathExtension
+        try? FileManager.default.removeItem(at: audioCacheDirectory.appendingPathComponent(
+            CacheFileNamePolicy.make(path: path, preferredExtension: suffix.isEmpty ? "bin" : suffix)
+        ))
+        plog("fnMusic track deleted:\(LogRedactionPolicy.digest(trackGUID)) source=\(LogRedactionPolicy.digest(sourceID))")
+    }
+}
+
 extension FnMusicSource: ServerCatalogChangeDetectingConnector {
     /// The catalogue total from a one-row page. It sees rows arriving or
     /// leaving; an edited tag waits for the next scan.

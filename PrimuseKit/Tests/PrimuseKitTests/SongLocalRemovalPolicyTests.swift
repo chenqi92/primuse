@@ -16,7 +16,7 @@ struct SongLocalRemovalPolicyTests {
     @Test func readOnlyCataloguesRecordTheUnsupportedReason() {
         for type in [
             MusicSourceType.navidrome, .subsonic, .airsonic, .gonic,
-            .upnp, .fnMusic, .daoliyu, .songloft, .appleMusicLibrary,
+            .upnp, .daoliyu, .songloft, .synologyAudioStation, .appleMusicLibrary,
         ] {
             #expect(
                 SongLocalRemovalPolicy.reasonWithoutRemoteDeletion(for: type)
@@ -27,7 +27,7 @@ struct SongLocalRemovalPolicyTests {
     }
 
     @Test func deletableSourcesRecordAUserChoice() {
-        for type in [MusicSourceType.webdav, .smb, .local, .s3, .dropbox] {
+        for type in [MusicSourceType.webdav, .smb, .local, .s3, .dropbox, .jellyfin, .fnMusic, .audiobookshelf] {
             #expect(
                 SongLocalRemovalPolicy.reasonWithoutRemoteDeletion(for: type)
                     == .userKeptRemoteFile

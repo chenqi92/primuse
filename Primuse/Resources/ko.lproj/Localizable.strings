@@ -7522,3 +7522,21 @@
 "karaoke_sing_along_handoff_detail" = "노래방을 닫고 따라 부르기로 반주를 계속 재생합니다";
 
 "scraper_import_auto_update" = "자동 업데이트";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "서버에서 삭제할까요?";
+"server_delete_confirm_message_format" = "%1$@에서 노래 %2$d곡의 파일을 삭제합니다. 이 서버를 사용하는 모든 사용자와 앱에서 이 노래들이 사라지며 되돌릴 수 없습니다.";
+"server_delete_confirm_action" = "서버에서 삭제";
+"server_delete_denied_jellyfin" = "Jellyfin이 이 계정의 미디어 삭제를 허용하지 않습니다. Jellyfin 대시보드 › 사용자에서 이 계정의 ‘미디어 삭제 허용’을 켜고(모든 라이브러리 또는 이 라이브러리) 다시 시도하세요.";
+"server_delete_denied_emby" = "Emby가 이 계정의 미디어 삭제를 허용하지 않습니다. Emby 서버 설정 › 사용자에서 이 계정의 ‘미디어 삭제 허용’을 켜고 다시 시도하세요.";
+"server_delete_denied_plex" = "이 Plex 서버는 ‘미디어 삭제 허용’이 꺼져 있습니다. Plex 설정 › 서버 › 라이브러리에서 켠 뒤 다시 시도하세요. 관리 사용자는 미디어를 삭제할 수 없습니다.";
+"server_delete_denied_audiobookshelf" = "이 Audiobookshelf 계정에는 삭제 권한이 없습니다. 관리자가 설정 › 사용자에서 이 계정의 ‘삭제 가능’을 켠 뒤 다시 시도하세요.";
+"server_delete_denied_fnmusic" = "Feiniu Music에서는 관리자만 트랙을 삭제할 수 있습니다. 이 소스 설정에서 관리자 계정으로 바꾼 뒤 다시 시도하세요.";
+"server_delete_denied_generic" = "서버가 이 계정의 파일 삭제를 허용하지 않습니다. 서버에서 삭제 권한을 준 뒤 다시 시도하세요.";
+"server_delete_unsupported_fnmusic" = "이 버전의 Feiniu Music은 트랙을 삭제할 수 없습니다. fnOS 앱 센터에서 Feiniu Music을 업데이트한 뒤 다시 시도하세요.";
+"dup_same_file_title" = "두 소스에 있는 같은 파일";
+"dup_same_file_message_format" = "%1$@의 이 사본은 %2$@의 사본과 같은 파일일 가능성이 높습니다(크기와 길이가 같음). 어느 쪽을 삭제해도 둘 다 사라지므로 여기서는 삭제하지 않습니다. 이 사본만 이 기기에서 제거할 수 있으며, 파일과 다른 사본은 그대로이고 나중에 소스 페이지에서 복원할 수 있습니다.";
+"dup_same_file_remove_action" = "이 사본만 이 기기에서 제거";
+"dup_same_file_caption_format" = "%@의 파일과 같은 파일";
+"dup_same_file_badge" = "같은 파일";
+"dup_same_file_ledger_detail_format" = "같은 파일이 %@에도 있음";

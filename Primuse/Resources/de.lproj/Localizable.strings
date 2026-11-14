@@ -7522,3 +7522,21 @@
 "karaoke_sing_along_handoff_detail" = "Beendet Karaoke und spielt die Begleitung mit Mitsingen weiter";
 
 "scraper_import_auto_update" = "Automatisch aktualisieren";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "Vom Server löschen?";
+"server_delete_confirm_message_format" = "Die Dateien von %2$d Songs werden auf %1$@ gelöscht. Alle Benutzer und Apps dieses Servers verlieren sie. Das kann nicht rückgängig gemacht werden.";
+"server_delete_confirm_action" = "Vom Server löschen";
+"server_delete_denied_jellyfin" = "Jellyfin erlaubt diesem Konto nicht, Medien zu löschen. Aktiviere im Jellyfin-Dashboard unter Benutzer für dieses Konto „Löschen von Medien erlauben“ (für alle Bibliotheken oder diese) und versuche es erneut.";
+"server_delete_denied_emby" = "Emby erlaubt diesem Konto nicht, Medien zu löschen. Aktiviere in den Emby-Servereinstellungen unter Benutzer für dieses Konto „Löschen von Medien erlauben“ und versuche es erneut.";
+"server_delete_denied_plex" = "Auf diesem Plex-Server ist „Löschen von Medien erlauben“ ausgeschaltet. Aktiviere es in den Plex-Einstellungen unter Server › Bibliothek und versuche es erneut. Verwaltete Benutzer können keine Medien löschen.";
+"server_delete_denied_audiobookshelf" = "Dieses Audiobookshelf-Konto darf nicht löschen. Ein Administrator kann dafür unter Einstellungen › Benutzer „Kann löschen“ aktivieren; versuche es danach erneut.";
+"server_delete_denied_fnmusic" = "Nur Administratoren von Feiniu Music können Titel löschen. Wechsle in den Einstellungen dieser Quelle zu einem Administratorkonto und versuche es erneut.";
+"server_delete_denied_generic" = "Der Server erlaubt diesem Konto nicht, Dateien zu löschen. Erteile ihm auf dem Server Löschrechte und versuche es erneut.";
+"server_delete_unsupported_fnmusic" = "Diese Version von Feiniu Music kann keine Titel löschen. Aktualisiere Feiniu Music im fnOS App Center und versuche es erneut.";
+"dup_same_file_title" = "Dieselbe Datei in zwei Quellen";
+"dup_same_file_message_format" = "Diese Kopie aus %1$@ ist sehr wahrscheinlich dieselbe Datei wie die in %2$@ (gleiche Größe und Länge). Das Löschen einer der beiden würde beide entfernen, daher wird hier nichts gelöscht. Du kannst nur diese Kopie von diesem Gerät entfernen: Die Datei und die andere Kopie bleiben unverändert, und du kannst sie auf der Seite der Quelle wiederherstellen.";
+"dup_same_file_remove_action" = "Nur diese Kopie von diesem Gerät entfernen";
+"dup_same_file_caption_format" = "Dieselbe Datei wie in %@";
+"dup_same_file_badge" = "Dieselbe Datei";
+"dup_same_file_ledger_detail_format" = "Dieselbe Datei liegt auch in %@";

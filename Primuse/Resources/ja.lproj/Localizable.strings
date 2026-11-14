@@ -7523,3 +7523,21 @@
 "karaoke_sing_along_handoff_detail" = "カラオケを閉じて、シングアロングで伴奏を流し続けます";
 
 "scraper_import_auto_update" = "自動で更新";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "サーバーから削除しますか？";
+"server_delete_confirm_message_format" = "%1$@ 上の %2$d 曲のファイルを削除します。このサーバーを使っているすべてのユーザーとアプリからこれらの曲がなくなり、元に戻せません。";
+"server_delete_confirm_action" = "サーバーから削除";
+"server_delete_denied_jellyfin" = "Jellyfin がこのアカウントのメディア削除を許可していません。Jellyfin のダッシュボード › ユーザーでこのアカウントの「メディアの削除を許可」をオンにして（すべてのライブラリまたはこのライブラリ）、もう一度お試しください。";
+"server_delete_denied_emby" = "Emby がこのアカウントのメディア削除を許可していません。Emby サーバーの設定 › ユーザーでこのアカウントの「メディアの削除を許可」をオンにして、もう一度お試しください。";
+"server_delete_denied_plex" = "この Plex サーバーでは「メディアの削除を許可」がオフになっています。Plex の設定 › サーバー › ライブラリでオンにして、もう一度お試しください。管理ユーザーはメディアを削除できません。";
+"server_delete_denied_audiobookshelf" = "この Audiobookshelf アカウントには削除権限がありません。管理者が 設定 › ユーザー でこのアカウントの「削除可能」をオンにしてから、もう一度お試しください。";
+"server_delete_denied_fnmusic" = "Feiniu Music で曲を削除できるのは管理者だけです。このソースの設定で管理者アカウントに切り替えてから、もう一度お試しください。";
+"server_delete_denied_generic" = "サーバーがこのアカウントのファイル削除を許可していません。サーバー側で削除権限を付与してから、もう一度お試しください。";
+"server_delete_unsupported_fnmusic" = "このバージョンの Feiniu Music では曲を削除できません。fnOS のアプリセンターで Feiniu Music を更新してから、もう一度お試しください。";
+"dup_same_file_title" = "2 つのソースにある同じファイル";
+"dup_same_file_message_format" = "%1$@ のこのコピーは、%2$@ のコピーと同じファイルである可能性が高いです（サイズと長さが一致）。どちらを削除しても両方なくなるため、ここでは削除しません。このコピーだけをこのデバイスから取り除けます。ファイルともう一方のコピーはそのままで、あとでソースのページから復元できます。";
+"dup_same_file_remove_action" = "このコピーをこのデバイスからのみ削除";
+"dup_same_file_caption_format" = "%@ と同じファイル";
+"dup_same_file_badge" = "同じファイル";
+"dup_same_file_ledger_detail_format" = "同じファイルが %@ にもあります";

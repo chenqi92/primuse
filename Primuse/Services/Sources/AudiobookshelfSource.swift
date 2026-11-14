@@ -324,6 +324,26 @@ actor AudiobookshelfSource: RefreshingMetadataSongConnector, ServerLibraryListin
         return target
     }
 
+    /// 删歌：服务器删掉书里的这个音频文件（或播客的这一集）连同磁盘上的文件。
+    /// 按名字猜的歌词、封面 sidecar 不是服务器上的文件，当作不存在，不发请求。
+    func deleteFile(at path: String) async throws {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: path) else {
+            throw SourceError.fileNotFound(path)
+        }
+        try await connect()
+        switch try await client.deleteTrack(reference: reference) {
+        case .deleted:
+            break
+        case .notPermitted:
+            throw MusicServerDeletionError.notPermitted(.audiobookshelf)
+        }
+        itemCache[reference.itemID] = nil
+        let suffix = (path as NSString).pathExtension
+        try? FileManager.default.removeItem(at: audioCacheDirectory.appendingPathComponent(
+            CacheFileNamePolicy.make(path: path, preferredExtension: suffix.isEmpty ? "bin" : suffix)
+        ))
+    }
+
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let local = try await localURL(for: path)
         return AsyncThrowingStream { continuation in

@@ -7428,3 +7428,21 @@
 "karaoke_sing_along_handoff_detail" = "Zamyka karaoke i dalej odtwarza podkład w trybie śpiewania razem";
 
 "scraper_import_auto_update" = "Aktualizuj automatycznie";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "Usunąć z serwera?";
+"server_delete_confirm_message_format" = "Pliki utworów (%2$d) zostaną usunięte na %1$@. Wszyscy użytkownicy i aplikacje tego serwera je stracą. Tej operacji nie można cofnąć.";
+"server_delete_confirm_action" = "Usuń z serwera";
+"server_delete_denied_jellyfin" = "Jellyfin nie pozwala temu kontu usuwać multimediów. W panelu Jellyfin otwórz Użytkownicy, wybierz to konto i włącz „Zezwalaj na usuwanie multimediów” (we wszystkich bibliotekach lub w tej), a potem spróbuj ponownie.";
+"server_delete_denied_emby" = "Emby nie pozwala temu kontu usuwać multimediów. W ustawieniach serwera Emby otwórz Użytkownicy, wybierz to konto i włącz „Zezwalaj na usuwanie multimediów”, a potem spróbuj ponownie.";
+"server_delete_denied_plex" = "Ten serwer Plex nie zezwala na usuwanie multimediów. W ustawieniach Plex otwórz Serwer › Biblioteka i włącz „Zezwalaj na usuwanie multimediów”, a potem spróbuj ponownie. Użytkownicy zarządzani nie mogą usuwać multimediów.";
+"server_delete_denied_audiobookshelf" = "To konto Audiobookshelf nie może usuwać. Administrator może włączyć dla niego „Może usuwać” w Ustawienia › Użytkownicy; potem spróbuj ponownie.";
+"server_delete_denied_fnmusic" = "Utwory w Feiniu Music mogą usuwać tylko administratorzy. Przełącz to źródło na konto administratora w jego ustawieniach i spróbuj ponownie.";
+"server_delete_denied_generic" = "Serwer nie pozwala temu kontu usuwać plików. Nadaj mu na serwerze prawo usuwania i spróbuj ponownie.";
+"server_delete_unsupported_fnmusic" = "Ta wersja Feiniu Music nie potrafi usuwać utworów. Zaktualizuj Feiniu Music w App Center fnOS i spróbuj ponownie.";
+"dup_same_file_title" = "Ten sam plik w dwóch źródłach";
+"dup_same_file_message_format" = "Ta kopia z %1$@ to najpewniej ten sam plik co kopia w %2$@ (taki sam rozmiar i długość). Usunięcie którejkolwiek usunęłoby obie, więc nie jest tu usuwana. Możesz usunąć tylko tę kopię z tego urządzenia: plik i druga kopia zostaną bez zmian, a przywrócić ją można na stronie źródła.";
+"dup_same_file_remove_action" = "Usuń tylko tę kopię z tego urządzenia";
+"dup_same_file_caption_format" = "Ten sam plik co w %@";
+"dup_same_file_badge" = "Ten sam plik";
+"dup_same_file_ledger_detail_format" = "Ten sam plik jest też w %@";

@@ -21,6 +21,9 @@ actor FnMusicAPI {
     private var sessionAccount: SourceLoginSessionStore.Account?
     /// 被服务端拒绝过的 token：下次取 token 前先让会话仓库作废它。
     private var rejectedToken: String?
+    /// 删曲目的两个前提（服务端有这功能、账号是管理员）上次确认通过的时刻。只记通过的，
+    /// 一批重复歌曲不必每首都再问两遍；被拒的下次照样重问，升级服务端或换了账号就能接着删。
+    private var trackDeletionConfirmedAt: Date?
 
     var isLoggedIn: Bool { token?.isEmpty == false }
 
@@ -114,6 +117,7 @@ actor FnMusicAPI {
         sessionGeneration &+= 1
         let generation = sessionGeneration
         token = nil
+        trackDeletionConfirmedAt = nil
         let account = SourceLoginSessionStore.Account(
             sourceID: sourceID, username: username, secret: password, qualifiers: [accessCode ?? ""]
         )
@@ -1043,6 +1047,42 @@ extension FnMusicAPI {
             }
         }
         throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+    }
+}
+
+extension FnMusicAPI {
+    /// 删一首曲目，连同 NAS 上的音频文件（`FnMusicAPIProtocol.trackDeletionPath`）。
+    /// 先确认服务端有这功能、账号是管理员；删除不随线路故障换一条线路重发。
+    func deleteTrack(trackGUID: String) async throws {
+        // 空 GUID 不能当成「已经不在了」：那样库里的行会被当成删掉了。
+        guard let body = FnMusicAPIProtocol.trackDeletionBody(trackGUID: trackGUID) else {
+            throw SourceError.connectionFailed(PMString("error.fnMusic.invalidURL"))
+        }
+        try await confirmTrackDeletionAllowed()
+        _ = try await requestJSONOnce(
+            method: "POST",
+            path: FnMusicAPIProtocol.trackDeletionPath,
+            queryItems: [],
+            body: body,
+            includeCookie: true,
+            cookieToken: nil
+        )
+    }
+
+    private func confirmTrackDeletionAllowed() async throws {
+        if let confirmedAt = trackDeletionConfirmedAt,
+           Date().timeIntervalSince(confirmedAt) < 600 {
+            return
+        }
+        let config = try await requestJSON(method: "GET", path: "/sys/config")
+        guard FnMusicAPIProtocol.supportsTrackDeletion(systemConfig: config) else {
+            throw MusicServerDeletionError.unsupportedServer(.fnMusic)
+        }
+        let user = try await requestJSON(method: "GET", path: "/user/me")
+        guard FnMusicAPIProtocol.isAdministrator(currentUser: user) else {
+            throw MusicServerDeletionError.notPermitted(.fnMusic)
+        }
+        trackDeletionConfirmedAt = Date()
     }
 }
 

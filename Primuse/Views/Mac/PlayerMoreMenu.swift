@@ -48,6 +48,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showChapterList = false
     @State private var showKaraoke = false
     @State private var showDeleteConfirm = false
+    /// 从音乐服务器删歌的第二次确认。
+    @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var deleteErrorMessage: String?
     @State private var scrapeAlertMessage: String?
     @State private var pendingMedleySongs: [Song]?
@@ -181,10 +183,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
-            Button(String(localized: "delete"), role: .destructive) { deleteCurrentSong() }
+            Button(String(localized: "delete"), role: .destructive) { confirmDeleteCurrentSong() }
         } message: {
             Text(String(localized: "delete_song_message"))
         }
+        .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
             isPresented: Binding(
@@ -1336,6 +1339,27 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
+    /// 音乐服务器上的歌再确认一次（服务器上的所有用户和客户端都会失去它），文件来源直接删。
+    private func confirmDeleteCurrentSong() {
+        guard let song = player.currentSong else { return }
+        guard let request = ServerSongDeletionRequest.make(
+            deleting: [song],
+            sources: sourcesStore.allSources,
+            perform: {
+                // 确认框说的是那一首；等确认的这会儿换了歌就不删。
+                guard player.currentSong?.id == song.id else { return }
+                deleteCurrentSong()
+            }
+        ) else {
+            deleteCurrentSong()
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: ServerSongDeletionRequest.presentationDelay)
+            serverDeletionRequest = request
+        }
+    }
+
     private func deleteCurrentSong() {
         guard let song = player.currentSong, canDeleteCurrentSong else { return }
         let songID = song.id
@@ -1376,7 +1400,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     private var canDeleteCurrentSong: Bool {
         guard let song = player.currentSong else { return false }
         return SourceFileDeletionPolicy.shouldShowDeleteAction(
-            for: sourcesStore.source(id: song.sourceID)?.type
+            for: song,
+            sourceType: sourcesStore.source(id: song.sourceID)?.type
         )
     }
 

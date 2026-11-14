@@ -7283,3 +7283,21 @@
 "karaoke_sing_along_handoff_detail" = "Leaves karaoke and keeps playing the accompaniment with Sing Along";
 
 "scraper_import_auto_update" = "Update Automatically";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "Delete from the Server?";
+"server_delete_confirm_message_format" = "This deletes the files of %2$d song(s) on %1$@. Every user and app connected to that server will lose them. This cannot be undone.";
+"server_delete_confirm_action" = "Delete from Server";
+"server_delete_denied_jellyfin" = "Jellyfin does not allow this account to delete media. In the Jellyfin dashboard, open Users, choose this account and turn on “Allow media deletion” (for all libraries or this one), then try again.";
+"server_delete_denied_emby" = "Emby does not allow this account to delete media. In the Emby server settings, open Users, choose this account and turn on “Allow media deletion”, then try again.";
+"server_delete_denied_plex" = "This Plex server does not allow media deletion. In Plex settings, open Server › Library and turn on “Allow media deletion”, then try again. Managed users cannot delete media.";
+"server_delete_denied_audiobookshelf" = "This Audiobookshelf account cannot delete. An administrator can turn on “Can Delete” for it under Settings › Users, then try again.";
+"server_delete_denied_fnmusic" = "Only Feiniu Music administrators can delete tracks. Switch this source to an administrator account in its settings, then try again.";
+"server_delete_denied_generic" = "The server does not allow this account to delete files. Give it permission to delete on the server, then try again.";
+"server_delete_unsupported_fnmusic" = "This version of Feiniu Music cannot delete tracks. Update Feiniu Music in the fnOS App Center, then try again.";
+"dup_same_file_title" = "Same File in Two Sources";
+"dup_same_file_message_format" = "This copy from %1$@ is most likely the same file as the one in %2$@ (same size and length). Deleting either copy would remove both, so it is not deleted here. You can remove only this copy from this device: the file and the other copy stay untouched, and you can restore it from the source’s page.";
+"dup_same_file_remove_action" = "Remove This Copy from This Device Only";
+"dup_same_file_caption_format" = "Same file as in %@";
+"dup_same_file_badge" = "Same file";
+"dup_same_file_ledger_detail_format" = "The same file is also in %@";

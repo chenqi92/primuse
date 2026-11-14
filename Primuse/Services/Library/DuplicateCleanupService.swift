@@ -134,6 +134,24 @@ final class DuplicateCleanupService {
         return songsToRemove.count
     }
 
+    /// 同一个文件经几个来源进了资料库时，只从本设备移除其中一份：文件和别的来源里的那一份都不动，
+    /// 来源页的恢复界面里能找回（原因记作「保留了源文件」，说明里写着另一份在哪个来源）。
+    @discardableResult
+    func removeSameFileCopyFromThisDevice(_ song: Song, detail: String) throws -> Int {
+        guard activeTask == nil, let current = library.song(id: song.id) else { return 0 }
+        let remainingCounts = try library.removeSongsFromThisDevice(
+            [current],
+            reason: .userKeptRemoteFile,
+            detailsBySongID: [current.id: detail]
+        )
+        for (id, remaining) in remainingCounts {
+            sourcesStore.updateLocal(id) { $0.songCount = remaining }
+        }
+        deviceLocalRemovalRevision &+= 1
+        plog("Duplicate cleanup removed a same-file copy from this device only (source \(current.sourceID))")
+        return 1
+    }
+
     /// Server messages behind each refusal, kept with the ledger entry so the
     /// recovery screen can say why the row is still on the server.
     private func deviceLocalRemovalDetails(forSourceID sourceID: String) -> [String: String] {
@@ -152,10 +170,12 @@ final class DuplicateCleanupService {
         // Views filter read-only catalogues before calling this service, but
         // enforce the same boundary here so a future caller can never send an
         // Apple Music/UPnP/server-catalogue row into a source delete attempt.
-        let deletableSourceIDs = Set(sourcesStore.sources.lazy
-            .filter { $0.type.supportsFileDeletion }
-            .map(\.id))
-        let songs = requestedSongs.filter { deletableSourceIDs.contains($0.sourceID) }
+        // 逐首再把一遍：CUE 分轨、仅歌单的歌背后没有能单独删的文件。
+        let scope = DuplicateCleanupDeletionScope(
+            sources: sourcesStore.sources,
+            collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
+        )
+        let songs = requestedSongs.filter { scope.canDeleteCopy($0) }
         if songs.count != requestedSongs.count {
             plog("⚠️ Duplicate cleanup ignored \(requestedSongs.count - songs.count) read-only song(s)")
         }

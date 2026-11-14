@@ -66,6 +66,15 @@ struct AudiobookshelfServiceTests {
         #expect(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/files/42.lrc") == nil)
         #expect(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_2/episodes/ep_9.vtt") == nil)
 
+        // 删除：书里的文件删文件本身，播客单集要带 hard=1 才连文件一起删。
+        let fileDeletion = AudiobookshelfAPIProtocol.deletionEndpoint(for: file)
+        #expect(fileDeletion.path == "/api/items/li_1/file/42")
+        #expect(fileDeletion.queryItems.isEmpty)
+        let episodeDeletion = AudiobookshelfAPIProtocol.deletionEndpoint(for: episode)
+        #expect(episodeDeletion.path == "/api/podcasts/li_2/episode/ep_9")
+        #expect(episodeDeletion.queryItems == [URLQueryItem(name: "hard", value: "1")])
+        #expect(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/files/42-cover.jpg") == nil)
+
         let cover = AudiobookshelfAPIProtocol.coverReference(itemID: "li_1", updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
         #expect(AudiobookshelfAPIProtocol.coverItemID(fromReference: cover) == "li_1")
         #expect(AudiobookshelfAPIProtocol.coverItemID(fromReference: "songloft:cover:songs:1:x") == nil)
@@ -282,4 +291,58 @@ private actor AudiobookshelfPageRequests {
         pages.append(page)
         limits.append(limit)
     }
+}
+
+@Suite("Audiobookshelf deletion")
+struct AudiobookshelfDeletionTests {
+    private static func client(status: Int, recorder: AudiobookshelfDeletionRequests) -> AudiobookshelfServiceClient {
+        let transport = AudiobookshelfRequestTransport(data: { request in
+            let url = try #require(request.url)
+            await recorder.append(method: request.httpMethod ?? "GET", url: url)
+            return (Data(), HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
+        }, download: { _ in throw URLError(.unsupportedURL) })
+        return AudiobookshelfServiceClient(sourceID: UUID().uuidString, host: "books.invalid",
+            port: nil, useSSL: true, basePath: nil, username: "", secret: "fixture", authType: .apiKey, transport: transport)
+    }
+
+    @Test func bookFilesAndEpisodesAreDeletedWithTheirFiles() async throws {
+        let recorder = AudiobookshelfDeletionRequests()
+        let client = Self.client(status: 200, recorder: recorder)
+        let file = try #require(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/files/42.m4b"))
+        let episode = try #require(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_2/episodes/ep_9.mp3"))
+        #expect(try await client.deleteTrack(reference: file) == .deleted)
+        #expect(try await client.deleteTrack(reference: episode) == .deleted)
+        let requests = await recorder.requests
+        #expect(requests.map(\.method) == ["DELETE", "DELETE"])
+        #expect(requests.map(\.url.path) == ["/api/items/li_1/file/42", "/api/podcasts/li_2/episode/ep_9"])
+        #expect(requests.last?.url.query == "hard=1")
+    }
+
+    /// 403 是账号没有删除权限，不换 token 重试，交给界面说清楚去哪里开权限。
+    @Test func forbiddenIsAPermissionRefusalNotAnExpiredSession() async throws {
+        let recorder = AudiobookshelfDeletionRequests()
+        let client = Self.client(status: 403, recorder: recorder)
+        let file = try #require(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/files/42.mp3"))
+        #expect(try await client.deleteTrack(reference: file) == .notPermitted)
+        #expect(await recorder.requests.count == 1)
+    }
+
+    /// 404 不当成「已经不在了」：地址或反向代理配错时也会这样回。
+    @Test func missingItemIsAnErrorNotADeletion() async throws {
+        let recorder = AudiobookshelfDeletionRequests()
+        let client = Self.client(status: 404, recorder: recorder)
+        let file = try #require(AudiobookshelfAPIProtocol.trackReference(from: "/audiobookshelf/items/li_1/files/42.mp3"))
+        await #expect(throws: AudiobookshelfServiceError.badServerResponse(404)) {
+            _ = try await client.deleteTrack(reference: file)
+        }
+    }
+}
+
+private actor AudiobookshelfDeletionRequests {
+    struct Request: Sendable {
+        let method: String
+        let url: URL
+    }
+    private(set) var requests: [Request] = []
+    func append(method: String, url: URL) { requests.append(Request(method: method, url: url)) }
 }

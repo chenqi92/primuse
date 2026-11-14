@@ -111,3 +111,65 @@ private struct SongBatchRemovalFeedbackModifier: ViewModifier {
         }
     }
 }
+
+// MARK: - 从音乐服务器删歌的第二次确认
+
+/// 从音乐服务器删歌（`ServerSongDeletionPolicy`）在各入口原有的删除确认之后再确认一次：
+/// 说清楚在哪台服务器上删、这台服务器的所有用户和客户端都会失去这些歌、不能撤销。
+/// 文件来源（本机、NAS 共享、网盘）照旧只确认一次。
+struct ServerSongDeletionRequest: Identifiable {
+    let id = UUID()
+    let serverNames: [String]
+    let songCount: Int
+    let perform: @MainActor () -> Void
+
+    /// 要删的歌里有走音乐服务器删除的就返回第二次确认，否则 nil（照原流程直接删）。
+    @MainActor
+    static func make(
+        deleting songs: [Song],
+        sources: [MusicSource],
+        perform: @escaping @MainActor () -> Void
+    ) -> ServerSongDeletionRequest? {
+        let servers = ServerSongDeletionPolicy.serverSources(deleting: songs, sources: sources)
+        guard !servers.isEmpty else { return nil }
+        let serverIDs = Set(servers.map(\.id))
+        return ServerSongDeletionRequest(
+            serverNames: servers.map(\.name),
+            songCount: songs.filter { serverIDs.contains($0.sourceID) }.count,
+            perform: perform
+        )
+    }
+
+    var message: String {
+        String(
+            format: String(localized: "server_delete_confirm_message_format"),
+            ListFormatter.localizedString(byJoining: serverNames),
+            songCount
+        )
+    }
+}
+
+extension View {
+    /// 第一次确认框还在收起时就弹下一个，系统会把它丢掉；调用方等它收完再给 `request` 赋值
+    /// （`ServerSongDeletionRequest.presentationDelay`）。
+    func serverSongDeletionConfirmation(_ request: Binding<ServerSongDeletionRequest?>) -> some View {
+        alert(
+            Text("server_delete_confirm_title"),
+            isPresented: Binding(
+                get: { request.wrappedValue != nil },
+                set: { if !$0 { request.wrappedValue = nil } }
+            ),
+            presenting: request.wrappedValue
+        ) { pending in
+            Button("cancel", role: .cancel) {}
+            Button("server_delete_confirm_action", role: .destructive) { pending.perform() }
+        } message: { pending in
+            Text(verbatim: pending.message)
+        }
+    }
+}
+
+extension ServerSongDeletionRequest {
+    /// 前一个确认框收起要一点时间，紧接着弹第二个会被系统丢掉。
+    static let presentationDelay: Duration = .milliseconds(450)
+}

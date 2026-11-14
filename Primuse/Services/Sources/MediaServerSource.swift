@@ -756,20 +756,54 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     /// local row. Jellyfin/Emby expose Items/{id}; Plex uses the ratingKey
     /// metadata endpoint and deletes the underlying media as well.
     func deleteFile(at path: String) async throws {
+        // 删歌后按名字猜的歌词、封面 sidecar（`<itemID>.lrc`、`<itemID>-cover.jpg`）不是服务器上的文件：
+        // 当作不存在，不再拿同一个条目 ID（或拼坏的 ID）去发一次删除。
+        guard !PrimuseConstants.sidecarFileExtensions.contains((path as NSString).pathExtension.lowercased()) else {
+            throw SourceError.fileNotFound(path)
+        }
         try await connect()
         guard let itemID = itemID(from: path) else {
             throw SourceError.fileNotFound(path)
         }
-        switch kind {
-        case .jellyfin, .emby:
-            _ = try await performRequest(path: "/Items/\(itemID)", method: "DELETE")
-        case .plex:
-            _ = try await performRequest(path: "/library/metadata/\(itemID)", method: "DELETE")
+        let deletionPath = kind == .plex ? "/library/metadata/\(itemID)" : "/Items/\(itemID)"
+        do {
+            _ = try await performRequest(path: deletionPath, method: "DELETE")
+        } catch SourceError.authenticationFailed {
+            // 不许删时服务器也回 401/403（Jellyfin 对没有「允许删除媒体」的账号回 401，Plex 没开
+            // 「允许删除媒体」同样被拒）。先用一次读请求确认会话还有效（过期的话读请求会重新登录），
+            // 再删一次；仍被拒才是服务器不许这个账号删，换 token 没用。
+            guard await sessionStillAuthorized() else { throw SourceError.authenticationFailed }
+            do {
+                _ = try await performRequest(path: deletionPath, method: "DELETE")
+            } catch SourceError.authenticationFailed {
+                throw MusicServerDeletionError.notPermitted(deletionSourceType)
+            }
+        }
+        if kind == .plex {
             plexItems.removeValue(forKey: itemID)
         }
         let ext = (path as NSString).pathExtension.isEmpty ? "mp3" : (path as NSString).pathExtension
         try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent("\(itemID).\(ext)"))
         plog("🗑️ Media server item deleted: \(itemID)")
+    }
+
+    private var deletionSourceType: MusicSourceType {
+        switch kind {
+        case .jellyfin: .jellyfin
+        case .emby: .emby
+        case .plex: .plex
+        }
+    }
+
+    /// 一次最便宜的鉴权读请求（Plex 的资料库列表、Jellyfin / Emby 的服务器信息）。
+    /// 读请求被拒时会自己重新登录一次；读不通（断网、超时）也当作说不准，交回「重新登录」那条路。
+    private func sessionStillAuthorized() async -> Bool {
+        do {
+            _ = try await performRequest(path: kind == .plex ? "/library/sections" : "/System/Info")
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// 取流、转码与封面地址里带的令牌:Jellyfin 新旧版本认的参数名不同,两个都带;Emby 只带 `api_key`。

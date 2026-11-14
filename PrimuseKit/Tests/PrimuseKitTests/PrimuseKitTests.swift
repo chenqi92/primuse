@@ -291,8 +291,8 @@ import Testing
 
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
-        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-        .audiobookshelf, .synologyAudioStation, .tingReader,
+        .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .daoliyu, .songloft,
+        .synologyAudioStation, .tingReader,
         // 光鸭开放平台未提供删除已落盘文件的接口。
         .guangya, .appleMusic, .appleMusicLibrary,
     ]
@@ -300,6 +300,134 @@ import Testing
     for sourceType in MusicSourceType.allCases {
         #expect(sourceType.supportsFileDeletion == !readOnly.contains(sourceType))
     }
+}
+
+@Test func musicServerDeletionIsTheServerCategoryThatCanDelete() {
+    let servers: Set<MusicSourceType> = [.jellyfin, .emby, .plex, .fnMusic, .audiobookshelf]
+    for sourceType in MusicSourceType.allCases {
+        #expect(sourceType.deletesThroughMusicServer == servers.contains(sourceType))
+    }
+}
+
+@Test func serverDeletionConfirmationListsEachServerOnceInOrder() {
+    let sources = [
+        MusicSource(id: "smb", name: "NAS", type: .smb),
+        MusicSource(id: "jf", name: "Jellyfin", type: .jellyfin),
+        MusicSource(id: "fn", name: "飞牛", type: .fnMusic),
+        MusicSource(id: "nd", name: "Navidrome", type: .navidrome),
+    ]
+    func song(_ id: String, _ sourceID: String) -> Song {
+        Song(id: id, title: id, fileFormat: .flac, filePath: "/\(id).flac", sourceID: sourceID)
+    }
+    let servers = ServerSongDeletionPolicy.serverSources(
+        deleting: [song("a", "smb"), song("b", "fn"), song("c", "jf"), song("d", "fn"), song("e", "nd")],
+        sources: sources
+    )
+    #expect(servers.map(\.id) == ["fn", "jf"])
+    #expect(ServerSongDeletionPolicy.serverSources(deleting: [song("a", "smb")], sources: sources).isEmpty)
+}
+
+@Test func serverSongsWithoutTheirOwnFileStayLocalOnly() {
+    let plain = Song(id: "a", title: "A", fileFormat: .flac, filePath: "/fnmusic/tracks/a.flac", sourceID: "fn")
+    #expect(SourceFileDeletionPolicy.canDeleteSourceFile(of: plain, sourceType: .fnMusic, isCollectionOnly: false))
+    // 飞牛音乐扩展塞进歌单的在线歌曲没有文件。
+    #expect(!SourceFileDeletionPolicy.canDeleteSourceFile(of: plain, sourceType: .fnMusic, isCollectionOnly: true))
+    var cue = plain
+    cue.cueSheetPath = "/fnmusic/cue/a.cue"
+    cue.cueStartTime = 0
+    #expect(!SourceFileDeletionPolicy.canDeleteSourceFile(of: cue, sourceType: .fnMusic, isCollectionOnly: false))
+    // 文件来源的 CUE 行照旧（删整轨原文件是那一行原有的语义），重复歌曲另有规则。
+    #expect(SourceFileDeletionPolicy.canDeleteSourceFile(of: cue, sourceType: .smb, isCollectionOnly: false))
+    #expect(!SourceFileDeletionPolicy.canDeleteSourceFile(of: plain, sourceType: .navidrome, isCollectionOnly: false))
+    #expect(!SourceFileDeletionPolicy.canDeleteSourceFile(of: plain, sourceType: nil, isCollectionOnly: false))
+}
+
+@Test func sameFileThroughANasShareAndItsMusicServerIsNotADuplicateToDelete() {
+    let sources = [
+        MusicSource(id: "syno", name: "群晖", type: .synology),
+        MusicSource(id: "nd", name: "Navidrome", type: .navidrome),
+        MusicSource(id: "jf", name: "Jellyfin", type: .jellyfin),
+    ]
+    let nas = Song(id: "nas", title: "Song", duration: 245.2, fileFormat: .flac,
+                   filePath: "/music/Artist/Album/01 Song.flac", sourceID: "syno", fileSize: 31_457_280)
+    let navidrome = Song(id: "nd", title: "Song", duration: 245, fileFormat: .flac,
+                         filePath: "subsonic/track-1.flac", sourceID: "nd", fileSize: 31_457_280)
+    let otherRip = Song(id: "rip", title: "Song", duration: 244.6, fileFormat: .flac,
+                        filePath: "/music/Backup/01 Song.flac", sourceID: "syno", fileSize: 30_000_000)
+    let scope = DuplicateCleanupDeletionScope(sources: sources)
+
+    let copies = scope.sameFileCopies(in: [nas, navidrome, otherRip])
+    #expect(copies["nas"] == ["nd"])
+    #expect(copies["nd"] == ["nas"])
+    #expect(copies["rip"] == nil)
+    // 同一个文件的那份不给删；另一份真正的重复照常能删。
+    #expect(scope.writableSongs(in: [nas, navidrome, otherRip]).map(\.id) == ["rip"])
+
+    // 大小对不上就是两个文件。
+    var smaller = navidrome
+    smaller.fileSize = 31_000_000
+    #expect(scope.sameFileCopies(in: [nas, smaller]).isEmpty)
+    #expect(scope.writableSongs(in: [nas, smaller]).map(\.id) == ["nas"])
+
+    // 服务器没报大小时宁可当成同一个文件。
+    var unsized = navidrome
+    unsized.fileSize = 0
+    #expect(scope.sameFileCopies(in: [nas, unsized])["nas"] == ["nd"])
+
+    // 两个服务器用的是同一个目录。
+    let jellyfin = Song(id: "jf", title: "Song", duration: 245.1, fileFormat: .flac,
+                        filePath: "jellyfin/item.flac", sourceID: "jf", fileSize: 31_457_280)
+    let triple = scope.sameFileCopies(in: [nas, navidrome, jellyfin])
+    #expect(triple["jf"] == ["nas", "nd"])
+}
+
+@Test func sameFileNeedsMatchingNamesBetweenPathAddressedSources() {
+    let sources = [
+        MusicSource(id: "smb", name: "SMB", type: .smb),
+        MusicSource(id: "dav", name: "WebDAV", type: .webdav),
+        MusicSource(id: "baidu", name: "百度网盘", type: .baiduPan),
+        MusicSource(id: "am", name: "Apple Music", type: .appleMusicLibrary),
+    ]
+    let smb = Song(id: "smb", title: "Song", duration: 200, fileFormat: .flac,
+                   filePath: "/Music/A/01 Song.flac", sourceID: "smb", fileSize: 1_000)
+    let sameName = Song(id: "dav", title: "Song", duration: 200, fileFormat: .flac,
+                        filePath: "/music/a/01%20song.FLAC", sourceID: "dav", fileSize: 1_000)
+    let renamed = Song(id: "dav2", title: "Song", duration: 200, fileFormat: .flac,
+                       filePath: "/music/a/Song (copy).flac", sourceID: "dav", fileSize: 1_000)
+    let cloud = Song(id: "baidu", title: "Song", duration: 200, fileFormat: .flac,
+                     filePath: "/Music/A/01 Song.flac", sourceID: "baidu", fileSize: 1_000)
+    let appleMusic = Song(id: "am", title: "Song", duration: 200, fileFormat: .m4a,
+                          filePath: "am/1", sourceID: "am", fileSize: 1_000)
+    let scope = DuplicateCleanupDeletionScope(sources: sources)
+    #expect(scope.sameFileCopies(in: [smb, sameName])["smb"] == ["dav"])
+    // 一字节不差但改了名，是另一份拷贝。
+    #expect(scope.sameFileCopies(in: [smb, renamed]).isEmpty)
+    // 网盘和 NAS 不会是同一个文件，Apple Music 也不会。
+    #expect(scope.sameFileCopies(in: [smb, cloud]).isEmpty)
+    #expect(scope.sameFileCopies(in: [smb, appleMusic]).isEmpty)
+    // 同一个来源里的两行永远是两个文件。
+    var sibling = smb
+    sibling.id = "smb2"
+    #expect(scope.sameFileCopies(in: [smb, sibling]).isEmpty)
+}
+
+@Test func duplicateScopeKeepsCueTracksAndPlaylistOnlySongs() {
+    let sources = [
+        MusicSource(id: "smb", name: "SMB", type: .smb),
+        MusicSource(id: "fn", name: "飞牛", type: .fnMusic),
+    ]
+    var cue = Song(id: "cue", title: "Song", fileFormat: .flac, filePath: "/Music/Album.flac", sourceID: "smb")
+    cue.cueSheetPath = "/Music/Album.cue"
+    cue.cueStartTime = 120
+    let online = Song(id: "online", title: "Song", fileFormat: .mp3,
+                      filePath: "/fnmusic/tracks/online.mp3", sourceID: "fn")
+    let track = Song(id: "track", title: "Song", fileFormat: .flac,
+                     filePath: "/fnmusic/tracks/track.flac", sourceID: "fn")
+    let scope = DuplicateCleanupDeletionScope(sources: sources, collectionOnlySongIDs: ["online"])
+    #expect(!scope.canDeleteCopy(cue))
+    #expect(!scope.canDeleteCopy(online))
+    #expect(scope.canDeleteCopy(track))
+    #expect(scope.fileDeletingSourceIDs == ["smb", "fn"])
 }
 
 @Test func sidecarWritingCapabilityExcludesReadOnlyCatalogues() {
@@ -511,6 +639,9 @@ import Testing
     #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: .upnp))
     #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: .appleMusicLibrary))
     #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: .fnos))
+    #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: .navidrome))
+    #expect(SourceFileDeletionPolicy.shouldShowDeleteAction(for: .fnMusic))
+    #expect(SourceFileDeletionPolicy.shouldShowDeleteAction(for: .audiobookshelf))
     #expect(!SourceFileDeletionPolicy.shouldShowDeleteAction(for: nil))
     #expect(SourceFileDeletionPolicy.duplicateCleanupRemovesSourceFile(for: .webdav))
     #expect(SourceFileDeletionPolicy.duplicateCleanupRemovesSourceFile(for: .smb))

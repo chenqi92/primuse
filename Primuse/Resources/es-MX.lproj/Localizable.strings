@@ -7428,3 +7428,21 @@
 "karaoke_sing_along_handoff_detail" = "Sale del karaoke y sigue con el acompañamiento en Cantar junto";
 
 "scraper_import_auto_update" = "Actualizar automáticamente";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "¿Eliminar del servidor?";
+"server_delete_confirm_message_format" = "Se eliminarán los archivos de %2$d canciones en %1$@. Todos los usuarios y apps de ese servidor las perderán. No se puede deshacer.";
+"server_delete_confirm_action" = "Eliminar del servidor";
+"server_delete_denied_jellyfin" = "Jellyfin no permite que esta cuenta elimine contenido. En el panel de Jellyfin, abre Usuarios, elige esta cuenta y activa «Permitir la eliminación de contenido» (en todas las bibliotecas o en esta) y vuelve a intentarlo.";
+"server_delete_denied_emby" = "Emby no permite que esta cuenta elimine contenido. En la configuración del servidor Emby, abre Usuarios, elige esta cuenta, activa «Permitir la eliminación de contenido» y vuelve a intentarlo.";
+"server_delete_denied_plex" = "Este servidor Plex no permite eliminar contenido. En la configuración de Plex, abre Servidor › Biblioteca, activa «Permitir la eliminación de contenido» y vuelve a intentarlo. Los usuarios administrados no pueden eliminar contenido.";
+"server_delete_denied_audiobookshelf" = "Esta cuenta de Audiobookshelf no puede eliminar. Un administrador puede activar «Puede eliminar» en Configuración › Usuarios; luego vuelve a intentarlo.";
+"server_delete_denied_fnmusic" = "Solo los administradores de Feiniu Music pueden eliminar pistas. Cambia esta fuente a una cuenta de administrador en su configuración y vuelve a intentarlo.";
+"server_delete_denied_generic" = "El servidor no permite que esta cuenta elimine archivos. Dale permiso para eliminar en el servidor y vuelve a intentarlo.";
+"server_delete_unsupported_fnmusic" = "Esta versión de Feiniu Music no puede eliminar pistas. Actualiza Feiniu Music en el App Center de fnOS y vuelve a intentarlo.";
+"dup_same_file_title" = "El mismo archivo en dos fuentes";
+"dup_same_file_message_format" = "Esta copia de %1$@ muy probablemente es el mismo archivo que la de %2$@ (mismo tamaño y duración). Eliminar cualquiera borraría ambas, así que aquí no se elimina. Puedes quitar solo esta copia de este dispositivo: el archivo y la otra copia no cambian, y puedes restaurarla desde la página de la fuente.";
+"dup_same_file_remove_action" = "Quitar solo esta copia de este dispositivo";
+"dup_same_file_caption_format" = "Mismo archivo que en %@";
+"dup_same_file_badge" = "Mismo archivo";
+"dup_same_file_ledger_detail_format" = "El mismo archivo también está en %@";

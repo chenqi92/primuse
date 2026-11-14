@@ -9,7 +9,7 @@ import AppKit
 private final class DuplicateCleanupTotalsCache {
     struct Key: Equatable {
         let groupsRevision: Int
-        let deletableSourceIDs: Set<String>
+        let deletionScope: DuplicateCleanupDeletionScope
         let fileDeletingSourceIDs: Set<String>
         let retentionStrategy: String
         let keptOverrides: [String: Set<String>]
@@ -57,6 +57,12 @@ struct DuplicateSongsView: View {
     @State private var showDeletionFailures = false
     @State private var pendingDeletion: [Song] = []
     @State private var showSelectionConfirm = false
+    /// 从音乐服务器删歌的第二次确认。
+    @State private var serverDeletionRequest: ServerSongDeletionRequest?
+    /// 点了「同一个文件」的那一份：说明为什么不删，给「仅从本设备移除这一份」。
+    @State private var pendingSameFileCopy: SameFileCopy?
+    /// 落在重复分组里的仅歌单的歌（`CollectionOnlySongStore`），随分组一起刷新。
+    @State private var groupCollectionOnlySongIDs: Set<String> = []
     #if os(macOS)
     @State private var retentionStrategy: MacDuplicateRetentionStrategy = .highestBitrate
     @State private var macKeptSongIDsByGroup: [String: Set<String>] = [:]
@@ -102,13 +108,40 @@ struct DuplicateSongsView: View {
         }
         .alert("dup_clean_all_confirm", isPresented: $showSelectionConfirm) {
             Button("delete", role: .destructive) {
-                startCleanup(pendingDeletion)
+                requestCleanup(pendingDeletion)
                 pendingDeletion = []
             }
             Button("cancel", role: .cancel) { pendingDeletion = [] }
         } message: {
             Text(String(format: String(localized: "dup_delete_source_warning_format"), pendingDeletion.count))
         }
+        .serverSongDeletionConfirmation($serverDeletionRequest)
+        .alert(
+            Text("dup_same_file_title"),
+            isPresented: Binding(
+                get: { pendingSameFileCopy != nil },
+                set: { if !$0 { pendingSameFileCopy = nil } }
+            ),
+            presenting: pendingSameFileCopy
+        ) { copy in
+            Button("dup_same_file_remove_action", role: .destructive) {
+                removeSameFileCopyFromThisDevice(copy)
+            }
+            Button("cancel", role: .cancel) {}
+        } message: { copy in
+            Text(verbatim: String(
+                format: String(localized: "dup_same_file_message_format"),
+                duplicateSourceDisplayName(copy.song),
+                ListFormatter.localizedString(byJoining: copy.otherSourceNames)
+            ))
+        }
+    }
+
+    /// 同一个文件经几个来源进了资料库时的其中一份，和另外几份所在的来源名。
+    private struct SameFileCopy: Identifiable {
+        let song: Song
+        let otherSourceNames: [String]
+        var id: String { song.id }
     }
 
     private var iosBody: some View {
@@ -536,10 +569,10 @@ struct DuplicateSongsView: View {
     }
 
     private func macGroupRow(_ group: DuplicateGroup) -> some View {
-        let deletableSourceIDs = deletableSourceIDsSnapshot
+        let scope = deletionScopeSnapshot
         let keptSongIDs = macKeptSongIDs(
             in: group,
-            deletableSourceIDs: deletableSourceIDs
+            scope: scope
         )
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -583,7 +616,7 @@ struct DuplicateSongsView: View {
                     HStack(alignment: .top, spacing: Self.macDuplicateCardSpacing) {
                         macSongCards(
                             in: group,
-                            deletableSourceIDs: deletableSourceIDs,
+                            scope: scope,
                             keptSongIDs: keptSongIDs,
                             cardWidth: cardWidth
                         )
@@ -593,7 +626,7 @@ struct DuplicateSongsView: View {
                         LazyHStack(alignment: .top, spacing: Self.macDuplicateCardSpacing) {
                             macSongCards(
                                 in: group,
-                                deletableSourceIDs: deletableSourceIDs,
+                                scope: scope,
                                 keptSongIDs: keptSongIDs,
                                 cardWidth: cardWidth
                             )
@@ -622,17 +655,19 @@ struct DuplicateSongsView: View {
     @ViewBuilder
     private func macSongCards(
         in group: DuplicateGroup,
-        deletableSourceIDs: Set<String>,
+        scope: DuplicateCleanupDeletionScope,
         keptSongIDs: Set<String>,
         cardWidth: CGFloat
     ) -> some View {
+        let writableSongIDs = Set(scope.writableSongs(in: group.songs).map(\.id))
+        let sameFileCopies = scope.sameFileCopies(in: group.songs)
         ForEach(group.songs, id: \.id) { song in
-            let isReadOnly = !deletableSourceIDs.contains(song.sourceID)
             macSongCard(
                 song: song,
                 group: group,
                 isKept: keptSongIDs.contains(song.id),
-                isReadOnly: isReadOnly
+                isReadOnly: !writableSongIDs.contains(song.id),
+                sameFileCopy: sameFileCopy(song, in: group, copies: sameFileCopies)
             )
             .frame(width: cardWidth, height: 104)
         }
@@ -643,19 +678,39 @@ struct DuplicateSongsView: View {
         song: Song,
         group: DuplicateGroup,
         isKept: Bool,
-        isReadOnly: Bool
+        isReadOnly: Bool,
+        sameFileCopy: SameFileCopy?
     ) -> some View {
-        let action = isReadOnly
+        let action = sameFileCopy != nil
+            ? String(localized: "dup_same_file_badge")
+            : isReadOnly
             ? String(localized: "dup_mac_keep_read_only")
             : String(localized: isKept ? "dup_mac_keep" : "dup_mac_delete")
         let accessibilityLabel = Text(verbatim: "\(action) · \(duplicateSourceName(song))")
 
-        if isReadOnly {
+        if let sameFileCopy {
+            // 同一个文件经几个来源出现：不删，点开说明并给「仅从本设备移除这一份」。
+            Button {
+                pendingSameFileCopy = sameFileCopy
+            } label: {
+                macSongCardContent(
+                    song: song,
+                    action: action,
+                    isKept: true,
+                    isReadOnly: true,
+                    isSameFile: true
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(cleaner.progress != nil)
+            .accessibilityLabel(accessibilityLabel)
+        } else if isReadOnly {
             macSongCardContent(
                 song: song,
                 action: action,
                 isKept: true,
-                isReadOnly: true
+                isReadOnly: true,
+                isSameFile: false
             )
             .accessibilityElement(children: .combine)
             .accessibilityLabel(accessibilityLabel)
@@ -667,7 +722,8 @@ struct DuplicateSongsView: View {
                     song: song,
                     action: action,
                     isKept: isKept,
-                    isReadOnly: false
+                    isReadOnly: false,
+                    isSameFile: false
                 )
             }
             .buttonStyle(.plain)
@@ -682,10 +738,13 @@ struct DuplicateSongsView: View {
         song: Song,
         action: String,
         isKept: Bool,
-        isReadOnly: Bool
+        isReadOnly: Bool,
+        isSameFile: Bool
     ) -> some View {
         let statusColor = isReadOnly ? PMColor.textMuted : (isKept ? PMColor.brand : PMColor.bad)
-        let statusIcon = isReadOnly
+        let statusIcon = isSameFile
+            ? "link"
+            : isReadOnly
             ? "lock.fill"
             : (isKept ? "circle" : "checkmark.circle.fill")
         return VStack(alignment: .leading, spacing: 8) {
@@ -826,12 +885,13 @@ struct DuplicateSongsView: View {
 
     @ViewBuilder
     private func groupSection(_ group: DuplicateGroup) -> some View {
-        let writableSourceIDs = deletableSourceIDsSnapshot
+        let scope = deletionScopeSnapshot
         let groupRemovableSongs = removableSongs(
             in: group,
-            deletableSourceIDs: writableSourceIDs
+            scope: scope
         )
         let removableSongIDs = Set(groupRemovableSongs.map(\.id))
+        let sameFileCopies = scope.sameFileCopies(in: group.songs)
         Section {
             DisclosureGroup(
                 isExpanded: Binding(
@@ -844,7 +904,8 @@ struct DuplicateSongsView: View {
                         song: song,
                         isBest: song.id == group.bestSong.id,
                         group: group,
-                        canDelete: removableSongIDs.contains(song.id)
+                        canDelete: removableSongIDs.contains(song.id),
+                        sameFileCopy: sameFileCopy(song, in: group, copies: sameFileCopies)
                     )
                 }
 
@@ -878,7 +939,13 @@ struct DuplicateSongsView: View {
     }
 
     @ViewBuilder
-    private func songRow(song: Song, isBest: Bool, group: DuplicateGroup, canDelete: Bool) -> some View {
+    private func songRow(
+        song: Song,
+        isBest: Bool,
+        group: DuplicateGroup,
+        canDelete: Bool,
+        sameFileCopy: SameFileCopy?
+    ) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -899,18 +966,44 @@ struct DuplicateSongsView: View {
                     .font(.caption2).foregroundStyle(.secondary)
                 Text(sourceDescription(song))
                     .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                if let sameFileCopy {
+                    Label {
+                        Text(verbatim: String(
+                            format: String(localized: "dup_same_file_caption_format"),
+                            ListFormatter.localizedString(byJoining: sameFileCopy.otherSourceNames)
+                        ))
+                    } icon: {
+                        Image(systemName: "link")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                }
             }
 
             Spacer()
 
-            Button(role: .destructive) {
-                deleteSingle(song: song, in: group)
-            } label: {
-                Image(systemName: "trash")
-                    .font(.subheadline)
+            if let sameFileCopy {
+                // 同一个文件经几个来源出现：不删，点开说明并给「仅从本设备移除这一份」。
+                Button {
+                    pendingSameFileCopy = sameFileCopy
+                } label: {
+                    Image(systemName: "eye.slash")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderless)
+                .disabled(cleaner.progress != nil)
+                .accessibilityLabel(Text("dup_same_file_remove_action"))
+            } else {
+                Button(role: .destructive) {
+                    deleteSingle(song: song, in: group)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderless)
+                .disabled(group.songs.count <= 1 || !canDelete || cleaner.progress != nil)
             }
-            .buttonStyle(.borderless)
-            .disabled(group.songs.count <= 1 || !canDelete || cleaner.progress != nil)
         }
         .padding(.vertical, 2)
     }
@@ -938,6 +1031,7 @@ struct DuplicateSongsView: View {
         // never restore the stale duplicate count.
         guard generation == scanGeneration else { return }
         groups = detected
+        groupCollectionOnlySongIDs = Self.collectionOnlySongIDs(in: detected)
         groupsRevision &+= 1
         expandedGroupID = nil
         showAllGroups = false
@@ -946,10 +1040,23 @@ struct DuplicateSongsView: View {
         #endif
     }
 
+    /// 只留落在重复分组里的那些，免得合计缓存的键每次都哈希整份登记表。
+    private static func collectionOnlySongIDs(in groups: [DuplicateGroup]) -> Set<String> {
+        let registered = CollectionOnlySongStore.shared.songIDs
+        guard !registered.isEmpty else { return [] }
+        var result = Set<String>()
+        for group in groups {
+            for song in group.songs where registered.contains(song.id) {
+                result.insert(song.id)
+            }
+        }
+        return result
+    }
+
     private func keepBest(of group: DuplicateGroup) {
         let toRemove = removableSongs(
             in: group,
-            deletableSourceIDs: deletableSourceIDsSnapshot
+            scope: deletionScopeSnapshot
         )
         guard !toRemove.isEmpty else { return }
         pendingDeletion = toRemove
@@ -959,7 +1066,7 @@ struct DuplicateSongsView: View {
     private func deleteSingle(song: Song, in group: DuplicateGroup) {
         let removableSongIDs = Set(removableSongs(
             in: group,
-            deletableSourceIDs: deletableSourceIDsSnapshot
+            scope: deletionScopeSnapshot
         ).map(\.id))
         guard removableSongIDs.contains(song.id) else { return }
         pendingDeletion = [song]
@@ -967,11 +1074,61 @@ struct DuplicateSongsView: View {
     }
 
     private func cleanAll() {
-        let writableSourceIDs = deletableSourceIDsSnapshot
+        let scope = deletionScopeSnapshot
         let toRemove = groups.flatMap {
-            removableSongs(in: $0, deletableSourceIDs: writableSourceIDs)
+            removableSongs(in: $0, scope: scope)
         }
-        startCleanup(toRemove)
+        requestCleanup(toRemove)
+    }
+
+    /// 要删的里面有音乐服务器上的歌就再确认一次（服务器上的所有用户和客户端都会失去它们），
+    /// 只有文件来源的照原来的一次确认。
+    private func requestCleanup(_ songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        guard let request = ServerSongDeletionRequest.make(
+            deleting: songs,
+            sources: sourcesStore.allSources,
+            perform: { startCleanup(songs) }
+        ) else {
+            startCleanup(songs)
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: ServerSongDeletionRequest.presentationDelay)
+            serverDeletionRequest = request
+        }
+    }
+
+    private func removeSameFileCopyFromThisDevice(_ copy: SameFileCopy) {
+        let detail = String(
+            format: String(localized: "dup_same_file_ledger_detail_format"),
+            ListFormatter.localizedString(byJoining: copy.otherSourceNames)
+        )
+        do {
+            try cleaner.removeSameFileCopyFromThisDevice(copy.song, detail: detail)
+        } catch {
+            flashAction(error.localizedDescription)
+        }
+    }
+
+    private func duplicateSourceDisplayName(_ song: Song) -> String {
+        sourcesStore.allSources.first(where: { $0.id == song.sourceID })?.name
+            ?? String(localized: "Unknown Source")
+    }
+
+    /// 这一份和别的来源里的某一份是同一个文件时，带上那几个来源的名字。
+    private func sameFileCopy(
+        _ song: Song,
+        in group: DuplicateGroup,
+        copies: [String: Set<String>]
+    ) -> SameFileCopy? {
+        guard let others = copies[song.id], !others.isEmpty else { return nil }
+        var names: [String] = []
+        for other in group.songs where others.contains(other.id) {
+            let name = duplicateSourceDisplayName(other)
+            if !names.contains(name) { names.append(name) }
+        }
+        return SameFileCopy(song: song, otherSourceNames: names)
     }
 
     /// Keep the completion-revision observer for cleanups that outlive this
@@ -1012,14 +1169,12 @@ struct DuplicateSongsView: View {
 
     /// 读到的输入(分组、源、保留方式、手动勾选)都在键里, 任何一样变了 body 都会重算到这里。
     private var cleanupTotals: DuplicateCleanupTotalsCache.Totals {
-        let writableSourceIDs = deletableSourceIDsSnapshot
+        let scope = deletionScopeSnapshot
         #if os(macOS)
-        let fileDeletingSourceIDs = Set(sourcesStore.sources.lazy
-            .filter { SourceFileDeletionPolicy.duplicateCleanupRemovesSourceFile(for: $0.type) }
-            .map(\.id))
+        let fileDeletingSourceIDs = scope.fileDeletingSourceIDs
         let key = DuplicateCleanupTotalsCache.Key(
             groupsRevision: groupsRevision,
-            deletableSourceIDs: writableSourceIDs,
+            deletionScope: scope,
             fileDeletingSourceIDs: fileDeletingSourceIDs,
             retentionStrategy: retentionStrategy.rawValue,
             keptOverrides: macKeptSongIDsByGroup
@@ -1028,7 +1183,7 @@ struct DuplicateSongsView: View {
         let fileDeletingSourceIDs: Set<String> = []
         let key = DuplicateCleanupTotalsCache.Key(
             groupsRevision: groupsRevision,
-            deletableSourceIDs: writableSourceIDs,
+            deletionScope: scope,
             fileDeletingSourceIDs: fileDeletingSourceIDs,
             retentionStrategy: "",
             keptOverrides: [:]
@@ -1037,7 +1192,7 @@ struct DuplicateSongsView: View {
         return totalsCache.totals(for: key) {
             var totals = DuplicateCleanupTotalsCache.Totals()
             for group in groups {
-                let removable = removableSongs(in: group, deletableSourceIDs: writableSourceIDs)
+                let removable = removableSongs(in: group, scope: scope)
                 totals.redundantCount += removable.count
                 for song in removable where fileDeletingSourceIDs.contains(song.sourceID) {
                     totals.recoverableBytes += max(Int64(0), song.fileSize)
@@ -1100,16 +1255,14 @@ struct DuplicateSongsView: View {
 
     private func macKeptSongIDs(
         in group: DuplicateGroup,
-        deletableSourceIDs: Set<String>
+        scope: DuplicateCleanupDeletionScope
     ) -> Set<String> {
-        let readOnlySongIDs = Set(group.songs.lazy
-            .filter { !deletableSourceIDs.contains($0.sourceID) }
-            .map(\.id))
-        let writableSongs = group.songs.filter {
-            deletableSourceIDs.contains($0.sourceID)
-        }
+        let writableSongs = scope.writableSongs(in: group.songs)
         let writableSongIDs = writableSongs.map(\.id)
         let writableSongIDSet = Set(writableSongIDs)
+        let readOnlySongIDs = Set(group.songs.lazy
+            .filter { !writableSongIDSet.contains($0.id) }
+            .map(\.id))
 
         if let overriddenSongIDs = macKeptSongIDsByGroup[group.id] {
             let validSongIDs = readOnlySongIDs.union(writableSongIDSet)
@@ -1131,39 +1284,36 @@ struct DuplicateSongsView: View {
     }
 
     private func toggleMacSongKept(_ song: Song, in group: DuplicateGroup) {
-        let deletableSourceIDs = deletableSourceIDsSnapshot
-        guard deletableSourceIDs.contains(song.sourceID) else { return }
+        let scope = deletionScopeSnapshot
+        let writableSongIDs = scope.writableSongs(in: group.songs).map(\.id)
+        let writableSongIDSet = Set(writableSongIDs)
+        guard writableSongIDSet.contains(song.id) else { return }
 
         let readOnlySongIDs = Set(group.songs.lazy
-            .filter { !deletableSourceIDs.contains($0.sourceID) }
+            .filter { !writableSongIDSet.contains($0.id) }
             .map(\.id))
-        let writableSongIDs = group.songs.lazy
-            .filter { deletableSourceIDs.contains($0.sourceID) }
-            .map(\.id)
         let currentKeptSongIDs = macKeptSongIDs(
             in: group,
-            deletableSourceIDs: deletableSourceIDs
+            scope: scope
         )
         macKeptSongIDsByGroup[group.id] = DuplicateCleanupSelectionPolicy.toggledKeptSongIDs(
             currentKeptSongIDs: currentKeptSongIDs,
             toggledSongID: song.id,
             readOnlySongIDs: readOnlySongIDs,
-            writableSongIDs: Array(writableSongIDs)
+            writableSongIDs: writableSongIDs
         )
     }
 
     private func macRemovableSongs(
         in group: DuplicateGroup,
-        deletableSourceIDs: Set<String>
+        scope: DuplicateCleanupDeletionScope
     ) -> [Song] {
-        let writableSongIDs = group.songs.lazy
-            .filter { deletableSourceIDs.contains($0.sourceID) }
-            .map(\.id)
+        let writableSongIDs = scope.writableSongs(in: group.songs).map(\.id)
         let removableSongIDs = DuplicateCleanupSelectionPolicy.removableSongIDs(
-            writableSongIDs: Array(writableSongIDs),
+            writableSongIDs: writableSongIDs,
             keptSongIDs: macKeptSongIDs(
                 in: group,
-                deletableSourceIDs: deletableSourceIDs
+                scope: scope
             )
         )
         return group.songs.filter { removableSongIDs.contains($0.id) }
@@ -1214,25 +1364,25 @@ struct DuplicateSongsView: View {
     /// Read-only catalogues are never candidates for source deletion. Every
     /// group also preserves at least one writable copy so a streaming catalogue
     /// entry can never cause the user's only local/NAS copy to be removed.
-    private var deletableSourceIDsSnapshot: Set<String> {
-        Set(sourcesStore.sources.lazy
-            .filter { $0.type.supportsFileDeletion }
-            .map(\.id))
+    /// 和别的来源里的某一份是同一个文件的副本也不算可删（`DuplicateCleanupDeletionScope`）。
+    private var deletionScopeSnapshot: DuplicateCleanupDeletionScope {
+        DuplicateCleanupDeletionScope(
+            sources: sourcesStore.sources,
+            collectionOnlySongIDs: groupCollectionOnlySongIDs
+        )
     }
 
     private func removableSongs(
         in group: DuplicateGroup,
-        deletableSourceIDs: Set<String>
+        scope: DuplicateCleanupDeletionScope
     ) -> [Song] {
         #if os(macOS)
-        return macRemovableSongs(in: group, deletableSourceIDs: deletableSourceIDs)
+        return macRemovableSongs(in: group, scope: scope)
         #else
-        let writable = group.songs.filter { deletableSourceIDs.contains($0.sourceID) }
-        guard writable.count > 1,
-              let keptWritableID = group.songs.first(where: {
-                  deletableSourceIDs.contains($0.sourceID)
-              })?.id else { return [] }
-        return writable.filter { $0.id != keptWritableID }
+        // 按组内质量顺序保留第一份可删的，其余可删的才删。
+        let writable = scope.writableSongs(in: group.songs)
+        guard writable.count > 1 else { return [] }
+        return Array(writable.dropFirst())
         #endif
     }
 
@@ -1462,9 +1612,18 @@ private struct DuplicateDeletionFailuresView: View {
 
     private func helpText(_ reason: SourceFileDeletionFailureReason, source: MusicSource) -> String {
         switch reason {
-        case .readOnly: String(localized: "delete_source_read_only")
+        case .readOnly:
+            // 飞牛音乐旧版本没有删除接口：说清楚要升级哪个应用。
+            source.type == .fnMusic
+                ? MusicServerDeletionError.unsupportedServer(.fnMusic).errorDescription ?? String(localized: "delete_source_read_only")
+                : String(localized: "delete_source_read_only")
         case .permissionDenied:
-            source.type == .local ? String(localized: "dup_delete_local_help") : String(localized: "dup_delete_permission_help")
+            // 音乐服务器：说清楚在服务器的哪个设置里开删除权限。
+            source.type == .local
+                ? String(localized: "dup_delete_local_help")
+                : source.type.deletesThroughMusicServer
+                ? MusicServerDeletionError.notPermitted(source.type).errorDescription ?? String(localized: "dup_delete_permission_help")
+                : String(localized: "dup_delete_permission_help")
         case .authenticationRequired:
             source.type == .local ? String(localized: "dup_delete_local_help") : String(localized: "dup_delete_auth_help")
         case .unavailable, .other: String(localized: "dup_delete_unavailable_help")

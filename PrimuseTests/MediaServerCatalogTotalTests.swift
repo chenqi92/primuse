@@ -734,3 +734,89 @@ private enum AddedDateMediaServer {
         })
     }
 }
+
+/// 从媒体服务器删歌。没有删除权限时服务器也回 401/403（Jellyfin 对没开「允许删除媒体」的账号回 401），
+/// 会话本身还有效：不能当成「重新登录」，要交回「服务器不许这个账号删」。按名字猜的 sidecar 不发请求。
+final class MediaServerDeletionTests: XCTestCase {
+    func testRefusedDeletionWithAValidSessionIsAPermissionProblem() async throws {
+        for kind: MediaServerSource.Kind in [.jellyfin, .emby, .plex] {
+            let fixture = DeletionMediaServer(kind: kind, allowsDeletion: false)
+            let source = fixture.makeSource()
+            do {
+                try await source.deleteFile(at: "/items/track.flac")
+                XCTFail("a refused deletion must throw (\(kind))")
+            } catch {
+                let expected: MusicSourceType = kind == .plex ? .plex : (kind == .emby ? .emby : .jellyfin)
+                XCTAssertEqual(error as? MusicServerDeletionError, .notPermitted(expected))
+                XCTAssertEqual(SourceFileDeletionFailureReason.classify(error), .permissionDenied)
+                XCTAssertFalse(SourceManager.isMissingFileError(error))
+            }
+            // 第一次被拒、确认会话有效后再试一次，仍被拒才下结论。
+            XCTAssertEqual(fixture.deletedPaths.count, 2)
+            await source.disconnect()
+        }
+    }
+
+    func testAllowedDeletionHitsTheItemOnceAndNeverGuessedSidecars() async throws {
+        for kind: MediaServerSource.Kind in [.jellyfin, .emby, .plex] {
+            let fixture = DeletionMediaServer(kind: kind, allowsDeletion: true)
+            let source = fixture.makeSource()
+            try await source.deleteFile(at: "/items/track.flac")
+            for sidecar in ["/items/track.lrc", "/items/track-cover.jpg"] {
+                do {
+                    try await source.deleteFile(at: sidecar)
+                    XCTFail("sidecar \(sidecar) must not reach the server")
+                } catch {
+                    XCTAssertTrue(SourceManager.isMissingFileError(error))
+                }
+            }
+            XCTAssertEqual(fixture.deletedPaths, [kind == .plex ? "/library/metadata/track" : "/Items/track"])
+            await source.disconnect()
+        }
+    }
+}
+
+private final class DeletionMediaServer: @unchecked Sendable {
+    let kind: MediaServerSource.Kind
+    let allowsDeletion: Bool
+    let host = UUID().uuidString.lowercased() + ".invalid"
+    private let lock = NSLock()
+    private var _deletedPaths: [String] = []
+    var deletedPaths: [String] { lock.withLock { _deletedPaths } }
+
+    init(kind: MediaServerSource.Kind, allowsDeletion: Bool) {
+        self.kind = kind
+        self.allowsDeletion = allowsDeletion
+    }
+
+    func makeSource() -> MediaServerSource {
+        MediaServerSource(sourceID: host, kind: kind, host: host, port: nil, useSsl: true, basePath: nil,
+            username: "qa", secret: "token", authType: .apiKey,
+            requestDataLoader: { [self] request in try respond(request) })
+    }
+
+    func respond(_ request: URLRequest) throws -> (Data, URLResponse) {
+        try lock.withLock {
+            let url = try XCTUnwrap(request.url)
+            if request.httpMethod == "DELETE" {
+                _deletedPaths.append(url.path)
+                // Jellyfin 与 Plex 拒绝时回 401，Emby 回 403。
+                let status = allowsDeletion ? 204 : (kind == .emby ? 403 : 401)
+                return (Data(), HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
+            }
+            let body: Any
+            switch url.path {
+            case "", "/": body = ["MediaContainer": ["machineIdentifier": "server", "version": "1.0"]]
+            case "/Users/Me": body = ["Id": "user"]
+            case "/Users/user/Views": body = ["Items": []]
+            case "/System/Info": body = ["Id": "server", "Version": "10.10.0"]
+            case "/library/sections": body = ["MediaContainer": ["Directory": [], "size": 0]]
+            default:
+                XCTFail("Unexpected endpoint \(kind): \(url.path)")
+                throw URLError(.unsupportedURL)
+            }
+            return (try JSONSerialization.data(withJSONObject: body), HTTPURLResponse(url: url,
+                statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!)
+        }
+    }
+}

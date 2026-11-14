@@ -17,6 +17,35 @@ enum SourceFileMutationError: Error, LocalizedError, Sendable, Equatable {
     }
 }
 
+/// 音乐服务器拒绝删歌：重试改变不了，要在服务器上改设置、换账号或升级服务端。
+/// 说明按服务器写清楚该去哪儿开；失败页据 `deletionFailureReason` 给出「仅从本设备移除」。
+enum MusicServerDeletionError: Error, LocalizedError, Sendable, Equatable {
+    /// 账号没有删除权限：Jellyfin / Emby 的「允许删除媒体」、Plex 的「允许删除媒体」服务器设置、
+    /// Audiobookshelf 的「可删除」、飞牛音乐只许管理员。
+    case notPermitted(MusicSourceType)
+    /// 服务端这个版本没有删除接口（飞牛音乐 1.1 之前没有「文件夹」页）。
+    case unsupportedServer(MusicSourceType)
+
+    var errorDescription: String? {
+        switch self {
+        case .notPermitted(.jellyfin): String(localized: "server_delete_denied_jellyfin")
+        case .notPermitted(.emby): String(localized: "server_delete_denied_emby")
+        case .notPermitted(.plex): String(localized: "server_delete_denied_plex")
+        case .notPermitted(.audiobookshelf): String(localized: "server_delete_denied_audiobookshelf")
+        case .notPermitted(.fnMusic): String(localized: "server_delete_denied_fnmusic")
+        case .notPermitted: String(localized: "server_delete_denied_generic")
+        case .unsupportedServer: String(localized: "server_delete_unsupported_fnmusic")
+        }
+    }
+
+    var deletionFailureReason: SourceFileDeletionFailureReason {
+        switch self {
+        case .notPermitted: .permissionDenied
+        case .unsupportedServer: .readOnly
+        }
+    }
+}
+
 /// Protocol support is not account authorization. Classify typed failures only;
 /// never infer permissions from localized error strings or a failed read.
 enum MetadataWriteFailurePolicy {

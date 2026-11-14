@@ -69,6 +69,23 @@ public enum AudiobookshelfAPIProtocol {
         )
     }
 
+    /// 删除一首连同服务器上的文件：书里的一个音频文件 `DELETE /api/items/{id}/file/{ino}`
+    /// （服务器删掉磁盘上的文件并把这一轨从书里去掉），播客单集 `DELETE /api/podcasts/{id}/episode/{episodeID}?hard=1`
+    /// （不带 `hard=1` 只从库里去掉、文件留着）。账号没有删除权限时服务器回 403。
+    /// 按名字猜的歌词、封面引用在 `trackReference(from:)` 那一步就认不出来，到不了这里。
+    public static func deletionEndpoint(for reference: TrackReference) -> (path: String, queryItems: [URLQueryItem]) {
+        let itemID = encodedPathComponent(reference.itemID)
+        switch reference.kind {
+        case .file(let ino):
+            return ("/api/items/\(itemID)/file/\(encodedPathComponent(ino))", [])
+        case .episode(let id):
+            return (
+                "/api/podcasts/\(itemID)/episode/\(encodedPathComponent(id))",
+                [URLQueryItem(name: "hard", value: "1")]
+            )
+        }
+    }
+
     public static func coverURL(serverBaseURL: URL, itemID: String, width: Int? = nil) -> URL? {
         endpointURL(
             serverBaseURL: serverBaseURL,

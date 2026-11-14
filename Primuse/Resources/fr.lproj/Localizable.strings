@@ -7522,3 +7522,21 @@
 "karaoke_sing_along_handoff_detail" = "Quitte le karaoké et continue l’accompagnement avec Chanter avec";
 
 "scraper_import_auto_update" = "Mise à jour automatique";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "Supprimer du serveur ?";
+"server_delete_confirm_message_format" = "Les fichiers de %2$d morceaux seront supprimés sur %1$@. Tous les utilisateurs et toutes les apps de ce serveur les perdront. Cette action est irréversible.";
+"server_delete_confirm_action" = "Supprimer du serveur";
+"server_delete_denied_jellyfin" = "Jellyfin n’autorise pas ce compte à supprimer des médias. Dans le tableau de bord Jellyfin, ouvrez Utilisateurs, choisissez ce compte et activez « Autoriser la suppression de médias » (toutes les médiathèques ou celle-ci), puis réessayez.";
+"server_delete_denied_emby" = "Emby n’autorise pas ce compte à supprimer des médias. Dans les réglages du serveur Emby, ouvrez Utilisateurs, choisissez ce compte et activez « Autoriser la suppression de médias », puis réessayez.";
+"server_delete_denied_plex" = "Ce serveur Plex n’autorise pas la suppression de médias. Dans les réglages Plex, ouvrez Serveur › Bibliothèque et activez « Autoriser la suppression de médias », puis réessayez. Les utilisateurs gérés ne peuvent pas supprimer de médias.";
+"server_delete_denied_audiobookshelf" = "Ce compte Audiobookshelf ne peut pas supprimer. Un administrateur peut activer « Peut supprimer » pour lui dans Réglages › Utilisateurs, puis réessayez.";
+"server_delete_denied_fnmusic" = "Seuls les administrateurs de Feiniu Music peuvent supprimer des pistes. Passez cette source sur un compte administrateur dans ses réglages, puis réessayez.";
+"server_delete_denied_generic" = "Le serveur n’autorise pas ce compte à supprimer des fichiers. Accordez-lui le droit de suppression sur le serveur, puis réessayez.";
+"server_delete_unsupported_fnmusic" = "Cette version de Feiniu Music ne peut pas supprimer de pistes. Mettez à jour Feiniu Music dans l’App Center de fnOS, puis réessayez.";
+"dup_same_file_title" = "Même fichier dans deux sources";
+"dup_same_file_message_format" = "Cette copie de %1$@ est très probablement le même fichier que celle de %2$@ (même taille et même durée). Supprimer l’une supprimerait les deux, elle n’est donc pas supprimée ici. Vous pouvez retirer uniquement cette copie de cet appareil : le fichier et l’autre copie restent intacts, et vous pourrez la restaurer depuis la page de la source.";
+"dup_same_file_remove_action" = "Retirer cette copie de cet appareil uniquement";
+"dup_same_file_caption_format" = "Même fichier que dans %@";
+"dup_same_file_badge" = "Même fichier";
+"dup_same_file_ledger_detail_format" = "Le même fichier se trouve aussi dans %@";

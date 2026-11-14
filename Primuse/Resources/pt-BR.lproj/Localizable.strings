@@ -7428,3 +7428,21 @@
 "karaoke_sing_along_handoff_detail" = "Sai do karaokê e continua o acompanhamento com Cantar junto";
 
 "scraper_import_auto_update" = "Atualizar automaticamente";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "Apagar do servidor?";
+"server_delete_confirm_message_format" = "Os arquivos de %2$d músicas serão apagados em %1$@. Todos os usuários e apps desse servidor vão perdê-las. Não é possível desfazer.";
+"server_delete_confirm_action" = "Apagar do servidor";
+"server_delete_denied_jellyfin" = "O Jellyfin não permite que esta conta apague mídia. No painel do Jellyfin, abra Usuários, escolha esta conta e ative “Permitir exclusão de mídia” (em todas as bibliotecas ou nesta) e tente de novo.";
+"server_delete_denied_emby" = "O Emby não permite que esta conta apague mídia. Nos ajustes do servidor Emby, abra Usuários, escolha esta conta, ative “Permitir exclusão de mídia” e tente de novo.";
+"server_delete_denied_plex" = "Este servidor Plex não permite apagar mídia. Nos ajustes do Plex, abra Servidor › Biblioteca, ative “Permitir exclusão de mídia” e tente de novo. Usuários gerenciados não podem apagar mídia.";
+"server_delete_denied_audiobookshelf" = "Esta conta do Audiobookshelf não pode apagar. Um administrador pode ativar “Pode excluir” em Ajustes › Usuários; depois tente de novo.";
+"server_delete_denied_fnmusic" = "Só administradores do Feiniu Music podem apagar faixas. Troque esta fonte para uma conta de administrador nos ajustes dela e tente de novo.";
+"server_delete_denied_generic" = "O servidor não permite que esta conta apague arquivos. Dê permissão de exclusão no servidor e tente de novo.";
+"server_delete_unsupported_fnmusic" = "Esta versão do Feiniu Music não consegue apagar faixas. Atualize o Feiniu Music na App Center do fnOS e tente de novo.";
+"dup_same_file_title" = "O mesmo arquivo em duas fontes";
+"dup_same_file_message_format" = "Esta cópia de %1$@ muito provavelmente é o mesmo arquivo que a de %2$@ (mesmo tamanho e duração). Apagar qualquer uma removeria as duas, então ela não é apagada aqui. Você pode remover só esta cópia deste dispositivo: o arquivo e a outra cópia ficam intactos, e dá para restaurá-la na página da fonte.";
+"dup_same_file_remove_action" = "Remover só esta cópia deste dispositivo";
+"dup_same_file_caption_format" = "Mesmo arquivo que em %@";
+"dup_same_file_badge" = "Mesmo arquivo";
+"dup_same_file_ledger_detail_format" = "O mesmo arquivo também está em %@";

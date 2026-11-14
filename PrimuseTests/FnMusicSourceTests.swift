@@ -916,6 +916,69 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertTrue(removed.itemIDs.isEmpty)
     }
 
+    /// 删歌走网页端「文件夹」页的删除：只发这一首、不带目录、连文件一起删；按名字猜的 sidecar 不发请求。
+    func testTrackDeletionSendsOneTrackAndSkipsGuessedSidecars() async throws {
+        let source = makeSource()
+        let sourceID = await source.sourceID
+        FnMusicSourceURLProtocol.setTrackDeletion(folderView: true, role: "admin", host: sourceID)
+
+        try await source.deleteFile(at: FnMusicAPIProtocol.trackPath(guid: "song", fileExtension: "flac"))
+        let bodies = FnMusicSourceURLProtocol.trackDeletionBodies(host: sourceID)
+        XCTAssertEqual(bodies.count, 1)
+        let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: XCTUnwrap(bodies.first)) as? [String: Any])
+        XCTAssertEqual(payload["trackGUIDs"] as? [String], ["song"])
+        XCTAssertEqual((payload["folderPaths"] as? [String])?.isEmpty, true)
+        XCTAssertEqual(payload["isPermanent"] as? Bool, true)
+
+        for sidecar in ["/fnmusic/tracks/song.lrc", "/fnmusic/tracks/song-cover.jpg"] {
+            do {
+                try await source.deleteFile(at: sidecar)
+                XCTFail("sidecar \(sidecar) must not reach the server")
+            } catch {
+                XCTAssertTrue(SourceManager.isMissingFileError(error))
+            }
+        }
+        XCTAssertEqual(FnMusicSourceURLProtocol.trackDeletionBodies(host: sourceID).count, 1)
+    }
+
+    /// 非管理员、没有「文件夹」页的旧版本：删之前就拒绝，请求不发出去，失败原因能走「仅从本设备移除」。
+    func testTrackDeletionIsRefusedBeforeSendingWhenTheServerWouldRefuse() async throws {
+        let cases: [(folderView: Bool, role: String, expected: MusicServerDeletionError, reason: SourceFileDeletionFailureReason)] = [
+            (true, "member", .notPermitted(.fnMusic), .permissionDenied),
+            (false, "admin", .unsupportedServer(.fnMusic), .readOnly),
+        ]
+        for testCase in cases {
+            let source = makeSource()
+            let sourceID = await source.sourceID
+            FnMusicSourceURLProtocol.setTrackDeletion(folderView: testCase.folderView, role: testCase.role, host: sourceID)
+            do {
+                try await source.deleteFile(at: FnMusicAPIProtocol.trackPath(guid: "song", fileExtension: "flac"))
+                XCTFail("deletion should be refused")
+            } catch {
+                XCTAssertEqual(error as? MusicServerDeletionError, testCase.expected)
+                XCTAssertEqual(SourceFileDeletionFailureReason.classify(error), testCase.reason)
+                XCTAssertTrue(SongLocalRemovalPolicy.canResolveLocally(failureReasons: [testCase.reason]))
+                XCTAssertFalse(SourceManager.isMissingFileError(error))
+            }
+            XCTAssertTrue(FnMusicSourceURLProtocol.trackDeletionBodies(host: sourceID).isEmpty)
+        }
+    }
+
+    /// 服务端回业务错误（比如曲目不存在）不当成「已经不在了」：行留着，下次同步自然对上。
+    func testTrackDeletionBusinessErrorKeepsTheRow() async throws {
+        let source = makeSource()
+        let sourceID = await source.sourceID
+        FnMusicSourceURLProtocol.setTrackDeletion(folderView: true, role: "admin", code: 100005, host: sourceID)
+        do {
+            try await source.deleteFile(at: FnMusicAPIProtocol.trackPath(guid: "song", fileExtension: "flac"))
+            XCTFail("a refused deletion must throw")
+        } catch {
+            XCTAssertFalse(SourceManager.isMissingFileError(error))
+            XCTAssertFalse(SourceFileDeletionPolicy.shouldRemoveLibraryRecord(after: .failed))
+        }
+        XCTAssertEqual(FnMusicSourceURLProtocol.trackDeletionBodies(host: sourceID).count, 1)
+    }
+
     /// 加歌只发还没在歌单里的,歌单与曲目 GUID 原样放进正文,加完按回读的明细确认。
     func testAppendToPlaylistPostsOnlyMissingTracksAndConfirmsByReadBack() async throws {
         let source = makeSource()
@@ -1612,6 +1675,10 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         var playlistTrackRows: [String: [[String: Any]]] = [:]
         var favoriteRows: [[String: Any]]?
         var addTrackBodies: [Data] = []
+        var folderViewEnabled = false
+        var role = "member"
+        var trackDeletionCode = 0
+        var trackDeletionBodies: [Data] = []
         var catalogCount = 0
         var maximumPageSize = 2_000
         var catalogPageSizes: [String: [Int]] = [:]
@@ -1634,6 +1701,16 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     static func logoutCount(host: String) -> Int { lock.withLock { states[host]?.logouts ?? 0 } }
     static func playlistRequestCount(host: String) -> Int { lock.withLock { states[host]?.playlistRequests ?? 0 } }
     static func addTrackBodies(host: String) -> [Data] { lock.withLock { states[host]?.addTrackBodies ?? [] } }
+    static func setTrackDeletion(folderView: Bool, role: String, code: Int = 0, host: String) {
+        lock.withLock {
+            states[host]?.folderViewEnabled = folderView
+            states[host]?.role = role
+            states[host]?.trackDeletionCode = code
+        }
+    }
+    static func trackDeletionBodies(host: String) -> [Data] {
+        lock.withLock { states[host]?.trackDeletionBodies ?? [] }
+    }
     static func setPlaylists(_ playlists: [[String: Any]], deletedIDs: Set<String> = [], host: String) {
         lock.withLock {
             states[host]?.playlists = playlists
@@ -1703,7 +1780,13 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
             case "access_code_verify":
                 return (204, [:], Data())
             case "config":
-                return (200, jsonHeaders, json(["code": 0, "data": [:]]))
+                let capabilities: [String: Any] = state.folderViewEnabled ? ["folderView": true] : [:]
+                return (200, jsonHeaders, json(["code": 0, "data": ["serverVersion": "1.1.19", "capabilities": capabilities]]))
+            case "me" where url.path.contains("/user/"):
+                return (200, jsonHeaders, json(["code": 0, "data": ["guid": "user", "role": state.role]]))
+            case "delete" where url.path.contains("/folder-view/"):
+                state.trackDeletionBodies.append(body)
+                return (200, jsonHeaders, json(["code": state.trackDeletionCode, "msg": "", "data": NSNull()]))
             case "list" where url.path.contains("/track/list") || url.path.contains("/album/list"):
                 let isAlbum = url.path.contains("/album/list")
                 let path = isAlbum ? "/album/list" : "/track/list"

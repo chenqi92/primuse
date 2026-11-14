@@ -909,6 +909,39 @@ public actor AudiobookshelfServiceClient {
         }
     }
 
+    // MARK: Deletion
+
+    public enum TrackDeletionOutcome: Sendable, Equatable {
+        case deleted
+        /// 403：账号没有删除权限（或看不到这本书）。换 token 也没用，不当成会话失效。
+        case notPermitted
+    }
+
+    /// 删掉一首连同服务器上的文件（`AudiobookshelfAPIProtocol.deletionEndpoint`）。
+    /// 401 才是会话过期，换一次 token 再发；404 照常抛错，不当成「已经不在了」，
+    /// 以免地址或反向代理配错时把库里的行当成删掉了。
+    public func deleteTrack(reference: AudiobookshelfAPIProtocol.TrackReference) async throws -> TrackDeletionOutcome {
+        let endpoint = AudiobookshelfAPIProtocol.deletionEndpoint(for: reference)
+        for attempt in 0...1 {
+            var request = try await authenticatedRequest(path: endpoint.path, queryItems: endpoint.queryItems)
+            request.httpMethod = "DELETE"
+            let (_, response) = try await transport.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
+            }
+            if http.statusCode == 401 {
+                if attempt == 0, try await recoverSession(after: request) { continue }
+                throw AudiobookshelfServiceError.authenticationFailed
+            }
+            if http.statusCode == 403 { return .notPermitted }
+            guard (200...299).contains(http.statusCode) else {
+                throw AudiobookshelfServiceError.badServerResponse(http.statusCode)
+            }
+            return .deleted
+        }
+        throw AudiobookshelfServiceError.authenticationFailed
+    }
+
     // MARK: Listening progress
 
     public func mediaProgress() async throws -> [AudiobookshelfMediaProgress] {

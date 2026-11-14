@@ -7615,3 +7615,21 @@
 "karaoke_sing_along_handoff_detail" = "收起卡拉OK，用伴唱接着放伴奏";
 
 "scraper_import_auto_update" = "自动更新";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "从服务器上删除？";
+"server_delete_confirm_message_format" = "将在 %1$@ 上删除 %2$d 首歌曲的文件。这台服务器上的所有用户和客户端都会失去这些歌曲，无法撤销。";
+"server_delete_confirm_action" = "从服务器删除";
+"server_delete_denied_jellyfin" = "Jellyfin 不允许这个账号删除媒体。请在 Jellyfin 控制台 › 用户里给这个账号打开「允许删除媒体」（所有媒体库或这一个），然后重试。";
+"server_delete_denied_emby" = "Emby 不允许这个账号删除媒体。请在 Emby 服务器设置 › 用户里给这个账号打开「允许删除媒体」，然后重试。";
+"server_delete_denied_plex" = "这台 Plex 服务器没有开「允许删除媒体」。请在 Plex 设置 › 服务器 › 资料库里打开它，然后重试；受管用户不能删除媒体。";
+"server_delete_denied_audiobookshelf" = "这个 Audiobookshelf 账号没有删除权限。请管理员在 设置 › 用户 里给它打开「可删除」，然后重试。";
+"server_delete_denied_fnmusic" = "飞牛音乐只允许管理员删除曲目。请在这个音乐源的设置里换成管理员账号，然后重试。";
+"server_delete_denied_generic" = "服务器不允许这个账号删除文件。请在服务器上给它开删除权限，然后重试。";
+"server_delete_unsupported_fnmusic" = "这台飞牛音乐的版本还不能删除曲目。请在飞牛应用中心更新飞牛音乐，然后重试。";
+"dup_same_file_title" = "同一个文件出现在两个来源";
+"dup_same_file_message_format" = "「%1$@」里的这一份和「%2$@」里的那一份很可能是同一个文件（大小、时长都一样）。删掉哪一份都会让两边一起没了，所以这里不删。可以只从本设备移除这一份：文件和另一份都不动，之后能在这个音乐源的页面里恢复。";
+"dup_same_file_remove_action" = "仅从本设备移除这一份";
+"dup_same_file_caption_format" = "和「%@」里的是同一个文件";
+"dup_same_file_badge" = "同一个文件";
+"dup_same_file_ledger_detail_format" = "同一个文件也在「%@」里";

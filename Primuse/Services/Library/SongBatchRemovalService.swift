@@ -120,14 +120,20 @@ final class SongBatchRemovalService {
 
     /// 按源类型把待删列表分成「能删源文件」和「只能留着」两拨，让确认弹窗
     /// 能提前把数字摊给用户看，而不是删完才说有几首没删掉。
+    /// 仅歌单的歌（`collectionOnlySongIDs`）和音乐服务器里的 CUE 分轨背后没有能单独删的文件，归到「只能留着」。
     nonisolated static func partitionForSourceDeletion(
         _ songs: [Song],
-        sourceTypesByID: [String: MusicSourceType]
+        sourceTypesByID: [String: MusicSourceType],
+        collectionOnlySongIDs: Set<String> = []
     ) -> (deletable: [Song], skipped: [Song]) {
         var deletable: [Song] = []
         var skipped: [Song] = []
         for song in songs {
-            if SourceFileDeletionPolicy.shouldShowDeleteAction(for: sourceTypesByID[song.sourceID]) {
+            if SourceFileDeletionPolicy.canDeleteSourceFile(
+                of: song,
+                sourceType: sourceTypesByID[song.sourceID],
+                isCollectionOnly: collectionOnlySongIDs.contains(song.id)
+            ) {
                 deletable.append(song)
             } else {
                 skipped.append(song)

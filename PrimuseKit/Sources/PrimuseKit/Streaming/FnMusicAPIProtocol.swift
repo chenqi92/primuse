@@ -308,6 +308,51 @@ public enum FnMusicAPIProtocol {
         return guid.isEmpty ? nil : guid.removingPercentEncoding ?? guid
     }
 
+    // MARK: 删除曲目（网页端「文件夹」页）
+
+    /// 飞牛音乐 1.1 起网页端「文件夹」页的删除：`POST /folder-view/delete`，正文
+    /// `{folderPaths, trackGUIDs, isPermanent}`。`sys/config` 的 `capabilities.folderView`
+    /// 明确为 true 才有这个页面和接口，只有管理员能删。`isPermanent: false` 只把曲目移出音乐库、
+    /// 文件留在原处（网页端能恢复），`true` 连同音频文件一起删、恢复不了。
+    /// 依据是 1.1.19 网页端代码与第三方客户端、飞牛音乐扩展代理里的同一份请求形状，没在真服务器上删过。
+    public static let trackDeletionPath = "/folder-view/delete"
+
+    /// 只认曲库扫描建出的曲目路径。删歌后按名字猜的歌词、封面 sidecar 是同一个 GUID 换了扩展名
+    /// （`<guid>.lrc`、`<guid>-cover.jpg`），绝不能拿去再发一次删除。
+    public static func deletableTrackGUID(from path: String) -> String? {
+        let fileExtension = (path as NSString).pathExtension.lowercased()
+        guard !PrimuseConstants.sidecarFileExtensions.contains(fileExtension),
+              let guid = trackGUID(from: path)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !guid.isEmpty else { return nil }
+        return guid
+    }
+
+    /// 缺失、null、false 都算没有，不按版本号猜。
+    public static func supportsTrackDeletion(systemConfig: Any) -> Bool {
+        guard let config = systemConfig as? [String: Any],
+              let capabilities = config["capabilities"] as? [String: Any] else { return false }
+        return capabilities["folderView"] as? Bool == true
+    }
+
+    /// 官方客户端的角色只有 `admin` / `member`，认不出的一律不当管理员。
+    public static func isAdministrator(currentUser: Any) -> Bool {
+        guard let user = currentUser as? [String: Any],
+              let role = user["role"] as? String else { return false }
+        return role.trimmingCharacters(in: .whitespacesAndNewlines) == "admin"
+    }
+
+    /// 一次只删一首，永远不带目录：目录会被服务端整个递归处理。重复歌曲删的是多出来的那份文件，
+    /// 所以连文件一起删，否则文件还在，曲目随时可能被重新加回音乐库。
+    public static func trackDeletionBody(trackGUID: String) -> [String: Any]? {
+        let guid = trackGUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !guid.isEmpty else { return nil }
+        return [
+            "folderPaths": [String](),
+            "trackGUIDs": [guid],
+            "isPermanent": true,
+        ]
+    }
+
     public static func coverReference(coverID: String, revision: Int? = nil) -> String {
         let reference = "fnmusic-cover/\(coverID)"
         guard let revision else { return reference }

@@ -1018,3 +1018,45 @@ private actor DeliveredPlaylists {
         trackIDs.append(playlist.trackIDs)
     }
 }
+
+@Suite("Feiniu track deletion contract")
+struct FnMusicTrackDeletionContractTests {
+    @Test func deletionSendsOneTrackPermanentlyAndNeverAFolder() throws {
+        let body = try #require(FnMusicAPIProtocol.trackDeletionBody(trackGUID: " c7895dec68ab47cab33d2f96913d1de5 "))
+        #expect(body["trackGUIDs"] as? [String] == ["c7895dec68ab47cab33d2f96913d1de5"])
+        #expect((body["folderPaths"] as? [String])?.isEmpty == true)
+        #expect(body["isPermanent"] as? Bool == true)
+        #expect(Set(body.keys) == ["trackGUIDs", "folderPaths", "isPermanent"])
+        #expect(FnMusicAPIProtocol.trackDeletionBody(trackGUID: "  ") == nil)
+        #expect(FnMusicAPIProtocol.trackDeletionPath == "/folder-view/delete")
+
+        // 和网页端一样按 JSON 正文签名：数组和布尔都要原样序列化。
+        let data = try SafeJSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        #expect(String(decoding: data, as: UTF8.self)
+            == #"{"folderPaths":[],"isPermanent":true,"trackGUIDs":["c7895dec68ab47cab33d2f96913d1de5"]}"#)
+    }
+
+    @Test func onlyTrackPathsAreDeletableNotGuessedSidecars() {
+        let track = FnMusicAPIProtocol.trackPath(guid: "abc", fileExtension: "flac")
+        #expect(FnMusicAPIProtocol.deletableTrackGUID(from: track) == "abc")
+        #expect(FnMusicAPIProtocol.deletableTrackGUID(from: "/fnmusic/tracks/abc.lrc") == nil)
+        #expect(FnMusicAPIProtocol.deletableTrackGUID(from: "/fnmusic/tracks/abc-cover.jpg") == nil)
+        #expect(FnMusicAPIProtocol.deletableTrackGUID(from: "/fnmusic/tracks/abc.vtt") == nil)
+        #expect(FnMusicAPIProtocol.deletableTrackGUID(from: "/music/abc.flac") == nil)
+    }
+
+    @Test func deletionRequiresTheFolderViewCapabilityAndAnAdministrator() {
+        #expect(FnMusicAPIProtocol.supportsTrackDeletion(systemConfig: [
+            "serverVersion": "1.1.19", "capabilities": ["folderView": true],
+        ]))
+        #expect(!FnMusicAPIProtocol.supportsTrackDeletion(systemConfig: ["serverVersion": "1.0.10"]))
+        #expect(!FnMusicAPIProtocol.supportsTrackDeletion(systemConfig: ["capabilities": ["folderView": false]]))
+        #expect(!FnMusicAPIProtocol.supportsTrackDeletion(systemConfig: ["capabilities": ["folderView": NSNull()]]))
+        #expect(!FnMusicAPIProtocol.supportsTrackDeletion(systemConfig: [String: Any]()))
+
+        #expect(FnMusicAPIProtocol.isAdministrator(currentUser: ["guid": "u1", "role": "admin"]))
+        #expect(!FnMusicAPIProtocol.isAdministrator(currentUser: ["guid": "u2", "role": "member"]))
+        #expect(!FnMusicAPIProtocol.isAdministrator(currentUser: ["guid": "u3", "role": "Administrator"]))
+        #expect(!FnMusicAPIProtocol.isAdministrator(currentUser: ["guid": "u4"]))
+    }
+}

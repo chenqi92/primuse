@@ -329,14 +329,28 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// Whether this source exposes a server/file-system operation that really
     /// removes the underlying audio. Read-only catalogue protocols must never
     /// be counted as removable duplicates.
+    ///
+    /// 音乐服务器里能删的：Jellyfin / Emby（`DELETE /Items/{id}`，账号要有删除媒体的权限）、
+    /// Plex（`DELETE /library/metadata/{ratingKey}`，服务器要开「允许删除媒体」）、
+    /// Audiobookshelf（`DELETE /api/items/{id}/file/{ino}`、单集 `DELETE /api/podcasts/{id}/episode/{id}?hard=1`，
+    /// 账号要有删除权限）、飞牛音乐（1.1 起「文件夹」页的 `POST /folder-view/delete`，只有管理员能删，
+    /// 见 `FnMusicAPIProtocol.trackDeletionPath`）。
+    /// 没有删除接口的：Subsonic 协议族（含 Navidrome）、UPnP、群晖 Audio Station、倒立鱼、Songloft、
+    /// 听书（Ting Reader）、光鸭开放平台、Apple Music。旧的 `.fnos` 占位类型没有连接器。
     public var supportsFileDeletion: Bool {
         switch self {
-        case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-             .audiobookshelf, .synologyAudioStation, .tingReader, .guangya, .appleMusic, .appleMusicLibrary:
+        case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .daoliyu, .songloft,
+             .synologyAudioStation, .tingReader, .guangya, .appleMusic, .appleMusicLibrary:
             return false
         default:
             return true
         }
+    }
+
+    /// 删除走音乐服务器自己的接口：服务器连同文件一起删，这台服务器上的所有用户和客户端都会失去
+    /// 这首歌。这类删除在常规确认之后还要再确认一次（`ServerSongDeletionPolicy`）。
+    public var deletesThroughMusicServer: Bool {
+        supportsFileDeletion && category == .mediaServer
     }
 
     /// Whether scraped cover art and lyrics can be written beside the source
@@ -798,6 +812,33 @@ public enum SourceFileDeletionPolicy {
         sourceType.supportsFileDeletion
     }
 
+    /// 这一首能不能删源文件：源类型能删，而且这一首背后确有一个能单独删的文件。
+    /// 只在服务端歌单里出现的歌（`CollectionOnlySongStore`，比如飞牛音乐扩展塞进歌单的在线歌曲）
+    /// 背后没有文件；音乐服务器里的 CUE 分轨，服务端删的是整轨原文件还是这一轨没有证据。
+    /// 这两种都只能「仅从本设备移除」。
+    public static func canDeleteSourceFile(
+        of song: Song,
+        sourceType: MusicSourceType?,
+        isCollectionOnly: Bool
+    ) -> Bool {
+        guard let sourceType, sourceType.supportsFileDeletion, !isCollectionOnly else { return false }
+        if sourceType.deletesThroughMusicServer,
+           song.cueSheetPath != nil || song.cueStartTime != nil {
+            return false
+        }
+        return true
+    }
+
+    /// 界面用：仅歌单的歌从共享登记表里查。
+    @MainActor
+    public static func shouldShowDeleteAction(for song: Song, sourceType: MusicSourceType?) -> Bool {
+        canDeleteSourceFile(
+            of: song,
+            sourceType: sourceType,
+            isCollectionOnly: CollectionOnlySongStore.shared.songIDs.contains(song.id)
+        )
+    }
+
     public static func shouldRemoveLibraryRecord(
         after audioStatus: SourceAudioDeletionStatus,
         sidecarWarningCount: Int = 0
@@ -808,6 +849,173 @@ public enum SourceFileDeletionPolicy {
         case .failed:
             return false
         }
+    }
+}
+
+/// 从音乐服务器删歌（`MusicSourceType.deletesThroughMusicServer`）要在常规确认之后再确认一次：
+/// 服务器连同文件一起删，这台服务器上的所有用户和客户端都会失去这些歌。
+public enum ServerSongDeletionPolicy {
+    /// 要删的歌里走音乐服务器删除的那些来源，按第一次出现的顺序；空表示不用第二次确认。
+    public static func serverSources(deleting songs: [Song], sources: [MusicSource]) -> [MusicSource] {
+        let sourceByID = Dictionary(sources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        var result: [MusicSource] = []
+        for song in songs where seen.insert(song.sourceID).inserted {
+            if let source = sourceByID[song.sourceID], source.type.deletesThroughMusicServer {
+                result.append(source)
+            }
+        }
+        return result
+    }
+}
+
+/// 同一个文件经两个来源进了资料库：群晖 File Station 和用同一个目录建库的 Navidrome、SMB 和 WebDAV
+/// 挂着同一个共享、飞牛音乐和同一台 NAS 的 SMB …… 两行看着是重复，其实是一个文件，删哪一份另一份都跟着没了。
+///
+/// 只能按两边都拿得到的东西判断。服务器来源的歌在资料库里只有合成路径（服务器上的真实路径不入库），
+/// 所以服务器那一边只能靠大小和时长；两边都是按真实路径寻址的来源时再比文件名。判不准时宁可当成同一个文件：
+/// 代价只是这一份不在「重复歌曲」里删（还能只在本设备隐藏），反过来错了就是把唯一的文件删掉。
+///
+/// 1. 来自两个不同的来源（同一个来源里的两行是两个文件）。
+/// 2. 存储可能是同一处：任一边是 Apple Music 时不是；网盘只和同一种网盘可能是。
+/// 3. 两边都报了文件大小时必须一字节不差；有一边没报就不拿大小排除。
+/// 4. 两边都有时长时相差不超过 2 秒。
+/// 5. 两边都按真实路径寻址时（本机、NAS 文件协议、按路径的网盘），文件名必须一样（不分大小写）。
+/// 6. 大小有一边不知道、文件名又比不了时，至少一边是音乐服务器才当可能同一个文件。
+///
+/// 误判成同一个文件：两台 NAS 上一字节不差、同名的备份；同一个文件同名拷进同一种网盘的另一个账号。
+/// 漏判：服务器报的不是原文件大小（库里还是旧版本、标签刚写回还没重扫），服务器之外的两份文件名不同却是硬链接。
+/// 漏判时会当成真正的重复，所以从服务器删仍要二次确认，默认保留的也总是音质最好的那份。
+public enum DuplicateSameFilePolicy {
+    public static let durationTolerance: TimeInterval = 2
+
+    public static func mayBeSameFile(
+        _ lhs: Song, sourceType lhsType: MusicSourceType,
+        _ rhs: Song, sourceType rhsType: MusicSourceType
+    ) -> Bool {
+        guard lhs.sourceID != rhs.sourceID,
+              storageMayOverlap(lhsType, rhsType) else { return false }
+        let sizesKnown = lhs.fileSize > 0 && rhs.fileSize > 0
+        if sizesKnown, lhs.fileSize != rhs.fileSize { return false }
+        if lhs.duration > 0, rhs.duration > 0,
+           abs(lhs.duration - rhs.duration) > durationTolerance {
+            return false
+        }
+        if let lhsName = fileName(of: lhs, sourceType: lhsType),
+           let rhsName = fileName(of: rhs, sourceType: rhsType) {
+            return lhsName == rhsName
+        }
+        return sizesKnown || lhsType.category == .mediaServer || rhsType.category == .mediaServer
+    }
+
+    /// 一组里和别的来源的某一份可能是同一个文件的副本：歌曲 id → 同一个文件的其它副本 id。
+    /// 关系按传递合并（A≈B、B≈C 时三份算同一个文件）。
+    public static func sameFileCopies(
+        in songs: [Song],
+        sourceTypesByID: [String: MusicSourceType]
+    ) -> [String: Set<String>] {
+        guard songs.count > 1 else { return [:] }
+        var parent = Array(songs.indices)
+        func root(_ index: Int) -> Int {
+            var current = index
+            while parent[current] != current { current = parent[current] }
+            return current
+        }
+        for lhs in songs.indices {
+            guard let lhsType = sourceTypesByID[songs[lhs].sourceID] else { continue }
+            for rhs in songs.indices where rhs > lhs {
+                guard let rhsType = sourceTypesByID[songs[rhs].sourceID],
+                      mayBeSameFile(songs[lhs], sourceType: lhsType, songs[rhs], sourceType: rhsType)
+                else { continue }
+                let lhsRoot = root(lhs)
+                let rhsRoot = root(rhs)
+                if lhsRoot != rhsRoot { parent[rhsRoot] = lhsRoot }
+            }
+        }
+        var members: [Int: Set<String>] = [:]
+        for index in songs.indices {
+            members[root(index), default: []].insert(songs[index].id)
+        }
+        var result: [String: Set<String>] = [:]
+        for index in songs.indices {
+            guard let cluster = members[root(index)], cluster.count > 1 else { continue }
+            result[songs[index].id] = cluster.subtracting([songs[index].id])
+        }
+        return result
+    }
+
+    static func storageMayOverlap(_ lhs: MusicSourceType, _ rhs: MusicSourceType) -> Bool {
+        let catalogueOnly: Set<MusicSourceType> = [.appleMusic, .appleMusicLibrary]
+        if catalogueOnly.contains(lhs) || catalogueOnly.contains(rhs) { return false }
+        if lhs.category == .cloudDrive || rhs.category == .cloudDrive { return lhs == rhs }
+        return true
+    }
+
+    /// 按真实路径寻址的来源才有可比的文件名；服务器来源、UPnP 资源地址和按文件 ID 寻址的网盘没有。
+    static func fileName(of song: Song, sourceType: MusicSourceType) -> String? {
+        switch sourceType.category {
+        case .nas, .protocol:
+            guard sourceType != .upnp else { return nil }
+        case .local:
+            guard sourceType == .local else { return nil }
+        case .cloudDrive:
+            guard !sourceType.usesOpaqueDirectoryIdentifiers else { return nil }
+        default:
+            return nil
+        }
+        let raw = (song.filePath as NSString).lastPathComponent
+        let decoded = raw.removingPercentEncoding ?? raw
+        let name = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+            .lowercased()
+        return name.isEmpty ? nil : name
+    }
+}
+
+/// 「重复歌曲」里哪些副本能删。界面挑保留与删除、清理服务做最后一道关，都按这一份判断。
+///
+/// - 一份副本自己能删：来源能删、背后有单独的文件（`SourceFileDeletionPolicy.canDeleteSourceFile`），
+///   而且不是 CUE 分轨 —— 不论哪种来源，删的都是整轨原文件，同一张盘的其它曲目会一起没掉。
+/// - 在一组里还要不和别的来源的副本是同一个文件（`DuplicateSameFilePolicy`）：那种不是重复，
+///   只给「仅在本设备隐藏这一份」。
+public struct DuplicateCleanupDeletionScope: Hashable, Sendable {
+    public let sourceTypesByID: [String: MusicSourceType]
+    /// 仅歌单的歌（`CollectionOnlySongStore`）。界面只传落在重复分组里的那些，免得每次重算都哈希一整份。
+    public let collectionOnlySongIDs: Set<String>
+
+    public init(sources: [MusicSource], collectionOnlySongIDs: Set<String> = []) {
+        var types: [String: MusicSourceType] = [:]
+        for source in sources where types[source.id] == nil {
+            types[source.id] = source.type
+        }
+        self.sourceTypesByID = types
+        self.collectionOnlySongIDs = collectionOnlySongIDs
+    }
+
+    /// 能删文件的来源，Mac 上算「可腾出空间」用。
+    public var fileDeletingSourceIDs: Set<String> {
+        Set(sourceTypesByID.lazy.filter { $0.value.supportsFileDeletion }.map(\.key))
+    }
+
+    /// 这一份副本本身删不删得了，不看同组的其它副本。
+    public func canDeleteCopy(_ song: Song) -> Bool {
+        guard song.cueSheetPath == nil, song.cueStartTime == nil else { return false }
+        return SourceFileDeletionPolicy.canDeleteSourceFile(
+            of: song,
+            sourceType: sourceTypesByID[song.sourceID],
+            isCollectionOnly: collectionOnlySongIDs.contains(song.id)
+        )
+    }
+
+    /// 同组里可能和别的来源的某一份是同一个文件的副本：歌曲 id → 同一个文件的其它副本 id。
+    public func sameFileCopies(in songs: [Song]) -> [String: Set<String>] {
+        DuplicateSameFilePolicy.sameFileCopies(in: songs, sourceTypesByID: sourceTypesByID)
+    }
+
+    /// 一组重复里可删可留的副本，顺序照传入的。不在里面的只保留。
+    public func writableSongs(in songs: [Song]) -> [Song] {
+        let shared = sameFileCopies(in: songs)
+        return songs.filter { canDeleteCopy($0) && shared[$0.id] == nil }
     }
 }
 

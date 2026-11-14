@@ -7428,3 +7428,21 @@
 "karaoke_sing_along_handoff_detail" = "Karaokeyi kapatır ve Birlikte söyle ile altyapıyı çalmaya devam eder";
 
 "scraper_import_auto_update" = "Otomatik güncelle";
+
+/* 从音乐服务器删歌的二次确认、服务器拒绝删除的说明、重复歌曲里的同一个文件 */
+"server_delete_confirm_title" = "Sunucudan silinsin mi?";
+"server_delete_confirm_message_format" = "%1$@ üzerinde %2$d şarkının dosyaları silinecek. Bu sunucuyu kullanan tüm kullanıcılar ve uygulamalar bu şarkıları kaybedecek. Bu işlem geri alınamaz.";
+"server_delete_confirm_action" = "Sunucudan Sil";
+"server_delete_denied_jellyfin" = "Jellyfin bu hesabın medya silmesine izin vermiyor. Jellyfin panosunda Kullanıcılar’ı açın, bu hesabı seçip “Medya silmeye izin ver” seçeneğini (tüm arşivler veya bu arşiv için) açın ve tekrar deneyin.";
+"server_delete_denied_emby" = "Emby bu hesabın medya silmesine izin vermiyor. Emby sunucu ayarlarında Kullanıcılar’ı açın, bu hesabı seçip “Medya silmeye izin ver” seçeneğini açın ve tekrar deneyin.";
+"server_delete_denied_plex" = "Bu Plex sunucusunda “Medya silmeye izin ver” kapalı. Plex ayarlarında Sunucu › Arşiv bölümünden açın ve tekrar deneyin. Yönetilen kullanıcılar medya silemez.";
+"server_delete_denied_audiobookshelf" = "Bu Audiobookshelf hesabının silme izni yok. Bir yönetici Ayarlar › Kullanıcılar bölümünden “Silebilir” seçeneğini açabilir; ardından tekrar deneyin.";
+"server_delete_denied_fnmusic" = "Feiniu Music’te parçaları yalnızca yöneticiler silebilir. Bu kaynağın ayarlarından bir yönetici hesabına geçin ve tekrar deneyin.";
+"server_delete_denied_generic" = "Sunucu bu hesabın dosya silmesine izin vermiyor. Sunucuda hesaba silme izni verin ve tekrar deneyin.";
+"server_delete_unsupported_fnmusic" = "Feiniu Music’in bu sürümü parça silemiyor. fnOS App Center’dan Feiniu Music’i güncelleyin ve tekrar deneyin.";
+"dup_same_file_title" = "İki kaynakta aynı dosya";
+"dup_same_file_message_format" = "%1$@ içindeki bu kopya büyük olasılıkla %2$@ içindekiyle aynı dosya (boyut ve süre aynı). Herhangi birini silmek ikisini de kaldırır, bu yüzden burada silinmez. Yalnızca bu kopyayı bu cihazdan kaldırabilirsiniz; dosya ve diğer kopya olduğu gibi kalır, kaynağın sayfasından geri yükleyebilirsiniz.";
+"dup_same_file_remove_action" = "Bu Kopyayı Yalnızca Bu Cihazdan Kaldır";
+"dup_same_file_caption_format" = "%@ içindekiyle aynı dosya";
+"dup_same_file_badge" = "Aynı dosya";
+"dup_same_file_ledger_detail_format" = "Aynı dosya %@ içinde de var";

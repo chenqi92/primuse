@@ -271,6 +271,8 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     @State private var showAddToPlaylist = false
     @State private var pendingDeletion: PendingDeletion?
+    /// 从音乐服务器删歌的第二次确认。
+    @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var pendingMedleySongs: [Song]?
     /// 选中的歌全都来自没有删除能力的源时，改为提供「仅从本机移除」。
     @State private var noDeletableSourceFallback: [Song]?
@@ -331,10 +333,11 @@ private struct SongBatchActionsModifier: ViewModifier {
                 presenting: pendingDeletion
             ) { pending in
                 Button("cancel", role: .cancel) {}
-                Button("delete", role: .destructive) { performDeletion(pending) }
+                Button("delete", role: .destructive) { confirmDeletion(pending) }
             } message: { pending in
                 Text(verbatim: deletionMessage(pending))
             }
+            .serverSongDeletionConfirmation($serverDeletionRequest)
             .alert(
                 "batch_delete_source_files",
                 isPresented: Binding(
@@ -807,7 +810,7 @@ private struct SongBatchActionsModifier: ViewModifier {
             uniquingKeysWith: { current, _ in current }
         )
         return selectedSongs().contains {
-            SourceFileDeletionPolicy.shouldShowDeleteAction(for: typesByID[$0.sourceID])
+            SourceFileDeletionPolicy.shouldShowDeleteAction(for: $0, sourceType: typesByID[$0.sourceID])
         }
     }
 
@@ -837,7 +840,8 @@ private struct SongBatchActionsModifier: ViewModifier {
             )
             let partition = SongBatchRemovalService.partitionForSourceDeletion(
                 songs,
-                sourceTypesByID: typesByID
+                sourceTypesByID: typesByID,
+                collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
             )
             guard !partition.deletable.isEmpty else {
                 // 以前这里是死路一条：弹一句"没有可删除的源"就结束。现在改成
@@ -850,6 +854,23 @@ private struct SongBatchActionsModifier: ViewModifier {
                 songs: partition.deletable,
                 skipped: partition.skipped.count
             )
+        }
+    }
+
+    /// 删源文件时，其中走音乐服务器删除的再确认一次（服务器上的所有用户和客户端都会失去它们）。
+    private func confirmDeletion(_ pending: PendingDeletion) {
+        guard pending.mode == .sourceFiles,
+              let request = ServerSongDeletionRequest.make(
+                  deleting: pending.songs,
+                  sources: sourcesStore.allSources,
+                  perform: { performDeletion(pending) }
+              ) else {
+            performDeletion(pending)
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: ServerSongDeletionRequest.presentationDelay)
+            serverDeletionRequest = request
         }
     }
 

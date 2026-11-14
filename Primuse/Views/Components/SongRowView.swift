@@ -73,6 +73,8 @@ struct SongRowView: View {
     @State private var showSongInfo = false
     @State private var playbackRangeEditorRequest: SongPlaybackRangeEditor.Request?
     @State private var showDeleteConfirm = false
+    /// 从音乐服务器删歌的第二次确认。
+    @State private var serverDeletionRequest: ServerSongDeletionRequest?
     @State private var showBareAlert = false
     @State private var showTagEditor = false
     /// 歌词编辑跟标签编辑平级；iOS 全屏打开，避免长文本编辑时误滑关闭。
@@ -186,6 +188,7 @@ struct SongRowView: View {
     private var hasPresentationRequest: Bool {
         showScrapeOptions || showNoScraperSourceAlert || showAddToPlaylist
             || showSongInfo || playbackRangeEditorRequest != nil || showDeleteConfirm || showBareAlert || showTagEditor
+            || serverDeletionRequest != nil
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
             || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
@@ -259,11 +262,12 @@ struct SongRowView: View {
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
             Button(String(localized: "delete"), role: .destructive) {
-                deleteSong()
+                confirmDeleteSong()
             }
         } message: {
             Text(String(localized: "delete_song_message"))
         }
+        .serverSongDeletionConfirmation($serverDeletionRequest)
         .alert(
             String(localized: "delete_song_failed_title"),
             isPresented: Binding(
@@ -1059,6 +1063,22 @@ struct SongRowView: View {
         }
     }
 
+
+    /// 音乐服务器上的歌再确认一次（服务器上的所有用户和客户端都会失去它），文件来源直接删。
+    private func confirmDeleteSong() {
+        guard let request = ServerSongDeletionRequest.make(
+            deleting: [song],
+            sources: sourcesStore.allSources,
+            perform: { deleteSong() }
+        ) else {
+            deleteSong()
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: ServerSongDeletionRequest.presentationDelay)
+            serverDeletionRequest = request
+        }
+    }
 
     private func deleteSong() {
         guard canDeleteSourceFile else { return }
@@ -2266,7 +2286,8 @@ extension SongRowView {
                 isLocalSource: source?.type == .local
             ),
             canDeleteSourceFile: SourceFileDeletionPolicy.shouldShowDeleteAction(
-                for: source?.type
+                for: song,
+                sourceType: source?.type
             )
         )
     }
