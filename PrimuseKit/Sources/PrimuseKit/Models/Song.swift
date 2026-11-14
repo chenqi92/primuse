@@ -87,9 +87,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     }
     /// Authoritative catalogue dates, separate from device import time and
     /// file modification time. Albums may predate tracks added to them later.
+    /// Every media-server song carries its own date, so it is stored inline:
+    /// in the rare box it cost each such song a box of its own.
     public var serverDateAdded: Date? {
-        get { rare.values.serverDateAdded }
-        set { updateRare { $0.serverDateAdded = newValue } }
+        get { SongOptionalDouble.value(serverDateAddedBits).map(Date.init(timeIntervalSinceReferenceDate:)) }
+        set { serverDateAddedBits = SongOptionalDouble.bits(newValue?.timeIntervalSinceReferenceDate) }
     }
     public var serverAlbumDateAdded: Date? {
         get { rare.values.serverAlbumDateAdded }
@@ -131,19 +133,19 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         set { updateCore { $0.revision = newValue } }
     }
     /// FTS5 拼音搜索用的预生成 latin transliteration. nil 表示标题没有
-    /// 中文 / 全 ASCII (不需要拼音索引)。由 PinyinTransformer 在 scan /
-    /// migration 时计算填入。
+    /// 中文 / 全 ASCII (不需要拼音索引)。只在旧版资料库库表(LibraryDatabase,
+    /// 已删除)里填过, 现在没有写入方, 曲库里的歌都不带, 所以放在罕见字段盒里。
     public var titlePinyin: String? {
-        get { core.values.titlePinyin }
-        set { updateCore { $0.titlePinyin = newValue } }
+        get { rare.values.titlePinyin }
+        set { updateRare { $0.titlePinyin = newValue } }
     }
     public var artistPinyin: String? {
-        get { core.values.artistPinyin }
-        set { updateCore { $0.artistPinyin = newValue } }
+        get { rare.values.artistPinyin }
+        set { updateRare { $0.artistPinyin = newValue } }
     }
     public var albumPinyin: String? {
-        get { core.values.albumPinyin }
-        set { updateCore { $0.albumPinyin = newValue } }
+        get { rare.values.albumPinyin }
+        set { updateRare { $0.albumPinyin = newValue } }
     }
 
     private var numbers = SongNumberFields()
@@ -152,6 +154,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     private var replayGainTrackPeakBits = SongOptionalDouble.absent
     private var replayGainAlbumGainBits = SongOptionalDouble.absent
     private var replayGainAlbumPeakBits = SongOptionalDouble.absent
+    private var serverDateAddedBits = SongOptionalDouble.absent
     private var rare = SongRareFields.empty
 
     public var trackNumber: Int? {
@@ -282,10 +285,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     }
     /// 服务端资料库的 id（Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的 library）。
     /// 只有按库组织的服务器源才填；按库声明「音乐 / 有声」的规则靠它认出一首歌属于哪个库，
-    /// 条目路径里没有这一层。按库组织的源每首都有，所以与常用字段一起存储。
+    /// 条目路径里没有这一层。按库组织的源每首都有，但同一个库的歌值都一样：放在罕见字段盒里，
+    /// 装载与扫描入库时按值共用盒子（`SongRareFieldPool`），整个库只占一份。
     public var serverLibraryID: String? {
-        get { core.values.serverLibraryID }
-        set { updateCore { $0.serverLibraryID = newValue } }
+        get { rare.values.serverLibraryID }
+        set { updateRare { $0.serverLibraryID = newValue } }
     }
 
     public init(
@@ -361,11 +365,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             coverArtFileName: coverArtFileName,
             artistArtworkFileName: artistArtworkFileName,
             lyricsFileName: lyricsFileName,
-            revision: revision,
-            titlePinyin: titlePinyin,
-            artistPinyin: artistPinyin,
-            albumPinyin: albumPinyin,
-            serverLibraryID: serverLibraryID
+            revision: revision
         ))
         self.trackNumber = trackNumber
         self.discNumber = discNumber
@@ -380,9 +380,11 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.replayGainTrackPeak = replayGainTrackPeak
         self.replayGainAlbumGain = replayGainAlbumGain
         self.replayGainAlbumPeak = replayGainAlbumPeak
+        self.serverDateAdded = serverDateAdded
         if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil || sacdTrackNumber != nil || isoAudioTrack != nil
             || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil
-            || serverDateAdded != nil || serverAlbumDateAdded != nil || contentMetadata != nil || serverCatalogAlbum != nil || isExternal != nil {
+            || serverAlbumDateAdded != nil || contentMetadata != nil || serverCatalogAlbum != nil || isExternal != nil
+            || titlePinyin != nil || artistPinyin != nil || albumPinyin != nil || serverLibraryID != nil {
             var values = SongRareFields.Values()
             values.contentMetadata = contentMetadata
             values.mvPath = mvPath
@@ -394,10 +396,13 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             values.lyricsText = lyricsText
             values.userMetadataEditedAt = userMetadataEditedAt
             values.audioVariants = audioVariants
-            values.serverDateAdded = serverDateAdded
             values.serverAlbumDateAdded = serverAlbumDateAdded
             values.serverCatalogAlbum = serverCatalogAlbum
             values.isExternal = isExternal
+            values.titlePinyin = titlePinyin
+            values.artistPinyin = artistPinyin
+            values.albumPinyin = albumPinyin
+            values.serverLibraryID = serverLibraryID
             values.overflowNumbers = rare.values.overflowNumbers
             rare = SongRareFields.make(values)
         }
@@ -628,12 +633,11 @@ private final class SongCoreFields: Hashable, @unchecked Sendable {
         var dateAdded: Date
         var coverArtFileName: String?
         var artistArtworkFileName: String?
+        // `lyricsFileName` and `revision` stay here: file and cloud-drive
+        // scanners set them on most songs of those sources, and moving them
+        // would give each of those songs a rare box of its own.
         var lyricsFileName: String?
         var revision: String?
-        var titlePinyin: String?
-        var artistPinyin: String?
-        var albumPinyin: String?
-        var serverLibraryID: String?
     }
 
     var values: Values
@@ -649,12 +653,18 @@ private final class SongCoreFields: Hashable, @unchecked Sendable {
 
 /// Fields almost every song leaves empty, boxed so they cost one pointer.
 /// Immutable: a change makes a new box, and all-empty values share `empty`.
+/// Album- or library-level values (server catalogue album, album date, library
+/// id) are the same on every song of the album, so loading and scan ingest
+/// share one box between them (`SongRareFieldPool`).
 private final class SongRareFields: Hashable, Sendable {
     struct Values: Hashable, Sendable {
-        var serverDateAdded: Date?
         var serverAlbumDateAdded: Date?
         var serverCatalogAlbum: ServerCatalogAlbumReference?
         var isExternal: Bool?
+        var serverLibraryID: String?
+        var titlePinyin: String?
+        var artistPinyin: String?
+        var albumPinyin: String?
         var contentMetadata: SongContentMetadata?
         var mvPath: String?
         var cueSheetPath: String?
@@ -668,6 +678,15 @@ private final class SongRareFields: Hashable, Sendable {
         var overflowNumbers: [UInt8: Int] = [:]
         /// Transient: see `Song.appliedPlaybackRange`.
         var appliedPlaybackRange: AppliedSongPlaybackRange?
+
+        /// No value that is specific to one song: such a box can stand in for
+        /// every song with the same values.
+        var isShareable: Bool {
+            mvPath == nil && cueSheetPath == nil && cueStartTime == nil && cueEndTime == nil
+                && sacdTrackNumber == nil && isoAudioTrack == nil && lyricsText == nil
+                && userMetadataEditedAt == nil && overflowNumbers.isEmpty
+                && appliedPlaybackRange == nil && titlePinyin == nil
+        }
     }
 
     static let empty = SongRareFields(Values())
@@ -689,6 +708,52 @@ private final class SongRareFields: Hashable, Sendable {
     func hash(into hasher: inout Hasher) {
         hasher.combine(values)
     }
+}
+
+/// Rare-field boxes seen while loading or ingesting a library, keyed by value.
+/// A Subsonic/Navidrome song has its server catalogue album and album date in
+/// the rare box, a Jellyfin/Emby/Plex song its library id: without sharing,
+/// every song of a 450K-song server library held a box of its own (~512 B
+/// each). Only boxes without per-song values are kept (`isShareable`), so the
+/// pool grows with albums and libraries, not with songs.
+struct SongRareFieldPool {
+    fileprivate var boxes = Set<SongRareFields>()
+    /// Rows arrive album by album (store order, scan batches): comparing with
+    /// the previous box first skips most hash lookups.
+    fileprivate var previous: SongRareFields?
+
+    init() {}
+
+    var count: Int { boxes.count }
+}
+
+extension Song {
+    /// Points this song at the pooled box with the same rare values. Values,
+    /// equality and hashing are unchanged; the box is immutable, so a later
+    /// edit of either song makes that song a box of its own.
+    mutating func shareRareFields(in pool: inout SongRareFieldPool) {
+        let box = rare
+        guard box !== SongRareFields.empty, box.values.isShareable else { return }
+        if let previous = pool.previous, previous === box || previous.values == box.values {
+            rare = previous
+            return
+        }
+        let (inserted, member) = pool.boxes.insert(box)
+        if !inserted, member !== box { rare = member }
+        pool.previous = member
+    }
+
+    /// Storage introspection for the size and sharing tests.
+    var hasRareFieldBoxForTesting: Bool { rare !== SongRareFields.empty }
+
+    func sharesRareFieldBoxForTesting(with other: Song) -> Bool { rare === other.rare }
+}
+
+/// Storage introspection for the size tests.
+enum SongStorageLayout {
+    /// Bytes of the shared core box's fields; the box adds a 16-byte header.
+    static var coreFieldsSize: Int { MemoryLayout<SongCoreFields.Values>.size }
+    static var rareFieldsSize: Int { MemoryLayout<SongRareFields.Values>.size }
 }
 
 /// Encodes a connector-relative artwork reference together with the source

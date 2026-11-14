@@ -35,7 +35,83 @@ struct SongCompactStorageTests {
 
     @Test("Library snapshots keep at most 96 inline bytes per song")
     func layout() {
+        // 88 → 96: `serverDateAdded` is inline now (every media-server song has
+        // one; in the rare box it cost each of them a ~512-byte box).
         #expect(MemoryLayout<Song>.stride <= 96)
+    }
+
+    @Test("The shared core box stays in the 320-byte allocation class")
+    func coreBoxSize() {
+        // 328 → 264 bytes of fields (+16 header = 280): the pinyin fields (no
+        // writer since the old library tables were removed) and the server
+        // library id (one value per library, pooled) moved to the rare box.
+        // The iOS allocator rounded the old 344-byte box up to 384 bytes; 280
+        // lands in the 320-byte class. `lyricsFileName` and `revision` stay:
+        // file and cloud scanners set them on most of their songs.
+        #expect(SongStorageLayout.coreFieldsSize + 16 <= 280)
+        // The rare box absorbs them without leaving the class it had: 457 → 505
+        // bytes with the header, both in the 512-byte class (macOS and the iOS
+        // simulator). A field added here later must not push it past 512.
+        #expect(SongStorageLayout.rareFieldsSize + 16 <= 512)
+    }
+
+    @Test("Media-server songs need no rare box for their date")
+    func serverDateIsInline() {
+        var song = Song(id: "s", title: "t", fileFormat: .flac, filePath: "/s", sourceID: "src",
+                        serverDateAdded: Date(timeIntervalSinceReferenceDate: 723_456_789.5))
+        #expect(!song.hasRareFieldBoxForTesting)
+        #expect(song.serverDateAdded == Date(timeIntervalSinceReferenceDate: 723_456_789.5))
+        song.serverDateAdded = nil
+        #expect(song.serverDateAdded == nil)
+        #expect(song == Song(id: "s", title: "t", fileFormat: .flac, filePath: "/s", sourceID: "src",
+                             dateAdded: song.dateAdded))
+    }
+
+    @Test("Songs of one album share their rare box after interning, and stay independent values")
+    func albumRareFieldsArePooled() throws {
+        func track(_ number: Int, _ added: TimeInterval) -> Song {
+            Song(id: "track-\(number)", title: "Track \(number)", albumTitle: "Album", artistName: "Artist",
+                 trackNumber: number, fileFormat: .flac, filePath: "/songs/\(number).flac", sourceID: "navidrome",
+                 dateAdded: Date(timeIntervalSinceReferenceDate: added), serverLibraryID: "1",
+                 serverDateAdded: Date(timeIntervalSinceReferenceDate: added),
+                 serverAlbumDateAdded: Date(timeIntervalSinceReferenceDate: 700_000_000),
+                 serverCatalogAlbum: ServerCatalogAlbumReference(id: "catalog-album-id-0001", taggedArtist: "Album Artist"),
+                 isExternal: false)
+        }
+        var first = track(1, 723_000_000)
+        var second = track(2, 723_000_100)
+        let originals = [first, second]
+        #expect(!first.sharesRareFieldBoxForTesting(with: second))
+        var interner = SongStringInterner()
+        interner.intern(&first)
+        interner.intern(&second)
+        #expect(first.sharesRareFieldBoxForTesting(with: second))
+        #expect([first, second] == originals)
+        #expect(Set([first, second]) == Set(originals))
+        #expect(first.serverDateAdded != second.serverDateAdded)
+
+        // An edit gives the edited song its own box; the other keeps the shared values.
+        second.serverAlbumDateAdded = nil
+        #expect(!first.sharesRareFieldBoxForTesting(with: second))
+        #expect(first == originals[0])
+        #expect(first.serverAlbumDateAdded == Date(timeIntervalSinceReferenceDate: 700_000_000))
+
+        // A media-server library: the library id is the only rare value, one box per library.
+        var a = Song(id: "a", title: "a", fileFormat: .mp3, filePath: "/a", sourceID: "jf", serverLibraryID: "lib-1")
+        var b = Song(id: "b", title: "b", fileFormat: .mp3, filePath: "/b", sourceID: "jf", serverLibraryID: "lib-1")
+        interner.intern(&a)
+        interner.intern(&b)
+        #expect(a.sharesRareFieldBoxForTesting(with: b))
+
+        // Per-song values keep their own box.
+        var lyricsA = track(3, 1)
+        var lyricsB = track(4, 2)
+        lyricsA.lyricsText = "la"
+        lyricsB.lyricsText = "la"
+        interner.intern(&lyricsA)
+        interner.intern(&lyricsB)
+        #expect(!lyricsA.sharesRareFieldBoxForTesting(with: lyricsB))
+        #expect(lyricsA.lyricsText == "la" && lyricsB.serverLibraryID == "1")
     }
 
     @Test("Editing shared core fields leaves snapshots and hash keys unchanged")

@@ -535,6 +535,10 @@ public struct SongPageWindow: Sendable {
 public struct SongStringInterner {
     private var strings: [String: String] = [:]
     private var stringLists: [[String]: [String]] = [:]
+    /// Album- and library-level rare fields (server catalogue album, album
+    /// date, library id, pinyin…) live in the song's immutable rare box;
+    /// songs with equal values share one box instead of their strings.
+    private var rareFields = SongRareFieldPool()
 
     public init() {}
 
@@ -548,10 +552,7 @@ public struct SongStringInterner {
         share(&song.genre)
         share(&song.coverArtFileName)
         share(&song.artistArtworkFileName)
-        share(&song.artistPinyin)
-        share(&song.albumPinyin)
-        share(&song.cueSheetPath)
-        share(&song.serverLibraryID)
+        song.shareRareFields(in: &rareFields)
         if let names = song.sourceArtistNames {
             if let shared = stringLists[names] {
                 song.sourceArtistNames = shared
