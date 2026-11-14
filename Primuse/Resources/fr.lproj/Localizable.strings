@@ -3832,6 +3832,7 @@
 /* Inspection des métadonnées de la source */
 "metadata_status_title" = "Inspection des métadonnées";
 "metadata_status_explanation" = "Chaque état est compté une seule fois. En attente signifie que des champs pris en charge restent à inspecter, pas que les tags n’ont jamais été lus. Des morceaux déjà importés peuvent être réinspectés quand Primuse prend en charge un format ou un champ supplémentaire. Un morceau en échec est enregistré puis ignoré ; seule l’indisponibilité de toute la source ou votre pause arrête la lecture en cours.";
+"metadata_cover_reading_explanation" = "Une image portant le même nom que le morceau, placée à côté, est utilisée en priorité comme pochette. Pour que la lecture des tags reste rapide, Primuse ne télécharge pas un morceau entier juste pour trouver sa pochette intégrée. Si elle ne se trouve pas dans la partie lue, la pochette du dossier (comme cover.jpg) est utilisée ; les morceaux sans pochette de dossier reçoivent leur pochette intégrée une fois lus et enregistrés dans le cache de lecture. Les morceaux des serveurs musicaux utilisent la pochette fournie par le serveur.";
 "metadata_status_explanation_title" = "Comprendre les états";
 "metadata_status_health_summary_format" = "%d à inspecter · %d nécessitent votre attention";
 "metadata_status_health_clear" = "Aucun morceau ne nécessite actuellement d’inspection ou d’action.";

@@ -2322,6 +2322,7 @@
 "metadata_status_empty" = "Nenhuma música correspondente";
 "metadata_status_empty_description" = "Nenhum estado de metadados corresponde ao filtro atual.";
 "metadata_status_explanation" = "Cada contagem é mutuamente exclusiva. Pendente significa que os campos suportados ainda precisam de inspeção; isso não significa que as tags nunca foram lidas antes. As músicas que já estão na biblioteca podem entrar novamente na inspeção quando o Primuse adiciona suporte de formato ou campo. Uma música com falha é gravada e ignorada, para que outras músicas da fonte continuem; apenas uma interrupção em toda a origem ou sua ação Pausar interrompe a execução atual.";
+"metadata_cover_reading_explanation" = "Se houver uma imagem com o mesmo nome ao lado da música, ela é usada primeiro como capa. Para manter a leitura de tags rápida, o Primuse não baixa a música inteira só para encontrar a capa incorporada. Se ela não estiver na parte lida, é usada a capa da pasta (como cover.jpg); músicas sem capa de pasta recebem a capa incorporada depois de tocadas e salvas no cache de reprodução. Músicas de servidores de música usam a capa do servidor.";
 "metadata_status_explanation_title" = "Sobre esses estados";
 "metadata_status_file_unavailable_reason" = "A origem está acessível, mas os bytes do arquivo não podem ser lidos no momento ou o arquivo foi alterado.";
 "metadata_status_filter" = "Filtro de Status";

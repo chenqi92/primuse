@@ -3832,6 +3832,7 @@
 /* Prüfung der Quellenmetadaten */
 "metadata_status_title" = "Metadatenprüfung";
 "metadata_status_explanation" = "Jeder Status wird nur einmal gezählt. Ausstehend bedeutet, dass unterstützte Felder noch geprüft werden müssen, nicht dass Tags noch nie gelesen wurden. Bereits importierte Titel können nach neuer Format- oder Feldunterstützung erneut geprüft werden. Fehlerhafte Titel werden protokolliert und übersprungen; nur ein Ausfall der gesamten Quelle oder deine Pause stoppt den aktuellen Lauf.";
+"metadata_cover_reading_explanation" = "Liegt neben einem Titel ein Bild mit demselben Namen, wird es zuerst als Cover verwendet. Damit das Lesen der Tags schnell bleibt, lädt Primuse nicht den ganzen Titel herunter, nur um das eingebettete Cover zu finden. Steht es nicht im gelesenen Teil, wird das Ordnercover (z. B. cover.jpg) verwendet; Titel ohne Ordnercover erhalten das eingebettete Cover, nachdem sie abgespielt und im Wiedergabecache gespeichert wurden. Titel von Musikservern verwenden das Cover des Servers.";
 "metadata_status_explanation_title" = "Status erklärt";
 "metadata_status_health_summary_format" = "%d noch zu prüfen · %d benötigen Aufmerksamkeit";
 "metadata_status_health_clear" = "Derzeit müssen keine Titel geprüft oder bearbeitet werden.";

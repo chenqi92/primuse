@@ -1221,12 +1221,15 @@ struct SourceMetadataStatusView: View {
 
     private var explanationSection: some View {
         DisclosureGroup(isExpanded: $showsExplanation) {
-            Text("metadata_status_explanation")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("metadata_status_explanation")
+                Text("metadata_cover_reading_explanation")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Label("metadata_status_explanation_title", systemImage: "questionmark.circle")
                 .font(.subheadline.weight(.semibold))

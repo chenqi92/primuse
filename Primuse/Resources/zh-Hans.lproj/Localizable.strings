@@ -3934,6 +3934,7 @@
 /* 来源标签检查 */
 "metadata_status_title" = "标签检查详情";
 "metadata_status_explanation" = "各状态互不重叠。“待检查”表示仍有字段需要核对，并不代表以前从未读取标签；Primuse 新增格式或字段支持后，已入库歌曲也可能重新进入检查。单曲失败会被记录并跳过，不会停止同来源的其他歌曲；只有来源整体不可用或你主动暂停时才会停止当前轮次。";
+"metadata_cover_reading_explanation" = "歌曲旁边有同名图片时，封面优先用它。为了让读取标签更快，Primuse 不会为了找内嵌封面而下载整首歌：读到的部分里没有内嵌封面时用文件夹封面（如 cover.jpg）；连文件夹封面也没有的，等这首歌播放过、存进播放缓存后再补上内嵌封面。音乐服务器上的歌使用服务器提供的封面。";
 "metadata_status_explanation_title" = "状态说明";
 "metadata_status_health_summary_format" = "%d 首待检查 · %d 首需要处理";
 "metadata_status_health_clear" = "当前没有需要检查或处理的歌曲。";

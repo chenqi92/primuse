@@ -426,6 +426,13 @@ struct CachedArtworkView: View {
             guard loadsHighResolution else { return }
             await resolveAppleMusicArtwork(for: appleMusicArtworkIdentity)
         }
+        .task(id: deferredEmbeddedArtworkSongID) {
+            // 远端文件源上内嵌封面延后读取的歌: 露面时读一次首段(见
+            // `MetadataBackfillService.loadDeferredEmbeddedArtworkForDisplay`)。读到后歌曲行
+            // 换上封面引用, 这里随 coverRef 变化重新加载。格子消失时任务取消, 读取跟着停。
+            guard let songID = deferredEmbeddedArtworkSongID else { return }
+            await AppServices.shared.metadataBackfill.loadDeferredEmbeddedArtworkForDisplay(songID: songID)
+        }
         .onChange(of: hasResolvedArtwork) { _, isResolved in
             if isResolved { onResolutionChange(true) }
         }
@@ -792,6 +799,15 @@ struct CachedArtworkView: View {
 
     private var loadTaskIdentity: String {
         "\(loadIdentity)#highResolution\(loadsHighResolution)#visible\(isArtworkVisible)"
+    }
+
+    /// 还没有封面、看得见的单曲封面位。专辑、艺人封面不在内。
+    private var deferredEmbeddedArtworkSongID: String? {
+        guard isArtworkVisible, albumID == nil, artistID == nil,
+              coverRef?.isEmpty ?? true,
+              let sourceID, !sourceID.isEmpty,
+              let songID, !songID.isEmpty else { return nil }
+        return songID
     }
 
     private var animationCacheKey: String {

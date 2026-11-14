@@ -3293,6 +3293,7 @@ struct StorageManagementView: View {
             } header: {
                 SettingsInfoHeader("network") {
                     Text("cloud_scan_wifi_only_footer")
+                    Text("metadata_cover_reading_explanation")
                 }
             }
 

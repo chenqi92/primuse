@@ -522,3 +522,198 @@ public enum MetadataIdentityFallbackPolicy {
         ) == .orderedSame
     }
 }
+
+// MARK: - 远端文件源的内嵌封面: 不为它整首下载
+
+/// 一首歌的内嵌封面眼下在等什么。
+///
+/// 远端文件源(群晖 File Station、WebDAV、SMB、FTP/SFTP、NFS、S3、网盘)读标签只读有界的
+/// 首尾段。在那里没找到内嵌封面时不再整首下载, 而是按看到的情况分开:
+/// - 标签区看全了(ID3 声明的长度、FLAC 的元数据块链、MP4 的 moov 都在读到的字节里):
+///   文件里就是没有, 之后不再为封面读它。
+/// - 标签区可能伸到窗口外(声明比读到的长、读满了上限、尾部读不了): 等歌放过一遍、整首进了
+///   播放缓存, 从缓存文件里取, 不多下载一个字节。
+/// - 以前读到过、后来被清掉的封面: 等这首歌出现在列表、网格或播放页上时读一次首段。
+public enum DeferredEmbeddedArtworkState: String, Sendable, Equatable {
+    /// 没有在等: 已有封面、格式不带内嵌封面, 或者还在后台读取队列里。
+    case none
+    /// 露面时读一次首段(最多 `DeferredEmbeddedArtworkPolicy.displayMaximumHeadByteCount`)。
+    case awaitingDisplay
+    /// 只等播放缓存: 有界窗口没看全, 再读一次首段也是白读。
+    case awaitingPlayback
+    /// 标签区看全了, 文件里没有内嵌封面。
+    case checkedNone
+}
+
+public enum DeferredEmbeddedArtworkPolicy {
+    /// 露面时首段先读这么多, 之后按标签自己声明的长度往后补。
+    public static let displayInitialHeadByteCount = 256 * 1024
+    /// 露面读取最多读到这里。FLAC 的 PICTURE 块、ID3 的 APIC 排在文件开头, fast-start 的
+    /// MP4 把 covr 放在开头的 moov 里, 常见的封面都在这个范围内。
+    public static let displayMaximumHeadByteCount = 2 * 1024 * 1024
+    /// 露面读取同时最多几首。
+    public static let displayReadConcurrency = 2
+
+    public static func state(
+        hasCover: Bool,
+        formatSupportsEmbeddedArtwork: Bool,
+        awaitingDisplay: Bool,
+        awaitingPlayback: Bool,
+        artworkInspectionClosed: Bool
+    ) -> DeferredEmbeddedArtworkState {
+        guard !hasCover, formatSupportsEmbeddedArtwork else { return .none }
+        // 两边都记着时以「等播放」为准: 那是更晚、看得更多的一次读取得出的。
+        if awaitingPlayback { return .awaitingPlayback }
+        if awaitingDisplay { return .awaitingDisplay }
+        return artworkInspectionClosed ? .checkedNone : .none
+    }
+
+    /// 这首歌露面时要不要读一次首段。同一次启动里读过(不论结果)就不再读, 滑来滑去不会重复。
+    public static func readsOnDisplay(
+        state: DeferredEmbeddedArtworkState,
+        sourceReadsFiles: Bool,
+        isCueTrack: Bool,
+        isStreamDescriptor: Bool,
+        attemptedThisSession: Bool,
+        alreadyReading: Bool
+    ) -> Bool {
+        state == .awaitingDisplay
+            && sourceReadsFiles
+            && !isCueTrack
+            && !isStreamDescriptor
+            && !attemptedThisSession
+            && !alreadyReading
+    }
+
+    /// 露面读取不是用户点下去的操作: 计流量的网络、低电量模式、设备发热、用户暂停了自动读取
+    /// 时都不读, 封面照样等播放时补。
+    public static func displayReadAllowed(
+        onUnmeteredNetwork: Bool,
+        lowPowerMode: Bool,
+        thermalStateIsSeriousOrCritical: Bool,
+        automaticReadingPaused: Bool
+    ) -> Bool {
+        onUnmeteredNetwork
+            && !lowPowerMode
+            && !thermalStateIsSeriousOrCritical
+            && !automaticReadingPaused
+    }
+
+    /// 歌进了播放缓存时要不要从缓存文件里取封面。看全了没有的不再看。
+    public static func extractsFromPlaybackCache(state: DeferredEmbeddedArtworkState) -> Bool {
+        state == .awaitingDisplay || state == .awaitingPlayback
+    }
+
+    /// 有界读取后没找到封面, 这次看到的够不够下「没有」的结论。
+    /// - Parameters:
+    ///   - readsCompleteFile: 读的是整个文件(本机文件、播放缓存)。
+    ///   - containerMetadataComplete: MP4 一类的 moov 整个读到了。
+    ///   - headTagStructureComplete: 见 `headTagStructureComplete(...)`。
+    ///   - tailUnreadable: 这种格式要看尾部, 而尾部没读成(服务器不认 Range、读失败)。
+    public static func stateAfterBoundedMiss(
+        readsCompleteFile: Bool,
+        containerMetadataComplete: Bool,
+        headTagStructureComplete: Bool,
+        tailUnreadable: Bool
+    ) -> DeferredEmbeddedArtworkState {
+        if readsCompleteFile || containerMetadataComplete { return .checkedNone }
+        if tailUnreadable { return .awaitingPlayback }
+        return headTagStructureComplete ? .checkedNone : .awaitingPlayback
+    }
+
+    /// 文件开头的标签区是不是整个在读到的字节里。
+    /// - Parameters:
+    ///   - hasDeclaredStructure: 这种格式的标签自带长度声明(MP3 的 ID3、FLAC 的块链、
+    ///     Ogg 的页、WMA 的 header)。没有声明可核对的格式不下结论。
+    ///   - parserWantsMoreBytes: 按声明还要往后补。
+    ///   - byteLimit: 这次读取的上限。读满了上限、文件又比上限长, 是被上限截住的, 不算看全。
+    public static func headTagStructureComplete(
+        hasDeclaredStructure: Bool,
+        parserWantsMoreBytes: Bool,
+        inspectedByteCount: Int,
+        fileSize: Int64,
+        byteLimit: Int
+    ) -> Bool {
+        guard hasDeclaredStructure, !parserWantsMoreBytes else { return false }
+        if fileSize > 0, Int64(inspectedByteCount) >= fileSize { return true }
+        return inspectedByteCount < byteLimit
+    }
+
+    // MARK: 手动重读什么时候整首读
+
+    public enum CompleteFileReadReason: String, Sendable, Equatable {
+        /// 有界读取和按文件大小的估算都给不出时长。
+        case durationUnavailable
+        /// 认不出是什么音频, 有界读取也没拿到任何技术信息。
+        case unrecognizedAudio
+        /// 只有解码器认得的格式(本机文件才为它整读)。
+        case decoderOnlyFormat
+        /// 封面不在有界窗口里(本机文件才为它整读)。
+        case artworkOutsideBoundedWindows
+    }
+
+    /// 手动重读(以及播放时那次单曲读取)在有界读取之后还要不要整首读一遍。
+    ///
+    /// 本机文件整读一遍没有网络代价, 照旧拿解码器给的准确值。远端源只在时长怎么都拿不到、
+    /// 或者认不出是什么音频时才整首下载: 缺封面不算(封面等露面或播放时补), DTS 这类
+    /// 只有解码器认得的格式按核心码率和文件大小估时长, 播放时解码器再校正。
+    public static func completeFileReadReason(
+        isExplicitReread: Bool,
+        readsLocalFileDirectly: Bool,
+        requiresDecoder: Bool,
+        signatureUnknown: Bool,
+        hasTechnicalProperties: Bool,
+        durationMissingFromBoundedTags: Bool,
+        durationMissingAfterEstimates: Bool,
+        boundedReadMissedArtwork: Bool,
+        containerMetadataComplete: Bool
+    ) -> CompleteFileReadReason? {
+        guard isExplicitReread else { return nil }
+        if readsLocalFileDirectly {
+            if requiresDecoder { return .decoderOnlyFormat }
+            if signatureUnknown { return .unrecognizedAudio }
+            if durationMissingFromBoundedTags { return .durationUnavailable }
+            if boundedReadMissedArtwork && !containerMetadataComplete {
+                return .artworkOutsideBoundedWindows
+            }
+            return nil
+        }
+        if durationMissingAfterEstimates { return .durationUnavailable }
+        if signatureUnknown && !hasTechnicalProperties { return .unrecognizedAudio }
+        return nil
+    }
+
+    /// 服务器不认 Range 时, 首段以外的读取只能整首下载再切。手动重读只在尾部真有要的标签
+    /// 时才这样做(时长、首段里没有的标题或艺人); 只为尾部可能有的封面不整首下载。
+    public static func tailAllowsCompleteFileFallback(
+        isExplicitReread: Bool,
+        durationMissing: Bool,
+        artistNeedsTail: Bool,
+        headHasTitle: Bool
+    ) -> Bool {
+        isExplicitReread && (durationMissing || artistNeedsTail || !headHasTitle)
+    }
+}
+
+// MARK: - 歌旁边的同名图片先用
+
+/// 扫描时在歌旁边找到的同名图片(`歌名.jpg`、`歌名-cover.png`)是专门给这首歌配的, 有它就用它,
+/// 读到的内嵌封面不顶替它。文件夹封面(cover、folder、front…)不算: 常是播放器自动生成的
+/// 小图, 或一个混合文件夹里只有一张, 仍然只在没有内嵌封面时补上。
+public enum SourceImageCoverPrecedencePolicy {
+    public static func isSongNamedImage(_ reference: String?, songFilePath: String) -> Bool {
+        guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines),
+              reference.hasPrefix("/"),
+              !reference.contains("://") else { return false }
+        let image = reference as NSString
+        guard PrimuseConstants.supportedCoverExtensions.contains(image.pathExtension.lowercased()) else {
+            return false
+        }
+        let song = songFilePath as NSString
+        guard image.deletingLastPathComponent == song.deletingLastPathComponent else { return false }
+        let songStem = (song.lastPathComponent as NSString).deletingPathExtension.lowercased()
+        let imageStem = (image.lastPathComponent as NSString).deletingPathExtension.lowercased()
+        guard !songStem.isEmpty else { return false }
+        return imageStem == songStem || imageStem == songStem + "-cover"
+    }
+}

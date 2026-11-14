@@ -2322,6 +2322,7 @@
 "metadata_status_empty" = "No hay canciones coincidentes";
 "metadata_status_empty_description" = "Ningún estado de metadatos coincide con el filtro actual.";
 "metadata_status_explanation" = "Cada recuento es mutuamente excluyente. Pendiente significa que los campos admitidos aún necesitan inspección; no significa que las etiquetas nunca se hayan leído antes. Las canciones que ya están en la biblioteca pueden volver a entrar en la inspección cuando Primuse agregue formato o soporte de campo. Una canción fallida se graba y se omite, por lo que otras canciones de la fuente continúan; solo una interrupción en toda la fuente o su acción Pausa detiene la ejecución actual.";
+"metadata_cover_reading_explanation" = "Si junto a una canción hay una imagen con el mismo nombre, se usa primero como portada. Para que la lectura de etiquetas sea rápida, Primuse no descarga una canción completa solo para buscar su portada incrustada. Si no está en la parte leída, se usa la portada de la carpeta (como cover.jpg); las canciones sin portada de carpeta reciben la portada incrustada después de reproducirse y guardarse en la caché de reproducción. Las canciones de servidores de música usan la portada del servidor.";
 "metadata_status_explanation_title" = "Acerca de estos estados";
 "metadata_status_file_unavailable_reason" = "Se puede acceder al origen, pero los bytes del archivo no se pueden leer actualmente o el archivo ha cambiado.";
 "metadata_status_filter" = "Filtro de estado";

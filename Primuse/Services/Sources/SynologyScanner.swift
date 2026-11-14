@@ -11,6 +11,8 @@ actor SynologyScanner {
     /// scanner run. ScanService drains this set before publishing each batch
     /// so MetadataBackfillService does not issue the same remote Range reads.
     private var pendingMetadataInspectedSongIDs: Set<String> = []
+    /// 这一轮扫过的目录各自的封面图(没有记 nil), 给分碟子文件夹继承上一层的用。
+    private var folderCoversByDirectory: [String: String?] = [:]
     /// 没变过的 .cue 和整轨 WAV 的 DTS 判定不再每轮重扫都下载。
     private let cueSheetCache: CueSheetScanCache
 
@@ -41,6 +43,7 @@ actor SynologyScanner {
         resumeState: SourceScanResumeState? = nil
     ) -> AsyncThrowingStream<ScanUpdate, Error> {
         pendingMetadataInspectedSongIDs.removeAll(keepingCapacity: true)
+        folderCoversByDirectory.removeAll()
         // Every update contains the complete accumulated Song array. Match the
         // bounded ConnectorScanner behavior introduced for large libraries:
         // if persistence/UI is slower than the NAS walk, retain only the most
@@ -262,6 +265,14 @@ actor SynologyScanner {
                ) {
                 folderCoverPath = (path as NSString).appendingPathComponent(named)
             }
+        }
+        // 分碟子文件夹(CD1、Disc 2…)自己没有封面图时用上一层专辑文件夹的, 和其它文件源的
+        // 扫描一致: 有文件夹封面就不必为封面去读音频。
+        folderCoversByDirectory[path] = .some(folderCoverPath)
+        if folderCoverPath == nil,
+           let parent = DiscFolderPolicy.parentDirectory(ofDiscFolder: path),
+           !Self.isGenericMusicDirectory(parent) {
+            folderCoverPath = await albumFolderCover(ofDiscFolderParent: parent)
         }
 
         var childDirectories: [String] = []
@@ -1342,6 +1353,35 @@ actor SynologyScanner {
     private func generateID(sourceID: String, path: String) -> String {
         let hash = SHA256.hash(data: Data("\(sourceID):\(path)".utf8))
         return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 分碟子文件夹继承的专辑文件夹封面。这一轮扫过上一层就用记下的; 续扫直接从分碟子文件夹
+    /// 开始、还没扫到上一层时列一次上一层。
+    private func albumFolderCover(ofDiscFolderParent parent: String) async -> String? {
+        if let known = folderCoversByDirectory[parent] { return known }
+        guard let items = try? await api.listDirectory(path: parent) else { return nil }
+        let nameByLowercase = Dictionary(
+            items.map { ($0.name.lowercased(), $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var cover: String?
+        outer: for name in PrimuseConstants.folderCoverNames {
+            for ext in PrimuseConstants.supportedCoverExtensions {
+                if let actualName = nameByLowercase["\(name).\(ext)".lowercased()] {
+                    cover = (parent as NSString).appendingPathComponent(actualName)
+                    break outer
+                }
+            }
+        }
+        if cover == nil,
+           let named = FolderCoverNamePolicy.namedCover(
+               among: items.filter { !$0.isDirectory }.map(\.name),
+               folderName: (parent as NSString).lastPathComponent
+           ) {
+            cover = (parent as NSString).appendingPathComponent(named)
+        }
+        folderCoversByDirectory[parent] = .some(cover)
+        return cover
     }
 
     private nonisolated static func isGenericMusicDirectory(_ path: String) -> Bool {

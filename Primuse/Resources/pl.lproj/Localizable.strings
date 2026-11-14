@@ -2322,6 +2322,7 @@
 "metadata_status_empty" = "Brak pasujących utworów";
 "metadata_status_empty_description" = "Żaden stan metadanych nie pasuje do bieżącego filtra.";
 "metadata_status_explanation" = "Każde zliczenie wzajemnie się wyklucza. Oczekujące oznacza, że ​​obsługiwane pola nadal wymagają kontroli; nie oznacza to, że tagi nigdy wcześniej nie były czytane. Utwory znajdujące się już w bibliotece mogą zostać ponownie wprowadzone do kontroli, gdy Primuse doda obsługę formatu lub pola. Nieudany utwór jest nagrywany i pomijany, więc inne utwory ze źródła są kontynuowane; tylko awaria obejmująca całe źródło lub akcja Wstrzymaj powoduje zatrzymanie bieżącego przebiegu.";
+"metadata_cover_reading_explanation" = "Jeśli obok utworu leży obraz o tej samej nazwie, jest on używany jako okładka w pierwszej kolejności. Aby odczyt tagów był szybki, Primuse nie pobiera całego utworu tylko po to, by znaleźć osadzoną okładkę. Jeśli nie ma jej w odczytanej części, używana jest okładka folderu (np. cover.jpg); utwory bez okładki folderu dostają osadzoną okładkę po odtworzeniu i zapisaniu w pamięci podręcznej odtwarzania. Utwory z serwerów muzycznych używają okładek z serwera.";
 "metadata_status_explanation_title" = "O tych stanach";
 "metadata_status_file_unavailable_reason" = "Źródło jest osiągalne, ale aktualnie nie można odczytać bajtów pliku lub plik uległ zmianie.";
 "metadata_status_filter" = "Filtr stanu";

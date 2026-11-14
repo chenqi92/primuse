@@ -3331,6 +3331,7 @@
 "cloud_auth_prompt_mac" = "Sistem tarayıcınızda yetkilendirme sayfasını açmak için “Yetkilendir”e dokunun.\nOturum açıp erişim izni verdikten sonra, otomatik olarak Primuse'ye döneceksiniz.";
 "ai_primuse_relay_ready" = "Yerleşik yapay zeka deneyimi hazır";
 "metadata_status_explanation" = "Her sayı birbirini dışlar. Beklemede, desteklenen alanların hâlâ denetlenmesi gerektiği anlamına gelir; bu, etiketlerin daha önce hiç okunmadığı anlamına gelmez. Zaten arşivde bulunan şarkılar, Primuse format veya alan desteği eklediğinde incelemeye yeniden girebilir. Başarısız bir şarkı kaydedilir ve atlanır, böylece kaynaktaki diğer şarkılar devam eder; yalnızca kaynak çapında bir kesinti veya Duraklatma eyleminiz mevcut çalışmayı durdurur.";
+"metadata_cover_reading_explanation" = "Şarkının yanında aynı adlı bir görsel varsa önce o kapak olarak kullanılır. Etiket okumayı hızlı tutmak için Primuse, gömülü kapağı bulmak amacıyla şarkının tamamını indirmez. Okunan kısımda gömülü kapak yoksa klasör kapağı (ör. cover.jpg) kullanılır; klasör kapağı olmayan şarkılara gömülü kapak, çalınıp çalma önbelleğine kaydedildikten sonra eklenir. Müzik sunucularındaki şarkılar sunucunun sağladığı kapağı kullanır.";
 "radio_stream_url" = "Akış URL";
 "scraper_itunes_desc" = "Apple'ın iTunes Araması API — üst veriler ve yüksek çözünürlüklü kapaklar";
 "ai_primuse_relay_failure_upstream_title" = "Yukarı akış hizmeti başarısız oldu";
