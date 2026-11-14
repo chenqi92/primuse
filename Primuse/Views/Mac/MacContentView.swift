@@ -266,6 +266,8 @@ struct MacContentView: View {
                 if !sidebarCollapsed {
                     MacSidebar(routeSwitch: routeSwitch, onSelectRoute: requestRoute)
                         .frame(width: preferences.sidebarWidth)
+                        // 播放页开着时侧栏底色跟着染上封面颜色, 和播放页接得上。
+                        .modifier(MacSidebarFollowsPlayerScope(isNowPlayingPresented: $nowPlayingPresented))
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
@@ -985,6 +987,16 @@ private struct MacStateSlot<Value, Content: View>: View {
 
     var body: some View {
         content(value)
+    }
+}
+
+/// 把「播放页开着」交给侧栏底色(`macSidebarFollowsPlayer`)。开合状态只在这个修饰器里读,
+/// 道理同 `MacStateSlot`: 主容器的 body 不读它, 开合播放页时不把整个主窗口连同侧栏各行重算一遍。
+private struct MacSidebarFollowsPlayerScope: ViewModifier {
+    @Binding var isNowPlayingPresented: Bool
+
+    func body(content: Content) -> some View {
+        content.environment(\.macSidebarFollowsPlayer, isNowPlayingPresented)
     }
 }
 

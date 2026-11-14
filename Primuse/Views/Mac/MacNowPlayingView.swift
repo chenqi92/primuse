@@ -860,7 +860,9 @@ struct MacNowPlayingView: View {
         }
         .overlay(alignment: .leading) {
             if showsSidebar && !isWindowFullScreen {
+                // 侧栏这时带着封面色(`macSidebarFollowsPlayer`),左缘这道过渡从同一个颜色起笔。
                 MacSidebarBackdrop()
+                    .environment(\.macSidebarFollowsPlayer, true)
                     .frame(width: 96)
                     .mask {
                         LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)

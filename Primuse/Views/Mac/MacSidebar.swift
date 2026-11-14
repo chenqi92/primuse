@@ -662,17 +662,74 @@ struct MacSidebar: View {
 
 struct MacSidebarBackdrop: View {
     @Environment(\.pmAppearance) private var mode
+    @Environment(\.macSidebarFollowsPlayer) private var followsPlayer
 
     var body: some View {
-        if mode == .glass {
-            // 玻璃模式: NSVisualEffectView 提供模糊底, 上面盖一层暗色让对比够。
-            ZStack {
+        ZStack {
+            if mode == .glass {
+                // 玻璃模式: NSVisualEffectView 提供模糊底, 上面盖一层暗色让对比够。
                 NSVisualEffectBackdrop(material: .sidebar, blending: .behindWindow)
                 Rectangle().fill(PMColor.sidebarGlass)
+            } else {
+                Rectangle().fill(PMColor.sidebarClassic)
             }
-        } else {
-            Rectangle().fill(PMColor.sidebarClassic)
+            if followsPlayer {
+                MacSidebarPlayerTint()
+                    .transition(.opacity)
+            }
         }
+        // 播放页开合时侧栏比面板滑动慢半拍地染上、褪掉,像播放页的光漫过来。
+        .pmAnimation(.ambient, value: followsPlayer)
+    }
+}
+
+extension EnvironmentValues {
+    /// 播放页开着、侧栏挨着它:侧栏底色跟着染上封面颜色(`MacSidebarPlayerTint`)。
+    /// 只有 `MacSidebarBackdrop` 读它,开合播放页时侧栏的各行不跟着重算。
+    @Entry var macSidebarFollowsPlayer = false
+}
+
+/// 播放页开着时铺在侧栏底上的封面色。来向跟播放页色场一致 —— 主色在上、往下沉进深色 ——
+/// 浓度只取播放页的一半左右:侧栏上还要读字;两边色差收小了,播放页左缘那道过渡才接得住。
+/// 跟着设置里的氛围强度走;「增强对比度」时再减半,不让底色抢字。换歌换色时和播放页同一档慢慢过渡。
+private struct MacSidebarPlayerTint: View {
+    @Environment(ThemeService.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @State private var preferences = MacUIPreferences.shared
+
+    var body: some View {
+        let levels = tintLevels
+        LinearGradient(
+            stops: [
+                .init(color: theme.accentColor.opacity(levels.top), location: 0),
+                .init(color: theme.darkAccent.opacity(levels.bottom), location: 0.7),
+                .init(color: theme.darkAccent.opacity(levels.bottom * 0.8), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .pmAnimation(.ambient, value: theme.colorID)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// 上沿、下沿的浓度。数值约是播放页色场(`MacNowPlayingView.backdrop`)同一档的一半;
+    /// 没有封面色时播放页自己也淡,这里跟着淡。
+    private var tintLevels: (top: Double, bottom: Double) {
+        let strength = AppThemePreferences.normalizedAmbientStrength(preferences.ambientStrength)
+        let hasArtwork = theme.hasArtworkAmbient
+        let top: Double
+        let bottom: Double
+        if colorScheme == .light {
+            top = hasArtwork ? 0.18 : 0.07
+            bottom = hasArtwork ? 0.11 : 0.04
+        } else {
+            top = hasArtwork ? 0.40 : 0.18
+            bottom = hasArtwork ? 0.30 : 0.13
+        }
+        let contrastScale = colorSchemeContrast == .increased ? 0.5 : 1
+        return (top * strength * contrastScale, bottom * strength * contrastScale)
     }
 }
 
