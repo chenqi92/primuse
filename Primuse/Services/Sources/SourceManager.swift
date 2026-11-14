@@ -15324,8 +15324,22 @@ final class SourceManager {
     /// submission=false → nowPlaying, true → 计入播放次数/历史, `playedAt` 是听满的那一刻。
     /// 非服务端源(NAS/云盘/本地)直接 no-op。不抛错: 没送到的「已播放」留进
     /// `PendingServerPlaybackReportStore` 以后补报, 「正在播放」不补。
-    func reportServerScrobble(for song: Song, submission: Bool, playedAt: Date = Date()) async {
-        guard ScrobbleSettingsStore.shared.reportPlaybackToServer else { return }
+    /// 回报一次播放。音乐看「向服务器回传音乐播放记录」开关；有声内容一律回传，Jellyfin / Emby / Plex
+    /// 上的有声内容等这个文件放完才报（见 `ServerPlaybackReportPolicy.reports`）。
+    func reportServerScrobble(
+        for song: Song,
+        moment: ServerPlaybackReportMoment,
+        isSpokenWord: Bool,
+        playedAt: Date = Date()
+    ) async {
+        guard let source = await source(withID: song.sourceID),
+              ServerPlaybackReportPolicy.reports(
+                moment,
+                sourceType: source.type,
+                isSpokenWord: isSpokenWord,
+                musicReportingEnabled: ScrobbleSettingsStore.shared.reportPlaybackToServer
+              ) else { return }
+        let submission = moment != .started
         let outcome = await sendServerPlaybackReport(
             sourceID: song.sourceID,
             songPath: song.filePath,

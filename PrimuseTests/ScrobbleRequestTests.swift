@@ -385,8 +385,10 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
         }
     }
 
+    /// 服务器回传的开关只管音乐，由回调按内容执行（有声内容一律回传，见 `ServerPlaybackReportPolicy.reports`）；
+    /// 这里只管把每一次开始、听够都交出去，Last.fm 不受这个开关影响。
     @MainActor
-    func testServerOptOutStopsNowPlayingAndPlayCountIndependentlyOfLastFm() async throws {
+    func testServerHandlerSeesEveryPlayWhileLastFmIgnoresTheServerSwitch() async throws {
         try await withContentFixture { defaults, store in
             let settings = ScrobbleSettingsStore.shared
             let provider = ScrobbleRecordingProvider(id: .lastFm)
@@ -409,13 +411,13 @@ final class ScrobbleRequestTests: XCTestCase, @unchecked Sendable {
                 try await Task.sleep(for: .milliseconds(10))
             }
             XCTAssertEqual(Set(provider.listens), ["first", "private"])
-            XCTAssertEqual(reports, ["first:started"])
+            XCTAssertEqual(reports, ["first:started", "first:played", "private:started", "private:played"])
 
             settings.isEnabled = false
             settings.reportPlaybackToServer = true
             service.handlePlaybackStarted(song: contentSong("resumed"))
             service.handleProgressTick(playedDelta: 240)
-            XCTAssertEqual(reports, ["first:started", "resumed:started", "resumed:played"])
+            XCTAssertEqual(reports.suffix(2), ["resumed:started", "resumed:played"])
         }
     }
 

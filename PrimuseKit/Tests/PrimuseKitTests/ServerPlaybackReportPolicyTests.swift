@@ -26,6 +26,57 @@ struct ServerPlaybackReportSourceTests {
     }
 }
 
+@Suite("Server playback report timing")
+struct ServerPlaybackReportTimingTests {
+    private func reports(
+        _ moment: ServerPlaybackReportMoment,
+        _ type: MusicSourceType,
+        spoken: Bool,
+        musicSwitch: Bool = true
+    ) -> Bool {
+        ServerPlaybackReportPolicy.reports(moment, sourceType: type, isSpokenWord: spoken, musicReportingEnabled: musicSwitch)
+    }
+
+    @Test("音乐看开关，听够一半报已播放，听完不另报")
+    func musicFollowsTheSwitch() {
+        #expect(reports(.started, .navidrome, spoken: false))
+        #expect(reports(.listenedEnough, .navidrome, spoken: false))
+        #expect(reports(.listenedEnough, .jellyfin, spoken: false))
+        #expect(!reports(.finished, .jellyfin, spoken: false))
+        #expect(!reports(.started, .navidrome, spoken: false, musicSwitch: false))
+        #expect(!reports(.listenedEnough, .plex, spoken: false, musicSwitch: false))
+    }
+
+    @Test("有声内容不看开关，一律回传")
+    func spokenWordIgnoresTheMusicSwitch() {
+        #expect(reports(.started, .navidrome, spoken: true, musicSwitch: false))
+        #expect(reports(.listenedEnough, .navidrome, spoken: true, musicSwitch: false))
+        #expect(reports(.finished, .emby, spoken: true, musicSwitch: false))
+    }
+
+    @Test("Jellyfin、Emby、Plex 上的有声内容等这个文件听完才报，免得清掉续播位置")
+    func mediaServersMarkSpokenWordPlayedOnlyWhenFinished() {
+        for type in [MusicSourceType.jellyfin, .emby, .plex] {
+            #expect(!reports(.started, type, spoken: true), "\(type)")
+            #expect(!reports(.listenedEnough, type, spoken: true), "\(type)")
+            #expect(reports(.finished, type, spoken: true), "\(type)")
+        }
+        for type in [MusicSourceType.navidrome, .subsonic, .songloft, .fnMusic, .daoliyu] {
+            #expect(reports(.listenedEnough, type, spoken: true), "\(type)")
+            #expect(!reports(.finished, type, spoken: true), "\(type)")
+        }
+    }
+
+    @Test("没有回报接口的源什么时候都不报")
+    func sourcesWithoutReportsNeverReport() {
+        for moment in [ServerPlaybackReportMoment.started, .listenedEnough, .finished] {
+            #expect(!reports(moment, .audiobookshelf, spoken: true))
+            #expect(!reports(moment, .webdav, spoken: false))
+        }
+        #expect(!reports(.started, .fnMusic, spoken: false))
+    }
+}
+
 @Suite("Server playback report requests")
 struct ServerPlaybackReportRequestTests {
     /// 2026-11-14 08:30:05.250 UTC

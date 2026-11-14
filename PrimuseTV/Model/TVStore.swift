@@ -6518,7 +6518,9 @@ final class TVStore {
         guard serverOutroHandledSongID != songID else { return }
         serverOutroHandledSongID = songID
         plog("🎧 TV spoken word: skipping the last \(skip.outroSeconds)s of '\(nowPlaying.title)'")
+        let wasFinished = SpokenWordStore.shared.isFinished(songID: songID)
         SpokenWordStore.shared.markFinished(true, songIDs: [songID])
+        if !wasFinished { reportSpokenWordFinishedToServer(songID: songID) }
         SpokenWordStore.shared.persistLocally()
         pushServerSpokenWordPosition(songID: songID, position: total, force: true)
         let requestID = activePlaybackRequestID
@@ -6862,15 +6864,24 @@ final class TVStore {
             }
         }
         lastSpokenWordPositionSave = position
+        let wasFinished = SpokenWordStore.shared.isFinished(songID: songID)
         SpokenWordStore.shared.rememberPosition(
             position,
             duration: duration > 0 ? duration : nowPlaying.duration,
             forSongID: songID
         )
+        if !wasFinished { reportSpokenWordFinishedToServer(songID: songID) }
         spokenWordLocalTouchAt = Date()
         // 直接落盘:闪退或被系统杀掉时,不必再多丢一段防抖窗口。
         SpokenWordStore.shared.persistLocally()
         pushServerSpokenWordPosition(songID: songID, position: position, force: force)
+    }
+
+    /// 有声内容在本机放到了结尾:记一次「已播放」。只有 Jellyfin / Emby / Plex 等这一刻
+    /// (`ServerPlaybackReportPolicy.reports`);手动标为听完、别的设备同步来的听完不报。
+    private func reportSpokenWordFinishedToServer(songID: String) {
+        guard SpokenWordStore.shared.isFinished(songID: songID), let song = library.song(id: songID) else { return }
+        serverFeedback.reportScrobble(song: song, moment: .finished, isSpokenWord: true)
     }
 
     /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):把位置也报上去,别的客户端接着听。
@@ -7317,7 +7328,9 @@ final class TVStore {
         // 有声内容听到了结尾:记成听完,下次从这本书的下一章接着听。
         if currentItemIsSpokenWord, hasNowPlaying {
             let endedID = nowPlaying.songID
+            let wasFinished = SpokenWordStore.shared.isFinished(songID: endedID)
             SpokenWordStore.shared.markFinished(true, songIDs: [endedID])
+            if !wasFinished { reportSpokenWordFinishedToServer(songID: endedID) }
             spokenWordPositionArmed = false
             if shouldStopForSleep(afterEnding: endedID) {
                 plog("🎧 TV sleep: stopped at the end of '\(nowPlaying.title)'")
@@ -8658,11 +8671,12 @@ final class TVStore {
             historyRequestID = requestID
             library.recordPlayback(of: id)
             PlayHistoryStore.shared.beginSession(song: raw)
+            // 同 iPhone：音乐看开关，有声内容一律回传；Jellyfin / Emby / Plex 上的有声内容等这个文件放完再报。
             ScrobbleService.shared.serverScrobbleHandler = { [weak self] song, submission in
-                // 同 iPhone：只回传音乐。有声书的收听进度另走一路，Jellyfin/Emby 标成已播放还会把续播位置清零。
-                guard let self, !self.isSpokenWord(songID: song.id) else { return }
-                if submission { self.serverFeedback.reportScrobble(song: song) }
-                else { self.serverFeedback.reportNowPlaying(song: song) }
+                guard let self else { return }
+                let isSpokenWord = self.isSpokenWord(songID: song.id)
+                if submission { self.serverFeedback.reportScrobble(song: song, isSpokenWord: isSpokenWord) }
+                else { self.serverFeedback.reportNowPlaying(song: song, isSpokenWord: isSpokenWord) }
             }
             ScrobbleService.shared.handlePlaybackStarted(song: raw)
             publishTopShelf()

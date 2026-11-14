@@ -466,7 +466,9 @@ extension AudioPlayerService {
         PodcastPlaybackState.shared.outroHandledEpisodeID = song.id
         PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = song.id
         plog("🎧 Spoken word: skipping the last \(skip.outroSeconds)s of '\(song.title)'")
+        let wasFinished = SpokenWordStore.shared.isFinished(songID: song.id)
         SpokenWordStore.shared.markFinished(true, songIDs: [song.id])
+        if !wasFinished { reportSpokenWordFinishedToServer(song) }
         SpokenWordStore.shared.persistLocally()
         pushServerSpokenWordPosition(song: song, position: total, duration: total, force: true)
         let endedPlayID = playID
@@ -475,6 +477,14 @@ extension AudioPlayerService {
             await self.handleTrackEnd(advanceTicket: ticket, trigger: "spoken-word-outro",
                                       transportIsActive: self.isPlaying)
         }
+    }
+
+    /// 有声内容在本机放到了结尾:记一次「已播放」。只有 Jellyfin / Emby / Plex 等这一刻
+    /// (`ServerPlaybackReportPolicy.reports`);手动标为听完、别的设备同步来的听完不报。
+    func reportSpokenWordFinishedToServer(_ song: Song) {
+        guard let manager = sourceManager else { return }
+        let playedAt = Date()
+        Task { await manager.reportServerScrobble(for: song, moment: .finished, isSpokenWord: true, playedAt: playedAt) }
     }
 
     /// 把位置报给服务端。本机每 15 秒存一次,服务端 30 秒一次;暂停、切换、退后台那几次立刻报。
@@ -602,11 +612,16 @@ extension AudioPlayerService {
         }
         lastSpokenWordPositionSave = position
         let resolvedDuration = duration > 0 ? duration : song.duration
+        let wasFinished = SpokenWordStore.shared.isFinished(songID: song.id)
         SpokenWordStore.shared.rememberPosition(
             position,
             duration: resolvedDuration,
             forSongID: song.id
         )
+        // 播到了结尾那一段，这一下把它记成了听完。
+        if !wasFinished, SpokenWordStore.shared.isFinished(songID: song.id) {
+            reportSpokenWordFinishedToServer(song)
+        }
         spokenWordLocalTouchAt = Date()
         // Straight to disk: a crash or a kill without a background transition
         // must not also lose the debounce window. One small write per

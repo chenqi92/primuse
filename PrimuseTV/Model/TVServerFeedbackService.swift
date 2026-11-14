@@ -123,6 +123,8 @@ final class TVServerFeedbackService {
         let feedback: TVServerPlaybackFeedback
         let sourceScopeFingerprint: String
         let sourceGeneration: UInt64
+        /// 有声内容不看音乐回传开关。
+        var isSpokenWord = false
     }
 
     private struct ScrobbleTask {
@@ -230,9 +232,13 @@ final class TVServerFeedbackService {
         startLikedMutationDrain(sourceID: song.sourceID)
     }
 
-    func reportNowPlaying(song: Song) {
+    /// 音乐看回传开关；有声内容一律回传（`ServerPlaybackReportPolicy.reports`）。
+    func reportNowPlaying(song: Song, isSpokenWord: Bool = false) {
         guard let source = activeSource(for: song),
-              TVServerFeedbackPolicy.supportsNowPlaying(source.type) else { return }
+              ServerPlaybackReportPolicy.reports(
+                .started, sourceType: source.type, isSpokenWord: isSpokenWord,
+                musicReportingEnabled: ScrobbleSettingsStore.shared.reportPlaybackToServer
+              ) else { return }
         pendingNowPlaying[song.sourceID] = PendingNowPlaying(
             feedback: TVServerPlaybackFeedback(
                 id: UUID(),
@@ -241,14 +247,19 @@ final class TVServerFeedbackService {
                 occurredAt: Date()
             ),
             sourceScopeFingerprint: MusicSourceSecurityRevision.scopedFingerprint(for: source),
-            sourceGeneration: sourceGenerations[song.sourceID, default: 0]
+            sourceGeneration: sourceGenerations[song.sourceID, default: 0],
+            isSpokenWord: isSpokenWord
         )
         startNowPlayingDrain(sourceID: song.sourceID)
     }
 
-    func reportScrobble(song: Song) {
+    /// 有声内容在 Jellyfin / Emby / Plex 上等这个文件放完（`.finished`）才报，见 `ServerPlaybackReportPolicy.reports`。
+    func reportScrobble(song: Song, moment: ServerPlaybackReportMoment = .listenedEnough, isSpokenWord: Bool = false) {
         guard let source = activeSource(for: song),
-              TVServerFeedbackPolicy.supportsScrobble(source.type) else { return }
+              ServerPlaybackReportPolicy.reports(
+                moment, sourceType: source.type, isSpokenWord: isSpokenWord,
+                musicReportingEnabled: ScrobbleSettingsStore.shared.reportPlaybackToServer
+              ) else { return }
         let feedback = TVServerPlaybackFeedback(
             id: UUID(),
             song: song,
@@ -264,7 +275,7 @@ final class TVServerFeedbackService {
                 sourceID: song.sourceID,
                 fingerprint: fingerprint,
                 generation: generation,
-                shouldContinue: { ScrobbleSettingsStore.shared.reportPlaybackToServer }
+                shouldContinue: { isSpokenWord || ScrobbleSettingsStore.shared.reportPlaybackToServer }
             ) { source, credential in
                 try await self.client.report(feedback, source: source, credential: credential)
             }
@@ -502,7 +513,8 @@ final class TVServerFeedbackService {
                 fingerprint: pending.sourceScopeFingerprint,
                 generation: pending.sourceGeneration,
                 shouldContinue: {
-                    ScrobbleSettingsStore.shared.reportPlaybackToServer && self.pendingNowPlaying[sourceID] == nil
+                    (pending.isSpokenWord || ScrobbleSettingsStore.shared.reportPlaybackToServer)
+                        && self.pendingNowPlaying[sourceID] == nil
                 }
             ) { source, credential in
                 try await self.client.report(

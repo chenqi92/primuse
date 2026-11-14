@@ -1926,12 +1926,20 @@ final class AudioPlayerService {
         // 服务端曲库源(Subsonic/Navidrome、Jellyfin/Emby/Plex 等)回报回调 —— 把
         // ScrobbleService 的播放事件按源路由到对应 connector。非服务端源 no-op。
         // 播放时间在这里定下: 没送到要补报时, 服务器照它记。
+        // 音乐看开关(「向服务器回传音乐播放记录」);有声内容一律回传,Jellyfin / Emby / Plex 上
+        // 等这个文件放完再报(`reportSpokenWordFinishedToServer`),免得听几分钟就把整本标成听过、清掉续播位置。
         ScrobbleService.shared.serverScrobbleHandler = { [weak self] song, submission in
-            // 只回传音乐(开关就叫「回传音乐播放记录」)。有声书、播客的收听进度另走一路,一直同步;
-            // 而且 Jellyfin/Emby 标成已播放时会把那一集的续播位置清零。
-            guard let manager = self?.sourceManager, SpokenWordStore.shared.isMusic(song) else { return }
+            guard let manager = self?.sourceManager else { return }
+            let isSpokenWord = SpokenWordStore.shared.kind(for: song).isSpokenWordListening
             let playedAt = Date()
-            Task { await manager.reportServerScrobble(for: song, submission: submission, playedAt: playedAt) }
+            Task {
+                await manager.reportServerScrobble(
+                    for: song,
+                    moment: submission ? .listenedEnough : .started,
+                    isSpokenWord: isSpokenWord,
+                    playedAt: playedAt
+                )
+            }
         }
 
         // Defer heavy system registrations to avoid blocking first frame

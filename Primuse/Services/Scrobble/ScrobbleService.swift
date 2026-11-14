@@ -140,10 +140,9 @@ final class ScrobbleService {
             hasScrobbled: false
         )
 
-        // 服务端源回报 "正在播放"(submission=false)。非服务端源在 handler 内 no-op。
-        if ScrobbleSettingsStore.shared.reportPlaybackToServer {
-            serverScrobbleHandler?(song, false)
-        }
+        // 服务端源回报 "正在播放"(submission=false)。开关只管音乐,由 handler 按歌曲判断;
+        // 非服务端源在 handler 内 no-op。
+        serverScrobbleHandler?(song, false)
 
         guard canReport(entry) == true else { return }
         let settings = ScrobbleSettingsStore.shared
@@ -201,8 +200,8 @@ final class ScrobbleService {
 
         session.hasScrobbled = true
         currentSession = session
-        // 服务端源回报 "已播放"(submission=true) —— 计入 Navidrome 播放次数/历史。
-        if ScrobbleSettingsStore.shared.reportPlaybackToServer, let song = currentSong {
+        // 服务端源回报 "已播放"(submission=true) —— 计入 Navidrome 播放次数/历史。开关只管音乐,由 handler 判断。
+        if let song = currentSong {
             serverScrobbleHandler?(song, true)
         }
         // 全局 provider(Last.fm/ListenBrainz)—— activeProviders 为空时自动 no-op。

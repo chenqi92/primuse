@@ -2290,6 +2290,41 @@ public enum ServerPlaybackReportPolicy {
     public static func supportsNowPlayingReport(_ type: MusicSourceType) -> Bool {
         type.isSubsonicFamily || type == .songloft
     }
+
+    /// 有声内容（有声书、评书、讲座）在这类源上只在这个文件听完时报「已播放」。
+    /// Jellyfin / Emby / Plex 把条目标成已播放会清掉它的续播位置；照音乐「听够一半或 4 分钟」算，
+    /// 单文件的有声书听几分钟就成了整本听过。
+    public static func reportsSpokenWordOnlyWhenFinished(_ type: MusicSourceType) -> Bool {
+        switch type {
+        case .jellyfin, .emby, .plex: return true
+        default: return false
+        }
+    }
+
+    /// 这一刻该不该向这个源报。音乐看「向服务器回传音乐播放记录」开关；有声内容一律回传，
+    /// 不看开关（Audiobookshelf、Ting Reader 另有进度同步，不在这里）。
+    public static func reports(
+        _ moment: ServerPlaybackReportMoment,
+        sourceType: MusicSourceType,
+        isSpokenWord: Bool,
+        musicReportingEnabled: Bool
+    ) -> Bool {
+        guard supportsPlayedReport(sourceType) else { return false }
+        if moment == .started, !supportsNowPlayingReport(sourceType) { return false }
+        guard isSpokenWord else { return musicReportingEnabled && moment != .finished }
+        if reportsSpokenWordOnlyWhenFinished(sourceType) { return moment == .finished }
+        return moment != .finished
+    }
+}
+
+/// 一次播放回报发生在哪一刻。
+public enum ServerPlaybackReportMoment: Sendable, Equatable {
+    /// 开始播放：「正在播放」。
+    case started
+    /// 听够了一半或 4 分钟：「已播放」。
+    case listenedEnough
+    /// 有声内容的这个文件在本机放到了结尾。
+    case finished
 }
 
 // MARK: - 请求
