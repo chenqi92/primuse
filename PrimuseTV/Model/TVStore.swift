@@ -8659,8 +8659,10 @@ final class TVStore {
             library.recordPlayback(of: id)
             PlayHistoryStore.shared.beginSession(song: raw)
             ScrobbleService.shared.serverScrobbleHandler = { [weak self] song, submission in
-                if submission { self?.serverFeedback.reportScrobble(song: song) }
-                else { self?.serverFeedback.reportNowPlaying(song: song) }
+                // 同 iPhone：只回传音乐。有声书的收听进度另走一路，Jellyfin/Emby 标成已播放还会把续播位置清零。
+                guard let self, !self.isSpokenWord(songID: song.id) else { return }
+                if submission { self.serverFeedback.reportScrobble(song: song) }
+                else { self.serverFeedback.reportNowPlaying(song: song) }
             }
             ScrobbleService.shared.handlePlaybackStarted(song: raw)
             publishTopShelf()
