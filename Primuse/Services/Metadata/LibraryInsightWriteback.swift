@@ -101,13 +101,20 @@ enum LibraryInsightWriteback {
         sourceManager: SourceManager,
         report: inout Report
     ) async {
-        guard let first = songs.first,
-              let folder = folder(for: subject, songs: songs, library: library) else { return }
+        guard let first = songs.first else { return }
+        guard let folder = folder(for: subject, songs: songs, source: source, library: library) else {
+            // 不写的原因写进诊断日志:文件夹判断不了时界面上不提示。
+            plog("ℹ️ Library insight: no \(subject.kind.rawValue) folder for nfo source=\(source.type.rawValue) songs=\(songs.count)")
+            return
+        }
         let fileName = LibraryInsightNFO.fileName(for: subject.kind)
         let path = LibraryInsightFolderPolicy.filePath(in: folder, kind: subject.kind)
         do {
             let connector = try await sourceManager.sidecarWriteConnector(for: first)
-            guard connector.supportsSidecarWriting else { return }
+            guard connector.supportsSidecarWriting else {
+                plog("ℹ️ Library insight: source cannot take sidecar files source=\(source.type.rawValue)")
+                return
+            }
             let existing = try await readText(at: path, in: folder, using: connector)
             // 没有文件、也没东西可写(删除简介)时,不为它新建一份空 nfo。
             if existing == nil, summary.isEmpty, tags.isEmpty { return }
@@ -218,7 +225,7 @@ enum LibraryInsightWriteback {
                     if !summary.isEmpty { found = (summary, [], source.name) }
                 }
                 if found == nil,
-                   let folder = folder(for: subject, songs: sourceSongs, library: library),
+                   let folder = folder(for: subject, songs: sourceSongs, source: source, library: library),
                    let connector = try? await sourceManager.auxiliaryConnector(for: first) {
                     let path = LibraryInsightFolderPolicy.filePath(in: folder, kind: subject.kind)
                     if let existing = try? await readText(at: path, in: folder, using: connector),
@@ -264,6 +271,7 @@ enum LibraryInsightWriteback {
     private static func folder(
         for subject: LibraryInsightSubject,
         songs: [Song],
+        source: MusicSource,
         library: MusicLibrary
     ) -> String? {
         switch subject.kind {
@@ -282,7 +290,14 @@ enum LibraryInsightWriteback {
             let albumFolders = Dictionary(grouping: songs, by: { $0.albumID ?? $0.albumTitle ?? "" })
                 .values
                 .compactMap { LibraryInsightFolderPolicy.candidateAlbumFolder(trackPaths: $0.map(\.filePath)) }
-            return LibraryInsightFolderPolicy.artistFolder(albumFolders: albumFolders, artistName: subject.artistName)
+            // 本地文件夹源只选了一个文件夹时,它在 `/` 下展开,名字不在路径里。
+            let rootFolderName = source.type == .local
+                ? LocalBookmarkStore.rootFolderName(sourceID: source.id) : nil
+            return LibraryInsightFolderPolicy.artistFolder(
+                albumFolders: albumFolders,
+                artistName: subject.artistName,
+                rootFolderName: rootFolderName
+            )
         }
     }
 

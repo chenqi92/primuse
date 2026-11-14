@@ -125,4 +125,24 @@ struct LibraryInsightFilesTests {
         ) == nil)
         #expect(LibraryInsightFolderPolicy.filePath(in: "/Music/Utada", kind: .artist) == "/Music/Utada/artist.nfo")
     }
+
+    /// A local source that is the artist's own folder: its albums sit at
+    /// `/Album`, and the folder's name is not part of any path.
+    @Test func pickedArtistFolderMatchesByItsOwnName() {
+        #expect(LibraryInsightFolderPolicy.artistFolder(
+            albumFolders: ["/First Love", "/Distance"], artistName: "Utada", rootFolderName: "utada"
+        ) == "/")
+        #expect(LibraryInsightFolderPolicy.filePath(in: "/", kind: .artist) == "/artist.nfo")
+        // Without the picked folder's name, or with another name, nothing is written.
+        #expect(LibraryInsightFolderPolicy.artistFolder(
+            albumFolders: ["/First Love"], artistName: "Utada"
+        ) == nil)
+        #expect(LibraryInsightFolderPolicy.artistFolder(
+            albumFolders: ["/First Love"], artistName: "Utada", rootFolderName: "Music"
+        ) == nil)
+        // Albums one level deeper still resolve to their own artist folder.
+        #expect(LibraryInsightFolderPolicy.artistFolder(
+            albumFolders: ["/Utada/First Love"], artistName: "Utada", rootFolderName: "Music"
+        ) == "/Utada")
+    }
 }

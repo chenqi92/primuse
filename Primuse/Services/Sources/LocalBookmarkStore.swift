@@ -216,6 +216,16 @@ enum LocalBookmarkStore {
         )]
     }
 
+    /// The picked folder's own name when the source is a single folder shown
+    /// at `/`; nil for several picked items or files.
+    static func rootFolderName(sourceID: String) -> String? {
+        guard let references = resolveReferences(sourceID: sourceID, refreshStaleBookmarks: false),
+              references.count == 1, let only = references.first,
+              only.virtualPathComponent == nil, only.isDirectory else { return nil }
+        let name = only.url.lastPathComponent
+        return name.isEmpty || name == "/" ? nil : name
+    }
+
     /// Source IDs represented by device-local bookmarks. This registry is
     /// derived from the stored keys so it cannot drift from bookmark deletion.
     static var storedSourceIDs: Set<String> {

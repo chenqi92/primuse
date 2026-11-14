@@ -137,11 +137,23 @@ public enum LibraryInsightFolderPolicy {
     /// 艺人文件夹:文件夹名就是艺人名(忽略大小写、全半角、空白与标点)。
     /// 每张专辑的文件夹要么就是它(歌直接放在艺人文件夹里),要么是它的子文件夹;
     /// 对不上就不写,免得写进「音乐」这类总目录。
-    public static func artistFolder(albumFolders: [String], artistName: String) -> String? {
+    ///
+    /// `rootFolderName`: 音乐源本身就是一个文件夹、在 `/` 下展开时(Mac 和 iPhone 上选的
+    /// 本地文件夹)那个文件夹自己的名字。选的就是艺人文件夹时,专辑文件夹的上一级是 `/`,
+    /// 拿它的名字来比,`artist.nfo` 写在 `/` 下。
+    public static func artistFolder(
+        albumFolders: [String],
+        artistName: String,
+        rootFolderName: String? = nil
+    ) -> String? {
         let artistKey = SongDiscoveryMatching.key(artistName)
         guard !artistKey.isEmpty, !albumFolders.isEmpty else { return nil }
         func matches(_ folder: String) -> Bool {
-            isUsableFolder(folder) && SongDiscoveryMatching.key(lastComponent(folder)) == artistKey
+            if folder == "/" {
+                guard let rootFolderName else { return false }
+                return SongDiscoveryMatching.key(rootFolderName) == artistKey
+            }
+            return isUsableFolder(folder) && SongDiscoveryMatching.key(lastComponent(folder)) == artistKey
         }
         let resolved = Set(albumFolders.map { folder -> String in
             matches(folder) ? folder : parent(folder)
